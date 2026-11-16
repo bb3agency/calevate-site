@@ -321,6 +321,37 @@ async def test_a_switched_off_action_answers_that_it_cannot_be_done(
     assert body == {"status": "unavailable", "say": in_call.NOT_AVAILABLE_SAY}
 
 
+async def test_an_action_its_inbound_line_switched_off_runs_nothing(
+    vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-997: the line's engine agent can still hold an action the line switched off (its
+    put-live after the switch was refused); the line's choice is the rule, as after a call."""
+    from apps.api.inbound import lines
+
+    tenant_id, agent_id, ref, secret = await _published(vendor)
+    await _add_tool(tenant_id, agent_id, "look_up_order")
+    async with tenant_session(tenant_id) as session:
+        line_id = await lines.create_line(
+            session, tenant_id=tenant_id, agent_id=agent_id, created_by=None
+        )
+        await lines.set_actions_off(session, line_id, ["look_up_order"])
+        await session.execute(
+            text("UPDATE engine_agent_routes SET inbound_line_id = :l WHERE engine_agent_ref = :r"),
+            {"l": line_id, "r": ref},
+        )
+    ran: list[Any] = []
+
+    async def _never(*a: Any, **k: Any) -> Any:
+        ran.append(k)
+
+    monkeypatch.setattr(in_call, "execute_action", _never)
+    call_id, row = _live(ref, phone="919876522203")
+    vendor.live.append(row)
+    body = (await _post_client("look_up_order", ref, secret, {}, call_id=call_id)).json()
+    assert body == {"status": "unavailable", "say": in_call.NOT_AVAILABLE_SAY}
+    assert ran == []
+
+
 async def test_a_slow_write_is_acknowledged_and_queued(
     vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
 ) -> None:

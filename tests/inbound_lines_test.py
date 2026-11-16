@@ -269,3 +269,71 @@ async def test_the_backfill_gives_every_answering_agents_numbers_a_draft_line() 
         ).scalar_one()
     assert [(line.agent_id, line.live) for line in found] == [(agent_id, False)]
     assert on_number == found[0].id
+
+
+async def _second_live_agent(tenant_id: UUID, token: str) -> UUID:
+    from apps.api.agents import lifecycle
+
+    async with tenant_session(tenant_id) as session:
+        agent_id = await lifecycle.create_agent(
+            session, tenant_id=tenant_id, name="Ravi", direction="both", language_primary="te-IN"
+        )
+    await _write_script(tenant_id, agent_id)
+    code, body = await _move(token, agent_id, "activate")
+    assert code == 200, body
+    return agent_id
+
+
+async def _own_ref(tenant_id: UUID, agent_id: UUID) -> str:
+    async with tenant_session(tenant_id) as session:
+        return str(
+            (
+                await session.execute(
+                    text("SELECT engine_agent_ref FROM agents WHERE id = :a"), {"a": agent_id}
+                )
+            ).scalar_one()
+        )
+
+
+async def test_a_draft_lines_numbers_follow_it_to_another_voice() -> None:
+    """A draft line's numbers are answered by its voice agent's own engine agent, so giving
+    the line another voice moves them there at once, not at that agent's next publish."""
+    engine = _fresh_engine()
+    tenant_id, first, token = await _live_agent()
+    second = await _second_live_agent(tenant_id, token)
+    number_id = await _number(tenant_id, first, ref="num_line_voice")
+    line_id = await _line(tenant_id, first, script=False)
+    code, body = await _call(
+        token, "POST", f"/{line_id}/numbers", json={"number_id": str(number_id)}
+    )
+    assert code == 200, body
+    assert engine.inbound_agent_for("num_line_voice") == await _own_ref(tenant_id, first)
+
+    code, body = await _call(token, "PATCH", f"/{line_id}", json={"agent_id": str(second)})
+
+    assert code == 200, body
+    assert engine.inbound_agent_for("num_line_voice") == await _own_ref(tenant_id, second), (
+        "the draft line's number still rings the voice it was moved off"
+    )
+
+
+async def test_a_live_lines_test_call_counts_only_numbers_its_engine_agent_answers() -> None:
+    """A number counted as routed is rung from with no lend. While the voice is switched off
+    the line's numbers answer nothing, so its test call must borrow one instead."""
+    from apps.api.inbound.publish import line_test_dial
+
+    _fresh_engine()
+    tenant_id, agent_id, token = await _live_agent()
+    number_id = await _number(tenant_id, agent_id, ref="num_line_test_routed")
+    line_id = await _line(tenant_id, agent_id)
+    await _attach(tenant_id, line_id, number_id)
+    await put_line_live(tenant_id=tenant_id, line_id=line_id)
+    assert (await line_test_dial(tenant_id=tenant_id, line_id=line_id)).routed_number_ids == {
+        number_id
+    }
+
+    code, body = await _move(token, agent_id, "deactivate")
+    assert code == 200, body
+
+    dial = await line_test_dial(tenant_id=tenant_id, line_id=line_id)
+    assert dial.routed_number_ids == frozenset(), "a released number was dialled from unlent"

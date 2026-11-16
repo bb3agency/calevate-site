@@ -85,7 +85,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions.execution import CallFacts
-from apps.api.actions.in_call import run_in_call_action
+from apps.api.actions.in_call import NOT_AVAILABLE_SAY, run_in_call_action
 from apps.api.agents.test_window import window_open
 from apps.api.core.alerting import alert
 from apps.api.core.auth import client_request_ip
@@ -469,6 +469,18 @@ def call_locator(route: ActionRoute, live: LiveCall, phone_e164: str) -> CallLoc
     return locate
 
 
+async def _line_switched_off(session: AsyncSession, *, line_id: UUID, name: str) -> bool:
+    """Did the inbound line whose engine agent took the call switch the action `name` off?"""
+    return bool(
+        (
+            await session.execute(
+                text("SELECT CAST(:name AS text) = ANY(actions_off) FROM inbound_lines WHERE id = :lid"),
+                {"name": name, "lid": line_id},
+            )
+        ).scalar()
+    )
+
+
 def _body(status: str, say: str, **extra: str | None) -> dict[str, Any]:
     return {"status": status, "say": say, **{k: v for k, v in extra.items() if v}}
 
@@ -710,9 +722,17 @@ async def client_action(
         # none until its results arrive), and the proof the call is this agent's.
         async with tenant_session(route.tenant_id) as session:
             located = await call_locator(route, live, phone)(session)
+            switched_off = route.inbound_line_id is not None and await _line_switched_off(
+                session, line_id=route.inbound_line_id, name=name
+            )
     except _CallNotMatchedError:
         log.info("engine_action_call_row_not_matched", extra=ids)
         return _answer("caller_not_matched", NOT_MATCHED_SAY)
+    if switched_off:
+        # The line's engine agent can still hold it when the put-live after the switch was
+        # refused; the line's choice is the rule, as it is for its after-call actions.
+        log.info("client_action_off_on_line", extra=ids)
+        return _answer("unavailable", NOT_AVAILABLE_SAY)
     answer = await run_in_call_action(
         tenant_id=route.tenant_id,
         agent_id=route.agent_id,

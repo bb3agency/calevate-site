@@ -137,11 +137,13 @@ async def _put_live_after_save(tenant_id: UUID, line_id: UUID) -> None:
         raise
 
 
-async def _republish_if_live(tenant_id: UUID, line_id: UUID) -> None:
+async def _republish_if_live(tenant_id: UUID, line_id: UUID) -> bool:
+    """Put a live line live again after an edit; returns whether it was live."""
     async with tenant_session(tenant_id) as session:
         live = (await lines.read_line(session, line_id)).live
     if live:
         await _put_live_after_save(tenant_id, line_id)
+    return live
 
 
 @router.get(
@@ -241,7 +243,11 @@ async def update_line(
                 summary={"agent_id": str(payload.agent_id)},
             )
     if voice_changed:
-        await _republish_if_live(tenant_id, line_id)
+        # A draft line's numbers are answered by its voice's own engine agent
+        # (`route_line_numbers`), so they move to the new voice now; a live line's are routed
+        # by its put-live.
+        if not await _republish_if_live(tenant_id, line_id):
+            await route_numbers(tenant_id=tenant_id, line_id=line_id)
     return await _read(tenant_id, line_id)
 
 
