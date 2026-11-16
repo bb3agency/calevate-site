@@ -7423,7 +7423,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Take people off a campaign before it starts calling */
+        /** Take people never tried off a campaign that has not stopped */
         post: operations["remove_campaign_contacts_v1_campaigns__campaign_id__contacts_remove_post"];
         delete?: never;
         options?: never;

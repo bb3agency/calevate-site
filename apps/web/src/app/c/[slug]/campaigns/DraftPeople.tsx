@@ -30,6 +30,7 @@ export function DraftPeople({
   canWrite,
   refusal,
   total,
+  adding = true,
 }: {
   slug: string;
   campaignId: string;
@@ -38,20 +39,28 @@ export function DraftPeople({
   refusal: string | undefined;
   /** People already on the draft. People to call is left out while there are none. */
   total: number;
+  /** False once it has stopped: the server takes people until then. */
+  adding?: boolean;
 }) {
   return (
     <FoldSection title="Add people" tone="add" id={peopleSectionId(campaignId)}>
-        <AddPeoplePanel campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
+        {adding ? (
+          <AddPeoplePanel campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
+        ) : (
+          <p className="text-meta text-ink-muted">
+            It has stopped, so nobody new is called. To call more people, use Duplicate or Call the unreached again.
+          </p>
+        )}
         {/* The people already added, under the ways to add more: one section, not two
             (founder, 16 Nov 2026: "I don't see the point of having both"). */}
         {total > 0 && (
-          <div className="mt-8 border-t border-line pt-6">
+          <div className={adding ? "mt-8 border-t border-line pt-6" : "mt-4"}>
             <ContactResults
               slug={slug}
               campaignId={campaignId}
               maxAttempts={maxAttempts}
               live={false}
-              editable
+              editable={adding}
               canWrite={canWrite}
               refusal={refusal}
             />

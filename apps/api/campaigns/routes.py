@@ -1741,7 +1741,7 @@ async def add_contacts_from_leads(
     "/{campaign_id}/contacts/remove",
     response_model=RemoveContactsOut,
     openapi_extra=permission_meta("leads:dispatch"),
-    summary="Take people off a campaign before it starts calling",
+    summary="Take people never tried off a campaign that has not stopped",
 )
 async def remove_campaign_contacts(
     campaign_id: UUID,

@@ -88929,7 +88929,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Take people off a campaign before it starts calling",
+        "summary": "Take people never tried off a campaign that has not stopped",
         "tags": [
           "campaigns"
         ],

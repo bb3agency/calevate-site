@@ -3,6 +3,17 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.34 — 16-Nov-2026
+
+- Set up shows every section whatever the campaign's state, including Add people and the
+  compliance checks.
+- People can be added, and people not yet called taken off, while a campaign runs or is
+  paused. Each new number is still checked against do-not-call before it is dialled. A
+  promotional campaign takes new people only before it starts, because its national
+  do-not-disturb check covered the list it started with.
+- Once a campaign has started, the compliance section shows what was answered before the
+  first call.
+
 ## 0.4.33 — 16-Nov-2026
 
 - Calls & recordings is one Calls section: the calls and their recordings, then who was called

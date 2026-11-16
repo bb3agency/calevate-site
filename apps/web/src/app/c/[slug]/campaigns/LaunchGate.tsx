@@ -24,7 +24,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
 
 import { AtOnceHint } from "./CampaignSettings";
-import { ConsentProvenanceAnswer } from "./ConsentProvenance";
+import { ConsentProvenanceAnswer, MANDATORY_NOTE } from "./ConsentProvenance";
 import { FoldSection } from "./FoldSection";
 import { complianceCardId } from "./StartCampaign";
 import { LaunchConfirm } from "./LaunchConfirm";
@@ -85,7 +85,10 @@ export function LaunchGate({
   const promotionalOpen = registration ? registration.calevate_tm_active === true : null;
 
   // A scheduled campaign has not launched either; the same gate runs when it fires.
-  if (status !== "draft" && status !== "scheduled") return null;
+  // Started: the same section, showing what was answered before it went out.
+  if (status !== "draft" && status !== "scheduled") {
+    return <ComplianceRecord campaignId={campaignId} progress={progress.data} purpose={purpose.data?.purpose} />;
+  }
 
   const blockers = check.data?.blockers ?? [];
   const provenanceRule = blockers.find((b) =>
@@ -208,6 +211,50 @@ export function LaunchGate({
         </div>
         {progress.data && <LaunchSummary progress={progress.data} purpose={purpose.data?.purpose} />}
         </div>
+    </FoldSection>
+  );
+}
+
+/** The checks as answered before a started campaign went out; nothing here can change them. */
+function ComplianceRecord({
+  campaignId,
+  progress,
+  purpose,
+}: {
+  campaignId: string;
+  progress: CampaignProgress | undefined;
+  purpose: CampaignPurpose["purpose"] | undefined;
+}) {
+  const source = CONSENT_SOURCES.find((choice) => choice.value === progress?.consent_source)?.label;
+  const collected = progress?.consent_collected_at
+    ? new Date(progress.consent_collected_at)
+        .toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })
+        .replace(/ /g, "-")
+    : null;
+  return (
+    <FoldSection
+      id={complianceCardId(campaignId)}
+      title="Mandatory Regulatory Compliance Checks"
+      tone="compliance"
+      aside={<span className="font-medium text-brand-strong">Answered before it started</span>}
+    >
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-8">
+        <div className="min-w-0 space-y-3">
+          <p className="text-meta text-ink-muted">{MANDATORY_NOTE}</p>
+          <div>
+            <p className="text-body font-semibold text-ink">Where did this list come from?</p>
+            <p className="mt-1 text-body text-ink">
+              {source ?? "Not recorded"}
+              {collected ? ` · collected ${collected}` : ""}
+            </p>
+          </div>
+          <p className="flex items-center gap-2 text-body text-ink">
+            <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />
+            Every check passed before the first call.
+          </p>
+        </div>
+        {progress && <LaunchSummary progress={progress} purpose={purpose} />}
+      </div>
     </FoldSection>
   );
 }

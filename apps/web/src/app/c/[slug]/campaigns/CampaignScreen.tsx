@@ -359,17 +359,17 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                 refusal={refusal}
               />
               <TestCallSection slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
-              {status === "draft" && (
-                // People to call: an Excel or CSV file, pasted rows, or one name and number at a time.
-                <DraftPeople
-                  slug={slug}
-                  campaignId={campaignId}
-                  maxAttempts={data.retry_policy.max_attempts}
-                  canWrite={write.allowed}
-                  refusal={refusal}
-                  total={data.total}
-                />
-              )}
+              {/* People to call: an Excel or CSV file, pasted rows, or one name and number at a
+                  time, until it stops (founder, 16 Nov 2026: people may join mid-campaign). */}
+              <DraftPeople
+                adding={status === "draft" || status === "scheduled" || status === "running" || status === "paused"}
+                slug={slug}
+                campaignId={campaignId}
+                maxAttempts={data.retry_policy.max_attempts}
+                canWrite={write.allowed}
+                refusal={refusal}
+                total={data.total}
+              />
               <ScheduleCards {...scheduleCardProps} />
               <LaunchGate
                 slug={slug}

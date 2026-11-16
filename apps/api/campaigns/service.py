@@ -891,13 +891,13 @@ async def add_contacts(
     """CSV rows → contact rows. Dedupe inside the upload AND against the campaign
     (UNIQUE(campaign_id, phone)); malformed numbers are counted, never guessed at.
 
-    `scheduled` is accepted alongside `draft` because both are PRE-LAUNCH states — a
-    campaign waiting for Monday has not dialled anyone, and refusing its contact upload
-    would leave the client's only route "cancel the schedule, upload, re-pick the date".
-    It is the same pairing `declare_consent_provenance` and `launch_blockers` already
-    use. What stays refused is everything from `running` on: contacts appearing under a
-    campaign mid-dial would move the "N people will be called" number the client
-    confirmed at launch.
+    Accepted from draft until the campaign stops: before launch (`draft`, `scheduled`) and,
+    for a service campaign, while it runs or is paused (founder, 16 Nov 2026: people may be
+    added in the middle of a campaign). That is lawful because launch's DNC scrub is only
+    the courtesy pass; `check_dispatch` re-checks every number at dial time, so a person
+    added after launch meets the same gate. A PROMOTIONAL campaign stays pre-launch only:
+    its national DND scrub is a recorded run over the list as launched
+    (`compliance/preference_scrub.py`), and a number added later was never in it.
 
     ABSENT AND NOT-PRE-LAUNCH ARE TWO DIFFERENT FACTS, and a client fixes only one of
     them. This used to answer `campaign_not_draft` to both, so an id this caller cannot
@@ -921,17 +921,29 @@ async def add_contacts(
     running. Unlocked, both read `draft`, and the upload's rows landed after the scrub,
     under a campaign whose confirmed count did not include them.
     """
-    status = (
+    found = (
         await session.execute(
-            text("SELECT status FROM campaigns WHERE id = :cid FOR SHARE"), {"cid": campaign_id}
+            text("SELECT status, classification FROM campaigns WHERE id = :cid FOR SHARE"),
+            {"cid": campaign_id},
         )
-    ).scalar()
-    if status is None:
+    ).first()
+    if found is None:
         raise ProblemError.not_found("Campaign")
-    if status not in ("draft", "scheduled"):
+    status, classification = str(found[0]), str(found[1])
+    if status in ("running", "paused") and classification == "promotional":
+        raise ProblemError.business_rule(
+            "campaign_promotional_started",
+            "People can be added to a promotional campaign only before it starts.",
+            remediation=(
+                "Its national do-not-disturb check covered the list it started with. "
+                "Duplicate it to call more people."
+            ),
+        )
+    if status not in ("draft", "scheduled", "running", "paused"):
         raise ProblemError.business_rule(
             "campaign_not_draft",
-            "Contacts can only be added before a campaign is launched.",
+            "People can't be added to a campaign that has stopped.",
+            remediation="Duplicate it, or use Call the unreached again, to call more people.",
         )
 
     added, malformed, duplicate, foreign = 0, 0, 0, 0

@@ -195,16 +195,16 @@ async def rename_campaign(session: AsyncSession, *, campaign_id: UUID, name: str
 async def remove_contacts(
     session: AsyncSession, *, campaign_id: UUID, contact_ids: list[UUID]
 ) -> int:
-    """Take people off a campaign that has not started. Returns how many were removed.
+    """Take people off a campaign that has not stopped. Returns how many were removed.
 
     Only contacts never tried: a row with an attempt is the record of a call that happened,
     which a later re-run of a repeating campaign still has to be able to show.
     """
     status = await _status_or_404(session, campaign_id)
-    if status not in ("draft", "scheduled"):
+    if status not in ("draft", "scheduled", "running", "paused"):
         raise ProblemError.business_rule(
             "campaign_not_draft",
-            "People can only be taken off a campaign before it starts calling.",
+            "People can't be taken off a campaign that has stopped.",
         )
     result = await session.execute(
         text(
