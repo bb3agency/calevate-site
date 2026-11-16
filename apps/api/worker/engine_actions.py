@@ -474,7 +474,10 @@ async def _line_switched_off(session: AsyncSession, *, line_id: UUID, name: str)
     return bool(
         (
             await session.execute(
-                text("SELECT CAST(:name AS text) = ANY(actions_off) FROM inbound_lines WHERE id = :lid"),
+                text(
+                    "SELECT CAST(:name AS text) = ANY(actions_off) FROM inbound_lines "
+                    "WHERE id = :lid"
+                ),
                 {"name": name, "lid": line_id},
             )
         ).scalar()

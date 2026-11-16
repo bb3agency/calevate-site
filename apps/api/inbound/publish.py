@@ -10,9 +10,8 @@ here is repaired there.
 
 from __future__ import annotations
 
-from uuid import UUID
-
 from typing import Final
+from uuid import UUID
 
 from sqlalchemy import text
 

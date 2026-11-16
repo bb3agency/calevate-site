@@ -242,12 +242,11 @@ async def update_line(
                 ip=client_request_ip(request),
                 summary={"agent_id": str(payload.agent_id)},
             )
-    if voice_changed:
-        # A draft line's numbers are answered by its voice's own engine agent
-        # (`route_line_numbers`), so they move to the new voice now; a live line's are routed
-        # by its put-live.
-        if not await _republish_if_live(tenant_id, line_id):
-            await route_numbers(tenant_id=tenant_id, line_id=line_id)
+    # A draft line's numbers are answered by its voice's own engine agent
+    # (`route_line_numbers`), so they move to the new voice now; a live line's are routed by
+    # its put-live.
+    if voice_changed and not await _republish_if_live(tenant_id, line_id):
+        await route_numbers(tenant_id=tenant_id, line_id=line_id)
     return await _read(tenant_id, line_id)
 
 
