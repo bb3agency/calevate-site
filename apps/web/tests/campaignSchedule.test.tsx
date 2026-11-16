@@ -511,6 +511,11 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
           schedule_blocked_rules: ["national_dnd_scrub_missing"],
         }),
         [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+        // Calevate's telemarketer registration live, so the national check is ours to run
+        // and its line names it. Without this the registration read settles on "not live"
+        // and the line becomes "Promotional calls are not available yet."; the check's
+        // wording is only what shows while that read is still loading.
+        ...dltRegistrationRoute(true),
       },
       "Scheduled",
     );
@@ -523,7 +528,8 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
     expect(container.textContent).toContain(
       "Couldn’t start. Fix the items below.",
     );
-    await screen.findByText(/national do-not-disturb check/, {}, { timeout: 5000 });
+    await screen.findByText("We handle this", {}, { timeout: 5000 });
+    expect(container.textContent).toMatch(/national do-not-disturb check/);
   });
 
   it("still offers the way out of a repeat", async () => {
@@ -542,6 +548,8 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
           },
         }),
         [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+        // As above: the national check's line, settled rather than mid-load.
+        ...dltRegistrationRoute(true),
       },
       "Repeats",
     );
@@ -549,7 +557,8 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
     const stop = screen.getByRole("button", { name: "Stop repeating" });
     expect((stop as HTMLButtonElement).disabled).toBe(false);
     expect(container.textContent).toContain("Next: Tuesday, 18 Aug");
-    await screen.findByText(/national do-not-disturb check/, {}, { timeout: 5000 });
+    await screen.findByText("We handle this", {}, { timeout: 5000 });
+    expect(container.textContent).toMatch(/national do-not-disturb check/);
   });
 });
 
