@@ -105,7 +105,7 @@ from apps.api.campaigns.brief import campaign_call_reason
 from apps.api.campaigns.complaint_spike import check_complaint_spike
 from apps.api.campaigns.contact_details import contact_details_of
 from apps.api.campaigns.controls import account_pause_reason, auto_pause
-from apps.api.campaigns.engine_agent import dial_for
+from apps.api.campaigns.engine_agent import dial_for, end_campaign_agent
 from apps.api.campaigns.scheduling import complete_or_rearm, due_schedules, fire_schedule
 from apps.api.campaigns.service import (
     campaign_dialable_now,
@@ -1262,6 +1262,10 @@ async def _settle_finished_campaign(
         # enqueue rolls both back and the next tick re-completes the campaign, because
         # `complete_or_rearm` is a CAS off `running`.
         await emit_campaign_completed(session, tenant_id=tenant_id, campaign_id=campaign_id)
+        # Its engine agent goes with the same write, as on Stop, so the workspace's
+        # allowance is free for the next Start now rather than at the hourly sweep. The
+        # deletion is owed through the outbox and waits out a call still on it.
+        await end_campaign_agent(session, campaign_id=campaign_id)
         log.info("campaign_completed", extra={"campaign_id": str(campaign_id)})
     elif settled == "scheduled":
         log.info("campaign_recurrence_rearmed", extra={"campaign_id": str(campaign_id)})

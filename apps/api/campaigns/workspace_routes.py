@@ -186,11 +186,40 @@ class ScriptIn(BaseModel):
     script: CallScript
 
 
+async def _holds_engine_agent(session: AsyncSession, campaign_id: UUID) -> bool:
+    """The campaign has its own engine agent and is still going, so an edit reaches its
+    calls now (`put_campaign_live`) rather than at its next Start or test call."""
+    return bool(
+        (
+            await session.execute(
+                text(
+                    "SELECT engine_agent_ref IS NOT NULL AND status = ANY(:holding) "
+                    "FROM campaigns WHERE id = :c"
+                ),
+                {"c": campaign_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
+            )
+        ).scalar_one_or_none()
+    )
+
+
+async def _put_live_after_save(tenant_id: UUID, campaign_id: UUID) -> None:
+    """Put a committed edit on the campaign's engine agent. A refusal says the edit is kept,
+    so the owner saves again rather than typing it again (`inbound/routes`' same step)."""
+    try:
+        await put_campaign_live(tenant_id=tenant_id, campaign_id=campaign_id)
+    except ProblemError as exc:
+        exc.title = "Saved, but not on its calls yet"
+        exc.remediation = (
+            "Your change is kept. Save again to put it on the calls. " + (exc.remediation or "")
+        ).strip()
+        raise
+
+
 @router.put(
     "/{campaign_id}/script",
     response_model=WorkspaceOut,
     openapi_extra=permission_meta("leads:dispatch"),
-    summary="Save the campaign's script (it reaches calls at Start)",
+    summary="Save the campaign's script; a running or paused campaign's calls get it at once",
 )
 async def save_script(
     campaign_id: UUID,
@@ -199,18 +228,24 @@ async def save_script(
     request: Request,
     principal: Dispatcher,
 ) -> WorkspaceOut:
+    """Stored in its own transaction, then, when the campaign holds its engine agent, put live
+    on it: Resume does not republish, so a running or paused campaign would otherwise keep
+    its old script until it was stopped. A draft's reaches its calls at Start."""
     assert principal.tenant_id is not None
-    await workspace.save_script(session, campaign_id, payload.script)
-    await write_audit(
-        session,
-        action="campaign.script_saved",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="campaign",
-        object_id=str(campaign_id),
-        ip=client_request_ip(request),
-        summary={},
-    )
+    async with tenant_session(principal.tenant_id) as own:
+        await workspace.save_script(own, campaign_id, payload.script)
+        await write_audit(
+            own,
+            action="campaign.script_saved",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+            summary={},
+        )
+    if await _holds_engine_agent(session, campaign_id):
+        await _put_live_after_save(principal.tenant_id, campaign_id)
     return await _workspace_out(session, campaign_id)
 
 
@@ -1082,7 +1117,7 @@ async def save_campaign_settings(
         )
     out = await _settings_out(session, campaign_id)
     if out.applied_now:
-        await put_campaign_live(tenant_id=principal.tenant_id, campaign_id=campaign_id)
+        await _put_live_after_save(principal.tenant_id, campaign_id)
     return out
 
 
@@ -1179,7 +1214,7 @@ async def campaign_notes_save(
             )
     out = await _notes_out(session, campaign_id)
     if changed and out.applied_now:
-        await put_campaign_live(tenant_id=principal.tenant_id, campaign_id=campaign_id)
+        await _put_live_after_save(principal.tenant_id, campaign_id)
     return out
 
 

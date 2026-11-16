@@ -47,6 +47,12 @@ _SPEAKS_ITS_OWN_SQL = (
     "FROM campaigns WHERE id = :cid"
 )
 
+#: Whether the campaign holds an engine agent now. One that does is republished even when it
+#: no longer has anything of its own (its last override cleared while it runs): `dial_for`
+#: keeps ringing a held engine agent, so leaving it unpublished would keep the old settings
+#: on its calls.
+_HOLDS_ONE_SQL = "SELECT engine_agent_ref IS NOT NULL FROM campaigns WHERE id = :cid"
+
 
 async def speaks_its_own(session: AsyncSession, campaign_id: UUID) -> bool:
     """See `_SPEAKS_ITS_OWN_SQL`."""
@@ -58,10 +64,12 @@ async def put_campaign_live(*, tenant_id: UUID, campaign_id: UUID) -> str | None
     brought up to date and read back, in its own committed transaction, so the dial that
     follows rings what the campaign says now. A free-trial account is refused with the step
     that opens campaigns, before anything reaches the calling platform. None for a campaign
-    that says what its agent says (`speaks_its_own`), which needs no engine agent."""
+    that says what its agent says (`speaks_its_own`) and holds no engine agent yet."""
     async with tenant_session(tenant_id) as session:
         await refuse_on_trial(session, tenant_id=tenant_id, locked="campaigns")
-        if not await speaks_its_own(session, campaign_id):
+        if not await speaks_its_own(session, campaign_id) and not (
+            (await session.execute(text(_HOLDS_ONE_SQL), {"cid": campaign_id})).scalar()
+        ):
             return None
         ref = await agents_service.publish_campaign_agent(
             session, tenant_id=tenant_id, campaign_id=campaign_id
