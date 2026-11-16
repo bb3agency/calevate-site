@@ -1474,38 +1474,72 @@ async def _apply_inbound_bindings(
     return InboundRouting(bound=bound, released=released, failed=failed, unsupported=0)
 
 
+#: The engine agents of an agent's live inbound lines (D-997): what the callers of its lines
+#: reach, so every silence that changes what the agent says changes what these say too.
+_LIVE_LINE_REFS_SQL: Final = (
+    "SELECT engine_agent_ref FROM inbound_lines WHERE agent_id = :aid AND archived_at IS NULL "
+    "AND published_at IS NOT NULL AND engine_agent_ref IS NOT NULL ORDER BY created_at, id"
+)
+
+
+async def live_line_refs(session: AsyncSession, *, agent_id: UUID) -> list[str]:
+    """The engine agents of `agent_id`'s live lines, oldest line first."""
+    rows = await session.execute(text(_LIVE_LINE_REFS_SQL), {"aid": agent_id})
+    return [str(ref) for ref in rows.scalars()]
+
+
 #: An inbound line's own numbers, in `_apply_inbound_bindings`' row shape.
 _LINE_NUMBERS_SQL: Final = (
     "SELECT id, e164, series, provider, engine_number_ref FROM phone_numbers "
     "WHERE inbound_line_id = :lid AND released_at IS NULL ORDER BY created_at, id"
 )
 
-#: The line's engine agent and what decides whether it may answer: its voice agent live,
-#: not deleted, and not silenced (a credit stop or a compliance silence, D-564).
+#: The line's engine agent, whether it is live, its voice agent, whether anything may answer
+#: (the voice live, not deleted, and not under the compliance silence, which unbinds numbers,
+#: D-564), and the voice agent's own engine agent and whether it answers as itself. A credit
+#: stop or a healer hold keeps the numbers bound and changes what the line's engine agent
+#: says instead (`_hold_line_if_silenced`), as it does for the agent's own.
 _LINE_ANSWERS_SQL: Final = (
     "SELECT l.engine_agent_ref, l.published_at IS NOT NULL AND l.archived_at IS NULL, "
-    "a.id, a.status = 'live' AND a.deleted_at IS NULL AND a.inbound_silenced_at IS NULL "
+    "a.id, a.status = 'live' AND a.deleted_at IS NULL "
+    "AND a.inbound_silence_reason IS DISTINCT FROM :truthful, "
+    "a.engine_agent_ref, a.direction IN ('inbound', 'both') "
     "FROM inbound_lines l JOIN agents a ON a.id = l.agent_id WHERE l.id = :lid"
 )
 
 
 async def route_line_numbers(session: AsyncSession, *, line_id: UUID) -> InboundRouting:
-    """Point an inbound line's numbers at its own engine agent (D-997), or release them when
-    its voice agent is off, deleted or silenced: putting a line live never ends a credit stop
-    or a compliance silence its voice is under. Called after the line's publish committed."""
-    found = (await session.execute(text(_LINE_ANSWERS_SQL), {"lid": line_id})).first()
+    """Point an inbound line's numbers at what answers them (D-997): the line's own engine
+    agent once it is live, its voice agent's own engine agent while it is a draft (as the
+    backfill's draft lines are answered), or nothing while the voice is off, deleted or under
+    the compliance silence. Called after the line's publish committed, and after a number
+    joins the line, so a number moved off another line never stays on that line's engine
+    agent.
+
+    Both engine mechanisms are driven, as for an agent's numbers: the binding an engine with
+    `inbound_binding` takes, and the attachment a platform with its own number API holds
+    (`engine_numbers.sync_number_attachment`, ThinnestAI), which reads the same rows."""
+    from apps.api.campaigns.engine_numbers import sync_number_attachment
+
+    found = (
+        await session.execute(
+            text(_LINE_ANSWERS_SQL), {"lid": line_id, "truthful": INBOUND_SILENCE_TRUTHFUL_ANSWER}
+        )
+    ).first()
     rows = (await session.execute(text(_LINE_NUMBERS_SQL), {"lid": line_id})).all()
-    if found is None or not rows or not (found[0] and found[1]):
-        # A line not yet live leaves its numbers on whatever answers them now.
+    if found is None or not rows:
         return InboundRouting(bound=0, released=0, failed=0, unsupported=0)
-    ref, _published, agent_id, voice_answers = found
+    line_ref, live, agent_id, may_answer, agent_ref, agent_answers = found
+    for row in rows:
+        await sync_number_attachment(session, number_id=UUID(str(row[0])))
+    if line_ref and live:
+        target, answers = str(line_ref), bool(may_answer)
+    elif agent_ref:
+        target, answers = str(agent_ref), bool(may_answer and agent_answers)
+    else:
+        return InboundRouting(bound=0, released=0, failed=0, unsupported=0)
     return await _apply_inbound_bindings(
-        session,
-        get_engine(),
-        agent_id=UUID(str(agent_id)),
-        ref=str(ref),
-        answers=bool(voice_answers),
-        rows=rows,
+        session, get_engine(), agent_id=UUID(str(agent_id)), ref=target, answers=answers, rows=rows
     )
 
 
@@ -1666,10 +1700,13 @@ _ANSWERING_AGENT_COLUMNS = (
     "FROM agents"
 )
 
+#: An agent with a live inbound line answers on it whatever its own direction (D-997).
 _ANSWERING_AGENTS_SQL = (
     _ANSWERING_AGENT_COLUMNS + " WHERE status = 'live' AND engine_agent_ref IS NOT NULL"
-    " AND direction IN ('inbound', 'both') AND deleted_at IS NULL AND archived_at IS NULL"
-    " ORDER BY id"
+    " AND (direction IN ('inbound', 'both') OR EXISTS (SELECT 1 FROM inbound_lines l"
+    " WHERE l.agent_id = agents.id AND l.archived_at IS NULL AND l.published_at IS NOT NULL"
+    " AND l.engine_agent_ref IS NOT NULL))"
+    " AND deleted_at IS NULL AND archived_at IS NULL ORDER BY id"
 )
 
 #: The same columns for ONE agent, so the stamp read and `_posture_of_row` are served by a
@@ -1719,6 +1756,35 @@ def _posture_of_row(row: Any) -> DisclosurePosture:
         caller_memory_notice_line=str(row[6]),
         caller_memory_enabled=bool(row[7]),
     )
+
+
+def _credit_stop_words(engine: VoiceEngine, row: Any) -> dict[str, str]:
+    """The credit stop's greeting and prompt for `_ANSWERING_AGENT_COLUMNS`' row."""
+    recorded = engine.capabilities.records_audio
+    return {
+        "opening_line": credit_stop_greeting(_posture_of_row(row), call_is_recorded=recorded),
+        "system_prompt": credit_stop_prompt(call_is_recorded=recorded),
+    }
+
+
+async def answering_refs(session: AsyncSession, *, row: Any) -> list[str]:
+    """Every engine agent a caller of this agent reaches, for `_ANSWERING_AGENT_COLUMNS`'
+    row: its own while it answers as itself, and each of its live lines' (D-997). A silence
+    that changes what the agent says applies to all of them, or a line would go on taking
+    calls the agent has stopped taking."""
+    own = [str(row[1])] if agent_answers_inbound(cast(AgentDirection, str(row[10]))) else []
+    return own + await live_line_refs(session, agent_id=UUID(str(row[0])))
+
+
+async def _override_answering(
+    session: AsyncSession, engine: VoiceEngine, *, row: Any, opening_line: str, system_prompt: str
+) -> None:
+    """Say `opening_line` and `system_prompt` on every engine agent `answering_refs` names.
+    Raises on the first vendor refusal, for the caller's per-agent isolation."""
+    for target in await answering_refs(session, row=row):
+        await engine.override_call_script(
+            target, opening_line=opening_line, system_prompt=system_prompt
+        )
 
 
 #: WHY an agent's inbound answering is not its own (D-564). The vocabulary
@@ -1838,7 +1904,7 @@ async def reconcile_inbound_answering(
     rows = (await session.execute(text(_ANSWERING_AGENTS_SQL))).all()
     silenced = restored = unchanged = failed = withheld = 0
     for row in rows:
-        agent_id, ref, reason = row[0], str(row[1]), row[9]
+        agent_id, reason = row[0], row[9]
         if reason == INBOUND_SILENCE_TRUTHFUL_ANSWER:
             # THE WALLET DOES NOT GET TO END A COMPLIANCE SILENCE (D-564), in either
             # direction. Restoring here would put a caller in front of an agent the sweep
@@ -1865,13 +1931,8 @@ async def reconcile_inbound_answering(
             # transaction aborted for every agent after it.
             async with session.begin_nested():
                 if exhausted:
-                    recorded = engine.capabilities.records_audio
-                    await engine.override_call_script(
-                        ref,
-                        opening_line=credit_stop_greeting(
-                            _posture_of_row(row), call_is_recorded=recorded
-                        ),
-                        system_prompt=credit_stop_prompt(call_is_recorded=recorded),
+                    await _override_answering(
+                        session, engine, row=row, **_credit_stop_words(engine, row)
                     )
                     await _stamp_inbound_silence(
                         session, agent_id=agent_id, reason=INBOUND_SILENCE_CREDITS
@@ -1985,12 +2046,14 @@ async def apply_healer_silence(
     row = (await session.execute(text(_ONE_ANSWERING_AGENT_SQL), {"aid": agent_id})).first()
     if row is None:
         return "gone"
-    if not agent_answers_inbound(cast(AgentDirection, str(row[10]))):
+    # Its own engine agent and its live lines' (D-997): a broken voice is broken on each.
+    targets = await answering_refs(session, row=row)
+    if not targets:
         return "not_answering"
     if row[9] == INBOUND_SILENCE_TRUTHFUL_ANSWER:
         # Its numbers are already unbound; nothing reaches it to hold.
         return "held"
-    ref, recorded = str(row[1]), engine.capabilities.records_audio
+    recorded = engine.capabilities.records_audio
     posture = _posture_of_row(row)
     from apps.api.campaigns.engine_numbers import forward_agent_numbers, numbers_can_forward
 
@@ -1999,30 +2062,23 @@ async def apply_healer_silence(
         # client's own phone, whether or not the agent answers (OPERATIONS gate T-26). The
         # agent is paused first, so a number the platform refuses to forward still answers
         # with the polite sentence rather than the broken agent.
-        await engine.override_call_script(
-            ref,
-            opening_line=credit_stop_greeting(posture, call_is_recorded=recorded),
-            system_prompt=credit_stop_prompt(call_is_recorded=recorded),
-        )
+        await _override_answering(session, engine, row=row, **_credit_stop_words(engine, row))
         forwarded = await forward_agent_numbers(
             session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=forward_to
         )
         held: HealerHold = "forwarded" if forwarded else "paused"
     elif forward_to and isinstance(engine, ForwardsLine):
-        await engine.forward_line(
-            ref,
-            phone_e164=forward_to,
-            line=HEALER_FORWARD_LINE,
-            opening_line=healer_forward_greeting(posture, call_is_recorded=recorded),
-            system_prompt=healer_forward_prompt(call_is_recorded=recorded),
-        )
+        for target in targets:
+            await engine.forward_line(
+                target,
+                phone_e164=forward_to,
+                line=HEALER_FORWARD_LINE,
+                opening_line=healer_forward_greeting(posture, call_is_recorded=recorded),
+                system_prompt=healer_forward_prompt(call_is_recorded=recorded),
+            )
         held = "forwarded"
     elif engine.capabilities.has("script_override"):
-        await engine.override_call_script(
-            ref,
-            opening_line=credit_stop_greeting(posture, call_is_recorded=recorded),
-            system_prompt=credit_stop_prompt(call_is_recorded=recorded),
-        )
+        await _override_answering(session, engine, row=row, **_credit_stop_words(engine, row))
         held = "paused"
     else:
         return "unsupported"
@@ -2179,7 +2235,7 @@ async def reconcile_inbound_truthful_answer(
         return "gone"
     ref, reason = str(row[1]), row[9]
     silenced_for_compliance = reason == INBOUND_SILENCE_TRUTHFUL_ANSWER
-    if not agent_answers_inbound(cast(AgentDirection, str(row[10]))):
+    if not await answering_refs(session, row=row):
         # Nobody can ring it, so there is nothing to take away. Its outbound is already
         # refused per dial by `check_dispatch`, which is the whole of the rule for an
         # agent that only places calls.
@@ -2228,7 +2284,14 @@ async def reconcile_inbound_truthful_answer(
     # carrying the directive: the prompt needs no repair, only the numbers need giving
     # back. Republishing from a sweep would also overwrite whatever the vendor console
     # holds, which is precisely what D-121 refuses to do on a schedule.
-    routing = await route_inbound_numbers(session, engine, agent_id=agent_id, ref=ref, answers=True)
+    routing = await route_inbound_numbers(
+        session,
+        engine,
+        agent_id=agent_id,
+        ref=ref,
+        answers=agent_answers_inbound(cast(AgentDirection, str(row[10]))),
+        lines_answer=True,
+    )
     if routing.failed:
         return "failed"
     await _settle_inbound_silence(
@@ -2373,13 +2436,11 @@ async def _settle_inbound_silence(
         return
     if not engine.capabilities.has("script_override"):
         return
-    recorded = engine.capabilities.records_audio
     try:
-        await engine.override_call_script(
-            ref,
-            opening_line=credit_stop_greeting(_posture_of_row(row), call_is_recorded=recorded),
-            system_prompt=credit_stop_prompt(call_is_recorded=recorded),
-        )
+        if agent_answers_inbound(cast(AgentDirection, str(row[10]))):
+            # Only the agent's own: its lines are republished after this and each holds the
+            # stop itself (`publish_line`'s `_hold_line_if_silenced`).
+            await engine.override_call_script(ref, **_credit_stop_words(engine, row))
     except Exception as exc:
         alert(
             "CORE_LOGIC",
@@ -2830,6 +2891,31 @@ async def _ai_line_as_taught(session: AsyncSession, agent: AgentRow) -> AgentRow
     return taught
 
 
+async def _refuse_during_maintenance(session: AsyncSession) -> None:
+    """Refuse an engine write of what callers hear while a maintenance window drains or is
+    active (D-544): it would overwrite the maintenance message. `publish_agent` argues why
+    the refusal sits at the engine write; `publish_line` asks the same for a line's agent."""
+    window = await read_open_window(session)
+    if window is not None and window.state in ("draining", "active"):
+        raise ProblemError(
+            kind="business_rule",
+            code="platform_maintenance",
+            title="Calevate is in a maintenance window",
+            # THE OPERATOR'S OWN SENTENCE AND THE WINDOW'S OWN END, never a generic error:
+            # this is read by a client who pressed Publish, and "try again later" with no
+            # later in it is the refusal that generates a support call.
+            detail=(
+                f"{window.reason} Publishing an agent changes what it says to callers, so "
+                f"it has to wait until the window closes (about "
+                f"{window.ends_at.astimezone(IST):%H:%M} IST). Nothing you have "
+                "saved is lost — your changes are still here and will publish afterwards. "
+                "Your agents keep answering calls throughout."
+            ),
+            status=409,
+            remediation="Publish again once the maintenance window has finished.",
+        )
+
+
 async def publish_agent(
     session: AsyncSession,
     *,
@@ -2942,25 +3028,7 @@ async def publish_agent(
     # read it. One query on an open connection, never stale, and no new connection at all —
     # the same argument `ops/service.read_halt_state` makes for reading the halt on the
     # caller's session rather than through the hot-path cache.
-    window = await read_open_window(session)
-    if window is not None and window.state in ("draining", "active"):
-        raise ProblemError(
-            kind="business_rule",
-            code="platform_maintenance",
-            title="Calevate is in a maintenance window",
-            # THE OPERATOR'S OWN SENTENCE AND THE WINDOW'S OWN END, never a generic error:
-            # this is read by a client who pressed Publish, and "try again later" with no
-            # later in it is the refusal that generates a support call.
-            detail=(
-                f"{window.reason} Publishing an agent changes what it says to callers, so "
-                f"it has to wait until the window closes (about "
-                f"{window.ends_at.astimezone(IST):%H:%M} IST). Nothing you have "
-                "saved is lost — your changes are still here and will publish afterwards. "
-                "Your agents keep answering calls throughout."
-            ),
-            status=409,
-            remediation="Publish again once the maintenance window has finished.",
-        )
+    await _refuse_during_maintenance(session)
 
     engine = get_engine()
     # SECOND, and still before the lock and the vendor (D-281). Publishing IS
@@ -3345,7 +3413,9 @@ async def publish_agent(
             tenant_id=tenant_id,
             agent_id=agent_id,
             ref=ref,
-            answers=answers_inbound,
+            # An agent answering only on its live lines (D-997) keeps its silence too.
+            answers=answers_inbound
+            or (takes_calls and bool(await live_line_refs(session, agent_id=agent_id))),
             # THE ONLY TRUE THIS ARGUMENT EVER TAKES (D-564), and it is the read-back's own
             # word rather than an inference from "the publish did not raise". `publish_agent`
             # refuses only `not_applied`; `unreadable` and `unreachable` reach this line
@@ -3929,6 +3999,9 @@ async def publish_line(
 
     The line's numbers are not touched here: `inbound/publish.put_line_live` attaches them
     after this commits, so a number never points at an agent the transaction rolled away."""
+    if not test:
+        # A test holder answers no caller, so the maintenance message has nothing to lose.
+        await _refuse_during_maintenance(session)
     line = (
         await session.execute(
             text(
@@ -4044,8 +4117,49 @@ async def publish_line(
     await _ensure_in_call_actions(
         engine, session, agent_id=agent_id, ref=ref, reclaim=not existing_ref
     )
+    if not test:
+        await _hold_line_if_silenced(
+            session, engine, tenant_id=tenant_id, agent_id=agent_id, ref=ref
+        )
     log.info("inbound_line_published", extra={"agent_id": str(agent_id), "line_id": str(line_id)})
     return ref
+
+
+async def _hold_line_if_silenced(
+    session: AsyncSession, engine: VoiceEngine, *, tenant_id: UUID, agent_id: UUID, ref: str
+) -> None:
+    """A line just published has its real script on the platform; while its voice agent is
+    under a credit stop or a healer hold, put the neutral sentence back on it, as
+    `_settle_inbound_silence` does for the agent's own. Never starts a silence. The
+    compliance silence unbinds the line's numbers instead (`route_line_numbers`).
+
+    A refusal alarms and does not fail the publish, `_settle_inbound_silence`'s contract;
+    the next reconciliation pass or healer tick holds the line again."""
+    reason = (
+        await session.execute(
+            text("SELECT inbound_silence_reason FROM agents WHERE id = :aid"), {"aid": agent_id}
+        )
+    ).scalar_one_or_none()
+    if reason not in (INBOUND_SILENCE_CREDITS, INBOUND_SILENCE_HEALER):
+        return
+    if not engine.capabilities.has("script_override"):
+        return
+    row = (await session.execute(text(_ONE_ANSWERING_AGENT_SQL), {"aid": agent_id})).one()
+    try:
+        await engine.override_call_script(ref, **_credit_stop_words(engine, row))
+    except Exception as exc:
+        alert(
+            "CORE_LOGIC",
+            "inbound_line_hold_failed",
+            detail=(
+                "an inbound line was put live while its agent is off its calls (no calling "
+                "credit, or held by the healer) and the voice platform did not take the "
+                "message that should replace its script, so the line is taking calls. "
+                f"Refusal: {exc.__class__.__name__}."
+            ),
+            tenant_id=str(tenant_id),
+            agent_id=str(agent_id),
+        )
 
 
 async def republish_lines(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> int:

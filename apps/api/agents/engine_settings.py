@@ -25,6 +25,7 @@ from uuid import UUID
 
 from calevate_shared.engine import AgentConfig, EngineAgentRef
 from calevate_shared.engine_scope import is_customer_workspace, scope_of
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemError
@@ -186,7 +187,7 @@ async def check_agent_settings(
     None when the engine has no such settings, or the agent or the vendor could not be read
     (not evidence of drift; the next tick asks again)."""
     from apps.api.agents.handoff import spec_for
-    from apps.api.agents.service import _load_agent, _to_config
+    from apps.api.agents.service import _load_agent, _to_config, line_config
     from apps.api.healer.protection import healer_holds_line
 
     engine = get_engine()
@@ -200,8 +201,24 @@ async def check_agent_settings(
                 # a repair here would undo its hold. Its restoring publish rewrites both.
                 return None
             row = await _load_agent(session, tenant_id, agent_id)
-            handoff, _duty = await spec_for(session, dict(row))
-            config = _to_config(tenant_id, row, engine=engine, handoff=handoff)
+            line_id = (
+                await session.execute(
+                    text(
+                        "SELECT id FROM inbound_lines WHERE agent_id = :aid "
+                        "AND engine_agent_ref = :ref AND archived_at IS NULL"
+                    ),
+                    {"aid": agent_id, "ref": engine_agent_ref},
+                )
+            ).scalar_one_or_none()
+            if line_id is not None:
+                # A line's engine agent (D-997) holds the line's config, not the agent's: a
+                # repair from the agent's would switch its switched-off actions back on.
+                config = await line_config(
+                    session, tenant_id=tenant_id, line_id=UUID(str(line_id)), agent=row
+                )
+            else:
+                handoff, _duty = await spec_for(session, dict(row))
+                config = _to_config(tenant_id, row, engine=engine, handoff=handoff)
             # In a client's workspace one of our clones is spoken under the id that
             # workspace lists for it, as the publish sent it (`shared_clones`). An agent
             # still on a pre-D-797 copy reads as voice drift and is repaired onto it.

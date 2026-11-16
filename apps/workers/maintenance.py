@@ -71,6 +71,7 @@ from calevate_shared.engine import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import service as agents_service
 from apps.api.campaigns.service import (
     pause_campaigns_for_maintenance,
     resume_campaigns_after_maintenance,
@@ -152,18 +153,12 @@ _CALLABLE_TENANTS_SQL = text(
     "SELECT DISTINCT tenant_id FROM engine_agent_routes ORDER BY tenant_id"
 )
 
-#: Live agents that can ANSWER a call, with the handle the engine knows them by and the
-#: four columns `compose_opening_line` needs. Outbound-only agents are excluded: they never
-#: receive a call, so overriding their script would change nothing a caller can hear and
-#: would spend a vendor round trip saying so.
-_ANSWERING_AGENTS_SQL = text(
-    "SELECT id, engine_agent_ref, ai_disclosure_line, ai_disclosure_enabled, "
-    "recording_notice_line, recording_notice_enabled, caller_memory_notice_line, "
-    "caller_memory_enabled FROM agents "
-    "WHERE status = 'live' AND engine_agent_ref IS NOT NULL "
-    "AND direction IN ('inbound', 'both') AND deleted_at IS NULL AND archived_at IS NULL "
-    "ORDER BY id"
-)
+#: Live agents that can ANSWER a call, as themselves or on a live inbound line (D-997), in
+#: the credit stop's shape (`agents/service._ANSWERING_AGENTS_SQL`): the id, the handle, the
+#: six columns `compose_opening_line` needs, then the silence pair and the direction.
+#: Outbound-only agents with no live line are excluded: they never receive a call, so
+#: overriding their script would change nothing a caller can hear.
+_ANSWERING_AGENTS_SQL = text(agents_service._ANSWERING_AGENTS_SQL)
 
 #: Who gets a client notice: every client who still has a portal to lose.
 #:
@@ -358,14 +353,17 @@ async def _speak_maintenance(window: MaintenanceWindow, budget: WalkBudget) -> E
             break
         async with tenant_session(tenant_id) as session:
             rows = (await session.execute(_ANSWERING_AGENTS_SQL)).all()
-        for row in rows:
+            # Its own engine agent while it answers as itself, and each live line's.
+            targets = [await agents_service.answering_refs(session, row=row) for row in rows]
+        for row, refs in zip(rows, targets, strict=True):
             greeting = _maintenance_greeting(
                 window, _posture_of_row(row), call_is_recorded=recorded
             )
             try:
-                await engine.override_call_script(
-                    str(row[1]), opening_line=greeting, system_prompt=prompt
-                )
+                for ref in refs:
+                    await engine.override_call_script(
+                        ref, opening_line=greeting, system_prompt=prompt
+                    )
             except Exception:
                 # IDS ONLY, and no re-raise. The vendor's own message never reaches a log
                 # line here (hard rule 6 keeps client-shaped data out; the adapter has

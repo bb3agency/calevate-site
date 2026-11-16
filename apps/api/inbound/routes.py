@@ -123,11 +123,24 @@ async def _read(tenant_id: UUID, line_id: UUID) -> InboundLineOut:
         return _out(await lines.read_line(session, line_id))
 
 
+async def _put_live_after_save(tenant_id: UUID, line_id: UUID) -> None:
+    """Put the line live after an edit committed. A refusal says the edit is kept, so the
+    owner presses Put it live rather than typing it again."""
+    try:
+        await put_line_live(tenant_id=tenant_id, line_id=line_id)
+    except ProblemError as exc:
+        exc.title = "Saved, but not live yet"
+        exc.remediation = (
+            "Press Put it live to finish; your change is kept. " + (exc.remediation or "")
+        ).strip()
+        raise
+
+
 async def _republish_if_live(tenant_id: UUID, line_id: UUID) -> None:
     async with tenant_session(tenant_id) as session:
         live = (await lines.read_line(session, line_id)).live
     if live:
-        await put_line_live(tenant_id=tenant_id, line_id=line_id)
+        await _put_live_after_save(tenant_id, line_id)
 
 
 @router.get(
@@ -310,16 +323,7 @@ async def save_script(
             ip=client_request_ip(request),
             summary={"version": version, "from_draft": payload.proposal_id is not None},
         )
-    try:
-        await put_line_live(tenant_id=tenant_id, line_id=line_id)
-    except ProblemError as exc:
-        # The script is saved; only the platform step did not finish. Saying so keeps the
-        # owner from typing it again.
-        exc.title = "Saved, but not live yet"
-        exc.remediation = (
-            "Press Put it live to finish; your script is kept. " + (exc.remediation or "")
-        ).strip()
-        raise
+    await _put_live_after_save(tenant_id, line_id)
     return await _read(tenant_id, line_id)
 
 

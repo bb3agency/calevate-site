@@ -980,6 +980,12 @@ _ARM_BY_ENGINE_REF_SQL = (
     "WHERE e.agent_id = :aid AND e.status = 'running' AND v.engine_agent_ref = :ref"
 )
 
+#: The inbound line (D-997) whose engine agent `ref` is, archived or not.
+_LINE_BY_ENGINE_REF_SQL = (
+    "SELECT id, archived_at IS NOT NULL FROM inbound_lines "
+    "WHERE agent_id = :aid AND engine_agent_ref = :ref"
+)
+
 
 async def engine_drift_for(
     *, tenant_id: UUID, agent_id: UUID, engine_agent_ref: str | None = None
@@ -1038,7 +1044,7 @@ async def engine_drift_for(
     is the defect `_variant_config` is built on `_to_config` to avoid.
     """
     from apps.api.agents.handoff import spec_for
-    from apps.api.agents.service import _load_agent, _to_config, _variant_config
+    from apps.api.agents.service import _load_agent, _to_config, _variant_config, line_config
 
     engine = get_engine()
     # Both branches resolve INSIDE the session and the vendor round trip happens outside
@@ -1063,14 +1069,32 @@ async def engine_drift_for(
         # rebuilding a config here.
         handoff, _duty = await spec_for(session, dict(row))
         ref = row["engine_agent_ref"]
-        arm = None
+        arm = line = None
         if engine_agent_ref is not None and engine_agent_ref != ref:
             arm = (
                 await session.execute(
                     text(_ARM_BY_ENGINE_REF_SQL), {"aid": agent_id, "ref": engine_agent_ref}
                 )
             ).first()
-        if arm is not None and engine_agent_ref is not None:
+            line = (
+                await session.execute(
+                    text(_LINE_BY_ENGINE_REF_SQL), {"aid": agent_id, "ref": engine_agent_ref}
+                )
+            ).first()
+        if line is not None and engine_agent_ref is not None:
+            # A line's engine agent (D-997) is compared against the line's own config: the
+            # agent's over the line's script, without the actions the line switched off.
+            if line[1]:
+                return _not_published(
+                    agent_id, engine.name, "This line is archived, so it is not compared."
+                )
+            target, config = (
+                engine_agent_ref,
+                await line_config(
+                    session, tenant_id=tenant_id, line_id=UUID(str(line[0])), agent=row
+                ),
+            )
+        elif arm is not None and engine_agent_ref is not None:
             # The arm IS a published vendor object in its own right, so `not_published`
             # cannot apply to it and the agent's own ref is irrelevant to this comparison.
             target, config = (

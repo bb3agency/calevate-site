@@ -292,6 +292,20 @@ async def client_definitions(
     own workspace (its handle carries it, D-693). Only the agent-filled parameters are
     declared; static and call values are applied by our executor."""
     tools = await in_call_tools(session, agent_id=agent_id)
+    # An inbound line's engine agent (D-997) carries the agent's actions less the ones the
+    # line switched off, as its config's `action_tools` does; the route names the line.
+    off = (
+        await session.execute(
+            text(
+                "SELECT l.actions_off FROM engine_agent_routes r "
+                "JOIN inbound_lines l ON l.id = r.inbound_line_id "
+                "WHERE r.engine = :engine AND r.engine_agent_ref = :ref"
+            ),
+            {"engine": engine, "ref": engine_agent_ref},
+        )
+    ).scalar_one_or_none()
+    if off:
+        tools = [tool for tool in tools if tool.name not in set(off)]
     # Tell my team (D-904) shares the client's action budget: it is one more action the vendor
     # agent carries, and whether the vendor counts it against the eight is not documented.
     tell_team = await team_alerts.in_call_live(session, agent_id)
