@@ -52,7 +52,7 @@ export function AgentScripts({ query }: { query: string }) {
               </p>
             </div>
             <Link
-              href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=script`)}
+              href={href(`/c/${session.orgSlug}/${agent.direction === "outbound" ? "campaigns" : "inbound"}`)}
               className="text-meta text-ink underline underline-offset-2 touch:inline-flex touch:min-h-11 touch:items-center"
             >
               Open its script

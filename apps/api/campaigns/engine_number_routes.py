@@ -22,6 +22,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.first_payment import has_paid
@@ -322,6 +323,9 @@ class PurchasedOwnNumberOut(BaseModel):
     #: unpriced number. The screen words its sentence from this, so it never claims a charge
     #: that did not happen.
     first_period: RentalOutcome | None
+    #: The inbound line that answers the new number (D-997): the account's first line. Null
+    #: when the account has none yet, and the screen asks the owner to make one.
+    inbound_line_id: UUID | None = None
 
 
 @router.post(
@@ -373,6 +377,12 @@ async def purchase_own_number(
                     "attachment": bought.attachment,
                 },
             )
+    # A number bought to take calls is answered by a line; one bought only to call out is not.
+    line_id = (
+        await _onto_first_line(principal.tenant_id, bought.number_id)
+        if payload.direction != "outbound"
+        else None
+    )
     return PurchasedOwnNumberOut(
         number_id=bought.number_id,
         e164=bought.e164,
@@ -382,7 +392,30 @@ async def purchase_own_number(
         attachment=bought.attachment,
         replayed=bought.replayed,
         first_period=bought.first_period,
+        inbound_line_id=line_id,
     )
+
+
+async def _onto_first_line(tenant_id: UUID, number_id: UUID) -> UUID | None:
+    """A new number is answered by the account's first inbound line (founder, 16 Nov 2026),
+    or by none yet; a number already on a line (a replayed click) keeps it."""
+    from apps.api.inbound import lines
+    from apps.api.inbound.publish import route_numbers
+
+    async with tenant_session(tenant_id) as session:
+        current = (
+            await session.execute(
+                text("SELECT inbound_line_id FROM phone_numbers WHERE id = :n"), {"n": number_id}
+            )
+        ).scalar_one_or_none()
+        if current is not None:
+            return UUID(str(current))
+        line_id = await lines.first_line(session)
+        if line_id is None:
+            return None
+        await lines.assign_number(session, UUID(str(line_id)), number_id)
+    await route_numbers(tenant_id=tenant_id, line_id=UUID(str(line_id)))
+    return UUID(str(line_id))
 
 
 class ReleaseOwnNumberIn(BaseModel):

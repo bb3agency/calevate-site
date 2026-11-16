@@ -1,22 +1,26 @@
 "use client";
 
 /**
- * SETTINGS — the parts an owner sets once and rarely revisits (D-825): how calls are
- * handled, the model, what the agent is, where the business-wide leads and calling hours
- * are, and deleting it. Before D-825 these were four menu entries (Call handling, Model,
- * Leads & hours, Settings); each keeps its own heading here.
+ * SETTINGS — how the agent sounds and behaves wherever it calls for: its voice, what it
+ * notes down, how calls are handled, the model, what the agent is, where the business-wide
+ * leads and calling hours are, and deleting it. Voice and What it notes were tabs of their
+ * own until the agent page became four tabs (D-997, founder 16 Nov 2026); each keeps its own
+ * heading here.
  *
- * Order is by how often each is changed. Call handling (length, pauses, hand-over, memory)
- * is tuned after real calls; the model and what the agent is are set once. Delete is
+ * Order is by how often each is changed. The voice is picked and re-picked while an owner
+ * gets to know the agent, and what it notes changes with the business; call handling
+ * (length, pauses, hand-over, memory) is tuned after real calls; the model and what the
+ * agent is are set once. Delete is
  * foreground, not disclosed, because it is rare but high-consequence (UX-DOCTRINE §3); while
  * the agent is taking calls it cannot be deleted, and the notice carries the one move that
  * changes that.
  *
  * Each panel declares its own copilot surface; the tab's `CopilotSurfaceScope` merges them, so
- * the assistant sees call handling, the model and what the agent is together.
+ * the assistant sees the voice, call handling, the model and what the agent is together.
  */
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import { useActionFeedback, type ActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION } from "@/components/console/section";
@@ -30,13 +34,23 @@ import { CopilotSurfaceScope } from "@/lib/copilot/registry";
 import { AgentIdentity } from "../../AgentIdentity";
 import { AgentLifecycle, LifecycleError } from "../../AgentLifecycle";
 import { AgentModel } from "../../AgentModel";
+import { ExtractionList } from "../../panels/extraction";
 import { TeamAlertsPanel } from "../../panels/teamAlerts";
-import { CallHandlingSection } from "./deliverySections";
+import { CallHandlingSection, VoiceSection } from "./deliverySections";
 
 /** The anchor a test result's "Open call handling" lands on. */
 export const CALL_HANDLING_ANCHOR = "call-handling";
 
-export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
+export function SettingsTab({
+  agent,
+  slug,
+  leadsLink,
+}: {
+  agent: Agent;
+  slug: string;
+  /** The link to the Leads table that What it notes names. */
+  leadsLink: ReactNode;
+}) {
   const { href } = useClientRealm();
   const canDelete = movesFor(agent.status).includes("archive");
   // The tab, not the notice, holds the switch-off: the move waits for the agent to reload
@@ -56,6 +70,12 @@ export function SettingsTab({ agent, slug }: { agent: Agent; slug: string }) {
       facts={[{ key: "agent_id", label: "Agent id", value: agent.id }]}
     >
       <div className="space-y-12">
+        <Section headingLevel={3} title="Voice">
+          <VoiceSection agent={agent} />
+        </Section>
+
+        <ExtractionList agent={agent} leadsHref={leadsLink} />
+
         <div id={CALL_HANDLING_ANCHOR} className="scroll-mt-24">
           {/* Each section: a title and one short line. The fuller reason, where one is
               worth having, is behind the ⓘ (critique-information-density). */}

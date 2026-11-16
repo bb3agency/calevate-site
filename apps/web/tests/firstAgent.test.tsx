@@ -907,7 +907,7 @@ describe("meet your agent", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /This number is my own/ }));
     fireEvent.click(call);
     expect(await screen.findByText(/Switch this agent to a Clear voice/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Choose a Clear voice" }).getAttribute("href")).toContain("section=voice");
+    expect(screen.getByRole("link", { name: "Choose a Clear voice" }).getAttribute("href")).toContain("section=settings");
     expect(screen.getByRole("link", { name: "Add credit" }).getAttribute("href")).toContain("tab=credits");
     expect(screen.queryByRole("button", { name: /Try again/ })).toBeNull();
   });
@@ -1129,9 +1129,7 @@ describe("meet your agent", () => {
     // One primary action; the rest are quiet links.
     expect(screen.getByRole("button", { name: /Make it yours/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Call me again/ })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Change its script/ }).getAttribute("href")).toContain(
-      `/agents/${AGENT_ID}?section=script`,
-    );
+    expect(screen.getByRole("link", { name: /Change what it says/ }).getAttribute("href")).toBe("/c/acme/inbound");
     // The conversation is there, folded.
     expect(screen.getByRole("heading", { name: "Read the whole conversation" })).toBeTruthy();
     expect(screen.getByText("Step 3 of 4 ·", { exact: false })).toBeTruthy();

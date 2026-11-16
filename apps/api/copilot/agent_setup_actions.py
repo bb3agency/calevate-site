@@ -1,4 +1,4 @@
-"""Pip's agent set-up actions (D-893 lane L4): restore and get ready, the Script tab's
+"""Pip's agent set-up actions (D-893 lane L4): restore and get ready, the script's
 direct buttons, how an agent sounds and handles a call, and who it hands a caller to.
 
 Each executor calls the function the page's own button calls (`docs/COPILOT-CONTRACT.md`
@@ -331,7 +331,7 @@ async def _plan_put_live(session: AsyncSession, actor: ToolActor, args: Mapping[
         object_id=str(parsed.agent_id),
         title="Put the script changes live",
         summary=(
-            f"Save the draft of {name}'s script, as it is on the Script tab now, as a new "
+            f"Save the draft of {name}'s script, as it is in its script now, as a new "
             f"version (“{summary}”)"
             + (
                 " and put it in front of callers from their next call."
@@ -392,7 +392,7 @@ AGENT_SCRIPT_PUT_LIVE: Final = ActionTool(
     permission="org:manage",
     object_type="agent",
     audit_action="agent.script_published",
-    where="on the agent's Script tab",
+    where="on the agent's page",
     schema=action_schema(
         "agent_script_put_live",
         "Propose saving the agent's reviewed script draft as a version and putting it live. "
@@ -461,7 +461,7 @@ AGENT_SCRIPT_DISCARD: Final = ActionTool(
     permission="org:manage",
     object_type="agent",
     audit_action="agent.changes_undone",
-    where="on the agent's Script tab",
+    where="on the agent's page",
     schema=action_schema(
         "agent_script_discard",
         "Propose throwing away a live agent's saved script change that callers have not "
@@ -532,7 +532,7 @@ async def _execute_version_restore(
     return Executed(
         applied=True,
         detail=(
-            f"Version {parsed.version} is in the draft. Review it on the Script tab, then put "
+            f"Version {parsed.version} is in the draft. Review it in its script, then put "
             "it live when it is right."
         ),
         audit_summary={"version": parsed.version},
@@ -546,7 +546,7 @@ AGENT_SCRIPT_VERSION_RESTORE: Final = ActionTool(
     permission="org:manage",
     object_type="agent",
     audit_action="agent.script_version_restored",
-    where="on the agent's Script tab",
+    where="on the agent's page",
     schema=action_schema(
         "agent_script_version_restore",
         "Propose copying an earlier script version into the agent's draft (callers keep the "

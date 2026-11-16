@@ -163,6 +163,9 @@ class EngineAgentRoute(Base):
     engine_agent_ref: Mapped[str] = mapped_column(Text, primary_key=True)
     tenant_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
     agent_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    #: Set when this engine agent is an inbound line's (D-997): intake stamps the call's line
+    #: from it. No foreign key, like `agent_id`: this table is global and un-RLS'd.
+    inbound_line_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
     # THE TWO DRIFT SWEEPS' RECORDS, declared here late (P4.3).

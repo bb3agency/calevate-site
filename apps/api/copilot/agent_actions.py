@@ -251,7 +251,7 @@ async def _execute_agent_create(
             session, tenant_id=actor.tenant_id, agent_id=agent_id, requested_by=actor.user_id
         )
     opening = (
-        " Its script is being written for your business; keep it on the Script tab."
+        " Its script is being written for your business; it stays with the agent."
         if parsed.job is not None
         else ""
     )

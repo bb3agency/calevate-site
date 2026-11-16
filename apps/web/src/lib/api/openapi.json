@@ -32442,6 +32442,255 @@
         "title": "InFlightOut",
         "type": "object"
       },
+      "InboundLineActionsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "off": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Off",
+            "type": "array"
+          }
+        },
+        "required": [
+          "off"
+        ],
+        "title": "InboundLineActionsIn",
+        "type": "object"
+      },
+      "InboundLineNumberIn": {
+        "additionalProperties": false,
+        "properties": {
+          "number_id": {
+            "format": "uuid",
+            "title": "Number Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number_id"
+        ],
+        "title": "InboundLineNumberIn",
+        "type": "object"
+      },
+      "InboundLineOut": {
+        "additionalProperties": false,
+        "properties": {
+          "actions_off": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Actions Off",
+            "type": "array"
+          },
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "live": {
+            "title": "Live",
+            "type": "boolean"
+          },
+          "main_task": {
+            "title": "Main Task",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "numbers": {
+            "items": {
+              "$ref": "#/components/schemas/LineNumberOut"
+            },
+            "title": "Numbers",
+            "type": "array"
+          },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CampaignProposalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "script": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "agent_id",
+          "agent_name",
+          "main_task",
+          "script",
+          "proposal",
+          "version",
+          "published_at",
+          "live",
+          "actions_off",
+          "source_ids",
+          "numbers",
+          "created_at"
+        ],
+        "title": "InboundLineOut",
+        "type": "object"
+      },
+      "InboundLinePatch": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "main_task": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Main Task"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "InboundLinePatch",
+        "type": "object"
+      },
+      "InboundLineScriptIn": {
+        "additionalProperties": false,
+        "properties": {
+          "proposal_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Id"
+          },
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          }
+        },
+        "required": [
+          "script"
+        ],
+        "title": "InboundLineScriptIn",
+        "type": "object"
+      },
+      "InboundLineSourcesIn": {
+        "additionalProperties": false,
+        "properties": {
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Source Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_ids"
+        ],
+        "title": "InboundLineSourcesIn",
+        "type": "object"
+      },
+      "InboundLinesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/InboundLineOut"
+            },
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lines"
+        ],
+        "title": "InboundLinesOut",
+        "type": "object"
+      },
       "IncidentKindOut": {
         "additionalProperties": false,
         "description": "A problem the healer can open an incident for, in plain words (`healer/wording`).",
@@ -37603,6 +37852,80 @@
         "title": "LifecycleOut",
         "type": "object"
       },
+      "LineCallOut": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Tag"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "started_at",
+          "duration_s",
+          "status",
+          "outcome_tag"
+        ],
+        "title": "LineCallOut",
+        "type": "object"
+      },
+      "LineCallsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/LineCallOut"
+            },
+            "title": "Calls",
+            "type": "array"
+          }
+        },
+        "required": [
+          "calls"
+        ],
+        "title": "LineCallsOut",
+        "type": "object"
+      },
       "LineChangeIn": {
         "additionalProperties": false,
         "properties": {
@@ -37731,6 +38054,26 @@
           "attest"
         ],
         "title": "LineIn",
+        "type": "object"
+      },
+      "LineNumberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "e164"
+        ],
+        "title": "LineNumberOut",
         "type": "object"
       },
       "LineOut": {
@@ -40309,6 +40652,45 @@
           "is_current"
         ],
         "title": "NationalDndScrubOut",
+        "type": "object"
+      },
+      "NewInboundLineIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "main_task": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Main Task"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "agent_id"
+        ],
+        "title": "NewInboundLineIn",
         "type": "object"
       },
       "NewLeadTrigger": {
@@ -46997,6 +47379,18 @@
               }
             ],
             "title": "First Period"
+          },
+          "inbound_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbound Line Id"
           },
           "inr_per_month": {
             "anyOf": [
@@ -95657,6 +96051,554 @@
         "summary": "Dismiss a suggested change",
         "tags": [
           "healer"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines": {
+      "get": {
+        "operationId": "list_lines_v1_inbound_lines_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundLinesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every inbound line: what each number says, in which agent's voice",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "post": {
+        "operationId": "create_line_v1_inbound_lines_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewInboundLineIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Start an inbound line in one agent's voice; a draft until its script is live",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}": {
+      "get": {
+        "operationId": "read_line_v1_inbound_lines__line_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One inbound line",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "patch": {
+        "operationId": "update_line_v1_inbound_lines__line_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboundLinePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rename the line, save its main task, or give it another agent's voice",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/actions": {
+      "put": {
+        "operationId": "set_actions_v1_inbound_lines__line_id__actions_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboundLineActionsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Switch the agent's actions on or off for this line",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/archive": {
+      "post": {
+        "operationId": "archive_line_v1_inbound_lines__line_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Archive a line that answers no number",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/calls": {
+      "get": {
+        "operationId": "line_calls_v1_inbound_lines__line_id__calls_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LineCallsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The calls this line took, newest first",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/numbers": {
+      "post": {
+        "operationId": "assign_number_v1_inbound_lines__line_id__numbers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboundLineNumberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put a number on this line; it answers with the line from now on",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/proposal": {
+      "post": {
+        "operationId": "request_proposal_v1_inbound_lines__line_id__proposal_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask Pip to write the line's script from its main task and sources",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/proposal/{line_proposal_id}": {
+      "delete": {
+        "operationId": "clear_proposal_v1_inbound_lines__line_id__proposal__line_proposal_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "line_proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop Pip's draft while it is written, or discard it",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/publish": {
+      "post": {
+        "operationId": "publish_v1_inbound_lines__line_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put the line's saved script live on its numbers again",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/script": {
+      "put": {
+        "operationId": "save_script_v1_inbound_lines__line_id__script_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboundLineScriptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save the line's script and put it live on its numbers",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/sources": {
+      "put": {
+        "operationId": "set_sources_v1_inbound_lines__line_id__sources_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InboundLineSourcesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Choose the sources from What your agents know that Pip writes this line from",
+        "tags": [
+          "inbound"
         ],
         "x-calevate-permission": "org:manage"
       }

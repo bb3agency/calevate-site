@@ -148,15 +148,13 @@ describe("what the business details tell every agent", () => {
 });
 
 describe("what one agent knows alone", () => {
-  it("names each agent once, with a way to its own script", async () => {
+  it("names each agent once, with a way to where its script is written", async () => {
     await renderKnowledge({
       "/v1/agents": [{ id: "a1", name: "Front desk", status: "live", caller_memory_enabled: true, caller_memory_paused: false }],
     });
     const agents = await screen.findByRole("list", { name: "Agents" });
     expect(within(agents).getByText("Front desk")).toBeTruthy();
     expect(within(agents).getByText("Its script. Also remembers each caller.")).toBeTruthy();
-    expect(within(agents).getByRole("link", { name: "Open its script" }).getAttribute("href")).toContain(
-      "/agents/a1?section=script",
-    );
+    expect(within(agents).getByRole("link", { name: "Open its script" }).getAttribute("href")).toBe("/c/acme/inbound");
   });
 });

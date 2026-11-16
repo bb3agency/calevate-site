@@ -81,6 +81,7 @@ async def sync_business_facts(
     facts: str | None,
     variant_id: UUID | None = None,
     test_copy: bool = False,
+    inbound_line_id: UUID | None = None,
 ) -> None:
     """Make the vendor agent `ref` hold what our tables say it should know.
 
@@ -91,9 +92,9 @@ async def sync_business_facts(
       of `facts` only (`t0_block.facts_without_knowledge`; see the module docstring);
     * on an engine with a knowledge base, the tenant's published knowledge
       (`kb/service.converge_agent_knowledge`), on the agent's own vendor agent, on the
-      running experiment arm `variant_id` names, or on its test copy (`test_copy`): an arm
-      and a copy carry the client's knowledge like every other agent of the client (D-689,
-      D-806, D-964).
+      running experiment arm `variant_id` names, on its test copy (`test_copy`), or on the
+      inbound line `inbound_line_id` names: an arm, a copy and a line carry the client's
+      knowledge like every other agent of the client (D-689, D-806, D-964, D-997).
 
     A no-op on an engine with neither.
     """
@@ -117,7 +118,9 @@ async def sync_business_facts(
         await _sync_facts_document(
             session, engine, agent_id=agent_id, ref=ref, facts=facts_without_knowledge(facts)
         )
-    if holds_kb and (variant_id is not None or test_copy or owner[1] == ref):
+    if holds_kb and (
+        variant_id is not None or test_copy or inbound_line_id is not None or owner[1] == ref
+    ):
         await converge_agent_knowledge(
             session,
             engine,
@@ -126,6 +129,7 @@ async def sync_business_facts(
             ref=ref,
             variant_id=variant_id,
             test_copy=test_copy,
+            inbound_line_id=inbound_line_id,
         )
 
 
@@ -203,16 +207,22 @@ async def recorded_facts_handles(
     agent_id: UUID,
     variant_id: UUID | None = None,
     test_copy: bool = False,
+    inbound_line_id: UUID | None = None,
 ) -> set[str]:
     """The facts document recorded for the agent's own vendor agent, for its experiment
-    arm `variant_id`, or for its test copy, for the KB reconciliation's "what do we believe
-    is attached". Joined through `agents`, `prompt_experiment_variants` or
-    `agent_test_copies`, all FORCE-RLS'd, so an untenanted read answers empty as
-    `kb/service._ROUTE_JOIN` does."""
+    arm `variant_id`, for its test copy, or for its inbound line `inbound_line_id`, for the
+    KB reconciliation's "what do we believe is attached". Joined through `agents`,
+    `prompt_experiment_variants`, `agent_test_copies` or `inbound_lines`, all FORCE-RLS'd,
+    so an untenanted read answers empty as `kb/service._ROUTE_JOIN` does."""
     if test_copy:
         holder = (
             "JOIN agent_test_copies c ON c.agent_id = r.agent_id "
             "AND c.engine_agent_ref = r.engine_agent_ref WHERE r.agent_id = :aid"
+        )
+    elif inbound_line_id is not None:
+        holder = (
+            "JOIN inbound_lines l ON l.engine_agent_ref = r.engine_agent_ref "
+            "AND l.agent_id = r.agent_id WHERE r.agent_id = :aid AND l.id = :lid"
         )
     elif variant_id is None:
         holder = (
@@ -230,7 +240,7 @@ async def recorded_facts_handles(
                 f"SELECT r.facts_kb_ref FROM engine_agent_routes r {holder} "
                 "AND r.facts_kb_ref IS NOT NULL"
             ),
-            {"aid": agent_id, "vid": variant_id},
+            {"aid": agent_id, "vid": variant_id, "lid": inbound_line_id},
         )
     ).scalars()
     return {str(row) for row in rows}

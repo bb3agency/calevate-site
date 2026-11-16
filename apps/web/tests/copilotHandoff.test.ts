@@ -10,8 +10,8 @@ describe("where a confirmed Pip action's result waits", () => {
     });
   });
 
-  it("takes a script suggestion to the Script tab", () => {
-    expect(handoffFor("agent_script_suggest", "acme", "agent-1")?.path).toBe("/c/acme/agents/agent-1?section=script");
+  it("takes a script suggestion to the agent", () => {
+    expect(handoffFor("agent_script_suggest", "acme", "agent-1")?.path).toBe("/c/acme/agents/agent-1");
   });
 
   it("offers no link for an action whose result is already on screen", () => {

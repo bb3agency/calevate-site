@@ -120,6 +120,12 @@ def _proposal(raw: Any, *, now: datetime) -> CampaignProposal | None:
     )
 
 
+#: The Pip draft and the script in the shape an inbound line keeps them too (D-997): one
+#: reader for both holders, so the two review screens cannot read a draft differently.
+read_call_script = _script
+read_script_proposal = _proposal
+
+
 async def _campaign_row(session: AsyncSession, campaign_id: UUID, *, lock: bool = False) -> Any:
     row = (
         await session.execute(
@@ -478,6 +484,8 @@ __all__ = [
     "clear_proposal",
     "list_materials",
     "put_script_live",
+    "read_call_script",
+    "read_script_proposal",
     "read_workspace",
     "request_proposal",
     "save_main_task",

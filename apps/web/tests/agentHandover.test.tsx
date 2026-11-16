@@ -10,6 +10,7 @@ import {
   LANES,
   agentScript,
   clientLlmTiers,
+  clientVoiceTuning,
   spendThisMonth,
   agentCallHandling,
   organizationCallHandling,
@@ -166,6 +167,9 @@ function routes(over: Record<string, unknown> = {}) {
     // The header's "spent this month" line (owners hold billing:read).
     [AGENT_SPEND_PATH]: spendThisMonth(),
     "/v1/business-profile": PROFILE,
+    // The Voice section, at the top of the same Settings tab.
+    "/v1/agents/engine-catalogue": { available: true, voices: [], models: [] },
+    "/v1/agents/agent-1/voice-tuning": clientVoiceTuning(),
     ...over,
   };
 }

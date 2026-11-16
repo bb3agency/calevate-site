@@ -89,7 +89,41 @@ Then:
 - Campaign Test call rings the campaign agent itself.
 - "What it notes" becomes per campaign.
 
-### Phase 3: Inbound section
+### Phase 3: Inbound section (built before Phase 2, founder 16 Nov 2026; rememory `86161cac`, `298ad6cb`)
+
+Founder answers: the section is called "Inbound"; several numbers may share one line; outside hours uses the business profile's opening hours (`business_profiles.hours`, `agents/business_hours.py`), never Leads & hours, which are outbound calling hours; every number always has a line; actions are set up on the agent, and each line switches that agent's actions on or off for itself.
+
+Build, in slices that each ship green:
+
+1. **Engine holders.**
+   - `AgentConfig.holder` (excluded from dumps) joins `thinnest._name_tag` and the fake's stable id, so a line's engine agent never overwrites its agent's own.
+   - `engine_agent_routes.inbound_line_id` and `calls.inbound_line_id` are added.
+   - Intake stamps the call's line from the route.
+2. **Lines.**
+   - `inbound_lines` (FORCE RLS) holds: name, agent_id (the voice), main task, `script` (a `CallScript`, as campaigns hold it), Pip's proposal, `extraction_fields`, `actions_off`, engine_agent_ref, version, archived_at.
+   - `inbound_line_sources` (FORCE RLS) holds the knowledge sources the line was written from, picked from What your agents know.
+   - `phone_numbers.inbound_line_id` is added.
+   - The routes are `/v1/inbound-lines/**`, with `_IDOR_ROUTES` entries.
+3. **Publish.**
+   - A line's engine agent is the agent's own `_to_config` over the line's compiled script. It is the variant pattern: `prompt` and `structured_script` are substituted, and the pinned facts and `[T0 FACTS]` come from the agent's body.
+   - It is read back, gets a route row, and is reclaimed when orphaned. Its built-in tools are the agent's minus `actions_off`.
+   - `engine_numbers.wanted_attachment` takes the line's ref for the answering agent.
+   - Every agent change fans out to the agent's lines, as `republish_running_variants` does for arms. The drift sweep and the silences (healer, credit stop, maintenance, voice fallback) cover lines.
+4. **Pip.**
+   - The line's script is written by the campaign script writer: `workers/script_assist.draft_script` from the main task and the picked sources.
+   - It is reviewed part by part and saved with "Put it live".
+5. **Every number has a line.**
+   - A migration and backfill make one line per answering agent, from that agent's applied script, and attach its numbers.
+   - Callers hear the same words on day one.
+   - Assigning a number now means choosing its line.
+6. **Web.**
+   - "Inbound" goes in the sidebar, with a list of lines, each showing its numbers, voice, status and calls.
+   - The line page has coloured folds: Voice, Main task, Sources, Script (Pip Generate and review), What it notes, Actions, Handover, Outside hours (the business profile's hours, linked), Numbers, Test call, and Calls taken.
+7. **Agent page.**
+   - The agent page becomes Overview / Actions / Settings / Training.
+   - Its Try it chooses "Just the business" (the company training, no script) or one of its lines and campaigns.
+
+The original sketch:
 - New sidebar section "Inbound", following the campaign pattern per number:
   - which agent's voice answers;
   - what it says (greeting, steps, what to note);
@@ -98,6 +132,26 @@ Then:
   - calls taken.
 - Line engine agents are bound as the number's answering agent (`engine_numbers.wanted_attachment` re-pointed to the line).
 - Number assignment moves here from the Phone numbers page. Forwarding and line protection link here.
+
+### Phase 3b: Onboarding, rebuilt on the new model (founder, 16 Nov 2026; rememory `f284d8bb`)
+
+1. **Sign up.** Unchanged.
+2. **About your business.** Typed or spoken, with files, plus up to 3 profile questions.
+   - The words become the company training's overview.
+   - Pip's training is saved straight away as version 1.
+3. **Name and voice.** The default agent is admin-configurable (today "Anjali", with a female Studio voice). It is the free-trial agent and the starter agent on paid tiers.
+4. **What first?** Two cards:
+   - "Answer my calls" drafts an Inbound line, which may exist with no number;
+   - "Call people" drafts a campaign.
+   - Pip writes either one.
+5. **Hear it.** The same ticks screen, with notices untouched. The test call rings the draft line or campaign's own engine agent.
+6. **Result.** The transcript, plus buttons for "Change what it says" and "How they speak".
+7. **Go live (paid).** Verify, then buy a number. A new number is answered by the first inbound line; with none, the owner is asked to create one.
+
+Also:
+- "New agent" becomes name → voice → done.
+- The readiness score and the Overview checklist drop their script items.
+- Pip's first-agent guide is rewritten.
 
 ### Phase 4: Migration, and the agent page shrinks
 - Each agent's script is split:

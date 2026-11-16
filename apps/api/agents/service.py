@@ -96,6 +96,7 @@ from calevate_shared.call_script import (
     Capabilities,
     NativeStep,
     call_backs_withheld,
+    compile_call_script,
     native_steps,
     opening_line_of,
     outbound_opening_of,
@@ -1240,12 +1241,14 @@ async def _publish_business_facts(
     script: str | None,
     variant_id: UUID | None = None,
     test_copy: bool = False,
+    inbound_line_id: UUID | None = None,
 ) -> None:
     """Push the script's [T0 FACTS] block as the vendor agent's facts document, on an engine
     that keeps facts out of the prompt, and the client's published knowledge
     (`agents/engine_facts.py`); `variant_id` names the experiment arm `ref` speaks, and
-    `test_copy` says `ref` is the agent's test copy. A failure fails the publish, with
-    `reclaim` deleting a vendor agent this publish created, for `_reclaim_orphan`'s reason."""
+    `test_copy` says `ref` is the agent's test copy, and `inbound_line_id` the line whose engine
+    agent it is (D-997). A failure fails the publish, with `reclaim` deleting a vendor agent
+    this publish created, for `_reclaim_orphan`'s reason."""
     try:
         await sync_business_facts(
             session,
@@ -1255,6 +1258,7 @@ async def _publish_business_facts(
             facts=block_of(script),
             variant_id=variant_id,
             test_copy=test_copy,
+            inbound_line_id=inbound_line_id,
         )
     except Exception:
         if reclaim:
@@ -1268,8 +1272,10 @@ async def _publish_business_facts(
 #: receptionist that refuses to answer until the outbound paperwork clears would be a
 #: compliance rule invented here.
 _AGENT_NUMBERS_SQL = (
-    "SELECT id, e164, series, provider, engine_number_ref FROM phone_numbers "
-    "WHERE agent_id = :aid ORDER BY created_at, id"
+    "SELECT n.id, n.e164, n.series, n.provider, n.engine_number_ref, l.engine_agent_ref "
+    "FROM phone_numbers n LEFT JOIN inbound_lines l ON l.id = n.inbound_line_id "
+    "AND l.archived_at IS NULL AND l.published_at IS NOT NULL "
+    "WHERE n.agent_id = :aid ORDER BY n.created_at, n.id"
 )
 
 
@@ -1305,9 +1311,22 @@ def agent_answers_inbound(direction: AgentDirection) -> bool:
 
 
 async def route_inbound_numbers(
-    session: AsyncSession, engine: VoiceEngine, *, agent_id: UUID, ref: str, answers: bool
+    session: AsyncSession,
+    engine: VoiceEngine,
+    *,
+    agent_id: UUID,
+    ref: str,
+    answers: bool,
+    lines_answer: bool | None = None,
 ) -> InboundRouting:
     """Make the engine agree with `phone_numbers.agent_id` (D-420).
+
+    **A NUMBER ON A PUBLISHED INBOUND LINE IS ANSWERED BY THE LINE'S OWN ENGINE AGENT**
+    (D-997), never by `ref`. `lines_answer` says whether those numbers answer, and defaults
+    to `answers`: every silence (credit stop, healer, maintenance, voice fallback) passes
+    `answers=False` and so silences the agent's lines with it, and every restore gives each
+    number back to its line. `publish_agent` passes it apart, because in the new model a
+    voice agent that answers on its lines need not answer as itself (its own `direction`).
 
     **THE STEP THAT WAS MISSING BETWEEN OUR DATABASE AND A RINGING PHONE.** Assigning an
     agent to a number wrote `phone_numbers.agent_id` — with real care, including D-331's
@@ -1346,9 +1365,26 @@ async def route_inbound_numbers(
     rows = (await session.execute(text(_AGENT_NUMBERS_SQL), {"aid": agent_id})).all()
     if not rows:
         return InboundRouting(bound=0, released=0, failed=0, unsupported=0)
-    return await _apply_inbound_bindings(
-        session, engine, agent_id=agent_id, ref=ref, answers=answers, rows=rows
-    )
+    own = [row[:5] for row in rows if not row[5]]
+    by_line: dict[str, list[Any]] = {}
+    for row in rows:
+        if row[5]:
+            by_line.setdefault(str(row[5]), []).append(row[:5])
+    totals = InboundRouting(bound=0, released=0, failed=0, unsupported=0)
+    groups: list[tuple[str, bool, list[Any]]] = [(ref, answers, own)] if own else []
+    line_answers = answers if lines_answer is None else lines_answer
+    groups += [(line_ref, line_answers, line_rows) for line_ref, line_rows in by_line.items()]
+    for target, answering, group in groups:
+        done = await _apply_inbound_bindings(
+            session, engine, agent_id=agent_id, ref=target, answers=answering, rows=group
+        )
+        totals = InboundRouting(
+            bound=totals.bound + done.bound,
+            released=totals.released + done.released,
+            failed=totals.failed + done.failed,
+            unsupported=totals.unsupported + done.unsupported,
+        )
+    return totals
 
 
 async def _apply_inbound_bindings(
@@ -1436,6 +1472,41 @@ async def _apply_inbound_bindings(
         },
     )
     return InboundRouting(bound=bound, released=released, failed=failed, unsupported=0)
+
+
+#: An inbound line's own numbers, in `_apply_inbound_bindings`' row shape.
+_LINE_NUMBERS_SQL: Final = (
+    "SELECT id, e164, series, provider, engine_number_ref FROM phone_numbers "
+    "WHERE inbound_line_id = :lid AND released_at IS NULL ORDER BY created_at, id"
+)
+
+#: The line's engine agent and what decides whether it may answer: its voice agent live,
+#: not deleted, and not silenced (a credit stop or a compliance silence, D-564).
+_LINE_ANSWERS_SQL: Final = (
+    "SELECT l.engine_agent_ref, l.published_at IS NOT NULL AND l.archived_at IS NULL, "
+    "a.id, a.status = 'live' AND a.deleted_at IS NULL AND a.inbound_silenced_at IS NULL "
+    "FROM inbound_lines l JOIN agents a ON a.id = l.agent_id WHERE l.id = :lid"
+)
+
+
+async def route_line_numbers(session: AsyncSession, *, line_id: UUID) -> InboundRouting:
+    """Point an inbound line's numbers at its own engine agent (D-997), or release them when
+    its voice agent is off, deleted or silenced: putting a line live never ends a credit stop
+    or a compliance silence its voice is under. Called after the line's publish committed."""
+    found = (await session.execute(text(_LINE_ANSWERS_SQL), {"lid": line_id})).first()
+    rows = (await session.execute(text(_LINE_NUMBERS_SQL), {"lid": line_id})).all()
+    if found is None or not rows or not (found[0] and found[1]):
+        # A line not yet live leaves its numbers on whatever answers them now.
+        return InboundRouting(bound=0, released=0, failed=0, unsupported=0)
+    ref, _published, agent_id, voice_answers = found
+    return await _apply_inbound_bindings(
+        session,
+        get_engine(),
+        agent_id=UUID(str(agent_id)),
+        ref=str(ref),
+        answers=bool(voice_answers),
+        rows=rows,
+    )
 
 
 async def retire_in_call_actions(*, agent_id: UUID, ref: str | None) -> int:
@@ -2493,7 +2564,8 @@ async def _after_workspace_move(
         await session.execute(
             text(
                 "UPDATE engine_kb_routes SET test_copy = true WHERE agent_id = :aid "
-                "AND tenant_id = :tid AND variant_id IS NULL AND NOT test_copy"
+                "AND tenant_id = :tid AND variant_id IS NULL AND NOT test_copy "
+                "AND inbound_line_id IS NULL"
             ),
             params,
         )
@@ -2501,7 +2573,7 @@ async def _after_workspace_move(
     await session.execute(
         text(
             "DELETE FROM engine_kb_routes WHERE agent_id = :aid AND tenant_id = :tid "
-            "AND variant_id IS NULL AND NOT test_copy"
+            "AND variant_id IS NULL AND NOT test_copy AND inbound_line_id IS NULL"
         ),
         params,
     )
@@ -3234,7 +3306,12 @@ async def publish_agent(
         # the publish (see the function) because the agent itself is already verified live.
         answers_inbound = takes_calls and agent_answers_inbound(agent["direction"])
         routing = await route_inbound_numbers(
-            session, engine, agent_id=agent_id, ref=ref, answers=answers_inbound
+            session,
+            engine,
+            agent_id=agent_id,
+            ref=ref,
+            answers=answers_inbound,
+            lines_answer=takes_calls,
         )
         await _warn_if_answering_nothing(
             session, agent_id=agent_id, answers_inbound=answers_inbound, routing=routing
@@ -3262,6 +3339,9 @@ async def publish_agent(
             truthful_answer_proven=verdict.truthful_answer_applied is True,
         )
         await republish_running_variants(session, tenant_id=tenant_id, agent_id=agent_id)
+        # The agent's lines speak in its voice: a voice, setting, notice, action or
+        # training change reaches the calls they answer too (D-997).
+        await republish_lines(session, tenant_id=tenant_id, agent_id=agent_id)
         # An opening put live without the notices switched on is rewritten to say them in
         # its own words (D-971); the stored sentences are said beside it until then.
         await queue_opening_notices(session, tenant_id=tenant_id, agent_id=agent_id)
@@ -3748,6 +3828,213 @@ async def republish_running_variants(
             for row in rows
         ],
     )
+
+
+def _line_agent_row(agent: AgentRow, script: CallScript, body: str) -> AgentRow:
+    """The agent's row with an inbound line's script in place of its own, so `_to_config`
+    builds the line's engine agent exactly as it builds the agent's, and a config field added
+    for agents reaches lines with it (the reason `_variant_config` is built on `_to_config`).
+    The pinned facts and the [T0 FACTS] block come from the agent's applied body, as an arm's
+    do (`_arm_script`): the knowledge is the client's, the script alone is the line's."""
+    line_agent: dict[str, Any] = dict(agent)
+    line_agent["prompt"] = with_knowledge_of(agent["prompt"], body, identity=f"{agent['name']}.")
+    line_agent["structured_script"] = script.model_dump(mode="json")
+    return cast(AgentRow, line_agent)
+
+
+async def line_config(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    line_id: UUID,
+    agent: AgentRow | None = None,
+) -> AgentConfig:
+    """An inbound line's engine agent as our tables say it should be (D-997), before any
+    workspace placement: the agent's config over the line's script, named for the line, with
+    the agent's actions the line switches off left out. What `publish_line` writes, and what a
+    knowledge attach on the line's ref re-sends, because an attach replaces the whole agent
+    on the platform (`kb/service._publish_config`, D-488), as it does for an arm."""
+    from apps.api.actions import service as actions_service
+    from apps.api.agents.script_builder import collect_fields
+
+    line = (
+        await session.execute(
+            text(
+                "SELECT agent_id, name, script, actions_off FROM inbound_lines "
+                "WHERE id = :lid AND archived_at IS NULL"
+            ),
+            {"lid": line_id},
+        )
+    ).first()
+    if line is None:
+        raise ProblemError.not_found("Inbound line")
+    if not line.script:
+        raise ProblemError.business_rule(
+            "line_has_no_script",
+            "This line has no script yet.",
+            remediation="Write its main task and press Generate, or write the script yourself.",
+        )
+    agent_id = UUID(str(line.agent_id))
+    if agent is None:
+        agent = await _load_agent(session, tenant_id, agent_id)
+    engine = get_engine()
+    script = CallScript.model_validate(line.script)
+    body = compile_call_script(script, collect=await collect_fields(session, agent_id))
+    handoff, _duty = await handoff_module.spec_for(session, dict(agent))
+    off = set(line.actions_off or ())
+    tools = await actions_service.declare(session, agent_id=agent_id, direction="inbound")
+    return _to_config(
+        tenant_id, _line_agent_row(agent, script, body), engine=engine, handoff=handoff
+    ).model_copy(
+        update={
+            "holder": str(line_id),
+            "name": f"{agent['name']} · {line.name}",
+            "direction": "inbound",
+            "action_tools": tuple(tool for tool in tools if tool.name not in off),
+        }
+    )
+
+
+async def publish_line(session: AsyncSession, *, tenant_id: UUID, line_id: UUID) -> str:
+    """Create or update an inbound line's own engine agent (D-997): its agent's config, voice,
+    settings, notices and the company training, over the line's script, with the agent's
+    actions the line switches off left out. Read back like every publish, routed for intake
+    (`engine_agent_routes.inbound_line_id`), given its results webhook, the client's
+    knowledge and the in-call actions. A vendor agent this publish created and could not
+    finish is reclaimed.
+
+    The line's numbers are not touched here: `inbound/publish.put_line_live` attaches them
+    after this commits, so a number never points at an agent the transaction rolled away."""
+    line = (
+        await session.execute(
+            text(
+                "SELECT agent_id, engine_agent_ref FROM inbound_lines "
+                "WHERE id = :lid AND archived_at IS NULL FOR UPDATE"
+            ),
+            {"lid": line_id},
+        )
+    ).first()
+    if line is None:
+        raise ProblemError.not_found("Inbound line")
+    agent_id = UUID(str(line.agent_id))
+    agent = await _load_agent(session, tenant_id, agent_id)
+    engine = get_engine()
+    refuse_unoffered_language(str(agent["language_primary"]), tenant_id=tenant_id)
+    config = await line_config(session, tenant_id=tenant_id, line_id=line_id, agent=agent)
+    refuse_over_engine_limits(engine, config)
+    await refuse_unpriced_engine(session, engine)
+    voice_choice, model_choice = _engine_choice(agent, engine=engine)
+    rate_key = await engine_rate_key_for(
+        session, engine, voice_id=voice_choice, model_id=model_choice
+    )
+    config = await _in_client_workspace(
+        session, engine, tenant_id=tenant_id, agent=agent, config=config
+    )
+    await _studio_in_client_workspace(
+        session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config, trial=False
+    )
+    config, rate_key = await _own_model_in_workspace(
+        session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config
+    )
+    existing_ref: str | None = line.engine_agent_ref
+    moved_from: str | None = None
+    if existing_ref and _moves_workspace(existing_ref, config):
+        moved_from, existing_ref = existing_ref, None
+    if existing_ref:
+        await engine.update_agent(existing_ref, config)
+        ref = existing_ref
+    else:
+        ref = await engine.create_agent(config)
+    # A line answers real callers, so it gets the agent's read-back: the notices, the
+    # truthful answers and the script must be what the platform holds.
+    verdict = await verify_publish(engine, ref, config)
+    if verdict.state == "not_applied":
+        if not existing_ref:
+            await _reclaim_orphan(engine, agent_id, ref, "line_read_back_proved_not_applied")
+        log.error(
+            "inbound_line_publish_not_applied",
+            extra={"agent_id": str(agent_id), "line_id": str(line_id), "engine": engine.name},
+        )
+        raise ProblemError(
+            kind="dependency",
+            code="engine_publish_not_applied",
+            title="The voice platform is not running this change",
+            detail=verdict.detail,
+            remediation="Callers still hear what they heard before. Try putting it live again.",
+        )
+    await session.execute(
+        text(
+            "UPDATE inbound_lines SET engine_agent_ref = :ref, published_at = now(), "
+            "updated_at = now() WHERE id = :lid"
+        ),
+        {"ref": ref, "lid": line_id},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
+            "inbound_line_id, active, created_at, updated_at) VALUES (:engine, :ref, :tid, :aid, "
+            ":lid, true, now(), now()) ON CONFLICT (engine, engine_agent_ref) DO UPDATE SET "
+            "tenant_id = EXCLUDED.tenant_id, agent_id = EXCLUDED.agent_id, "
+            "inbound_line_id = EXCLUDED.inbound_line_id, active = true, updated_at = now()"
+        ),
+        {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id, "lid": line_id},
+    )
+    if moved_from is not None:
+        from apps.api.reliability.service import enqueue_outbox
+
+        await session.execute(
+            text("DELETE FROM engine_kb_routes WHERE inbound_line_id = :lid AND tenant_id = :tid"),
+            {"lid": line_id, "tid": tenant_id},
+        )
+        await enqueue_outbox(
+            session,
+            job=RETIRE_MOVED_AGENT_JOB,
+            payload={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "old_ref": moved_from},
+        )
+    await _ensure_results_webhook(
+        engine,
+        ref=ref,
+        agent_id=agent_id,
+        reclaim=not existing_ref,
+        session=session,
+        rate_key=rate_key,
+        own_model=config.engine_own_model,
+    )
+    await _publish_business_facts(
+        engine,
+        session,
+        agent_id=agent_id,
+        ref=ref,
+        reclaim=not existing_ref,
+        script=config.system_prompt,
+        inbound_line_id=line_id,
+    )
+    await _ensure_in_call_actions(
+        engine, session, agent_id=agent_id, ref=ref, reclaim=not existing_ref
+    )
+    log.info("inbound_line_published", extra={"agent_id": str(agent_id), "line_id": str(line_id)})
+    return ref
+
+
+async def republish_lines(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> int:
+    """Bring every published line in `agent_id`'s voice onto the agent's current config: a
+    voice, setting, notice, action or company-training change reaches the calls its lines
+    answer, as `republish_running_variants` does for arms. Each line keeps its own script.
+    Returns how many were republished."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id FROM inbound_lines WHERE agent_id = :aid AND archived_at IS NULL "
+                "AND engine_agent_ref IS NOT NULL AND script IS NOT NULL ORDER BY created_at, id"
+            ),
+            {"aid": agent_id},
+        )
+    ).scalars()
+    count = 0
+    for line_id in list(rows):
+        await publish_line(session, tenant_id=tenant_id, line_id=UUID(str(line_id)))
+        count += 1
+    return count
 
 
 #: The numbers an agent can place calls from: every number of its client (founder, 4 Nov
@@ -5304,16 +5591,20 @@ __all__ = [
     "healer_forward_prompt",
     "in_call_model",
     "lift_healer_silence",
+    "line_config",
     "outbound_number_provider",
     "provision_number",
     "publish_agent",
+    "publish_line",
     "publish_variant",
     "publish_variants",
     "reconcile_inbound_answering",
     "reconcile_inbound_truthful_answer",
+    "republish_lines",
     "republish_running_variants",
     "resolve_caller_id",
     "route_inbound_numbers",
+    "route_line_numbers",
     "set_number_dlt_status",
     "set_number_engine_ref",
     "unconfirmed_engine_call_id",

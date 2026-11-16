@@ -1,7 +1,7 @@
 """Pip's script abilities (D-820): prepare a change to an agent's call script, or fixes for
 the tests it failed, for review where each lives.
 
-Founder, 18 Oct 2026: Pip is the one AI assistant, and the Script tab's own "AI helper"
+Founder, 18 Oct 2026: Pip is the one AI assistant, and the script's own "AI helper"
 panel is retired in its favour. This action is what the panel did — make one change the
 person asked for, draft the whole script from the six owner questions, or turn a
 hand-written script into steps — through the same writer (`workers/script_assist.
@@ -205,8 +205,8 @@ async def _plan_script_suggest(
     if pending is not None and pending.status == "drafting":
         raise WriteRefusedError(
             "the last change asked for is still being written, so tell the person to wait for "
-            "it on the Script tab before asking for another",
-            plain="The last change is still being written. It shows on the Script tab.",
+            "it in its script before asking for another",
+            plain="The last change is still being written. It shows in its script.",
         )
     # The allowance, asked before the card: a refusal here (used up, paused) reaches the
     # person now, with its own remediation, rather than after they press Confirm.
@@ -216,7 +216,7 @@ async def _plan_script_suggest(
         title=_TITLES[parsed.mode],
         summary=(
             f"{ASSISTANT_NAME} writes a suggestion for {name}'s call script. It waits on "
-            "the agent's Script tab, where you keep the parts you want into your draft."
+            "the agent's script, where you keep the parts you want into your draft."
         ),
         current=(
             "A suggestion is waiting for review; this one replaces it."
@@ -227,7 +227,7 @@ async def _plan_script_suggest(
         cost="Uses your account's AI help allowance.",
         reversal=(
             "Nothing in the script changes until you keep the suggestion, and nothing goes "
-            "live until you put it live. Discard it on the Script tab if you do not want it."
+            "live until you put it live. Discard it in its script if you do not want it."
         ),
         args=canonical,
     )
@@ -255,7 +255,7 @@ async def _execute_script_suggest(
         applied=True,
         queued=True,
         detail=(
-            f"Writing it now. In about half a minute it is on {name}'s Script tab. Nothing "
+            f"Writing it now. In about half a minute it is on {name}'s script. Nothing "
             "reaches the script until you keep it."
         ),
         # Ids and closed-set words only: the request is the client's own business copy.
@@ -279,11 +279,11 @@ AGENT_SCRIPT_SUGGEST: Final = ActionTool(
     permission="org:manage",
     object_type="agent",
     audit_action="agent.script_assist",
-    where="on the agent's Script tab, under Agents",
+    where="on the agent's page, under Agents",
     schema=action_schema(
         "agent_script_suggest",
         "Write a suggested change to an agent's call script; the person reviews it on its "
-        "Script tab, each deleted, renamed or moved step its own change. For drafting or any "
+        "script, each deleted, renamed or moved step its own change. For drafting or any "
         "edit: add, delete, rename or reorder steps; a step's words, exact words, ways out, "
         "details or small steps; any opening, reason or close (pass the brief whole as "
         "`change`, naming steps as the script does). `set_fields` only types a dictated "

@@ -605,7 +605,10 @@ class FakeEngine:
         # Scoped like a real adapter's on an engine with customer workspaces (D-693); a
         # config with no workspace (every other engine) keeps the bare id it always had.
         ref = scoped_handle(
-            self._stable_id("fakeagent", cfg.tenant_id, cfg.agent_id), cfg.engine_workspace
+            self._stable_id(
+                "fakeagent", cfg.tenant_id, cfg.agent_id, *([cfg.holder] if cfg.holder else [])
+            ),
+            cfg.engine_workspace,
         )
         self._agents[ref] = cfg
         return ref

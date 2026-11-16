@@ -23,7 +23,7 @@ export const TOUR_PARAM = "tour";
 export const TRY_IT_ANCHOR = "try-it";
 
 export type TourStep = {
-  id: "script" | "pip" | "try" | "teach" | "voice";
+  id: "pip" | "try" | "teach" | "voice";
   title: string;
   body: string;
   /** The element the step points at, or null when it is not on screen. */
@@ -44,21 +44,15 @@ function agentTab(id: AgentTab) {
 
 /**
  * Pip's launcher is in the console header (`CopilotDock`), on every screen of the client
- * realm; its accessible name is its stable handle. The Script tab's own Pip panel is not
- * used because it exists only while that tab is open, and the tour never switches tabs:
- * a switch could stop on the unsaved-edits guard halfway through a step.
+ * realm; its accessible name is its stable handle. The tour points at it rather than at
+ * anything inside a tab because the tour never switches tabs: a switch could stop on the
+ * unsaved-edits guard halfway through a step.
  */
 function pipLauncher(doc: Document) {
   return doc.querySelector<HTMLElement>(`button[aria-label="Ask ${ASSISTANT_NAME}"]`);
 }
 
 export const TOUR_STEPS: readonly TourStep[] = [
-  {
-    id: "script",
-    title: "Read its script",
-    body: `Everything it says on a call. Open ${AGENT_TABS.script} to change a line.`,
-    target: agentTab("script"),
-  },
   {
     id: "pip",
     title: `Ask ${ASSISTANT_NAME} to change it`,
@@ -80,8 +74,8 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "voice",
     title: "Choose its voice",
-    body: `Play the voices in ${AGENT_TABS.voice} and pick the one your callers hear.`,
-    target: agentTab("voice"),
+    body: `Play the voices in ${AGENT_TABS.settings} and choose one.`,
+    target: agentTab("settings"),
   },
 ];
 

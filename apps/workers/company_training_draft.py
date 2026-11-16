@@ -17,6 +17,7 @@ owner stopped or replaced is never resurrected. Metered as a script draft, which
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any, Final
 from uuid import UUID
 
@@ -97,16 +98,25 @@ _KNOWLEDGE_SQL: Final = text(
     "SELECT s.id, s.name, u.id AS upload_id FROM kb_sources s "
     "LEFT JOIN kb_uploads u ON u.source_id = s.id "
     "WHERE s.is_active AND s.name <> :facts "
+    "AND (CAST(:only AS uuid[]) IS NULL OR s.id = ANY(CAST(:only AS uuid[]))) "
     "ORDER BY s.updated_at DESC, s.id DESC LIMIT :n"
 )
 _NOTE_WORDS_SQL: Final = text("SELECT content FROM kb_documents WHERE source_id = :s ORDER BY idx")
 
 
-async def knowledge_words(session: AsyncSession) -> list[tuple[str, str]]:
-    """(name, words) of each source the agents use, unredacted: `documents_block` redacts."""
+async def knowledge_words(
+    session: AsyncSession, only: Sequence[UUID] | None = None
+) -> list[tuple[str, str]]:
+    """(name, words) of each source the agents use, or of the ones `only` names (the sources
+    an inbound line was written from), unredacted: `documents_block` redacts."""
     rows = (
         await session.execute(
-            _KNOWLEDGE_SQL, {"facts": FACTS_SOURCE_NAME, "n": KNOWLEDGE_SOURCES_READ}
+            _KNOWLEDGE_SQL,
+            {
+                "facts": FACTS_SOURCE_NAME,
+                "n": KNOWLEDGE_SOURCES_READ,
+                "only": None if only is None else [str(i) for i in only],
+            },
         )
     ).all()
     found: list[tuple[str, str]] = []

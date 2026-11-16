@@ -43,7 +43,7 @@ export function VoiceSection({ agent }: { agent: Agent }) {
   }
   return (
     <div className="space-y-6">
-      {/* No top rule: this list opens the tab, directly under the tab bar's own line. */}
+      {/* No top rule: the Voice heading sits directly above this list. */}
       <SettingRows className="border-b border-line">
         <VoiceNow
           state={pending.data}

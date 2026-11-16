@@ -62,6 +62,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "calls-log",
     // Where the log's live calls stand (D-886); it polls on its own while one runs.
     "calls-live",
+    // The calls one inbound line took (D-997).
+    "inbound-line-calls",
     "callback-check",
     "performance",
     // Charts over calls and leads (D-869).
@@ -222,6 +224,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "campaign-settings",
     "agents",
     "agents-archived",
+    // Inbound lines and the sources each is written from (D-997).
+    "inbound-lines",
     "agent-stats",
     "agent-starters",
     "agent-engine-state",

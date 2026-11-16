@@ -88,7 +88,7 @@ export function ScriptStep({
   onBack: () => void;
 }) {
   const { href } = useClientRealm();
-  const scriptTab = href(`/c/${slug}/agents/${agentId}?section=script&from=starter`);
+  const scriptTab = href(`/c/${slug}/agents/${agentId}`);
   const [late, setLate] = useState(false);
   const waiting = writing.phase === "writing";
   useEffect(() => {

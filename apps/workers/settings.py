@@ -147,7 +147,7 @@ from apps.workers.caller_help import judge_caller_help
 from apps.workers.caller_memory_refile import refile_caller_memories
 from apps.workers.campaign_archive_notice import notify_campaign_archived
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
-from apps.workers.campaign_script import draft_campaign_script
+from apps.workers.campaign_script import draft_campaign_script, draft_line_script
 from apps.workers.client_actions import run_after_call_actions, run_client_action
 from apps.workers.client_health import refresh_client_health
 from apps.workers.comp_notices import notify_comp
@@ -466,6 +466,7 @@ FUNCTIONS: list[Any] = [
         # (`agents/script_proposals.request_proposal`).
         draft_script_proposal,
         draft_campaign_script,
+        draft_line_script,
         # The company training Pip was asked for, from the outbox
         # (`agents/company_training.request_proposal`).
         draft_company_training,

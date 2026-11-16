@@ -472,7 +472,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
  * A short read of the saved script, named exactly as Edit script names the same parts
  * (`scriptDiff.PARTS`), so the owner recognises each one when they open it to change it.
  */
-function ScriptSummary({ script }: { script: CallScript }) {
+export function ScriptSummary({ script }: { script: CallScript }) {
   const outbound = script.outbound_opening_line !== "";
   const opening = script.outbound_opening_line || script.opening_line;
   const steps =

@@ -42,6 +42,7 @@ import {
   Phone,
   PhoneCall,
   PhoneForwarded,
+  PhoneIncoming,
   PhoneOutgoing,
   PhoneOff,
   ScrollText,
@@ -105,6 +106,8 @@ export function clientNavigation(slug: string): NavGroup[] {
         // "Make a call" over "Dialer" (a campaign word in this trade) and "Quick call".
         { href: `/c/${slug}/make-a-call`, label: "Make a call", icon: PhoneForwarded },
         { href: `/c/${slug}/campaigns`, label: "Campaigns", icon: Megaphone },
+        // D-997: what each of the business's numbers says when called, in one agent's voice.
+        { href: `/c/${slug}/inbound`, label: "Inbound", icon: PhoneIncoming },
         { href: `/c/${slug}/agents`, label: "Agents", icon: Bot },
         { href: `/c/${slug}/calls`, label: "Call logs", icon: PhoneCall },
         { href: `/c/${slug}/leads`, label: "Leads", icon: Users },

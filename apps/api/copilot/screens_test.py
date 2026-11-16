@@ -432,8 +432,8 @@ def _billing_view_labels() -> list[str]:
 
 
 def test_the_tab_parsers_still_find_the_tabs() -> None:
-    assert len(_agent_tab_labels()) >= 5
-    assert "Script" in _agent_tab_labels()
+    assert len(_agent_tab_labels()) >= 4
+    assert "Settings" in _agent_tab_labels()
     assert len(_billing_view_labels()) >= 3
 
 
@@ -446,7 +446,6 @@ def test_the_directory_names_every_agent_tab_and_where_the_script_is() -> None:
     directory = screens_module.render_directory()
     for tab in screens_module.AGENT_PAGE_TABS:
         assert f"{tab.name} (" in directory
-    assert "Script (the whole script" in directory
 
 
 #: "on the agent's Training tab", "the Statements tab": a capitalised name of up to three

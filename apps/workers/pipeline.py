@@ -894,7 +894,21 @@ async def _upsert_call_row(
         await _record_arm_the_engine_ran(
             session, tenant_id=tenant_id, call_id=resolved_id, engine_agent_ref=engine_agent_ref
         )
+        if engine_agent_ref:
+            # The inbound line whose engine agent took the call (D-997), from the route,
+            # which keeps a line's earlier refs after a workspace move recreated it.
+            await session.execute(
+                text(_STAMP_LINE_SQL),
+                {"cid": resolved_id, "ref": engine_agent_ref, "tid": tenant_id},
+            )
     return resolved_id
+
+
+_STAMP_LINE_SQL: Final = (
+    "UPDATE calls SET inbound_line_id = r.inbound_line_id FROM engine_agent_routes r "
+    "WHERE calls.id = :cid AND calls.inbound_line_id IS NULL AND r.engine_agent_ref = :ref "
+    "AND r.tenant_id = :tid AND r.inbound_line_id IS NOT NULL"
+)
 
 
 async def _record_arm_the_engine_ran(

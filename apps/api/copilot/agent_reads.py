@@ -148,7 +148,7 @@ async def _settings_part(session: AsyncSession, agent_id: UUID) -> list[str]:
 
 
 def _target(target: str, stages: Sequence[ConversationStage]) -> str:
-    """A branch target in the Script tab's words (`sectionParts.ts::targetLabel`)."""
+    """A branch target in the script's words (`sectionParts.ts::targetLabel`)."""
     if target == END_OF_CALL:
         return "End the call"
     if target == HAND_OVER:
@@ -172,7 +172,7 @@ def _then(index: int, stages: Sequence[ConversationStage]) -> str:
 
 
 def _step_lines(stages: Sequence[ConversationStage]) -> list[str]:
-    lines = [f"Steps ({len(stages)}), in order, numbered and named as on the Script tab:"]
+    lines = [f"Steps ({len(stages)}), in order, numbered and named as in its script:"]
     for index, stage in enumerate(stages):
         lines.append(f"{index + 1}. {stage.name.strip()}: {' '.join(stage.instruction.split())}")
         if stage.mode == "say":
@@ -211,7 +211,7 @@ def _style_lines(script: CallScript) -> list[str]:
 
 
 def script_text(script: CallScript, *, direction: str) -> list[str]:
-    """The whole script as an owner reads it on the Script tab, in the tab's own labels
+    """The whole script as an owner reads it in its script, in the tab's own labels
     (`agents/script_edits.PART_LABELS`, `scriptDiff.ts`), for Pip to print when asked.
 
     Steps keep their stored order and names, so the owner can name one back ("delete step
@@ -225,7 +225,7 @@ def script_text(script: CallScript, *, direction: str) -> list[str]:
 
 
 def _named_variables(line: str, labels: Mapping[str, str]) -> str:
-    """`{{lead_name}}` as the Script tab shows it, `{Caller's name}`: the key is a code
+    """`{{lead_name}}` as the script shows it, `{Caller's name}`: the key is a code
     name, the label is the owner's."""
     names: dict[str, str | None] = {
         key: "{" + labels.get(key, key.replace("_", " ")) + "}"
@@ -240,7 +240,7 @@ def _script_lines(script: CallScript, direction: str) -> list[str]:
         lines = ["A hand-written script (not in steps). Its text:", body[:_RAW_SHOWN]]
         if len(body) > _RAW_SHOWN:
             lines.append(
-                f"(the first {_RAW_SHOWN} of {len(body)} characters; the rest is on the Script tab)"
+                f"(the first {_RAW_SHOWN} of {len(body)} characters; the rest is in its script)"
             )
         return lines
     script = upgrade_to_v2(script)
@@ -305,7 +305,7 @@ async def _script_part(session: AsyncSession, agent_id: UUID) -> list[str]:
         heard += f", and only once the agent is on again (it is {status})"
     if draft is not None:
         state = (
-            f"The Script tab shows a working copy saved {ist_date(draft.saved_at)} that is NOT "
+            f"Its script shows a working copy saved {ist_date(draft.saved_at)} that is NOT "
             f"live; {heard}. To make it live: `agent_script_put_live`."
         )
         shown = draft.script
@@ -313,12 +313,12 @@ async def _script_part(session: AsyncSession, agent_id: UUID) -> list[str]:
         return ["This agent has no script written yet."]
     elif pending:
         state = (
-            f"The Script tab shows version {loaded.version}, saved and waiting to go live; "
+            f"Its script shows version {loaded.version}, saved and waiting to go live; "
             f"{heard} (`agent_changes_apply` / `agent_script_discard`)."
         )
         shown = loaded.script
     else:
-        state = f"The Script tab shows version {loaded.version}; {heard}."
+        state = f"Its script shows version {loaded.version}; {heard}."
         shown = loaded.script
     body = script_text(shown, direction=str(direction))
     lines = [state, "--- the script ---", *body, "--- end of the script ---"]

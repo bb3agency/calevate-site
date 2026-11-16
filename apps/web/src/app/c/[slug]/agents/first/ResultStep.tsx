@@ -38,6 +38,7 @@ import { CallStage } from "./LiveStage";
 import { OpeningLine } from "./OpeningLine";
 import { StepScreen } from "./shell";
 import { FIRST } from "../../_ui/copy";
+import { scriptsHome } from "../[agentId]/sections/agentSections";
 import { Why } from "@/components/why";
 
 /** A call that did not connect has nothing to show; it gets "Try again" instead. */
@@ -71,7 +72,7 @@ export function ResultStep({
 }) {
   const { session, href } = useClientRealm();
   const detail = useCall(session, call.id);
-  const scriptHref = href(`/c/${session.orgSlug}/agents/${agent.id}?section=script`);
+  const scriptHref = href(scriptsHome(session.orgSlug, agent.direction));
   const missed = lookup(NOT_CONNECTED, call.status);
 
   if (missed) {
@@ -198,7 +199,7 @@ function ChangeIt({ scriptHref, callHref }: { scriptHref: string; callHref: stri
       <div className="mt-2 flex flex-wrap gap-2">
         <Link href={scriptHref} className={SECONDARY_BUTTON}>
           <PencilLine aria-hidden className="h-4 w-4" />
-          Change its script
+          Change what it says
         </Link>
         <Link href={callHref} className={SECONDARY_BUTTON}>
           <FileText aria-hidden className="h-4 w-4" />

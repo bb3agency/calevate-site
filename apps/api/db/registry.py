@@ -534,6 +534,10 @@ TENANT_TABLES = [
     # The company training every agent of a client is given (founder, 16 Nov 2026), and its
     # retired materials table (D-996), kept until a later release drops it. FORCE-RLS'd.
     "company_trainings",
+    # Inbound lines (D-997): what a number says, in one agent's voice, and the knowledge
+    # sources each was written from. FORCE-RLS'd; lines archived, never deleted.
+    "inbound_lines",
+    "inbound_line_sources",
     "company_training_materials",
     # A client's existing number forwarded to its Calevate number (D-746, migration
     # d6f2b8a41c73): the line and its findings, each verification-call run (CAS-updated;

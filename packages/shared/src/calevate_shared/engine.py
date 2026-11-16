@@ -4096,6 +4096,11 @@ class AgentConfig(BaseModel):
 
     tenant_id: str
     agent_id: str
+    #: Which of the agent's engine agents this config is, when it is not the agent's own: an
+    #: inbound line's id (D-997). The adapter keys its find-by-name tag on it, so a line's
+    #: engine agent is never found as, and written over, its agent's. None for the agent's
+    #: own. Excluded from every dump: stored configs and their digests do not move.
+    holder: str | None = Field(default=None, exclude=True)
     name: str
     direction: Literal["inbound", "outbound", "both"]
     language_primary: str = DEFAULT_PRIMARY_LANGUAGE

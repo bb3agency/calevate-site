@@ -547,10 +547,17 @@ async def price_recorded_number(session: AsyncSession, *, number_id: UUID) -> bo
     return True
 
 
+#: A number on a published inbound line is answered by the line's own engine agent (D-997),
+#: whatever its voice agent's own direction; the voice agent's status and deletion still
+#: decide whether anything answers, so a switched-off or deleted voice silences its lines.
 _ATTACHMENT_SQL: Final = (
-    "SELECT n.engine_number_ref, n.provider, n.released_at, a.direction, a.status, "
-    f"a.engine_agent_ref, a.deleted_at, n.tenant_id, {number_on_hold_sql('n')} "
-    "FROM phone_numbers n LEFT JOIN agents a ON a.id = n.agent_id WHERE n.id = :nid"
+    "SELECT n.engine_number_ref, n.provider, n.released_at, "
+    "CASE WHEN l.engine_agent_ref IS NOT NULL THEN 'inbound' ELSE a.direction END, a.status, "
+    "COALESCE(l.engine_agent_ref, a.engine_agent_ref), a.deleted_at, n.tenant_id, "
+    f"{number_on_hold_sql('n')} "
+    "FROM phone_numbers n LEFT JOIN agents a ON a.id = n.agent_id "
+    "LEFT JOIN inbound_lines l ON l.id = n.inbound_line_id AND l.archived_at IS NULL "
+    "AND l.published_at IS NOT NULL WHERE n.id = :nid"
 )
 
 

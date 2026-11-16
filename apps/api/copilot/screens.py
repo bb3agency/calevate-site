@@ -175,6 +175,13 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("outbound", "calling list", "dialer", "broadcast"),
     ),
     Screen(
+        route="/c/{slug}/inbound",
+        name="Inbound",
+        group=None,
+        summary="What each number says when called, and in whose voice.",
+        aliases=("incoming calls",),
+    ),
+    Screen(
         route="/c/{slug}/agents",
         name="Agents",
         group=None,
@@ -535,18 +542,17 @@ class AgentTab:
 #: `apps/web/.../agents/[agentId]/sections/agentSections.tsx`, held equal by `screens_test.py`,
 #: because Pip once sent an owner to "the Training tab" for the script, which is on Script.
 #: `holds` is what `AgentWorkspace.tsx` renders under each tab.
+#: Four tabs (D-997): an agent is the voice and has no script of its own; what it says lives
+#: in Inbound (each number) and Campaigns.
 AGENT_PAGE_TABS: Final[tuple[AgentTab, ...]] = (
     AgentTab("Overview", "how it is doing, latest calls"),
+    AgentTab("Actions", "what it does during a call"),
     AgentTab(
-        "Script",
-        "the whole script: opening, why it calls, steps, ending, how it speaks, push-backs, "
-        "example call",
+        "Settings",
+        "its voice, details it writes down, call handling, hand-over, caller memory, alerts, "
+        "AI model, hours",
     ),
     AgentTab("Training", "questions to answer, mistakes, try it, what it knows, tests"),
-    AgentTab("Actions", "what it does during a call"),
-    AgentTab("What it notes", "details it writes down"),
-    AgentTab("Voice", "its voice"),
-    AgentTab("Settings", "call handling, hand-over, caller memory, alerts, AI model, hours"),
 )
 
 

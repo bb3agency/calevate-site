@@ -120,7 +120,9 @@ async def run_after_call_actions(ctx: dict[str, Any], payload: dict[str, Any]) -
             await session.execute(
                 text(
                     "SELECT c.agent_id, c.engine_call_id, c.direction, c.from_e164, c.to_e164, "
-                    "e.data FROM calls c LEFT JOIN call_extractions e ON e.call_id = c.id "
+                    "e.data, l.actions_off FROM calls c "
+                    "LEFT JOIN call_extractions e ON e.call_id = c.id "
+                    "LEFT JOIN inbound_lines l ON l.id = c.inbound_line_id "
                     "WHERE c.id = :cid"
                 ),
                 {"cid": call_id},
@@ -132,8 +134,10 @@ async def run_after_call_actions(ctx: dict[str, Any], payload: dict[str, Any]) -
         facts = CallFacts(call_ref=row[1] or str(call_id), caller_e164=caller, direction=row[2])
         extracted = row[5] if isinstance(row[5], dict) else {}
         received = {k: v for k, v in extracted.items() if isinstance(v, str | int | float | bool)}
+        # The actions the inbound line that took the call switched off (D-997).
+        off = set(row[6] or ())
         for tool in await list_tools(session, agent_id=UUID(str(row[0]))):
-            if not tool.enabled or tool.trigger != "after_call":
+            if not tool.enabled or tool.trigger != "after_call" or tool.name in off:
                 continue
             if await _after_call_done(call_id, tool.id):
                 continue

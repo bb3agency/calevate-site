@@ -300,7 +300,7 @@ describe("what it knows", () => {
     expect(within(list).getByText(/Not yet on Front desk/)).toBeTruthy();
     expect(within(list).getByText(/Being added to Caller/)).toBeTruthy();
     const link = within(list).getByRole("link", { name: "Open Front desk’s script" });
-    expect(link.getAttribute("href")).toContain("/agents/agent-1?section=script");
+    expect(link.getAttribute("href")).toBe("/c/acme/agents/agent-1");
     expect(within(list).getAllByRole("link")).toHaveLength(1);
   });
 });

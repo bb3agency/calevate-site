@@ -403,24 +403,6 @@ const TRAINING_READS = {
   },
 };
 
-/** What the Script tab's builder reads: the script in today's shape, its proposal and rules. */
-const SCRIPT_TAB_READS = {
-  "/v1/agents/agent-1/script": {
-    script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram." },
-    draft: null,
-    stored_schema_version: 2,
-    context: null,
-    version: 4,
-    is_freeform: false,
-    has_pending: false,
-    standard_variables: [],
-  },
-  "/v1/agents/agent-1/script/proposal": { proposal: null },
-  "/v1/campaigns/agents/agent-1/holder": { campaign_id: null, campaign_name: null },
-  "/v1/agents/agent-1/script/proposed-rules": [],
-  "POST /v1/agents/agent-1/script/preview": { compiled: "", instructions_chars: 1000, instructions_limit: 8000, native_steps: 0 },
-};
-
 /** The value rendered under a `dt`, read off the `dd` beside it. */
 /** The value beside a label: a `<dd>` after its `<dt>`, or a `SettingRow`'s value cell. */
 function factValue(label: string): string {
@@ -429,6 +411,13 @@ function factValue(label: string): string {
   const value = term.parentElement?.parentElement?.nextElementSibling?.firstElementChild;
   expect(value, `no value beside "${label}"`).toBeTruthy();
   return value?.textContent ?? "";
+}
+
+/** The Voice section of the Settings tab. */
+function voiceSection(): HTMLElement {
+  const section = screen.getByRole("heading", { name: "Voice" }).closest("section");
+  expect(section, "no Voice section").toBeTruthy();
+  return section as HTMLElement;
 }
 
 describe("which script callers are actually hearing", () => {
@@ -577,7 +566,8 @@ describe("which voice callers are actually hearing", () => {
 
     await screen.findByText("Voice callers hear");
     expect(container.textContent).not.toContain("Voice quality");
-    expect(container.textContent).not.toContain("/ min");
+    // The model's own surcharges share the Settings tab; the claim is about the voice.
+    expect(voiceSection().textContent).not.toContain("/ min");
   });
 
   it("prices the voice CALLERS HEAR, not the one waiting to go live", async () => {
@@ -845,7 +835,7 @@ describe("the numbers come from the server", () => {
       "We cannot put a per-minute price on this voice for your account right now.",
     );
     // And no invented figure beside it: absent renders absent (hard rule 7).
-    expect(container.textContent).not.toContain("/ min");
+    expect(voiceSection().textContent).not.toContain("/ min");
   });
 
   it("reads the call cap off the API instead of hardcoding ten minutes", async () => {
@@ -2729,42 +2719,14 @@ describe("the header holds the one primary, and Overview keeps the guarantee fir
     expect(guarantee.closest("details")).toBeNull();
   });
 
-  it("puts the script builder itself in the Script tab", async () => {
+  it("opens an old Script address on Overview, with a way to Inbound and Campaigns", async () => {
     openSection("script");
-    await renderClientPage(page, routes(SCRIPT_TAB_READS));
+    await renderClientPage(page, routes());
 
-    const opening = await screen.findByRole("textbox", { name: "Opening line" });
-    expect((opening as HTMLInputElement).value).toBe("Namaskaram.");
-    expect(screen.getByRole("heading", { level: 3, name: "Tell Pip what to change" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Script" }).getAttribute("aria-selected")).toBe("true");
-  });
-
-  it("tells an agent with no script that the script is what unblocks it", async () => {
-    await renderClientPage(
-      page,
-      routes({
-        "/v1/agents/agent-1": agent({ status: "draft", published: false }),
-        "/v1/agents/agent-1/script": {
-          script: {
-            opening_line: "",
-            steps: [],
-            faqs: [],
-            faq_fallback: "",
-            end_call_extra_rules: [],
-            variables: [],
-            raw_override: null,
-          },
-          version: null,
-          is_freeform: false,
-          has_pending: false,
-          standard_variables: [],
-        },
-      }),
-    );
-
-    expect(
-      await screen.findByText("Write its script first."),
-    ).toBeTruthy();
+    expect(await screen.findByText("Scripts now live in Inbound and Campaigns.")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("link", { name: "Open Inbound" }).getAttribute("href")).toBe("/c/acme/inbound");
+    expect(screen.getByRole("link", { name: "Open Campaigns" }).getAttribute("href")).toBe("/c/acme/campaigns");
   });
 });
 
@@ -2902,18 +2864,15 @@ describe("progressive disclosure defaults", () => {
     expect(container.querySelector("main details, [role='main'] details")).toBeNull();
   });
 
-  it("shows seven plain tabs in one tab list, Overview open first", async () => {
+  it("shows four plain tabs in one tab list, Overview open first", async () => {
     await renderClientPage(page, routes());
     await screen.findByText("Reception");
     const list = screen.getByRole("tablist", { name: "About this agent" });
     expect(within(list).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
       "Overview",
-      "Script",
-      "Training",
       "Actions",
-      "What it notes",
-      "Voice",
       "Settings",
+      "Training",
     ]);
     const overview = within(list).getByRole("tab", { name: "Overview" });
     expect(overview.getAttribute("aria-selected")).toBe("true");
@@ -2926,12 +2885,12 @@ describe("progressive disclosure defaults", () => {
     const overview = screen.getByRole("tab", { name: "Overview" });
     overview.focus();
     fireEvent.keyDown(overview, { key: "ArrowRight" });
-    const script = screen.getByRole("tab", { name: "Script" });
-    expect(document.activeElement).toBe(script);
+    const actions = screen.getByRole("tab", { name: "Actions" });
+    expect(document.activeElement).toBe(actions);
     // Manual activation: moving the focus opens nothing until Enter.
     expect(nav.push).not.toHaveBeenCalled();
-    fireEvent.keyDown(script, { key: "Enter" });
-    expect(nav.push).toHaveBeenCalledWith("/c/acme/agents/agent-1?section=script", { scroll: false });
+    fireEvent.keyDown(actions, { key: "Enter" });
+    expect(nav.push).toHaveBeenCalledWith("/c/acme/agents/agent-1?section=actions", { scroll: false });
   });
 
   it("opens call handling and the model in Settings from their old addresses", async () => {
@@ -3191,7 +3150,7 @@ describe("Show me around points at what the agent page draws (D-855)", () => {
     await screen.findByRole("button", { name: "Show me around" });
     const found = Object.fromEntries(TOUR_STEPS.map((step) => [step.id, step.target(document) !== null]));
     // The assistant's launcher is the console header's, which a page render does not mount.
-    expect(found).toEqual({ script: true, pip: false, try: true, teach: true, voice: true });
+    expect(found).toEqual({ pip: false, try: true, teach: true, voice: true });
   });
 
   it("is not offered on a deleted agent", async () => {

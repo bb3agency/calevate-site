@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 
 /**
- * An agent address that used to be its own page and is now a tab of the agent page (D-748's
- * `/test`, D-825's `/script`): answered with a redirect, the way the retired billing routes
+ * An agent address that used to be its own page (D-748's `/test`, which is now in Training,
+ * and `/script`, which opens Overview since D-997): answered with a redirect, the way the retired billing routes
  * are (`lib/billingRedirect.ts`), with every other query parameter (an operator's `view_as`)
  * carried and `section` set.
  */

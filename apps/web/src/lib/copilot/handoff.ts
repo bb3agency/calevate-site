@@ -26,8 +26,8 @@ const HANDOFF: Record<string, Handoff> = {
     path: (slug, id) => `/c/${slug}/agents/${id}?section=training#${PRACTICE_CALLERS_ANCHOR}`,
   },
   agent_script_suggest: {
-    label: "Go to the script",
-    path: (slug, id) => `/c/${slug}/agents/${id}?section=script`,
+    label: "Go to the agent",
+    path: (slug, id) => `/c/${slug}/agents/${id}`,
   },
 };
 

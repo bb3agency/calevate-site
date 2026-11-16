@@ -2114,7 +2114,7 @@ class _CaptureField(BaseModel):
     """One detail as Pip names it. Only the label is required: a model on a provider that
     does not enforce the strict schema leaves out what it considers obvious (founder, 3 Nov
     2026, "`fields` was missing or the wrong shape" four times over), so the key is made
-    from the label and the rest default the way the What it notes tab's form does."""
+    from the label and the rest default the way the Settings tab's form does."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -2300,7 +2300,7 @@ async def _invert_capture_fields(
     if status == "live":
         raise UndoRefusedError(
             "that agent has gone live since, so changing its list back would apply to its next "
-            "call — change it on the agent's What it notes tab instead"
+            "call — change it on the agent's Settings tab instead"
         )
     if await _current_fields(session, agent_id) != list(record.result_state.get("fields", [])):
         raise UndoRefusedError(
@@ -2368,7 +2368,7 @@ AGENT_CAPTURE_FIELDS_SET: Final = ActionTool(
     permission="org:manage",
     object_type="agent",
     audit_action="agent.extraction_schema_set",
-    where="on the agent's What it notes tab",
+    where="on the agent's Settings tab",
     schema=action_schema(
         "agent_capture_fields_set",
         f"Set {_CAPTURE_FIELDS_WHAT} For a DRAFT or PAUSED agent; for a LIVE agent use "
@@ -2386,7 +2386,7 @@ AGENT_CAPTURE_FIELDS_SET_LIVE: Final = ActionTool(
     permission="org:manage",
     object_type="agent",
     audit_action="agent.extraction_schema_set",
-    where="on the agent's What it notes tab",
+    where="on the agent's Settings tab",
     schema=action_schema(
         "agent_capture_fields_set_live",
         f"Propose setting {_CAPTURE_FIELDS_WHAT} For a LIVE agent: it applies from its next "
@@ -2478,7 +2478,7 @@ AGENT_CHANGES_APPLY: Final = ActionTool(
     permission="org:manage",
     object_type="agent",
     audit_action="agent.changes_applied",
-    where="on the agent's Script tab",
+    where="on the agent's page",
     schema=action_schema(
         "agent_changes_apply",
         "Propose putting a live agent's saved-but-not-live script change in front of "

@@ -58,7 +58,7 @@ function Page() {
         Try it
       </button>
       <div role="tablist" aria-label={AGENT_TABS_LABEL}>
-        {["overview", "script", "training", "voice"].map((id) => (
+        {["overview", "actions", "settings", "training"].map((id) => (
           <button key={id} type="button" role="tab" id={`r1-tab-${id}`} aria-selected={id === "overview"}>
             {id}
           </button>
@@ -96,11 +96,11 @@ describe("starting and moving through the tour", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("opens on step 1 of 5 with Next focused and no Back", async () => {
+  it("opens on step 1 of 4 with Next focused and no Back", async () => {
     await renderTour();
     await press(trigger());
     const dialog = tour();
-    expect(within(dialog).getByText("Step 1 of 5")).toBeTruthy();
+    expect(within(dialog).getByText("Step 1 of 4")).toBeTruthy();
     expect(dialog.getAttribute("aria-labelledby")).toBeTruthy();
     expect(within(dialog).getByRole("heading", { name: TOUR_STEPS[0].title })).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: "Back" })).toBeNull();
@@ -111,19 +111,19 @@ describe("starting and moving through the tour", () => {
     await renderTour();
     await press(trigger());
     await press(within(tour()).getByRole("button", { name: "Next" }));
-    expect(within(tour()).getByText("Step 2 of 5")).toBeTruthy();
+    expect(within(tour()).getByText("Step 2 of 4")).toBeTruthy();
     expect(within(tour()).getByRole("heading", { name: TOUR_STEPS[1].title })).toBeTruthy();
     const live = tour().querySelector('[aria-live="polite"]');
-    expect(live?.textContent).toContain(`Step 2 of 5. ${TOUR_STEPS[1].title}.`);
+    expect(live?.textContent).toContain(`Step 2 of 4. ${TOUR_STEPS[1].title}.`);
     await press(within(tour()).getByRole("button", { name: "Back" }));
-    expect(within(tour()).getByText("Step 1 of 5")).toBeTruthy();
+    expect(within(tour()).getByText("Step 1 of 4")).toBeTruthy();
   });
 
-  it("ends with Done on the fifth step", async () => {
+  it("ends with Done on the fourth step", async () => {
     await renderTour();
     await press(trigger());
-    for (let i = 0; i < 4; i += 1) await press(within(tour()).getByRole("button", { name: "Next" }));
-    expect(within(tour()).getByText("Step 5 of 5")).toBeTruthy();
+    for (let i = 0; i < 3; i += 1) await press(within(tour()).getByRole("button", { name: "Next" }));
+    expect(within(tour()).getByText("Step 4 of 4")).toBeTruthy();
     await press(within(tour()).getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -203,10 +203,10 @@ describe("remembering that the tour was seen", () => {
 
 describe("?tour=1, the link the first-call screen can use", () => {
   it("opens the tour once and takes the parameter out of the address", async () => {
-    nav.params = new URLSearchParams(`section=voice&${TOUR_PARAM}=1`);
+    nav.params = new URLSearchParams(`section=settings&${TOUR_PARAM}=1`);
     await renderTour();
     expect(tour()).toBeTruthy();
-    expect(nav.replace).toHaveBeenCalledWith("/c/acme/agents/agent-1?section=voice", { scroll: false });
+    expect(nav.replace).toHaveBeenCalledWith("/c/acme/agents/agent-1?section=settings", { scroll: false });
   });
 
   it("puts focus on the trigger when it closes, since nothing had focus before", async () => {
@@ -222,15 +222,14 @@ describe("?tour=1, the link the first-call screen can use", () => {
 });
 
 describe("every step points at something on the page", () => {
-  it("finds the Script, Training and Voice tabs, Try it and the assistant's launcher", async () => {
+  it("finds the Training and Settings tabs, Try it and the assistant's launcher", async () => {
     await renderTour();
-    expect(TOUR_STEPS).toHaveLength(5);
+    expect(TOUR_STEPS).toHaveLength(4);
     expect(TOUR_STEPS.map((step) => step.target(document)?.textContent)).toEqual([
-      "script",
       ASSISTANT_NAME,
       "Try it",
       "training",
-      "voice",
+      "settings",
     ]);
   });
 });

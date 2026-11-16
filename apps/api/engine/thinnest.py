@@ -2120,7 +2120,13 @@ def _own_model_scope_of(agent: dict[str, Any]) -> bool | None:
 
 
 def _name_tag(cfg: AgentConfig) -> str:
-    digest = hashlib.sha256(f"{cfg.tenant_id}:{cfg.agent_id}".encode()).hexdigest()[:12]
+    """The tag `create_agent` finds an agent it made earlier by. A holder (an inbound line)
+    is part of it, or creating a line's agent would find and overwrite the agent's own; the
+    agent's own keeps the tag it has always had, so no live agent is renamed."""
+    key = f"{cfg.tenant_id}:{cfg.agent_id}"
+    if cfg.holder:
+        key = f"{key}:{cfg.holder}"
+    digest = hashlib.sha256(key.encode()).hexdigest()[:12]
     return f"{_NAME_TAG_PREFIX}{digest}"
 
 

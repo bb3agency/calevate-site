@@ -334,7 +334,7 @@ describe("new agent: step 3, the script written for the business", () => {
     expect(screen.getByText("Book a site visit")).toBeTruthy();
     expect(screen.getByText("“Hello, Lakeview Properties here.”")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Edit it" }).getAttribute("href")).toBe(
-      `/c/acme/agents/${AGENT}?section=script&from=starter`,
+      `/c/acme/agents/${AGENT}`,
     );
     fireEvent.click(screen.getByRole("button", { name: "Looks good, continue" }));
     expect(await screen.findByRole("heading", { name: "What it writes down" })).toBeTruthy();

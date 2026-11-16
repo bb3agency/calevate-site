@@ -190,9 +190,9 @@ async def handles_if_no_publish_in_flight(
     So an arm's route is compared against the ARM's own recorded copies: since D-806 an arm
     carries the client's knowledge as its own documents (`kb/service.vendor_targets`), each
     claimed with its `variant_id`, and so is a test copy's route against the copy's own
-    (D-964). A ref that is none of these is a moved agent's old vendor agent awaiting
-    deletion, of which we record nothing, so its recorded set is empty and anything it lists
-    reads `unaccounted`.
+    (D-964) and an inbound line's against the line's own (D-997). A ref that is none of
+    these is a moved agent's old vendor agent awaiting deletion, of which we record nothing,
+    so its recorded set is empty and anything it lists reads `unaccounted`.
 
     The alternative — filtering arm routes out of `claim_kb_drift_batch` — was rejected
     twice over. `claim_kb_drift_batch` runs untenanted and `agents` is FORCE-RLS'd on
@@ -272,6 +272,16 @@ async def handles_if_no_publish_in_flight(
     ).scalar()
     if copy_ref == engine_agent_ref:
         return frozenset(await recorded_handles_of_agent(session, agent_id, test_copy=True))
+    line_id = (
+        await session.execute(
+            text("SELECT id FROM inbound_lines WHERE agent_id = :aid AND engine_agent_ref = :ref"),
+            {"aid": agent_id, "ref": engine_agent_ref},
+        )
+    ).scalar()
+    if line_id is not None:
+        return frozenset(
+            await recorded_handles_of_agent(session, agent_id, inbound_line_id=UUID(str(line_id)))
+        )
     return frozenset()
 
 

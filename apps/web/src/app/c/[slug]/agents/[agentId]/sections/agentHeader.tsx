@@ -15,9 +15,8 @@
  *   (D-838); a refused move shows its reason, with setup links when it is missing facts.
  * - **Try it** opens the Training tab, where the chat and the practice call are (D-825),
  *   through the tabs' own unsaved-edits guard (D-826) like the ⋯ menu's Delete.
- * - **Put it live** is the one filled button, and only while the script's draft differs
- *   from what callers hear. It is the same step as the builder's (`script/PutLive.tsx`), so
- *   on the Script tab, where the builder shows its own, the header leaves it out.
+ * - **Put it live** is the one filled button, and only while a draft differs from what
+ *   callers hear. It is the same step as the builder's (`script/PutLive.tsx`).
  * - A deleted agent has one move: **Bring it back**.
  * - **Show me around** (`tour`, live agents only) sits under the header line rather than
  *   among the actions, so it never competes with them (D-855).
@@ -27,7 +26,6 @@
  */
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { MessageSquareText, PhoneCall } from "lucide-react";
 
@@ -55,26 +53,20 @@ import { PromoWarning } from "../script/PromoWarning";
 import { PutLiveDialog, usePutLive } from "../script/PutLive";
 import { TRY_IT_ANCHOR } from "../tour/tourModel";
 import { hasUnpublished, workingCopy } from "../script/scriptDraft";
-import { MainTask } from "./mainTask";
 
 export function AgentHeader({
   agent,
   slug,
-  onScriptTab = false,
   tour,
 }: {
   agent: Agent;
   slug: string;
-  /** The Script tab is open, and the builder there carries its own Put it live. */
-  onScriptTab?: boolean;
   /** The page tour's trigger, which also holds the tour. */
   tour?: ReactNode;
 }) {
   const { href } = useClientRealm();
-  const router = useRouter();
   const session = useClientSession();
   const pending = usePendingChanges(session, agent.id);
-  const script = useScript(session, agent.id);
   const move = useAgentLifecycle(session, agent.id);
   const undo = useUndoScript(session, agent.id);
   /* Bringing an agent back or getting it ready changes which buttons are offered, so the one
@@ -106,7 +98,6 @@ export function AgentHeader({
   // Guarded by the layout when the header is drawn inside it; a plain link otherwise.
   const training = useSectionLink("training");
   const settings = useSectionLink("settings");
-  const scriptTab = useSectionLink("script");
 
   const items: RowMenuItem[] = deleted
     ? []
@@ -142,31 +133,19 @@ export function AgentHeader({
   // The tier it speaks in, and that tier's rate, beside the state (Clear or Studio only).
   const tierLine = deleted ? null : voiceTierLine(pending.data);
   const spendLine = spend.isSuccess && !deleted ? agentMonthLine(spend.data, agent.id) : null;
-  // The agent's main task, from its script's goal, first under the name so an owner with
-  // several agents sees at once what this one is for (`MainTask`).
-  const openScript = () => (scriptTab ? scriptTab.go() : router.push(href(`${base}?section=script`)));
-  let taskLine: ReactNode = null;
-  if (deleted || script.isPending) taskLine = null;
-  else if (script.isError)
-    taskLine = <span className="mb-1 block">We could not read its main task just now.</span>;
-  else
-    taskLine = <MainTask agentId={agent.id} out={script.data} canWrite={write.allowed} openScript={openScript} />;
   // Three short facts, each on its own wrap unit, so a phone breaks between facts rather
   // than mid-sentence (responsive-layout-patterns).
   const detail = (
-    <>
-      {taskLine}
-      <span className="flex flex-wrap gap-x-3 gap-y-0.5">
-        {[stateLine, tierLine, spendLine]
-          .filter((part): part is string => Boolean(part))
-          .map((part, index) => (
-            <span key={part} className={index === 0 ? undefined : "whitespace-nowrap"}>
-              {index > 0 && <span aria-hidden className="mr-3 text-ink-faint">·</span>}
-              {part}
-            </span>
-          ))}
-      </span>
-    </>
+    <span className="flex flex-wrap gap-x-3 gap-y-0.5">
+      {[stateLine, tierLine, spendLine]
+        .filter((part): part is string => Boolean(part))
+        .map((part, index) => (
+          <span key={part} className={index === 0 ? undefined : "whitespace-nowrap"}>
+            {index > 0 && <span aria-hidden className="mr-3 text-ink-faint">·</span>}
+            {part}
+          </span>
+        ))}
+    </span>
   );
 
   const restoreButton = deleted && moves.includes("restore") && (
@@ -231,14 +210,12 @@ export function AgentHeader({
                   <MessageSquareText aria-hidden className="h-4 w-4" />
                   Try it
                 </Link>
-                {!onScriptTab && (
-                  <PutLiveButton
-                    agent={agent}
-                    canWrite={write.allowed}
-                    reason={write.reason}
-                    voiceLine={tierLine}
-                  />
-                )}
+                <PutLiveButton
+                  agent={agent}
+                  canWrite={write.allowed}
+                  reason={write.reason}
+                  voiceLine={tierLine}
+                />
               </>
             )}
           </div>

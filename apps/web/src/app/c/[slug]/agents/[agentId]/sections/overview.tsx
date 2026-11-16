@@ -9,19 +9,23 @@
  * truthful-answer guarantee and the two switches under it are never behind a tab switch
  * (doctrine §8 rule 7). On a phone the checklist folds to its "N of M done" summary so the
  * notices stay near the top. Hearing the agent for yourself is in Training.
+ *
+ * The agent has no script of its own (D-997), so the checklist asks for none and Overview
+ * opens on one line saying where scripts are written now, which is also where an old
+ * `?section=script` link lands.
  */
 
+import Link from "next/link";
 import { RotateCw } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { ProblemNotice, Skeleton, formatINR } from "@/components/ui";
+import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatINR } from "@/components/ui";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { TEXT_ACTION } from "@/components/console/section";
 import { movesFor } from "@/lib/agentState";
 import { useAgentLifecycle, type Agent, type LifecycleMove } from "@/lib/api/agents";
 import { useAgreementsReadiness, type LegalReadiness } from "@/lib/api/agreements";
 import { usePendingChanges, type PendingState } from "@/lib/api/publishing";
-import { useScript, type ScriptOut } from "@/lib/api/script";
 import { useTrialPanel } from "@/lib/api/trialCalls";
 import { activeTrial, trialEndsAt, useWallet, walletState, type Wallet } from "@/lib/api/wallet";
 import { useCalls, useWriteAccess } from "@/lib/api/hooks";
@@ -47,7 +51,6 @@ function useIsPhone(): boolean {
 export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
   const session = useClientSession();
   const pending = usePendingChanges(session, agent.id);
-  const script = useScript(session, agent.id);
   // Switching on is a publish, and publish refuses an account with unaccepted agreements
   // (`legal/service.assert_agreements_accepted`), so it is on the list.
   const agreements = useAgreementsReadiness(session);
@@ -100,13 +103,13 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
 
   return (
     <div className="space-y-10">
+      <ScriptsMoved slug={slug} />
       <AgentReadinessPanel agentId={agent.id} slug={slug} />
       <CallerHelpSuggestion agent={agent} />
       <SetupChecklist
         agent={agent}
         slug={slug}
         pending={pending}
-        script={script}
         agreements={agreements}
         wallet={wallet}
         onTrial={onTrial}
@@ -122,6 +125,24 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
         callHref={(id) => href(`/c/${slug}/calls/${id}`)}
         headingLevel={3}
       />
+    </div>
+  );
+}
+
+/** Where this agent's words are written now (D-997): a line and a button to each place. */
+function ScriptsMoved({ slug }: { slug: string }) {
+  const { href } = useClientRealm();
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <p className="text-body text-ink-muted">Scripts now live in Inbound and Campaigns.</p>
+      <div className="flex flex-wrap gap-2">
+        <Link href={href(`/c/${slug}/inbound`)} className={SECONDARY_BUTTON_SM}>
+          Open Inbound
+        </Link>
+        <Link href={href(`/c/${slug}/campaigns`)} className={SECONDARY_BUTTON_SM}>
+          Open Campaigns
+        </Link>
+      </div>
     </div>
   );
 }
@@ -163,7 +184,6 @@ function SetupChecklist({
   agent,
   slug,
   pending,
-  script,
   agreements,
   wallet,
   onTrial,
@@ -171,7 +191,6 @@ function SetupChecklist({
   agent: Agent;
   slug: string;
   pending: Read<PendingState>;
-  script: Read<ScriptOut>;
   agreements: Read<LegalReadiness>;
   wallet: Read<Wallet>;
   onTrial: boolean;
@@ -188,40 +207,11 @@ function SetupChecklist({
   const working =
     agent.published && (agent.status === "live" || (onTrial && agent.status === "paused"));
 
-  if (pending.isLoading || script.isLoading || agreements.isLoading || wallet.isLoading) {
+  if (pending.isLoading || agreements.isLoading || wallet.isLoading) {
     return <Skeleton rows={4} label="Checking what is left to set up" />;
   }
 
   const items: ChecklistItem[] = [];
-
-  const scriptDone = script.data ? script.data.version !== null : undefined;
-  if (script.data) {
-    items.push({
-      id: "script",
-      label: "Write its script",
-      state: scriptDone ? "done" : "todo",
-      link: scriptDone ? undefined : { href: href(`${base}?section=script`), label: "Write" },
-    });
-  } else {
-    items.push(unknown("script", "Write its script", script));
-  }
-
-  // The greeting is the script's own line, never a notice (D-708): an agent whose script has
-  // none opens on nothing once its notices are off, and cannot make calls on some platforms.
-  if (script.data && scriptDone && !script.data.is_freeform) {
-    const greets = script.data.script.opening_line.trim() !== "";
-    items.push({
-      id: "opening",
-      label: "Give it an opening line",
-      state: greets ? "done" : "todo",
-      ...(greets
-        ? {}
-        : {
-            detail: "Its first words on every call.",
-            link: { href: href(`${base}?section=script`), label: "Write" },
-          }),
-    });
-  }
 
   if (pending.data?.voice) {
     const chosen = pending.data.voice.configured !== null;
@@ -229,7 +219,7 @@ function SetupChecklist({
       id: "voice",
       label: "Choose a voice",
       state: chosen ? "done" : "todo",
-      link: chosen ? undefined : { href: href(`${base}?section=voice`), label: "Choose" },
+      link: chosen ? undefined : { href: href(`${base}?section=settings`), label: "Choose" },
     });
   } else if (pending.isError) {
     items.push(unknown("voice", "Choose a voice", pending));
@@ -325,11 +315,7 @@ function SetupChecklist({
           ),
         }
       : {}),
-    ...(scriptDone === false && !working
-      ? { disabledReason: "Write its script first." }
-      : agreementsOutstanding && !working
-        ? { disabledReason: "Accept the agreements first." }
-        : {}),
+    ...(agreementsOutstanding && !working ? { disabledReason: "Accept the agreements first." } : {}),
   });
 
   const allDone = items.every((item) => item.state === "done");

@@ -3969,6 +3969,10 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # every agent was given and what it was written from, the business's own words.
         await session.execute(text("DELETE FROM company_training_materials"))
         await session.execute(text("DELETE FROM company_trainings"))
+        # Inbound lines (D-997): the owner's main task and each line's script, the business's
+        # own words. Numbers and calls keep their rows; their line link empties with it.
+        await session.execute(text("DELETE FROM inbound_line_sources"))
+        await session.execute(text("DELETE FROM inbound_lines"))
         # Leads held after hours for release (D-716): a hold left behind could still be
         # released into a call-back after the certificate said the account holds nothing.
         await session.execute(text("DELETE FROM lead_call_holds"))

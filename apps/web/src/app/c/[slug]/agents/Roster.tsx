@@ -263,7 +263,7 @@ function AgentRow({
           label={agent.name}
           items={[
             { id: "open", label: "Open", href: open },
-            { id: "script", label: "Edit its script", href: href(`/c/${slug}/agents/${agent.id}?section=script`) },
+            { id: "settings", label: "Open its settings", href: href(`/c/${slug}/agents/${agent.id}?section=settings`) },
             { id: "delete", label: "Delete…", tone: "danger", onSelect: () => onDelete(agent) },
           ]}
         />

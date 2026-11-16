@@ -258,7 +258,7 @@ function CallYou({
           onEnded={onEnded}
           creditHref={href(`/c/${session.orgSlug}/billing?tab=credits`)}
           chatHref={href(`/c/${session.orgSlug}/agents/${agent.id}?section=training`)}
-          voiceHref={href(`/c/${session.orgSlug}/agents/${agent.id}?section=voice`)}
+          voiceHref={href(`/c/${session.orgSlug}/agents/${agent.id}?section=settings`)}
         />
       </StepScreen>
     );
@@ -415,7 +415,7 @@ function CallYou({
         <p role="status" className="text-meta text-warn">
           {agent.name} needs a voice before it can ring you.{" "}
           <Link
-            href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=voice`)}
+            href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=settings`)}
             className="font-medium underline underline-offset-2"
           >
             Choose one

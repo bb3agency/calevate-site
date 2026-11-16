@@ -276,9 +276,9 @@ describe("what the form promises about the agent it is about to build", () => {
 
     await screen.findByText("Front desk is created");
     expect(container.textContent).toContain("Switched off. Next: write what it says.");
-    // The primary way on is the BUILDER: an agent with no script cannot be switched on.
-    const write = screen.getByRole("link", { name: /Write its script/ });
-    expect(write.getAttribute("href")).toBe("/c/acme/agents/agent-9?section=script");
+    // What it says is written on the inbound line it answers (D-997), not on the agent.
+    const write = screen.getByRole("link", { name: /Write what it says/ });
+    expect(write.getAttribute("href")).toBe("/c/acme/inbound");
     const open = screen.getByRole("link", { name: /Open Front desk/ });
     expect(open.getAttribute("href")).toBe("/c/acme/agents/agent-9");
     // The flow is gone: a second press would build a second agent nobody asked for.

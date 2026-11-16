@@ -666,6 +666,28 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             },
         )
         ids["training_proposal_id"] = str(training_proposal_id)
+        # An inbound line on A with a written draft (D-997), so B's every line route is swept.
+        line_id, line_proposal_id = uuid.uuid4(), uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, script_proposal) "
+                "VALUES (:i, :t, 'Adversarial line', :a, CAST(:p AS jsonb))"
+            ),
+            {
+                "i": line_id,
+                "t": tenant_id,
+                "a": uuid.UUID(ids["agent_id"]),
+                "p": json.dumps(
+                    {
+                        "id": str(line_proposal_id),
+                        "status": "ready",
+                        "requested_at": datetime.now(UTC).isoformat(),
+                    }
+                ),
+            },
+        )
+        ids["line_id"] = str(line_id)
+        ids["line_proposal_id"] = str(line_proposal_id)
         await s.execute(
             text(
                 "INSERT INTO data_rights_requests (id, tenant_id, kind, channel, subject_ref, "
@@ -843,6 +865,17 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/campaigns/{campaign_id}/test-calls", {}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/test-calls/{call_id}", {}, {}),
     ("DELETE", "/v1/company-training/proposal/{training_proposal_id}", {}, {}),
+    ("GET", "/v1/inbound-lines/{line_id}", {}, {}),
+    ("PATCH", "/v1/inbound-lines/{line_id}", {"name": "Taken"}, {}),
+    ("PUT", "/v1/inbound-lines/{line_id}/sources", {"source_ids": []}, {}),
+    ("PUT", "/v1/inbound-lines/{line_id}/actions", {"off": []}, {}),
+    ("PUT", "/v1/inbound-lines/{line_id}/script", {"script": {}}, {}),
+    ("POST", "/v1/inbound-lines/{line_id}/publish", {}, {}),
+    ("POST", "/v1/inbound-lines/{line_id}/proposal", {}, {}),
+    ("DELETE", "/v1/inbound-lines/{line_id}/proposal/{line_proposal_id}", {}, {}),
+    ("POST", "/v1/inbound-lines/{line_id}/numbers", {"number_id": str(uuid.uuid4())}, {}),
+    ("POST", "/v1/inbound-lines/{line_id}/archive", {}, {}),
+    ("GET", "/v1/inbound-lines/{line_id}/calls", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/script/proposal", {}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/script/proposal/{proposal_id}", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/questions", {}, {}),

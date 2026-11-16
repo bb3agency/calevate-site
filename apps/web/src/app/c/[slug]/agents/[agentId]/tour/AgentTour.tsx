@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * "SHOW ME AROUND" — a five-step tour of the agent page that the owner starts (D-855).
+ * "SHOW ME AROUND" — a short tour of the agent page that the owner starts (D-855).
  *
  * It never opens by itself. The trigger sits under the header line; once a person has
  * taken the tour on this browser it turns from the brand colour to muted ink and stays

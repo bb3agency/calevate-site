@@ -40,6 +40,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 import { ImprovementReview } from "../script/ImprovementReview";
+import { scriptsHome } from "../sections/agentSections";
 import { CALL_HANDLING_ANCHOR } from "../sections/settingsTab";
 import { Results } from "./TestResults";
 import { FirstRun, Running, Stopped, Verdict } from "./TestSummary";
@@ -54,7 +55,7 @@ export function TestSection({
   slug,
   declare = true,
 }: {
-  agent: Pick<Agent, "id">;
+  agent: Pick<Agent, "id" | "direction">;
   slug: string;
   /** Whether this panel is on screen and so the one the assistant should see. */
   declare?: boolean;
@@ -145,7 +146,7 @@ export function TestSection({
   };
 
   const links = {
-    script: href(`/c/${slug}/agents/${agent.id}?section=script`),
+    script: href(scriptsHome(slug, agent.direction)),
     handover: href(`/c/${slug}/agents/${agent.id}?section=${SETTING_LINK.handover.section}#${CALL_HANDLING_ANCHOR}`),
     agreements: href(`/c/${slug}/agreements`),
     knowledge: href(`/c/${slug}/knowledge`),

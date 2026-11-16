@@ -105,6 +105,10 @@ import CampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/page";
 import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
 import NewCampaignPage from "@/app/c/[slug]/campaigns/new/page";
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
+import InboundLinePage from "@/app/c/[slug]/inbound/[lineId]/page";
+import InboundPage from "@/app/c/[slug]/inbound/page";
+import type { InboundLine } from "@/lib/api/inboundLines";
+import { EMPTY_SCRIPT } from "@/lib/api/script";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import BreachPlaybookPage from "@/app/c/[slug]/breach-playbook/page";
 import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
@@ -186,7 +190,6 @@ import {
   clientLlmTiers,
   adminOverviewSummaryReads,
   LEAD_FIELDS_CORE_ONLY,
-  settledPending,
   AGENT_SPEND_PATH,
   callLinesRoute,
   CALL_HANDLING_BOUNDS as SHARED_CALL_HANDLING_BOUNDS,
@@ -928,89 +931,6 @@ const KNOWLEDGE_GAP = {
   resolution: null,
   resolved_at: null,
   resolved_by: null,
-};
-
-/**
- * A populated structured call script (`GET /v1/agents/{id}/script`), so the builder renders
- * its full authoring surface — opening line, ordered steps, FAQ pairs with a fallback, end-
- * call rules, declared merge variables and the AI-assist panel — rather than an empty form.
- * That is the state with the labelling risk (every step and FAQ is its own labelled control
- * pair), which is what this sweep exists to scan.
- */
-const SCRIPT = {
-  script: {
-    opening_line:
-      "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is recorded.",
-    steps: [
-      { instruction: "Confirm the caller's name and why they are calling." },
-      { instruction: "Offer the next available appointment slot." },
-    ],
-    faqs: [
-      {
-        question: "What are your consultation charges?",
-        answer: "Our consultation fee is {{ consultation_fee }}.",
-      },
-    ],
-    faq_fallback:
-      "I'm not certain about that — our team will call you back with the details.",
-    end_call_extra_rules: ["Always thank the caller before ending the call."],
-    variables: [
-      { key: "consultation_fee", label: "Consultation fee", example: "₹500" },
-    ],
-    raw_override: null,
-    schema_version: 2,
-    business_line: "A family clinic in Guntur",
-    identity: "You answer the phone for the clinic and book appointments.",
-    goal: "Book an appointment or answer the caller's question.",
-    outbound_purpose: "",
-    style: {
-      tone: "Warm and calm",
-      address_form: "andi and garu",
-      code_mix: "natural",
-      sample_phrases: ["Cheppandi andi"],
-      pronunciations: [{ word: "Guntur", say_as: "Goon-toor" }],
-    },
-    stages: [
-      { id: "s1", name: "Need", instruction: "Ask what the caller needs.", sounds_like: "Cheppandi andi" },
-      {
-        id: "s2",
-        name: "Book",
-        mode: "say",
-        instruction: "Which day suits you?",
-        sounds_like: "",
-        branches: [{ when: "they want a person", target: "hand_over" }],
-        otherwise: "end",
-        collect: ["Preferred day"],
-        position: { x: 300, y: 40 },
-      },
-    ],
-    objections: [{ objection: "Too expensive.", response: "Explain what is included." }],
-    policies: { offer_call_backs: true, share_prices: true, take_bookings: true },
-    ending: "Thank them and say goodbye.",
-    example_exchange: [
-      { speaker: "caller", text: "Appointment dorukutunda?" },
-      { speaker: "agent", text: "Tappakunda andi." },
-    ],
-    example_needs_review: true,
-  },
-  stored_schema_version: 2,
-  context: {
-    collect: [{ label: "Name", reason: "", required: true }],
-    call_backs_available: false,
-    hand_over_enabled: false,
-    direction: "inbound",
-    language: "te-IN",
-    register_name: "Neutral spoken Telugu (Telangana and Andhra)",
-    register_needs_review: true,
-    business_type: "clinic",
-  },
-  version: 4,
-  is_freeform: false,
-  has_pending: false,
-  standard_variables: [
-    { key: "business_name", label: "Business name" },
-    { key: "caller_name", label: "Caller name" },
-  ],
 };
 
 const LEAD = {
@@ -2249,6 +2169,24 @@ const HEALER_PROPOSALS = {
   ],
 };
 
+/** A live inbound line (D-997) in the front desk's voice. */
+const INBOUND_LINE: InboundLine = {
+  id: "line-1",
+  name: "Calls to your number",
+  agent_id: AGENT.id,
+  agent_name: AGENT.name,
+  main_task: "Answer questions about our services and book a visit.",
+  script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram, Sri Clinic.", goal: "Book a visit." },
+  proposal: null,
+  version: 1,
+  published_at: "2026-11-16T04:00:00Z",
+  live: true,
+  actions_off: [],
+  source_ids: ["note-1"],
+  numbers: [{ id: "num-1", e164: "+918041234567" }],
+  created_at: "2026-11-16T03:00:00Z",
+};
+
 const CLIENT_SCREENS: Screen[] = [
   {
     // D-746: Phone numbers on "Your existing number": a working line with both findings,
@@ -3282,6 +3220,59 @@ const CLIENT_SCREENS: Screen[] = [
           },
         ],
       }),
+    },
+  },
+  {
+    // D-997: one live line with a number, and a draft with none.
+    file: "c/[slug]/inbound/page.tsx",
+    realm: "client",
+    element: () => <InboundPage params={Promise.resolve({ slug: "acme" })} />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/inbound-lines": { lines: [INBOUND_LINE, { ...INBOUND_LINE, id: "line-2", name: "Evening line", live: false, script: null, numbers: [] }] },
+    },
+  },
+  {
+    // A live line with a source picked, an action, opening hours, a number and a call.
+    file: "c/[slug]/inbound/[lineId]/page.tsx",
+    realm: "client",
+    element: () => <InboundLinePage params={Promise.resolve({ slug: "acme", lineId: INBOUND_LINE.id })} />,
+    routes: {
+      "/v1/me": ME,
+      [`/v1/inbound-lines/${INBOUND_LINE.id}`]: INBOUND_LINE,
+      "/v1/inbound-lines": { lines: [INBOUND_LINE] },
+      [`/v1/inbound-lines/${INBOUND_LINE.id}/calls`]: {
+        calls: [{ id: "call-1", started_at: "2026-11-16T05:00:00Z", duration_s: 95, status: "completed", outcome_tag: "answered" }],
+      },
+      "/v1/agents": [AGENT],
+      "/v1/kb/notes": {
+        notes: [
+          { id: "note-1", name: "Prices", state: "in_use", version: 1, chunks: 2, changed_at: "2026-11-15T05:00:00Z", restorable: false },
+        ],
+      },
+      "/v1/kb/uploads": [],
+      [`/v1/agents/${AGENT.id}/actions`]: {
+        api_actions_enabled: true,
+        calendar_available: false,
+        tools: [
+          {
+            id: "tool-1",
+            agent_id: AGENT.id,
+            config: {},
+            credential_id: null,
+            description: "Books a visit in your calendar.",
+            enabled: true,
+            kind: "webhook",
+            name: "book_visit",
+            params: [],
+            pre_call_message: null,
+            provider: null,
+            trigger: "",
+          },
+        ],
+      },
+      "/v1/business-profile": businessProfileFixture(),
+      "/v1/campaigns/numbers": [],
     },
   },
   {
@@ -5902,87 +5893,6 @@ const AUTHN_SCREENS: Screen[] = [
   },
 ];
 
-/**
- * The Script tab (D-825; the builder had its own route before). Swept with a populated
- * script so axe sees the real authoring surface: labelled fields for the opening line and
- * each step, the field chips, the Pip panel and a rule waiting for a place.
- */
-const SCRIPT_TAB_ROUTES = {
-  "/v1/agents/agent-1": AGENT,
-  "/v1/me": ME,
-  "/v1/agents/agent-1/script": SCRIPT,
-  "/v1/agents/agent-1/pending": settledPending(),
-  "/v1/agents/agent-1/script/proposal": { proposal: null },
-  "/v1/campaigns/agents/agent-1/holder": { campaign_id: null, campaign_name: null },
-  "/v1/agents/agent-1/script/proposed-rules": [
-    {
-      id: "rule-1",
-      agent_id: "agent-1",
-      text: "Never promise delivery on Sundays.",
-      status: "pending",
-      created_at: "2026-10-10T09:00:00Z",
-    },
-  ],
-  "POST /v1/agents/agent-1/script/preview": {
-    compiled: "",
-    instructions_chars: 3100,
-    instructions_limit: 8000,
-    native_steps: 2,
-  },
-  "/v1/agents/agent-1/script/tests": {
-    available: true,
-    unavailable_reason: null,
-    cost_note: "Tests are not charged to your account.",
-    latest: {
-      id: "run-1",
-      status: "done",
-      prompt_version: 4,
-      is_current: true,
-      round: 1,
-      retest_of: null,
-      auto_improve: false,
-      score: { passed: 1, judged: 2, total: 2 },
-      results: [
-        {
-          key: "r1_1",
-          title: "Asks the price of a kilo of chilli",
-          category: "business",
-          probe: null,
-          source: "generated",
-          turns: [{ said: "How much is a kilo?", reply: "Let me check that for you." }],
-          expect: "Gives the pinned price.",
-          verdict: "needs_fix",
-          reason: "It did not give the price it already knows.",
-          fix: "knowledge",
-          step_id: null,
-          formal_words: [],
-          before: null,
-        },
-        {
-          key: "probe_ai",
-          title: "Asks if it is talking to a person",
-          category: "compliance",
-          probe: "ai",
-          source: "standard",
-          turns: [{ said: "Am I talking to a real person?", reply: "I am an AI assistant for the clinic." }],
-          expect: "Says it is an AI.",
-          verdict: "passed",
-          reason: "It answered truthfully.",
-          fix: null,
-          step_id: null,
-          formal_words: [],
-          before: null,
-        },
-      ],
-      improvement: null,
-      note: null,
-      created_at: "2026-10-10T10:00:00Z",
-      completed_at: "2026-10-10T10:00:30Z",
-    },
-    history: [],
-  },
-};
-
 /** Training lists the business's knowledge read-only, a pinned fact first. */
 const TRAINING_TAB_ROUTES = {
   "/v1/kb/uploads": [],
@@ -6002,27 +5912,20 @@ const TRAINING_TAB_ROUTES = {
 };
 
 /**
- * The agent page's other tabs (D-825). Overview is swept by the screen's own entry; each
+ * The agent page's other tabs (D-997). Overview is swept by the screen's own entry; each
  * other tab is a separate mount and is swept under its own search, so moving a panel into
  * a tab cannot take it out of the sweep.
  */
 const AGENT_WORKSPACE = CLIENT_SCREENS.find(
   (entry) => entry.file === "c/[slug]/agents/[agentId]/page.tsx",
 ) as Screen;
-const AGENT_SECTION_SCREENS: Screen[] = [
-  "script",
-  "training",
-  "actions",
-  "captured",
-  "voice",
-  "settings",
-].map((id) => ({
+const AGENT_SECTION_SCREENS: Screen[] = ["actions", "settings", "training"].map((id) => ({
   ...AGENT_WORKSPACE,
   search: `section=${id}`,
-  ...(id === "script" ? { routes: { ...AGENT_WORKSPACE.routes, ...SCRIPT_TAB_ROUTES } } : {}),
   ...(id === "training" ? { routes: { ...AGENT_WORKSPACE.routes, ...TRAINING_TAB_ROUTES } } : {}),
-  // The Voice section lists the voice platform's voices. A client is sent no models (D-679).
-  ...(id === "voice"
+  // Settings opens on the Voice section, which lists the voice platform's voices. A client
+  // is sent no models (D-679).
+  ...(id === "settings"
     ? {
         routes: {
           ...AGENT_WORKSPACE.routes,

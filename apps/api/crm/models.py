@@ -186,6 +186,8 @@ class Call(PKMixin, TimestampMixin, Base):
             "created_at",
             postgresql_where=text("carrier_recording_id IS NOT NULL AND recording_url IS NULL"),
         ),
+        # An inbound line's Calls taken list (D-997), newest first.
+        Index("ix_calls_inbound_line", "inbound_line_id", "started_at"),
         # The Make a call screen's recent list: a few rows per account, newest first.
         Index(
             "ix_calls_placed_by_person",
@@ -277,6 +279,11 @@ class Call(PKMixin, TimestampMixin, Base):
     )
     agent_id: Mapped[UUID] = mapped_column(
         ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    #: The inbound line whose engine agent took the call (D-997), stamped at intake from the
+    #: route; NULL for a call on the agent's own engine agent or a campaign's.
+    inbound_line_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("inbound_lines.id", ondelete="SET NULL")
     )
     engine_call_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     #: OUR FORMER CARRIER'S OWN ID FOR THIS CALL (migration c7f1a9d4e620), a different vendor's

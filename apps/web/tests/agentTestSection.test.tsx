@@ -38,7 +38,7 @@ const ME: Me = {
   organization: null,
 };
 
-const AGENT: Pick<Agent, "id"> = { id: "agent-1" };
+const AGENT: Pick<Agent, "id" | "direction"> = { id: "agent-1", direction: "inbound" };
 
 function result(over: Partial<TestResult>): TestResult {
   return {

@@ -512,6 +512,9 @@ function agentRoutes(over: Record<string, unknown> = {}) {
     "/v1/business-profile": businessProfileFixture(),
     // The header's "spent this month" line (owners hold billing:read).
     [AGENT_SPEND_PATH]: spendThisMonth(),
+    // The Voice section, at the top of the same Settings tab (D-997).
+    "/v1/agents/engine-catalogue": { available: true, voices: [], models: [] },
+    "/v1/agents/agent-1/voice-tuning": clientVoiceTuning(),
     ...over,
   };
 }

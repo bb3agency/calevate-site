@@ -1392,6 +1392,10 @@ class PhoneNumber(PKMixin, TimestampMixin, Base):
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
     agent_id: Mapped[UUID | None] = mapped_column(ForeignKey("agents.id", ondelete="SET NULL"))
+    #: The inbound line that answers this number (D-997); several numbers may share one.
+    inbound_line_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("inbound_lines.id", ondelete="SET NULL"), index=True
+    )
     e164: Mapped[str] = mapped_column(Text, nullable=False)
     series: Mapped[str] = mapped_column(String, nullable=False, server_default="standard")
     #: Who holds this number (`calevate_shared.carrier.NumberProvider`), or NULL when it is
@@ -2202,3 +2206,60 @@ class CompanyTrainingMaterial(PKMixin, TimestampMixin, Base):
     )
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class InboundLine(PKMixin, TimestampMixin, Base):
+    """What one or more of the business's numbers say when called, in one agent's voice
+    (D-997, founder 16 Nov 2026: the work owns the script, the agent is the voice).
+
+    It has its own engine agent (`engine_agent_ref`): the agent's config over the line's own
+    script, because a number is answered by one engine agent and the greeting belongs to it.
+    A line may be a draft with no number (a trial's first test call rings it). Archived,
+    never deleted."""
+
+    __tablename__ = "inbound_lines"
+    __table_args__ = (Index("ix_inbound_lines_agent", "agent_id"),)
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
+    )
+    main_task: Mapped[str | None] = mapped_column(Text)
+    #: The line's call script, a `CallScript` as JSON (as `campaigns.script`).
+    script: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    script_proposal: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    #: What the line notes from each call, in the extraction-schema field shape.
+    extraction_fields: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    #: The agent's actions this line switches off; every other action of the agent is on.
+    actions_off: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+    )
+    engine_agent_ref: Mapped[str | None] = mapped_column(Text)
+    #: Moves on every save of the script; `published_at` is when that version went live.
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class InboundLineSource(PKMixin, TimestampMixin, Base):
+    """A source from What your agents know that an inbound line was written from (D-997)."""
+
+    __tablename__ = "inbound_line_sources"
+    __table_args__ = (UniqueConstraint("inbound_line_id", "kb_source_id", name="line_source"),)
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    inbound_line_id: Mapped[UUID] = mapped_column(
+        ForeignKey("inbound_lines.id", ondelete="CASCADE"), nullable=False
+    )
+    kb_source_id: Mapped[UUID] = mapped_column(
+        ForeignKey("kb_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))

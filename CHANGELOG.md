@@ -3,6 +3,17 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.44 — 16-Nov-2026
+
+- **Inbound.** A new section in the sidebar, after Campaigns: what each of your numbers says
+  when someone calls, and in which agent's voice. Each line has a main task, the sources Pip
+  writes from, its script, which of the agent's actions it uses, its numbers and the calls it
+  took. Several numbers can share one line. Every number you already have has a line ready,
+  carrying what it says today; nothing changes for callers until you put a line live. A number
+  you buy to take calls goes to your first line.
+- **Agents have four tabs**: Overview, Actions, Settings and Training. Voice and What it notes
+  are in Settings. Scripts now live in Inbound and Campaigns, and Overview links to both.
+
 ## 0.4.43 — 16-Nov-2026
 
 - **How they speak.** The company training is now a tab of What your agents know, not a page of
