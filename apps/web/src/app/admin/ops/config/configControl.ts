@@ -163,8 +163,15 @@ function durationText(control: ConfigControl, amount: number): string {
 /**
  * A value as a person reads it: On/Off, the option's label, ₹ with its unit, minutes, a
  * percentage, a grouped phone number. `null` is "Not set", never a blank.
+ *
+ * `labelOf` names a picked entity (a voice's label for its id) from the list its picker reads;
+ * without it, or for an id the list does not hold, the stored value is shown as it is.
  */
-export function displayValue(field: ConfigField, value: ConfigValue): string {
+export function displayValue(
+  field: ConfigField,
+  value: ConfigValue,
+  labelOf?: (id: string) => string | null,
+): string {
   if (value === null) return "Not set";
   const kind = controlKind(field);
   const control = field.control;
@@ -185,6 +192,10 @@ export function displayValue(field: ConfigField, value: ConfigValue): string {
   if (kind === "duration" && typeof value === "number") return durationText(control, value);
   if (kind === "number" && typeof value === "number") {
     return withUnit(formatCount(value), control.unit);
+  }
+  if (kind === "entity_picker" && typeof value === "string" && value !== "") {
+    const named = labelOf?.(value);
+    if (named) return named;
   }
   if ((kind === "phone_in" || kind === "phone" || kind === "entity_picker") && typeof value === "string") {
     return value.startsWith("+") ? formatPhone(value) : value;

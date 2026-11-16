@@ -4,7 +4,7 @@ D-855, D-863.
 
 Founder, 23 Oct 2026. The first thing a new owner sees is their agent taking shape, not the
 business setup wizard: its jobs (one agent does every job picked, D-863), its languages, a
-brief in their own words (typed, spoken, or the trade's own example), up to four follow-up
+brief in their own words (typed, spoken, or the trade's own example), up to three follow-up
 questions our AI writes for the business, a build they watch step by step, and a test call
 to their own phone. The wizard stays on the dashboard checklist and in Settings.
 
@@ -801,6 +801,29 @@ async def mark(session: AsyncSession, *, tenant_id: UUID, marker: Marker) -> Run
     return await read_state(session, tenant_id=tenant_id)
 
 
+def answers_for_script(stored: Sequence[object]) -> str:
+    """The owner's answers as plain lines for the script writer: each question, then what
+    they said. Empty when there are none."""
+    lines: list[str] = []
+    for item in stored:
+        if not isinstance(item, dict):
+            continue
+        said: list[str] = []
+        said += [str(choice) for choice in item.get("choices") or []]
+        if item.get("text"):
+            said.append(str(item["text"]))
+        for service in item.get("services") or []:
+            price = service.get("price_inr")
+            said.append(f"{service.get('name')}" + (f", Rs {price}" if price else ""))
+        hours = item.get("hours")
+        if isinstance(hours, dict):
+            closed = ", ".join(hours.get("closed") or []) or "none"
+            said.append(f"{hours.get('opens')} to {hours.get('closes')}, closed on: {closed}")
+        if said:
+            lines.append(f"Q: {item.get('prompt')}\nA: {'; '.join(said)}")
+    return "\n".join(lines)
+
+
 __all__ = [
     "HEAR_JOB",
     "MAIN_BRANCH_LABEL",
@@ -813,6 +836,7 @@ __all__ = [
     "RunState",
     "add_document",
     "answer_questions",
+    "answers_for_script",
     "brief_hash",
     "due_for",
     "ensure_run",

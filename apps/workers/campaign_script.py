@@ -250,6 +250,52 @@ async def _save_if_asked(session: AsyncSession, holder: _Holder, script: CallScr
             )
     except ProblemError as refused:
         log.info("holder_script_kept_for_review", extra={"reason": refused.code})
+        # The draft waits for the owner's review; the first run still needs something to
+        # ring, so the ready-made script stands in until they keep the draft.
+        await _ready_made(session, holder)
+
+
+async def _ready_made(session: AsyncSession, holder: _Holder) -> None:
+    """The first run's work (`auto_save`) gets the ready-made script when Pip's own cannot
+    be saved, so the owner still reaches the test call (`first_run.work.save_ready_made`).
+    A refusal leaves the holder as it was: the screen then offers to write it by hand."""
+    from apps.api.first_run.work import save_ready_made
+
+    ids = (
+        {"line_id": holder.holder_id}
+        if holder.table == "inbound_lines"
+        else {"campaign_id": holder.holder_id}
+    )
+    try:
+        async with session.begin_nested():
+            await save_ready_made(session, tenant_id=holder.tenant_id, **ids)
+    except ProblemError as refused:
+        log.info("holder_ready_made_refused", extra={"reason": refused.code})
+
+
+async def _ready_made_if_asked(holder: _Holder) -> None:
+    """After a failed draft: the ready-made script for a first-run holder still without one.
+    The failed draft is cleared with it, since the holder now has a script to change."""
+    async with tenant_session(holder.tenant_id) as session:
+        auto = (
+            await session.execute(
+                text(
+                    f"SELECT script_proposal->>'auto_save' FROM {holder.table} "
+                    "WHERE id = :hid AND script_proposal->>'id' = :pid AND script IS NULL"
+                ),
+                {"hid": holder.holder_id, "pid": str(holder.proposal_id)},
+            )
+        ).scalar_one_or_none()
+        if auto != "true":
+            return
+        await _ready_made(session, holder)
+        await session.execute(
+            text(
+                f"UPDATE {holder.table} SET script_proposal = NULL WHERE id = :hid "
+                "AND script_proposal->>'id' = :pid AND script IS NOT NULL"
+            ),
+            {"hid": holder.holder_id, "pid": str(holder.proposal_id)},
+        )
 
 
 async def _fail(
@@ -427,10 +473,12 @@ async def _write(
                 session, tenant_id=tenant_id, refusal=refused, feature=feature
             )
         await _fail(holder, _failed_note(refused, trace), trace.unwritten, reason=refused.code)
+        await _ready_made_if_asked(holder)
         return "refused"
     except Exception:
         log.exception("holder_script_crashed", extra=log_ids)
         await _fail(holder, workspace.FAILED_NOTE, reason="crashed")
+        await _ready_made_if_asked(holder)
         return "failed"
 
     finished = await finish_written(tenant_id, inputs.agent_id, proposal, draft.script, started)

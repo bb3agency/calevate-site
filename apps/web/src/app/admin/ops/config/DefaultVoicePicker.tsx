@@ -60,9 +60,12 @@ export function DefaultVoicePicker({ field, draft, onChange }: ConfigInputProps)
     voice,
   }));
   if (current !== "" && !offered.some((voice) => voice.voice_id === current)) {
+    // Disabled since it was set, it is still on the added list under its name; gone from the
+    // catalogue, the id is all there is to show.
+    const stale = voices.data.voices.find((voice) => voice.voice_id === current);
     options.unshift({
       value: current,
-      title: current,
+      title: stale?.label ?? current,
       detail: "Set now, but no longer enabled for clients. New agents get the best voice instead.",
     });
   }

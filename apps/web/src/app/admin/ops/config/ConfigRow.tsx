@@ -18,13 +18,13 @@ import { ConfigForm } from "./ConfigForm";
 import {
   appliesCopy,
   confirmPhrase,
-  displayValue,
   engineOnlyLabel,
   lockedReason,
   settingState,
 } from "./configControl";
 import { etagOf } from "./configField";
 import { settingAnchor } from "./configSections";
+import { useDisplayValue } from "./useDisplayValue";
 
 type Access = { allowed: boolean; reason: string | null };
 
@@ -50,6 +50,7 @@ export function ConfigRow({ field, access }: { field: ConfigField; access: Acces
   const [receipt, setReceipt] = useState<ConfigWrite | null>(null);
   const tag = etagOf(field);
   const notSet = field.value === null;
+  const shown = useDisplayValue(field);
 
   return (
     // The id is what a `?setting=` deep link scrolls to and outlines (`settingAnchor`).
@@ -64,7 +65,7 @@ export function ConfigRow({ field, access }: { field: ConfigField; access: Acces
           <p
             className={`min-w-0 text-right text-body tabular-nums [overflow-wrap:anywhere] ${notSet || recessive ? "text-ink-muted" : "text-ink"}`}
           >
-            {displayValue(field, field.value)}
+            {shown(field.value)}
           </p>
           <RowAction
             field={field}
@@ -262,6 +263,7 @@ function ResetDialog({
   const ready = !high || confirmationMatches(confirm, phrase);
   const applies = appliesCopy(field);
   const label = resetLabel(field);
+  const shown = useDisplayValue(field);
 
   return (
     <ConfirmDialog
@@ -279,8 +281,8 @@ function ResetDialog({
       }}
     >
       <p className="text-ink">
-        {displayValue(field, field.value)} is removed and{" "}
-        <span className="font-semibold">{displayValue(field, field.default)}</span> applies.{" "}
+        {shown(field.value)} is removed and{" "}
+        <span className="font-semibold">{shown(field.default)}</span> applies.{" "}
         {applies.sentence}
       </p>
       {high && field.control.risk_reason && <p>{field.control.risk_reason}</p>}
@@ -310,8 +312,9 @@ function storedForm(value: ConfigValue): string {
  * when the row is not on it, and the timing explanation in full, once.
  */
 function TechnicalDetails({ field, recessive }: { field: ConfigField; recessive: boolean }) {
+  const shown = useDisplayValue(field);
   const stored = field.value === null ? null : storedForm(field.value);
-  const showStored = stored !== null && stored !== displayValue(field, field.value);
+  const showStored = stored !== null && stored !== shown(field.value);
   const offDefault = field.source !== "default" || !field.has_default;
   const risky = field.control.risk === "high" && field.control.risk_reason;
   return (
@@ -329,7 +332,7 @@ function TechnicalDetails({ field, recessive }: { field: ConfigField; recessive:
       {offDefault && (
         <p>
           {field.has_default
-            ? <>Default: {displayValue(field, field.default)}</>
+            ? <>Default: {shown(field.default)}</>
             : "No default: it must be set on the server."}
         </p>
       )}
@@ -374,6 +377,7 @@ function WriteReceipt({
   onDismiss: () => void;
 }) {
   const applies = appliesCopy(write.field);
+  const shown = useDisplayValue(field);
   const inForceHere = JSON.stringify(field.value) === JSON.stringify(write.field.value);
   // `recorded === false`: the submitted value was ALREADY stored, so nothing moved and no
   // audit entry exists.
@@ -387,14 +391,14 @@ function WriteReceipt({
         {recorded ? (
           <span className="min-w-0 break-words">
             Saved. {field.label} changed from{" "}
-            <span className="font-semibold">{displayValue(write.field, write.previous)}</span> to{" "}
-            <span className="font-semibold">{displayValue(write.field, write.field.value)}</span>.{" "}
+            <span className="font-semibold">{shown(write.previous)}</span> to{" "}
+            <span className="font-semibold">{shown(write.field.value)}</span>.{" "}
             {applies.applies === "live" ? "It applies within a few seconds." : applies.label + "."}
           </span>
         ) : (
           <span className="min-w-0 break-words">
             No change: {field.label} was already{" "}
-            <span className="font-semibold">{displayValue(write.field, write.field.value)}</span>,
+            <span className="font-semibold">{shown(write.field.value)}</span>,
             so nothing was saved or recorded.
           </span>
         )}
@@ -408,7 +412,7 @@ function WriteReceipt({
           title="This screen has not picked up the change yet"
         >
           <p className="mt-1">
-            It still shows {displayValue(field, field.value)}. That is normal for a few seconds;
+            It still shows {shown(field.value)}. That is normal for a few seconds;
             if it lasts, check the notice at the top of this screen about reaching the
             configuration store.
           </p>

@@ -173,9 +173,9 @@ async def test_a_short_brief_asks_the_profiles_own_gaps_without_a_model() -> Non
     # The profile's gaps, then the one every owner is asked (D-945).
     # No menu of guessed offerings per business type (G2-5): what the business sells is
     # offered as choices only by the model, which read the owner's own words.
-    assert [item["maps_to"] for item in items] == ["location", "offer", "hours", "booking", None]
+    assert [item["maps_to"] for item in items] == ["location", "offer", "hours", None]
     assert items[-1]["id"] == ONE_THING.id
-    assert [item["id"] for item in items] == ["q1", "q2", "q3", "q4", ONE_THING.id]
+    assert [item["id"] for item in items] == ["q1", "q2", "q3", ONE_THING.id]
     assert (await _run(tenant_id)).question_runs == 0
 
 
@@ -327,7 +327,7 @@ def test_the_gate_drops_an_item_rather_than_repairing_it() -> None:
         assert questions.written_questions([case], profile) == [], case
     assert len(questions.written_questions([good] * 6, profile)) == 1, "the same prompt once"
     many = [{**good, "prompt": f"Question number {n}?"} for n in range(6)]
-    assert [q.id for q in questions.written_questions(many, profile)] == ["q1", "q2", "q3", "q4"]
+    assert [q.id for q in questions.written_questions(many, profile)] == ["q1", "q2", "q3"]
 
 
 def test_a_section_already_known_is_not_asked_about_again() -> None:
@@ -364,7 +364,7 @@ async def test_with_no_model_the_questions_are_the_profiles_gaps(
         },
     )
     stored = (await _run(tenant_id)).questions
-    assert [q["maps_to"] for q in stored] == ["location", "offer", "hours", "booking", None]
+    assert [q["maps_to"] for q in stored] == ["location", "offer", "hours", None]
 
 
 async def test_a_run_from_before_d863_reads_its_keys_as_the_fixed_questions() -> None:

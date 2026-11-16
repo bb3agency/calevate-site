@@ -494,10 +494,11 @@ describe("buying a number", () => {
     expect(screen.getByRole("link", { name: "Top up credit" })).toBeTruthy();
   });
 
-  async function buyAnswering(answer: Record<string, unknown>) {
+  async function buyAnswering(answer: Record<string, unknown>, extra: Record<string, unknown> = {}) {
     await renderClientPage(
       <PhoneNumberPage />,
       routes(status(), {
+        ...extra,
         [`POST ${OWN_NUMBERS_PATHS.purchase}`]: {
           number_id: NUMBER_ID,
           e164: "+918012345671",
@@ -511,6 +512,38 @@ describe("buying a number", () => {
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Buy this number" }));
     await screen.findByText("+91 80123 45671 is yours");
   }
+
+  it("asks for a line when no line answers the new number", async () => {
+    await buyAnswering({ attachment: "unchanged", replayed: false, first_period: "charged", inbound_line_id: null });
+    expect(screen.getByText("No inbound line answers it yet, so callers hear nothing.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Make a line" }).getAttribute("href")).toBe("/c/acme/inbound");
+  });
+
+  it("says the draft line the new number went to answers nobody until it is live", async () => {
+    await buyAnswering(
+      { attachment: "unchanged", replayed: false, first_period: "charged", inbound_line_id: "l1" },
+      {
+        "/v1/inbound-lines/l1": {
+          id: "l1",
+          name: "Calls to your number",
+          agent_id: "a1",
+          agent_name: "Anjali",
+          main_task: "Answer callers.",
+          script: { opening_line: "Hello" },
+          proposal: null,
+          version: 1,
+          published_at: null,
+          live: false,
+          actions_off: [],
+          source_ids: [],
+          numbers: [{ id: NUMBER_ID, e164: "+918012345671" }],
+          created_at: "2026-11-16T04:00:00Z",
+        },
+      },
+    );
+    expect(await screen.findByText(/is a draft\. Callers hear nothing until it is live\./)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Put it live" })).toBeTruthy();
+  });
 
   it("says an earlier request already bought it, and claims no charge, on a replay", async () => {
     await buyAnswering({ attachment: "unchanged", replayed: true, first_period: "replayed" });

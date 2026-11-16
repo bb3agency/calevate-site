@@ -31,7 +31,6 @@ import {
   REASON_PRESETS,
   appliesCopy,
   confirmPhrase,
-  displayValue,
   draftOf,
   optionFor,
   serverFieldMessage,
@@ -40,6 +39,7 @@ import {
   valueOf,
 } from "./configControl";
 import { etagOf } from "./configField";
+import { useDisplayValue } from "./useDisplayValue";
 
 /** The server's minimum for a reason (`ConfigSetIn.reason`). */
 const REASON_MIN = 3;
@@ -79,6 +79,7 @@ export function ConfigForm({
   onWritten: (write: ConfigWrite) => void;
 }) {
   const save = useSetConfig();
+  const shown = useDisplayValue(field);
   const revert = useRevertConfig();
   const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const revertFeedback = useActionFeedback(revert, { errorDisplay: "inline" });
@@ -219,7 +220,7 @@ export function ConfigForm({
       {/* 1 · the value: what it is, what it becomes. */}
       <div className="space-y-4">
       <p className="text-body text-ink-muted">
-        Now: <span className="font-medium text-ink tabular-nums">{displayValue(field, field.value)}</span>{" "}
+        Now: <span className="font-medium text-ink tabular-nums">{shown(field.value)}</span>{" "}
         <span className="text-meta">({settingState(field).label})</span>
       </p>
 
@@ -227,7 +228,7 @@ export function ConfigForm({
         <div className="space-y-2 text-body">
           <p className="text-ink">
             Going back to the default:{" "}
-            <span className="font-semibold">{displayValue(field, field.default)}</span>.
+            <span className="font-semibold">{shown(field.default)}</span>.
           </p>
           <button type="button" onClick={() => setMode("set")} className={SECONDARY_BUTTON_SM}>
             Choose a value instead
@@ -267,11 +268,11 @@ export function ConfigForm({
           <p className={FIELD_LABEL}>{reverting ? "What reverting does" : "What changes"}</p>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-body tabular-nums">
             <span className="min-w-0 break-words text-ink-muted line-through decoration-ink-faint [overflow-wrap:anywhere]">
-              {displayValue(field, field.value)}
+              {shown(field.value)}
             </span>
             <ArrowRight aria-label="becomes" className="h-4 w-4 shrink-0 text-ink-muted" />
             <span className="min-w-0 break-words font-medium text-ink [overflow-wrap:anywhere]">
-              {displayValue(field, next)}
+              {shown(next)}
             </span>
           </div>
         </div>
@@ -420,6 +421,7 @@ function ValueMoved({
   onKeepMine: () => void;
   onDiscard: () => void;
 }) {
+  const shown = useDisplayValue(field);
   return (
     <NoticeBox
       tone="stop"
@@ -436,7 +438,7 @@ function ValueMoved({
       </p>
       {refused && serverSaid && <p className="mt-1">The server said: {serverSaid}</p>}
       <p className="mt-2">
-        It is now <span className="font-semibold">{displayValue(field, field.value)}</span> (
+        It is now <span className="font-semibold">{shown(field.value)}</span> (
         {settingState(field).label}).
         {field.note && <> Their reason: &ldquo;{field.note}&rdquo;</>}
       </p>

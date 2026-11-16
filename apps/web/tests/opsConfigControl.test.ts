@@ -122,6 +122,22 @@ describe("showing a value", () => {
     expect(displayValue(playbooks, "")).toBe("None");
   });
 
+  it("names a picked voice by its label, and shows the id only when the list does not hold it", () => {
+    const voice = field({
+      key: "default_agent_voice_id",
+      kind: "string",
+      nullable: true,
+      value: "v_123",
+      default: null,
+      control: control("entity_picker", { source: "client_voices" }),
+    });
+    const labelOf = (id: string) => (id === "v_123" ? "Anjali (Studio)" : null);
+    expect(displayValue(voice, "v_123", labelOf)).toBe("Anjali (Studio)");
+    expect(displayValue(voice, "v_gone", labelOf)).toBe("v_gone");
+    expect(displayValue(voice, "v_123")).toBe("v_123");
+    expect(displayValue(voice, null, labelOf)).toBe("Not set");
+  });
+
   it("labels an option with its provider and the default, never the raw id alone", () => {
     expect(optionText(plan, plan.options[0])).toBe("Pay as you go · default");
     const model = option("gemini-2.5-flash-lite", "Gemini 2.5 Flash Lite", {

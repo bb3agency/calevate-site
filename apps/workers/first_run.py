@@ -4,7 +4,7 @@
    owner's language as a hint, metered at our cost under its own feature, and the audio
    DELETED as soon as the words exist (founder, 23 Oct 2026: the screen says the audio is not
    kept, so it is not). Failed or not, nothing is left in the bucket.
-2. ASK (`write_first_run_questions`): the model WRITES two to four follow-up questions the
+2. ASK (`write_first_run_questions`): the model WRITES two or three follow-up questions the
    brief leaves open, each with its kind of answer (D-863); what it writes reaches the screen
    only through `first_run/questions.written_questions`, which drops any item that breaks a
    rule. Without a model, or with nothing left, the fixed questions for the profile's empty

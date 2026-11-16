@@ -837,15 +837,13 @@ async def apply_starter(
     )
     validate_fields(fields)
     await write_schema(session, agent_id=agent_id, fields=fields)
-    plans = await stored_plans(session, tenant_id=tenant_id, shapes=JOB_STEP_COUNTS)
-    fit = await business_fit(session, tenant_id)
-    script = await _with_business_lines(
+    script = await ready_made_script(
         session,
-        starter_script(
-            vertical_template, jobs, business=business, language=language, plans=plans, fit=fit
-        ),
-        jobs,
-        language,
+        tenant_id=tenant_id,
+        job=jobs,
+        vertical_template=vertical_template,
+        business=business,
+        language=language,
     )
     script = script.model_copy(update={"opening_line": "", "outbound_opening_line": ""})
     saved = await save_agent_script(
@@ -857,6 +855,32 @@ async def apply_starter(
         created_by=created_by,
     )
     return saved.version
+
+
+async def ready_made_script(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    job: JobChoice,
+    vertical_template: str | None,
+    business: str,
+    language: str = STARTER_LANGUAGE,
+) -> CallScript:
+    """The ready-made script fitted to this business: its written step plans, what it is
+    judged to do, and its AI-written example lines where it has them. Its opening is the
+    starter's own, which a caller of `apply_starter` replaces with one written for the
+    business."""
+    jobs = starter_jobs(job)
+    plans = await stored_plans(session, tenant_id=tenant_id, shapes=JOB_STEP_COUNTS)
+    fit = await business_fit(session, tenant_id)
+    return await _with_business_lines(
+        session,
+        starter_script(
+            vertical_template, jobs, business=business, language=language, plans=plans, fit=fit
+        ),
+        jobs,
+        language,
+    )
 
 
 def _line_sets(jobs: Sequence[StarterJob]) -> tuple[LineSet, ...]:
@@ -1071,6 +1095,7 @@ __all__ = [
     "direction_for",
     "direction_of_jobs",
     "jobs_label",
+    "ready_made_script",
     "replace_unedited_starter",
     "starter_for",
     "starter_jobs",

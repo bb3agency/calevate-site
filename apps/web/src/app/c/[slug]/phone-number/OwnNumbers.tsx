@@ -43,6 +43,7 @@ import { formatPayableINR } from "@/lib/numberDisplay";
 import { useAgents } from "@/lib/api/agents";
 import { ApiProblem } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { useInboundLine } from "@/lib/api/inboundLines";
 import { codeOf } from "@/lib/authn/problems";
 import {
   SEARCH_DIGITS_MAX,
@@ -65,6 +66,7 @@ import { resolvePlaceholders } from "@/lib/legal/placeholders";
 import { lookup } from "@/lib/lookup";
 
 import { StatusPill } from "@/components/console/statusPill";
+import { PutLineLive } from "../inbound/PutLineLive";
 import type { NoticeTone } from "@/components/ui";
 
 /** The refusals this journey can meet, each in the words of what to do next. */
@@ -386,6 +388,8 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
   // bought (the agent) is a different request and gets a fresh key.
   const [requestKey, setRequestKey] = useState("");
   const [bought, setBought] = useState<PurchasedOwnNumber | null>(null);
+  // A number bought to take calls is answered by a line (D-997); one bought only to call out is not.
+  const [boughtTakesCalls, setBoughtTakesCalls] = useState(false);
 
   const creditsHref = href(`/c/${session.orgSlug}/billing?tab=credits`);
 
@@ -428,6 +432,7 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
           {bought.attachment === "other_workspace" && (
             <p className="mt-1">Publish the agent again, then pick it below.</p>
           )}
+          {boughtTakesCalls && <BoughtNumberLine lineId={bought.inbound_line_id ?? null} />}
         </NoticeBox>
       )}
 
@@ -555,6 +560,7 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
               {
                 onSuccess: (result) => {
                   setBought(result);
+                  setBoughtTakesCalls(direction !== "outbound");
                   setChosen(null);
                 },
               },
@@ -618,6 +624,33 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
         </ConfirmDialog>
       )}
     </section>
+  );
+}
+
+/**
+ * Which line answers the number just bought (founder, 16 Nov 2026: the account's first
+ * inbound line). A draft line answers nobody until it is put live, so that is said with its
+ * button; an account with no line yet is asked to make one.
+ */
+function BoughtNumberLine({ lineId }: { lineId: string | null }) {
+  const { session, href } = useClientRealm();
+  const line = useInboundLine(session, lineId ?? "", lineId !== null);
+  if (lineId === null) {
+    return (
+      <div className="mt-2 space-y-2">
+        <p>No inbound line answers it yet, so callers hear nothing.</p>
+        <Link href={href(`/c/${session.orgSlug}/inbound`)} className={SECONDARY_BUTTON_SM}>
+          Make a line
+        </Link>
+      </div>
+    );
+  }
+  if (!line.data) return null;
+  if (line.data.live) return <p className="mt-1">{line.data.name} answers it.</p>;
+  return (
+    <div className="mt-2">
+      <PutLineLive line={line.data} />
+    </div>
   );
 }
 

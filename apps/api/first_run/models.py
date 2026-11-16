@@ -48,8 +48,8 @@ MAX_RECORDING_WORDS: Final = 2000
 MAX_QUESTION_RUNS: Final = 3
 MAX_BUILD_RUNS: Final = 3
 
-#: The four questions at most that follow the brief (D-863).
-MAX_QUESTIONS: Final = 4
+#: The questions at most that follow the brief: three (founder, 16 Nov 2026; D-863 had four).
+MAX_QUESTIONS: Final = 3
 #: Those and the one every owner is asked (`questions.ONE_THING`, D-945).
 MAX_ASKED: Final = MAX_QUESTIONS + 1
 

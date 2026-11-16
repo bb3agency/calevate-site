@@ -24,7 +24,7 @@ again (`service.due_for`), so nothing here touches their account.
 from __future__ import annotations
 
 import json
-from typing import Final, Literal
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -37,8 +37,10 @@ from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.first_run.documents import read_documents
+from apps.api.first_run.names import identity_with_name
 from apps.api.first_run.service import RunState, ensure_run, read_state
 from apps.api.reliability.service import enqueue_outbox
+from apps.api.tenancy.business_copy import queue_generation
 
 log = get_logger(__name__)
 
@@ -147,6 +149,11 @@ async def save_agent(
             job=NOTICE_JOB,
             payload={"tenant_id": str(tenant_id), "agent_id": str(agent_id)},
         )
+        if may_spend_ai and (row.brief or "").strip():
+            # The business's examples written again from the owner's own words, once, when its
+            # first agent is made: the signup run had only the business type and name. The
+            # run checks the allowance itself and keeps the examples it has when spent.
+            await queue_generation(session, tenant_id=tenant_id, trigger="first_run")
         await session.execute(
             text(
                 "UPDATE first_runs SET agent_id = :aid, language_primary = :lang, "
@@ -184,6 +191,11 @@ async def save_agent(
     return await read_state(session, tenant_id=tenant_id)
 
 
+async def _within_ai_allowance(session: AsyncSession, tenant_id: UUID) -> bool:
+    quota = await read_ai_quota(session, tenant_id=tenant_id)
+    return not (quota.at_ceiling or quota.platform_paused)
+
+
 async def _queue_training(session: AsyncSession, *, tenant_id: UUID, user_id: UUID | None) -> None:
     """Pip drafts the company training from the owner's words, saved at once as version 1
     (founder, 16 Nov 2026). Only while none is saved and none is being written, and only
@@ -193,12 +205,34 @@ async def _queue_training(session: AsyncSession, *, tenant_id: UUID, user_id: UU
         return
     if training.proposal is not None and training.proposal.status in ("drafting", "ready"):
         return
-    quota = await read_ai_quota(session, tenant_id=tenant_id)
-    if quota.at_ceiling or quota.platform_paused:
+    if not await _within_ai_allowance(session, tenant_id):
         return
     await company_training.request_proposal(
         session, tenant_id=tenant_id, requested_by=user_id, auto_save=True
     )
+
+
+#: What leads the owner's answers in the work's main task.
+ANSWERS_LEAD: Final = "The owner also said:"
+
+
+def main_task_of(row: Any, job: FirstWork) -> str:
+    """The first work's main task: the owner's words, then their answers to the follow-up
+    questions that name no business-profile section, the one thing every caller should know
+    among them (D-945). An answer that names a section is in the business profile already,
+    which every agent reads; these have nowhere else to go, and the main task is what Pip
+    writes the line's or campaign's script from, and what the owner edits on its page. The
+    answers are kept whole; the words before them are cut to fit."""
+    from apps.api.campaigns.workspace import MAIN_TASK_MAX
+    from apps.api.first_run.service import answers_for_script
+
+    words = (row.brief or "").strip() or DEFAULT_TASK[job]
+    unmapped = [a for a in row.answers or [] if isinstance(a, dict) and not a.get("maps_to")]
+    said = answers_for_script(unmapped)
+    if not said:
+        return words[:MAIN_TASK_MAX]
+    tail = f"\n\n{ANSWERS_LEAD}\n{said}"[:MAIN_TASK_MAX]
+    return f"{words[: max(0, MAIN_TASK_MAX - len(tail))].rstrip()}{tail}".strip()
 
 
 async def start_work(
@@ -224,7 +258,7 @@ async def start_work(
     if status is None or row.agent_id is None:
         raise _no_agent()
     agent_id = UUID(str(row.agent_id))
-    task = (row.brief or "").strip() or DEFAULT_TASK[job]
+    task = main_task_of(row, job)
     documents = [
         d for d in await read_documents(session, list(row.document_ids or [])) if d.state == "read"
     ]
@@ -235,6 +269,7 @@ async def start_work(
             agent_id=agent_id,
             direction="inbound" if job == "answer_calls" else "outbound",
         )
+    pip_writes = may_spend_ai and await _within_ai_allowance(session, tenant_id)
     if job == "answer_calls" and row.line_id is None:
         line_id = await lines.create_line(
             session, tenant_id=tenant_id, agent_id=agent_id, main_task=task, created_by=user_id
@@ -248,7 +283,11 @@ async def start_work(
                 kb_source_ids=sources,
                 created_by=user_id,
             )
-        if may_spend_ai:
+        await session.execute(
+            text("UPDATE first_runs SET line_id = :lid WHERE id = :id"),
+            {"lid": line_id, "id": row.id},
+        )
+        if pip_writes:
             await lines.request_proposal(
                 session,
                 tenant_id=tenant_id,
@@ -256,10 +295,8 @@ async def start_work(
                 requested_by=user_id,
                 auto_save=True,
             )
-        await session.execute(
-            text("UPDATE first_runs SET line_id = :lid WHERE id = :id"),
-            {"lid": line_id, "id": row.id},
-        )
+        else:
+            await save_ready_made(session, tenant_id=tenant_id, line_id=line_id)
     elif job == "call_leads" and row.campaign_id is None:
         campaign_id = await campaigns_service.create_campaign(
             session,
@@ -281,7 +318,11 @@ async def start_work(
                 kb_source_ids=sources,
                 created_by=user_id,
             )
-        if may_spend_ai:
+        await session.execute(
+            text("UPDATE first_runs SET campaign_id = :cid WHERE id = :id"),
+            {"cid": campaign_id, "id": row.id},
+        )
+        if pip_writes:
             await workspace.request_proposal(
                 session,
                 tenant_id=tenant_id,
@@ -289,10 +330,8 @@ async def start_work(
                 requested_by=user_id,
                 auto_save=True,
             )
-        await session.execute(
-            text("UPDATE first_runs SET campaign_id = :cid WHERE id = :id"),
-            {"cid": campaign_id, "id": row.id},
-        )
+        else:
+            await save_ready_made(session, tenant_id=tenant_id, campaign_id=campaign_id)
     await session.execute(
         text(
             "UPDATE first_runs SET jobs = ARRAY[CAST(:job AS text)], updated_at = now() "
@@ -301,6 +340,76 @@ async def start_work(
         {"job": job, "id": row.id},
     )
     return await read_state(session, tenant_id=tenant_id)
+
+
+#: The run's `script` step when its work got the ready-made script because Pip could not
+#: write one; the screen says so, and points at where to change it.
+READY_MADE: Final = "ready_made"
+
+
+async def save_ready_made(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
+) -> bool:
+    """Give the first run's line or campaign the ready-made script for its job, while it has
+    no script: Pip was not asked (no AI allowance left, or a view-as session) or could not
+    write it. Without this the work has nothing to say and the first run cannot reach its
+    test call, which the build it replaced never allowed: it fell back to the same starter.
+    The script is the trade's own, fitted to the business, named for its agent, and saved
+    through the holder's own save. True when saved."""
+    from apps.api.agents.starters import StarterJob, ready_made_script
+    from apps.api.campaigns import workspace
+    from apps.api.inbound import lines
+
+    job: StarterJob
+    if (line_id is None) == (campaign_id is None):
+        raise ValueError("a line or a campaign, not both")
+    if line_id is not None:
+        line = await lines.read_line(session, line_id)
+        agent_id, current, job = line.agent_id, line.script, "answer_calls"
+    else:
+        assert campaign_id is not None
+        space = await workspace.read_workspace(session, campaign_id)
+        agent_id, current, job = space.agent_id, space.script, "call_leads"
+    if current is not None:
+        return False
+    agent = (
+        await session.execute(
+            text(
+                "SELECT a.name, a.language_primary, o.name AS business, o.vertical_template "
+                "FROM agents a JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :aid"
+            ),
+            {"aid": agent_id},
+        )
+    ).one()
+    script = await ready_made_script(
+        session,
+        tenant_id=tenant_id,
+        job=job,
+        vertical_template=agent.vertical_template,
+        business=str(agent.business),
+        language=str(agent.language_primary),
+    )
+    script = script.model_copy(
+        update={"identity": identity_with_name(script.identity, str(agent.name))}
+    )
+    if line_id is not None:
+        await lines.save_script(session, line_id, script)
+    else:
+        assert campaign_id is not None
+        await workspace.save_script(session, campaign_id, script)
+    await session.execute(
+        text(
+            "UPDATE first_runs SET build_steps = build_steps || "
+            "jsonb_build_object('script', jsonb_build_object('state', CAST(:state AS text))), "
+            "updated_at = now() WHERE line_id = :hid OR campaign_id = :hid"
+        ),
+        {"state": READY_MADE, "hid": line_id or campaign_id},
+    )
+    return True
 
 
 async def _source_ids(session: AsyncSession, upload_ids: list[UUID]) -> list[UUID]:
@@ -320,7 +429,9 @@ __all__ = [
     "FIRST_CAMPAIGN_NAME",
     "FIRST_WORKS",
     "NOTICE_JOB",
+    "READY_MADE",
     "FirstWork",
     "save_agent",
+    "save_ready_made",
     "start_work",
 ]

@@ -345,12 +345,16 @@ function TrialChips({ chips, className }: { chips: readonly string[]; className:
   );
 }
 
-type GoLiveStepId = "credit" | "verify" | "number";
+type GoLiveStepId = "credit" | "verify" | "number" | "live";
 type StepState = "done" | "current" | "waiting" | "in_review" | "attention";
 
-/** The three steps to real callers, each one short line, from the go-live guide's own state. */
+/**
+ * The four steps to real callers, each one short line, from the go-live guide's own state.
+ * The last is putting it live: the first run's work is a draft, and a draft line on the new
+ * number answers nobody until it is live.
+ */
 export function goLiveSteps(
-  guide: Pick<GoLive, "owed_at" | "verify" | "number"> | undefined,
+  guide: Pick<GoLive, "owed_at" | "verify" | "number"> & Partial<Pick<GoLive, "switch_on">> | undefined,
 ): { id: GoLiveStepId; label: string; state: StepState }[] {
   const credit = guide?.owed_at ? "done" : "todo";
   const verify = guide?.verify ?? "todo";
@@ -364,6 +368,7 @@ export function goLiveSteps(
       note: verify === "in_review" ? "in_review" : verify === "needs_attention" ? "attention" : null,
     },
     { id: "number", label: "Choose your number", done: number === "done", note: null },
+    { id: "live", label: "Put it live", done: guide?.switch_on === "done", note: null },
   ];
   const current = raw.findIndex((step) => !step.done);
   return raw.map((step, index) => ({
@@ -426,7 +431,7 @@ function GoLiveCard({
                     successLabel="Opening"
                     onClick={() => onGo(step.id === "credit" ? creditsHref : guideHref)}
                   >
-                    {step.id === "credit" ? "Add credit" : "Continue"}
+                    {step.id === "credit" ? "Add credit" : step.id === "live" ? "Put it live" : "Continue"}
                   </ActionButton>
                 ) : null}
               </li>
