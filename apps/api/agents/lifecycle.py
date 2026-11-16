@@ -1237,8 +1237,7 @@ async def _assert_no_line_is_answering(session: AsyncSession, *, agent_id: UUID)
     if live:
         raise ProblemError.conflict(
             "agent_has_live_lines",
-            f"This agent is answering on {live} live Inbound line(s), so it cannot be "
-            "deleted yet.",
+            f"This agent is answering on {live} live Inbound line(s), so it cannot be deleted yet.",
             remediation=(
                 "Choose another agent for those lines, or delete the lines, and then delete "
                 "this agent."
