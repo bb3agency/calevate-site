@@ -68,9 +68,13 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: 9 Nov 2026: a suffix joins its word where the language's print does, and a placed call
 #: takes nothing the person has or uses from a step's line; a step that says to greet or
 #: introduce is told that is done; a reaction is never the same twice in a call.
+#: D-979, D-986, D-988 (10-14 Nov 2026): an earlier call is brought up only when the caller
+#: does or it is why we call, and says what was talked about, not what is true now; a reply
+#: opens with a full stop; the language guides carry no brackets; two full sentences in
+#: another language switch it, a few words never do.
 PINNED = (
-    "07172c6949c1700ed44e4d9722a0e6b907a80359b569e69ea6e0b0fc511b8664",
-    "5af5f17a8dac8a90f06da3ac74fe8eafccad58856e4aac33694369ffb0a710aa",
+    "be84caac802f0a26b62a5716462e43b79f6f3eccbcf0ccce194d302a486f0468",
+    "6f1c81866edb4dfb89fd31d5674bd262f2bdb3ce01855d0df6d51f4fa19b2eae",
 )
 
 

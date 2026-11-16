@@ -208,11 +208,16 @@ async def _refuse_if_any_agent_overflows(
     session: AsyncSession, tenant_id: UUID, training: str
 ) -> None:
     """Refuse a training with which some agent's instructions would no longer fit the
-    engine's box, naming the agent, before anything is stored or sent."""
+    engine's box, naming the agent, before anything is stored or sent. The published
+    Inbound lines and the campaigns holding an engine agent are measured too: each carries
+    the training over its own script (D-997, D-1003), and the save's live apply republishes
+    them (`service.republish_lines`, `republish_campaign_agents`), so a line the training
+    pushes over the box would otherwise fail there, after the save."""
     from apps.api.agents.prompt_size import measure_config, publish_config
     from apps.api.engine import get_engine
 
     engine = get_engine()
+    await _refuse_if_any_job_overflows(session, tenant_id, training)
     agents = (
         await session.execute(
             text(
@@ -243,6 +248,65 @@ async def _refuse_if_any_agent_overflows(
                 remediation=(
                     "Shorten the training, or move product and price details into "
                     "Knowledge, which every agent searches."
+                ),
+            )
+
+
+async def _refuse_if_any_job_overflows(
+    session: AsyncSession, tenant_id: UUID, training: str
+) -> None:
+    """The Inbound lines and campaigns half of `_refuse_if_any_agent_overflows`: exactly the
+    ones a save republishes."""
+    from apps.api.agents.prompt_size import measure_config
+    from apps.api.agents.service import (
+        CAMPAIGN_HOLDING_STATUSES,
+        _load_agent,
+        campaign_config,
+        line_config,
+    )
+    from apps.api.engine import get_engine
+
+    engine = get_engine()
+    jobs = (
+        await session.execute(
+            text(
+                "SELECT 'line' AS kind, id, agent_id, name, created_at FROM inbound_lines "
+                "WHERE archived_at IS NULL AND engine_agent_ref IS NOT NULL "
+                "AND published_at IS NOT NULL AND script IS NOT NULL "
+                "UNION ALL SELECT 'campaign', id, agent_id, name, created_at FROM campaigns "
+                "WHERE archived_at IS NULL AND engine_agent_ref IS NOT NULL "
+                "AND status = ANY(:holding) ORDER BY created_at, id"
+            ),
+            {"holding": list(CAMPAIGN_HOLDING_STATUSES)},
+        )
+    ).all()
+    agents: dict[UUID, Any] = {}
+    for kind, job_id, agent_id, name in (row[:4] for row in jobs):
+        if agent_id not in agents:
+            row = await _load_agent(session, tenant_id, agent_id)
+            agents[agent_id] = {**row, "company_training": training}
+        try:
+            if kind == "line":
+                cfg = await line_config(
+                    session, tenant_id=tenant_id, line_id=job_id, agent=agents[agent_id]
+                )
+            else:
+                cfg = await campaign_config(
+                    session, tenant_id=tenant_id, campaign_id=job_id, agent=agents[agent_id]
+                )
+        except ProblemError:
+            # Not publishable as it stands for another reason; that publish says why.
+            continue
+        size = measure_config(cfg, engine)
+        if not size.fits:
+            where = "Inbound line" if kind == "line" else "campaign"
+            raise ProblemError.business_rule(
+                "company_training_too_long",
+                f"With this training, the script of the {where} {name} is {size.over:,} "
+                "characters too long for the calling system.",
+                remediation=(
+                    f"Shorten the training or that {where}'s script, or move product and "
+                    "price details into Knowledge, which every agent searches."
                 ),
             )
 
