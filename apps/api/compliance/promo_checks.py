@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Final
 from uuid import UUID
 
+from calevate_shared.call_script import CallScript
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,7 +33,6 @@ from apps.api.compliance.call_purpose import (
     script_parts,
 )
 from apps.api.core.errors import ProblemError
-from calevate_shared.call_script import CallScript
 
 #: The launch blocker's rule name, shared by the launch screen, the dispatch refusal list
 #: and Pip so all three say the same thing.
