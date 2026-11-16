@@ -7664,7 +7664,12 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Save the campaign's script (it reaches calls at Start) */
+        /**
+         * Save the campaign's script; a running or paused campaign's calls get it at once
+         * @description Stored in its own transaction, then, when the campaign holds its engine agent, put live
+         *     on it: Resume does not republish, so a running or paused campaign would otherwise keep
+         *     its old script until it was stopped. A draft's reaches its calls at Start.
+         */
         put: operations["save_script_v1_campaigns__campaign_id__script_put"];
         post?: never;
         delete?: never;

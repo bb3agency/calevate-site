@@ -89699,6 +89699,7 @@
     },
     "/v1/campaigns/{campaign_id}/script": {
       "put": {
+        "description": "Stored in its own transaction, then, when the campaign holds its engine agent, put live\non it: Resume does not republish, so a running or paused campaign would otherwise keep\nits old script until it was stopped. A draft's reaches its calls at Start.",
         "operationId": "save_script_v1_campaigns__campaign_id__script_put",
         "parameters": [
           {
@@ -89740,7 +89741,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Save the campaign's script (it reaches calls at Start)",
+        "summary": "Save the campaign's script; a running or paused campaign's calls get it at once",
         "tags": [
           "campaigns"
         ],
