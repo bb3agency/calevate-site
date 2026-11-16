@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.25 — 16-Nov-2026
+
+- Every page you open inside the app checks for a newer version and, if there is one, opens
+  on it. A page brought back with the browser's Back button is checked too.
+- A tab left open for more than 2 days says a new version is ready and updates after a
+  5-second countdown, unless you are typing in a field; "Not now" stops it.
+
 ## 0.4.24 — 16-Nov-2026
 
 - **Company training.** A new page in the sidebar, above Agents. Describe your business in your

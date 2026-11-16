@@ -7,18 +7,30 @@
  *   this page was built from (a cached page, a tab restored from yesterday), clear the
  *   browser's caches and reload ONCE. A session key per server build stops a loop when the
  *   reload still serves the old build (a CDN lagging behind).
+ * - Every page opened inside the app (a link, the sidebar) asks too, and a newer build turns
+ *   that move into a full load of the same page on the new build: in-app navigation keeps the
+ *   old code running otherwise, and nothing has been typed on a page just opened. A page the
+ *   browser restores from its Back/Forward cache is checked the same way.
  * - While open: ask again every 5 minutes and whenever the tab comes back into view. A newer
  *   build then shows a bar with "Update now". It never reloads on its own, so nothing
  *   typed is lost.
+ * - A page open for longer than a deploy keeps old files (`STALE_MS`, the `-mtime +2` prune
+ *   in `scripts/vps-deploy.sh`) may already be missing pieces of itself, so there the bar says
+ *   the new version is coming and updates after a short countdown — unless the person is
+ *   typing in a field, when it stays as the ordinary "Update now" bar.
  * - A missing code chunk after a deploy (the old file is gone from the server) reloads the
  *   page once, under the same guard.
  */
 
-import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 import { BUILD, buildDay, isNewerBuild, type BuildInfo } from "@/lib/buildInfo";
 
 const POLL_MS = 5 * 60 * 1000;
+/** Matches the deploy's prune of old web files (`find … -mtime +2 -delete`). */
+const STALE_MS = 2 * 24 * 60 * 60 * 1000;
+const COUNTDOWN_S = 5;
 const RELOADED_KEY = "calevate:reloaded-for";
 
 function readKey(): string | null {
@@ -59,6 +71,13 @@ async function reloadFresh(forCommit: string): Promise<void> {
     // Clearing is best effort; the reload below still fetches the no-store HTML.
   }
   window.location.reload();
+}
+
+/** Someone is typing: a reload now would lose it. */
+function isTyping(): boolean {
+  const el = document.activeElement;
+  if (!(el instanceof HTMLElement)) return false;
+  return el.isContentEditable || el.tagName === "TEXTAREA" || (el instanceof HTMLInputElement && !["button", "submit", "checkbox", "radio", "reset"].includes(el.type));
 }
 
 function isMissingChunk(reason: unknown): boolean {
@@ -132,21 +151,48 @@ export function recoverFromMissingChunk(error: unknown): boolean {
 
 export function UpdateWatcher() {
   const [newer, setNewer] = useState<BuildInfo | null>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const pathname = usePathname();
+  const firstPath = useRef(true);
+
+  useEffect(() => {
+    if (firstPath.current) {
+      firstPath.current = false;
+      return;
+    }
+    let cancelled = false;
+    void serverBuild().then((server) => {
+      if (!cancelled && server && isNewerBuild(server)) void reloadFresh(`nav:${server.commit}`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
 
   useEffect(() => {
     let cancelled = false;
+    const loadedAt = Date.now();
     void serverBuild().then((server) => {
       if (!cancelled && server && isNewerBuild(server)) void reloadFresh(server.commit);
     });
 
     const check = () => {
       void serverBuild().then((server) => {
-        if (!cancelled && server && isNewerBuild(server)) setNewer(server);
+        if (cancelled || !server || !isNewerBuild(server)) return;
+        setNewer(server);
+        if (Date.now() - loadedAt > STALE_MS && !isTyping()) setCountdown((c) => c ?? COUNTDOWN_S);
       });
     };
     const onVisible = () => {
       if (document.visibilityState === "visible") check();
     };
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      void serverBuild().then((server) => {
+        if (!cancelled && server && isNewerBuild(server)) void reloadFresh(`restore:${server.commit}`);
+      });
+    };
+    window.addEventListener("pageshow", onPageShow);
     const timer = window.setInterval(check, POLL_MS);
     document.addEventListener("visibilitychange", onVisible);
 
@@ -161,11 +207,23 @@ export function UpdateWatcher() {
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      window.removeEventListener("pageshow", onPageShow);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("error", onError);
       window.removeEventListener("unhandledrejection", onRejection);
     };
   }, []);
+
+  useEffect(() => {
+    if (countdown == null || !newer) return;
+    if (countdown <= 0) {
+      if (isTyping()) setCountdown(null);
+      else void reloadFresh(`stale:${newer.commit}`);
+      return;
+    }
+    const tick = window.setTimeout(() => setCountdown(countdown - 1), 1000);
+    return () => window.clearTimeout(tick);
+  }, [countdown, newer]);
 
   if (!newer) return null;
   return (
@@ -173,7 +231,11 @@ export function UpdateWatcher() {
       role="status"
       className="fixed inset-x-0 bottom-0 z-assistant flex flex-wrap items-center justify-center gap-3 border-t border-info-line bg-info-soft px-4 py-3 text-body text-ink shadow-card"
     >
-      <span>A new version of Calevate is ready (v{newer.version}). Save what you are typing, then update.</span>
+      <span>
+        {countdown != null
+          ? `A new version of Calevate is ready (v${newer.version}). Updating in ${Math.max(countdown, 0)} s…`
+          : `A new version of Calevate is ready (v${newer.version}). Save what you are typing, then update.`}
+      </span>
       <button
         type="button"
         className="rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-deep"
@@ -181,8 +243,15 @@ export function UpdateWatcher() {
       >
         Update now
       </button>
-      <button type="button" className="text-xs text-ink-muted underline" onClick={() => setNewer(null)}>
-        Later
+      <button
+        type="button"
+        className="text-xs text-ink-muted underline"
+        onClick={() => {
+          setCountdown(null);
+          setNewer(null);
+        }}
+      >
+        {countdown != null ? "Not now" : "Later"}
       </button>
     </div>
   );
