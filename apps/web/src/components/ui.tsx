@@ -1134,9 +1134,14 @@ export const NOTICE_BASE = "space-y-1 border-l-2 bg-surface py-1 pl-3 text-body 
  *
  * `min-h-*`, never `h-*`: these controls wrap onto two lines with long Telugu or Hindi
  * labels, and a fixed height would clip the second line rather than grow.
+ *
+ * `FIELD` skips the raise on a `<textarea>`: the `touch:` rule is a media-query rule emitted
+ * after the plain utilities, so it beat a call site's own `min-h-36` / `min-h-72` and a phone
+ * showed a long text box two lines tall. A textarea is already taller than 44px at its
+ * default two rows; a one-row one (`rows={1}`) adds `touch:min-h-11` itself.
  */
 export const FIELD =
-  "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint touch:min-h-11 transition-[border-color] duration-(--duration-fast) ease-out focus:border-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 aria-[invalid=true]:border-danger";
+  "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint touch:[&:not(textarea)]:min-h-11 transition-[border-color] duration-(--duration-fast) ease-out focus:border-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/25 aria-[invalid=true]:border-danger";
 /**
  * The same control for a FLEX ROW, where `FIELD`'s `w-full` would be wrong.
  *

@@ -113,7 +113,7 @@ export function NumberField({
               runCheck();
             }
           }}
-          className={`${FIELD} max-h-60 resize-none font-mono field-sizing-content`}
+          className={`${FIELD} max-h-60 resize-none font-mono field-sizing-content touch:min-h-11`}
         />
         <p id={`${fieldId}-hint`} className="mt-1 text-meta text-ink-faint">
           {many ? manyNumbers(formatCount(parsed.length)) : COPY.fieldHint}

@@ -181,8 +181,20 @@ describe("tap targets", () => {
     ]) {
       const literal = new RegExp(`export const ${name} =\\s*\\n?\\s*"([^"]*)"`).exec(ui)?.[1] ?? "";
       expect(literal, `${name} not found in components/ui.tsx`).not.toEqual("");
-      expect(literal, `${name} lost its touch tap-target minimum`).toContain("touch:min-h-11");
+      expect(literal, `${name} lost its touch tap-target minimum`).toMatch(/touch:(\[&:not\(textarea\)\]:)?min-h-11/);
     }
+  });
+
+  /**
+   * The raise is a media-query rule, emitted after the plain utilities, so on a textarea it
+   * beat the call site's own taller `min-h-*`: How they speak's training box, `min-h-72`,
+   * was two lines tall on a phone.
+   */
+  it("leaves a textarea's own taller minimum standing on a phone", () => {
+    const ui = read(join(SRC, "components", "ui.tsx"));
+    const field = /export const FIELD =\s*\n?\s*"([^"]*)"/.exec(ui)?.[1] ?? "";
+    expect(field).toContain("touch:[&:not(textarea)]:min-h-11");
+    expect(field.split(/\s+/)).not.toContain("touch:min-h-11");
   });
 });
 
