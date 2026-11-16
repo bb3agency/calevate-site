@@ -53,8 +53,8 @@ from apps.api.compliance.autodialer import (
     a2p_declaration_blocker,
     enforced_from,
     enforcement_active,
-    outbound_presented_numbers,
     outbound_in_use,
+    outbound_presented_numbers,
 )
 from apps.api.compliance.preference_scrub import campaigns_awaiting_scrub
 from apps.api.compliance.service import (
@@ -376,8 +376,9 @@ async def a2p_readiness_row(
 ) -> tuple[ReadinessRow, bool] | None:
     """The calling-number declaration as a readiness row, and whether it blocks yet (D-941).
 
-    Asked about every number the account's outbound dials present (`outbound_presented_numbers`),
-    so the sentence matches the refusal the dial gate would give for any of them. Before the enforcement date the
+    Asked about every number the account's outbound dials present
+    (`outbound_presented_numbers`), so the sentence matches the refusal the dial gate would
+    give for any of them. Before the enforcement date the
     row is returned as NOT blocking: the screen lists it as due, with the date, and the
     account may still operate. None when the account places no calls or is covered.
     """
