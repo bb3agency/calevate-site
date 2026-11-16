@@ -31,6 +31,7 @@ import {
   type DraftRow,
 } from "../agents/panels/extractionDraft";
 import { FieldEditorRow } from "../agents/panels/extractionRow";
+import { TEAM_ALERTS_ANCHOR } from "../agents/panels/teamAlerts";
 import { FoldSection } from "./FoldSection";
 
 type Props = { slug: string; campaignId: string; agentId: string; canWrite: boolean; refusal?: string };
@@ -226,6 +227,17 @@ function NotesEditor({
       <p className="text-xs text-ink-muted">
         {data.applied_now ? "From its next call." : "From its first call."} Old leads keep their values.
       </p>
+      {data.fields.length > 0 && (
+        <p className="text-xs text-ink-muted">
+          Want your team told about an answer?{" "}
+          <Link
+            className="underline"
+            href={`/c/${slug}/agents/${data.agent_id}?section=settings#${TEAM_ALERTS_ANCHOR}`}
+          >
+            Set alerts
+          </Link>
+        </p>
+      )}
     </form>
   );
 }

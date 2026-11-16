@@ -13,7 +13,8 @@ The core every lead carries (`calevate_shared.lead_fields`) is always listed fir
 
 from __future__ import annotations
 
-from typing import Any, Final
+from dataclasses import dataclass
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField
@@ -47,22 +48,50 @@ _ACCOUNT_VERSIONS_SQL: Final = (
 #: that took it, when either has a list of its own. The same pick as the post-call
 #: pipeline's `_load_call_context`, so a call is read back under the list it was captured with.
 _HOLDER_FIELDS_SQL: Final = (
-    "SELECT c.id, COALESCE(NULLIF(g.extraction_fields, '[]'::jsonb), "
+    "SELECT c.id, CASE WHEN jsonb_array_length(g.extraction_fields) > 0 THEN 'campaign' "
+    "WHEN jsonb_array_length(l.extraction_fields) > 0 THEN 'line' END, "
+    "CASE WHEN jsonb_array_length(g.extraction_fields) > 0 THEN g.id "
+    "WHEN jsonb_array_length(l.extraction_fields) > 0 THEN l.id END, "
+    "COALESCE(NULLIF(g.extraction_fields, '[]'::jsonb), "
     "NULLIF(l.extraction_fields, '[]'::jsonb)) FROM calls c "
     "LEFT JOIN campaigns g ON g.id = c.campaign_id "
     "LEFT JOIN inbound_lines l ON l.id = c.inbound_line_id "
     "WHERE c.id = ANY(:ids)"
 )
 
+HolderKind = Literal["campaign", "line"]
+
+
+@dataclass(frozen=True, slots=True)
+class CallHolder:
+    """The campaign or line whose own list a call was captured under."""
+
+    kind: HolderKind
+    id: UUID
+    fields: list[ExtractionField]
+
+
+async def call_holders(session: AsyncSession, call_ids: list[UUID]) -> dict[UUID, CallHolder]:
+    """Each call's holder, for the calls whose holder has a list of its own."""
+    if not call_ids:
+        return {}
+    rows = (await session.execute(text(_HOLDER_FIELDS_SQL), {"ids": call_ids})).all()
+    return {
+        UUID(str(r[0])): CallHolder(
+            kind="campaign" if r[1] == "campaign" else "line",
+            id=UUID(str(r[2])),
+            fields=business_only(r[3]),
+        )
+        for r in rows
+        if r[3]
+    }
+
 
 async def holder_fields(
     session: AsyncSession, call_ids: list[UUID]
 ) -> dict[UUID, list[ExtractionField]]:
     """Each call's holder's own list, for the calls whose holder has one."""
-    if not call_ids:
-        return {}
-    rows = (await session.execute(text(_HOLDER_FIELDS_SQL), {"ids": call_ids})).all()
-    return {UUID(str(r[0])): business_only(r[1]) for r in rows if r[1]}
+    return {cid: holder.fields for cid, holder in (await call_holders(session, call_ids)).items()}
 
 
 def _humanised(key: str) -> str:
@@ -289,6 +318,9 @@ async def lead_holder_fields(session: AsyncSession, lead_id: UUID) -> list[Extra
 
 
 __all__ = [
+    "CallHolder",
+    "HolderKind",
+    "call_holders",
     "captured_fields",
     "holder_fields",
     "is_name_field",

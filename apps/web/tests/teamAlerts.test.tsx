@@ -1,9 +1,11 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { TeamAlertsPanel } from "@/app/c/[slug]/agents/panels/teamAlerts";
+import { CampaignNotes } from "@/app/c/[slug]/campaigns/CampaignNotes";
 import { TeamList } from "@/app/c/[slug]/settings/alerts/TeamList";
 
+import { FIXTURE_AGENT_ID, FIXTURE_CAMPAIGN_ID, notesFixture } from "./campaignFixtures";
 import { renderClientPage, type ApiCall } from "./harness";
 import { OWNER_ME, teamAlertReads } from "./fixtures/sharedReads";
 
@@ -113,5 +115,57 @@ describe("what an agent tells the list about", () => {
       on_fields: [],
       in_call: true,
     });
+  });
+
+  it("offers a campaign's own answers under its name and saves them as that campaign's", async () => {
+    const reads = teamAlertReads();
+    const rule = {
+      ...reads["/v1/agents/agent-1/team-alert"],
+      fields: [{ key: "visit_day", label: "Visit day", values: ["Saturday", "Sunday"], positive: false, goal: false }],
+      holders: [
+        {
+          kind: "campaign" as const,
+          id: "camp-1",
+          name: "Site visits",
+          fields: [{ key: "visit_day", label: "Visit day", values: ["Saturday", "Sunday"], positive: false, goal: false }],
+        },
+      ],
+    };
+    const { calls } = await renderClientPage(
+      <TeamAlertsPanel agent={AGENT} />,
+      routes({ "/v1/agents/agent-1/team-alert": () => rule }),
+    );
+    const campaign = await screen.findByRole("region", { name: "Campaign Site visits" });
+    expect(campaign.textContent).toContain("Its own calls only.");
+    // The agent's own "Visit day" and the campaign's are two separate ticks.
+    expect(screen.getAllByLabelText("Saturday")).toHaveLength(2);
+    fireEvent.click(within(campaign).getByLabelText("Saturday"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}").on_fields).toEqual([
+      { key: "visit_day", values: ["Saturday"], campaign_id: "camp-1" },
+    ]);
+  });
+});
+
+describe("a campaign's What it notes", () => {
+  const notesPath = `/v1/campaigns/${FIXTURE_CAMPAIGN_ID}/notes`;
+  const render = (notes: ReturnType<typeof notesFixture>) =>
+    renderClientPage(
+      <CampaignNotes slug="acme" campaignId={FIXTURE_CAMPAIGN_ID} agentId={FIXTURE_AGENT_ID} canWrite />,
+      routes({ [notesPath]: notes }),
+    );
+
+  it("links its own list to its agent's alerts", async () => {
+    const field = { key: "visit_day", label: "Visit day", type: "enum", enum_values: ["Saturday"], reason: "when" };
+    await render(notesFixture({ fields: [field] as ReturnType<typeof notesFixture>["fields"] }));
+    const link = await screen.findByRole("link", { name: "Set alerts" });
+    expect(link.getAttribute("href")).toBe(`/c/acme/agents/${FIXTURE_AGENT_ID}?section=settings#team-alerts`);
+  });
+
+  it("offers no alerts link while it follows the agent's list", async () => {
+    await render(notesFixture());
+    expect(await screen.findByText(/Same as/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Set alerts" })).toBeNull();
   });
 });

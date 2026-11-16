@@ -9,11 +9,15 @@
  * the owner saves, the server sends every positive outcome ticked (`rule.saved` false). The
  * rule is per agent because each agent has its own outcomes and answers.
  *
+ * A campaign or Inbound line of this agent with its own "What it notes" list adds its answers
+ * here, under its own name (D-1007): such an answer alerts only on that campaign's or line's
+ * calls. They live in this one rule rather than on each campaign, so alerts stay in one place.
+ *
  * Writes are the owner's (`org:manage`); the server's refusal is shown in its own words.
  */
 
 import Link from "next/link";
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -24,11 +28,41 @@ import { useClientRealm } from "@/lib/api/session";
 import { useSaveTeamAlertRule, useTeamAlertRule, type TeamAlertRule } from "@/lib/api/teamAlerts";
 
 type AlertAgent = Pick<Agent, "id" | "name">;
+type Trigger = TeamAlertRule["on_fields"][number];
+type Choice = TeamAlertRule["fields"][number];
+
+/** Where a campaign's or line's page links to this panel (`?section=settings#…`). */
+export const TEAM_ALERTS_ANCHOR = "team-alerts";
+
+/** One answer's place in the form: whose list it is on, then its key. */
+function slot(trigger: Pick<Trigger, "key" | "campaign_id" | "inbound_line_id">): string {
+  const holder = trigger.campaign_id ? `campaign:${trigger.campaign_id}` : trigger.inbound_line_id ? `line:${trigger.inbound_line_id}` : "";
+  return `${holder}|${trigger.key}`;
+}
+
+function triggerOf(place: string, values: string[]): Trigger {
+  const [holder, key] = [place.slice(0, place.indexOf("|")), place.slice(place.indexOf("|") + 1)];
+  const [kind, id] = holder.split(":");
+  return {
+    key,
+    values,
+    ...(kind === "campaign" ? { campaign_id: id } : {}),
+    ...(kind === "line" ? { inbound_line_id: id } : {}),
+  };
+}
 
 export function TeamAlertsPanel({ agent }: { agent: AlertAgent }) {
   const { session, href } = useClientRealm();
   const rule = useTeamAlertRule(session, agent.id);
   const write = useWriteAccess(session, "org:manage", "change which calls you are alerted about");
+  const loaded = rule.data != null;
+  // A campaign's "Set alerts" link names this section. The agent page draws it only after its
+  // data loads, so the browser's own jump found no target: scroll to it once the rule is in.
+  useEffect(() => {
+    if (loaded && window.location.hash === `#${TEAM_ALERTS_ANCHOR}`) {
+      document.getElementById(TEAM_ALERTS_ANCHOR)?.scrollIntoView?.({ block: "start" });
+    }
+  }, [loaded]);
 
   if (rule.isLoading) return <Skeleton rows={4} />;
   if (rule.error || !rule.data) {
@@ -107,6 +141,31 @@ function Group({ legend, children }: { legend: ReactNode; children: ReactNode })
   );
 }
 
+/** One choice field's answers, each a tick. */
+function AnswerGroup({
+  field,
+  us,
+  picked,
+  disabled,
+  onToggle,
+}: {
+  field: Choice;
+  us: string;
+  picked: string[];
+  disabled: boolean;
+  onToggle: (value: string, on: boolean) => void;
+}) {
+  return (
+    <Group legend={<>Tell {us} after a call where &ldquo;{field.label}&rdquo; is</>}>
+      {field.values.map((value) => (
+        <Tick key={value} disabled={disabled} checked={picked.includes(value)} onChange={(on) => onToggle(value, on)}>
+          {value}
+        </Tick>
+      ))}
+    </Group>
+  );
+}
+
 function When({
   agent,
   rule,
@@ -123,7 +182,7 @@ function When({
   const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved" });
   const [outcomes, setOutcomes] = useState<string[]>(rule.on_outcomes);
   const [fields, setFields] = useState<Record<string, string[]>>(
-    Object.fromEntries(rule.on_fields.map((f) => [f.key, f.values])),
+    Object.fromEntries(rule.on_fields.map((f) => [slot(f), f.values])),
   );
   const [inCall, setInCall] = useState(rule.in_call);
 
@@ -141,7 +200,7 @@ function When({
           on_outcomes: outcomes,
           on_fields: Object.entries(fields)
             .filter(([, values]) => values.length > 0)
-            .map(([key, values]) => ({ key, values })),
+            .map(([place, values]) => triggerOf(place, values)),
           in_call: inCall,
         });
       }}
@@ -162,19 +221,49 @@ function When({
         </Group>
       ) : null}
 
-      {rule.fields.map((field) => (
-        <Group key={field.key} legend={<>Tell {us} after a call where &ldquo;{field.label}&rdquo; is</>}>
-          {field.values.map((value) => (
-            <Tick
-              key={value}
-              disabled={!canWrite}
-              checked={(fields[field.key] ?? []).includes(value)}
-              onChange={(on) => setFields({ ...fields, [field.key]: toggle(fields[field.key] ?? [], value, on) })}
-            >
-              {value}
-            </Tick>
-          ))}
-        </Group>
+      {rule.fields.map((field) => {
+        const place = slot({ key: field.key });
+        return (
+          <AnswerGroup
+            key={place}
+            field={field}
+            us={us}
+            picked={fields[place] ?? []}
+            disabled={!canWrite}
+            onToggle={(value, on) => setFields({ ...fields, [place]: toggle(fields[place] ?? [], value, on) })}
+          />
+        );
+      })}
+
+      {rule.holders.map((holder) => (
+        <section
+          key={`${holder.kind}:${holder.id}`}
+          aria-label={`${holder.kind === "campaign" ? "Campaign" : "Inbound line"} ${holder.name}`}
+          className="space-y-4 border-l-2 border-line pl-4"
+        >
+          <p className="text-sm text-ink">
+            <span className="text-ink-muted">{holder.kind === "campaign" ? "Campaign" : "Inbound line"}</span>{" "}
+            {holder.name}
+            <span className="block text-xs text-ink-muted">Its own calls only.</span>
+          </p>
+          {holder.fields.map((field) => {
+            const place = slot({
+              key: field.key,
+              campaign_id: holder.kind === "campaign" ? holder.id : null,
+              inbound_line_id: holder.kind === "line" ? holder.id : null,
+            });
+            return (
+              <AnswerGroup
+                key={place}
+                field={field}
+                us={us}
+                picked={fields[place] ?? []}
+                disabled={!canWrite}
+                onToggle={(value, on) => setFields({ ...fields, [place]: toggle(fields[place] ?? [], value, on) })}
+              />
+            );
+          })}
+        </section>
       ))}
 
       <Group legend="During the call">

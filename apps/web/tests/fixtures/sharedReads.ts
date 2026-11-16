@@ -277,6 +277,7 @@ export function teamAlertReads(agentId = "agent-1") {
         { key: "booked", label: "Booked", values: [], positive: false, goal: false },
       ],
       fields: [],
+      holders: [],
     } satisfies TeamAlertRule,
   };
 }

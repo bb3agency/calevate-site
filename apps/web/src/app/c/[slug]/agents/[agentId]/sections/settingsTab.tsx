@@ -35,7 +35,7 @@ import { AgentIdentity } from "../../AgentIdentity";
 import { AgentLifecycle, LifecycleError } from "../../AgentLifecycle";
 import { AgentModel } from "../../AgentModel";
 import { ExtractionList } from "../../panels/extraction";
-import { TeamAlertsPanel } from "../../panels/teamAlerts";
+import { TEAM_ALERTS_ANCHOR, TeamAlertsPanel } from "../../panels/teamAlerts";
 import { CallHandlingSection, VoiceSection } from "./deliverySections";
 
 /** The anchor a test result's "Open call handling" lands on. */
@@ -88,14 +88,16 @@ export function SettingsTab({
           </Section>
         </div>
 
-        <Section
-          headingLevel={3}
-          title={`Alerts from ${agent.name}`}
-          description={`Which calls ${agent.name} tells you and your team about.`}
-          info={<p>Who hears is set once, on Settings, Alerts.</p>}
-        >
-          <TeamAlertsPanel agent={agent} />
-        </Section>
+        <div id={TEAM_ALERTS_ANCHOR} className="scroll-mt-24">
+          <Section
+            headingLevel={3}
+            title={`Alerts from ${agent.name}`}
+            description={`Which calls ${agent.name} tells you and your team about.`}
+            info={<p>Who hears is set once, on Settings, Alerts. Its campaigns&apos; and lines&apos; own details are here too.</p>}
+          >
+            <TeamAlertsPanel agent={agent} />
+          </Section>
+        </div>
 
         <Section headingLevel={3} title="Model">
           <AgentModel agent={agent} slug={slug} />

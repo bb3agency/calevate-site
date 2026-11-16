@@ -177,23 +177,60 @@ class _AlertArgs(BaseModel):
     in_call: bool
 
 
+_ANSWER_FORMS: Final = (
+    "each of `on_answers` is `key=value` for the agent's own answers, or "
+    "`campaign:<campaign_id>:key=value` / `line:<line_id>:key=value` for one on a campaign's "
+    "or line's own list"
+)
+
+
+def answer_prefix(trigger: Any) -> str:
+    """The `on_answers` prefix naming a trigger's campaign or line; empty for the agent's."""
+    holder = trigger.holder
+    return "" if holder is None else f"{holder.kind}:{holder.id}:"
+
+
+def _holder_of(prefix: str) -> Any:
+    from apps.api.team_alerts.service import HolderRef
+
+    if not prefix:
+        return None
+    kind, _, raw_id = prefix.partition(":")
+    try:
+        holder_id = UUID(raw_id)
+    except ValueError:
+        raise WriteRefusedError(_ANSWER_FORMS) from None
+    if kind == "campaign":
+        return HolderRef("campaign", holder_id)
+    if kind == "line":
+        return HolderRef("line", holder_id)
+    raise WriteRefusedError(_ANSWER_FORMS)
+
+
 def _triggers(answers: list[str]) -> tuple[Any, ...]:
     from apps.api.team_alerts.service import MAX_FIELD_TRIGGERS, FieldTrigger
 
-    grouped: dict[str, list[str]] = {}
+    grouped: dict[tuple[str, str], list[str]] = {}
     for answer in answers:
-        key, sep, value = answer.partition("=")
+        left, sep, value = answer.partition("=")
+        prefix, _, key = left.rpartition(":")
         if not sep or not key.strip() or not value.strip():
-            raise WriteRefusedError("each of `on_answers` is `key=value`")
-        grouped.setdefault(key.strip(), []).append(value.strip())
+            raise WriteRefusedError(_ANSWER_FORMS)
+        grouped.setdefault((prefix.strip(), key.strip()), []).append(value.strip())
     if len(grouped) > MAX_FIELD_TRIGGERS:
         raise WriteRefusedError(f"watch at most {MAX_FIELD_TRIGGERS} details")
-    return tuple(FieldTrigger(k, tuple(dict.fromkeys(v))) for k, v in grouped.items())
+    return tuple(
+        FieldTrigger(key, tuple(dict.fromkeys(v)), _holder_of(prefix))
+        for (prefix, key), v in grouped.items()
+    )
 
 
 def _rule_words(rule: Any, outcomes: Mapping[str, str], fields: Mapping[str, str]) -> str:
     parts = [f"after a call ending {outcomes.get(k, k)}" for k in rule.on_outcomes]
-    parts += [f"when {fields.get(t.key, t.key)} is {' or '.join(t.values)}" for t in rule.on_fields]
+    parts += [
+        f"when {fields.get(answer_prefix(t) + t.key, t.key)} is {' or '.join(t.values)}"
+        for t in rule.on_fields
+    ]
     if rule.in_call:
         parts.append("during the call when the agent decides to")
     return "; ".join(parts) or "no call"
@@ -209,6 +246,10 @@ async def _plan_alert(session: AsyncSession, actor: ToolActor, args: Mapping[str
     outcomes = {o.key: o.label for o in view.outcomes}
     fields = {f.key: f.label for f in view.fields}
     allowed = {f.key: set(f.values) for f in view.fields}
+    for holder in view.holders:
+        prefix = f"{holder.ref.kind}:{holder.ref.id}:"
+        fields.update({prefix + f.key: f"{f.label} ({holder.name})" for f in holder.fields})
+        allowed.update({prefix + f.key: set(f.values) for f in holder.fields})
     unknown = [k for k in parsed.on_outcomes if k not in outcomes]
     if unknown:
         raise WriteRefusedError(
@@ -216,9 +257,11 @@ async def _plan_alert(session: AsyncSession, actor: ToolActor, args: Mapping[str
         )
     on_fields = _triggers(parsed.on_answers)
     for trigger in on_fields:
-        if trigger.key not in allowed or not set(trigger.values) <= allowed[trigger.key]:
+        named = answer_prefix(trigger) + trigger.key
+        if named not in allowed or not set(trigger.values) <= allowed[named]:
             raise WriteRefusedError(
-                "an answer is not one this agent records; take them from agent_settings handover"
+                "an answer is not one this agent or its campaigns and lines record; take "
+                "them from agent_settings handover"
             )
     wanted = Rule(
         on_outcomes=tuple(parsed.on_outcomes),
@@ -236,7 +279,7 @@ async def _plan_alert(session: AsyncSession, actor: ToolActor, args: Mapping[str
         args={
             "agent_id": str(parsed.agent_id),
             "on_outcomes": list(dict.fromkeys(parsed.on_outcomes)),
-            "on_answers": [f"{t.key}={v}" for t in on_fields for v in t.values],
+            "on_answers": [f"{answer_prefix(t)}{t.key}={v}" for t in on_fields for v in t.values],
             "in_call": parsed.in_call,
         },
     )
@@ -284,7 +327,8 @@ AGENT_TEAM_ALERT_SET: Final = ActionTool(
     schema=action_schema(
         "agent_team_alert_set",
         "What besides hot leads one agent tells everyone on the hot-lead list about: the "
-        "WHOLE rule. Keys from agent_settings `handover`." + PROPOSES_ONLY,
+        "WHOLE rule, its campaigns' and lines' own answers included. Keys and answer forms "
+        "from agent_settings `handover`." + PROPOSES_ONLY,
         {
             "agent_id": {"type": "string"},
             "on_outcomes": {"type": "array", "items": {"type": "string"}},
