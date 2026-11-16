@@ -96,7 +96,7 @@ export function BriefStep({
       hint={
         <>
           {FIRST.briefHint}
-          <Why>Use your own words. Pip trains your agents from this and writes their first script.</Why>
+          <Why>Use your own words. Pip trains your agents from this and writes the script for your first calls.</Why>
         </>
       }
       onBack={onBack}

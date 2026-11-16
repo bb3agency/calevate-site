@@ -28,6 +28,9 @@ import type { Session } from "@/lib/api/client";
 import { useLanes, type Lane } from "@/lib/api/publishing";
 import { lookup } from "@/lib/lookup";
 
+/** The server's lane for the agent-level script (`agents/publishing.LANES`). */
+const AGENT_SCRIPT_FIELD = "script";
+
 export function HowChangesTakeEffect({ session }: { session: Session }) {
   const lanes = useLanes(session);
 
@@ -54,9 +57,14 @@ function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
    * approve" — a promise about a live phone line, made about a value this build has never
    * seen. Unknown fails VISIBLE and claims nothing.
    */
-  const waits = lanes.data.lanes.filter((lane) => lane.lane === "staged");
-  const immediate = lanes.data.lanes.filter((lane) => lane.lane === "live");
-  const unclassified = lanes.data.lanes.filter(
+  // An agent has no script of its own (D-997): the words a caller hears are written on an
+  // Inbound line or a campaign, which say on their own pages when a change goes live. So
+  // the server's `script` lane, whose reason speaks of an agent's script, is not listed on
+  // the agents page.
+  const agentLanes = lanes.data.lanes.filter((lane) => lane.field !== AGENT_SCRIPT_FIELD);
+  const waits = agentLanes.filter((lane) => lane.lane === "staged");
+  const immediate = agentLanes.filter((lane) => lane.lane === "live");
+  const unclassified = agentLanes.filter(
     (lane) => lane.lane !== "staged" && lane.lane !== "live",
   );
 
@@ -66,8 +74,8 @@ function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
           server's precedence rule stays beneath it because SURFACES §2b asks for it to be
           STATED and it is the server's own words for it. */}
       <ul className="space-y-1 text-body font-medium text-ink">
-        <li>Script changes: only once you put them live.</li>
-        <li>Everything else: from the next call.</li>
+        <li>Scripts: on each Inbound line and campaign.</li>
+        <li>An agent&apos;s own settings: from the next call.</li>
       </ul>
       <p className="mt-1 text-meta text-ink-muted">
         {lanes.data.precedence_rule}
