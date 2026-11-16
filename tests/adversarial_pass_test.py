@@ -865,6 +865,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/campaigns/{campaign_id}/test-calls", {}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/test-calls/{call_id}", {}, {}),
     ("DELETE", "/v1/company-training/proposal/{training_proposal_id}", {}, {}),
+    ("PUT", "/v1/campaigns/{campaign_id}/test-numbers", {"numbers": []}, {}),
     ("GET", "/v1/inbound-lines/{line_id}", {}, {}),
     ("PATCH", "/v1/inbound-lines/{line_id}", {"name": "Taken"}, {}),
     ("PUT", "/v1/inbound-lines/{line_id}/sources", {"source_ids": []}, {}),
@@ -1344,6 +1345,11 @@ async def test_the_idor_sweep_is_driving_routes_that_exist() -> None:
 #: bar is that the id is NOT an object reference a neighbour could name — otherwise the
 #: entry is an exemption for the exact case the sweep exists to catch.
 _NOT_AN_OBJECT_REFERENCE: dict[str, str] = {
+    "GET /v1/campaigns/{campaign_id}/test-numbers": (
+        "the saved test numbers are the caller's own account's (`organizations.test_numbers`, "
+        "read under its RLS); the campaign id only says which screen asked, and no row of it "
+        "is read, so a neighbour's id returns the caller's own list and nothing of theirs."
+    ),
     "POST /v1/announcements/{announcement_id}/dismiss": (
         "an announcement is a platform row (no tenant_id, D-869); the dismissal it writes is "
         "the caller's own, under their tenant's RLS, so the id names nothing a neighbour owns."
