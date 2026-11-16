@@ -43,8 +43,10 @@ _PER_CALL_SQL = (
     "(SELECT ag.name FROM agents ag WHERE ag.id = c.agent_id) "
     "FROM calls c JOIN usage_events u ON u.call_id = c.id AND u.tenant_id = c.tenant_id "
     f"AND {minute_cost_rows('u.')} "
-    "WHERE c.tenant_id = :tid AND c.engine_charged_inr IS NOT NULL "
-    "AND c.created_at >= :month_from AND c.created_at < :month_to GROUP BY c.id"
+    "WHERE c.tenant_id = :tid AND c.engine_charged_inr IS NOT NULL GROUP BY c.id "
+    # The month of the call's metered rows, as the rest of the money board buckets it: a
+    # call placed before IST midnight that ends after it costs in the later month.
+    "HAVING min(u.occurred_at) >= :month_from AND min(u.occurred_at) < :month_to"
 )
 
 

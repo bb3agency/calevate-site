@@ -82,6 +82,30 @@ def test_a_payment_entity_is_normalised_and_notes_keep_only_string_pairs() -> No
     assert payment.customer_id is None, "an empty string is not an id"
     assert payment.notes == {"tenant": "t1"}
     assert payment.created_at == 1_700_000_000
+    assert payment.captured is None
+
+
+@pytest.mark.parametrize(
+    ("status", "captured", "took"),
+    [
+        ("captured", True, True),
+        ("refunded", True, True),
+        ("refunded", None, True),
+        ("refunded", False, False),
+        ("authorized", False, False),
+        ("failed", False, False),
+    ],
+)
+def test_a_refunded_payment_took_money_only_if_it_was_captured(
+    status: str, captured: bool | None, took: bool
+) -> None:
+    entity: dict[str, Any] = {"id": "pay_1", "status": status, "amount": 100, "currency": "INR"}
+    if captured is not None:
+        entity["captured"] = captured
+    payment = normalize_payment(entity)
+    assert payment is not None
+    assert payment.captured is captured
+    assert payment.took_money is took
 
 
 @pytest.mark.parametrize(

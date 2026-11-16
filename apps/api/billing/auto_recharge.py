@@ -999,7 +999,6 @@ ChargeVerdict = Literal["captured", "failed", "pending"]
 #: `authorized`, which Razorpay auto-captures by default within 3 days of creation
 #: (`payments/payments/capture-settings.md`, read 9 Nov 2026).
 _PAYMENT_STILL_OPEN: Final = frozenset({"created", "authorized"})
-_PAYMENT_TOOK_MONEY: Final = frozenset({"captured", "refunded"})
 
 
 def charge_verdict(payments: list[ProviderPayment], *, now: datetime) -> ChargeVerdict:
@@ -1010,7 +1009,7 @@ def charge_verdict(payments: list[ProviderPayment], *, now: datetime) -> ChargeV
     younger than `LATE_AUTHORISATION_WINDOW`, which the bank can still authorise. `failed`
     only when none can: every attempt failed past that window, or the order has no payment
     at all three days on."""
-    if any(p.status in _PAYMENT_TOOK_MONEY for p in payments):
+    if any(p.took_money for p in payments):
         return "captured"
     for payment in payments:
         if payment.status in _PAYMENT_STILL_OPEN:
@@ -1097,7 +1096,7 @@ async def expire_unanswered(tenant_id: UUID, *, now: datetime | None = None) -> 
                 continue
         verdict = charge_verdict(payments, now=at)
         if verdict == "captured":
-            taken = next(p for p in payments if p.status in _PAYMENT_TOOK_MONEY)
+            taken = next(p for p in payments if p.took_money)
             try:
                 await _credit_late_capture(tenant_id, taken, order_id=str(order_id))
             except ProblemError as exc:

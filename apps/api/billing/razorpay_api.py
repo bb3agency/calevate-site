@@ -98,6 +98,21 @@ class ProviderPayment:
     notes: dict[str, str]
     error_code: str | None
     created_at: int
+    #: The entity's `captured` flag ("Indicates if the payment is captured", api/payments/
+    #: entity, read 17 Nov 2026); None when absent.
+    captured: bool | None = None
+
+    @property
+    def took_money(self) -> bool:
+        """Did this payment take the client's money? `refunded` alone does not say so: an
+        authorized payment never captured is "auto-refunded" (payments/payments/
+        capture-settings, read 17 Nov 2026), and crediting it would put credit on the wallet
+        for money that was never kept. A `refunded` payment counts unless the entity says it
+        was never captured; an absent flag keeps the earlier reading, because a captured
+        refund left uncredited would let its refund debit credit that never landed."""
+        if self.status == "captured":
+            return True
+        return self.status == "refunded" and self.captured is not False
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +170,7 @@ def normalize_payment(entity: Any) -> ProviderPayment | None:
         notes=_notes(entity.get("notes")),
         error_code=_s("error_code"),
         created_at=_int(entity.get("created_at")) or 0,
+        captured=entity["captured"] if isinstance(entity.get("captured"), bool) else None,
     )
 
 

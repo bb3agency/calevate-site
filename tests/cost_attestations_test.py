@@ -308,6 +308,30 @@ async def test_the_variance_compares_the_charge_with_its_fee_against_the_metered
     assert [c.call_id for c in found.largest] == [call_id]
 
 
+async def test_a_call_placed_last_month_and_metered_this_month_is_this_months_variance() -> None:
+    """The variance sits in the month its cost does: the call's metered rows, not the
+    instant the call row was made, which is a month earlier for a call spanning IST
+    midnight on the 1st."""
+    tenant_id, agent_id = await _tenant(monthly_fee=None)
+    call_id = await _charged_call(tenant_id, agent_id, cost="3.0708")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET created_at = now() - interval '40 days' WHERE id = :c"),
+            {"c": call_id},
+        )
+    this_month = ist_billing_month(datetime.now(UTC))
+    last_month = ist_billing_month(datetime.now(UTC) - timedelta(days=40))
+    async with tenant_session(tenant_id) as session:
+        now_found = await month_charge_variance(
+            session, tenant_id=tenant_id, month=this_month, engine="thinnest"
+        )
+        then_found = await month_charge_variance(
+            session, tenant_id=tenant_id, month=last_month, engine="thinnest"
+        )
+    assert now_found is not None and [c.call_id for c in now_found.largest] == [call_id]
+    assert then_found is None
+
+
 async def test_a_month_with_no_charged_call_has_no_variance() -> None:
     tenant_id, _agent = await _tenant(monthly_fee=None)
     async with tenant_session(tenant_id) as session:

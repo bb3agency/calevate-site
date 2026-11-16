@@ -200,7 +200,7 @@ async def _check_payment(
         if at - created > UNCAPTURED_AFTER and await _tenant_of(payment) is not None:
             report.unexplained.append(f"uncaptured:{payment.payment_id}")
         return
-    if payment.status not in ("captured", "refunded"):
+    if not payment.took_money:
         return
     route = await route_for(payment.order_id)
     tenant_id = route.tenant_id if route is not None else _tenant_of_notes(payment.notes)
