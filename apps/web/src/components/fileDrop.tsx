@@ -43,6 +43,7 @@ export function FileDrop({
   onRemove,
   sending,
   className,
+  compact = false,
 }: {
   /** The control's name, shown as the box's title and announced as the input's label. */
   label: string;
@@ -64,6 +65,8 @@ export function FileDrop({
   /** The file being sent now. `percent` is `null` while the browser cannot measure it. */
   sending?: { file: File; percent: number | null } | null;
   className?: string;
+  /** One row (icon, name, button, hint) for a box that should not crowd what is under it. */
+  compact?: boolean;
 }) {
   const inputId = useId();
   const titleId = useId();
@@ -107,7 +110,10 @@ export function FileDrop({
           if (!disabled) take(event.dataTransfer.files);
         }}
         className={clsx(
-          "flex flex-col items-center gap-2 rounded-card border border-dashed px-4 py-5 text-center transition-colors duration-(--duration-fast) has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app",
+          compact
+            ? "flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-left"
+            : "flex flex-col items-center gap-2 px-4 py-5 text-center",
+          "rounded-card border border-dashed transition-colors duration-(--duration-fast) has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app",
           dragging ? "border-brand bg-brand-soft" : "border-line bg-app",
           disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
         )}

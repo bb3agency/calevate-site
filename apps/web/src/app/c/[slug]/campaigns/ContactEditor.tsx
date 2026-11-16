@@ -200,12 +200,8 @@ export function ContactEditor({
         <div className="space-y-3">
           <FileDrop
             label="Your contacts file"
-            hint={
-              <>
-                <span className="block">{FILE_HINT}</span>
-                <span className="block">{COLUMNS_HINT}</span>
-              </>
-            }
+            hint={`${FILE_HINT} ${COLUMNS_HINT}`}
+            compact
             accept={CSV_ACCEPT}
             validate={(file) =>
               file.size > MAX_FILE_BYTES
@@ -213,7 +209,6 @@ export function ContactEditor({
                 : null
             }
             onFiles={([file]) => void readFile(file)}
-            className="[&>label]:py-8"
           />
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-meta text-ink-muted">No file?</span>

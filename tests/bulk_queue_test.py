@@ -166,7 +166,8 @@ def test_the_deploy_swaps_the_bulk_worker_before_the_main_one() -> None:
     """L5-01: the new main worker's dispatcher publishes at startup, so the bulk queue's
     reader must already be the new release."""
     script = (COMPOSE_PROD.parent / "scripts" / "vps-deploy.sh").read_text(encoding="utf-8")
-    assert "for component in workers-bulk workers api voice-runtime; do" in script
+    workers = script.index("for component in workers-bulk workers; do")
+    assert workers < script.index("for component in api voice-runtime; do")
 
 
 async def test_the_bulk_worker_advertises_its_jobs_while_it_runs(

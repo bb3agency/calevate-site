@@ -965,6 +965,18 @@ run_migrations() {
   in_plan api || in_plan workers || in_plan workers-bulk || in_plan voice-runtime || return 0
   step "migrations"
 
+  # NOTHING TO APPLY, NOTHING RUN. When no revision and no seed changed since the commit
+  # every component is recorded as running, the database is already at this release's
+  # head and the seed already ran on it, so the three one-off containers (about 25s) are
+  # skipped. Not on --all, and not without a usable record: both mean "trust nothing".
+  # A rollback changes alembic/ by definition, so it never takes this path.
+  local last
+  last=$(last_deployed_sha)
+  if [[ "$MODE" != all && -n "$last" ]] && git -C "$ROOT" diff --quiet "$last" HEAD -- alembic alembic.ini scripts/seed.py; then
+    log "no migration or seed changes since ${last:0:12} — skipped"
+    return 0
+  fi
+
   # ================================ ORDERING ======================================
   # MIGRATE FIRST, THEN SWAP CONTAINERS. The alternative (swap, then migrate) was
   # rejected, and hard rule 8 is the reason it is not a coin flip:
@@ -1060,17 +1072,22 @@ wait_healthy() {
 # import pass its swap: the deploy printed DEPLOYED and recorded the commit while the queue
 # filled behind a restart loop. Queue staleness on `/healthz/ready` catches that later;
 # this catches it before the deploy calls itself finished.
+# Takes one or more components and watches them over the same window.
 wait_settled() {
-  local component=$1 elapsed=0 id state
-  local -a ids
-  mapfile -t ids < <(compose ps -q "$component")
-  (( ${#ids[@]} )) || die "$component has no container after 'up -d'. Nothing is running
+  local elapsed=0 id state component i
+  local -a ids=() owners=() found
+  for component in "$@"; do
+    mapfile -t found < <(compose ps -q "$component")
+    (( ${#found[@]} )) || die "$component has no container after 'up -d'. Nothing is running
      for it now.
      Logs:  docker compose -p $COMPOSE_PROJECT -f $COMPOSE_FILE logs --tail=200 $component
      Then:  runbooks/deploy-failed.md §4"
-  log "watching $component for ${SETTLE_S}s (no HTTP listener; it must stay up, unrestarted)"
+    for id in "${found[@]}"; do ids+=("$id"); owners+=("$component"); done
+  done
+  log "watching $* for ${SETTLE_S}s (no HTTP listener; it must stay up, unrestarted)"
   while :; do
-    for id in "${ids[@]}"; do
+    for i in "${!ids[@]}"; do
+      id=${ids[$i]}; component=${owners[$i]}
       state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$id")
       [[ "$state" == "running 0" ]] || die "$component is not staying up (container
      ${id:0:12}: status/restarts '$state'). It is running the NEW image and failing.
@@ -1081,7 +1098,7 @@ wait_settled() {
     sleep "$HEALTH_INTERVAL_S"
     elapsed=$(( elapsed + HEALTH_INTERVAL_S ))
   done
-  log "$component stayed up for ${SETTLE_S}s"
+  log "$* stayed up for ${SETTLE_S}s"
 }
 
 swap_service() {
@@ -1517,7 +1534,19 @@ if in_plan api || in_plan workers || in_plan workers-bulk || in_plan voice-runti
   compose up -d redis
 fi
 
-for component in workers-bulk workers api voice-runtime; do
+# The two workers are swapped in the order above, then watched TOGETHER: the 30s each must
+# stay up is the same wait, and taking it one after the other cost 30s on every deploy that
+# carried both. A worker that dies still stops the deploy before api is touched.
+settle=()
+for component in workers-bulk workers; do
+  if in_plan "$component"; then
+    step "swap $component"
+    compose up -d --no-deps "$component"
+    settle+=("$component")
+  fi
+done
+if (( ${#settle[@]} )); then wait_settled "${settle[@]}"; fi
+for component in api voice-runtime; do
   if in_plan "$component"; then swap_service "$component"; fi
 done
 

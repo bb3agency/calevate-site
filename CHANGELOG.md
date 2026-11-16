@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.38 — 16-Nov-2026
+
+- Add people: the contacts file box is one compact row, leaving more room for the table.
+- Deploys that change the server are about 50 seconds quicker: the database step is skipped
+  when no database change came with the release, and the two background services are
+  checked together.
+
 ## 0.4.37 — 16-Nov-2026
 
 - Other call settings adds calls at once (changeable while the campaign runs), the number it
