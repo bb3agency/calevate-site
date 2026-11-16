@@ -360,3 +360,40 @@ async def test_the_first_run_asks_at_most_three_profile_questions_and_the_one_th
         short = await http.put("/v1/first-run/brief", headers=headers, json={"brief": "Shop"})
     items = short.json()["questions"]["items"]
     assert 0 < len(items) <= MAX_ASKED and items[-1]["id"] == ONE_THING.id
+
+
+async def test_go_live_is_done_once_a_line_is_live_on_a_number() -> None:
+    """The first run's draft line on the bought number answers nobody until it is put live,
+    so the guide's last step stays open until then, though no agent is ever switched on."""
+    from apps.api.go_live.guide import read_go_live
+
+    tenant_id = await _tenant()
+    line_id = await _drafted_line(tenant_id, await _owner(tenant_id))
+    async with tenant_session(tenant_id) as session:
+        agent_id = (await lines.read_line(session, line_id)).agent_id
+        await session.execute(
+            text(
+                "INSERT INTO phone_numbers (id, tenant_id, agent_id, inbound_line_id, e164, "
+                "series, dlt_status, engine_number_ref, created_at, updated_at) "
+                "VALUES (:id, :tid, :aid, :lid, :e, '160', 'registered', :ref, now(), now())"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_id,
+                "aid": agent_id,
+                "lid": line_id,
+                "e": f"+91160{uuid.uuid4().int % 10_000_000:07d}",
+                "ref": f"num_{uuid.uuid4().hex[:8]}",
+            },
+        )
+        draft = await read_go_live(session, tenant_id=tenant_id)
+        await session.execute(
+            text(
+                "UPDATE inbound_lines SET published_at = now(), engine_agent_ref = 'ag_line' "
+                "WHERE id = :l"
+            ),
+            {"l": line_id},
+        )
+        live = await read_go_live(session, tenant_id=tenant_id)
+    assert (draft.switch_on, draft.live_lines, draft.live_agents) == ("todo", 0, 0)
+    assert (live.switch_on, live.live_lines, live.live_agents) == ("done", 1, 0)

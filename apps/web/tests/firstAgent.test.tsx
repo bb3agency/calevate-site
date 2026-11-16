@@ -659,11 +659,20 @@ describe("meet your agent", () => {
   });
 
   it("puts the go-live steps in order, the first not done current, a review said as such", () => {
-    expect(goLiveSteps(undefined).map((step) => step.state)).toEqual(["current", "waiting", "waiting"]);
+    expect(goLiveSteps(undefined).map((step) => step.state)).toEqual(["current", "waiting", "waiting", "waiting"]);
     const paid = { owed_at: "2026-10-27T10:00:00Z", verify: "in_review" as const, number: "locked" as const };
-    expect(goLiveSteps(paid).map((step) => step.state)).toEqual(["done", "in_review", "waiting"]);
+    expect(goLiveSteps(paid).map((step) => step.state)).toEqual(["done", "in_review", "waiting", "waiting"]);
     const verified = { owed_at: "2026-10-27T10:00:00Z", verify: "done" as const, number: "todo" as const };
-    expect(goLiveSteps(verified).map((step) => step.state)).toEqual(["done", "done", "current"]);
+    expect(goLiveSteps(verified).map((step) => step.state)).toEqual(["done", "done", "current", "waiting"]);
+    // A number bought: the draft line it went to answers nobody until it is put live.
+    const numbered = { ...verified, number: "done" as const, switch_on: "todo" as const };
+    expect(goLiveSteps(numbered).map((step) => [step.id, step.state])).toEqual([
+      ["credit", "done"],
+      ["verify", "done"],
+      ["number", "done"],
+      ["live", "current"],
+    ]);
+    expect(goLiveSteps({ ...numbered, switch_on: "done" }).every((step) => step.state === "done")).toBe(true);
   });
 
   it("resumes a drafted, written line on Hear it, showing what the line says first", async () => {

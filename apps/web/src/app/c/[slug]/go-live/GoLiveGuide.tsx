@@ -21,9 +21,11 @@ import {
   type GoLiveStep,
 } from "@/lib/api/goLive";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { useInboundLines } from "@/lib/api/inboundLines";
 import { useClientRealm } from "@/lib/api/session";
 
 import { StepRail, StepScreen } from "../agents/first/shell";
+import { PutLineLive } from "../inbound/PutLineLive";
 import { GO_LIVE } from "../_ui/copy";
 import { Why } from "@/components/why";
 
@@ -356,7 +358,7 @@ export const NUMBER_COPY: Record<GoLive["number"], NumberCopy> = {
   },
   done: {
     title: "You have your number",
-    hint: "Last step: switch an agent on.",
+    hint: "Last step: put it live.",
     action: null,
     path: null,
   },
@@ -434,6 +436,11 @@ function SwitchOnStep({
   // The server's word decides "you're live"; the roster read below refreshes it after a switch.
   const live = guide.switch_on === "done";
   const listed = agents.isSuccess ? agents.data.filter((agent) => !isDeleted(agent)) : [];
+  // Since Inbound lines (D-997) a number answers with its line: a draft line on a number
+  // (the first run's, or the first line a bought number went to) takes no calls until it is
+  // put live, so it comes first and says so.
+  const lines = useInboundLines(session);
+  const waitingLines = (lines.data ?? []).filter((line) => !line.live && line.numbers.length > 0);
   return (
     <StepScreen
       title={live ? GO_LIVE.liveTitle : GO_LIVE.switchTitle}
@@ -444,6 +451,21 @@ function SwitchOnStep({
       successLabel="Done"
       onSubmit={() => finish.mutate(undefined, { onSuccess: onFinished })}
     >
+      {lines.isError ? <ProblemNotice error={lines.error} onRetry={() => void lines.refetch()} /> : null}
+      {waitingLines.length > 0 ? (
+        <section aria-labelledby="go-live-lines" className="space-y-2">
+          <h3 id="go-live-lines" className="text-heading text-ink">
+            {GO_LIVE.linesTitle}
+          </h3>
+          <ul className="divide-y divide-line rounded-card border border-line bg-surface">
+            {waitingLines.map((line) => (
+              <li key={line.id} className="p-4">
+                <PutLineLive line={line} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       {agents.isError ? <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} /> : null}
       {agents.isPending ? <Skeleton rows={2} label="Getting your agents…" /> : null}
       {listed.length > 0 ? (

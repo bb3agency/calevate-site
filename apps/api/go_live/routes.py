@@ -73,9 +73,11 @@ class GoLiveOut(Strict):
     #: On a rejected or withdrawn business-details application, what to correct.
     business_review_note: str | None
     numbers: int
-    #: `done` once any agent is taking calls.
+    #: `done` once any agent is taking calls, or an inbound line is live on a number.
     switch_on: guide.SwitchState
     live_agents: int
+    #: Inbound lines live on at least one of the account's numbers.
+    live_lines: int
 
 
 async def _out(session: AsyncSession, tenant_id: UUID) -> GoLiveOut:
@@ -103,6 +105,7 @@ async def _out(session: AsyncSession, tenant_id: UUID) -> GoLiveOut:
         numbers=state.numbers,
         switch_on=state.switch_on,
         live_agents=state.live_agents,
+        live_lines=state.live_lines,
     )
 
 

@@ -40,6 +40,9 @@ export function WorkStep({
   const start = useStartFirstWork(session);
   const startFeedback = useActionFeedback(start, { errorDisplay: "inline" });
   const chosen = (run.jobs[0] as FirstWorkJob | undefined) ?? null;
+  // Pip was not available (no AI allowance left, or its draft failed), so the server gave the
+  // work the ready-made script for its job (`first_run/work.save_ready_made`).
+  const readyMade = run.build.steps.some((step) => step.step === "script" && step.state === "ready_made");
   const pick = (job: FirstWorkJob) => {
     if (job !== chosen || work === null) start.mutate({ job });
   };
@@ -91,7 +94,15 @@ export function WorkStep({
           </p>
         )
       ) : null}
-      {work?.ready ? (
+      {work?.ready && readyMade ? (
+        <div role="status" className="space-y-2">
+          <p className="text-body text-ink">{FIRST.workReadyMade}</p>
+          <Link href={href(workHref(session.orgSlug, work))} className={SECONDARY_BUTTON}>
+            Change what it says
+            <ArrowRight aria-hidden className="h-4 w-4" />
+          </Link>
+        </div>
+      ) : work?.ready ? (
         <p role="status" className="inline-flex items-center gap-1.5 text-meta text-ink-muted">
           <Check aria-hidden className="h-3.5 w-3.5 text-brand-strong" />
           Written. Hear it next.

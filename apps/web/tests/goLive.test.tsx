@@ -64,6 +64,7 @@ function guide(over: Partial<GoLive> = {}): GoLive {
     numbers: 0,
     switch_on: "todo",
     live_agents: 0,
+    live_lines: 0,
     ...over,
   };
 }
@@ -191,6 +192,7 @@ describe("the guide", () => {
       routes({
         "/v1/go-live": guide({ current: "switch_on", move: MOVED }),
         "/v1/agents": [],
+        "/v1/inbound-lines": { lines: [] },
       }),
     );
     expect(await screen.findByText("No agent to switch on yet")).toBeTruthy();
@@ -217,6 +219,7 @@ describe("the guide", () => {
           numbers: 1,
         }),
         "/v1/agents": [agentRow({ id: "a1", name: "Sravani", status: "paused", published: true })],
+        "/v1/inbound-lines": { lines: [] },
         "POST /v1/agents/a1/activate": problem(409, {
           type: "about:blank",
           title: "Not yet",
@@ -229,5 +232,44 @@ describe("the guide", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Switch on" }));
     expect(await screen.findByText(/Attach your number to this agent first/)).toBeTruthy();
     expect(calls.some((call) => call.method === "POST" && call.path === "/v1/agents/a1/activate")).toBe(true);
+  });
+
+  it("says a draft line on the number answers nobody, and puts it live from here", async () => {
+    const draft = {
+      id: "l1",
+      name: "Calls to your number",
+      agent_id: "a1",
+      agent_name: "Anjali",
+      main_task: "Answer callers.",
+      script: { opening_line: "Hello" },
+      proposal: null,
+      version: 1,
+      published_at: null,
+      live: false,
+      actions_off: [],
+      source_ids: [],
+      numbers: [{ id: "n1", e164: "+918041234567" }],
+      created_at: "2026-11-16T04:00:00Z",
+    };
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/go-live": guide({
+          current: "switch_on",
+          move: { state: "done", agents: [], total: 0 },
+          verify: "done",
+          number: "done",
+          numbers: 1,
+        }),
+        "/v1/agents": [agentRow({ id: "a1", name: "Anjali", status: "draft" })],
+        "/v1/inbound-lines": { lines: [draft] },
+        "POST /v1/inbound-lines/l1/publish": { ...draft, live: true, published_at: "2026-11-16T05:00:00Z" },
+      }),
+    );
+    expect(await screen.findByText(/is a draft\. Callers hear nothing until it is live\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Put it live" }));
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "POST" && call.path === "/v1/inbound-lines/l1/publish")).toBe(true),
+    );
   });
 });

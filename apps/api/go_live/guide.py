@@ -96,6 +96,8 @@ class GoLive:
     numbers: int
     switch_on: SwitchState
     live_agents: int
+    #: Inbound lines put live on at least one of the account's numbers.
+    live_lines: int = 0
 
     @property
     def current(self) -> GuideStep:
@@ -198,6 +200,21 @@ async def read_go_live(session: AsyncSession, *, tenant_id: UUID) -> GoLive:
             )
         ).scalar_one()
     )
+    # Since Inbound lines (D-997) a number is answered by its line, not by an agent switched
+    # on: a line put live on a number takes calls while its agent stays a draft.
+    live_lines = int(
+        (
+            await session.execute(
+                text(
+                    "SELECT count(DISTINCT l.id) FROM inbound_lines l "
+                    "JOIN phone_numbers n ON n.inbound_line_id = l.id AND n.released_at IS NULL "
+                    "WHERE l.tenant_id = :tid AND l.archived_at IS NULL "
+                    "AND l.published_at IS NOT NULL AND l.engine_agent_ref IS NOT NULL"
+                ),
+                {"tid": tenant_id},
+            )
+        ).scalar_one()
+    )
     return GoLive(
         marker=marker,
         move=move,
@@ -211,8 +228,9 @@ async def read_go_live(session: AsyncSession, *, tenant_id: UUID) -> GoLive:
             else None
         ),
         numbers=numbers,
-        switch_on="done" if live > 0 else "todo",
+        switch_on="done" if live > 0 or live_lines > 0 else "todo",
         live_agents=live,
+        live_lines=live_lines,
     )
 
 
