@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 
 import { ScrollRegion } from "@/components/ui";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 
 const CELL = { type: "spring", stiffness: 520, damping: 34, mass: 0.45 } as const;
 
@@ -14,7 +15,9 @@ const EASE = [0.23, 1, 0.32, 1] as const;
 const ROLL = { duration: 0.18, ease: EASE } as const;
 const STILL = { duration: 0 } as const;
 
-const slotFor = (digits: number) => Math.max(32, 18 + digits * 8);
+// The thumb slides by the slot width, so the width is computed here rather than set by a
+// `touch:` class: on a coarse pointer a page number is a 44 px tap target, under a mouse 32 px.
+const slotFor = (digits: number, coarse: boolean) => Math.max(coarse ? 44 : 32, 18 + digits * 8);
 const GAP = 4;
 
 const range = (from: number, to: number) =>
@@ -181,7 +184,8 @@ export function Pagination({
 
   const reduced = useReducedMotion();
   const digits = String(Math.max(1, count)).length;
-  const slot = slotFor(digits);
+  const coarse = useMediaQuery("(pointer: coarse)");
+  const slot = slotFor(digits, coarse);
 
   const [spoken, setSpoken] = useState("");
   useEffect(() => {
