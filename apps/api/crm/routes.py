@@ -38,7 +38,12 @@ from apps.api.core.stepup import ActionCode, ClientActionCode, client_confirmati
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm import export_tickets, lead_search, lens, saved_views, service, translation
 from apps.api.crm.attention import attention_queue
-from apps.api.crm.captured import captured_fields, lead_unlisted, with_known_name
+from apps.api.crm.captured import (
+    captured_fields,
+    lead_holder_fields,
+    lead_unlisted,
+    with_known_name,
+)
 from apps.api.crm.lead_dial import call_back_check, place_call_back, place_lead_call
 from apps.api.crm.lens import LEAD_ROW_FILTER_FIELDS, LeadRowFilters
 from apps.api.crm.live_calls import MAX_LIVE_IDS, CallLiveOut, read_live_calls
@@ -727,7 +732,7 @@ async def _leads_page(session: AsyncSession, lens: LeadSearchIn, *, tenant_id: U
     meant, and a two-agent tenant read one agent's leads under the other's capture list.
     See `service._lead_scope` for the reasoning.
     """
-    fields = await service.lead_columns(session, lens.agent_id)
+    fields = await service.lead_columns(session, lens.agent_id, campaign_id=lens.campaign_id)
     available = lead_column_registry.available(fields)
     resolved = lead_column_registry.resolve(available, _parse_columns(lens.columns))
     field_filters = _parse_field_filters(
@@ -859,7 +864,7 @@ async def _lead_facets(session: AsyncSession, lens: LeadLensIn) -> LeadFacetsOut
     describes this table" is checkable by comparing two lens objects rather than two
     query strings.
     """
-    fields = await service.lead_columns(session, lens.agent_id)
+    fields = await service.lead_columns(session, lens.agent_id, campaign_id=lens.campaign_id)
     available = lead_column_registry.available(fields)
     field_filters = _parse_field_filters(
         lens.f, frozenset(c.key for c in lead_column_registry.facetable(available))
@@ -1049,7 +1054,9 @@ async def _export_and_summary(
     """
     if lens.ask:
         raise _ASK_CANNOT_BE_EXPORTED
-    available = lead_column_registry.available(await service.lead_columns(session, lens.agent_id))
+    available = lead_column_registry.available(
+        await service.lead_columns(session, lens.agent_id, campaign_id=lens.campaign_id)
+    )
     chosen = _parse_columns(lens.columns)
     field_filters = _parse_field_filters(
         lens.f, frozenset(c.key for c in lead_column_registry.facetable(available))
@@ -1489,6 +1496,8 @@ async def get_lead_captured(
         schema_version=lead.schema_version,
         data=lead.data,
         unlisted=await lead_unlisted(session, lead_id),
+        # The list its latest call captured under: that call's campaign's or line's own.
+        holder=await lead_holder_fields(session, lead_id),
     )
     # The lead's own name fills an empty name field, as on the call screen (L3-10): "Name:
     # Not said" on a lead called Anitha Reddy reads as a gap that is not there.

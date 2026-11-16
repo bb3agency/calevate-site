@@ -372,7 +372,9 @@ async def resolve_lead_scope(session: AsyncSession, lens: LeadLensIn) -> LeadSco
             detail="A question ranks the best matches rather than selecting every lead.",
             remediation="Use the filters (stage, dates, outcome, captured details) instead.",
         )
-    available = lead_column_registry.available(await service.lead_columns(session, lens.agent_id))
+    available = lead_column_registry.available(
+        await service.lead_columns(session, lens.agent_id, campaign_id=lens.campaign_id)
+    )
     facets = frozenset(c.key for c in lead_column_registry.facetable(available))
     return LeadScope(
         status=lens.status,

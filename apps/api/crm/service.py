@@ -51,7 +51,12 @@ from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm import export_words
 from apps.api.crm.attention import block_remedy
-from apps.api.crm.captured import captured_fields, unclear_fields, with_known_name
+from apps.api.crm.captured import (
+    captured_fields,
+    holder_fields,
+    unclear_fields,
+    with_known_name,
+)
 from apps.api.crm.lead_definition import BECAME_LEADS_SQL, REAL_CALL_SQL, stage_name
 from apps.api.crm.lens import (
     CALL_AT,
@@ -363,10 +368,13 @@ def _chip_value(value: Any) -> str | None:
 async def captured_previews(
     session: AsyncSession, *, agent_of_call: dict[UUID, UUID]
 ) -> dict[UUID, list[CapturedChipOut]]:
-    """The first few details each call captured, in the agent's field order.
+    """The first few details each call captured, in its holder's field order: the call's
+    campaign's or line's own list when it has one (`captured.holder_fields`), else its
+    agent's.
 
-    Two reads for the whole page rather than `captured_fields` per row: the newest
-    extraction of each call, and every schema version of the agents on the page. A label
+    Three reads for the whole page rather than `captured_fields` per row: the newest
+    extraction of each call, the holders' lists, and every schema version of the agents on
+    the page. A label
     comes from the newest version that knows the key (core fields first), so a renamed
     field keeps a name; phone-type fields are skipped (`CallSummaryOut.captured_preview`).
     """
@@ -401,12 +409,18 @@ async def captured_previews(
             if field.key not in seen:
                 known.append(field)
                 seen.add(field.key)
+    held = await holder_fields(session, [UUID(str(r[0])) for r in extractions])
     out: dict[UUID, list[CapturedChipOut]] = {}
     for call_id, data in extractions:
         cid = UUID(str(call_id))
         if not isinstance(data, dict):
             continue
-        fields = fields_by_agent.get(agent_of_call[cid]) or with_core([], named)
+        holder = held.get(cid)
+        fields = (
+            with_core(holder, named)
+            if holder
+            else fields_by_agent.get(agent_of_call[cid]) or with_core([], named)
+        )
         chips: list[CapturedChipOut] = []
         for field in fields:
             if len(chips) == PREVIEW_CHIPS:
@@ -648,6 +662,7 @@ async def get_call(
         schema_version=extraction[4] if extraction else None,
         data=extraction_data,
         unlisted=extraction[6] if extraction else None,
+        holder=(await holder_fields(session, [call_id])).get(call_id),
     )
     unclear = unclear_fields(extraction[7] if extraction else None, captured)
     # Only a call that connected names its person from the list: a call nobody answered
@@ -925,17 +940,27 @@ _AGENT_SCHEMA_SQL = (
 _NEWEST_SCHEMA_SQL = (
     "SELECT fields FROM extraction_schemas ORDER BY created_at DESC, id DESC LIMIT 1"
 )
+_CAMPAIGN_FIELDS_SQL = (
+    "SELECT NULLIF(extraction_fields, '[]'::jsonb) FROM campaigns WHERE id = :cid"
+)
 
 
 async def lead_columns(
-    session: AsyncSession, agent_id: UUID | None = None
+    session: AsyncSession, agent_id: UUID | None = None, *, campaign_id: UUID | None = None
 ) -> list[ExtractionField]:
     """The Leads table columns ARE the extraction schema (TRD §7). With no agent filter
     we take the most recently published schema — a v1 tenant has exactly one agent, and
     a mixed list is better served by the per-agent view.
 
+    One campaign's leads (`campaign_id`) take that campaign's own What it notes when it
+    has one (D-1003): its calls were captured under that list, not the agent's.
+
     Two orderings, because `version` is a per-AGENT counter: across agents it measures how
     often each one's variables were edited, not which schema is newest."""
+    if campaign_id:
+        own = (await session.execute(text(_CAMPAIGN_FIELDS_SQL), {"cid": campaign_id})).scalar()
+        if own:
+            return with_core(own, await core_labels(session))
     if agent_id:
         statement, params = _AGENT_SCHEMA_SQL, {"aid": agent_id}
     else:
@@ -2348,7 +2373,9 @@ async def export_leads_csv(
     one builds the entire file in memory inside the request. The bound now applies to
     the FILTERED rows, which is what makes the refusal's advice ("narrow it") reachable.
     """
-    fields = await lead_columns(session, agent_id)
+    fields = await lead_columns(
+        session, agent_id, campaign_id=more.campaign_id if more is not None else None
+    )
     available = lead_column_registry.available(fields)
     # The file always opens with Name and Phone; the screen's choice follows them.
     chosen = lead_column_registry.for_export(
