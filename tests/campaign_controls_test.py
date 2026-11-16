@@ -233,19 +233,47 @@ async def test_an_edit_the_rules_refuse_names_the_rule(body: dict[str, Any], cod
     assert response.json()["type"].endswith(f"/{code}")
 
 
-async def test_a_running_campaign_cannot_be_edited() -> None:
+@pytest.mark.parametrize("status", ["running", "paused", "cancelled"])
+async def test_a_started_campaign_takes_its_pace_and_name(status: str) -> None:
+    """0.4.35/0.4.37/0.4.47: calls at once, hours, retries and the agent change in any
+    started state, stopped included."""
     account = await _account()
-    campaign_id = await _campaign(account, status="running")
+    campaign_id = await _campaign(account, status=status)
     async with _client() as client:
         response = await client.patch(
             f"/v1/campaigns/{campaign_id}",
             headers=account.headers,
             json={"name": "Later", "concurrency": 1},
         )
-    assert response.status_code == 422 or response.status_code == 409
-    assert response.json()["type"].endswith("/campaign_not_draft")
-    row = await _one(account.tenant_id, "SELECT name FROM campaigns WHERE id = :c", c=campaign_id)
-    assert row[0] != "Later"
+    assert response.status_code == 204, response.text
+    row = await _one(
+        account.tenant_id,
+        "SELECT name, concurrency, status FROM campaigns WHERE id = :c",
+        c=campaign_id,
+    )
+    assert tuple(row) == ("Later", 1, status)
+    assert await _audits(account.tenant_id, campaign_id) == ["campaign.updated"]
+
+
+async def test_a_started_campaign_keeps_what_the_compliance_gate_passed() -> None:
+    """Why it calls, from which number and as which kind of call stay as launched."""
+    account = await _account()
+    campaign_id = await _campaign(account, status="running")
+    async with _client() as client:
+        response = await client.patch(
+            f"/v1/campaigns/{campaign_id}",
+            headers=account.headers,
+            json={"purpose": "Something else entirely", "concurrency": 1},
+        )
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].endswith("/campaign_started")
+    row = await _one(
+        account.tenant_id,
+        "SELECT purpose, concurrency FROM campaigns WHERE id = :c",
+        c=campaign_id,
+    )
+    assert tuple(row) == (None, 3)
+    assert await _audits(account.tenant_id, campaign_id) == []
 
 
 @pytest.mark.parametrize("status", ["scheduled", "running", "paused", "completed", "cancelled"])
@@ -350,12 +378,16 @@ async def test_a_draft_a_call_names_is_refused_and_left_for_archiving() -> None:
     assert row[0] == "draft"
 
 
-async def test_only_a_draft_can_be_deleted() -> None:
+async def test_a_started_campaign_is_not_deleted() -> None:
+    """Only a draft that never dialled is deleted; a started one is archived instead."""
     account = await _account()
     campaign_id = await _campaign(account, status="running")
     async with _client() as client:
         response = await client.delete(f"/v1/campaigns/{campaign_id}", headers=account.headers)
-    assert response.json()["type"].endswith("/campaign_not_draft")
+    assert response.status_code == 409, response.text
+    assert response.json()["type"].endswith("/campaign_has_history")
+    row = await _one(account.tenant_id, "SELECT status FROM campaigns WHERE id = :c", c=campaign_id)
+    assert row[0] == "running"
 
 
 async def test_another_accounts_campaign_is_not_found_for_every_control() -> None:

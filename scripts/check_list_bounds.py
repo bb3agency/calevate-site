@@ -150,6 +150,35 @@ _CALL_MISTAKES = BoundedByConstruction(
     by="one item per lesson kind, at most `len(agents/call_mistakes.LESSONS)`."
 )
 
+#: A campaign's workspace (D-992, D-999): its picks and one `CallScript`.
+_CAMPAIGN_WORKSPACE = BoundedByConstruction(
+    by=(
+        "ONE campaign: `source_ids` at most `kb/picks.MAX_PICKS` (the pick list's request "
+        "bound, and `add_pick` refuses past it); the script, Pip's draft and its base each a "
+        "`CallScript` under the `calevate_shared.call_script` `max_length` ceilings; "
+        "`left_out` at most one per script part."
+    )
+)
+_CAMPAIGN_WORKSPACE_ROUTES = (
+    "GET /v1/campaigns/{campaign_id}/workspace",
+    "PUT /v1/campaigns/{campaign_id}/main-task",
+    "PUT /v1/campaigns/{campaign_id}/script",
+    "PUT /v1/campaigns/{campaign_id}/sources",
+    "POST /v1/campaigns/{campaign_id}/sources/note",
+    "POST /v1/campaigns/{campaign_id}/sources/link",
+    "POST /v1/campaigns/{campaign_id}/sources/upload",
+    "POST /v1/campaigns/{campaign_id}/questions/answer",
+)
+_TEST_NUMBERS = BoundedByConstruction(
+    by="the account's saved test numbers, at most `workspace_routes.MAX_TEST_NUMBERS` (ten)."
+)
+_CAMPAIGN_SETTINGS = BoundedByConstruction(
+    by=(
+        "one campaign's settings; `offered_languages` and `languages_extra` are the client "
+        "language catalogue (`client_language_tags`), a fixed set."
+    )
+)
+
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/agents/{agent_id}/call-mistakes": _CALL_MISTAKES,
@@ -1296,6 +1325,24 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by=(
             "`recent_leads` is `campaigns.results.RECENT_LEADS` in the LIMIT; the maps are "
             "keyed by the outcome, outcome-tag and sentiment enums."
+        )
+    ),
+    **dict.fromkeys(_CAMPAIGN_WORKSPACE_ROUTES, _CAMPAIGN_WORKSPACE),
+    "POST /v1/campaigns/{campaign_id}/script/proposal": _CAMPAIGN_WORKSPACE,
+    "GET /v1/campaigns/{campaign_id}/test-calls": BoundedByConstruction(
+        by="the newest `campaigns/workspace_routes.MAX_LISTED_TEST_CALLS`, in the LIMIT."
+    ),
+    "GET /v1/campaigns/{campaign_id}/test-numbers": _TEST_NUMBERS,
+    "PUT /v1/campaigns/{campaign_id}/test-numbers": _TEST_NUMBERS,
+    "GET /v1/campaigns/{campaign_id}/settings": _CAMPAIGN_SETTINGS,
+    "PUT /v1/campaigns/{campaign_id}/settings": _CAMPAIGN_SETTINGS,
+    "GET /v1/campaigns/{campaign_id}/questions": BoundedByConstruction(
+        by="`teach/struggles.list_struggles`, read with `LIMIT` `MAX_GAPS`."
+    ),
+    "GET /v1/campaigns/{campaign_id}/insights": BoundedByConstruction(
+        by=(
+            "`hours` and `best_hours` one per hour of the IST day (24 at most); `openings` "
+            "the script's own opening and the second one under test, two."
         )
     ),
     "POST /v1/lead-sources/{webhook_id}/test": BoundedByConstruction(

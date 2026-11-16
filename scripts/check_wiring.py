@@ -133,7 +133,24 @@ _D973_REASON = (
     "that drops it with `caller_memories`"
 )
 
+_D996_REASON = (
+    "D-996: company training became How they speak, written from What your agents know, so "
+    "nothing reads or writes `company_training_materials` but tenant erasure, which deletes "
+    "its rows. Kept with its rows under hard rule "
+    "8's two-step; closes with the migration that drops the table"
+)
+
+_D999_REASON = (
+    "D-999: a campaign's sources are picks of What your agents know (`campaign_sources`); "
+    "migration e3c7a1d9b4f2 carried every live material over, and nothing reads or writes "
+    "`campaign_materials` since but tenant erasure, which deletes its rows. Kept with its "
+    "rows under hard rule 8's two-step; closes "
+    "with the migration that drops the table"
+)
+
 UNWIRED_BASELINE: dict[str, str] = {
+    "CampaignMaterial.kb_upload_id": _D999_REASON,
+    "CompanyTrainingMaterial.kb_upload_id": _D996_REASON,
     "Call.caller_memory_state": _D973_REASON,
     "ScriptLineChange.after_text": _D894_OPENER_REASON,
     "ScriptLineChange.before_text": _D894_OPENER_REASON,

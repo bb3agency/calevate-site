@@ -320,7 +320,7 @@ async def test_an_unknown_campaign_is_not_reported_as_one_that_has_already_launc
     account. `kb/service.approve_source` carries the same correction for the same
     mistake, and the other three readers of this column already distinguished the two.
 
-    Both halves are pinned: absent is 404, and a genuinely launched campaign still gets
+    Both halves are pinned: absent is 404, and a launched promotional campaign still gets
     the business-rule refusal, so the fix cannot be "always 404".
     """
     tenant_id, agent_id, slug = await _tenant()
@@ -347,7 +347,7 @@ async def test_an_unknown_campaign_is_not_reported_as_one_that_has_already_launc
     )
 
     assert launched.status_code == 422, launched.text
-    assert launched.json()["type"].endswith("/campaign_not_draft"), launched.text
+    assert launched.json()["type"].endswith("/campaign_promotional_started"), launched.text
 
 
 async def test_staff_cannot_load_a_dialing_list() -> None:

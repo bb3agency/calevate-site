@@ -95,11 +95,15 @@ def _parsed(raw: dict[str, Any]) -> str | None:
 KNOWLEDGE_SOURCES_READ: Final = 20
 
 #: Every source the agents use, newest first: an upload (file or link) or a typed note. The
-#: taught facts are left out: they reach every agent already, as known facts.
+#: taught facts are left out: they reach every agent already, as known facts. Sources a
+#: campaign or a line picked (`only`) are read once approved, before the publish job makes
+#: them live: a note added from a campaign page and Generate pressed straight after would
+#: otherwise be written without, as would a note whose newest version is still publishing.
 _KNOWLEDGE_SQL: Final = text(
     "SELECT s.id, s.name, u.id AS upload_id FROM kb_sources s "
     "LEFT JOIN kb_uploads u ON u.source_id = s.id "
-    "WHERE s.is_active AND s.name <> :facts "
+    "WHERE (s.is_active OR (CAST(:only AS uuid[]) IS NOT NULL AND s.status = 'approved')) "
+    "AND s.name <> :facts "
     "AND (CAST(:only AS uuid[]) IS NULL OR s.id = ANY(CAST(:only AS uuid[]))) "
     "ORDER BY s.updated_at DESC, s.id DESC LIMIT :n"
 )

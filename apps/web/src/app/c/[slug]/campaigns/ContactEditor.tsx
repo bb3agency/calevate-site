@@ -200,7 +200,13 @@ export function ContactEditor({
         <div className="space-y-3">
           <FileDrop
             label="Your contacts file"
-            hint={`${FILE_HINT} ${COLUMNS_HINT}`}
+            hint={
+              // Two short lines, not one long one, on a phone-width row.
+              <>
+                <span className="block">{FILE_HINT}</span>
+                <span className="block">{COLUMNS_HINT}</span>
+              </>
+            }
             compact
             accept={CSV_ACCEPT}
             validate={(file) =>

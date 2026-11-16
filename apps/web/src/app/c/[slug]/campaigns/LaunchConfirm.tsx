@@ -60,7 +60,7 @@ export function LaunchConfirm({
         <PhoneOutgoing aria-hidden className="h-4 w-4" />
         {`Call ${formatCount(contacts)} ${people}`}
       </ActionButton>
-      <p className="text-meta text-ink-muted">Do-not-call numbers are skipped. Pause any time.</p>
+      <p className="text-meta text-ink-muted">Do-not-call numbers are skipped. Stop it any time.</p>
     </div>
   );
 }

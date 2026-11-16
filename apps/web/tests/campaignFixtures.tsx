@@ -98,9 +98,12 @@ export function resultsFixture(over: Partial<CampaignResults> = {}): CampaignRes
   };
 }
 
-/** The first page of the people table, as the detail page asks for it. */
-export const contactsPath = (id: string = FIXTURE_CAMPAIGN_ID) =>
-  `/v1/campaigns/${id}/contacts?limit=50&offset=0`;
+/** The people table's page size (`DraftPeople`, 0.4.37). */
+export const CONTACTS_PAGE = 10;
+
+/** A page of the people table, as the detail page asks for it. */
+export const contactsPath = (id: string = FIXTURE_CAMPAIGN_ID, offset = 0) =>
+  `/v1/campaigns/${id}/contacts?limit=${CONTACTS_PAGE}&offset=${offset}`;
 
 /**
  * Picks `iso` in the kit `DatePicker` labelled `label`: opens it, steps month by month
@@ -185,6 +188,12 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [`/v1/campaigns/${id}/settings`]: settingsFixture(),
     // The Test call section's list of calls made from the campaign: none yet.
     [`/v1/campaigns/${id}/test-calls`]: [],
+    // The account's saved test numbers, offered under Test call: none yet.
+    [`/v1/campaigns/${id}/test-numbers`]: { numbers: [] },
+    // Other call settings' number it calls from: none bought yet.
+    "/v1/campaigns/numbers": [],
+    // Other call settings' ceiling on calls at once: the account's call lines.
+    "/v1/call-lines": { call_lines: 3, in_progress: 0, max_lines: 10, on_trial: false, being_applied: false },
     // The Sources fold's pick list: What your agents know, empty.
     "/v1/kb/notes": { notes: [] },
     "/v1/kb/uploads": [],

@@ -787,6 +787,10 @@ async def save_campaign_test_numbers(
     return TestNumbersOut(numbers=list(row[0]))
 
 
+#: The test calls a campaign lists, newest first; older ones stay in the call logs.
+MAX_LISTED_TEST_CALLS: Final = 20
+
+
 class CampaignTestCallItem(_Out):
     call_id: UUID
     placed_at: datetime
@@ -810,9 +814,9 @@ async def campaign_test_calls(
         text(
             "SELECT k.id, k.created_at, k.status, k.duration_s, k.recording_url IS NOT NULL "
             "FROM campaigns c JOIN calls k ON k.id = ANY (c.test_call_ids) "
-            "WHERE c.id = :c ORDER BY k.created_at DESC"
+            "WHERE c.id = :c ORDER BY k.created_at DESC LIMIT :n"
         ),
-        {"c": campaign_id},
+        {"c": campaign_id, "n": MAX_LISTED_TEST_CALLS},
     )
     return [
         CampaignTestCallItem(

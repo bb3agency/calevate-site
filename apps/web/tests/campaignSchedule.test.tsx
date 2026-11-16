@@ -382,10 +382,8 @@ describe("arming a schedule while the gate is refusing", () => {
     // A weekly repeat is not offered on a draft any more.
     expect(screen.queryByRole("button", { name: "Set repeat" })).toBeNull();
 
-    // AND the blockers are still there, both of them, in the client's words. This is the
-    // half that must never be traded for the half above. Adding people is said beside the
-    // launch button rather than as a checklist row (0.4.6); the national check stays a row.
-    expect(container.textContent).toMatch(/add the people to call above first/i);
+    // AND the blocker is still there, in the client's words. This is the half that must
+    // never be traded for the half above. Adding people is Add people's job, not a row.
     expect(container.textContent).toContain(
       "national do-not-disturb check",
     );
@@ -394,13 +392,7 @@ describe("arming a schedule while the gate is refusing", () => {
     expect(container.textContent).toContain("We handle this");
     // Nothing green: arming a schedule is not the gate passing.
     expect(container.textContent).not.toContain("Everything checks out.");
-    expect(
-      (
-        screen.getByRole("button", {
-          name: "Launch campaign",
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+    expect(screen.queryByRole("button", { name: /^Call \d/ })).toBeNull();
   });
 
   it("says what the start will do about the blockers, beside the form", async () => {
@@ -531,7 +523,7 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
     expect(container.textContent).toContain(
       "Couldn’t start. Fix the items below.",
     );
-    expect(container.textContent).toMatch(/add the people to call above first/i);
+    await screen.findByText(/national do-not-disturb check/, {}, { timeout: 5000 });
   });
 
   it("still offers the way out of a repeat", async () => {
@@ -557,7 +549,7 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
     const stop = screen.getByRole("button", { name: "Stop repeating" });
     expect((stop as HTMLButtonElement).disabled).toBe(false);
     expect(container.textContent).toContain("Next: Tuesday, 18 Aug");
-    expect(container.textContent).toMatch(/add the people to call above first/i);
+    await screen.findByText(/national do-not-disturb check/, {}, { timeout: 5000 });
   });
 });
 

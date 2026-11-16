@@ -7,7 +7,7 @@
  * status colours stay reserved for status.
  */
 
-import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
+import { useQueryClient, type UseMutationResult, type UseQueryResult } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -91,13 +91,15 @@ export function ImproveTab(props: Common) {
 function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
   const { session } = useClientRealm();
   const call = useCampaignTestCall(session, campaignId);
+  useActionFeedback(call, { errorDisplay: "inline" });
   const saved = useTestNumbers(session, campaignId);
   const saveNumbers = useSaveTestNumbers(session, campaignId);
+  useActionFeedback(saveNumbers, { errorDisplay: "inline" });
   return (
     <TestCallForm
       slug={slug}
       call={call}
-      saved={saved.data?.numbers}
+      saved={saved}
       saveNumbers={saveNumbers}
       canWrite={canWrite}
       refusal={refusal}
@@ -105,13 +107,17 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
   );
 }
 
+/** The account's saved test numbers as read: a failed read is shown, never taken as none. */
+type SavedTestNumbers = Pick<UseQueryResult<{ numbers: string[] }>, "data" | "error" | "refetch">;
+
 /** What a test call answers, from a campaign's route or a line's. */
 type TestCallAnswer = { status: "queued" | "blocked"; blocked_reason?: string | null; call_id?: string | null };
 
 /**
  * THE TEST CALL FORM, shared by a campaign and an inbound line: the saved numbers to pick
  * from, the number box, "This number is mine", and Call me. The account's saved numbers are
- * one list; only a screen that can change it passes `saveNumbers`.
+ * one list; only a screen that can change it passes `saveNumbers`. The screen that makes
+ * `call` gives it its feedback (`useActionFeedback`), as it does every mutation it starts.
  */
 export function TestCallForm({
   slug,
@@ -123,15 +129,16 @@ export function TestCallForm({
 }: {
   slug: string;
   call: UseMutationResult<TestCallAnswer, Error, { number: string; numberIsMine: boolean }>;
-  /** The account's saved test numbers, undefined while they load. */
-  saved: readonly string[] | undefined;
+  saved: SavedTestNumbers;
   saveNumbers?: UseMutationResult<unknown, Error, string[]>;
   canWrite: boolean;
   refusal?: string;
 }) {
   const { href } = useClientRealm();
-  useActionFeedback(call, { errorDisplay: "inline" });
-  const numbers = saved ?? [];
+  // Saving replaces the whole list, so nothing is saved or removed until the list is read:
+  // a Save over a pending or failed read would drop every number already saved.
+  const loaded = saved.data !== undefined;
+  const numbers = saved.data?.numbers ?? [];
   const [number, setNumber] = useState("");
   const [mine, setMine] = useState(true);
   const result = call.data;
@@ -143,9 +150,14 @@ export function TestCallForm({
     if (number === "" && numbers.length > 0) setNumber(numbers[0]);
     // Only when the list first arrives; a cleared box stays cleared.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saved]);
+  }, [saved.data]);
   return (
     <div>
+      {saved.error != null && !loaded && (
+        <div className="mb-3">
+          <ProblemNotice error={saved.error} onRetry={() => void saved.refetch()} />
+        </div>
+      )}
       {numbers.length > 0 && (
         <div className="mb-3">
           <p className="text-meta font-medium text-ink">Saved numbers</p>
@@ -172,7 +184,7 @@ export function TestCallForm({
                       type="button"
                       aria-label={`Remove ${formatPhone(n)} from saved numbers`}
                       title="Remove"
-                      disabled={!canWrite || saveNumbers.isPending}
+                      disabled={!canWrite || !loaded || saveNumbers.isPending}
                       className="rounded-full py-1 pl-1 pr-2.5 opacity-70 hover:opacity-100"
                       onClick={() => saveNumbers.mutate(numbers.filter((x) => x !== n))}
                     >
@@ -202,7 +214,7 @@ export function TestCallForm({
           <button
             type="button"
             className={SECONDARY_BUTTON_SM}
-            disabled={!canWrite || !typed || isSaved || numbers.length >= 10 || saveNumbers.isPending}
+            disabled={!canWrite || !loaded || !typed || isSaved || numbers.length >= 10 || saveNumbers.isPending}
             title={isSaved ? "Already saved" : numbers.length >= 10 ? "Up to 10 saved numbers" : refusal}
             onClick={() => saveNumbers.mutate([...numbers, number])}
           >

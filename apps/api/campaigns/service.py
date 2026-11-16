@@ -899,8 +899,8 @@ async def add_contacts(
 
     Accepted in every state for a service campaign (founder, 16 Nov 2026: people may be added
     in the middle of a campaign, and saved to a stopped one without starting it). A stopped
-    campaign never dials again, so people saved there wait to be carried into a new draft by
-    Duplicate or Call the unreached again. That is lawful because launch's DNC scrub is only
+    campaign does not dial them until Start carries it on (`STARTABLE`, through the same
+    gate as a first start). That is lawful because launch's DNC scrub is only
     the courtesy pass; `check_dispatch` re-checks every number at dial time, so a person
     added after launch meets the same gate. A PROMOTIONAL campaign stays pre-launch only:
     its national DND scrub is a recorded run over the list as launched

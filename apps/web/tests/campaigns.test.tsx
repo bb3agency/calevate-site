@@ -177,7 +177,7 @@ describe("the consent declaration on a draft", () => {
     expect(await screen.findByText("Choose where the list came from.")).toBeTruthy();
     expect(screen.getByText("Choose the day they agreed.")).toBeTruthy();
     expect(rendered.calls.filter((c) => c.method !== "GET")).toEqual([]);
-    expect(screen.getByRole("button", { name: "Launch campaign" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByRole("button", { name: /^Call \d/ })).toBeNull();
   });
 });
 
@@ -484,7 +484,7 @@ describe("one campaign's page", () => {
     );
   });
 
-  it("holds Resume after a complaint spike until the review is confirmed", async () => {
+  it("holds Start after a complaint spike until the review is confirmed", async () => {
     const rendered = await renderClientPage(
       campaignPage(),
       detail(
@@ -508,7 +508,11 @@ describe("one campaign's page", () => {
       ),
     );
     await screen.findByText("stop calling me");
-    expect((screen.getByRole("button", { name: /Resume/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getAllByRole("button", { name: "Start campaign" })[0]);
+    const box = await screen.findByRole("dialog");
+    expect(box.textContent).toContain("Review the opt-outs first.");
+    expect((within(box).getByRole("button", { name: "Start campaign" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(box).getByRole("button", { name: "Close" }));
     const confirm = screen.getByRole("button", { name: "Confirm I've reviewed them" }) as HTMLButtonElement;
     expect(confirm.disabled).toBe(true);
     fireEvent.click(screen.getByRole("checkbox", { name: /read these/ }));
@@ -612,13 +616,42 @@ describe("one campaign's page", () => {
     );
   });
 
-  it("offers Call the unreached again only once the campaign has finished", async () => {
+  it("starts a finished campaign again from where it stopped (0.4.47)", async () => {
     await renderClientPage(
       campaignPage(),
-      detail(progressFixture({ status: "completed", launched_at: "2026-10-14T04:30:00Z" })),
+      detail(
+        progressFixture({
+          status: "completed",
+          launched_at: "2026-10-14T04:30:00Z",
+          total: 3,
+          contacts: { pending: 2, connected: 1 },
+        }),
+        { [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: { ready: true, blockers: [] } },
+      ),
     );
-    await screen.findByRole("button", { name: "Call the unreached again" });
-    expect(screen.queryByRole("button", { name: /Stop for good/ })).toBeNull();
+    fireEvent.click((await screen.findAllByRole("button", { name: "Start campaign" }))[0]);
+    const box = await screen.findByRole("dialog");
+    expect(box.textContent).toContain("It carries on from where it stopped.");
+    expect(box.textContent).toContain("2 people are still to be called.");
+    expect(screen.queryByRole("button", { name: "Call the unreached again" })).toBeNull();
+  });
+});
+
+describe("the saved test numbers", () => {
+  it("says the list did not load, and saves nothing over it, rather than showing none", async () => {
+    const rendered = await renderClientPage(
+      campaignPage(),
+      detail(progressFixture(), {
+        [`/v1/campaigns/${CAMPAIGN_ID}/test-numbers`]: problem(503, { title: "Service unavailable" }),
+      }),
+    );
+    const section = (await screen.findByRole("button", { name: "Test call" })).closest("section") as HTMLElement;
+    expect((await within(section).findByRole("alert")).textContent).toContain("Service unavailable");
+    fireEvent.change(within(section).getByLabelText("Your number"), { target: { value: "98765 43210" } });
+    const save = within(section).getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    // Saving replaces the whole list, so it waits for the list it would replace.
+    expect(save.disabled).toBe(true);
+    expect(rendered.calls.some((c) => c.method === "PUT" && c.path.endsWith("/test-numbers"))).toBe(false);
   });
 });
 
