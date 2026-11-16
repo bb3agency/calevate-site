@@ -4401,7 +4401,10 @@ async def engine_agent_allowance_blocker(
     limit = await _allowance_full(session, tenant_id=tenant_id, workspace=workspace)
     if limit is None:
         return None
-    return (ENGINE_AGENT_ALLOWANCE_FULL_RULE, f"{_allowance_reason(limit)} {ALLOWANCE_FULL_REMEDIATION}")
+    return (
+        ENGINE_AGENT_ALLOWANCE_FULL_RULE,
+        f"{_allowance_reason(limit)} {ALLOWANCE_FULL_REMEDIATION}",
+    )
 
 
 async def publish_campaign_agent(
@@ -4633,7 +4636,21 @@ async def retire_campaign_agent(
         text("DELETE FROM engine_kb_routes WHERE campaign_id = :cid AND tenant_id = :tid"),
         {"cid": campaign_id, "tid": tenant_id},
     )
-    await retire_engine_agent(session, tenant_id=tenant_id, agent_id=holder.agent_id, ref=ref)
+    from apps.api.reliability.service import enqueue_outbox
+
+    # Not `retire_engine_agent`'s once-per-ref key: a campaign started again may take the same
+    # vendor agent back by its tag and give it back a second time. The campaign rides the
+    # payload so the job leaves it standing if the campaign holds it again by then.
+    await enqueue_outbox(
+        session,
+        job=RETIRE_MOVED_AGENT_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "agent_id": str(holder.agent_id),
+            "old_ref": ref,
+            "campaign_id": str(campaign_id),
+        },
+    )
     log.info(
         "campaign_engine_agent_retired",
         extra={"campaign_id": str(campaign_id), "agent_id": str(holder.agent_id)},

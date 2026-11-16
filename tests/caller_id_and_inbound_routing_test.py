@@ -269,8 +269,9 @@ async def test_an_agent_with_no_number_of_its_own_rings_from_its_clients_number(
 
 async def test_a_number_another_agent_is_calling_out_on_is_held_until_its_call_ends() -> None:
     """A number is lent to one agent at a time (`update-phone-number.md:144-145`): while one
-    agent's call is live on it, another agent's dial is refused as lines busy (tried again
-    later), and the same agent's next call is not."""
+    engine agent's call is live on it, another engine agent's dial is refused as lines busy
+    (tried again later), and the same engine agent's next call is not. Keyed on the engine
+    agent the call rang through (D-1003), so two campaigns in ONE voice are held apart too."""
     tenant_id, agent_id = await _tenant()
     number_id, e164 = await _number(tenant_id, agent_id=None)
     other = uuid7()
@@ -288,8 +289,9 @@ async def test_a_number_another_agent_is_calling_out_on_is_held_until_its_call_e
         await session.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
-                "from_e164, to_e164, status, created_at, updated_at) VALUES (:id, :tid, :aid, "
-                ":ecid, 'outbound', :e, '+919876500099', 'in_progress', now(), now())"
+                "from_e164, to_e164, engine_agent_ref, status, created_at, updated_at) VALUES "
+                "(:id, :tid, :aid, :ecid, 'outbound', :e, '+919876500099', 'ref-campaign-a', "
+                "'in_progress', now(), now())"
             ),
             {"id": uuid7(), "tid": tenant_id, "aid": other, "ecid": f"x-{uuid7()}", "e": e164},
         )
@@ -299,8 +301,12 @@ async def test_a_number_another_agent_is_calling_out_on_is_held_until_its_call_e
 
     async with tenant_session(tenant_id) as session:
         with pytest.raises(ProblemError) as busy:
-            await agents_service._hold_client_number(session, number=line, agent_id=agent_id)
-        await agents_service._hold_client_number(session, number=line, agent_id=other)
+            await agents_service._hold_client_number(
+                session, number=line, engine_agent_ref="ref-campaign-b"
+            )
+        await agents_service._hold_client_number(
+            session, number=line, engine_agent_ref="ref-campaign-a"
+        )
 
     assert agents_service.dial_was_not_placed(busy.value)
 

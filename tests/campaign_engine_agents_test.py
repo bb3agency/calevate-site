@@ -23,6 +23,7 @@ from uuid import UUID
 import pytest
 from apps.api.agents import service as agents_service
 from apps.api.agents.publishing import engine_drift_for
+from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.api.campaigns import engine_agent, notes
 from apps.api.campaigns.controls import stop_campaign
 from apps.api.compliance.service import (
@@ -32,7 +33,6 @@ from apps.api.compliance.service import (
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
-from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.workers.campaign_engine_agents import own_script_version
 from apps.workers.pipeline import _STAMP_CAMPAIGN_SQL
 from calevate_shared.call_script import CallScript
@@ -147,7 +147,9 @@ async def test_a_campaign_with_nothing_of_its_own_dials_through_its_agent() -> N
     _fresh_engine()
     tenant_id, agent_id = await _live_agent()
     campaign_id = await _campaign(tenant_id, agent_id, script=None, status="running")
-    assert await engine_agent.put_campaign_live(tenant_id=tenant_id, campaign_id=campaign_id) is None
+    assert (
+        await engine_agent.put_campaign_live(tenant_id=tenant_id, campaign_id=campaign_id) is None
+    )
     assert await engine_agent.dial_for(tenant_id=tenant_id, campaign_id=campaign_id) is None
 
 
@@ -173,8 +175,7 @@ async def test_a_campaign_dial_rings_its_engine_agent_and_intake_stamps_the_camp
         call = (
             await session.execute(
                 text(
-                    "SELECT id, engine_agent_ref, campaign_id FROM calls "
-                    "WHERE engine_call_id = :h"
+                    "SELECT id, engine_agent_ref, campaign_id FROM calls WHERE engine_call_id = :h"
                 ),
                 {"h": handle},
             )
@@ -211,7 +212,9 @@ async def test_a_test_call_through_the_campaign_is_never_counted_in_its_results(
             text(_STAMP_CAMPAIGN_SQL), {"cid": call_id, "ref": ref, "tid": tenant_id}
         )
         stamped = (
-            await session.execute(text("SELECT campaign_id FROM calls WHERE id = :c"), {"c": call_id})
+            await session.execute(
+                text("SELECT campaign_id FROM calls WHERE id = :c"), {"c": call_id}
+            )
         ).scalar_one()
     assert stamped is None
 
@@ -302,7 +305,11 @@ async def test_a_full_workspace_is_refused_plainly_before_a_new_engine_agent(
                     "agent_id, active, created_at, updated_at) VALUES ('fake', :r, :t, :a, "
                     "true, now(), now())"
                 ),
-                {"r": f"agent_{n}_{uuid.uuid4().hex[:6]}@{workspace}", "t": tenant_id, "a": agent_id},
+                {
+                    "r": f"agent_{n}_{uuid.uuid4().hex[:6]}@{workspace}",
+                    "t": tenant_id,
+                    "a": agent_id,
+                },
             )
 
     async def resolve(_session: Any, _tenant: UUID) -> str:
@@ -437,9 +444,7 @@ async def test_what_a_campaign_notes_is_its_own_saved_under_a_compare_and_set() 
     async with tenant_session(tenant_id) as session:
         before = await notes.read_notes(session, campaign_id)
         assert before.fields == ()
-        assert await notes.save_notes(
-            session, campaign_id, [field], expected_digest=before.digest
-        )
+        assert await notes.save_notes(session, campaign_id, [field], expected_digest=before.digest)
         after = await notes.read_notes(session, campaign_id)
         assert [f.key for f in after.fields] == ["visit_day"]
         with pytest.raises(ProblemError) as stale:
