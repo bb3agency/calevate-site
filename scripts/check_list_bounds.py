@@ -150,6 +150,22 @@ _CALL_MISTAKES = BoundedByConstruction(
     by="one item per lesson kind, at most `len(agents/call_mistakes.LESSONS)`."
 )
 
+#: Inbound lines (D-997): one line's lists, and the account's lines.
+_INBOUND_LINE = BoundedByConstruction(
+    by=(
+        "ONE line: its script and Pip's draft are `CallScript`s bounded by that model's "
+        "`max_length` limits, `source_ids` at most 200 (the request model, replaced whole), "
+        "`actions_off` at most 100 (the request model), and its numbers the account's own "
+        "numbers, which a client cannot mint (see `GET /v1/campaigns/numbers`)."
+    )
+)
+_INBOUND_LINES = BoundedByConstruction(
+    by=(
+        "the account's lines, at most `inbound/lines.MAX_LINES` (fifty, refused past it at "
+        "create and read with that LIMIT), each bounded as one line is."
+    )
+)
+
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/agents/{agent_id}/call-mistakes": _CALL_MISTAKES,
@@ -236,6 +252,33 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "inbound lines and open campaigns, each read with `LIMIT` "
             "`agents/jobs.MAX_JOBS_LISTED`, so at most twice that."
         )
+    ),
+    # --- inbound lines (D-997) -----------------------------------------------------------
+    "GET /v1/inbound-lines": _INBOUND_LINES,
+    "POST /v1/inbound-lines": _INBOUND_LINE,
+    "GET /v1/inbound-lines/{line_id}": _INBOUND_LINE,
+    "PATCH /v1/inbound-lines/{line_id}": _INBOUND_LINE,
+    "PUT /v1/inbound-lines/{line_id}/sources": _INBOUND_LINE,
+    "PUT /v1/inbound-lines/{line_id}/actions": _INBOUND_LINE,
+    "PUT /v1/inbound-lines/{line_id}/script": _INBOUND_LINE,
+    "POST /v1/inbound-lines/{line_id}/publish": _INBOUND_LINE,
+    "POST /v1/inbound-lines/{line_id}/numbers": _INBOUND_LINE,
+    "POST /v1/inbound-lines/{line_id}/proposal": BoundedByConstruction(
+        by=(
+            "ONE Pip draft: two `CallScript`s, bounded by that model's `max_length` limits, and "
+            "`left_out` at most one entry per part of the script it was written over."
+        )
+    ),
+    "GET /v1/inbound-lines/{line_id}/calls": BoundedByConstruction(
+        by="read with `LIMIT inbound/routes.CALLS_SHOWN` (fifty); the call logs hold the rest."
+    ),
+    "GET /v1/inbound-lines/{line_id}/test-calls": BoundedByConstruction(
+        by="read with `LIMIT inbound/routes.TEST_CALLS_SHOWN` (twenty); older ones stay in the "
+        "call logs."
+    ),
+    "GET /v1/inbound-lines/{line_id}/test-numbers": BoundedByConstruction(
+        by="the account's saved test numbers, kept to `campaigns/workspace_routes."
+        "MAX_TEST_NUMBERS` (ten) where they are written."
     ),
     "GET /v1/billing/voice-tiers": BoundedByConstruction(
         by=(

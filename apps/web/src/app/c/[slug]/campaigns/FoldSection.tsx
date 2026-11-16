@@ -159,11 +159,19 @@ export function FoldSection({
     },
     [storageKey],
   );
-  // Read after mount, not in useState: the server render has no storage to read.
+  // Read after mount, not in useState: the server render has no storage to read. A link to
+  // this section (`#id`, such as an agent's job opening a line at its Test call) opens it and
+  // scrolls to it: the page renders its sections only once its data has loaded, which is
+  // after the browser's own jump to the hash has already found nothing.
   useEffect(() => {
+    if (id && window.location.hash === `#${id}`) {
+      setOpenState(true);
+      document.getElementById(id)?.scrollIntoView?.({ block: "start" });
+      return;
+    }
     const saved = readFold(storageKey);
     if (saved != null) setOpenState(saved);
-  }, [storageKey]);
+  }, [storageKey, id]);
   const lastCommand = useRef<Command | null>(command);
   useEffect(() => {
     if (command && command !== lastCommand.current) setOpen(command.open);

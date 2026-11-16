@@ -64,6 +64,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "calls-live",
     // The calls one inbound line took (D-997).
     "inbound-line-calls",
+    // The test calls rung through one inbound line are calls rows (`calls.inbound_line_id`).
+    "inbound-line-test-calls",
     "callback-check",
     "performance",
     // Charts over calls and leads (D-869).
@@ -146,6 +148,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "campaign-insights",
     // The calls a campaign's Test call placed, listed on the campaign (`campaigns.test_call_ids`).
     "campaign-test-calls",
+    // An agent's jobs list its open campaigns (`GET /v1/agents/{id}/jobs`, D-1000).
+    "agent-jobs",
   ],
   callbacks: [
     ...SUMMARY,
@@ -226,6 +230,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "agents-archived",
     // Inbound lines and the sources each is written from (D-997).
     "inbound-lines",
+    // An agent's jobs list the inbound lines in its voice (D-1000).
+    "agent-jobs",
     "agent-stats",
     "agent-starters",
     "agent-engine-state",
@@ -287,6 +293,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     // A request for more lines: the operators' bell lists it, the client's bell answers it.
     "call-line-requests",
     "notifications",
+    // A line lists its numbers (`phone_numbers.inbound_line_id`, D-997): a number bought onto
+    // the first line or moved between lines changes the list and both lines' pages.
+    "inbound-lines",
     // An agent's `inbound_number_count` is counted from `phone_numbers`.
     "agent",
     "agents",
@@ -303,6 +312,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
   account: [
     ...SUMMARY,
     "me",
+    // The saved test numbers a campaign's or a line's Test call offers
+    // (`organizations.test_numbers`).
+    "test-numbers",
     // The owner's daily summary switch is on `organizations` (D-944).
     "daily-summary",
     "members",
