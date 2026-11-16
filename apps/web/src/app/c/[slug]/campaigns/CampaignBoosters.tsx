@@ -33,6 +33,7 @@ import { hourWords } from "@/lib/clock";
 
 import { CampaignVoiceSettings } from "./CampaignVoiceSettings";
 import { FoldSection } from "./FoldSection";
+import { agentSectionId } from "./StartCampaign";
 import { AgentChoice } from "./NewCampaignSteps";
 import { TestCallList } from "./TestCallList";
 
@@ -444,9 +445,9 @@ export function AgentSection({
 
   return (
     <FoldSection
+      id={agentSectionId(campaignId)}
       title="Agent and its settings"
       tone="agent"
-     
       hint="Who makes these calls, and its settings here."
     >
     <div className="space-y-4">

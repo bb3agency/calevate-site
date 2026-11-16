@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.49 — 16-Nov-2026
+
+- Start campaign and Stop campaign ask first. Start says who will be called; when something
+  stands in the way it lists each thing, holds the start and outlines the sections to fix in
+  red. A refusal from the server shows in the same box.
+
 ## 0.4.48 — 16-Nov-2026
 
 - Mobile view on a desktop browser now shows the page. It was blocked by the page's own

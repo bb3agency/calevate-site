@@ -15,7 +15,7 @@ import {
 } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
 
-type Confirming = "delete" | null;
+type Confirming = "stop" | "delete" | null;
 
 /**
  * The campaign's buttons, as one `ButtonGroup`, in the copy `show` names: Edit on a draft,
@@ -126,7 +126,10 @@ export function CampaignHeaderActions({
         : status === "draft"
           ? "It has not started."
           : "It is stopped.",
-    onSelect: () => setStatusFeedback.run("pause"),
+    onSelect: () => {
+      setStatusFeedback.reset();
+      setConfirming("stop");
+    },
   });
   actions.push({
     id: "duplicate",
@@ -166,6 +169,24 @@ export function CampaignHeaderActions({
         desktopVisible={2}
         className="flex-wrap sm:justify-end"
       />
+      {confirming === "stop" && (
+        <ConfirmDialog
+          title="Stop this campaign?"
+          confirmLabel="Stop campaign"
+          pendingLabel="Stopping"
+          cancelLabel="Keep calling"
+          status={setStatus.variables === "pause" ? setStatusFeedback.status : "idle"}
+          error={setStatusFeedback.error ?? null}
+          onCancel={() => {
+            setStatusFeedback.reset();
+            setConfirming(null);
+          }}
+          onConfirm={() => setStatus.mutate("pause", { onSuccess: () => setConfirming(null) })}
+        >
+          <span className="block">Nobody new is called. Calls ringing now finish.</span>
+          <span className="block">Start it again any time; it carries on from where it stopped.</span>
+        </ConfirmDialog>
+      )}
       {confirming === "delete" && (
         <ConfirmDialog
           title="Delete this draft?"
