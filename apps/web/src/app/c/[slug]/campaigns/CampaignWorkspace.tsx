@@ -45,6 +45,7 @@ import { matchesWords } from "./matchWords";
 import { PipGenerateBand } from "./PipGenerateBand";
 import { PipFailed, PipWriting, retryable } from "./PipScriptStatus";
 import { FoldSection } from "./FoldSection";
+import { CampaignFlow, FLOW_PART } from "./CampaignFlow";
 import { ScriptLanguagePick, languageName } from "./ScriptLanguages";
 
 export const MAIN_TASK_HINT = "What should this campaign achieve?";
@@ -441,6 +442,20 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                   <span className="text-meta text-ink-muted">On the agent since the last Start (version {space.script_live_version}).</span>
                 )}
               </div>
+              <CampaignFlow
+                agentId={space.agent_id}
+                script={script}
+                canWrite={canWrite}
+                refusal={refusal}
+                saving={save.isPending}
+                onSave={async (next) => {
+                  await save.mutateAsync(next);
+                }}
+                mapping={ask.isPending}
+                onMapScenarios={
+                  main ? () => askFeedback.run({ part: FLOW_PART, language: main }) : undefined
+                }
+              />
             </>
           ) : (
             <p className="text-body text-ink-muted">

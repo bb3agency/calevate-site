@@ -155,15 +155,16 @@ export function CampaignHeaderActions({
       onSelect: () => setStatusFeedback.run("resume"),
     });
   }
-  if (!archived && (status === "running" || status === "paused" || status === "scheduled")) {
-    actions.push({
-      id: "stop",
-      label: "Stop for good…",
-      disabled: !canWrite,
-      hint: ownerOnly,
-      onSelect: () => setConfirming("stop"),
-    });
-  }
+  // Stop campaign is shown in every state beside Start (founder, 16 Nov 2026), switched off
+  // where there is nothing to stop.
+  const stoppable = !archived && (status === "running" || status === "paused" || status === "scheduled");
+  actions.push({
+    id: "stop",
+    label: "Stop campaign…",
+    disabled: !canWrite || !stoppable,
+    hint: stoppable ? ownerOnly : status === "draft" ? "It has not started." : "It has already stopped.",
+    onSelect: () => setConfirming("stop"),
+  });
   if (finished && !archived) {
     actions.push({
       id: "again",

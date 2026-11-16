@@ -35,7 +35,7 @@ describe("the content-security policy", () => {
   });
 
   it("locks the vectors a bare default-src leaves open", () => {
-    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("frame-ancestors 'self'");
     expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("base-uri 'none'");
     expect(csp).toContain("form-action 'self'");

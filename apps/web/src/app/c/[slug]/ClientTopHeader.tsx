@@ -9,6 +9,7 @@ import { useActionFeedback } from "@/components/arc/feedback";
 import { NotificationCenter, type NotificationItem } from "@/components/arc/notification-center";
 import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
 import { LiveCallsPill } from "@/components/console/liveCalls";
+import { ViewSwitch } from "@/components/MobilePreview";
 import { BAR_STATUS } from "@/components/console/statusPill";
 import {
   NOTICE_DOT,
@@ -84,6 +85,8 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
               stands in for the credit chip: the trial is what the balance means then. */}
           <TrialChip slug={slug} />
           <CreditChip slug={slug} />
+          {/* Wide or Mobile, from 1024px up only (global rule 13). */}
+          <ViewSwitch />
           <NotificationBell slug={slug} />
           {/* The screen assistant, in the bar rather than floating over the page: a floating
               button sat on top of whatever filled the bottom-right corner. Inside

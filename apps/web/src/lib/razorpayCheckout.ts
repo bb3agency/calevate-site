@@ -61,7 +61,7 @@
  *
  * The policy is ENFORCING (D-541) and also admits the telemetry and icon hosts Checkout
  * itself names (D-699, `lib/security/csp.ts`). The edge headers are unaffected either
- * way: `X-Frame-Options: DENY` and `Cross-Origin-Opener-Policy: same-origin` both hold,
+ * way: `X-Frame-Options: SAMEORIGIN` and `Cross-Origin-Opener-Policy: same-origin` both hold,
  * because Checkout renders INSIDE our page and opens no cross-origin window handle we keep
  * a reference to.
  */

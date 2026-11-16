@@ -101,6 +101,20 @@ PART_ASK: Final = (
 )
 
 
+#: The part name the Script section's "Let Pip map the scenarios" sends (`CampaignFlow`).
+FLOW_PART: Final = "flow"
+#: The call's steps rewritten as the ways it is likely to go, each with its way out.
+FLOW_ASK: Final = (
+    "Rewrite only the steps of the campaign's call script as a flow of scenarios. Predict the "
+    "ways a call is likely to go: for example the person recognises the business, does not "
+    "remember it, is busy, is not interested, or has already done what the call asks. Make a "
+    "step for each scenario worth handling, and give each step its ways out (branches): when "
+    "the person says or does this, go to the step that handles it, to a call back, or to the "
+    "end of the call. Write each step's instruction in plain English and its sounds-like line "
+    "in {language}. Leave every other part of the script exactly as it is."
+)
+
+
 def campaign_change(
     main_task: str, notes: str, documents: str, *, edit: bool, ask: str | None = None
 ) -> str:
@@ -222,10 +236,14 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
     # against it: a script saved since would otherwise be shown as Pip's change.
     base = space.proposal.base_script if space.proposal is not None else space.script
     notes = _materials_text(space.materials)
+    language_name = LANGUAGE_LABELS.get(str(part_language), str(part_language))
+    is_flow = isinstance(focus, dict) and focus.get("part") == FLOW_PART
     ask = (
-        PART_ASK.format(
+        FLOW_ASK.format(language=language_name)
+        if is_flow and part_language
+        else PART_ASK.format(
             part=str(focus.get("part")),
-            language=LANGUAGE_LABELS.get(str(part_language), str(part_language)),
+            language=language_name,
         )
         if isinstance(focus, dict) and part_language
         else None

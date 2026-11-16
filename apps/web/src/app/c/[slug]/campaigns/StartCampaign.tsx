@@ -39,7 +39,20 @@ export function StartCampaign({
   refusal: string | undefined;
 }) {
   const [told, setTold] = useState(false);
-  if (status !== "draft" && status !== "scheduled") return null;
+  // Shown in every state (founder, 16 Nov 2026), switched off where it cannot start: one
+  // that is calling is already started, and a stopped one cannot start again.
+  if (status !== "draft" && status !== "scheduled") {
+    const why =
+      status === "running" || status === "paused"
+        ? "It has started. Use Pause or Stop campaign."
+        : "A stopped campaign can't start again. Use Duplicate or Call the unreached again.";
+    return (
+      <button type="button" className={PRIMARY_BUTTON_SM} disabled title={why} aria-label={`Start campaign: ${why}`}>
+        <PhoneOutgoing aria-hidden className="h-3.5 w-3.5" />
+        Start campaign
+      </button>
+    );
+  }
   const total = progress.data?.total ?? 0;
   const ready = check.data?.ready === true && total > 0;
 

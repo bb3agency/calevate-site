@@ -98,7 +98,8 @@
  *   `/c/{slug}/calls/{callId}`, silently, for every client. That is the breakage this
  *   audit was for.
  * - `frame-src` Razorpay — Checkout renders its own iframe inside our page.
- * - `frame-ancestors 'none'` — clickjacking (belt-and-braces with the edge `X-Frame-Options`).
+ * - `frame-ancestors 'self'` — clickjacking: only our own pages may frame us, which the desktop
+ *   Mobile preview does (`components/MobilePreview.tsx`). The edge sends `SAMEORIGIN` to match.
  * - `object-src 'none'`, `base-uri 'none'`, `form-action 'self'` — kill the plugin, base-tag
  *   and form-exfiltration vectors that a bare `default-src` does not.
  * - `report-uri` AND `report-to` — both, on purpose. See `reportingEndpointsHeader`.
@@ -270,7 +271,7 @@ export function buildContentSecurityPolicy(
     `connect-src ${connect}`,
     `media-src ${mediaSources}`,
     `frame-src ${RAZORPAY_CHECKOUT_ORIGIN} ${RAZORPAY_API_ORIGIN} ${GOOGLE_PICKER_FRAME_ORIGIN} ${FACEBOOK_ORIGINS.join(" ")}`,
-    "frame-ancestors 'none'",
+    "frame-ancestors 'self'",
     "object-src 'none'",
     "base-uri 'none'",
     "form-action 'self'",

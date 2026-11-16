@@ -3,6 +3,18 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.43 — 16-Nov-2026
+
+- Script: a Call flow chart under the script shows each step and where the call goes next,
+  by what the person says. Click a step to edit it, drag between steps to add a way out, or
+  add steps; Save flow keeps the changes. "Let Pip map the scenarios" writes the likely ways
+  a call goes (recognises you, doesn't remember, busy, not interested…) as steps with their
+  branches, for review.
+- Start campaign and Stop campaign show on Set up and Progress & results in every state,
+  switched off with the reason when they can't be used. The Calls tab no longer carries them.
+- On a desktop browser, a Wide / Mobile switch in the top bar shows the page in a phone-sized
+  frame. Wide is the default; the switch is not shown on phones.
+
 ## 0.4.42 — 16-Nov-2026
 
 - Editing a campaign script: every part has "Generate in [language]". Pip rewrites just that

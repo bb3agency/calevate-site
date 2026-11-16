@@ -203,6 +203,18 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
     onCopied: (id: string) => router.push(href(`/c/${slug}/campaigns/${id}`)),
   };
   const campaignActions = <CampaignHeaderActions {...actionProps} />;
+  // Start and Stop sit on Set up and Progress & results only (founder, 16 Nov 2026).
+  const startButton = (
+    <StartCampaign
+      campaignId={campaignId}
+      status={status}
+      check={check}
+      progress={progress}
+      launch={launchFeedback}
+      canWrite={write.allowed}
+      refusal={refusal}
+    />
+  );
 
   return (
     <div className="max-w-6xl space-y-8 pb-12">
@@ -285,7 +297,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
           current === "calls" ? (
             // One Calls section (founder, 16 Nov 2026): the calls and their recordings, then who
             // was called and how; before the first call, only the line saying none yet.
-            <FoldGroup actions={campaignActions}>
+            <FoldGroup>
               <FoldSection title="Calls" tone="people" id={peopleSectionId(campaignId)}>
                 {status === "draft" || campaignRun(data).called === 0 ? (
                   <p className="text-body text-ink-muted">No calls yet. They show here once it calls.</p>
@@ -306,7 +318,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             <ImproveTab slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
           ) : current === "progress" ? (
             launched ? (
-              <FoldGroup className="space-y-8" actions={campaignActions}>
+              <FoldGroup className="space-y-8" actions={<>{startButton}{campaignActions}</>}>
                 <FoldSection title="Where it stands" tone="progress">
                   <div className="mb-2 flex justify-end empty:hidden">
                     <CampaignHeaderActions {...actionProps} show="again" />
@@ -343,15 +355,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               className="space-y-8"
               actions={
                 <>
-                  <StartCampaign
-                    campaignId={campaignId}
-                    status={status}
-                    check={check}
-                    progress={progress}
-                    launch={launchFeedback}
-                    canWrite={write.allowed}
-                    refusal={refusal}
-                  />
+                  {startButton}
                   {campaignActions}
                 </>
               }
