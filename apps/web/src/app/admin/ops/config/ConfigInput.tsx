@@ -23,6 +23,7 @@ import {
 import { useTenants } from "@/lib/api/admin";
 import { useThinnestWorkspace, type ConfigField } from "@/lib/api/opsConfig";
 import { useTrialNumber } from "@/lib/api/opsTrialNumber";
+import { DefaultVoicePicker } from "./DefaultVoicePicker";
 import { TrialLinePanel } from "./TrialLinePanel";
 
 import {
@@ -408,6 +409,8 @@ function EntityPicker(props: ConfigInputProps) {
       return <WorkspacePicker {...props} />;
     case "tenants":
       return <TenantPicker {...props} />;
+    case "client_voices":
+      return <DefaultVoicePicker {...props} />;
     default:
       return (
         <NoticeBox tone="warn" title="This console cannot list these choices yet">

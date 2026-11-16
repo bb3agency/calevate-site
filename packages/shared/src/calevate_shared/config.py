@@ -652,6 +652,16 @@ class Settings(BaseSettings):
     #: synthesis; once reached, a Studio test call is refused and Clear ones go on. 0 refuses
     #: every Studio test call.
     trial_studio_minutes: int = Field(default=15, ge=0, le=1000)
+    #: The name of the agent a new account starts with: the free trial's agent and the paid
+    #: tiers' starter agent (founder, 16 Nov 2026; `agents/default_agent`). No full stop or
+    #: line break, so `first_run/names.identity_with_name` can find it again in the script.
+    default_agent_name: str = Field(
+        default="Anjali", min_length=1, max_length=60, pattern=r"^[^.\r\n]+$"
+    )
+    #: The voice that agent starts with, one the admin added and enabled for clients. Unset,
+    #: a new account gets the best woman's voice for its language, Studio first
+    #: (`agents/voice_pick`). A write naming a voice not on offer is refused.
+    default_agent_voice_id: str | None = Field(default=None, min_length=1, max_length=255)
     #: Days a paying client's developer-workspace test copy of an agent may sit unused before
     #: the hourly sweep retires it (D-859, option A); the next test call recreates it. Each
     #: copy holds one of the developer workspace's agent slots.

@@ -92,6 +92,7 @@ FREE_TEXT: Final[dict[str, str]] = {
     "whatsapp_template_owner_digest": "a template name registered with Meta",
     "whatsapp_cloud_phone_number_id": "an id from the Meta console",
     "whatsapp_cloud_graph_version": "a Graph API version Meta publishes",
+    "default_agent_name": "a person's name, chosen by the admin",
     "release_version": "a name the deploy chooses",
     "tls_origin_address": "a host and port",
 }

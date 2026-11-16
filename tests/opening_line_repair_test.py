@@ -49,7 +49,7 @@ SLIPPED = "మీ balance చూడాలా?"
 REPAIRED = "మీ ఖాతాలో బాకీ ఎంత ఉందో చూడాలా?"
 
 
-async def _no_voice(_tenant_id: uuid.UUID, _language: str) -> None:
+async def _no_voice(_tenant_id: uuid.UUID, _language: str, **_default: Any) -> None:
     return None
 
 

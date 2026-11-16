@@ -99,7 +99,7 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "/admin/ops/config",
         "Platform configuration",
         "Platform",
-        "Settings and vendor credentials.",
+        "Settings, the name and voice of a new account's first agent, and vendor credentials.",
         "platform:config",
     ),
     AdminScreen(

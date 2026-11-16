@@ -679,6 +679,16 @@ async def _gated_value(session: AsyncSession, key: str, stored: Any) -> Any:
         from apps.api.agents.hosted_voices import assert_clear_band_listed
 
         await assert_clear_band_listed(session, stored)
+    # A new account's first agent may be given only a voice clients can be given.
+    if key == "default_agent_voice_id":
+        from apps.api.agents.default_agent import assert_default_voice_offered
+
+        await assert_default_voice_offered(session, stored)
+    if key == "default_agent_name":
+        from apps.api.agents.default_agent import assert_default_name_usable
+
+        assert_default_name_usable(stored)
+        stored = stored.strip()
     # The in-call default must be a model the engine lists as fast enough for calls, open to
     # our plan and with its price band on record. A console name is stored as its id.
     if key == "thinnest_in_call_default_model":
