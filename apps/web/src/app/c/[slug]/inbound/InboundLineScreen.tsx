@@ -321,6 +321,8 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
   const clear = useClearLineProposal(session, line.id);
   const save = useSaveLineScript(session, line.id);
   const ask = useRequestLineScript(session, line.id);
+  const publish = usePublishInboundLine(session, line.id);
+  useActionFeedback(publish, { errorDisplay: "inline", successToast: "The line is live" });
   const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
   const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
   useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved and live" });
@@ -368,8 +370,22 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
       </div>
 
       {save.error != null && (
-        <div className="mb-3">
+        <div className="mb-3 space-y-2">
           <ProblemNotice error={save.error} />
+          {/* A live line keeps its old "Live" state when only the platform step failed, so
+              the header offers no Put it live; the retry the refusal names is here. */}
+          {line.script && (
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              disabled={!canWrite || publish.isPending}
+              title={refusal}
+              onClick={() => publish.mutate(undefined, { onSuccess: () => save.reset() })}
+            >
+              {publish.isPending ? "Putting it live…" : "Put it live"}
+            </button>
+          )}
+          {publish.error != null && <ProblemNotice error={publish.error} />}
         </div>
       )}
 
@@ -514,7 +530,7 @@ function OutsideHoursSection({ slug }: { slug: string }) {
           {hours.length === 0 ? (
             <p className="text-body text-ink-muted">No opening hours set yet.</p>
           ) : (
-            <dl className="grid max-w-md grid-cols-[4rem_1fr] gap-x-4 gap-y-1 text-body">
+            <dl className="grid max-w-md grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-body">
               {DAYS.map((day) => {
                 const entry = byDay.get(day);
                 const text = !entry

@@ -291,6 +291,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     // A request for more lines: the operators' bell lists it, the client's bell answers it.
     "call-line-requests",
     "notifications",
+    // A line lists its numbers (`phone_numbers.inbound_line_id`, D-997): a number bought onto
+    // the first line or moved between lines changes the list and both lines' pages.
+    "inbound-lines",
     // An agent's `inbound_number_count` is counted from `phone_numbers`.
     "agent",
     "agents",

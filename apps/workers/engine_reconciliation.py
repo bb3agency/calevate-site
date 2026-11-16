@@ -82,6 +82,8 @@ from typing import Any, cast
 
 from arq import Retry
 from calevate_shared.backoff import jittered_delay_s
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.engine_settings import check_agent_settings
 from apps.api.agents.hosted_voices import agent_voice_withdrawn
@@ -270,6 +272,18 @@ async def _reconcile_settings(engine_name: str, candidate: DriftCandidate) -> No
         )
 
 
+async def _is_line_route(session: AsyncSession, ref: str) -> bool:
+    """Whether `ref` is an inbound line's engine agent (D-997)."""
+    found = await session.execute(
+        text(
+            "SELECT 1 FROM engine_agent_routes WHERE engine_agent_ref = :ref "
+            "AND inbound_line_id IS NOT NULL"
+        ),
+        {"ref": ref},
+    )
+    return found.first() is not None
+
+
 async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | None:
     """One vendor round trip, one recorded verdict — or None when there was no verdict.
 
@@ -348,12 +362,18 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
     # move a client's phone. A TENANT SESSION because `agents` is FORCE-RLS'd — the sweep's
     # own session is untenanted, and only `engine_agent_routes` carries that exemption.
     async with tenant_session(candidate.tenant_id) as session:
+        truthful = drift.truthful_answer_applied
+        if truthful and await _is_line_route(session, candidate.engine_agent_ref):
+            # A line's engine agent (D-997) proven sound says nothing about the agent's own,
+            # so it may silence the voice and never lift a silence: the agent's own route's
+            # verdict does that.
+            truthful = None
         silence = await reconcile_inbound_truthful_answer(
             session,
             get_engine(),
             tenant_id=candidate.tenant_id,
             agent_id=candidate.agent_id,
-            truthful_answer_applied=drift.truthful_answer_applied,
+            truthful_answer_applied=truthful,
         )
     if silence not in ("unchanged", "indeterminate", "gone"):
         log.info(
