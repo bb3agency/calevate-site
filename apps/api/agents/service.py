@@ -4875,7 +4875,9 @@ async def presented_caller_ids(
     an undeclared one. Empty when no number can be named, which the declaration refuses."""
     try:
         line = (
-            await _campaign_caller(session, agent_id=agent_id, number_id=number_id, ref=campaign_ref)
+            await _campaign_caller(
+                session, agent_id=agent_id, number_id=number_id, ref=campaign_ref
+            )
             if campaign_ref is not None
             else await choose_caller_line(session, agent_id=agent_id, number_id=number_id)
         )
