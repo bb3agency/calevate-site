@@ -1,11 +1,11 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { HowTheySpeak, TAB_LEAD } from "@/app/c/[slug]/knowledge/HowTheySpeak";
+import { HowTheySpeak, TAB_LEAD, TRAINING_INFO } from "@/app/c/[slug]/knowledge/HowTheySpeak";
 import { KnowledgeScreen } from "@/app/c/[slug]/knowledge/KnowledgeScreen";
 import type { CompanyTraining } from "@/lib/api/companyTraining";
 
-import { noReply, renderClientPage } from "./harness";
+import { noReply, problem, renderClientPage } from "./harness";
 
 /*
  * HOW THEY SPEAK (D-996): the one training every agent is given, a tab of What your agents
@@ -120,5 +120,48 @@ describe("How they speak", () => {
       "Address people as sir or madam.",
     );
     expect(screen.getByRole("button", { name: "Save for every agent" })).toBeTruthy();
+  });
+
+  it("offers the places a too-long script is shortened when a save is refused for one", async () => {
+    await renderClientPage(<HowTheySpeak />, {
+      "/v1/me": OWNER,
+      [PATH]: training({ overview: "We build flats.", training: "Address people as sir or madam.", version: 3 }),
+      [`PUT ${PATH}/training`]: problem(422, {
+        type: "https://calevate.tech/problems/company_training_too_long",
+        title: "That change is not allowed",
+        status: 422,
+        kind: "business_rule",
+        detail: "With this training, the script of the campaign Diwali visits is 1,240 characters too long.",
+        remediation: "Shorten the training or that campaign's script.",
+      }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Edit training" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save for every agent" }));
+    expect(await screen.findByText(/campaign Diwali visits is 1,240 characters too long/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open Inbound lines" }).getAttribute("href")).toBe("/c/acme/inbound");
+    expect(screen.getByRole("link", { name: "Open Campaigns" }).getAttribute("href")).toBe("/c/acme/campaigns");
+  });
+
+  it("offers no way out for a refusal that is not about a script's length", async () => {
+    await renderClientPage(<HowTheySpeak />, {
+      "/v1/me": OWNER,
+      [PATH]: training({ overview: "We build flats.", training: "Address people as sir or madam.", version: 3 }),
+      [`PUT ${PATH}/training`]: problem(409, {
+        type: "https://calevate.tech/problems/company_training_changed",
+        title: "Changed elsewhere",
+        status: 409,
+        kind: "conflict",
+        detail: "Someone else saved the training.",
+      }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Edit training" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save for every agent" }));
+    expect(await screen.findByText("Someone else saved the training.")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Open Campaigns" })).toBeNull();
+  });
+
+  it("says a script belongs to a line or campaign, never to an agent (D-1005)", () => {
+    expect(TRAINING_INFO).toMatch(/Inbound line and campaign/);
+    expect(TRAINING_INFO).not.toMatch(/agent/i);
   });
 });

@@ -14,6 +14,7 @@
  * It has no sources of its own: what Pip reads is added with the page's Add area, once.
  */
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -28,6 +29,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { ApiProblem } from "@/lib/api/client";
 import {
   useClearTrainingProposal,
   useCompanyTraining,
@@ -47,6 +49,10 @@ export const TAB_LEAD = "Every agent learns this before any line or campaign scr
 export const OVERVIEW_HINT = "What is your business, and how should agents talk?";
 export const OVERVIEW_PLACEHOLDER = "For example: we bake cakes to order in Kukatpally.";
 export const TRAINING_HINT = "What every agent is given.";
+export const TRAINING_INFO =
+  "Each Inbound line and campaign keeps its own script on top of this. Where a script says something different, the script wins on its own calls.";
+/** The save refusal naming an Inbound line or campaign the training would push over the box. */
+export const TOO_LONG_CODE = "company_training_too_long";
 
 export function HowTheySpeak() {
   const { session } = useClientRealm();
@@ -196,7 +202,7 @@ function Training({ data, canWrite, refusal }: Props) {
       title="Training"
       tone="script"
       hint={TRAINING_HINT}
-      info="Each agent, campaign and phone line keeps its own script on top of this. Where a script says something different, the script wins on its own calls."
+      info={TRAINING_INFO}
       aside={data.version > 0 ? `Version ${data.version}` : undefined}
     >
       <div className="mb-4">
@@ -219,8 +225,9 @@ function Training({ data, canWrite, refusal }: Props) {
       </div>
 
       {save.error != null && (
-        <div className="mb-3">
+        <div className="mb-3 space-y-2">
           <ProblemNotice error={save.error} />
+          {save.error instanceof ApiProblem && save.error.code === TOO_LONG_CODE && <ScriptPlaces />}
         </div>
       )}
 
@@ -287,7 +294,10 @@ function Training({ data, canWrite, refusal }: Props) {
               className={SECONDARY_BUTTON_SM}
               disabled={!canWrite || save.isPending || clear.isPending}
               title={refusal}
-              onClick={() => setDraft({ text: proposal.training ?? "", proposalId: proposal.id })}
+              onClick={() => {
+                save.reset();
+                setDraft({ text: proposal.training ?? "", proposalId: proposal.id });
+              }}
             >
               Edit first
             </button>
@@ -319,7 +329,10 @@ function Training({ data, canWrite, refusal }: Props) {
               className={SECONDARY_BUTTON_SM}
               disabled={!canWrite || proposal != null}
               title={refusal}
-              onClick={() => setDraft({ text: data.training })}
+              onClick={() => {
+                save.reset();
+                setDraft({ text: data.training });
+              }}
             >
               Edit training
             </button>
@@ -347,6 +360,24 @@ function Training({ data, canWrite, refusal }: Props) {
         )
       )}
     </FoldSection>
+  );
+}
+
+/**
+ * Where the script the refusal names is shortened. The refusal names the line or campaign in
+ * its sentence but carries no id, so both lists are offered rather than one guessed.
+ */
+function ScriptPlaces() {
+  const { session, href } = useClientRealm();
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Link href={href(`/c/${session.orgSlug}/inbound`)} className={SECONDARY_BUTTON_SM}>
+        Open Inbound lines
+      </Link>
+      <Link href={href(`/c/${session.orgSlug}/campaigns`)} className={SECONDARY_BUTTON_SM}>
+        Open Campaigns
+      </Link>
+    </div>
   );
 }
 
