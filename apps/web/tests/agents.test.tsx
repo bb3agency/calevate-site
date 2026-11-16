@@ -756,6 +756,25 @@ describe("how changes take effect", () => {
   });
 });
 
+describe("an agent has no script of its own (D-997)", () => {
+  it("lists no script lane, and says scripts are on lines and campaigns", async () => {
+    const { container } = await renderClientPage(page, routes());
+
+    const immediate = (await screen.findByText("Applies straight away")).parentElement;
+    expect(immediate?.textContent).toContain("Its voice");
+    expect(container.textContent).not.toContain("What the agent says");
+    expect(container.textContent).not.toContain("It waits for Apply");
+    expect(container.textContent).not.toContain("Waits to be applied");
+    expect(container.textContent).not.toContain("Script changes: only once you put them live");
+    expect(container.textContent).toContain("Scripts: on each Inbound line and campaign.");
+  });
+
+  it("does not say switching on needs a script", async () => {
+    const { MOVE_COPY } = await import("@/app/c/[slug]/agents/AgentLifecycle");
+    expect(MOVE_COPY.activate.hint).not.toMatch(/script/i);
+  });
+});
+
 describe("the page's own chrome", () => {
   it("renders no heading of its own, because the shell already prints one", async () => {
     // The shell prints "Agents" from the nav list (layout.tsx). A second heading here is a

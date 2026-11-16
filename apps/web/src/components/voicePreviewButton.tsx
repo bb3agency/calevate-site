@@ -43,6 +43,7 @@ export function VoicePreviewButton({
   const [requested, setRequested] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [src, setSrc] = useState<string | null>(null);
+  const [refused, setRefused] = useState(false);
   const audio = useRef<HTMLAudioElement>(null);
   const clip = useVoicePreview(session, path, voiceId, requested);
 
@@ -82,10 +83,17 @@ export function VoicePreviewButton({
     if (!element) return;
     if (playing && playing !== element) playing.pause();
     playing = element;
-    void Promise.resolve(element.play()).catch(() => setIsPlaying(false));
+    void Promise.resolve(element.play()).catch((error: unknown) => {
+      setIsPlaying(false);
+      // The first press only fetches the clip, so this play() runs after the press, and a
+      // browser that lets sound start only from a tap refuses it. The clip is loaded by
+      // then, so the next press plays at once; saying so beats a button that just stopped.
+      if (error instanceof DOMException && error.name === "NotAllowedError") setRefused(true);
+    });
   }
 
   function toggle() {
+    setRefused(false);
     const element = audio.current;
     if (isPlaying && element) {
       element.pause();
@@ -106,7 +114,9 @@ export function VoicePreviewButton({
       ? "No preview is stored for this voice yet."
       : clip.error
         ? "The preview could not be played. Try again."
-        : null;
+        : refused
+          ? "Ready. Tap again to listen."
+          : null;
 
   return (
     <span className="inline-flex flex-col items-start gap-1">

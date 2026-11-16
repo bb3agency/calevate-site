@@ -94,8 +94,10 @@ export const MOVE_COPY: Record<LifecycleMove, MoveCopy> = {
     busy: "Switching on…",
     done: "Switched on",
     // Switching on is a publish with a read-back, so it can take a moment and is refused
-    // without a script; the refusal itself arrives as the server's problem notice.
-    hint: "Starts taking calls. It needs a script first.",
+    // while the agent knows nothing about the business (`agent_has_no_script`, whose
+    // remediation points at What your agents know); the refusal arrives as the server's
+    // problem notice. An agent has no script of its own (D-997).
+    hint: "Starts taking calls. It needs to know your business first.",
     icon: Power,
   },
   prepare: {

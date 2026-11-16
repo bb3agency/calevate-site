@@ -1,6 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -11,7 +12,7 @@ import { TEXT_ACTION } from "@/components/console/section";
 import { CopilotPanel } from "@/components/copilot/CopilotPanel";
 import { focusMain } from "@/components/copilot/workspace/AssistantWorkspace";
 import { ProgressBar } from "@/components/interior/progress-bar";
-import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { agentKeys, useAgents, type Agent } from "@/lib/api/agents";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
 import type { CallSummary } from "@/lib/api/client";
@@ -241,9 +242,13 @@ export function MeetYourAgent({ slug }: { slug: string }) {
           );
         break;
       default:
+        // A finished run whose agent was deleted since: the roster's empty state links here,
+        // so this is how an owner who deleted their only agent arrives.
         body = agent ? (
           <TeamStep agent={agent} run={data} work={work} onBack={() => setStage(call ? "result" : "hear")} />
-        ) : null;
+        ) : (
+          <AgentGone slug={slug} />
+        );
     }
   }
 
@@ -320,6 +325,24 @@ export function MeetYourAgent({ slug }: { slug: string }) {
           </aside>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The first run is over and its agent was deleted: the two ways on, one button each. */
+function AgentGone({ slug }: { slug: string }) {
+  const { href } = useClientRealm();
+  return (
+    <div className="space-y-4">
+      <p className="text-body text-ink">Your first agent was deleted.</p>
+      <div className="flex flex-wrap gap-3">
+        <Link href={href(`/c/${slug}/agents/new`)} className={PRIMARY_BUTTON}>
+          New agent
+        </Link>
+        <Link href={href(`/c/${slug}/agents`)} className={SECONDARY_BUTTON}>
+          Bring it back
+        </Link>
+      </div>
     </div>
   );
 }
