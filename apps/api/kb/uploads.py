@@ -378,11 +378,11 @@ _PDF_HEADER_WINDOW: Final = 1024
 def assert_pdf_signature(data: bytes) -> None:
     """A file named `.pdf` must carry a PDF header, or a 422 before it is stored.
 
-    A PDF goes to the voice platform as its file (`create_upload`, `native`) with no reader
-    of ours in between: our copy is read later and its failure never blocks the publish
-    (`workers/kb_read.py`). So without this, any bytes renamed `.pdf` reach the vendor and
-    sit in the bucket under `application/pdf`. OWASP's File Upload cheat sheet: the
-    extension and the declared type are client input, and a signature check is one layer
+    A PDF is stored and approved as its file (`create_upload`, `native`) with no reader of
+    ours in between: its words are read later (`workers/kb_read.py`) and are what the
+    voice platform is sent. So without this, any bytes renamed `.pdf` are approved, handed
+    to the reader and sit in the bucket under `application/pdf`. OWASP's File Upload cheat
+    sheet: the extension and the declared type are client input, and a signature check is one layer
     beside the allow-list (cheatsheetseries.owasp.org, read 29 Oct 2026).
     """
     if b"%PDF-" not in data[:_PDF_HEADER_WINDOW]:
