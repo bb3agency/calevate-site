@@ -6371,7 +6371,7 @@
             "items": {
               "$ref": "#/components/schemas/AnswerIn"
             },
-            "maxItems": 5,
+            "maxItems": 4,
             "title": "Answers",
             "type": "array"
           }
@@ -30615,6 +30615,10 @@
             "title": "Live Agents",
             "type": "integer"
           },
+          "live_lines": {
+            "title": "Live Lines",
+            "type": "integer"
+          },
           "move": {
             "$ref": "#/components/schemas/MoveOut"
           },
@@ -30690,7 +30694,8 @@
           "business_review_note",
           "numbers",
           "switch_on",
-          "live_agents"
+          "live_agents",
+          "live_lines"
         ],
         "title": "GoLiveOut",
         "type": "object"
@@ -94513,7 +94518,7 @@
     },
     "/v1/first-run/brief": {
       "put": {
-        "description": "A brief with something to read is sent to a worker whose AI writes two to four follow-up questions for this business, each with the kind of answer it wants (`questions.status` is `writing` until it answers; poll this resource). A short brief, or no usable answer from the AI, gets fixed questions about the business profile's own gaps.",
+        "description": "A brief with something to read is sent to a worker whose AI writes two or three follow-up questions for this business, each with the kind of answer it wants (`questions.status` is `writing` until it answers; poll this resource). A short brief, or no usable answer from the AI, gets fixed questions about the business profile's own gaps.",
         "operationId": "put_brief_v1_first_run_brief_put",
         "requestBody": {
           "content": {

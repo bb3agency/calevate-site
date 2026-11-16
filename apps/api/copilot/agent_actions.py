@@ -290,7 +290,8 @@ async def _as_first_agent(
     notice job is queued, the company training is drafted, and What first can give it work.
     Made any other way, it would end the first run (`service.due_for`) with none of that.
     None otherwise, for the ordinary create. Its voice is chosen next (FIRST_AGENT_GUIDE)."""
-    from apps.api.first_run import service as first_run, work
+    from apps.api.first_run import service as first_run
+    from apps.api.first_run import work
 
     if parsed.job is not None:
         return None

@@ -372,7 +372,9 @@ async def test_answers_with_no_profile_section_reach_the_works_main_task() -> No
     async with _client() as http:
         brief = await http.put("/v1/first-run/brief", headers=headers, json={"brief": "Shop"})
         items = brief.json()["questions"]["items"]
-        mapped = next(item for item in items if item["kind"] in ("text", "address") and item["maps_to"])
+        mapped = next(
+            item for item in items if item["kind"] in ("text", "address") and item["maps_to"]
+        )
         answered = await http.post(
             "/v1/first-run/answers",
             headers=headers,
