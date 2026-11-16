@@ -532,7 +532,7 @@ export function TestCallSection(props: Common) {
       title="Test call"
       tone="test"
       hint="The chosen agent rings your phone."
-      info="It puts this campaign's script on the agent first, so you hear exactly what people will hear."
+      info="It rings with this campaign's own script and settings, so you hear exactly what people will hear. The agent's own script is not changed."
     >
       <HearItFirst {...props} />
       <TestCallList {...props} />

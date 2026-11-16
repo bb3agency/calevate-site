@@ -635,12 +635,16 @@ async def sync_number_attachment(session: AsyncSession, *, number_id: UUID) -> S
     return result.outcome
 
 
+#: The engine agent a live outbound call from this number rang through, when that is not the
+#: number's own answering agent: another agent's, or a campaign's own (D-1003), which always
+#: borrows. Read from `calls.engine_agent_ref`, else (a dial from before it) the agent's own.
 _LENT_FOR_A_LIVE_CALL_SQL: Final = (
-    "SELECT a.engine_agent_ref FROM calls c "
+    "SELECT COALESCE(c.engine_agent_ref, a.engine_agent_ref) FROM calls c "
     "JOIN phone_numbers n ON n.e164 = c.from_e164 AND n.tenant_id = c.tenant_id "
     "JOIN agents a ON a.id = c.agent_id "
     "WHERE n.id = :nid AND c.direction = 'outbound' "
-    "AND (n.agent_id IS NULL OR c.agent_id <> n.agent_id) "
+    "AND (n.agent_id IS NULL OR c.agent_id <> n.agent_id OR (c.engine_agent_ref IS NOT NULL "
+    "AND c.engine_agent_ref IS DISTINCT FROM a.engine_agent_ref)) "
     "AND c.status IN ('queued', 'ringing', 'in_progress') "
     "AND c.created_at > now() - make_interval(secs => :horizon) "
     "ORDER BY c.created_at DESC LIMIT 1"

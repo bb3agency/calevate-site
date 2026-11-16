@@ -8,7 +8,12 @@ import type {
   CampaignSummary,
   ContactResults,
 } from "@/lib/api/campaigns";
-import type { CampaignInsights, CampaignSettings, CampaignWorkspace } from "@/lib/api/campaignWorkspace";
+import type {
+  CampaignInsights,
+  CampaignNotes,
+  CampaignSettings,
+  CampaignWorkspace,
+} from "@/lib/api/campaignWorkspace";
 
 import { fireEvent, screen, within } from "@testing-library/react";
 
@@ -178,6 +183,20 @@ export function settingsFixture(over: Partial<CampaignSettings> = {}): CampaignS
   };
 }
 
+/** `GET /v1/campaigns/{id}/notes` (D-1003): no list of its own, following the agent's. */
+export function notesFixture(over: Partial<CampaignNotes> = {}): CampaignNotes {
+  return {
+    agent_id: FIXTURE_AGENT_ID,
+    agent_name: "Outbound follow-up",
+    fields: [],
+    agent_fields: [],
+    core_fields: [],
+    digest: "empty",
+    applied_now: false,
+    ...over,
+  };
+}
+
 /** The reads every render of one campaign makes, besides the progress and launch check. */
 export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
   return {
@@ -186,6 +205,7 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [`/v1/campaigns/${id}/workspace`]: workspaceFixture({ campaign_id: id }),
     [`/v1/campaigns/${id}/insights`]: insightsFixture(),
     [`/v1/campaigns/${id}/settings`]: settingsFixture(),
+    [`/v1/campaigns/${id}/notes`]: notesFixture(),
     // The Test call section's list of calls made from the campaign: none yet.
     [`/v1/campaigns/${id}/test-calls`]: [],
     // The account's saved test numbers, offered under Test call: none yet.

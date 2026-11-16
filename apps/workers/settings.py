@@ -146,6 +146,7 @@ from apps.workers.caller_help import judge_caller_help
 from apps.workers.caller_memory_refile import refile_caller_memories
 from apps.workers.campaign_archive_notice import notify_campaign_archived
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
+from apps.workers.campaign_engine_agents import sweep_campaign_engine_agents
 from apps.workers.campaign_script import draft_campaign_script, draft_line_script
 from apps.workers.client_actions import run_after_call_actions, run_client_action
 from apps.workers.client_health import refresh_client_health
@@ -1269,6 +1270,18 @@ CRON_JOBS = [
         walk=bounded("one directory read, then one tenant session per active client workspace"),
         minute={47},
         second={10},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-1003. A campaign's engine agent it no longer needs is retired, and an agent a campaign
+    # put its script on before D-1003 gets its own back once that campaign has its own.
+    _cron(
+        traced_job(sweep_campaign_engine_agents),
+        walk=bounded(
+            "one directory read, then two tenant sessions per account with a campaign "
+            "engine agent, under its own WalkBudget"
+        ),
+        minute={49},
+        second={40},
         max_tries=WORKER_MAX_TRIES,
     ),
     # D-764. Every client workspace on our model verified on our Google key, repaired when

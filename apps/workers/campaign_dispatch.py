@@ -95,6 +95,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.agents.service import (
     UNCONFIRMED_ENGINE_CALL_PREFIX,
+    CampaignDial,
     DialUnconfirmedError,
     dial_was_not_placed,
     dispatch_call,
@@ -104,6 +105,7 @@ from apps.api.campaigns.brief import campaign_call_reason
 from apps.api.campaigns.complaint_spike import check_complaint_spike
 from apps.api.campaigns.contact_details import contact_details_of
 from apps.api.campaigns.controls import account_pause_reason, auto_pause
+from apps.api.campaigns.engine_agent import dial_for
 from apps.api.campaigns.scheduling import complete_or_rearm, due_schedules, fire_schedule
 from apps.api.campaigns.service import (
     campaign_dialable_now,
@@ -1006,14 +1008,21 @@ async def _dispatch_for_campaign(
     # runs in its own short transaction, so losing one loses at most one dial's
     # bookkeeping and never un-rings a phone.
 
+    # The campaign's own engine agent (D-1003), made now in its own transaction when it has
+    # none yet. Once per batch, after the claim, so the refusal below refunds the claimed
+    # contacts rather than spending their attempts.
+    via, unavailable = await _campaign_dial(tenant_id, campaign_id) if claimed else (None, None)
+
     # Set once the account's lines refuse a dial: every contact claimed behind it would be
     # refused the same way, so they wait for a line instead of each spending a request.
     lines_full = False
     for contact_id, phone, name, custom, attempts, prior_at, prior_call in claimed:
         prior = PriorTry(prior_at, prior_call)
         async with tenant_session(tenant_id) as session:
-            if lines_full:
-                await _refuse_contact(session, contact_id, rule=LINES_BUSY_CODE, prior=prior)
+            if unavailable is not None or lines_full:
+                await _refuse_contact(
+                    session, contact_id, rule=unavailable or LINES_BUSY_CODE, prior=prior
+                )
                 blocked += 1
                 continue
             # THE CAMPAIGN's own two live facts, re-read per contact for exactly the
@@ -1073,6 +1082,7 @@ async def _dispatch_for_campaign(
                 agent_id=UUID(str(agent_id)),
                 phone_e164=phone,
                 halt_read_by_caller=True,
+                campaign_id=campaign_id if via is not None else None,
             )
             if not decision.allowed:
                 await _refuse_contact(
@@ -1109,6 +1119,7 @@ async def _dispatch_for_campaign(
                     number_id=number_id,
                     contact_details=contact_details_of(custom),
                     opening_line=opening_b if variant == "b" else None,
+                    campaign=via,
                 )
             except ContactNoLongerClaimedError:
                 # Settled by another writer since the claim (an erasure, in practice).
@@ -1185,6 +1196,31 @@ async def _dispatch_for_campaign(
         await _settle_finished_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
 
     return {"dialled": dialled, "blocked": blocked, "exhausted": exhausted}
+
+
+async def _campaign_dial(
+    tenant_id: UUID, campaign_id: UUID
+) -> tuple[CampaignDial | None, str | None]:
+    """The engine agent this batch rings through, and None; or None and the rule the batch's
+    contacts are refunded under when the campaign's own engine agent cannot be made. `(None,
+    None)` is a campaign that put its script on its agent before D-1003 and still dials
+    through it (`campaigns/engine_agent.dial_for`)."""
+    try:
+        return await dial_for(tenant_id=tenant_id, campaign_id=campaign_id), None
+    except Exception as exc:
+        rule = _refusal_rule(exc)
+        alert(
+            "CORE_LOGIC",
+            "campaign_engine_agent_unavailable",
+            detail=(
+                "a running campaign's own engine agent could not be made or brought up to date "
+                f"({rule}), so it places no calls; its contacts wait and are tried again on the "
+                "next tick"
+            ),
+            tenant_id=str(tenant_id),
+            campaign_id=str(campaign_id),
+        )
+        return None, rule
 
 
 async def _settle_finished_campaign(

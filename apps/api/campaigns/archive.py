@@ -29,6 +29,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.campaigns import controls
+from apps.api.campaigns.engine_agent import end_campaign_agent
 from apps.api.campaigns.scheduling import unschedule_campaign
 from apps.api.campaigns.service import set_campaign_status
 from apps.api.core.errors import ProblemError
@@ -114,6 +115,7 @@ async def archive_campaign(
         ),
         {"cid": campaign_id, "by": by, "realm": realm, "reason": reason},
     )
+    await end_campaign_agent(session, campaign_id=campaign_id)
     return ArchiveResult(changed=True, name=name, status_before=status, status_after=after)
 
 
@@ -150,6 +152,7 @@ async def delete_campaign(session: AsyncSession, *, campaign_id: UUID) -> str:
     refused: that row is append-only evidence, so its pointer cannot be cleared."""
     name, status, archived, _tenant = await _locked(session, campaign_id)
     if status == "draft":
+        await end_campaign_agent(session, campaign_id=campaign_id, deleting=True)
         await controls.delete_draft(session, campaign_id=campaign_id)
         return name
     if not get_settings().campaign_delete_started or status not in ("completed", "cancelled"):
@@ -176,6 +179,7 @@ async def delete_campaign(session: AsyncSession, *, campaign_id: UUID) -> str:
             "A do-not-disturb check is on record for this campaign, so it can't be deleted.",
             remediation="Keep it archived. Its record has to stay.",
         )
+    await end_campaign_agent(session, campaign_id=campaign_id, deleting=True)
     await session.execute(text("DELETE FROM campaigns WHERE id = :cid"), {"cid": campaign_id})
     return name
 

@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import caller_help
 from apps.api.agents.lifecycle import assert_assignable
 from apps.api.callbacks.service import call_off_for_stopped_campaigns
+from apps.api.campaigns.engine_agent import end_campaign_agent
 from apps.api.campaigns.service import (
     add_contacts,
     create_campaign,
@@ -307,6 +308,7 @@ async def stop_campaign(session: AsyncSession, *, campaign_id: UUID) -> bool:
         await call_off_for_stopped_campaigns(
             session, tenant_id=UUID(str(tenant_id)), campaign_id=campaign_id
         )
+        await end_campaign_agent(session, campaign_id=campaign_id)
     return moved
 
 

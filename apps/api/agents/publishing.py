@@ -992,6 +992,15 @@ _LINE_BY_ENGINE_REF_SQL = (
 _COPY_BY_ENGINE_REF_SQL = (
     "SELECT business_only FROM agent_test_copies WHERE agent_id = :aid AND engine_agent_ref = :ref"
 )
+#: A campaign's own engine agent (D-1003), found through its route, and whether the campaign
+#: has given it back: archived, ended, or holding another one now. A retired engine agent
+#: stays routed until its deletion runs, and is not compared against anything meanwhile.
+_CAMPAIGN_BY_ENGINE_REF_SQL = (
+    "SELECT r.campaign_id, g.id IS NULL OR g.archived_at IS NOT NULL "
+    "OR g.engine_agent_ref IS DISTINCT FROM r.engine_agent_ref "
+    "FROM engine_agent_routes r LEFT JOIN campaigns g ON g.id = r.campaign_id "
+    "WHERE r.agent_id = :aid AND r.engine_agent_ref = :ref AND r.campaign_id IS NOT NULL"
+)
 
 
 async def engine_drift_for(
@@ -1094,7 +1103,7 @@ async def engine_drift_for(
         )
         if holder == "archived":
             return _not_published(
-                agent_id, engine.name, "This line is archived, so it is not compared."
+                agent_id, engine.name, "This line or campaign is archived, so it is not compared."
             )
         if isinstance(holder, AgentConfig) and engine_agent_ref is not None:
             target, config = engine_agent_ref, holder
@@ -1143,10 +1152,11 @@ async def _holder_config(
     ref: str,
     handoff: HandoffSpec | None,
 ) -> AgentConfig | Literal["archived"] | None:
-    """The config the line or test copy holding `ref` was published with, `"archived"` for an
-    archived line (its engine agent is being retired), or None when `ref` is neither."""
+    """The config the line, campaign or test copy holding `ref` was published with,
+    `"archived"` for an archived line or campaign (its engine agent is being retired), or None
+    when `ref` is none of them."""
     from apps.api.agents.business_only import business_row
-    from apps.api.agents.service import _to_config, line_config
+    from apps.api.agents.service import _to_config, campaign_config, line_config
 
     agent_id = UUID(str(agent["id"]))
     params = {"aid": agent_id, "ref": ref}
@@ -1155,6 +1165,13 @@ async def _holder_config(
         if line[1]:
             return "archived"
         return await line_config(session, tenant_id=tenant_id, line_id=line[0], agent=agent)
+    campaign = (await session.execute(text(_CAMPAIGN_BY_ENGINE_REF_SQL), params)).first()
+    if campaign is not None:
+        if campaign[1]:
+            return "archived"
+        return await campaign_config(
+            session, tenant_id=tenant_id, campaign_id=campaign[0], agent=agent
+        )
     copy = (await session.execute(text(_COPY_BY_ENGINE_REF_SQL), params)).first()
     if copy is None:
         return None

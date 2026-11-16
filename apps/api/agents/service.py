@@ -130,7 +130,7 @@ from calevate_shared.engine import (
     spoken_ai_notice,
     truthful_answer_directive,
 )
-from calevate_shared.engine_scope import scope_of
+from calevate_shared.engine_scope import is_customer_workspace, scope_of
 from calevate_shared.spoken_style import thinking_lines, trial_call_opening
 from pydantic import ValidationError
 from sqlalchemy import text
@@ -775,12 +775,9 @@ async def _load_agent(
         "hot_facts": await hot_facts.load_texts(session, agent_id=agent_id),
         "company_training": await company_training.live_text(session),
     }
-    # The agent holds defaults; the campaign that last put its script on it lays its own
-    # settings over them here, the one place an engine config's row is read (D-994), so a
-    # publish, the drift sweep and a dial agree.
-    from apps.api.campaigns.settings import apply_overrides, held_overrides
-
-    return cast(AgentRow, apply_overrides(dict(loaded), await held_overrides(session, agent_id)))
+    # The agent's own defaults only. A campaign's settings are laid over them on the
+    # campaign's own engine agent (`campaign_config`, D-1003), never on the agent's.
+    return loaded
 
 
 def posture_of(agent: AgentRow) -> DisclosurePosture:
@@ -1243,13 +1240,15 @@ async def _publish_business_facts(
     variant_id: UUID | None = None,
     test_copy: bool = False,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> None:
     """Push the script's [T0 FACTS] block as the vendor agent's facts document, on an engine
     that keeps facts out of the prompt, and the client's published knowledge
     (`agents/engine_facts.py`); `variant_id` names the experiment arm `ref` speaks, and
-    `test_copy` says `ref` is the agent's test copy, and `inbound_line_id` the line whose engine
-    agent it is (D-997). A failure fails the publish, with `reclaim` deleting a vendor agent
-    this publish created, for `_reclaim_orphan`'s reason."""
+    `test_copy` says `ref` is the agent's test copy, `inbound_line_id` the line whose engine
+    agent it is (D-997) and `campaign_id` the campaign's (D-1003). A failure fails the publish,
+    with `reclaim` deleting a vendor agent this publish created, for `_reclaim_orphan`'s
+    reason."""
     try:
         await sync_business_facts(
             session,
@@ -1260,6 +1259,7 @@ async def _publish_business_facts(
             variant_id=variant_id,
             test_copy=test_copy,
             inbound_line_id=inbound_line_id,
+            campaign_id=campaign_id,
         )
     except Exception:
         if reclaim:
@@ -2629,7 +2629,7 @@ async def _after_workspace_move(
             text(
                 "UPDATE engine_kb_routes SET test_copy = true WHERE agent_id = :aid "
                 "AND tenant_id = :tid AND variant_id IS NULL AND NOT test_copy "
-                "AND inbound_line_id IS NULL"
+                "AND inbound_line_id IS NULL AND campaign_id IS NULL"
             ),
             params,
         )
@@ -2637,7 +2637,8 @@ async def _after_workspace_move(
     await session.execute(
         text(
             "DELETE FROM engine_kb_routes WHERE agent_id = :aid AND tenant_id = :tid "
-            "AND variant_id IS NULL AND NOT test_copy AND inbound_line_id IS NULL"
+            "AND variant_id IS NULL AND NOT test_copy AND inbound_line_id IS NULL "
+            "AND campaign_id IS NULL"
         ),
         params,
     )
@@ -3430,6 +3431,8 @@ async def publish_agent(
         # The agent's lines speak in its voice: a voice, setting, notice, action or
         # training change reaches the calls they answer too (D-997).
         await republish_lines(session, tenant_id=tenant_id, agent_id=agent_id)
+        # And its running campaigns, each its own engine agent in this voice (D-1003).
+        await republish_campaign_agents(session, tenant_id=tenant_id, agent_id=agent_id)
         # An opening put live without the notices switched on is rewritten to say them in
         # its own words (D-971); the stored sentences are said beside it until then.
         await queue_opening_notices(session, tenant_id=tenant_id, agent_id=agent_id)
@@ -4189,6 +4192,472 @@ async def republish_lines(session: AsyncSession, *, tenant_id: UUID, agent_id: U
     return count
 
 
+#: The campaign statuses whose engine agent is kept: it is dialling, or will. A paused
+#: campaign keeps its engine agent so Resume dials at once; every other state retires it.
+CAMPAIGN_HOLDING_STATUSES: Final = ("scheduled", "running", "paused")
+
+#: The refusal when a client's workspace holds as many engine agents as its plan allows.
+ENGINE_AGENT_ALLOWANCE_FULL_RULE: Final = "engine_agent_allowance_full"
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignDial:
+    """A call rung through a campaign's own engine agent (D-1003), not its agent's: the
+    campaign's script and settings in the agent's voice. Built only by
+    `campaigns/engine_agent.py`, from a published, read-back engine agent."""
+
+    ref: str
+    campaign_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class _CampaignHolder:
+    campaign_id: UUID
+    agent_id: UUID
+    name: str
+    status: str
+    engine_agent_ref: str | None
+    archived: bool
+
+
+async def _campaign_holder(
+    session: AsyncSession, campaign_id: UUID, *, lock: bool = False
+) -> _CampaignHolder:
+    row = (
+        await session.execute(
+            text(
+                "SELECT id, agent_id, name, status, engine_agent_ref, archived_at IS NOT NULL "
+                "FROM campaigns WHERE id = :cid" + (" FOR UPDATE" if lock else "")
+            ),
+            {"cid": campaign_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Campaign")
+    return _CampaignHolder(
+        campaign_id=UUID(str(row[0])),
+        agent_id=UUID(str(row[1])),
+        name=str(row[2]),
+        status=str(row[3]),
+        engine_agent_ref=str(row[4]) if row[4] else None,
+        archived=bool(row[5]),
+    )
+
+
+async def campaign_agent_row(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    campaign_id: UUID,
+    agent: AgentRow | None = None,
+) -> AgentRow:
+    """The agent's row as the campaign's engine agent speaks it (D-1003): the campaign's
+    compiled script in place of the agent's own, carrying the agent's pinned facts and
+    [T0 FACTS] (`_line_agent_row`, as a line's does), its setting overrides laid over the
+    agent's defaults (`campaigns/settings.apply_overrides`, D-994), and calling out only. The
+    one reader for the config, the dial's first words and the dial gate, so the three agree.
+
+    A campaign with no script of its own (made before D-992) speaks the agent's applied
+    script, as it always did."""
+    from apps.api.agents.script_builder import campaign_collect_fields
+    from apps.api.campaigns.settings import apply_overrides
+
+    camp = (
+        await session.execute(
+            text("SELECT agent_id, script, settings_overrides FROM campaigns WHERE id = :cid"),
+            {"cid": campaign_id},
+        )
+    ).first()
+    if camp is None:
+        raise ProblemError.not_found("Campaign")
+    agent_id = UUID(str(camp.agent_id))
+    if agent is None:
+        agent = await _load_agent(session, tenant_id, agent_id)
+    row: AgentRow = agent
+    if camp.script:
+        script = CallScript.model_validate(camp.script)
+        collect = await campaign_collect_fields(session, campaign_id=campaign_id, agent_id=agent_id)
+        body = compile_call_script(script, collect=collect)
+        row = _line_agent_row(agent, script, body)
+    held = cast(AgentRow, apply_overrides(dict(row), camp.settings_overrides))
+    # A campaign only places calls, whatever its voice answers; it answers no number, so it
+    # holds none of its own and calls out on one lent to it for each call (`dispatch_call`).
+    held["direction"] = "outbound"
+    held["has_phone_number"] = False
+    return held
+
+
+async def campaign_config(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    campaign_id: UUID,
+    agent: AgentRow | None = None,
+) -> AgentConfig:
+    """A campaign's engine agent as our tables say it should be (D-1003), before any
+    workspace placement: the agent's `_to_config` over `campaign_agent_row`, so every
+    platform layer (hard rule 5, the confidentiality rule, the speech rules, the notices with
+    the opening) and the company training compose exactly as on the agent, with the agent's
+    during-call actions. What `publish_campaign_agent` writes, what the drift sweep and the
+    settings repair compare, and what a knowledge attach re-sends (`kb/service`)."""
+    from apps.api.actions import service as actions_service
+
+    holder = await _campaign_holder(session, campaign_id)
+    if agent is None:
+        agent = await _load_agent(session, tenant_id, holder.agent_id)
+    row = await campaign_agent_row(
+        session, tenant_id=tenant_id, campaign_id=campaign_id, agent=agent
+    )
+    handoff, _duty = await handoff_module.spec_for(session, dict(agent))
+    tools = await actions_service.declare(session, agent_id=holder.agent_id, direction="outbound")
+    return _to_config(tenant_id, row, engine=get_engine(), handoff=handoff).model_copy(
+        update={
+            "holder": f"campaign:{campaign_id}",
+            "name": f"{agent['name']} · {holder.name}"[:200],
+            "action_tools": tools,
+        }
+    )
+
+
+async def engine_agents_in_workspace(
+    session: AsyncSession, *, tenant_id: UUID, workspace: str
+) -> int:
+    """How many engine agents this client holds in its own workspace, counted from our routes:
+    every live holder (the agents', arms', lines', campaigns') and every one owed a deletion
+    that has not run, which the platform still counts. Read under the tenant's own id."""
+    refs = (
+        await session.execute(
+            text(
+                "SELECT engine_agent_ref FROM engine_agent_routes "
+                "WHERE tenant_id = :tid AND engine = :engine AND active"
+            ),
+            {"tid": tenant_id, "engine": get_engine().name},
+        )
+    ).scalars()
+    return sum(1 for ref in refs if scope_of(str(ref)) == workspace)
+
+
+def _allowance_reason(limit: int) -> str:
+    return f"Your account can run {limit} calling agents at once, and all are in use."
+
+
+#: What the owner can do about a full allowance, said with the refusal and on the launch gate.
+ALLOWANCE_FULL_REMEDIATION: Final = (
+    "Stop or finish another campaign, or archive an inbound line you no longer use, then "
+    "press Start again. To run more at once, ask us to raise your limit."
+)
+
+
+async def _allowance_full(
+    session: AsyncSession, *, tenant_id: UUID, workspace: str | None
+) -> int | None:
+    """The limit, when a NEW engine agent cannot be made in this client's own workspace
+    because it holds as many as its plan allows; None when there is room or no such
+    workspace. ThinnestAI counts agents per workspace, 2 on pay-as-you-go and raised per
+    workspace on request (VENDOR-STATED 23 Oct 2026,
+    `docs/vendor/thinnest-relationship-2026-10-23.md:136-142`), so the limit is the console's
+    `thinnest_agents_per_workspace`, never a constant; the platform's own refusal still maps
+    to `engine_agent_allowance_used` if the two ever disagree."""
+    if workspace is None or not is_customer_workspace(workspace):
+        return None
+    limit = get_settings().thinnest_agents_per_workspace
+    held = await engine_agents_in_workspace(session, tenant_id=tenant_id, workspace=workspace)
+    if held < limit:
+        return None
+    log.info(
+        "campaign_engine_agent_allowance_full",
+        extra={"tenant_id": str(tenant_id), "held": held, "limit": limit},
+    )
+    return limit
+
+
+async def _refuse_if_allowance_full(
+    session: AsyncSession, *, tenant_id: UUID, workspace: str | None
+) -> None:
+    limit = await _allowance_full(session, tenant_id=tenant_id, workspace=workspace)
+    if limit is not None:
+        raise ProblemError.business_rule(
+            ENGINE_AGENT_ALLOWANCE_FULL_RULE,
+            _allowance_reason(limit),
+            remediation=ALLOWANCE_FULL_REMEDIATION,
+        )
+
+
+async def engine_agent_allowance_blocker(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
+) -> tuple[str, str] | None:
+    """The launch gate's form of the pre-flight (D-1003): `(rule, reason)` when Start would
+    have to make this campaign a new engine agent and the client's workspace has no room."""
+    if not engine_has_workspaces(get_engine().name):
+        return None
+    ref = (
+        await session.execute(
+            text("SELECT engine_agent_ref FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+        )
+    ).scalar_one_or_none()
+    workspace = await resolve_workspace(session, tenant_id)
+    if ref and scope_of(str(ref)) == workspace:
+        return None
+    limit = await _allowance_full(session, tenant_id=tenant_id, workspace=workspace)
+    if limit is None:
+        return None
+    return (
+        ENGINE_AGENT_ALLOWANCE_FULL_RULE,
+        f"{_allowance_reason(limit)} {ALLOWANCE_FULL_REMEDIATION}",
+    )
+
+
+async def publish_campaign_agent(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    campaign_id: UUID,
+    test: bool = False,
+    developer: bool = False,
+) -> str:
+    """Create or update a campaign's own engine agent (D-1003): `campaign_config` read back
+    like every publish, routed for intake (`engine_agent_routes.campaign_id`), given its
+    results webhook, the client's knowledge and the in-call actions. A vendor agent this
+    publish created and could not finish is reclaimed. Never bound to a number: each dial
+    lends it one (`dispatch_call`), so the number's own answering agent is never touched.
+
+    `test=True` is the campaign's test call (`campaigns/engine_agent.campaign_test_dial`): the
+    same engine agent, published whatever the campaign's state and even during maintenance,
+    since it answers no caller. With `developer` it is made in our developer workspace, where
+    the shared trial line rings (D-697): a free-trial account's, and a paying account's that
+    has no number of its own yet (D-859, option A). Its next publish in the client's own
+    workspace recreates it there (`_moves_workspace`), and the old one is retired.
+
+    The campaign row is locked first, so two Starts never make two engine agents for it."""
+    if not test:
+        await _refuse_during_maintenance(session)
+    holder = await _campaign_holder(session, campaign_id, lock=True)
+    if holder.archived:
+        raise ProblemError.not_found("Campaign")
+    agent = await _load_agent(session, tenant_id, holder.agent_id)
+    if agent["status"] == "archived":
+        raise archived_refusal("used for this campaign")
+    engine = get_engine()
+    require_capability("agent_hosting", engine=engine)
+    refuse_unoffered_language(str(agent["language_primary"]), tenant_id=tenant_id)
+    config = await campaign_config(
+        session, tenant_id=tenant_id, campaign_id=campaign_id, agent=agent
+    )
+    refuse_over_engine_limits(engine, config)
+    await refuse_unpriced_engine(session, engine)
+    if test:
+        # A test holder rings the owner, so the agreements are asked as for a test copy.
+        await assert_agreements_accepted(session, tenant_id=tenant_id)
+    in_developer = test and (
+        developer or await restricting_trial(session, tenant_id=tenant_id) is not None
+    )
+    voice_choice, model_choice = _engine_choice(agent, engine=engine)
+    rate_key = await engine_rate_key_for(
+        session, engine, voice_id=voice_choice, model_id=model_choice
+    )
+    config = await _in_client_workspace(
+        session, engine, tenant_id=tenant_id, agent=agent, config=config, trial=in_developer
+    )
+    await _studio_in_client_workspace(
+        session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config, trial=in_developer
+    )
+    config, rate_key = await _own_model_in_workspace(
+        session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config
+    )
+    existing_ref = holder.engine_agent_ref
+    moved_from: str | None = None
+    if existing_ref and (
+        _moves_workspace(existing_ref, config)
+        or (in_developer and scope_of(existing_ref) is not None)
+    ):
+        moved_from, existing_ref = existing_ref, None
+    if existing_ref is None:
+        await _refuse_if_allowance_full(
+            session, tenant_id=tenant_id, workspace=config.engine_workspace
+        )
+    if existing_ref:
+        await engine.update_agent(existing_ref, config)
+        ref = existing_ref
+    elif in_developer:
+        with trial_agent_in_developer_workspace():
+            ref = await engine.create_agent(config)
+    else:
+        ref = await engine.create_agent(config)
+    created = existing_ref is None
+    # It speaks to real people with its own script and opening, so it gets the agent's
+    # read-back: the notices, the truthful answers and the script must be what is held.
+    verdict = await verify_publish(engine, ref, config)
+    if verdict.state == "not_applied":
+        if created:
+            await _reclaim_orphan(engine, holder.agent_id, ref, "campaign_read_back_not_applied")
+        log.error(
+            "campaign_engine_agent_publish_not_applied",
+            extra={
+                "agent_id": str(holder.agent_id),
+                "campaign_id": str(campaign_id),
+                "engine": engine.name,
+            },
+        )
+        raise ProblemError(
+            kind="dependency",
+            code="engine_publish_not_applied",
+            title="The voice platform is not running this change",
+            detail=verdict.detail,
+            remediation="Nothing was changed for this campaign's calls. Try again.",
+        )
+    try:
+        await session.execute(
+            text(
+                "UPDATE campaigns SET engine_agent_ref = :ref, engine_agent_at = now() "
+                "WHERE id = :cid"
+            ),
+            {"ref": ref, "cid": campaign_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
+                "campaign_id, active, created_at, updated_at) VALUES (:engine, :ref, :tid, "
+                ":aid, :cid, true, now(), now()) ON CONFLICT (engine, engine_agent_ref) DO "
+                "UPDATE SET tenant_id = EXCLUDED.tenant_id, agent_id = EXCLUDED.agent_id, "
+                "campaign_id = EXCLUDED.campaign_id, active = true, updated_at = now()"
+            ),
+            {
+                "engine": engine.name,
+                "ref": ref,
+                "tid": tenant_id,
+                "aid": holder.agent_id,
+                "cid": campaign_id,
+            },
+        )
+        # A campaign moved to another voice keeps its engine agent and its knowledge copies,
+        # which now belong to that voice's claims.
+        await session.execute(
+            text(
+                "UPDATE engine_kb_routes SET agent_id = :aid "
+                "WHERE campaign_id = :cid AND tenant_id = :tid AND agent_id <> :aid"
+            ),
+            {"aid": holder.agent_id, "cid": campaign_id, "tid": tenant_id},
+        )
+        if moved_from is not None:
+            # The copies on the old engine agent go with it when it is deleted.
+            await session.execute(
+                text("DELETE FROM engine_kb_routes WHERE campaign_id = :cid AND tenant_id = :tid"),
+                {"cid": campaign_id, "tid": tenant_id},
+            )
+            await retire_engine_agent(
+                session, tenant_id=tenant_id, agent_id=holder.agent_id, ref=moved_from
+            )
+        await _ensure_results_webhook(
+            engine,
+            ref=ref,
+            agent_id=holder.agent_id,
+            reclaim=False,
+            session=session,
+            rate_key=rate_key,
+            own_model=config.engine_own_model,
+        )
+        await _publish_business_facts(
+            engine,
+            session,
+            agent_id=holder.agent_id,
+            ref=ref,
+            reclaim=False,
+            script=config.system_prompt,
+            campaign_id=campaign_id,
+        )
+        await _ensure_in_call_actions(
+            engine, session, agent_id=holder.agent_id, ref=ref, reclaim=False
+        )
+    except Exception as exc:
+        if created:
+            reason = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
+            await _reclaim_orphan(engine, holder.agent_id, ref, reason)
+        raise
+    log.info(
+        "campaign_engine_agent_published",
+        extra={
+            "agent_id": str(holder.agent_id),
+            "campaign_id": str(campaign_id),
+            "test": test,
+            "verify_state": verdict.state,
+        },
+    )
+    return ref
+
+
+async def republish_campaign_agents(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+) -> int:
+    """Bring every campaign in `agent_id`'s voice that holds an engine agent and is still
+    going (`CAMPAIGN_HOLDING_STATUSES`) onto the agent's current config: a voice, setting,
+    notice, action, platform-prompt or company-training change reaches the calls it places,
+    as `republish_lines` does for lines. Each keeps its own script and setting overrides. A
+    test holder of a campaign not started is left alone: its test call republishes it first.
+    Returns how many were republished."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id FROM campaigns WHERE agent_id = :aid AND archived_at IS NULL "
+                "AND engine_agent_ref IS NOT NULL AND status = ANY(:holding) "
+                "ORDER BY created_at, id"
+            ),
+            {"aid": agent_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
+        )
+    ).scalars()
+    count = 0
+    for campaign_id in list(rows):
+        await publish_campaign_agent(
+            session, tenant_id=tenant_id, campaign_id=UUID(str(campaign_id))
+        )
+        count += 1
+    return count
+
+
+async def retire_campaign_agent(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
+) -> str | None:
+    """A campaign that has ended gives its engine agent back (D-1003): the campaign forgets
+    it in this transaction, its knowledge claims go (the copies are deleted with the vendor
+    agent), and the deletion is owed through the outbox, which waits out a call still on it
+    (`workers/engine_workspaces.retire_moved_engine_agent`). Its route stays active until then,
+    so the results of its last calls still land. Returns the retired ref, or None."""
+    holder = await _campaign_holder(session, campaign_id, lock=True)
+    ref = holder.engine_agent_ref
+    if ref is None:
+        return None
+    await session.execute(
+        text(
+            "UPDATE campaigns SET engine_agent_ref = NULL, engine_agent_at = NULL "
+            "WHERE id = :cid AND engine_agent_ref = :ref"
+        ),
+        {"cid": campaign_id, "ref": ref},
+    )
+    await session.execute(
+        text("DELETE FROM engine_kb_routes WHERE campaign_id = :cid AND tenant_id = :tid"),
+        {"cid": campaign_id, "tid": tenant_id},
+    )
+    from apps.api.reliability.service import enqueue_outbox
+
+    # Not `retire_engine_agent`'s once-per-ref key: a campaign started again may take the same
+    # vendor agent back by its tag and give it back a second time. The campaign rides the
+    # payload so the job leaves it standing if the campaign holds it again by then.
+    await enqueue_outbox(
+        session,
+        job=RETIRE_MOVED_AGENT_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "agent_id": str(holder.agent_id),
+            "old_ref": ref,
+            "campaign_id": str(campaign_id),
+        },
+    )
+    log.info(
+        "campaign_engine_agent_retired",
+        extra={"campaign_id": str(campaign_id), "agent_id": str(holder.agent_id)},
+    )
+    return ref
+
+
 #: The numbers an agent can place calls from: every number of its client (founder, 4 Nov
 #: 2026: a client's number serves all its agents), the agent's own first, and, when the
 #: engine presents only numbers it holds (`:carrier` set), held there and set up for
@@ -4378,6 +4847,32 @@ async def _line_test_caller(
     if routed:
         return replace(routed[0], own=True)
     return replace(lines[0], own=False) if lines else None
+
+
+async def _campaign_caller(
+    session: AsyncSession, *, agent_id: UUID, number_id: UUID | None, ref: str
+) -> CallerLine | None:
+    """The number a campaign's call rings from (D-1003): the campaign's chosen one, else its
+    voice's own, else the client's oldest in the engine agent's workspace, and always as
+    borrowed (`own=False`), since the campaign's engine agent answers no number and holds none.
+    A chosen number that is no longer one it can call from is refused, as for an agent."""
+    lines = await caller_lines(session, agent_id=agent_id, dial_ref=ref)
+    if number_id is not None:
+        chosen = next((line for line in lines if line.number_id == number_id), None)
+        if chosen is None:
+            log.warning(
+                CAMPAIGN_NUMBER_UNAVAILABLE_CODE,
+                extra={"agent_id": str(agent_id), "number_id": str(number_id)},
+            )
+            raise ProblemError.business_rule(
+                CAMPAIGN_NUMBER_UNAVAILABLE_CODE,
+                "This campaign's calling number is no longer one it can place calls from.",
+                remediation="Pick another of your numbers for the campaign.",
+            )
+        return replace(chosen, own=False)
+    own = [line for line in lines if line.own]
+    first = own[0] if own else lines[0] if lines else None
+    return replace(first, own=False) if first is not None else None
 
 
 async def _assert_dialling_tenant_owns_the_session(
@@ -4622,8 +5117,16 @@ async def dispatch_call(
     contact_details: dict[str, str] | None = None,
     opening_line: str | None = None,
     line_test: LineTestDial | None = None,
+    campaign: CampaignDial | None = None,
 ) -> str:
     """Place ONE outbound call. The caller has already passed the compliance gate.
+
+    `campaign` rings through that campaign's own engine agent (D-1003): its script and
+    settings in the agent's voice, its first words from its own opening, and no agent
+    experiment. It holds no number of its own, so the number it calls from is ALWAYS lent to
+    it for the call (`phone-numbers.md:748-753`, 2026-10-29 mirror: a number is lent to one
+    agent at a time and a call waiting to ring from a number lent away is not placed), and
+    held per engine agent while the call lasts (`_hold_client_number`).
 
     `line_test` rings through an inbound line's test holder rather than the agent's own
     engine agent (Phase 3b): the agent need not be published itself, the call row carries
@@ -4720,7 +5223,21 @@ async def dispatch_call(
     await _assert_dialling_tenant_owns_the_session(session, tenant_id=tenant_id)
 
     agent = await _load_agent(session, tenant_id, agent_id)
-    ref = line_test.ref if line_test is not None else agent["engine_agent_ref"]
+    # Who speaks this call: the campaign's own row when it rings a campaign, else the agent.
+    speaker = (
+        await campaign_agent_row(
+            session, tenant_id=tenant_id, campaign_id=campaign.campaign_id, agent=agent
+        )
+        if campaign is not None
+        else agent
+    )
+    ref = (
+        campaign.ref
+        if campaign is not None
+        else line_test.ref
+        if line_test is not None
+        else agent["engine_agent_ref"]
+    )
     if not isinstance(ref, str) or not ref:
         raise ProblemError.business_rule(
             "agent_not_published",
@@ -4735,6 +5252,8 @@ async def dispatch_call(
     line = (
         None
         if trial is not None
+        else await _campaign_caller(session, agent_id=agent_id, number_id=number_id, ref=ref)
+        if campaign is not None
         else await _line_test_caller(session, agent_id=agent_id, test=line_test)
         if line_test is not None
         else await choose_caller_line(session, agent_id=agent_id, number_id=number_id)
@@ -4755,7 +5274,7 @@ async def dispatch_call(
     # `agents/assignment.py` for why it is not the call id.
     arm = (
         None
-        if trial is not None or owner_test is not None
+        if trial is not None or owner_test is not None or campaign is not None
         else await assignment.assign(
             session, agent_id=agent_id, unit_key=str(lead_id) if lead_id else phone_e164
         )
@@ -4765,7 +5284,9 @@ async def dispatch_call(
     # matters, and a call that ran the control is a call, whereas a refused dial is an
     # outage caused by an experiment. It is not recorded as assigned — see below.
     dial_ref = (
-        trial.agent_ref
+        ref
+        if campaign is not None
+        else trial.agent_ref
         if trial is not None and trial.agent_ref
         else arm.arm.engine_agent_ref
         if arm and arm.arm.engine_agent_ref
@@ -4800,18 +5321,19 @@ async def dispatch_call(
         if engine_capped:
             await _hold_engine_line(intent)
         if borrowed is not None:
-            await _hold_client_number(intent, number=borrowed, agent_id=agent_id)
+            await _hold_client_number(intent, number=borrowed, engine_agent_ref=dial_ref)
         await intent.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, from_e164, "
-                "to_e164, trial_call, paid_test_call, inbound_line_id, status, created_at, "
-                "updated_at) VALUES (:id, :tid, :aid, :ecid, 'outbound', :from_e, :to_e, :trial, "
-                ":owner_test, :line, 'queued', now(), now())"
+                "to_e164, trial_call, paid_test_call, inbound_line_id, engine_agent_ref, status, "
+                "created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, 'outbound', :from_e, "
+                ":to_e, :trial, :owner_test, :line, :ref, 'queued', now(), now())"
             ),
             {
                 "id": call_id,
                 "tid": tenant_id,
                 "aid": agent_id,
+                "ref": dial_ref,
                 "line": line_test.line_id if line_test is not None else None,
                 "ecid": intent_engine_call_id,
                 # Our number when we chose it, so a call still ringing can say where it rings
@@ -4879,7 +5401,7 @@ async def dispatch_call(
                 system_prompt=_call_prompt_for(
                     engine,
                     tenant_id,
-                    agent,
+                    speaker,
                     merge_values={"lead_name": lead_name, "phone": phone_e164},
                 ),
                 from_e164=from_e164,
@@ -4901,11 +5423,11 @@ async def dispatch_call(
                     )
                     if line_test is not None
                     else campaign_first_words(
-                        agent, opening_line, call_is_recorded=engine.capabilities.records_audio
+                        speaker, opening_line, call_is_recorded=engine.capabilities.records_audio
                     )
                     if opening_line and opening_line.strip()
                     else dial_first_words(
-                        agent,
+                        speaker,
                         test_call=trial is not None or owner_test is not None,
                         call_is_recorded=engine.capabilities.records_audio,
                         lead_name=lead_name or prefill.name,
@@ -5156,22 +5678,29 @@ async def _lend_trial_line(tenant_id: UUID, *, call_id: UUID, agent_ref: str) ->
 #: The rule a dial is closed under when the client's number could not be lent to its agent.
 CLIENT_NUMBER_UNAVAILABLE_RULE: Final = "client_number_unavailable"
 
+#: Another engine agent's live dial from this number. Keyed on the engine agent the dial rang
+#: through (`calls.engine_agent_ref`, D-1003): two campaigns in one voice are two callers on
+#: the platform. A dial from before the column is read as its agent's own engine agent.
 _NUMBER_LENT_ELSEWHERE_SQL: Final = (
-    "SELECT count(*) FROM calls WHERE from_e164 = :e164 AND agent_id <> :aid "
-    "AND direction = 'outbound' AND status = ANY(:statuses) "
-    "AND created_at > now() - make_interval(secs => :horizon)"
+    "SELECT count(*) FROM calls c JOIN agents a ON a.id = c.agent_id "
+    "WHERE c.from_e164 = :e164 "
+    "AND COALESCE(c.engine_agent_ref, a.engine_agent_ref) IS DISTINCT FROM :ref "
+    "AND c.direction = 'outbound' AND c.status = ANY(:statuses) "
+    "AND c.created_at > now() - make_interval(secs => :horizon)"
 )
 
 
-async def _hold_client_number(session: AsyncSession, *, number: CallerLine, agent_id: UUID) -> None:
-    """Refuse the dial while another agent is calling out on this number.
+async def _hold_client_number(
+    session: AsyncSession, *, number: CallerLine, engine_agent_ref: str
+) -> None:
+    """Refuse the dial while another engine agent is calling out on this number.
 
-    A number is lent to one agent at a time (`update-phone-number.md:144-145`) and what
-    re-pointing it does to a call in progress is not documented, so a borrowed number is
-    held for the whole call, as the trial line is: the lock serialises the count with the
-    intent row, and from commit that row's status is the hold. The same agent's calls share
-    it freely. Refused as `lines_busy`, which every caller already treats as not placed and
-    tries again."""
+    A number is lent to one agent at a time (`update-phone-number.md:144-145`; a waiting call
+    told to ring from a number lent away is not placed, `phone-numbers.md:748-753`, 2026-10-29
+    mirror), so a borrowed number is held for the whole call, as the trial line is: the lock
+    serialises the count with the intent row, and from commit that row's status is the hold.
+    Calls through the same engine agent share it freely. Refused as `lines_busy`, which every
+    caller already treats as not placed and tries again."""
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
         {"key": f"client-number-lend:{number.number_id}"},
@@ -5181,7 +5710,7 @@ async def _hold_client_number(session: AsyncSession, *, number: CallerLine, agen
             text(_NUMBER_LENT_ELSEWHERE_SQL),
             {
                 "e164": number.e164,
-                "aid": agent_id,
+                "ref": engine_agent_ref,
                 "statuses": _ENGINE_LINE_STATUSES,
                 "horizon": ENGINE_LINE_HORIZON.total_seconds(),
             },

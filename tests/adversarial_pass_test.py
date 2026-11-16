@@ -841,8 +841,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/campaigns/{campaign_id}/opt-outs", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/complaint-review", {"reviewed": True}, {}),
     # The D-992 workspace: the main task, script, sources and Pip's draft, what the calls
-    # taught, the opening test, the test call and the campaign's own settings. Each reads the
-    # campaign (or, for the holder, the agent) under the caller's RLS before anything else.
+    # taught, the opening test, the test call, the campaign's own settings and what it notes.
+    # Each reads the campaign under the caller's RLS before anything else.
     ("GET", "/v1/campaigns/{campaign_id}/workspace", {}, {}),
     ("PUT", "/v1/campaigns/{campaign_id}/main-task", {"main_task": "idor sweep"}, {}),
     ("PUT", "/v1/campaigns/{campaign_id}/script", {"script": {}}, {}),
@@ -898,7 +898,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ),
     ("GET", "/v1/campaigns/{campaign_id}/settings", {}, {}),
     ("PUT", "/v1/campaigns/{campaign_id}/settings", {}, {}),
-    ("GET", "/v1/campaigns/agents/{agent_id}/holder", {}, {}),
+    ("GET", "/v1/campaigns/{campaign_id}/notes", {}, {}),
+    ("PUT", "/v1/campaigns/{campaign_id}/notes", {"fields": []}, {}),
     ("DELETE", "/v1/dnc/{entry_id}", {}, {}),
     # A neighbour's opt-out evidence is the caller's own words; restoring one would put a
     # person who said "do not call me" back on another business's dialling list.

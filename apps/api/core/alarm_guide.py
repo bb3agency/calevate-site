@@ -77,6 +77,10 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "One client: either a paying client's callers are being turned away, or calls are "
         "answered with no credit to pay for them.",
     ),
+    "campaign_engine_agent_unavailable": _s(
+        "A running campaign is placing no calls",
+        "One client: its campaign's own calling agent could not be made, so its list waits.",
+    ),
     "inbound_line_hold_failed": _s(
         "An inbound line is taking calls while its agent is held",
         "One client: a line answers calls with no credit to pay for them, or while the healer "

@@ -619,6 +619,12 @@ class Settings(BaseSettings):
     #: 191-200`). Read for the ops dashboard's headroom and the plan-limit alarm; the vendor's
     #: own 402 is what actually refuses a workspace over the cap.
     thinnest_customer_plan: Literal["payg", "pro", "scale", "enterprise"] = "payg"
+    #: How many engine agents one client's own workspace may hold (D-1003): the agents', the
+    #: inbound lines' and the campaigns'. ThinnestAI counts agents per workspace, 2 on
+    #: pay-as-you-go and raised per workspace on request (VENDOR-STATED 23 Oct 2026,
+    #: `docs/vendor/thinnest-relationship-2026-10-23.md:136-142`). Campaign Start refuses
+    #: plainly at it; an operator raises it when ThinnestAI confirms a raise.
+    thinnest_agents_per_workspace: int = Field(default=2, ge=1, le=1000)
     #: Our OWN (developer) workspace's id, `org_…` like every customer's (`GET /workspace`,
     #: `thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/workspace/
     #: get-workspace.md:327-351`). Never accepted as a client's own workspace: a person-level

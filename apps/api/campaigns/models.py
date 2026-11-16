@@ -145,9 +145,22 @@ class Campaign(PKMixin, TimestampMixin, Base):
     #: The agent settings this campaign sets for its own calls (D-994), each key present only
     #: when overridden (`campaigns/settings.py`). The agent holds the defaults.
     settings_overrides: Mapped[dict[str, object] | None] = mapped_column(JSONB)
-    #: When this campaign last put its script on its agent; the latest holder's overrides
-    #: are the ones that agent's published settings carry.
+    #: RETIRED (D-1003): when this campaign last put its script on its agent, before each
+    #: campaign had its own engine agent. Nothing writes it; the deploy sweep reads it once to
+    #: give such an agent its own script back (`workers/campaign_engine_agents`). Kept until a
+    #: later release drops it (hard rule 8).
     agent_held_at: Mapped[datetime | None]
+    #: The campaign's own engine agent (D-1003): its script and settings in its agent's voice,
+    #: published by Start and by its test call, retired when the campaign ends. It never
+    #: answers a number; it calls out on one lent to it for each call.
+    engine_agent_ref: Mapped[str | None] = mapped_column(Text)
+    #: When that engine agent was last published; an unused test holder is retired after it.
+    engine_agent_at: Mapped[datetime | None]
+    #: What this campaign's calls note ("What it notes"), in the extraction-schema field
+    #: shape; empty means the agent's own fields are noted.
+    extraction_fields: Mapped[list[dict[str, object]]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
     #: The calls its Test call placed, newest last (migration b3d8e1f6a2c9). Kept here rather
     #: than in `calls.campaign_id`, which would count them in the campaign's results.
     test_call_ids: Mapped[list[UUID]] = mapped_column(

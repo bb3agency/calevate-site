@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { CampaignWorkspace } from "@/app/c/[slug]/campaigns/CampaignWorkspace";
 import type { KbNote, KbUpload } from "@/lib/api/kb";
 
-import { FIXTURE_CAMPAIGN_ID, settingsFixture, workspaceFixture } from "./campaignFixtures";
+import { FIXTURE_CAMPAIGN_ID, notesFixture, settingsFixture, workspaceFixture } from "./campaignFixtures";
 import { renderClientPage, type ApiCall, type Routes } from "./harness";
 
 /**
@@ -38,6 +38,7 @@ const UPLOAD: KbUpload = {
 const routes = (extra: Routes = {}): Routes => ({
   [`${base}/workspace`]: workspaceFixture(),
   [`${base}/settings`]: settingsFixture(),
+  [`${base}/notes`]: notesFixture(),
   "/v1/kb/notes": { notes: [note(NOTE_ID, "Diwali offer")] },
   "/v1/kb/uploads": [UPLOAD],
   ...extra,

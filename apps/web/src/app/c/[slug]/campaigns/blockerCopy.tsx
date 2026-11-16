@@ -73,6 +73,11 @@ export const BLOCKER_COPY: Record<string, BlockerNote> = {
     why: "Edit the campaign and choose another agent.",
     owner: "client",
   },
+  engine_agent_allowance_full: {
+    text: "All your calling agents are in use.",
+    why: "Each running campaign and each inbound line uses one. Stop or finish another campaign, or archive a line you no longer use. Ask us to raise your limit to run more at once.",
+    owner: "client",
+  },
   agent_inbound_only: {
     text: "This agent only answers calls.",
     why: "Choose an agent that makes calls, or change this one in Agents.",

@@ -285,6 +285,11 @@ class Call(PKMixin, TimestampMixin, Base):
     inbound_line_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("inbound_lines.id", ondelete="SET NULL")
     )
+    #: The engine agent an outbound dial rang through (D-1003): the agent's own, an arm's, a
+    #: line's test holder or a campaign's. A number lent for a call is held per engine agent,
+    #: since two campaigns in one voice are two callers on the platform. NULL on an inbound
+    #: call and on a dial made before the column.
+    engine_agent_ref: Mapped[str | None] = mapped_column(Text)
     engine_call_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     #: OUR FORMER CARRIER'S OWN ID FOR THIS CALL (migration c7f1a9d4e620), a different vendor's
     #: identifier from `engine_call_id`. It exists for the erasure we cannot perform

@@ -3,15 +3,14 @@ agent will ... only hold basics default settings such as speed, language etc. Th
 should be editable and overridable here in the campaign as well").
 
 The agent keeps its defaults (its own columns, unchanged by any campaign). A campaign stores
-only the keys it overrides (`campaigns.settings_overrides`). The overrides of the campaign that
-most recently put its script on the agent (`campaigns.agent_held_at`, set by Start, Schedule
-and Test call) are laid over the agent's row wherever an engine config is built
-(`agents.service._load_agent`), so a publish, the settings drift sweep and a dial all agree,
-and the next campaign on that agent brings its own.
+only the keys it overrides (`campaigns.settings_overrides`), and they are laid over the agent's
+row on the campaign's own engine agent only (`agents.service.campaign_agent_row`, D-1003), so
+its publish, the settings drift sweep and its dials agree and the agent's own calls keep the
+agent's defaults.
 
 Why at publish rather than per call: the platform takes only voice, language, call length and
 call instructions per call (place-call.md `overrides`, 6 Oct 2026 mirror); speed and the
-silence handling are agent settings. A voice speaks one campaign at a time already (D-992).
+silence handling are agent settings, so each campaign carries them on its own engine agent.
 
 The voice itself is NOT overridable here: a voice decides the rung a call is billed at and,
 for Studio, the workspace key it needs, which the agent's own voice change handles.
@@ -22,11 +21,8 @@ from __future__ import annotations
 import dataclasses
 from decimal import Decimal, InvalidOperation
 from typing import Any, Final
-from uuid import UUID
 
 from calevate_shared.languages import LANGUAGES
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.call_handling import CallSettings, refuse_invalid_settings, settings_of
 from apps.api.agents.languages import MAX_REPLY_LANGUAGES, client_language_tags
@@ -139,24 +135,9 @@ def apply_overrides(agent: dict[str, Any], overrides: dict[str, Any] | None) -> 
     return row
 
 
-async def held_overrides(session: AsyncSession, agent_id: UUID) -> dict[str, Any] | None:
-    """The overrides of the campaign that most recently put its script on this agent."""
-    return (
-        await session.execute(
-            text(
-                "SELECT settings_overrides FROM campaigns WHERE agent_id = :a "
-                "AND archived_at IS NULL AND agent_held_at IS NOT NULL "
-                "ORDER BY agent_held_at DESC LIMIT 1"
-            ),
-            {"a": agent_id},
-        )
-    ).scalar_one_or_none()
-
-
 __all__ = [
     "CALL_SETTING_KEYS",
     "OVERRIDE_KEYS",
     "apply_overrides",
     "clean_overrides",
-    "held_overrides",
 ]

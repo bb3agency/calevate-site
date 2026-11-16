@@ -166,6 +166,9 @@ class EngineAgentRoute(Base):
     #: Set when this engine agent is an inbound line's (D-997): intake stamps the call's line
     #: from it. No foreign key, like `agent_id`: this table is global and un-RLS'd.
     inbound_line_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    #: Set when this engine agent is a campaign's own (D-1003): intake stamps the call's
+    #: campaign from it, and the dial gate reads this campaign's verdict alone.
+    campaign_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
     # THE TWO DRIFT SWEEPS' RECORDS, declared here late (P4.3).

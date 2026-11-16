@@ -3333,40 +3333,6 @@
         "title": "AgentDailySpendOut",
         "type": "object"
       },
-      "AgentHolderOut": {
-        "additionalProperties": false,
-        "properties": {
-          "campaign_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Campaign Id"
-          },
-          "campaign_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Campaign Name"
-          }
-        },
-        "required": [
-          "campaign_id",
-          "campaign_name"
-        ],
-        "title": "AgentHolderOut",
-        "type": "object"
-      },
       "AgentIn": {
         "additionalProperties": false,
         "description": "\"Name and voice\": the agent made, or renamed before its first call.",
@@ -13684,6 +13650,90 @@
           "note"
         ],
         "title": "CampaignNoteIn",
+        "type": "object"
+      },
+      "CampaignNotesIn": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_digest": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Digest"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "maxItems": 50,
+            "title": "Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "title": "CampaignNotesIn",
+        "type": "object"
+      },
+      "CampaignNotesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "title": "Agent Fields",
+            "type": "array"
+          },
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "applied_now": {
+            "title": "Applied Now",
+            "type": "boolean"
+          },
+          "core_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "title": "Core Fields",
+            "type": "array"
+          },
+          "digest": {
+            "title": "Digest",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "title": "Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "agent_id",
+          "agent_name",
+          "fields",
+          "agent_fields",
+          "core_fields",
+          "digest",
+          "applied_now"
+        ],
+        "title": "CampaignNotesOut",
         "type": "object"
       },
       "CampaignPageOut": {
@@ -88536,46 +88586,6 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
-    "/v1/campaigns/agents/{agent_id}/holder": {
-      "get": {
-        "operationId": "agent_holder_v1_campaigns_agents__agent_id__holder_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentHolderOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "The campaign whose script this agent speaks now (the last one to put it live)",
-        "tags": [
-          "campaigns"
-        ],
-        "x-calevate-permission": "leads:read"
-      }
-    },
     "/v1/campaigns/contacts/from-excel": {
       "post": {
         "description": "Nothing is stored: the screen checks the rows as it checks a CSV and adds them to the\ndraft the same way, so one set of rules (numbers, duplicates, consent) covers both.",
@@ -89528,6 +89538,95 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/notes": {
+      "get": {
+        "operationId": "campaign_notes_read_v1_campaigns__campaign_id__notes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignNotesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What this campaign's calls note, and its agent's list it follows while empty",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "put": {
+        "description": "Stored in its own transaction, then, when the campaign has its own engine agent, put\nlive on it so its calls ask for the new details (D-1003); otherwise they reach its calls\nat the next Start or test call. The agent's own list is never changed.",
+        "operationId": "campaign_notes_save_v1_campaigns__campaign_id__notes_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignNotesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignNotesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set what this campaign's calls note; an empty list follows its agent's",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/campaigns/{campaign_id}/opening-b": {
       "put": {
         "description": "Half the people hear this opening, half the script's own. The agent's notices are\nsaid beside it whenever it does not say them itself (`agents.service.campaign_first_words`).",
@@ -90202,7 +90301,7 @@
         "x-calevate-permission": "leads:read"
       },
       "put": {
-        "description": "Stored, then, when this campaign currently holds its agent, put live at once through the\nsame publish Start uses; otherwise they reach the agent at the next Start or Test call.",
+        "description": "Stored, then, when the campaign has its own engine agent, put live on it at once through\nthe same publish Start uses; otherwise they reach its calls at the next Start or test\ncall. The agent's own settings are never changed (D-1003).",
         "operationId": "save_campaign_settings_v1_campaigns__campaign_id__settings_put",
         "parameters": [
           {
@@ -90489,7 +90588,7 @@
     },
     "/v1/campaigns/{campaign_id}/test-call": {
       "post": {
-        "description": "The same gated, capped, idempotent test call as the agent's Try it (`agents/trial_calls`),\nafter the campaign's script is put live on the agent exactly as Start would put it.",
+        "description": "The same gated, capped, idempotent test call as the agent's Try it (`agents/trial_calls`),\nrung through the campaign's own engine agent, published as a test holder first, so it says\nwhat the campaign says now in its agent's voice and never touches the agent (D-1003).",
         "operationId": "campaign_test_call_v1_campaigns__campaign_id__test_call_post",
         "parameters": [
           {
@@ -90531,7 +90630,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Put the campaign's script on its agent and ring your own phone to hear it",
+        "summary": "Ring your own phone through the campaign's own engine agent to hear it",
         "tags": [
           "campaigns"
         ],

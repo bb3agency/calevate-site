@@ -383,6 +383,23 @@ async def test_create_and_update_agent_returns_a_stable_ref(engine: VoiceEngine)
     await engine.update_agent(ref, cfg)
 
 
+async def test_each_holder_of_one_agent_is_its_own_engine_agent(engine: VoiceEngine) -> None:
+    """A campaign's and a line's engine agent are the agent's config with a `holder` set
+    (D-997, D-1003). On an adapter that finds an agent it made earlier by a tag, a holder
+    that did not change the tag would be found as the AGENT's own and written over it: the
+    agent's callers would hear the campaign. Each holder is its own ref, stable across a
+    second create, and the agent's own ref is untouched by them."""
+    if not engine.capabilities.hosts_agents():
+        return
+    cfg = _agent_config(engine)
+    own = await engine.create_agent(cfg)
+    campaign = await engine.create_agent(cfg.model_copy(update={"holder": "campaign:one"}))
+    other = await engine.create_agent(cfg.model_copy(update={"holder": "campaign:two"}))
+    assert len({own, campaign, other}) == 3, "two holders of one agent share one engine agent"
+    assert await engine.create_agent(cfg.model_copy(update={"holder": "campaign:one"})) == campaign
+    assert await engine.create_agent(cfg) == own
+
+
 async def test_agent_read_back_reports_the_agent_it_was_asked_about(
     engine: VoiceEngine,
 ) -> None:

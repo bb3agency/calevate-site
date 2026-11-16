@@ -901,6 +901,13 @@ async def _upsert_call_row(
                 text(_STAMP_LINE_SQL),
                 {"cid": resolved_id, "ref": engine_agent_ref, "tid": tenant_id},
             )
+            # And the campaign whose own engine agent placed it (D-1003), for a call the
+            # dispatcher did not link itself (a call-back it promised, a link that did not
+            # land). Never a test call, which is kept out of the campaign's results.
+            await session.execute(
+                text(_STAMP_CAMPAIGN_SQL),
+                {"cid": resolved_id, "ref": engine_agent_ref, "tid": tenant_id},
+            )
     return resolved_id
 
 
@@ -908,6 +915,12 @@ _STAMP_LINE_SQL: Final = (
     "UPDATE calls SET inbound_line_id = r.inbound_line_id FROM engine_agent_routes r "
     "WHERE calls.id = :cid AND calls.inbound_line_id IS NULL AND r.engine_agent_ref = :ref "
     "AND r.tenant_id = :tid AND r.inbound_line_id IS NOT NULL"
+)
+_STAMP_CAMPAIGN_SQL: Final = (
+    "UPDATE calls SET campaign_id = r.campaign_id FROM engine_agent_routes r "
+    "WHERE calls.id = :cid AND calls.campaign_id IS NULL AND r.engine_agent_ref = :ref "
+    "AND r.tenant_id = :tid AND r.campaign_id IS NOT NULL "
+    "AND NOT calls.trial_call AND NOT calls.paid_test_call"
 )
 
 
@@ -3538,7 +3551,12 @@ async def _load_call_context(
                     # say and report a breach on every call. When the AI toggle itself is
                     # off the needle is the empty string, which `disclosure_spoken` turns
                     # into `None`: nothing was required, so nothing is certified.
-                    "SELECT c.agent_id, c.direction, es.version, es.fields, "
+                    # WHAT IT NOTES IS THE CALL'S HOLDER'S (D-1003): the campaign that placed
+                    # it, else the line that took it, when either has its own list, else the
+                    # agent's. The version stays the agent's: it keys the agent's history.
+                    "SELECT c.agent_id, c.direction, es.version, "
+                    "  COALESCE(NULLIF(g.extraction_fields, '[]'::jsonb), "
+                    "  NULLIF(l.extraction_fields, '[]'::jsonb), es.fields), "
                     "  CASE WHEN a.ai_disclosure_enabled THEN a.ai_disclosure_line ELSE '' END, "
                     # THE RECORDING SENTENCE, on the same toggle logic and for the same
                     # reason — an agent whose owner switched THIS notice off must not be
@@ -3551,6 +3569,8 @@ async def _load_call_context(
                     "FROM calls c "
                     "JOIN agents a ON a.id = c.agent_id "
                     "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
+                    "LEFT JOIN campaigns g ON g.id = c.campaign_id "
+                    "LEFT JOIN inbound_lines l ON l.id = c.inbound_line_id "
                     "WHERE c.id = :cid AND c.tenant_id = :tid"
                 ),
                 {"cid": call_id, "tid": tenant_id},
@@ -5458,7 +5478,12 @@ PIPELINE_STALL_AFTER = timedelta(minutes=10)
 # being read before the first real stall arrives.
 EXTRACTION_OWED_SQL = (
     "(EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id) "
-    "OR COALESCE(jsonb_array_length(es.fields), 0) > 0)"
+    "OR COALESCE(jsonb_array_length(es.fields), 0) > 0 "
+    # The call's holder's own list (D-1003), as `_load_call_context` picks it.
+    "OR EXISTS (SELECT 1 FROM campaigns g WHERE g.id = c.campaign_id "
+    "AND jsonb_array_length(g.extraction_fields) > 0) "
+    "OR EXISTS (SELECT 1 FROM inbound_lines l WHERE l.id = c.inbound_line_id "
+    "AND jsonb_array_length(l.extraction_fields) > 0))"
 )
 
 

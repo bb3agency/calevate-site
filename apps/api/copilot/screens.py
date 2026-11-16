@@ -172,8 +172,8 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         name="Campaigns",
         group=None,
         summary=(
-            "Outbound calling campaigns — build one from sources in What your agents know, "
-            "start or stop it any time, watch it run."
+            "Outbound calling campaigns — each its own script, settings and notes in one "
+            "agent's voice; start or stop any time, watch it run."
         ),
         aliases=("outbound", "calling list", "dialer", "broadcast"),
     ),
