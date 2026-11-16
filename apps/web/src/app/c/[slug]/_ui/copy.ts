@@ -178,10 +178,12 @@ export const SETUP = {
 } as const;
 
 export const FIRST = {
-  jobHint: "Pick one or more. Change it later.",
-  jobLocked: "Change this on its own page.",
+  workHint: "Pick one. You can add the other later.",
+  agentHint: "A name and a voice. What it says comes next.",
+  nameHint: "Callers hear this name.",
+  workWriting: "Pip is writing what it says…",
+  workFailed: "Pip couldn't write it this time.",
   languageHint: "Every call starts in it.",
-  languageLocked: "Change languages on its own page.",
   switches: "It switches when a caller does.",
   briefHint: "What you offer, who calls, how calls end.",
   briefDone: "All three recorded. Type anything else below.",
@@ -190,9 +192,8 @@ export const FIRST = {
   audioNotKept: "Only the text is kept, not the audio.",
   readingBrief: "Reading what you wrote…",
   questionsFailed: "We couldn't write your questions",
-  questionsFailedHint: "Try again, or build without them.",
+  questionsFailedHint: "Try again, or go on without them.",
   hoursLater: "Different hours some days? Change later.",
-  hearHint: "Chat with it on its page.",
   viewOnly: "Only the owner can do this step.",
   versionOne: "Version one is ready. It will ring you next.",
   resultHint: (length: string) => `${length} call. Here is what it heard.`,

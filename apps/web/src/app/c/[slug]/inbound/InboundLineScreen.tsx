@@ -5,7 +5,7 @@
  * centre; the agent is only the voice. The page follows the campaign page: a header with the
  * name (renamed in place) and the line's state, then coloured fold sections in the order an
  * owner sets a line up: Voice, Main task, Sources, Script, Actions, Outside hours, Numbers,
- * Calls taken, Archive.
+ * Test call, Calls taken, Archive.
  *
  * Saving the script puts it live. When the platform step fails the script is still saved
  * (the refusal is titled "Saved, but not live yet"), so the header offers Put it live.
@@ -47,6 +47,9 @@ import {
   useInboundLine,
   useInboundLines,
   useLineCalls,
+  useLineTestCall,
+  useLineTestCalls,
+  useLineTestNumbers,
   usePublishInboundLine,
   useRequestLineScript,
   useSaveLineScript,
@@ -62,8 +65,10 @@ import { endingLabel } from "@/lib/callReview";
 
 import { LeftOutNotice } from "../agents/[agentId]/script/PipProposal";
 import { ProposalReview } from "../agents/[agentId]/script/ProposalReview";
+import { TestCallForm } from "../campaigns/CampaignBoosters";
 import { ScriptSummary } from "../campaigns/CampaignWorkspace";
 import { FoldGroup, FoldSection } from "../campaigns/FoldSection";
+import { TestCallRows } from "../campaigns/TestCallList";
 import { matchesWords } from "../campaigns/matchWords";
 import { PipGenerateBand } from "../campaigns/PipGenerateBand";
 import { PipFailed, PipWriting, retryable } from "../campaigns/PipScriptStatus";
@@ -81,6 +86,7 @@ export const SCRIPT_INFO = "Pip writes it from your main task and sources. Savin
 export const ACTIONS_INFO = "Actions are set up on the agent. Switch off the ones this line should not use.";
 export const NUMBERS_INFO = "A number answers with one line. Adding it here moves it from its old line.";
 export const ARCHIVE_INFO = "A line that still answers a number cannot be archived. Move its numbers first.";
+export const TEST_CALL_INFO = "It uses this line's saved script, so you hear what callers will. It works before the line has a number.";
 
 type Props = { line: InboundLine; canWrite: boolean; refusal?: string };
 
@@ -88,6 +94,8 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
   const { session, href } = useClientRealm();
   const line = useInboundLine(session, lineId);
   const write = useWriteAccess(session, "org:manage", "change inbound lines");
+  // A test call rings a phone, the campaign test call's permission.
+  const canTest = useWriteAccess(session, "leads:dispatch", "place test calls");
   const refusal = write.allowed ? undefined : (write.reason ?? undefined);
   const rename = useUpdateInboundLine(session, lineId);
   const renameFeedback = useActionFeedback(rename, { errorDisplay: "inline" });
@@ -156,6 +164,7 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
         <ActionsSection {...props} slug={slug} />
         <OutsideHoursSection slug={slug} />
         <NumbersSection {...props} />
+        <TestCallSection line={data} slug={slug} canWrite={canTest.allowed} refusal={canTest.reason ?? undefined} />
         <CallsSection line={data} slug={slug} />
         <ArchiveSection {...props} slug={slug} />
       </FoldGroup>
@@ -744,6 +753,34 @@ function NumbersSection({ line, canWrite, refusal }: Props) {
           </div>
         )}
       </div>
+    </FoldSection>
+  );
+}
+
+/** The line rings the owner's phone, as a caller would hear it; a draft line too. */
+function TestCallSection({
+  line,
+  slug,
+  canWrite,
+  refusal,
+}: {
+  line: InboundLine;
+  slug: string;
+  canWrite: boolean;
+  refusal?: string;
+}) {
+  const { session } = useClientRealm();
+  const call = useLineTestCall(session, line.id);
+  const saved = useLineTestNumbers(session, line.id);
+  const calls = useLineTestCalls(session, line.id);
+  return (
+    <FoldSection id="line-test-call" title="Test call" tone="test" hint="This line rings your phone." info={TEST_CALL_INFO}>
+      {line.script ? (
+        <TestCallForm slug={slug} call={call} saved={saved.data?.numbers} canWrite={canWrite} refusal={refusal} />
+      ) : (
+        <p className="text-body text-ink-muted">Write the script first, then hear it here.</p>
+      )}
+      <TestCallRows slug={slug} calls={calls} canWrite={canWrite} refusal={refusal} />
     </FoldSection>
   );
 }

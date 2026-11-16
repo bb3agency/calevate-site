@@ -7,7 +7,7 @@
  * status colours stay reserved for status.
  */
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -87,12 +87,49 @@ export function ImproveTab(props: Common) {
 }
 
 function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
-  const { session, href } = useClientRealm();
+  const { session } = useClientRealm();
   const call = useCampaignTestCall(session, campaignId);
-  useActionFeedback(call, { errorDisplay: "inline" });
   const saved = useTestNumbers(session, campaignId);
   const saveNumbers = useSaveTestNumbers(session, campaignId);
-  const numbers = saved.data?.numbers ?? [];
+  return (
+    <TestCallForm
+      slug={slug}
+      call={call}
+      saved={saved.data?.numbers}
+      saveNumbers={saveNumbers}
+      canWrite={canWrite}
+      refusal={refusal}
+    />
+  );
+}
+
+/** What a test call answers, from a campaign's route or a line's. */
+type TestCallAnswer = { status: "queued" | "blocked"; blocked_reason?: string | null; call_id?: string | null };
+
+/**
+ * THE TEST CALL FORM, shared by a campaign and an inbound line: the saved numbers to pick
+ * from, the number box, "This number is mine", and Call me. The account's saved numbers are
+ * one list; only a screen that can change it passes `saveNumbers`.
+ */
+export function TestCallForm({
+  slug,
+  call,
+  saved,
+  saveNumbers,
+  canWrite,
+  refusal,
+}: {
+  slug: string;
+  call: UseMutationResult<TestCallAnswer, Error, { number: string; numberIsMine: boolean }>;
+  /** The account's saved test numbers, undefined while they load. */
+  saved: readonly string[] | undefined;
+  saveNumbers?: UseMutationResult<unknown, Error, string[]>;
+  canWrite: boolean;
+  refusal?: string;
+}) {
+  const { href } = useClientRealm();
+  useActionFeedback(call, { errorDisplay: "inline" });
+  const numbers = saved ?? [];
   const [number, setNumber] = useState("");
   const [mine, setMine] = useState(true);
   const result = call.data;
@@ -104,7 +141,7 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
     if (number === "" && numbers.length > 0) setNumber(numbers[0]);
     // Only when the list first arrives; a cleared box stays cleared.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saved.data]);
+  }, [saved]);
   return (
     <div>
       {numbers.length > 0 && (
@@ -128,16 +165,18 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
                   >
                     {formatPhone(n)}
                   </button>
-                  <button
-                    type="button"
-                    aria-label={`Remove ${formatPhone(n)} from saved numbers`}
-                    title="Remove"
-                    disabled={!canWrite || saveNumbers.isPending}
-                    className="rounded-full py-1 pl-1 pr-2.5 opacity-70 hover:opacity-100"
-                    onClick={() => saveNumbers.mutate(numbers.filter((x) => x !== n))}
-                  >
-                    <X aria-hidden className="h-3.5 w-3.5" />
-                  </button>
+                  {saveNumbers ? (
+                    <button
+                      type="button"
+                      aria-label={`Remove ${formatPhone(n)} from saved numbers`}
+                      title="Remove"
+                      disabled={!canWrite || saveNumbers.isPending}
+                      className="rounded-full py-1 pl-1 pr-2.5 opacity-70 hover:opacity-100"
+                      onClick={() => saveNumbers.mutate(numbers.filter((x) => x !== n))}
+                    >
+                      <X aria-hidden className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
                 </span>
               );
             })}
@@ -157,15 +196,17 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
             onChange={(e) => setNumber(e.target.value)}
           />
         </label>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          disabled={!canWrite || !typed || isSaved || numbers.length >= 10 || saveNumbers.isPending}
-          title={isSaved ? "Already saved" : numbers.length >= 10 ? "Up to 10 saved numbers" : refusal}
-          onClick={() => saveNumbers.mutate([...numbers, number])}
-        >
-          {isSaved ? "Saved" : saveNumbers.isPending ? "Saving…" : "Save"}
-        </button>
+        {saveNumbers ? (
+          <button
+            type="button"
+            className={SECONDARY_BUTTON_SM}
+            disabled={!canWrite || !typed || isSaved || numbers.length >= 10 || saveNumbers.isPending}
+            title={isSaved ? "Already saved" : numbers.length >= 10 ? "Up to 10 saved numbers" : refusal}
+            onClick={() => saveNumbers.mutate([...numbers, number])}
+          >
+            {isSaved ? "Saved" : saveNumbers.isPending ? "Saving…" : "Save"}
+          </button>
+        ) : null}
         <button
           type="button"
           className={SECONDARY_BUTTON_SM}
@@ -181,7 +222,7 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
         <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
         This number is mine
       </label>
-      {saveNumbers.error != null && (
+      {saveNumbers?.error != null && (
         <p role="alert" className="mt-2 text-meta text-danger">
           {errorText(saveNumbers.error, "The number did not save")}
         </p>

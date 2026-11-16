@@ -10,6 +10,7 @@
  * (`/v1/calls/{id}/recording`), minted on the press rather than for every row.
  */
 
+import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query";
 import { Play, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -59,6 +60,27 @@ export function TestCallList({
 }) {
   const { session } = useClientRealm();
   const calls = useCampaignTestCalls(session, campaignId);
+  const remove = useRemoveCampaignTestCall(session, campaignId);
+  return <TestCallRows slug={slug} calls={calls} remove={remove} canWrite={canWrite} refusal={refusal} />;
+}
+
+/**
+ * The list itself, for a campaign's test calls or an inbound line's. `remove` takes one off
+ * the list; a screen with no such list to edit leaves it out and offers no Delete.
+ */
+export function TestCallRows({
+  slug,
+  calls,
+  remove,
+  canWrite,
+  refusal,
+}: {
+  slug: string;
+  calls: UseQueryResult<CampaignTestCallItem[]>;
+  remove?: UseMutationResult<void, Error, string>;
+  canWrite: boolean;
+  refusal?: string;
+}) {
   if (calls.error || !calls.data) {
     return calls.error ? <ProblemNotice error={calls.error} onRetry={() => calls.refetch()} /> : null;
   }
@@ -66,14 +88,14 @@ export function TestCallList({
   if (items.length === 0) return null;
   return (
     <div className="mt-5 border-t border-line pt-4">
-      <h4 className="text-body font-semibold text-ink">Your test calls</h4>
+      <h3 className="text-body font-semibold text-ink">Your test calls</h3>
       <ul className="mt-2 divide-y divide-line">
         {items.map((call) => (
           <TestCallRow
             key={call.call_id}
             slug={slug}
-            campaignId={campaignId}
             call={call}
+            remove={remove}
             canWrite={canWrite}
             refusal={refusal}
           />
@@ -85,23 +107,20 @@ export function TestCallList({
 
 function TestCallRow({
   slug,
-  campaignId,
   call,
+  remove,
   canWrite,
   refusal,
 }: {
   slug: string;
-  campaignId: string;
   call: CampaignTestCallItem;
+  remove?: UseMutationResult<void, Error, string>;
   canWrite: boolean;
   refusal?: string;
 }) {
   const { session, href } = useClientRealm();
   const link = useRecordingLink(session, call.call_id);
   useActionFeedback(link, { errorDisplay: "inline" });
-  const remove = useRemoveCampaignTestCall(session, campaignId);
-  const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline", successToast: "Test call removed" });
-  const [confirming, setConfirming] = useState(false);
   const words = lookup(STATUS_WORDS, call.status) ?? call.status;
 
   return (
@@ -127,17 +146,7 @@ function TestCallRow({
           <Link href={href(`/c/${slug}/calls/${call.call_id}`)} className="text-meta text-brand-strong underline">
             Open the call
           </Link>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={!canWrite}
-            title={refusal}
-            onClick={() => setConfirming(true)}
-            aria-label={`Delete the test call of ${formatIST(call.placed_at)}`}
-          >
-            <Trash2 aria-hidden className="h-3.5 w-3.5" />
-            Delete
-          </button>
+          {remove ? <RemoveTestCall call={call} remove={remove} canWrite={canWrite} refusal={refusal} /> : null}
         </span>
       </div>
       {link.error != null && (
@@ -154,6 +163,36 @@ function TestCallRow({
           />
         </div>
       )}
+    </li>
+  );
+}
+
+function RemoveTestCall({
+  call,
+  remove,
+  canWrite,
+  refusal,
+}: {
+  call: CampaignTestCallItem;
+  remove: UseMutationResult<void, Error, string>;
+  canWrite: boolean;
+  refusal?: string;
+}) {
+  const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline", successToast: "Test call removed" });
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className={SECONDARY_BUTTON_SM}
+        disabled={!canWrite}
+        title={refusal}
+        onClick={() => setConfirming(true)}
+        aria-label={`Delete the test call of ${formatIST(call.placed_at)}`}
+      >
+        <Trash2 aria-hidden className="h-3.5 w-3.5" />
+        Delete
+      </button>
       {confirming && (
         <ConfirmDialog
           title="Delete this test call?"
@@ -171,6 +210,6 @@ function TestCallRow({
           <span className="block">It comes off this list. The call stays in your call logs.</span>
         </ConfirmDialog>
       )}
-    </li>
+    </>
   );
 }

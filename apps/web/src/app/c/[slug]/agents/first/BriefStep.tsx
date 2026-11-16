@@ -38,7 +38,8 @@ export const HEARD_FAILURES: Record<string, string> = {
 };
 
 /**
- * STEP 2, TELL IT ABOUT YOU (D-855): one box, in the owner's own words.
+ * STEP 1, ABOUT YOUR BUSINESS (D-855, Phase 3b): one box, in the owner's own words, which
+ * become the company training's overview Pip writes the training from.
  *
  * It starts filled with the account's own AI-written brief once that exists, so the owner
  * edits rather than faces a blank box. Before it lands the box starts empty with the trade's
@@ -63,7 +64,8 @@ export function BriefStep({
    *  used up recordings that cannot be taken again. */
   draft: string | null;
   onDraft: (draft: string | null) => void;
-  onBack: () => void;
+  /** None on the first step of the run. */
+  onBack?: () => void;
   onDone: () => void;
   onPip: () => void;
   /** Why Pip cannot be used here, or null when it can. */
@@ -90,11 +92,11 @@ export function BriefStep({
 
   return (
     <StepScreen
-      title="Tell it about your business"
+      title="About your business"
       hint={
         <>
           {FIRST.briefHint}
-          <Why>Use your own words. Your agent&apos;s script is written from this.</Why>
+          <Why>Use your own words. Pip trains your agents from this and writes their first script.</Why>
         </>
       }
       onBack={onBack}

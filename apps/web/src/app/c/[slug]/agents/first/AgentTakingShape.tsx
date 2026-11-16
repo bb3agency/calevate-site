@@ -20,12 +20,13 @@ import {
   jobsTitle,
   languageLabel,
   sortJobs,
+  type FirstWork,
   type Piece,
   type PieceId,
 } from "@/lib/firstAgent";
-import { useBusinessSuggestions, useVerticalExamples } from "@/lib/useVerticalExamples";
+import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
-import { OpeningLine } from "./OpeningLine";
+import { WorkOpening } from "./OpeningLine";
 
 /**
  * THE AGENT TAKING SHAPE (D-854, D-855): the card that fills in as each piece lands.
@@ -50,7 +51,7 @@ export function AgentTakingShape({
   compact = false,
   voiceNote = null,
   documents = [],
-  openingEditable = true,
+  work = null,
 }: {
   agent: Agent | null;
   jobs: readonly FirstRunJob[];
@@ -64,9 +65,8 @@ export function AgentTakingShape({
   voiceNote?: string | null;
   /** The files added on the brief step (D-918). */
   documents?: readonly FirstRunDocument[];
-  /** False while the step itself shows the opening line with its Edit button, so the
-   *  screen has one editor, not two. */
-  openingEditable?: boolean;
+  /** The first work it was given (Phase 3b), whose script says what it says. */
+  work?: FirstWork | null;
 }) {
   const fresh = useFreshlyDone(pieces, loaded);
   const title = agent?.name ?? null;
@@ -81,7 +81,7 @@ export function AgentTakingShape({
         <p className="break-words text-heading text-ink">{title ?? <span className="text-ink-faint">Your agent</span>}</p>
         <p className="text-pretty break-words text-meta text-ink-muted">
           {[subtitle, language ? languageLabel(language) : null].filter(Boolean).join(" · ") ||
-            "Its job appears here first"}
+            "Its name appears here"}
         </p>
       </div>
     </div>
@@ -93,26 +93,18 @@ export function AgentTakingShape({
         <Row id="voice" title="Voice" pieces={pieces} fresh={fresh}>
           <VoiceLine agent={agent} note={voiceNote} />
         </Row>
-        <Row id="greeting" title="Opening line" pieces={pieces} fresh={fresh}>
-          {agent ? (
-            <OpeningLine
-              agent={agent}
-              lang={language ?? agent.language_primary}
-              label="Says first"
-              editable={openingEditable}
-            />
+        <Row id="work" title="Its first work" pieces={pieces} fresh={fresh}>
+          {work ? (
+            <div className="space-y-2">
+              <JobsLine jobs={jobs} />
+              <WorkOpening work={work} lang={language ?? agent?.language_primary ?? "en-IN"} label="Says first" />
+            </div>
           ) : (
-            <p className="text-meta text-ink-faint">Written when it is built.</p>
+            <p className="text-meta text-ink-faint">Chosen after its name and voice.</p>
           )}
-        </Row>
-        <Row id="job" title={jobs.length > 1 ? "Its jobs" : "Its job"} pieces={pieces} fresh={fresh}>
-          <JobsLine jobs={jobs} />
         </Row>
         <Row id="about" title="What it knows" pieces={pieces} fresh={fresh}>
           <KnowsLine brief={brief} documents={documents} />
-        </Row>
-        <Row id="notes" title="What it notes down" pieces={pieces} fresh={fresh}>
-          <NotesLine agent={agent} />
         </Row>
       </ol>
       <Announcer pieces={pieces} fresh={fresh} />
@@ -224,7 +216,7 @@ export function VoiceLine({ agent, note }: { agent: Agent | null; note: string |
   const { href } = useClientRealm();
   const catalogue = useEngineCatalogue(session);
   const voiceId = agent?.engine_voice_id ?? null;
-  if (agent === null) return <p className="text-meta text-ink-faint">Chosen for its language when it is built.</p>;
+  if (agent === null) return <p className="text-meta text-ink-faint">Chosen with its name.</p>;
   const change = (
     <Link href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=settings`)} className={TEXT_ACTION}>
       {voiceId ? "Change" : "Choose one"}
@@ -263,7 +255,7 @@ function JobsLine({ jobs }: { jobs: readonly FirstRunJob[] }) {
   const cards = sortJobs(jobs)
     .map((job) => jobCard(job))
     .filter((card) => card !== null);
-  if (cards.length === 0) return <p className="text-meta text-ink-faint">Chosen in the first step.</p>;
+  if (cards.length === 0) return <p className="text-meta text-ink-faint">Chosen on What first.</p>;
   return (
     <ul className="space-y-1">
       {cards.map((card) => (
@@ -319,26 +311,6 @@ function KnowsLine({ brief, documents }: { brief: string | null; documents: read
       {more}
     </div>
   );
-}
-
-function NotesLine({ agent }: { agent: Agent | null }) {
-  const examples = useVerticalExamples();
-  const suggestions = useBusinessSuggestions();
-  if (agent && agent.extraction_fields.length > 0) {
-    return (
-      <ul className="flex flex-wrap gap-1.5">
-        {agent.extraction_fields.map((field) => (
-          <li
-            key={field.key}
-            className="max-w-full break-words rounded-full border border-line px-2.5 py-0.5 text-meta text-ink-muted"
-          >
-            {field.label}
-          </li>
-        ))}
-      </ul>
-    );
-  }
-  return <Example>{suggestions.callerDetails.slice(0, 3).join(", ") || examples.extractionLabel}</Example>;
 }
 
 /**

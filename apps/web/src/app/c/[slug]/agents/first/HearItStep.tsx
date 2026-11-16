@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
-import { ArrowRight, Bot, ExternalLink, MessageCircle, PhoneCall, RotateCcw, Sprout, Target } from "lucide-react";
+import { ArrowRight, Bot, ExternalLink, PencilLine, PhoneCall, RotateCcw, Sprout, Target } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import {
@@ -17,18 +17,20 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { useAcceptAgreement, useAgreementsReadiness, needsAction } from "@/lib/api/agreements";
-import { useAgentLifecycle, type Agent } from "@/lib/api/agents";
+import type { Agent } from "@/lib/api/agents";
+import { useCampaignTestCall } from "@/lib/api/campaignWorkspace";
 import { ApiProblem, type CallSummary } from "@/lib/api/client";
 import type { FirstRunJob } from "@/lib/api/firstRun";
 import { useMe } from "@/lib/api/hooks";
+import { useLineTestCall } from "@/lib/api/inboundLines";
 import { useClientRealm } from "@/lib/api/session";
-import { usePlaceTrialCall, useTrialPanel } from "@/lib/api/trialCalls";
+import { useTrialPanel } from "@/lib/api/trialCalls";
 import { useAcceptPledge, useOutboundPledge } from "@/lib/api/verifyBusiness";
-import { callIntroFor, trialMinutesLine } from "@/lib/firstAgent";
+import { callIntroFor, trialMinutesLine, workHref, type FirstWork } from "@/lib/firstAgent";
 import { lookup } from "@/lib/lookup";
 
 import { CallStage, limitIcon, type CallPhase } from "./LiveStage";
-import { OpeningLine } from "./OpeningLine";
+import { WorkOpening } from "./OpeningLine";
 import { StepScreen, TickRow } from "./shell";
 import { FIRST } from "../../_ui/copy";
 
@@ -51,7 +53,8 @@ export function isLimitRule(rule: string | null | undefined): boolean {
 }
 
 /**
- * STEP 3, HEAR IT (D-855): one screen before the call, then the call itself on the stage.
+ * STEP 4, HEAR IT (D-855, Phase 3b): one screen before the call, then the call itself on the
+ * stage.
  *
  * Before the call: three honest lines, then only the ticks still outstanding, each its own
  * short tick and never bundled (founder, 23 Oct 2026): each agreement not yet accepted, the
@@ -59,53 +62,53 @@ export function isLimitRule(rule: string | null | undefined): boolean {
  * sent to the phone.
  *
  * The button accepts what was ticked (`POST /v1/legal/acceptances` per document, the pledge),
- * gets a draft agent ready (`/prepare`), then asks `POST /v1/trial/calls` to ring the number,
- * so every gate that endpoint keeps (the daily cap, the trial's minutes; calling hours only
- * without the own-number tick) is the
- * one that answers, in its own words. From the press on, the stage shows the call as the
- * call: getting ready, dialling, ringing, talking with a clock, ended; or why it did not
- * connect, with a way to try again. There is no live transcript, so none is pretended.
+ * then rings the number through the first work's own engine agent: the draft line's test
+ * call (`POST /v1/inbound-lines/{id}/test-call`, which readies the line as a test holder) or
+ * the draft campaign's (`POST /v1/campaigns/{id}/test-call`). Every gate a test call keeps
+ * (the daily cap, the trial's minutes and Studio minutes; calling hours only without the
+ * own-number tick) is the one that answers, in its own words. From the press on, the stage
+ * shows the call as the call: getting ready, dialling, ringing, talking with a clock, ended;
+ * or why it did not connect, with a way to try again. There is no live transcript, so none
+ * is pretended.
  */
 export function HearItStep({
   agent,
+  work,
   jobs,
   calls,
   onBack,
   onEnded,
 }: {
   agent: Agent;
+  work: FirstWork;
   jobs: readonly FirstRunJob[];
   calls: readonly CallSummary[] | undefined;
   onBack: () => void;
   onEnded: (call: CallSummary) => void;
 }) {
-  const { session, href } = useClientRealm();
+  const { session } = useClientRealm();
   const panel = useTrialPanel(session);
   const me = useMe(session);
   const business = me.data?.organization?.name ?? "your business";
 
   if (panel.isPending) return <Skeleton rows={4} label="Checking your test calls" />;
   if (panel.isError) return <ProblemNotice error={panel.error} onRetry={() => void panel.refetch()} />;
-  if (!panel.data.on_trial) {
-    return (
-      <StepScreen
-        title={`Hear ${agent.name}`}
-        hint={FIRST.hearHint}
-        onBack={onBack}
-      >
-        <OpeningLine agent={agent} lang={agent.language_primary} />
-        <Link href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=training`)} className={PRIMARY_BUTTON}>
-          <MessageCircle aria-hidden className="h-4 w-4" />
-          Try it in the chat
-        </Link>
-      </StepScreen>
-    );
-  }
-  return <CallYou agent={agent} jobs={jobs} calls={calls} business={business} onBack={onBack} onEnded={onEnded} />;
+  return (
+    <CallYou agent={agent} work={work} jobs={jobs} calls={calls} business={business} onBack={onBack} onEnded={onEnded} />
+  );
+}
+
+/** The work's test call: the line's or the campaign's, the same answer either way. */
+function useWorkTestCall(work: FirstWork) {
+  const { session } = useClientRealm();
+  const line = useLineTestCall(session, work.kind === "line" ? work.id : "");
+  const campaign = useCampaignTestCall(session, work.kind === "campaign" ? work.id : "");
+  return work.kind === "line" ? line : campaign;
 }
 
 function CallYou({
   agent,
+  work,
   jobs,
   calls,
   business,
@@ -113,6 +116,7 @@ function CallYou({
   onEnded,
 }: {
   agent: Agent;
+  work: FirstWork;
   jobs: readonly FirstRunJob[];
   calls: readonly CallSummary[] | undefined;
   business: string;
@@ -125,14 +129,12 @@ function CallYou({
   const pledge = useOutboundPledge(session);
   const acceptAgreement = useAcceptAgreement(session);
   const acceptPledge = useAcceptPledge(session);
-  const prepare = useAgentLifecycle(session, agent.id);
-  const place = usePlaceTrialCall(session);
+  const place = useWorkTestCall(work);
   // From the press on, the call stage below IS these actions' feedback: preparing, dialling,
   // ringing, or the refusal in its own words with a way to try again. So each failure is
   // shown there, not toasted, and nothing here offers Undo (a call placed cannot be).
   useActionFeedback(acceptAgreement, { errorDisplay: "inline" });
   useActionFeedback(acceptPledge, { errorDisplay: "inline" });
-  useActionFeedback(prepare, { errorDisplay: "inline" });
   useActionFeedback(place, { errorDisplay: "inline" });
   const numberId = useId();
   const [number, setNumber] = useState("");
@@ -163,7 +165,7 @@ function CallYou({
   const canAccept = readiness.data?.can_accept === true && !viewing;
   const outstanding = [...docs.map((doc) => `doc:${doc.slug}`), ...(pledgeOutstanding ? ["pledge"] : []), "mine"];
   const allTicked = outstanding.every((key) => ticked.has(key));
-  const busy = acceptAgreement.isPending || acceptPledge.isPending || prepare.isPending || place.isPending;
+  const busy = acceptAgreement.isPending || acceptPledge.isPending || place.isPending;
   const loading = readiness.isPending || pledge.isPending;
   const waitingFor = busy
     ? null
@@ -178,12 +180,11 @@ function CallYou({
           : !allTicked
             ? "Tick each box above."
             : null;
-  const failure = acceptAgreement.error ?? acceptPledge.error ?? prepare.error ?? place.error;
+  const failure = acceptAgreement.error ?? acceptPledge.error ?? place.error;
 
   const dial = (skip: string | null = null) => {
     setAttempt({ at: Date.now(), refused: null, dialled: true, skip });
     place.mutate({
-      agentId: agent.id,
       number: number.trim(),
       numberIsMine: true,
     });
@@ -206,7 +207,6 @@ function CallYou({
         text_sha256: pledge.data.text_sha256,
       });
     }
-    if (!agent.published) await prepare.mutateAsync("prepare");
     const fresh = await panel.refetch();
     if (fresh.data?.can_call === false && fresh.data.blocked_reason) {
       setAttempt({
@@ -224,7 +224,6 @@ function CallYou({
     place.reset();
     acceptAgreement.reset();
     acceptPledge.reset();
-    prepare.reset();
     setAttempt(null);
   };
 
@@ -257,14 +256,14 @@ function CallYou({
           }
           onEnded={onEnded}
           creditHref={href(`/c/${session.orgSlug}/billing?tab=credits`)}
-          chatHref={href(`/c/${session.orgSlug}/agents/${agent.id}?section=training`)}
+          changeHref={href(workHref(session.orgSlug, work))}
           voiceHref={href(`/c/${session.orgSlug}/agents/${agent.id}?section=settings`)}
         />
       </StepScreen>
     );
   }
 
-  const blocked = trial && !trial.can_call && agent.published && trial.blocked_reason ? trial.blocked_reason : null;
+  const blocked = trial?.on_trial && !trial.can_call && trial.blocked_reason ? trial.blocked_reason : null;
 
   return (
     <StepScreen
@@ -290,12 +289,9 @@ function CallYou({
           icon={limitIcon(null)}
           detail={blocked}
           actions={
-            <Link
-              href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=training`)}
-              className={SECONDARY_BUTTON}
-            >
-              <MessageCircle aria-hidden className="h-4 w-4" />
-              Try it in the chat instead
+            <Link href={href(workHref(session.orgSlug, work))} className={SECONDARY_BUTTON}>
+              <PencilLine aria-hidden className="h-4 w-4" />
+              Change what it says
             </Link>
           }
         />
@@ -323,7 +319,7 @@ function CallYou({
         />
       ) : null}
 
-      <OpeningLine agent={agent} lang={agent.language_primary} />
+      <WorkOpening work={work} lang={agent.language_primary} />
 
       <div>
         <label htmlFor={numberId} className="text-heading text-ink">
@@ -346,7 +342,7 @@ function CallYou({
             className={`${FIELD_GROUP_INPUT} pl-16 font-mono text-[16px]`}
           />
         </div>
-        {trial ? <p className="mt-2 text-meta text-ink-muted">{trialMinutesLine(trial)}</p> : null}
+        {trial?.on_trial ? <p className="mt-2 text-meta text-ink-muted">{trialMinutesLine(trial)}</p> : null}
       </div>
 
       {loading ? (
@@ -494,7 +490,7 @@ function CallInProgress({
   onStartOver,
   onEnded,
   creditHref,
-  chatHref,
+  changeHref,
   voiceHref,
 }: {
   agent: Agent;
@@ -516,7 +512,8 @@ function CallInProgress({
   onStartOver: () => void;
   onEnded: (call: CallSummary) => void;
   creditHref: string;
-  chatHref: string;
+  /** The work's own page, where what it says is changed. */
+  changeHref: string;
   voiceHref: string;
 }) {
   const { session } = useClientRealm();
@@ -665,9 +662,9 @@ function CallInProgress({
                   Add credit
                 </Link>
               ) : null}
-              <Link href={chatHref} className={SECONDARY_BUTTON}>
-                <MessageCircle aria-hidden className="h-4 w-4" />
-                Try it in the chat instead
+              <Link href={changeHref} className={SECONDARY_BUTTON}>
+                <PencilLine aria-hidden className="h-4 w-4" />
+                Change what it says
               </Link>
             </>
           }

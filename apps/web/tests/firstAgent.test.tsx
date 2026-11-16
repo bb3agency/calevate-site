@@ -1,12 +1,8 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import FirstAgentPage from "@/app/c/[slug]/agents/first/page";
-import { metaOf, rowStateOf } from "@/app/c/[slug]/agents/first/BuildStep";
-import { JobStep } from "@/app/c/[slug]/agents/first/JobStep";
 import { callPhaseOf, isLimitRule } from "@/app/c/[slug]/agents/first/HearItStep";
 import { hoursSummary } from "@/app/c/[slug]/agents/first/QuestionsStep";
 import { goLiveSteps } from "@/app/c/[slug]/agents/first/ResultStep";
@@ -14,21 +10,22 @@ import { recordingMimeType } from "@/components/voiceButton";
 import type { Agent } from "@/lib/api/agents";
 import type { FirstRun, FirstRunQuestion } from "@/lib/api/firstRun";
 import {
-  GREETING_MAX_CHARS,
   NOT_FEMALE_LINE,
   briefWaitingFor,
   callsLeft,
   defaultLanguage,
   firstAgentOf,
-  greetingFits,
-  jobPayload,
+  firstWorkOf,
   jobsTitle,
   languageGlyph,
   piecesOf,
   resumeStage,
+  stepIndexOf,
   studioFallbackLine,
   trialMinutesLine,
   voicePickNote,
+  workHref,
+  type FirstWork,
 } from "@/lib/firstAgent";
 import { answersBody, emptyAnswer } from "@/lib/firstRunQuestions";
 
@@ -49,8 +46,9 @@ const PLACEHOLDERS_FOR_BRIEF = {
 };
 
 /**
- * "MEET YOUR AGENT" (D-855): the job, the brief, the questions, the build ticked as it
- * happens, one honest screen before the call, the call, and what it caught.
+ * "MEET YOUR AGENT" (D-855, Phase 3b): about the business, the questions, the agent's name
+ * and voice, what it does first (a draft line or campaign Pip writes), one honest screen
+ * before the call, the call, and what it caught.
  */
 
 const nav = vi.hoisted(() => ({ pushed: [] as string[] }));
@@ -74,6 +72,29 @@ beforeEach(() => {
 
 const page = <FirstAgentPage params={Promise.resolve({ slug: "acme" })} />;
 const AGENT_ID = "0192f3a4-0000-7000-8000-00000000a001";
+const LINE_ID = "0192f3a4-0000-7000-8000-00000000b001";
+const OPENING = "Namaskaram, Madhav Homes. Meeku ela help cheyagalanu?";
+
+/** The draft line "Answer my calls" made, as `GET /v1/inbound-lines/{id}` answers. */
+function lineRow(over: Record<string, unknown> = {}) {
+  return {
+    id: LINE_ID,
+    name: "Calls to your number",
+    agent_id: AGENT_ID,
+    agent_name: "Anjali",
+    main_task: "We sell flats in Kondapur.",
+    script: { opening_line: OPENING },
+    proposal: null,
+    version: 1,
+    published_at: null,
+    live: false,
+    actions_off: [],
+    source_ids: [],
+    numbers: [],
+    created_at: "2026-11-16T00:00:00Z",
+    ...over,
+  };
+}
 
 const STEPS = ["voice", "script", "greeting", "notice"] as const;
 
@@ -97,10 +118,14 @@ function run(over: Partial<FirstRun> = {}): FirstRun {
     recordings_left: 3,
     finished_at: null,
     dismissed_at: null,
+    line_id: null,
+    campaign_id: null,
+    default_agent: { name: "Anjali", voice_id: null, gender: "female" },
     ...over,
   };
 }
 
+/** The agent made on "Name and voice", with a draft line from "What first?". */
 function built(over: Partial<FirstRun> = {}): FirstRun {
   return run({
     jobs: ["answer_calls"],
@@ -108,21 +133,14 @@ function built(over: Partial<FirstRun> = {}): FirstRun {
     languages_extra: ["en-IN"],
     brief: "We sell flats in Kondapur.",
     agent_id: AGENT_ID,
+    line_id: LINE_ID,
     questions: { status: "ready", items: [], disclosure: null },
-    build: {
-      status: "built",
-      steps: [
-        { step: "voice", state: "done", label: "Lakshmi", not_female: false, documents_used: 0 },
-        { step: "script", state: "done", label: null, not_female: false, documents_used: 0 },
-        { step: "greeting", state: "done", label: null, not_female: false, documents_used: 0 },
-        { step: "notice", state: "done", label: null, not_female: false, documents_used: 0 },
-      ],
-      disclosure: null,
-      builds_left: 2,
-    },
     ...over,
   });
 }
+
+/** What a drafted line looks like to the screen, once its script is written. */
+const WORK: FirstWork = { kind: "line", id: LINE_ID, ready: true, writing: false, failed: false, opening: OPENING };
 
 function agent(over: Partial<Agent> = {}): Agent {
   return agentRow({
@@ -201,6 +219,10 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/copilot/consent": { status: "accepted", can_accept: true, can_withdraw: true, text: "", text_sha256: "a", version: 1, accepted_at: null, withdrawn_at: null },
     "/v1/agents/engine-catalogue": { available: true, voices: [], models: [] },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
+    [`/v1/inbound-lines/${LINE_ID}`]: lineRow(),
+    [`/v1/agents/${AGENT_ID}`]: agent(),
+    [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+    "/v1/copilot/conversation?limit=50": { turns: [], has_more: false },
     ...over,
   };
 }
@@ -226,38 +248,40 @@ describe("the pieces and where an owner resumes", () => {
   it("starts above zero, with only the account done", () => {
     const pieces = piecesOf({ run: run(), agent: null, calls: undefined });
     expect(pieces.filter((piece) => piece.done).map((piece) => piece.id)).toEqual(["account"]);
-    expect(pieces).toHaveLength(9);
+    expect(pieces).toHaveLength(7);
+    const working = piecesOf({ run: built(), agent: agent(), calls: [], work: WORK });
+    expect(working.filter((piece) => !piece.done).map((piece) => piece.id)).toEqual(["call"]);
   });
 
   it("resumes on the step the server's rows say", () => {
-    expect(resumeStage({ run: run(), agent: null, calls: undefined })).toBe("job");
-    expect(resumeStage({ run: run({ jobs: ["call_leads"] }), agent: null, calls: undefined })).toBe("brief");
-    expect(resumeStage({ run: run({ jobs: ["call_leads"], brief: "x" }), agent: null, calls: undefined })).toBe("questions");
-    const building = run({ jobs: ["call_leads"], build: { ...run().build, status: "building" } });
-    expect(resumeStage({ run: building, agent: null, calls: undefined })).toBe("build");
-    expect(resumeStage({ run: built(), agent: agent(), calls: [] })).toBe("hear");
+    expect(resumeStage({ run: run(), agent: null, calls: undefined })).toBe("brief");
+    expect(resumeStage({ run: run({ brief: "x" }), agent: null, calls: undefined })).toBe("questions");
+    const named = run({ brief: "x", agent_id: AGENT_ID });
+    expect(resumeStage({ run: named, agent: agent(), calls: undefined, work: null })).toBe("agent");
+    const writing = { ...WORK, ready: false, writing: true, opening: null };
+    expect(resumeStage({ run: built(), agent: agent(), calls: [], work: writing })).toBe("work");
+    expect(resumeStage({ run: built(), agent: agent(), calls: [], work: WORK })).toBe("hear");
     expect(resumeStage({ run: built({ finished_at: "2026-10-23T05:00:00Z" }), agent: agent(), calls: [] })).toBe("team");
+    expect(stepIndexOf("team")).toBe(4);
+    expect(stepIndexOf("questions")).toBe(0);
+  });
+
+  it("reads the first work from the line or campaign it drafted, and links to its page", () => {
+    expect(firstWorkOf(run(), {})).toBeNull();
+    const drafting = { script: null, proposal: { status: "drafting" } };
+    expect(firstWorkOf(built(), { line: drafting })).toMatchObject({ kind: "line", ready: false, writing: true });
+    expect(firstWorkOf(built(), { line: lineRow() })).toEqual(WORK);
+    const campaign = built({ jobs: ["call_leads"], campaign_id: "c1" });
+    const failed = { script: null, proposal: { status: "failed" } };
+    expect(firstWorkOf(campaign, { campaign: failed })).toMatchObject({ kind: "campaign", id: "c1", failed: true });
+    expect(workHref("acme", WORK)).toBe(`/c/acme/inbound/${LINE_ID}`);
+    expect(workHref("acme", { ...WORK, kind: "campaign", id: "c1" })).toBe("/c/acme/campaigns/c1");
   });
 
   it("follows only the first run's own agent", () => {
     expect(firstAgentOf([agent()], built())?.id).toBe(AGENT_ID);
     expect(firstAgentOf([agent()], run())).toBeNull();
     expect(firstAgentOf([agent({ status: "archived" })], built())).toBeNull();
-  });
-
-  it("counts a short greeting that ends on a question, in characters a person counts", () => {
-    expect(greetingFits("Namaskaram! How can I help?")).toBe(true);
-    expect(greetingFits("Namaskaram, how can I help.")).toBe(false);
-    expect(greetingFits(`${"అ".repeat(GREETING_MAX_CHARS - 1)}?`)).toBe(true);
-    expect(greetingFits(`${"a".repeat(GREETING_MAX_CHARS)}?`)).toBe(false);
-  });
-
-  it("keeps the greeting ceiling the server's guide and the build worker name", () => {
-    const guide = readFileSync(resolve(__dirname, "../../api/copilot/screen_guides.py"), "utf8");
-    expect(guide).toMatch(new RegExp(`FIRST_GREETING_MAX_CHARS: Final = ${GREETING_MAX_CHARS}\\b`));
-    // The build worker's ceiling is the server's one opening-line limit (D-957).
-    const rules = readFileSync(resolve(__dirname, "../../api/agents/call_rules.py"), "utf8");
-    expect(rules).toMatch(new RegExp(`OPENING_LINE_MAX_CHARS: Final = ${GREETING_MAX_CHARS}\\b`));
   });
 
   it("starts in the profile's first language we sell, else Telugu", () => {
@@ -323,38 +347,10 @@ describe("the pieces and where an owner resumes", () => {
     expect(hoursSummary({ opens: "00:00", closes: "23:59", closed: [] })).toBe("Every day, 12am to 11:59pm");
   });
 
-  it("lets one agent take several jobs, every one sent, in the cards' order", () => {
-    expect(jobPayload(["call_leads", "answer_calls"], "te-IN", ["en-IN"])).toEqual({
-      jobs: ["answer_calls", "call_leads"],
-      language_primary: "te-IN",
-      languages_extra: ["en-IN"],
-    });
-    expect(jobsTitle(["call_leads", "call_new_leads"])).toBe("Call new leads instantly + 1 more");
+  it("names its works by their cards and a language by its own script", () => {
+    expect(jobsTitle(["call_leads", "answer_calls"])).toBe("Answer my calls + 1 more");
+    expect(jobsTitle(["call_leads"])).toBe("Call people");
     expect(languageGlyph("te-IN")).toBe("తె");
-  });
-
-  it("moves each build row only on the server's word", () => {
-    const waiting = { step: "script" as const, state: "waiting", label: null, not_female: false, documents_used: 0 };
-    expect(rowStateOf(waiting, true, false)).toBe("working");
-    expect(rowStateOf(waiting, false, false)).toBe("waiting");
-    expect(rowStateOf(waiting, true, true)).toBe("failed");
-    expect(rowStateOf({ ...waiting, state: "ready_made" }, false, false)).toBe("done");
-    expect(rowStateOf({ ...waiting, step: "voice", state: "none" }, false, false)).toBe("warn");
-    expect(rowStateOf({ ...waiting, step: "notice", state: "no_room" }, false, false)).toBe("warn");
-    expect(rowStateOf({ ...waiting, step: "greeting", state: "unwritten" }, false, false)).toBe("warn");
-  });
-
-  it("says when no opening could be written, never offering a ready-made one (D-963)", () => {
-    const greeting = { step: "greeting" as const, label: null, not_female: false, documents_used: 0 };
-    expect(metaOf({ ...greeting, state: "unwritten" })).toBe("Not written yet. Write how it opens before its first call.");
-    expect(metaOf({ ...greeting, state: "written" })).toBe("Short, and ends on a question");
-  });
-
-  it("says the AI notice is said after the greeting, or why it is not (D-864)", () => {
-    const notice = { step: "notice" as const, label: null, not_female: false, documents_used: 0 };
-    expect(metaOf({ ...notice, state: "done" })).toBe("Said right after its greeting on every call");
-    expect(metaOf({ ...notice, state: "off" })).toBe("Kept off, as you set it");
-    expect(metaOf({ ...notice, state: "no_room" })).toBe("No room after its greeting. Shorten the greeting to add it.");
   });
 
   it("shows the call as its row says, and a limit as a limit", () => {
@@ -373,23 +369,14 @@ describe("the pieces and where an owner resumes", () => {
     expect(isLimitRule("trial_line_busy")).toBe(false);
   });
 
-  it("says what really happened at each build step, fallbacks included", () => {
-    expect(metaOf({ step: "voice", state: "done", label: "Lakshmi", rung: "studio", fallback: null, not_female: false, documents_used: 0 })).toBe("Lakshmi · Studio");
-    expect(metaOf({ step: "voice", state: "done", label: "Bindu", rung: "clear", fallback: "studio_minutes_used", not_female: false, documents_used: 0 })).toBe(
-      "Bindu · Clear. Your trial's Studio minutes are used, so it uses a Clear voice.",
-    );
+  it("says why the default voice is not a woman's Studio voice, naming no provider", () => {
     expect(studioFallbackLine("studio_unavailable")).toBe("Studio voices aren't available right now, so it uses a Clear voice.");
     expect(studioFallbackLine(null)).toBeNull();
-    expect(metaOf({ step: "voice", state: "done", label: "Bindu", rung: "clear", fallback: "no_female_studio_voice", not_female: false, documents_used: 0 })).toBe(
-      "Bindu · Clear. No Studio woman's voice speaks this language yet, so it uses a Clear voice.",
-    );
-    expect(metaOf({ step: "voice", state: "done", label: "Ravi", rung: "studio", fallback: null, not_female: true, documents_used: 0 })).toBe(
-      `Ravi · Studio. ${NOT_FEMALE_LINE}`,
+    expect(voicePickNote("studio_minutes_used", true)).toBe(
+      `Your trial's Studio minutes are used, so it uses a Clear voice. ${NOT_FEMALE_LINE}`,
     );
     expect(voicePickNote(null, false)).toBeNull();
     expect(NOT_FEMALE_LINE).not.toMatch(/thinnest|cartesia/i);
-    expect(metaOf({ step: "voice", state: "none", label: null, not_female: false, documents_used: 0 })).toMatch(/Pick one before the call/);
-    expect(metaOf({ step: "script", state: "ready_made", label: null, not_female: false, documents_used: 0 })).toMatch(/ready-made script/);
   });
 });
 
@@ -402,6 +389,7 @@ describe("meet your agent", () => {
     await renderClientPage(
       page,
       routes({
+        "/v1/first-run": run({ brief: "We sell flats.", questions: { status: "ready", items: [], disclosure: null } }),
         "/v1/business-profile": () =>
           new Response(
             new ReadableStream({
@@ -416,56 +404,63 @@ describe("meet your agent", () => {
       }),
     );
     // The first-run read has landed (the meter counts) while the profile is still on its way.
-    expect(await screen.findByText("1 of 9 ready")).toBeTruthy();
+    expect(await screen.findByText("2 of 7 ready")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
     release();
     await waitFor(() =>
       expect((screen.getByRole("radio", { name: /Hindi/ }) as HTMLInputElement).checked).toBe(true),
     );
   });
 
-  it("opens on its job with three cards, any of them chosen, and the meter at one of nine", async () => {
-    const { calls } = await renderClientPage(
-      page,
-      routes({
-        "PUT /v1/first-run/job": run({ jobs: ["call_new_leads"], language_primary: "te-IN", languages_extra: ["en-IN"] }),
-      }),
-    );
-    expect(await screen.findByRole("heading", { name: "What should your agent do?" })).toBeTruthy();
-    for (const name of [/Answer my calls/, /Call new leads instantly/, /Run calling campaigns/]) {
-      expect((screen.getByRole("checkbox", { name }) as HTMLInputElement).disabled).toBe(false);
-    }
-    expect(screen.getByText("1 of 9 ready")).toBeTruthy();
-    expect((screen.getByRole("radio", { name: /Telugu/ }) as HTMLInputElement).checked).toBe(true);
-    // No job picked: Continue says so and does nothing.
-    expect(screen.getByRole("button", { name: /Continue/ }).getAttribute("aria-disabled")).toBe("true");
-    expect(screen.getByText("Pick at least one job.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    expect(calls.some((call) => call.method === "PUT")).toBe(false);
-    fireEvent.click(screen.getByRole("checkbox", { name: /Run calling campaigns/ }));
-    fireEvent.click(screen.getByRole("checkbox", { name: /Call new leads instantly/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    await waitFor(() => expect(calls.some((call) => call.method === "PUT" && call.path === "/v1/first-run/job")).toBe(true));
-    const sent = calls.find((call) => call.method === "PUT" && call.path === "/v1/first-run/job");
-    expect(JSON.parse(sent?.body ?? "{}")).toEqual({
-      jobs: ["call_new_leads", "call_leads"],
-      language_primary: "te-IN",
-      languages_extra: ["en-IN"],
-    });
-    expect(await screen.findByRole("heading", { name: "Tell it about your business" })).toBeTruthy();
+  it("opens on About your business, with the meter at one of seven", async () => {
+    await renderClientPage(page, routes());
+    expect(await screen.findByRole("heading", { name: "About your business" })).toBeTruthy();
+    expect(screen.getByText("1 of 7 ready")).toBeTruthy();
+    // The first step: nothing to go back to.
+    expect(screen.queryByRole("button", { name: /^Back$/ })).toBeNull();
+    expect(screen.getByText("Step 1 of 4 ·", { exact: false })).toBeTruthy();
   });
 
-  it("shows a built agent's languages without offering to change them", async () => {
-    // The agent took its languages and voice when it was built; changing them here only
-    // rewrote the run, so the server refuses it (`first_run_language_locked`).
-    await renderClientPage(
-      <JobStep run={built()} defaultLanguage="te-IN" onDone={() => undefined} />,
-      routes(),
-    );
-    const telugu = (await screen.findByRole("radio", { name: /Telugu/ })) as HTMLInputElement;
-    expect(telugu.checked && telugu.disabled).toBe(true);
-    expect(screen.queryByRole("radio", { name: /Hindi/ })).toBeNull();
-    expect((screen.getByRole("checkbox", { name: /English/ }) as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText(/Change languages on its own page/)).toBeTruthy();
+  it("makes the agent from the default agent's name and the language picked, then offers its voice", async () => {
+    const atName = run({ brief: "We sell flats.", questions: { status: "ready", items: [], disclosure: null } });
+    const named = { ...atName, agent_id: AGENT_ID, language_primary: "te-IN", languages_extra: ["en-IN"] };
+    const table = routes({ "/v1/first-run": atName, "PUT /v1/first-run/agent": named });
+    const { calls } = await renderClientPage(page, table);
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+    expect(await screen.findByRole("heading", { name: "Name your agent and pick its voice" })).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Its name" }) as HTMLInputElement).value).toBe("Anjali");
+    expect((screen.getByRole("radio", { name: /Telugu/ }) as HTMLInputElement).checked).toBe(true);
+    // No script is written on this step: there is nothing to write.
+    expect(screen.queryByText(/opening line/i)).toBeNull();
+    (table as Record<string, unknown>)["/v1/agents"] = [agent()];
+    fireEvent.click(screen.getByRole("button", { name: /Choose its voice/ }));
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT" && call.path === "/v1/first-run/agent")).toBe(true));
+    const sent = calls.find((call) => call.path === "/v1/first-run/agent");
+    expect(JSON.parse(sent?.body ?? "{}")).toMatchObject({ name: "Anjali", language_primary: "te-IN" });
+    expect(await screen.findByRole("heading", { name: "Its voice" })).toBeTruthy();
+  });
+
+  it("drafts a line on Answer my calls, says Pip is writing it, and offers Hear it once written", async () => {
+    const named = built({ line_id: null, jobs: [] });
+    const drafted = built();
+    const table = routes({
+      "/v1/first-run": named,
+      "/v1/agents": [agent()],
+      [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+      "PUT /v1/first-run/agent": named,
+      "POST /v1/first-run/work": drafted,
+      [`/v1/inbound-lines/${LINE_ID}`]: lineRow({ script: null, proposal: { id: "p1", status: "drafting", requested_at: "2026-11-16T00:00:00Z", left_out: [] } }),
+    });
+    const { calls } = await renderClientPage(page, table);
+    // An agent with no work yet resumes on its name and voice; Continue goes on.
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+    expect(await screen.findByRole("heading", { name: "What should Anjali do first?" })).toBeTruthy();
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("radio", { name: /Answer my calls/ }));
+    await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.path === "/v1/first-run/work")).toBe(true));
+    expect(JSON.parse(calls.find((call) => call.path === "/v1/first-run/work")?.body ?? "{}")).toEqual({ job: "answer_calls" });
+    expect(await screen.findByText("Pip is writing what it says…")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Hear it/ })).toBeNull();
   });
 
   it("shows the trade's example only as a placeholder, offers no other trade's, and says the audio is not kept", async () => {
@@ -493,20 +488,13 @@ describe("meet your agent", () => {
     expect(screen.getByText("Written from your business details. Change anything.")).toBeTruthy();
   });
 
-  it("keeps what was typed in the brief through Back and returning (journey audit E1)", async () => {
-    const atBrief = run({ jobs: ["answer_calls"], language_primary: "te-IN" });
-    await renderClientPage(
-      page,
-      routes({
-        "/v1/first-run": atBrief,
-        "PUT /v1/first-run/job": atBrief,
-      }),
-    );
+  it("keeps what was typed in the brief through Pip and back (journey audit E1)", async () => {
+    await renderClientPage(page, routes());
     const typed = "We repair two-wheelers in Guntur and pick them up from home.";
     const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: typed } });
-    fireEvent.click(screen.getByRole("button", { name: /Back/ }));
-    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Talk it through with Pip instead/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Back to the steps/ }));
     const again = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
     expect(again.value).toBe(typed);
   });
@@ -646,106 +634,6 @@ describe("meet your agent", () => {
     expect(JSON.parse(linked?.body ?? "{}")).toEqual({ upload_id: UPLOAD });
   });
 
-  it("edits the opening line in place on Hear it, counting against the server's room, and saves it through the agent's route", async () => {
-    const withRoom = agent({
-      greeting_budget: {
-        limit: 200,
-        opening_chars: 50,
-        opening_room: 60,
-        opening_room_with_ai_disclosure: 40,
-        opening_room_with_recording_notice: 30,
-        opening_advised: 120,
-      },
-    });
-    const { calls } = await renderClientPage(
-      page,
-      routes({
-        "/v1/first-run": built(),
-        "/v1/agents": [withRoom],
-        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
-        "/v1/trial": TRIAL,
-        "/v1/legal/readiness": READINESS,
-        "/v1/compliance/outbound-pledge": PLEDGE,
-        [`PUT /v1/agents/${AGENT_ID}/script/opening-line`]: { opening_line: "Namaskaram! Emi kavali?", version: 2 },
-      }),
-    );
-    await screen.findByRole("heading", { name: "Hear Anjali on your phone" });
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    const box = screen.getByRole("textbox", { name: "Opening line" }) as HTMLTextAreaElement;
-    fireEvent.change(box, { target: { value: "x".repeat(61) } });
-    expect(screen.getByText("1 character too long")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(box, { target: { value: "Namaskaram! Emi kavali?" } });
-    expect(screen.getByText("37 characters left")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() =>
-      expect(calls.some((call) => call.method === "PUT" && call.path === `/v1/agents/${AGENT_ID}/script/opening-line`)).toBe(true),
-    );
-    const sent = calls.find((call) => call.path === `/v1/agents/${AGENT_ID}/script/opening-line`);
-    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ opening_line: "Namaskaram! Emi kavali?", when: "answers" });
-    // An agent of one direction has one first line, so no "When it calls" editor.
-    expect(screen.queryByText("When it calls")).toBeNull();
-  });
-
-  it("gives an agent that both answers and calls a second line for the calls it places (D-920)", async () => {
-    const both = agent({ direction: "both", script_outbound_opening_line: null });
-    const { calls } = await renderClientPage(
-      page,
-      routes({
-        "/v1/first-run": built(),
-        "/v1/agents": [both],
-        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
-        "/v1/trial": TRIAL,
-        "/v1/legal/readiness": READINESS,
-        "/v1/compliance/outbound-pledge": PLEDGE,
-        [`PUT /v1/agents/${AGENT_ID}/script/opening-line`]: { opening_line: "Namaskaram, Rytu Khata nundi.", version: 2 },
-      }),
-    );
-    await screen.findByRole("heading", { name: "Hear Anjali on your phone" });
-    expect(screen.getAllByText("When it answers").length).toBeGreaterThan(0);
-    const calling = screen
-      .getAllByText("When it calls")
-      .map((caption) => caption.closest("figure"))
-      .find((figure): figure is HTMLElement => figure !== null && within(figure).queryAllByRole("button").length > 0);
-    if (!calling) throw new Error("no editable When it calls line");
-    fireEvent.click(within(calling).getByRole("button", { name: "Write one" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Opening line when it calls" }), {
-      target: { value: "Namaskaram, Rytu Khata nundi." },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
-    const sent = calls.find((call) => call.method === "PUT");
-    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ opening_line: "Namaskaram, Rytu Khata nundi.", when: "calls" });
-  });
-
-  it("shows the server's refusal of an opening line in one short line, and Cancel leaves it as it was", async () => {
-    await renderClientPage(
-      page,
-      routes({
-        "/v1/first-run": built(),
-        "/v1/agents": [agent()],
-        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
-        "/v1/trial": TRIAL,
-        "/v1/legal/readiness": READINESS,
-        "/v1/compliance/outbound-pledge": PLEDGE,
-        [`PUT /v1/agents/${AGENT_ID}/script/opening-line`]: problem(409, {
-          code: "script_change_waiting",
-          title: "Script changes are waiting",
-          detail: "This agent has script changes that are not live yet.",
-        }),
-      }),
-    );
-    await screen.findByRole("heading", { name: "Hear Anjali on your phone" });
-    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Opening line" }), { target: { value: "Hello, Madhav Homes?" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    const alert = await screen.findByRole("alert");
-    expect(within(alert).getByText("Script changes are waiting")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByRole("textbox", { name: "Opening line" })).toBeNull();
-    expect(screen.getAllByText("“Namaskaram, Madhav Homes. Meeku ela help cheyagalanu?”").length).toBeGreaterThan(0);
-  });
-
   it("on the team step, Go live is the next step with its current step's button, from the go-live guide", async () => {
     await renderClientPage(
       page,
@@ -765,8 +653,9 @@ describe("meet your agent", () => {
     expect(within(card).getByText("Until then, Anjali only makes test calls to you.")).toBeTruthy();
     const leads = screen.getByRole("region", { name: "Connect your lead form" });
     expect(within(leads).getByRole("link", { name: "Connect" }).getAttribute("href")).toBe("/c/acme/lead-sources");
-    // The agent's real opening line, editable here too.
-    expect(screen.getByRole("button", { name: "Edit" })).toBeTruthy();
+    // What its work says first, read only: the words are changed on the work's own page.
+    expect(screen.getAllByText(`“${OPENING}”`).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
   });
 
   it("puts the go-live steps in order, the first not done current, a review said as such", () => {
@@ -777,7 +666,7 @@ describe("meet your agent", () => {
     expect(goLiveSteps(verified).map((step) => step.state)).toEqual(["done", "done", "current"]);
   });
 
-  it("shows the build's real steps ticked, then the agent by name", async () => {
+  it("resumes a drafted, written line on Hear it, showing what the line says first", async () => {
     await renderClientPage(
       page,
       routes({
@@ -789,9 +678,12 @@ describe("meet your agent", () => {
         "/v1/compliance/outbound-pledge": PLEDGE,
       }),
     );
-    // A built agent with no call yet resumes on "Hear it".
+    // A written line with no call yet resumes on "Hear it".
     expect(await screen.findByRole("heading", { name: "Hear Anjali on your phone" })).toBeTruthy();
     expect(screen.getByText("It rings you and answers as if you had called Sri Clinic.")).toBeTruthy();
+    const step = screen.getByRole("region", { name: "This step" });
+    expect(within(step).getByText(`“${OPENING}”`)).toBeTruthy();
+    expect(within(step).queryByRole("button", { name: "Edit" })).toBeNull();
   });
 
   it("holds the call until every outstanding tick is ticked, then accepts each and rings", async () => {
@@ -806,8 +698,7 @@ describe("meet your agent", () => {
         "/v1/compliance/outbound-pledge": PLEDGE,
         "POST /v1/legal/acceptances": { ...READINESS, documents: [], outstanding_documents: 0 },
         "POST /v1/compliance/outbound-pledge": { ...PLEDGE, is_current: true },
-        [`POST /v1/agents/${AGENT_ID}/prepare`]: { status: "paused", changed: true, numbers_released: 0 },
-        "POST /v1/trial/calls": { status: "queued", call_handle: "h1", blocked_reason: null, blocked_rule: null },
+        [`POST /v1/inbound-lines/${LINE_ID}/test-call`]: { status: "queued", blocked_reason: null, blocked_rule: null, call_id: null },
       }),
     );
     const call = await screen.findByRole("button", { name: /Call me now/ });
@@ -825,14 +716,14 @@ describe("meet your agent", () => {
     fireEvent.click(call);
     expect(await screen.findByText("Dialling your phone")).toBeTruthy();
     const posts = calls.filter((entry) => entry.method === "POST").map((entry) => entry.path);
+    // The draft line's own engine agent rings: the agent itself is never got ready here.
     expect(posts).toEqual([
       "/v1/legal/acceptances",
       "/v1/compliance/outbound-pledge",
-      `/v1/agents/${AGENT_ID}/prepare`,
-      "/v1/trial/calls",
+      `/v1/inbound-lines/${LINE_ID}/test-call`,
     ]);
-    const placed = calls.find((entry) => entry.path === "/v1/trial/calls");
-    expect(JSON.parse(placed?.body ?? "{}")).toMatchObject({ number_is_mine: true, agent_id: AGENT_ID });
+    const placed = calls.find((entry) => entry.path === `/v1/inbound-lines/${LINE_ID}/test-call`);
+    expect(JSON.parse(placed?.body ?? "{}")).toEqual({ number: "98765 43210", number_is_mine: true });
   });
 
   it("follows the placed call by its id while it rings, before it has a start time", async () => {
@@ -869,7 +760,7 @@ describe("meet your agent", () => {
         "/v1/trial": TRIAL,
         "/v1/legal/readiness": { ...READINESS, documents: [], outstanding_documents: 0 },
         "/v1/compliance/outbound-pledge": { ...PLEDGE, is_current: true },
-        "POST /v1/trial/calls": () => {
+        [`POST /v1/inbound-lines/${LINE_ID}/test-call`]: () => {
           placedYet = true;
           return { status: "queued", call_handle: "h1", call_id: CALL_ID, blocked_reason: null, blocked_rule: null };
         },
@@ -892,7 +783,7 @@ describe("meet your agent", () => {
         "/v1/trial": TRIAL,
         "/v1/legal/readiness": { ...READINESS, documents: [], outstanding_documents: 0 },
         "/v1/compliance/outbound-pledge": { ...PLEDGE, is_current: true },
-        "POST /v1/trial/calls": problem(422, {
+        [`POST /v1/inbound-lines/${LINE_ID}/test-call`]: problem(422, {
           type: "https://calevate.tech/problems/trial_studio_minutes_used",
           code: "trial_studio_minutes_used",
           kind: "business_rule",
@@ -927,55 +818,7 @@ describe("meet your agent", () => {
     expect(await screen.findByText("You have used today's test calls.")).toBeTruthy();
   });
 
-  it("shows the build as its real steps, the one being worked on named by what it does", async () => {
-    const building = run({
-      jobs: ["answer_calls"],
-      language_primary: "te-IN",
-      brief: "We sell flats in Kondapur.",
-      build: { ...run().build, status: "building" },
-    });
-    await renderClientPage(page, routes({ "/v1/first-run": building }));
-    const list = await screen.findByRole("region", { name: "Your agent being built" });
-    // No picture (D-918): each step is a row with what is happening, in words.
-    expect(within(list).queryByRole("img")).toBeNull();
-    expect(within(list).getAllByText("Choosing a voice for Telugu").length).toBeGreaterThan(0);
-    expect(within(list).getByText("Working on it:")).toBeTruthy();
-    expect(within(list).getAllByText("Waiting:")).toHaveLength(3);
-    expect(within(list).getByText("AI notice")).toBeTruthy();
-  });
-
-  it("names a file the build went without, with a way to try another", async () => {
-    const DOC = "0192f3a4-0000-7000-8000-00000000d001";
-    const steps = run().build.steps.map((step) =>
-      step.step === "script"
-        ? { ...step, state: "done", left_out: [{ upload_id: DOC, why: "failed" as const }] }
-        : { ...step, state: "done" },
-    );
-    const done = built({
-      build: { status: "built", steps, disclosure: null, builds_left: 2 },
-      documents: [
-        { upload_id: DOC, name: "menu.jpg", source_kind: "image", state: "failed", detail: "No words found.", reaches_agents: true },
-      ],
-      documents_left: 2,
-    });
-    await renderClientPage(
-      page,
-      routes({
-        "/v1/first-run": done,
-        "/v1/agents": [agent()],
-        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
-        "/v1/trial": TRIAL,
-        "/v1/legal/readiness": READINESS,
-        "/v1/compliance/outbound-pledge": PLEDGE,
-      }),
-    );
-    await screen.findByRole("heading", { name: "Hear Anjali on your phone" });
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    expect(await screen.findByText("Built without menu.jpg: couldn't read it.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Try another file" })).toBeTruthy();
-  });
-
-  it("reads the brief on the stage while the questions are written, with a way to build at once", async () => {
+  it("reads the brief on the stage while the questions are written, with a way to go on at once", async () => {
     const reading = run({
       jobs: ["answer_calls"],
       language_primary: "te-IN",
@@ -986,10 +829,10 @@ describe("meet your agent", () => {
     expect(await screen.findByRole("region", { name: "Reading what you wrote" })).toBeTruthy();
     const stage = screen.getByRole("region", { name: "Reading what you wrote" });
     expect(within(stage).getByText("We sell flats in Kondapur.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Skip the questions and build/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Skip the questions/ })).toBeTruthy();
   });
 
-  it("says the questions could not be written, with a retry and a way to build", async () => {
+  it("says the questions could not be written, with a retry and a way on", async () => {
     const failed = run({
       jobs: ["answer_calls"],
       language_primary: "te-IN",
@@ -1002,7 +845,7 @@ describe("meet your agent", () => {
     );
     expect(await screen.findByRole("heading", { name: "We couldn't write your questions" })).toBeTruthy();
     expect(screen.queryByText("Your description covers it")).toBeNull();
-    expect(screen.getByRole("button", { name: /Build my agent/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Continue/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Try again/ }));
     await waitFor(() =>
       expect(calls.some((call) => call.method === "PUT" && call.path === "/v1/first-run/brief")).toBe(true),
@@ -1051,15 +894,17 @@ describe("meet your agent", () => {
     });
     const { calls } = await renderClientPage(
       page,
-      routes({ "/v1/first-run": asked, "POST /v1/first-run/answers": asked, "POST /v1/first-run/build": asked }),
+      routes({ "/v1/first-run": asked, "POST /v1/first-run/answers": asked }),
     );
     expect(await screen.findByText("Mon to Sat, 9am to 6pm")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Build my agent/ }));
-    await waitFor(() => expect(calls.some((call) => call.path === "/v1/first-run/build")).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    // The answers saved, the next step is the agent's name and voice; nothing is built.
+    expect(await screen.findByRole("heading", { name: "Name your agent and pick its voice" })).toBeTruthy();
     const sent = calls.find((call) => call.path === "/v1/first-run/answers");
     expect(JSON.parse(sent?.body ?? "{}")).toEqual({
       answers: [{ id: "q1", hours: { opens: "09:00", closes: "18:00", closed: ["sun"] } }],
     });
+    expect(calls.some((call) => call.path === "/v1/first-run/build")).toBe(false);
   });
 
   it("reads the first call back in one column, with one next step", async () => {
@@ -1124,15 +969,16 @@ describe("meet your agent", () => {
     expect(screen.getByText("120")).toBeTruthy();
     // The card beside the steps and its counter restate steps 1 and 2; they are gone here.
     expect(screen.queryByRole("complementary", { name: "Your agent as it takes shape" })).toBeNull();
-    expect(screen.queryByText(/of 9 ready/)).toBeNull();
+    expect(screen.queryByText(/of 7 ready/)).toBeNull();
     expect(screen.queryByText("Version one")).toBeNull();
     // One primary action; the rest are quiet links.
     expect(screen.getByRole("button", { name: /Make it yours/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Call me again/ })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Change what it says/ }).getAttribute("href")).toBe("/c/acme/inbound");
+    expect(screen.getByRole("link", { name: /Change what it says/ }).getAttribute("href")).toBe(`/c/acme/inbound/${LINE_ID}`);
+    expect(screen.getByRole("link", { name: /How they speak/ }).getAttribute("href")).toBe("/c/acme/knowledge?tab=speak");
     // The conversation is there, folded.
     expect(screen.getByRole("heading", { name: "Read the whole conversation" })).toBeTruthy();
-    expect(screen.getByText("Step 3 of 4 ·", { exact: false })).toBeTruthy();
+    expect(screen.getByText("Step 4 of 4 ·", { exact: false })).toBeTruthy();
   });
 
   it("refuses a member who may not build agents, in the console's own words", async () => {

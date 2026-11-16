@@ -36,10 +36,15 @@ export const questionsKey = (org: string, campaignId: string) => ["campaign-ques
 
 const base = (campaignId: string) => `/v1/campaigns/${encodeURIComponent(campaignId)}`;
 
-export function useCampaignWorkspace(session: Session, campaignId: string): UseQueryResult<CampaignWorkspace> {
+export function useCampaignWorkspace(
+  session: Session,
+  campaignId: string,
+  enabled = true,
+): UseQueryResult<CampaignWorkspace> {
   return useQuery({
     queryKey: workspaceKey(session.orgSlug, campaignId),
     queryFn: () => apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/workspace`),
+    enabled,
     refetchInterval: untilRefused((query) => (query.state.data?.proposal?.status === "drafting" ? PIP_POLL_MS : false)),
   });
 }
