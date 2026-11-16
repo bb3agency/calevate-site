@@ -22,7 +22,7 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
 import { briefProblem, briefValue } from "./BriefFields";
-import { windowRefusal } from "./NewCampaignFlow";
+import { windowRefusal } from "./callingWindow";
 import { BasicsStep, PaceFields, campaignNumbers } from "./NewCampaignSteps";
 import { clampConcurrency, concurrencyCap, useCampaignForm } from "./campaignForm";
 

@@ -15,20 +15,16 @@ import {
   Skeleton,
   formatCount,
   formatPhone,
-  formatCountOf,
 } from "@/components/ui";
 import { shortDay, useCallingNumbers, type CallingNumberDeclaration } from "@/lib/api/autodialerNotice";
 import { type CampaignProgress, type useCampaignProgress, type useLaunchCheck } from "@/lib/api/campaigns";
-import { useCampaignPurpose, type CampaignPurpose } from "@/lib/api/compliancePack";
 import { useClientRealm } from "@/lib/api/session";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
 
-import { AtOnceHint } from "./CampaignSettings";
 import { ConsentProvenanceAnswer, MANDATORY_NOTE } from "./ConsentProvenance";
 import { FoldSection } from "./FoldSection";
 import { complianceCardId } from "./StartCampaign";
 import { LaunchConfirm } from "./LaunchConfirm";
-import { callingHoursText } from "./campaignProgress";
 import { CONSENT_SOURCES } from "./choices";
 import { Why } from "@/components/why";
 import {
@@ -78,8 +74,6 @@ export function LaunchGate({
 }) {
   const { href, session } = useClientRealm();
   const declaration = useCallingNumbers(session);
-  // What kind of call the client's choices make this (D-943): said, never blocking by itself.
-  const purpose = useCampaignPurpose(session, campaignId);
   // Unknown (null) until the registration read lands: the rule's own copy stands meanwhile.
   const registration = usePeRegistration(session).data;
   const promotionalOpen = registration ? registration.calevate_tm_active === true : null;
@@ -87,7 +81,7 @@ export function LaunchGate({
   // A scheduled campaign has not launched either; the same gate runs when it fires.
   // Started: the same section, showing what was answered before it went out.
   if (status !== "draft" && status !== "scheduled") {
-    return <ComplianceRecord campaignId={campaignId} progress={progress.data} purpose={purpose.data?.purpose} />;
+    return <ComplianceRecord campaignId={campaignId} progress={progress.data} />;
   }
 
   const blockers = check.data?.blockers ?? [];
@@ -164,7 +158,7 @@ export function LaunchGate({
         ) : undefined
       }
     >
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-8">
+        <div>
         <div className="min-w-0">
         <p className="text-meta text-ink-muted">Required by law before any call goes out.</p>
         <p className="text-meta text-ink-muted">It cannot start until each one is answered.</p>
@@ -209,7 +203,6 @@ export function LaunchGate({
           )}
         </div>
         </div>
-        {progress.data && <LaunchSummary progress={progress.data} purpose={purpose.data?.purpose} />}
         </div>
     </FoldSection>
   );
@@ -219,11 +212,9 @@ export function LaunchGate({
 function ComplianceRecord({
   campaignId,
   progress,
-  purpose,
 }: {
   campaignId: string;
   progress: CampaignProgress | undefined;
-  purpose: CampaignPurpose["purpose"] | undefined;
 }) {
   const source = CONSENT_SOURCES.find((choice) => choice.value === progress?.consent_source)?.label;
   const collected = progress?.consent_collected_at
@@ -238,7 +229,7 @@ function ComplianceRecord({
       tone="compliance"
       aside={<span className="font-medium text-brand-strong">Answered before it started</span>}
     >
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-8">
+      <div>
         <div className="min-w-0 space-y-3">
           <p className="text-meta text-ink-muted">{MANDATORY_NOTE}</p>
           <div>
@@ -253,68 +244,8 @@ function ComplianceRecord({
             Every check passed before the first call.
           </p>
         </div>
-        {progress && <LaunchSummary progress={progress} purpose={purpose} />}
       </div>
     </FoldSection>
-  );
-}
-
-/**
- * WHAT PRESSING CALL WILL DO, beside the button: how many people, how many at once, the
- * hours, the number, and the kind of call the campaign's own choices make it. A review
- * step restates the send before it happens; here it sits beside the button rather than
- * behind a second confirmation (founder, 4 Nov 2026: one press, pause is the way back).
- */
-function LaunchSummary({
-  progress,
-  purpose,
-}: {
-  progress: CampaignProgress;
-  purpose: CampaignPurpose["purpose"] | undefined;
-}) {
-  const source = CONSENT_SOURCES.find((choice) => choice.value === progress.consent_source)?.label;
-  return (
-    <dl
-      role="group"
-      aria-label="What launching does"
-      className="grid h-fit grid-cols-2 gap-x-4 gap-y-4 border-t border-line pt-4 sm:grid-cols-4 lg:grid-cols-1 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0"
-    >
-      <SummaryFact label="People">{formatCountOf(progress.total, "person", "people")}</SummaryFact>
-      <SummaryFact label="Calls at once">
-        Up to {formatCount(progress.effective_concurrency)}
-        <AtOnceHint progress={progress} />
-      </SummaryFact>
-      <SummaryFact label="Calling hours">{callingHoursText(progress)}</SummaryFact>
-      <SummaryFact label="Calling from">
-        {progress.number_e164 ? formatPhone(progress.number_e164) : "Your agent's number"}
-      </SummaryFact>
-      {purpose && purpose.purpose !== "unclear" && (
-        <SummaryFact label="Kind of call" wide>
-          {purpose.label}
-          {/* The window is the regulation's, stated rather than enforced: a list carries
-              one declared date, so the gate cannot check each person's (D-943). */}
-          {purpose.window ? (
-            <span className="block text-meta text-ink-muted">Permission lasts {purpose.window}.</span>
-          ) : null}
-          <span className="block text-meta text-ink-muted">
-            <Why inline>
-              {purpose.explanation}
-              {source ? ` Your list: ${source}.` : ""}
-              {purpose.window ? " We don't check each person's date for you." : ""}
-            </Why>
-          </span>
-        </SummaryFact>
-      )}
-    </dl>
-  );
-}
-
-function SummaryFact({ label, wide = false, children }: { label: string; wide?: boolean; children: ReactNode }) {
-  return (
-    <div className={`min-w-0 ${wide ? "col-span-2 sm:col-span-4 lg:col-span-1" : ""}`}>
-      <dt className="text-meta text-ink-muted">{label}</dt>
-      <dd className="mt-0.5 text-body font-medium text-ink [overflow-wrap:anywhere]">{children}</dd>
-    </div>
   );
 }
 

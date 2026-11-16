@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.35 — 16-Nov-2026
+
+- A campaign's agent, calling hours and retries can be changed while it runs or is paused.
+  A new agent takes the campaign's script straight away; if that agent is already speaking
+  another campaign, the change is refused and the old agent stays.
+- The compliance section no longer repeats people, calls at once, hours, number and kind of
+  call beside the checks.
+- The old step-by-step new-campaign form is gone; Add people is the one way to add a list.
+
 ## 0.4.34 — 16-Nov-2026
 
 - Set up shows every section whatever the campaign's state, including Add people and the

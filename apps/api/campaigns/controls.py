@@ -78,6 +78,12 @@ _EDITABLE = (
 )
 _JSON_COLUMNS = frozenset({"calling_hours", "retry_policy"})
 
+#: What may change after a campaign has started (founder, 16 Nov 2026). Who it calls for,
+#: from which number and as which kind of call stay as launched: the compliance gate passed
+#: on those, and the dial-time check re-reads the agent, the hours and the tries each time.
+STARTED_EDITABLE = frozenset({"name", "agent_id", "calling_hours", "retry_policy"})
+STARTED_STATUSES = ("scheduled", "running", "paused")
+
 #: Contact statuses that mean "this person was never reached": still waiting, or the tries
 #: ran out. `connected` was reached and `dnc_blocked` asked not to be called; `dialing` is a
 #: call in progress. `no_answer` is in the CHECK and written by nothing, kept here so a row
@@ -113,11 +119,12 @@ def _not_a_draft(status: str, action: str) -> ProblemError:
 async def update_draft(
     session: AsyncSession, *, campaign_id: UUID, changes: dict[str, Any]
 ) -> list[str]:
-    """Change a draft's settings. Returns the names of the columns written.
+    """Change a campaign's settings. Returns the names of the columns written.
 
-    Only a DRAFT: a scheduled campaign is a start somebody already authorised, and changing
-    who it calls with or how often behind that authorisation would make the start mean
-    something else. Every id is resolved under the caller's own RLS before it is stored
+    A draft takes every setting. Once started (scheduled, running, paused) only
+    `STARTED_EDITABLE`: the agent, the calling hours and the retries. A new agent on a started
+    campaign must also be given the campaign's script, which the route does
+    (`routes.update_campaign`). Every id is resolved under the caller's own RLS before it is stored
     (`db/ownership.py`), and the agent must still be assignable (D-440), exactly as at create.
     A name changed on its own is a rename and goes through in any status (`rename_campaign`).
     """
@@ -157,12 +164,25 @@ async def update_draft(
     result = await session.execute(
         text(
             f"UPDATE campaigns SET {', '.join(assignments)}, updated_at = now() "
-            "WHERE id = :cid AND status = 'draft'"
+            "WHERE id = :cid AND status = ANY(:statuses)"
         ),
-        params,
+        {
+            **params,
+            "statuses": ["draft", *STARTED_STATUSES]
+            if set(values) <= STARTED_EDITABLE
+            else ["draft"],
+        },
     )
     if rowcount_of(result) == 0:
-        raise _not_a_draft(await _status_or_404(session, campaign_id), "edited")
+        status = await _status_or_404(session, campaign_id)
+        if status in STARTED_STATUSES:
+            raise ProblemError.business_rule(
+                "campaign_started",
+                "Once it has started, only the agent, the calling hours and the retries "
+                "can change.",
+                remediation="Duplicate it to change anything else.",
+            )
+        raise _not_a_draft(status, "edited")
     if {"purpose", "goal", "agent_id"} & set(values):
         # Why a campaign calls is part of what its agent does (`agents/caller_help`).
         owner = (

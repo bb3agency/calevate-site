@@ -187,6 +187,9 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
     />
   );
 
+  // People, the agent, hours and retries change until it stops (founder, 16 Nov 2026).
+  const changeable = status === "draft" || status === "scheduled" || status === "running" || status === "paused";
+
   // In the row beside Collapse all / Expand all, after Start (founder, 16 Nov 2026).
   const campaignActions = (
     <CampaignHeaderActions
@@ -354,7 +357,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               <AgentSection
                 campaignId={campaignId}
                 agentId={data.agent_id}
-                editable={status === "draft"}
+                editable={changeable}
                 canWrite={write.allowed}
                 refusal={refusal}
               />
@@ -362,7 +365,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               {/* People to call: an Excel or CSV file, pasted rows, or one name and number at a
                   time, until it stops (founder, 16 Nov 2026: people may join mid-campaign). */}
               <DraftPeople
-                adding={status === "draft" || status === "scheduled" || status === "running" || status === "paused"}
+                adding={changeable}
                 slug={slug}
                 campaignId={campaignId}
                 maxAttempts={data.retry_policy.max_attempts}
@@ -385,7 +388,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               />
               <OtherCallSettings
                 campaignId={campaignId}
-                editable={status === "draft"}
+                editable={changeable}
                 callingHours={data.calling_hours}
                 retryPolicy={data.retry_policy}
                 canWrite={write.allowed}

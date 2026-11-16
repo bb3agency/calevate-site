@@ -139,7 +139,7 @@ export function AnsweringMock() {
 /* --------------------------------------------------------------------- follow-up */
 
 /**
- * Follow-up — the "New campaign" form's contact box (`campaigns/NewCampaignFlow.tsx`:
+ * Follow-up — the "New campaign" form's contact box (`campaigns/ContactEditor.tsx`:
  * "Contact list", "Paste your CSV, or one number per line.", "Calls at the same time"),
  * a web enquiry becoming a first call (the homepage's `FollowUpMini`), and the running
  * campaign (`CampaignBoardMock`, `campaigns/CampaignScreen.tsx`).

@@ -461,7 +461,7 @@ export function AgentSection({
           disabled={!canWrite || !editable || update.isPending}
         />
       )}
-      {!editable && <p className="text-meta text-ink-muted">The agent can change only while it is a draft.</p>}
+      {!editable && <p className="text-meta text-ink-muted">It has stopped, so the agent no longer changes.</p>}
       {update.error != null && <ProblemNotice error={update.error} />}
       <CampaignVoiceSettings campaignId={campaignId} agentId={agentId} canWrite={canWrite} refusal={refusal} />
     </div>

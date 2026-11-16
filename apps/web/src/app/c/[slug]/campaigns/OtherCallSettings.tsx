@@ -22,7 +22,7 @@ import { useClientRealm } from "@/lib/api/session";
 
 import { FoldSection } from "./FoldSection";
 
-import { PLATFORM_WINDOW, windowRefusal } from "./NewCampaignFlow";
+import { PLATFORM_WINDOW, windowRefusal } from "./callingWindow";
 
 const DAY_MINUTES = 1440;
 const MAX_DAYS = 5;
@@ -42,7 +42,7 @@ export function OtherCallSettings({
   startLater,
 }: {
   campaignId: string;
-  /** Hours and retries change while the campaign is a draft. */
+  /** Hours and retries change until the campaign stops. */
   editable: boolean;
   callingHours: { start: string; end: string } | null | undefined;
   retryPolicy: { max_attempts: number; gaps_minutes?: number[] };
@@ -78,7 +78,7 @@ export function OtherCallSettings({
   return (
     <FoldSection title="Other call settings" tone="settings">
       {!editable && (
-        <p className="mb-3 text-meta text-ink-muted">These can be changed while the campaign is a draft.</p>
+        <p className="mb-3 text-meta text-ink-muted">It has stopped, so these no longer change anything.</p>
       )}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">

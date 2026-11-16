@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PLATFORM_WINDOW, windowRefusal } from "@/app/c/[slug]/campaigns/NewCampaignFlow";
+import { PLATFORM_WINDOW, windowRefusal } from "@/app/c/[slug]/campaigns/callingWindow";
 
 /**
  * The "When should we call?" step refuses a narrowed calling window the server would refuse

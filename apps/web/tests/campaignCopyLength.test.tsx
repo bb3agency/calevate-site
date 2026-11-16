@@ -11,7 +11,7 @@ import {
 import { campaignRun, runSentence } from "@/app/c/[slug]/campaigns/campaignProgress";
 import { CONSENT_SOURCES } from "@/app/c/[slug]/campaigns/choices";
 import { COLUMNS_HINT, FILE_HINT } from "@/app/c/[slug]/campaigns/ContactEditor";
-import { windowRefusal } from "@/app/c/[slug]/campaigns/NewCampaignFlow";
+import { windowRefusal } from "@/app/c/[slug]/campaigns/callingWindow";
 import { REPEAT_SKIPS, START_GIVES_UP, fireTimeLine } from "@/app/c/[slug]/campaigns/scheduleCopy";
 import type { CampaignProgress, CampaignSummary, LaunchCheck } from "@/lib/api/campaigns";
 import type { Me } from "@/lib/api/client";

@@ -188,7 +188,7 @@ describe("every screen that uses a term explains it", () => {
     "src/app/c/[slug]/campaigns/campaignsCopilotSurface.ts:dlt":
       "Not screen copy: it is the LABEL of a control this screen declares to the " +
       "assistant, and the screen glosses the term where a person reads it — " +
-      "`campaigns/NewCampaignFlow.tsx` and `campaigns/blockerCopy.tsx`. Same case as " +
+      "`campaigns/blockerCopy.tsx`. Same case as " +
       "`admin/ops/OpsSurface.tsx:tm` above, and a `.ts` data module producing plain " +
       "strings for a model cannot hold an element anyway.",
     "src/app/c/[slug]/campaigns/campaignsCopilotSurface.ts:series140":

@@ -46,6 +46,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
 from apps.api.core.schemas import MAX_OFFSET, Instant, Strict
 from apps.api.crm.schemas import LeadLensIn
+from apps.api.db.session import tenant_session
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, read_workspace_state
 
 router = APIRouter(prefix="/v1/campaigns", tags=["campaigns"])
@@ -1393,13 +1394,43 @@ async def resume(
         )
 
 
+async def _update_settings(
+    session: AsyncSession, principal: Principal, campaign_id: UUID, changes: dict[str, Any]
+) -> list[str]:
+    """A new agent on a started campaign takes the campaign's script at once, so its next call
+    says what the campaign says. The change is committed in its own transaction first, because
+    `put_script_live` reads the campaign in another session; if the new agent cannot take the
+    script (another campaign holds it) the old agent is put back and the refusal stands."""
+    assert principal.tenant_id is not None
+    row = (
+        await session.execute(
+            text("SELECT status, agent_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
+        )
+    ).first()
+    started = row is not None and str(row[0]) in controls.STARTED_STATUSES
+    if not started or "agent_id" not in changes or changes["agent_id"] == row[1]:
+        return await controls.update_draft(session, campaign_id=campaign_id, changes=changes)
+    async with tenant_session(principal.tenant_id) as own:
+        written = await controls.update_draft(own, campaign_id=campaign_id, changes=changes)
+    try:
+        await _put_campaign_script_live(session, principal, campaign_id)
+    except ProblemError:
+        async with tenant_session(principal.tenant_id) as own:
+            await own.execute(
+                text("UPDATE campaigns SET agent_id = :a WHERE id = :c"),
+                {"a": row[1], "c": campaign_id},
+            )
+        raise
+    return written
+
+
 @router.patch(
     "/{campaign_id}",
     status_code=204,
     openapi_extra=permission_meta("leads:dispatch"),
     summary=(
-        "Rename a campaign in any status, or change a draft's settings: purpose, goal, agent, "
-        "number, hours, calls at once, retries"
+        "Rename a campaign in any status, change a draft's settings, or a started campaign's "
+        "agent, hours and retries"
     ),
 )
 async def update_campaign(
@@ -1409,7 +1440,8 @@ async def update_campaign(
     request: Request,
     principal: Principal = Depends(requires("leads:dispatch")),
 ) -> None:
-    """Drafts only (`controls.update_draft`), except a name sent alone. Audited with the
+    """Every setting on a draft; the agent, hours and retries once started
+    (`controls.update_draft`); a name alone in any status. Audited with the
     names of the fields changed, not their values: who changed which setting is the question
     an audit answers."""
     assert principal.tenant_id is not None
@@ -1433,7 +1465,7 @@ async def update_campaign(
             changes[field] = _retry_policy(value)
         else:
             changes[field] = value
-    written = await controls.update_draft(session, campaign_id=campaign_id, changes=changes)
+    written = await _update_settings(session, principal, campaign_id, changes)
     if written:
         await write_audit(
             session,
