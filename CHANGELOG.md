@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.53 — 16-Nov-2026
+
+- Call flow: the chosen step's panel has a Step number to move it, Insert a step after, and
+  Add Yes / No, which adds "They say yes" (to the next step) and "They say no" (end the call)
+  as ways out to change as needed. Its ways out show open from the start.
+
 ## 0.4.52 — 16-Nov-2026
 
 - Test call: a test call still ringing or on the line has an End call button, which hangs it

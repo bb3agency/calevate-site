@@ -12,7 +12,7 @@
  * above, like any script Pip writes.
  */
 
-import { ChevronDown, Maximize2, Plus, Workflow, X } from "lucide-react";
+import { ChevronDown, GitBranch, Maximize2, Plus, Workflow, X } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -26,6 +26,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { SectionEditor } from "../agents/[agentId]/script/SectionEditor";
 import { SectionList } from "../agents/[agentId]/script/SectionList";
 import {
+  END,
   addSection,
   connect,
   limitsFrom,
@@ -118,7 +119,67 @@ export function CampaignFlow({
         edit((s) => removeSection(s, selectedSection.id));
         setSelected(null);
       }}
+      optionsOpenAtFirst
     />
+  );
+  // The chosen step's quick moves (founder, 16 Nov 2026: change the step number, insert steps
+  // in between, and "if yes, do this; if no, do this").
+  const insertAfter = () => {
+    const made = addSection(draft, {}, selectedIndex + 1);
+    setDraft(made.script);
+    setSelected(made.id);
+  };
+  const addYesNo = () => {
+    if (!selectedSection) return;
+    const next = sections[selectedIndex + 1]?.id ?? END;
+    edit((s) =>
+      updateSection(s, selectedSection.id, {
+        branches: [
+          ...selectedSection.branches,
+          { when: "They say yes", target: next },
+          { when: "They say no", target: END },
+        ].slice(0, limits.maxBranches),
+      }),
+    );
+  };
+  const stepTools = selectedSection && !readOnly && (
+    <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
+      <label className="flex items-center gap-1.5 text-meta font-medium text-ink">
+        Step
+        <select
+          aria-label="Step number"
+          className="rounded border border-line bg-surface px-1.5 py-0.5 text-meta text-ink"
+          value={selectedIndex}
+          onChange={(e) => edit((s) => moveSection(s, selectedIndex, Number(e.target.value)))}
+        >
+          {sections.map((_, i) => (
+            <option key={i} value={i}>
+              {i + 1}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        className={SECONDARY_BUTTON_SM}
+        disabled={sections.length >= limits.maxSections}
+        title={sections.length >= limits.maxSections ? `Up to ${limits.maxSections} steps.` : undefined}
+        onClick={insertAfter}
+      >
+        <Plus aria-hidden className="h-3.5 w-3.5" />
+        Insert a step after
+      </button>
+      <button
+        type="button"
+        className={SECONDARY_BUTTON_SM}
+        disabled={selectedSection.branches.length + 2 > limits.maxBranches}
+        title="Adds two ways out: yes goes to the next step, no ends the call. Change either below."
+        onClick={addYesNo}
+      >
+        <GitBranch aria-hidden className="h-3.5 w-3.5" />
+        Add Yes / No
+      </button>
+    </div>
   );
   const addStep = () => {
     const made = addSection(draft);
@@ -181,7 +242,10 @@ export function CampaignFlow({
         <aside aria-label="Edit the chosen step" className="min-w-0 self-start rounded-card border border-line bg-surface">
           {selectedSection ? (
             <>
-              <p className="border-b border-line px-4 py-3 text-body font-semibold text-ink">Step {selectedIndex + 1}</p>
+              <p className="border-b border-line px-4 py-3 text-body font-semibold text-ink">
+                Step {selectedIndex + 1}: {selectedSection.name}
+              </p>
+              {stepTools}
               <div className="p-4">{editor}</div>
             </>
           ) : (

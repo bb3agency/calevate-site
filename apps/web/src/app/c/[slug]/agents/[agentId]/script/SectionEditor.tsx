@@ -39,7 +39,10 @@ export function SectionEditor({
   onChange,
   onMove,
   onDelete,
+  optionsOpenAtFirst = false,
 }: {
+  /** Opens More options (the ways out) from the start, as the campaign's Call flow does. */
+  optionsOpenAtFirst?: boolean;
   section: Section;
   index: number;
   sections: Section[];
@@ -73,7 +76,7 @@ export function SectionEditor({
   // moment the owner finished the field that opened it. So a needed fix opens it, and only
   // the owner closes it.
   const needsFix = routeErrors || stepIssues.length > 0;
-  const [optionsOpen, setOptionsOpen] = useState(needsFix);
+  const [optionsOpen, setOptionsOpen] = useState(needsFix || optionsOpenAtFirst);
   const [neededFix, setNeededFix] = useState(needsFix);
   if (needsFix !== neededFix) {
     setNeededFix(needsFix);
