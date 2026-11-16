@@ -1,7 +1,7 @@
 """A test copy records whether it holds "Just the business"
 
 Revision ID: e1c4a7b9d2f6
-Revises: d8b2f5a7c3e1
+Revises: e3c7a1d9b4f2
 Create Date: 2026-11-16 18:00:00.000000
 
 The agent page's Try it tries an agent on "just the business" (founder, 16 Nov 2026): the
@@ -23,7 +23,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e1c4a7b9d2f6"
-down_revision: str | None = "d8b2f5a7c3e1"
+down_revision: str | None = "e3c7a1d9b4f2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

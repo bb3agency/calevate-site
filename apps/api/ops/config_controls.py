@@ -64,6 +64,7 @@ FREE_TEXT: Final[dict[str, str]] = {
         "a model id or console name from ThinnestAI's live list, checked when it is saved"
     ),
     "object_store_bucket": "a bucket name chosen when the storage was created",
+    "healer_shadow_playbooks": "playbook keys from the healer's own list, checked by its pattern",
     "copilot_upload_bucket": "the name of Pip's uploads bucket, chosen when it was created",
     "copilot_upload_access_key_id": "an access key id issued with the uploads bucket's R2 token",
     "thinnest_action_source_ips": "a list of network addresses ThinnestAI tells us it calls from",
