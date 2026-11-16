@@ -200,6 +200,14 @@ from apps.api.billing.engine_minutes import (
     attested_rate_keys,
     record_engine_rate_key,
 )
+from apps.api.compliance.autodialer import (
+    A2P_DECLARATION_MISSING_RULE,
+    A2P_DECLARATION_NOT_YET_EFFECTIVE_RULE,
+    A2P_NUMBER_UNDECLARED_RULE,
+    a2p_declaration_blocker,
+    agent_calling_numbers,
+    enforcement_active,
+)
 from apps.api.compliance.caller_memory import MEMORY_ON_SQL
 from apps.api.compliance.dnc_recall import RECALL_CAUSE_CONSENT, enqueue_dnc_recall
 from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_dnc_refusal
@@ -318,6 +326,12 @@ DIAL_NOT_PLACED_CODES = frozenset(
         # The campaign's chosen number is no longer one its agent can call from
         # (`resolve_caller_id`). Raised before the intent row, so no line was seized.
         CAMPAIGN_NUMBER_UNAVAILABLE_CODE,
+        # The number the dial would present is not covered by the client's calling-number
+        # declaration (D-941, `_refuse_undeclared_caller`). Raised before the intent row; an
+        # account-level fact the client fixes, so the contact keeps its place.
+        A2P_DECLARATION_MISSING_RULE,
+        A2P_DECLARATION_NOT_YET_EFFECTIVE_RULE,
+        A2P_NUMBER_UNDECLARED_RULE,
         # The dial arrived without the truthful-answer rule on it, or reached an engine
         # that has nowhere to put one (D-282). Refused inside the adapter before the
         # request is built, so no line was seized and the contact keeps its place — the
@@ -4845,6 +4859,52 @@ async def choose_caller_line(
     return lines[0] if lines else None
 
 
+async def presented_caller_ids(
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    number_id: UUID | None = None,
+    campaign_ref: str | None = None,
+) -> list[str]:
+    """The numbers a dial of this agent can present, for the calling-number declaration
+    (D-941): the one `dispatch_call` would choose (`choose_caller_line`, or `_campaign_caller`
+    for a dial through a campaign's engine agent), including a client number lent to an agent
+    with none of its own; or, when it names none and the engine rings from the agent's own
+    line, every number the agent holds. The agent's own numbers alone are the wrong set both
+    ways: they refuse an agent that borrows a declared number, and pass a dial that presents
+    an undeclared one. Empty when no number can be named, which the declaration refuses."""
+    try:
+        line = (
+            await _campaign_caller(session, agent_id=agent_id, number_id=number_id, ref=campaign_ref)
+            if campaign_ref is not None
+            else await choose_caller_line(session, agent_id=agent_id, number_id=number_id)
+        )
+    except ProblemError:
+        return []
+    if line is not None:
+        return [line.e164]
+    return await agent_calling_numbers(session, agent_id=agent_id)
+
+
+async def _refuse_undeclared_caller(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, line: CallerLine | None
+) -> None:
+    """The declaration asked of the number this dial actually presents, at the one place it
+    is known. `check_dispatch` asks it before any dial without the campaign's chosen number,
+    so a campaign dialling from a client number its agent does not hold, or a number lent
+    since the gate, is caught here. Raised before the intent row, so nothing was seized."""
+    if not enforcement_active():
+        return
+    presented = (
+        [line.e164] if line is not None else await agent_calling_numbers(session, agent_id=agent_id)
+    )
+    undeclared = await a2p_declaration_blocker(session, tenant_id=tenant_id, caller_ids=presented)
+    if undeclared is not None:
+        rule, reason = undeclared
+        log.info("dial_refused_undeclared_number", extra={"agent_id": str(agent_id), "rule": rule})
+        raise ProblemError.business_rule(rule, reason)
+
+
 async def _line_test_caller(
     session: AsyncSession, *, agent_id: UUID, test: LineTestDial
 ) -> CallerLine | None:
@@ -5267,6 +5327,9 @@ async def dispatch_call(
         if line_test is not None
         else await choose_caller_line(session, agent_id=agent_id, number_id=number_id)
     )
+    if trial is None and owner_test is None:
+        # A test call is asked by the gate itself (`a2p_dial_blocker(trial_call=True)`).
+        await _refuse_undeclared_caller(session, tenant_id=tenant_id, agent_id=agent_id, line=line)
     from_e164 = trial.from_e164 if trial is not None else line.e164 if line else None
     # Another agent's number on an engine that rings only from numbers lent to the caller:
     # held for this call and lent to it just before the dial (`_lend_client_number`).

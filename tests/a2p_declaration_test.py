@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from apps.api.agents import service as agents_service
 from apps.api.announcements.service import active_for
 from apps.api.campaigns import service as campaigns
 from apps.api.compliance import autodialer
@@ -263,17 +264,85 @@ async def test_a_number_missing_from_the_declaration_is_refused(
     assert decision.rule == A2P_NUMBER_UNDECLARED_RULE
 
 
-async def test_an_agent_with_no_number_cannot_show_a_declared_one(
+async def test_an_agent_with_no_number_is_asked_about_the_number_it_borrows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """An agent with no number of its own rings from its client's number, lent for the call
+    (D-793), so that number is what the declaration must cover."""
     _today(monkeypatch, ENFORCED)
     tenant_id, agent_id = await _tenant("a2p-none")
-    await _declare(tenant_id, await _agent_numbers(tenant_id, agent_id))
+    declared = await _agent_numbers(tenant_id, agent_id)
+    await _declare(tenant_id, declared)
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE phone_numbers SET agent_id = NULL WHERE agent_id = :a"), {"a": agent_id}
         )
+    decision = await _gate(tenant_id, agent_id)
+    assert decision.allowed is True, decision.rule
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE phone_numbers SET released_at = now() WHERE e164 = ANY(:n)"),
+            {"n": declared},
+        )
     assert (await _gate(tenant_id, agent_id)).rule == A2P_NUMBER_UNDECLARED_RULE
+
+
+async def _second_number(tenant_id: uuid.UUID) -> tuple[uuid.UUID, str]:
+    """A number of the client's that its agent does not hold."""
+    number_id, e164 = uuid.uuid4(), f"+9180{uuid.uuid4().int % 100000000:08d}"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO phone_numbers (id, tenant_id, e164, series, created_at, updated_at) "
+                "VALUES (:id, :t, :e, '160', now(), now())"
+            ),
+            {"id": number_id, "t": tenant_id, "e": e164},
+        )
+    return number_id, e164
+
+
+async def test_a_campaigns_chosen_number_is_the_one_asked_at_launch_and_at_the_dial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The agent's own number is declared; the campaign calls from another of the client's
+    numbers, which is not. Asking the agent's numbers passed it, and the call rang from an
+    undeclared number."""
+    _today(monkeypatch, ENFORCED)
+    tenant_id, agent_id = await _tenant("a2p-chosen")
+    await _declare(tenant_id, await _agent_numbers(tenant_id, agent_id))
+    chosen_id, _ = await _second_number(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        refused = await a2p_dial_blocker(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            trial_call=False,
+            own_number_attested=False,
+            number_id=chosen_id,
+        )
+        await session.execute(
+            text(
+                "UPDATE agents SET engine_agent_ref = COALESCE(engine_agent_ref, 'a2p-ref') "
+                "WHERE id = :a"
+            ),
+            {"a": agent_id},
+        )
+    assert refused is not None and refused[0] == A2P_NUMBER_UNDECLARED_RULE
+
+    with pytest.raises(ProblemError) as excinfo:
+        async with tenant_session(tenant_id) as session:
+            await agents_service.dispatch_call(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                lead_id=None,
+                phone_e164=_fresh_phone(),
+                number_id=chosen_id,
+            )
+    assert excinfo.value.code == A2P_NUMBER_UNDECLARED_RULE
+    assert agents_service.dial_was_not_placed(excinfo.value)
+    async with tenant_session(tenant_id) as session:
+        assert (await session.execute(text("SELECT count(*) FROM calls"))).scalar_one() == 0
 
 
 async def test_a_future_dated_declaration_counts_from_its_date(

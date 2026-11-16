@@ -1278,12 +1278,23 @@ async def check_dispatch(
     # an account-level one: a client should read "do not call this person" first, and a
     # campaign contact refused here stays pending rather than settled (it is transient).
     if places_call:
+        campaign_ref = (
+            None
+            if campaign_id is None or trial_call
+            else (
+                await session.execute(
+                    text("SELECT engine_agent_ref FROM campaigns WHERE id = :cid"),
+                    {"cid": campaign_id},
+                )
+            ).scalar_one_or_none()
+        )
         undeclared = await a2p_dial_blocker(
             session,
             tenant_id=tenant_id,
             agent_id=agent_id,
             trial_call=trial_call,
             own_number_attested=own_number_attested,
+            campaign_ref=str(campaign_ref) if campaign_ref else None,
         )
         if undeclared is not None:
             rule, reason = undeclared

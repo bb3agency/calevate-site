@@ -176,7 +176,8 @@ async def read_declaration(session: AsyncSession, *, tenant_id: UUID) -> Declara
 
 
 async def agent_calling_numbers(session: AsyncSession, *, agent_id: UUID) -> list[str]:
-    """Every number this agent's calls can present: each unreleased number bound to it.
+    """Every unreleased number bound to this agent: what a dial that names no number can
+    present (`agents.service.presented_caller_ids`).
 
     Every direction, not only the outbound-tagged ones `resolve_caller_id` picks from:
     when no number is chosen the voice platform rings from the agent's own line, which may
@@ -296,6 +297,8 @@ async def a2p_dial_blocker(
     agent_id: UUID,
     trial_call: bool,
     own_number_attested: bool,
+    number_id: UUID | None = None,
+    campaign_ref: str | None = None,
 ) -> tuple[str, str] | None:
     """The dial gate's question: may this outbound call ring, under the declaration rule?
 
@@ -307,7 +310,11 @@ async def a2p_dial_blocker(
       declare, so gating it would end test calling for every trial.
     * Any other test call rings someone else, often from that shared number, so it is
       refused rather than checked against the agent's numbers it may not use.
-    * Every other call is checked against every number the agent can present.
+    * Every other call is checked against the number the dial would present, chosen as
+      `dispatch_call` chooses it: `number_id` is a campaign's chosen number, `campaign_ref`
+      the campaign's engine agent it rings through (D-1003). An agent with no number of its
+      own presents the client number lent to it. `dispatch_call` asks again of the number
+      it actually presents, which a caller here may not know.
     """
     if not enforcement_active():
         return None
@@ -315,10 +322,15 @@ async def a2p_dial_blocker(
         if own_number_attested:
             return None
         return (A2P_TEST_CALL_OWN_NUMBER_RULE, A2P_TEST_CALL_OWN_NUMBER_REASON)
+    # Imported here: `agents.service` imports this module at import time.
+    from apps.api.agents.service import presented_caller_ids
+
     return await a2p_declaration_blocker(
         session,
         tenant_id=tenant_id,
-        caller_ids=await agent_calling_numbers(session, agent_id=agent_id),
+        caller_ids=await presented_caller_ids(
+            session, agent_id=agent_id, number_id=number_id, campaign_ref=campaign_ref
+        ),
     )
 
 

@@ -1371,6 +1371,7 @@ async def launch_blockers(
         agent_id=facts.agent_id,
         trial_call=False,
         own_number_attested=False,
+        number_id=facts.number_id,
     )
     if undeclared is not None:
         blockers.append(LaunchBlocker(*undeclared))
