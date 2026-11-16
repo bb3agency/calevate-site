@@ -6,6 +6,9 @@
    settings or notes save is: Resume does not republish, so nothing else would.
 3. A campaign without a script of its own whose setting overrides are all cleared while it
    runs has its engine agent republished on the agent's defaults, not left on the old ones.
+4. A "What it notes" save the platform refused to put live is kept, and pressing Save again
+   puts it live: the list the editor still shows is already stored, so the retry is neither a
+   conflict nor a no-op that skips the publish.
 
 SHARED DATABASE DISCIPLINE: every organisation is minted here; the engine is the fake.
 """
@@ -16,12 +19,14 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from apps.api.campaigns import notes, workspace_routes
 from apps.api.campaigns.workspace_routes import router as workspace_router
-from apps.api.core.errors import install_error_handlers
+from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.db.session import tenant_session
 from apps.workers.campaign_dispatch import _settle_finished_campaign
 from calevate_shared.call_script import CallScript
+from calevate_shared.extraction import ExtractionField
 from fastapi import FastAPI
 from sqlalchemy import text
 from tests.agent_lifecycle_test import _client, _fresh_engine, _move, _tenant, _write_script
@@ -135,3 +140,39 @@ async def test_clearing_every_override_of_a_running_campaign_republishes_its_eng
     assert engine._agents[ref].max_call_duration_s != 300, (
         "the cleared override stayed on the running campaign's calls"
     )
+
+
+async def test_saving_what_it_notes_again_puts_a_refused_save_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fresh_engine()
+    tenant_id, agent_id, token = await _live_agent_and_token()
+    campaign_id = await _campaign(tenant_id, agent_id, status="running")
+    await _publish(tenant_id, campaign_id)
+    async with tenant_session(tenant_id) as session:
+        shown = await notes.read_notes(session, campaign_id)
+    real = workspace_routes.put_campaign_live
+    tries: list[UUID] = []
+
+    async def platform_refuses_once(*, tenant_id: UUID, campaign_id: UUID) -> str | None:
+        tries.append(campaign_id)
+        if len(tries) == 1:
+            raise ProblemError.business_rule(
+                "engine_unavailable", "The calling platform did not answer."
+            )
+        return await real(tenant_id=tenant_id, campaign_id=campaign_id)
+
+    monkeypatch.setattr(workspace_routes, "put_campaign_live", platform_refuses_once)
+    field = ExtractionField(key="visit_day", label="Visit day", type="text")
+    # The editor sends the digest of the list it was showing, on both presses.
+    body = {"fields": [field.model_dump(mode="json")], "expected_digest": shown.digest}
+    path = f"/v1/campaigns/{campaign_id}/notes"
+
+    code, refused = await _put(token, path, body)
+    assert code != 200 and refused["title"] == "Saved, but not on its calls yet", refused
+
+    code, again = await _put(token, path, body)
+
+    assert code == 200, again
+    assert len(tries) == 2, "Save again did not put the kept list on the campaign's calls"
+    assert [f["key"] for f in again["fields"]] == ["visit_day"]

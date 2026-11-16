@@ -1029,7 +1029,7 @@ class CampaignSettingsOut(_Out):
     defaults: CampaignSettingsValues
     #: What this campaign sets instead; a null key follows the agent.
     overrides: CampaignSettingsValues
-    #: The campaign has its own engine agent now (started, scheduled or paused), so a save
+    #: The campaign has its own engine agent now (running or paused), so a save
     #: reaches its calls at once; otherwise at its next Start or test call.
     applied_now: bool
     #: The languages this account may choose, in picker order.
@@ -1213,7 +1213,9 @@ async def campaign_notes_save(
                 summary={"fields": [field.key for field in payload.fields]},
             )
     out = await _notes_out(session, campaign_id)
-    if changed and out.applied_now:
+    # Unchanged too, as the script and settings saves do: an unchanged save is the Save again
+    # that `_put_live_after_save`'s refusal asks for, the list already stored.
+    if out.applied_now:
         await _put_live_after_save(principal.tenant_id, campaign_id)
     return out
 
