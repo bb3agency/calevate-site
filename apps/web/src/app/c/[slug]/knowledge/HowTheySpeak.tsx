@@ -49,8 +49,6 @@ export const TAB_LEAD = "Every agent learns this before any line or campaign scr
 export const OVERVIEW_HINT = "What is your business, and how should agents talk?";
 export const OVERVIEW_PLACEHOLDER = "For example: we bake cakes to order in Kukatpally.";
 export const TRAINING_HINT = "What every agent is given.";
-export const TRAINING_INFO =
-  "Each Inbound line and campaign keeps its own script on top of this. Where a script says something different, the script wins on its own calls.";
 /** The save refusal naming an Inbound line or campaign the training would push over the box. */
 export const TOO_LONG_CODE = "company_training_too_long";
 
@@ -202,7 +200,7 @@ function Training({ data, canWrite, refusal }: Props) {
       title="Training"
       tone="script"
       hint={TRAINING_HINT}
-      info={TRAINING_INFO}
+      info="Each Inbound line and campaign keeps its own script on top of this. Where a script says something different, the script wins on its own calls."
       aside={data.version > 0 ? `Version ${data.version}` : undefined}
     >
       <div className="mb-4">

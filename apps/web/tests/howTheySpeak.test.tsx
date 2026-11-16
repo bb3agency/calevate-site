@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { HowTheySpeak, TAB_LEAD, TRAINING_INFO } from "@/app/c/[slug]/knowledge/HowTheySpeak";
+import { HowTheySpeak, TAB_LEAD } from "@/app/c/[slug]/knowledge/HowTheySpeak";
 import { KnowledgeScreen } from "@/app/c/[slug]/knowledge/KnowledgeScreen";
 import type { CompanyTraining } from "@/lib/api/companyTraining";
 
@@ -160,8 +160,14 @@ describe("How they speak", () => {
     expect(screen.queryByRole("link", { name: "Open Campaigns" })).toBeNull();
   });
 
-  it("says a script belongs to a line or campaign, never to an agent (D-1005)", () => {
-    expect(TRAINING_INFO).toMatch(/Inbound line and campaign/);
-    expect(TRAINING_INFO).not.toMatch(/agent/i);
+  it("says a script belongs to a line or campaign, never to an agent (D-1005)", async () => {
+    await renderClientPage(<HowTheySpeak />, {
+      "/v1/me": OWNER,
+      [PATH]: training({ overview: "We build flats.", training: "Address people as sir or madam.", version: 3 }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "About training" }));
+    const tip = await screen.findByText(/keeps its own script on top of this/);
+    expect(tip.textContent).toMatch(/^Each Inbound line and campaign keeps/);
+    expect(tip.textContent).not.toMatch(/agent/i);
   });
 });
