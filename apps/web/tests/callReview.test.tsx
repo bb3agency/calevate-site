@@ -248,6 +248,13 @@ describe("the verdict", () => {
     ).toBeTruthy();
   });
 
+  it("never says nothing was said over a call whose conversation it shows", async () => {
+    // A reading that came back with no summary is stored `empty`; the turns are still there.
+    await renderClientPage(page, routes(detail({ summary: null, summary_local: null, summary_state: "empty" })));
+    expect(await screen.findByText("No summary for this call. The full chat is below.")).toBeTruthy();
+    expect(screen.queryByText("Nothing was said, so no summary.")).toBeNull();
+  });
+
   it("prints the booked call back with the server's own sentence for why it was not placed", async () => {
     const reason = "Call backs are not placed during your free trial.";
     await renderClientPage(
