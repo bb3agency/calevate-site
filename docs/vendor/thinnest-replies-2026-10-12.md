@@ -2737,3 +2737,37 @@ UNVERIFIED until ThinnestAI answers. Nothing is built on any answer yet.
 >
 > Thanks,
 > Umesh
+
+## 52. Agents per customer workspace on pay as you go (DRAFTED 17 Nov 2026, unsent)
+
+Why we ask: §28 (23 Oct 2026, VENDOR-STATED) set agents per customer workspace at 2 on pay as
+you go, "raised per workspace by email". Since D-997 and D-1003 every Inbound line and every
+campaign speaks through its own agent in the client's workspace, and the client's agents keep
+their own until their lines go live. On 17 Nov 2026 Rytu Khata's two agents (Varsha, Anjali)
+held both slots (production `engine_agent_routes`), so the account could not create a campaign
+agent and its Start and test call were refused (`engine_agent_allowance_full`; rememory
+650c41e5). Concurrency is a separate, account-wide limit (20, §28) and is not the problem.
+
+> Subject: Agents per customer workspace on pay as you go
+>
+> Hi Ashutosh,
+>
+> Thanks again for raising our limits on 23 Oct. One limit now blocks our clients: each
+> customer workspace on pay as you go allows 2 agents.
+>
+> We now create one agent per business voice, one per answering line and one per running
+> campaign, all in that client's own workspace. A client with two voices therefore cannot
+> start a campaign; one of our clients hit this today. Concurrent calls (20) are fine; it is
+> only the number of agents that may exist in a workspace.
+>
+> Could you:
+> 1. Raise the allowance to 20 agents per customer workspace, for all our customer
+>    workspaces, existing and new, without a request per workspace?
+> 2. Tell us the price for agents above that, if there is one?
+> 3. Tell us whether the Scale plan changes this number?
+>
+> Regards,
+> Umesh
+
+When answered: record §53 verbatim with a "what it closes" table, then raise the console
+setting `thinnest_agents_per_workspace` to the granted figure.
