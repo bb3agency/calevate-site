@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.64 — 17-Nov-2026
+
+- Scenario editor laid out in three columns: the name and the English script on the left,
+  the description in the centre, the script in the campaign's language (Telugu) on the
+  right. Hindi script boxes are off for now.
+- Next scenarios sit under the description and the Telugu script, across both columns.
+- Questions and answers are now Caller and agent responses: the caller's words and the
+  agent's answer in English on the left, their Telugu translation beside them, one row per
+  pair, with Add a caller response for more. The agent gets both languages.
+
 ## 0.4.63 — 17-Nov-2026
 
 - Call flow: choosing a scenario no longer scrolls the page to its editor; scroll down to it

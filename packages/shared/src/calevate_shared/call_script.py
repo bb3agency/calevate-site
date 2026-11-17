@@ -629,13 +629,35 @@ class StageBranch(BaseModel):
     via: CanvasPosition | None = None
 
 
+class ScenarioQaText(BaseModel):
+    """A caller and agent response in one other language; either may still be blank."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(default="", max_length=300)
+    answer: str = Field(default="", max_length=1000)
+
+
 class ScenarioQa(BaseModel):
-    """A question the caller may ask in this scenario, and the answer to give."""
+    """What the caller may say in this scenario and what the agent answers, in English, with
+    the same pair in the campaign's languages (`translations`, by language tag)."""
 
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=1, max_length=300)
     answer: str = Field(min_length=1, max_length=1000)
+    translations: dict[str, ScenarioQaText] = Field(default_factory=dict)
+
+    @field_validator("translations")
+    @classmethod
+    def _by_language(cls, value: dict[str, ScenarioQaText]) -> dict[str, ScenarioQaText]:
+        known = {lang.bcp47 for lang in built_languages()}
+        for tag in value:
+            if tag not in known:
+                raise ValueError(f"{tag!r} is not a language an agent speaks")
+        return {
+            tag: said for tag, said in value.items() if said.question.strip() or said.answer.strip()
+        }
 
 
 class ScenarioCoaching(BaseModel):
@@ -976,7 +998,14 @@ def _scenario_blocks(stages: Sequence[ConversationStage]) -> str:
             f"{' '.join(c.note.split())}"
             for c in stage.coaching
         ]
-        lines += [f"Q: {qa.question.strip()}\nA: {qa.answer.strip()}" for qa in stage.qa]
+        for qa in stage.qa:
+            lines.append(f"Caller: {qa.question.strip()}\nYou: {qa.answer.strip()}")
+            for tag, said in qa.translations.items():
+                name = names.get(tag, tag)
+                if said.question.strip():
+                    lines.append(f"Caller ({name}): {said.question.strip()}")
+                if said.answer.strip():
+                    lines.append(f"You ({name}): {_quote(said.answer)}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
@@ -1319,6 +1348,12 @@ def script_text(script: CallScript) -> str:
         *(f"{p.action} {p.wait_for}" for st in script.stages for p in st.procedure),
         *(text for st in script.stages for text in st.scripts.values()),
         *(f"{qa.question} {qa.answer}" for st in script.stages for qa in st.qa),
+        *(
+            f"{t.question} {t.answer}"
+            for st in script.stages
+            for qa in st.qa
+            for t in qa.translations.values()
+        ),
         *(c.note for st in script.stages for c in st.coaching),
         *(f"{b.when}" for st in script.stages for b in st.branches),
         *(f"{o.objection} {o.response}" for o in script.objections),
@@ -1479,6 +1514,7 @@ __all__ = [
     "Pronunciation",
     "ScenarioCoaching",
     "ScenarioQa",
+    "ScenarioQaText",
     "ScriptPolicies",
     "ScriptStep",
     "ScriptVariable",

@@ -52314,7 +52314,7 @@
       },
       "ScenarioQa": {
         "additionalProperties": false,
-        "description": "A question the caller may ask in this scenario, and the answer to give.",
+        "description": "What the caller may say in this scenario and what the agent answers, in English, with\nthe same pair in the campaign's languages (`translations`, by language tag).",
         "properties": {
           "answer": {
             "maxLength": 1000,
@@ -52327,6 +52327,13 @@
             "minLength": 1,
             "title": "Question",
             "type": "string"
+          },
+          "translations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ScenarioQaText"
+            },
+            "title": "Translations",
+            "type": "object"
           }
         },
         "required": [
@@ -52334,6 +52341,26 @@
           "answer"
         ],
         "title": "ScenarioQa",
+        "type": "object"
+      },
+      "ScenarioQaText": {
+        "additionalProperties": false,
+        "description": "A caller and agent response in one other language; either may still be blank.",
+        "properties": {
+          "answer": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Answer",
+            "type": "string"
+          },
+          "question": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "title": "ScenarioQaText",
         "type": "object"
       },
       "ScheduleCallbackIn": {

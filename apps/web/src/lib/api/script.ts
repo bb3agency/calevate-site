@@ -95,7 +95,12 @@ export interface ConversationStage {
   /** What to say in this scenario, by language tag. */
   scripts?: Record<string, string>;
   /** The caller's likely questions in this scenario, with the answers. */
-  qa?: { question: string; answer: string }[];
+  qa?: {
+    question: string;
+    answer: string;
+    /** The same pair in another language, by tag. */
+    translations?: Record<string, { question: string; answer: string }>;
+  }[];
   /** How the owner wants the line said, heard and noted (language "" = every language). */
   coaching?: { language: string; note: string }[];
 }

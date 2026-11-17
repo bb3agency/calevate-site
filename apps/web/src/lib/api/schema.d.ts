@@ -33672,12 +33672,33 @@ export interface components {
         };
         /**
          * ScenarioQa
-         * @description A question the caller may ask in this scenario, and the answer to give.
+         * @description What the caller may say in this scenario and what the agent answers, in English, with
+         *     the same pair in the campaign's languages (`translations`, by language tag).
          */
         ScenarioQa: {
             /** Answer */
             answer: string;
             /** Question */
+            question: string;
+            /** Translations */
+            translations?: {
+                [key: string]: components["schemas"]["ScenarioQaText"];
+            };
+        };
+        /**
+         * ScenarioQaText
+         * @description A caller and agent response in one other language; either may still be blank.
+         */
+        ScenarioQaText: {
+            /**
+             * Answer
+             * @default
+             */
+            answer: string;
+            /**
+             * Question
+             * @default
+             */
             question: string;
         };
         /** ScheduleCallbackIn */
