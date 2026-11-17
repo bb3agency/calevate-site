@@ -22,6 +22,7 @@ import { ConsentProvenanceAnswer, ConsentProvenanceFields } from "./ConsentProve
 import { FoldSection } from "./FoldSection";
 import { complianceCardId } from "./StartCampaign";
 import { LaunchConfirm } from "./LaunchConfirm";
+import { SLOTS_FULL_RULE, SlotHolders } from "./SlotHolders";
 import { CONSENT_SOURCES } from "./choices";
 import { Why } from "@/components/why";
 import {
@@ -120,7 +121,9 @@ export function LaunchGate({
       ) : undefined;
     const link = blockerDestination(blocker.rule, at, campaignId, progress.data?.agent_id);
     const detail =
-      note?.owner === "calevate" || why ? (
+      blocker.rule === SLOTS_FULL_RULE ? (
+        <SlotHolders slug={slug} holders={blocker.holders ?? []} />
+      ) : note?.owner === "calevate" || why ? (
         <>
           {note?.owner === "calevate" ? <span className="mr-3">{OWNER_BADGE[note.owner]}</span> : null}
           {why ? <Why inline>{why}</Why> : null}

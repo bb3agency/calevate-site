@@ -233,7 +233,7 @@ async def test_a_full_workspace_at_start_is_named_as_the_allowance(
     async def full(*, tenant_id: UUID, campaign_id: UUID) -> str | None:
         raise ProblemError.business_rule(
             agents_service.ENGINE_AGENT_ALLOWANCE_FULL_RULE,
-            "Your account can run 2 calling agents at once, and all are in use.",
+            "Starting needs a free calling setup. Your account can have 2, and both are in use.",
         )
 
     monkeypatch.setattr(scheduling, "put_campaign_live", full)

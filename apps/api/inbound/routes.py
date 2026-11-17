@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import service as agents_service
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
+from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import number_catalog
 from apps.api.campaigns.workspace import MAIN_TASK_MAX
@@ -308,6 +309,7 @@ class InboundLineScriptIn(BaseModel):
 @router.put(
     "/{line_id}/script",
     response_model=InboundLineOut,
+    responses=SLOTS_FULL_RESPONSES,
     openapi_extra=permission_meta("org:manage"),
     summary="Save the line's script and put it live on its numbers",
 )
@@ -336,6 +338,7 @@ async def save_script(
 @router.post(
     "/{line_id}/publish",
     response_model=InboundLineOut,
+    responses=SLOTS_FULL_RESPONSES,
     openapi_extra=permission_meta("org:manage"),
     summary="Put the line's saved script live on its numbers again",
 )
@@ -513,6 +516,7 @@ async def line_calls(line_id: UUID, session: Session, _: Reader) -> LineCallsOut
 @router.post(
     "/{line_id}/test-call",
     response_model=CampaignTestCallOut,
+    responses=SLOTS_FULL_RESPONSES,
     openapi_extra=permission_meta("leads:dispatch"),
     summary="Ring your own phone with this line, as a caller would hear it",
     description=(

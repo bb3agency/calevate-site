@@ -50,7 +50,8 @@ async def line_test_dial(*, tenant_id: UUID, line_id: UUID) -> LineTestDial:
     """Get the line's engine agent ready for the owner's test call, in its own committed
     transaction before the dial (`paid_test_calls.refresh_test_copy`'s shape). A live line is
     put live again, so the call hears the script saved now; a draft is published as a test
-    holder (`publish_line(test=True)`), which leaves it a draft and its numbers unrouted."""
+    holder (`publish_line(test=True)`) in our developer workspace, which leaves it a draft and
+    its numbers unrouted and rings from the shared test line (D-1018)."""
     async with tenant_session(tenant_id) as session:
         live = (await lines.read_line(session, line_id)).live
     if live:
@@ -66,7 +67,7 @@ async def line_test_dial(*, tenant_id: UUID, line_id: UUID) -> LineTestDial:
         ref = await agents_service.publish_line(
             session, tenant_id=tenant_id, line_id=line_id, test=True
         )
-    return LineTestDial(ref=ref, line_id=line_id)
+    return LineTestDial(ref=ref, line_id=line_id, developer=True)
 
 
 async def route_numbers(*, tenant_id: UUID, line_id: UUID) -> InboundRouting:

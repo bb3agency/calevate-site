@@ -158,7 +158,7 @@ from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.service import ENGINE_AGENT_ALLOWANCE_FULL_RULE
+from apps.api.agents.workspace_slots import ENGINE_AGENT_ALLOWANCE_FULL_RULE
 from apps.api.campaigns.engine_agent import end_campaign_agent, put_campaign_live
 from apps.api.campaigns.service import launch_blockers, launch_campaign
 from apps.api.compliance.service import DEFAULT_WINDOW

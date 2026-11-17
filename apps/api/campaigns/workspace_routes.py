@@ -29,6 +29,7 @@ from apps.api.agents.languages import LANGUAGE_LABELS, client_language_tags
 from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES, effective_call_cap
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.voice_tuning import read_voice_tuning
+from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import learning, workspace
 from apps.api.campaigns import notes as campaign_notes
@@ -680,6 +681,7 @@ class CampaignTestCallOut(_Out):
 @router.post(
     "/{campaign_id}/test-call",
     response_model=CampaignTestCallOut,
+    responses=SLOTS_FULL_RESPONSES,
     openapi_extra=permission_meta("leads:dispatch"),
     summary="Ring your own phone through the campaign's own engine agent to hear it",
 )

@@ -27,6 +27,7 @@ from pydantic import AfterValidator, Field, StringConstraints, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES, SlotHolder
 from apps.api.campaigns import archive as campaign_archive
 from apps.api.campaigns import (
     brief,
@@ -463,6 +464,8 @@ class AddLeadsOut(AddContactsOut):
 class BlockerOut(Strict):
     rule: str
     reason: str
+    #: `engine_agent_allowance_full` only: each calling setup in use and what holds it.
+    holders: list[SlotHolder] | None = None
 
 
 class LaunchCheckOut(Strict):
@@ -1099,7 +1102,10 @@ async def launch_check(
     )
     return LaunchCheckOut(
         ready=not blockers,
-        blockers=[BlockerOut(rule=b.rule, reason=b.reason) for b in blockers],
+        blockers=[
+            BlockerOut(rule=b.rule, reason=b.reason, holders=list(b.holders) or None)
+            for b in blockers
+        ],
     )
 
 
@@ -1134,6 +1140,7 @@ async def _put_campaign_script_live(
 @router.post(
     "/{campaign_id}/launch",
     response_model=LaunchOut,
+    responses=SLOTS_FULL_RESPONSES,
     openapi_extra=permission_meta("leads:dispatch"),
     summary="The compliance gate, then the DNC scrub, then running (hard rule 5)",
 )

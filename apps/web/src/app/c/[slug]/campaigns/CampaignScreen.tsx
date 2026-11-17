@@ -377,7 +377,13 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                 canWrite={write.allowed && changeable}
                 refusal={refusal}
               />
-              <TestCallSection slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
+              <TestCallSection
+                slug={slug}
+                campaignId={campaignId}
+                canWrite={write.allowed}
+                refusal={refusal}
+                fromTestLine={!live}
+              />
               {/* People to call: an Excel or CSV file, pasted rows, or one name and number at a
                   time, until it stops (founder, 16 Nov 2026: people may join mid-campaign). */}
               <DraftPeople

@@ -101,23 +101,20 @@ async def check_before_schedule(
         )
 
 
-async def campaign_test_dial(
-    *, tenant_id: UUID, campaign_id: UUID, developer: bool
-) -> CampaignDial:
+async def campaign_test_dial(*, tenant_id: UUID, campaign_id: UUID) -> CampaignDial:
     """Get the campaign's engine agent ready for the owner's test call, in its own committed
     transaction before the dial (`inbound/publish.line_test_dial`'s shape). Published as a
-    test holder (`publish_campaign_agent(test=True)`), whatever the campaign's state; with
-    `developer` (a free trial, or a paying account with no number yet) in our developer
-    workspace, where the shared trial line rings (D-697, D-859). A running or paused campaign
-    is tested on its own engine agent in the client's workspace whatever `developer` says
-    (`campaign_test_in_developer`); the dial reads `CampaignDial.developer` for its line."""
+    test holder (`publish_campaign_agent(test=True)`), whatever the campaign's state: in our
+    developer workspace, where the shared test line rings, unless the campaign is running or
+    paused, when it is tested on its own engine agent in the client's workspace (D-1018,
+    `campaign_test_in_developer`). The dial reads `CampaignDial.developer` for its line."""
     async with tenant_session(tenant_id) as session:
         ref = await agents_service.publish_campaign_agent(
-            session, tenant_id=tenant_id, campaign_id=campaign_id, test=True, developer=developer
+            session, tenant_id=tenant_id, campaign_id=campaign_id, test=True
         )
         # Read under the campaign row lock the publish took, so it is the publish's answer.
         in_developer = await agents_service.campaign_test_in_developer(
-            session, tenant_id=tenant_id, campaign_id=campaign_id, developer=developer
+            session, campaign_id=campaign_id
         )
     return CampaignDial(ref=ref, campaign_id=campaign_id, developer=in_developer)
 

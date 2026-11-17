@@ -17183,6 +17183,8 @@ export interface components {
         };
         /** BlockerOut */
         BlockerOut: {
+            /** Holders */
+            holders?: components["schemas"]["SlotHolder"][] | null;
             /** Reason */
             reason: string;
             /** Rule */
@@ -23862,6 +23864,21 @@ export interface components {
             secret_fingerprint: string | null;
             /** Url */
             url: string | null;
+        };
+        /**
+         * EngineAgentAllowanceFull
+         * @description No free calling setup: the cap, what was attempted and every setup held.
+         */
+        EngineAgentAllowanceFull: components["schemas"]["ProblemBody"] & {
+            /**
+             * Context
+             * @enum {string}
+             */
+            context: "test_call" | "start" | "line_live";
+            /** Holders */
+            holders: components["schemas"]["SlotHolder"][];
+            /** Limit */
+            limit: number;
         };
         /**
          * EngineAgentOut
@@ -31184,6 +31201,38 @@ export interface components {
             /** Unmatched */
             unmatched: number;
         };
+        /**
+         * ProblemBody
+         * @description The problem+json body this API sends (RFC 9457 and BACKEND-PATTERNS §3), as a schema
+         *     for the OpenAPI document. `ProblemError.as_problem` writes it; this only describes it.
+         */
+        ProblemBody: {
+            /** Detail */
+            detail: string;
+            /** Fields */
+            fields?: {
+                [key: string]: string;
+            }[] | null;
+            /** Instance */
+            instance?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "validation" | "auth" | "permission" | "not_found" | "conflict" | "business_rule" | "dependency" | "transient" | "internal";
+            /** Remediation */
+            remediation: string;
+            /** Retryable */
+            retryable: boolean;
+            /** Status */
+            status: number;
+            /** Title */
+            title: string;
+            /** Trace Id */
+            trace_id?: string | null;
+            /** Type */
+            type: string;
+        };
         /** ProblemOut */
         ProblemOut: {
             /** Code */
@@ -34177,6 +34226,28 @@ export interface components {
             chars: number;
             /** Label */
             label: string;
+        };
+        /**
+         * SlotHolder
+         * @description One calling setup in the workspace. `id` is the agent's for an agent or a script
+         *     trial of it, the line's for a line, the campaign's for a campaign. `removing`: its
+         *     holder has let go of it and the deletion has not run yet; nothing to do but wait.
+         */
+        SlotHolder: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "agent" | "inbound_line" | "campaign" | "script_trial";
+            /** Name */
+            name: string;
+            /** Removing */
+            removing: boolean;
         };
         /**
          * SlowCall
@@ -52750,6 +52821,15 @@ export interface operations {
                     "application/json": components["schemas"]["LaunchOut"];
                 };
             };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
+                };
+            };
             /** @description RFC-9457 problem+json */
             default: {
                 headers: {
@@ -53603,6 +53683,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CampaignTestCallOut"];
+                };
+            };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -58420,6 +58509,15 @@ export interface operations {
                     "application/json": components["schemas"]["InboundLineOut"];
                 };
             };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
+                };
+            };
             /** @description RFC-9457 problem+json */
             default: {
                 headers: {
@@ -58453,6 +58551,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InboundLineOut"];
+                };
+            };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -58523,6 +58630,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CampaignTestCallOut"];
+                };
+            };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
                 };
             };
             /** @description RFC-9457 problem+json */
