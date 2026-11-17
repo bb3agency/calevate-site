@@ -23,6 +23,18 @@ type SourceChoice = { id: string; name: string; kind: string };
 /** Search shows from this many choices on. */
 const SEARCH_FROM = 7;
 
+/**
+ * How many of `saved` are still in the pick list: a source removed from What your agents
+ * know stays in the saved ids but is not chosen any more. Until the list has loaded, every
+ * saved id counts.
+ */
+export function useChosenCount(saved: string[]): number {
+  const { choices, ready } = useSourceChoices();
+  if (!ready) return saved.length;
+  const listed = new Set(choices.map((choice) => choice.id));
+  return saved.filter((id) => listed.has(id)).length;
+}
+
 /** The account's knowledge as a pick list: typed notes and uploads, each by its source id. */
 function useSourceChoices() {
   const { session } = useClientRealm();

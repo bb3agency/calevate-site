@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
 import { problemToast, useActionFeedback } from "@/components/arc/feedback";
@@ -29,15 +30,11 @@ import { DraftPeople, peopleSectionId } from "./DraftPeople";
 import { ArmingForms } from "./ArmingForms";
 import { AgentSection, ImproveTab, TestCallSection } from "./CampaignBoosters";
 import { CampaignNotes } from "./CampaignNotes";
-import { CampaignCalls } from "./CampaignCalls";
 import { campaignRun } from "./campaignProgress";
 import { CampaignHeaderActions } from "./CampaignHeaderActions";
-import { CampaignQuestions } from "./CampaignQuestions";
 import { CampaignResults, ResultFigures } from "./CampaignResults";
-import { CampaignRun } from "./CampaignRun";
 import { CampaignSettings } from "./CampaignSettings";
 import { CampaignStateNotice } from "./CampaignStateNotice";
-import { CampaignTimeline } from "./CampaignTimeline";
 import { CampaignWorkspace } from "./CampaignWorkspace";
 import { FoldGroup, FoldSection } from "./FoldSection";
 import { OtherCallSettings } from "./OtherCallSettings";
@@ -47,6 +44,21 @@ import { ScheduleCards } from "./ScheduleCards";
 import { StartCampaign } from "./StartCampaign";
 import { useScheduleForm } from "./campaignForm";
 import { CampaignStatusPill } from "./campaignStatus";
+
+/*
+ * Set up opens first on every visit, so the panels only the other tabs show (the live run,
+ * the day-by-day chart, the calls and the questions) are their own chunks, loaded when their
+ * tab opens. Set up's own sections stay in the first load.
+ */
+const panelLoading = () => <Skeleton rows={4} />;
+const CampaignRun = dynamic(() => import("./CampaignRun").then((m) => m.CampaignRun), { loading: panelLoading });
+const CampaignTimeline = dynamic(() => import("./CampaignTimeline").then((m) => m.CampaignTimeline), {
+  loading: panelLoading,
+});
+const CampaignCalls = dynamic(() => import("./CampaignCalls").then((m) => m.CampaignCalls), { loading: panelLoading });
+const CampaignQuestions = dynamic(() => import("./CampaignQuestions").then((m) => m.CampaignQuestions), {
+  loading: panelLoading,
+});
 
 /**
  * `/c/{slug}/campaigns/{id}`: ONE CAMPAIGN, at its own address (D-773).

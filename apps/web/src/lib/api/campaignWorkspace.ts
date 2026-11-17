@@ -137,6 +137,9 @@ export function useAddCampaignSource(session: Session, campaignId: string) {
  * rewrite, a tone, and what they typed. Empty for the whole script as Pip sees fit. */
 export type ScriptAsk = Schemas["CampaignProposalIn"];
 
+/** The longest instruction the server takes (`campaign_script_ask.INSTRUCTION_MAX`). */
+export const INSTRUCTION_MAX = 300;
+
 export function useRequestCampaignScript(session: Session, campaignId: string) {
   return useWorkspaceMutation(session, campaignId, (asked?: ScriptAsk) =>
     apiRequest<CampaignProposal>(session, `${base(campaignId)}/script/proposal`, {

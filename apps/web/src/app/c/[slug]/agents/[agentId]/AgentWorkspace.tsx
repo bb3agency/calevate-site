@@ -33,8 +33,9 @@
  * a record; every control that would write is gone.
  */
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { PageHeader } from "@/components/console/pageHeader";
@@ -45,16 +46,47 @@ import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
-import { AgentIdentity } from "../AgentIdentity";
-import { AgentModel } from "../AgentModel";
-import { Actions } from "../actions/Actions";
-import { ExtractionList } from "../panels/extraction";
 import { AgentHeader } from "./sections/agentHeader";
 import { AGENT_TABS_LABEL, LEGACY_SECTIONS, useAgentSections } from "./sections/agentSections";
 import { Overview } from "./sections/overview";
-import { SettingsTab } from "./sections/settingsTab";
-import { TrainingTab } from "./sections/training";
 import { AgentTour } from "./tour/AgentTour";
+
+/*
+ * Only the open tab's code is in the page's first load. Overview opens first and carries the
+ * truthful-answer guarantee, so it stays static; the other three tabs and the deleted-agent
+ * body are their own chunks. Bundled together they made this page about 450 KB of
+ * JavaScript, most of it tabs nobody had opened, which is seconds on a slow phone network.
+ *
+ * Server rendering is unchanged (`next/dynamic` keeps `ssr`), and the chunks are fetched
+ * once the page is idle so a tab tap rarely waits on the network.
+ */
+const loadTraining = () => import("./sections/training");
+const loadSettings = () => import("./sections/settingsTab");
+const loadActions = () => import("../actions/Actions");
+const loadDeleted = () => import("./sections/deletedAgent");
+
+const tabLoading = () => <Skeleton rows={6} />;
+const TrainingTab = dynamic(() => loadTraining().then((m) => m.TrainingTab), { loading: tabLoading });
+const SettingsTab = dynamic(() => loadSettings().then((m) => m.SettingsTab), { loading: tabLoading });
+const Actions = dynamic(() => loadActions().then((m) => m.Actions), { loading: tabLoading });
+const DeletedAgentBody = dynamic(() => loadDeleted().then((m) => m.DeletedAgentBody), { loading: tabLoading });
+
+/** Warms the other tabs' chunks once the browser is idle, after the open tab has drawn. */
+function usePrefetchTabs(): void {
+  useEffect(() => {
+    const warm = () => {
+      void loadTraining();
+      void loadSettings();
+      void loadActions();
+    };
+    if (typeof window.requestIdleCallback === "function") {
+      const id = window.requestIdleCallback(warm, { timeout: 4000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(warm, 1500);
+    return () => window.clearTimeout(id);
+  }, []);
+}
 
 /** The screen, from the route's params. Loading, failure and the agent are three branches. */
 export function AgentWorkspace({ slug, agentId }: { slug: string; agentId: string }) {
@@ -128,14 +160,7 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
         <p className="max-w-prose text-sm text-ink-muted">
           Read-only while deleted. It comes back switched off.
         </p>
-        <ExtractionList agent={agent} leadsHref={leadsLink} />
-        <section aria-labelledby="deleted-identity-heading">
-          <h3 id="deleted-identity-heading" className="mb-2 text-heading text-ink">
-            What it is
-          </h3>
-          <AgentIdentity agent={agent} />
-        </section>
-        <AgentModel agent={agent} slug={slug} />
+        <DeletedAgentBody agent={agent} slug={slug} leadsLink={leadsLink} />
       </div>
     );
   }
@@ -145,6 +170,7 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
 
 function LiveAgent({ agent, slug, leadsLink }: { agent: Agent; slug: string; leadsLink: ReactNode }) {
   const sections = useAgentSections(agent);
+  usePrefetchTabs();
   return (
     <div className="space-y-6">
       <SettingsLayout

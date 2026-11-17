@@ -78,6 +78,14 @@ describe("a campaign's sources", () => {
     expect(screen.getByText("1 chosen")).toBeTruthy();
   });
 
+  it("counts only the picks still in the list, not removed sources", async () => {
+    const GONE_ID = "0192f0aa-5555-7000-8000-0000000000ff";
+    await render({ [`${base}/workspace`]: workspaceFixture({ source_ids: [NOTE_ID, GONE_ID] }) });
+    await screen.findByRole("group", { name: "Sources for this campaign" });
+    expect(screen.getByText("1 chosen")).toBeTruthy();
+    expect(screen.queryByText("2 chosen")).toBeNull();
+  });
+
   it("adds a note to What your agents know and picks it", async () => {
     const rendered = await render({
       [`POST ${base}/sources/note`]: workspaceFixture({ source_ids: [NEW_ID] }),

@@ -29,6 +29,7 @@ import { ExpandableText } from "@/components/arc/expandable-text";
 import { TEXT_ACTION } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM, type NoticeTone } from "@/components/ui";
+import { INSTRUCTION_MAX } from "@/lib/api/campaignWorkspace";
 import type { CallScript } from "@/lib/api/script";
 import { keepInView } from "@/lib/keepInView";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -109,8 +110,6 @@ export type GeneratePartProps = {
   reason?: string;
 };
 
-/** The longest instruction the server takes (`campaign_script_ask.INSTRUCTION_MAX`). */
-export const INSTRUCTION_MAX = 300;
 
 /**
  * "Generate in [language]" beside a part's Edit: Pip rewrites that part only, for review.

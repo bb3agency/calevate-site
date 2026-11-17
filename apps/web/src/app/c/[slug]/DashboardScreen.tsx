@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -40,11 +41,14 @@ import { OutcomeSplit } from "./OutcomeSplit";
 import { PipNotes } from "./PipNotes";
 import { SentimentSplit } from "./SentimentSplit";
 import { SpendThisMonth } from "./SpendThisMonth";
-import { TrialCallPanel } from "./TrialCallPanel";
 import { NextSteps, goLiveOffered } from "./NextSteps";
 import { WeekRecap } from "./WeekRecap";
 import { ExistingNumberPrompt } from "@/components/forwarding/ExistingNumberPrompt";
 import { HOME } from "./_ui/copy";
+
+// The trial's test-call panel (its form, meter and call follow-up) is only drawn on a trial,
+// so an account past its trial never downloads it.
+const TrialCallPanel = dynamic(() => import("./TrialCallPanel").then((m) => m.TrialCallPanel));
 
 /**
  * The client's home screen.
@@ -336,7 +340,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
           <HeldNumberNotice numbers={numbers.data} topUpHref={href(`/c/${slug}/billing?tab=credits`)} />
         ) : null}
         <ExistingNumberPrompt session={session} href={href} />
-        <TrialCallPanel slug={slug} trial={data.trial} />
+        {data.trial?.on_trial ? <TrialCallPanel slug={slug} trial={data.trial} /> : null}
         <PipNotes
           session={session}
           onOpen={({ route }) => {

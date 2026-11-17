@@ -323,6 +323,22 @@ describe("one inbound line", () => {
     expect(screen.getByText("Not live yet")).toBeTruthy();
   });
 
+  it("counts only the sources still in the pick list as chosen", async () => {
+    const KEPT = "0192f0aa-5555-7000-8000-0000000000a1";
+    const GONE = "0192f0aa-5555-7000-8000-0000000000a2";
+    await renderClientPage(
+      linePage(),
+      lineRoutes(line({ source_ids: [KEPT, GONE] }), {
+        "/v1/kb/notes": {
+          notes: [{ id: KEPT, name: "Opening hours", state: "in_use", version: 1, chunks: 1, changed_at: "2026-11-16T04:00:00Z", restorable: false }],
+        },
+      }),
+    );
+    await screen.findByRole("checkbox", { name: /Opening hours/ });
+    expect(screen.getByText("1 chosen")).toBeTruthy();
+    expect(screen.queryByText("2 chosen")).toBeNull();
+  });
+
   it("links from the calls it took to all its calls in the call log (D-1006)", async () => {
     await renderClientPage(
       linePage(),

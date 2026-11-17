@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Lock } from "lucide-react";
 
 import { MonoValue } from "@/app/admin/ops/opsLanguage";
@@ -12,7 +13,13 @@ import { TEXT_ACTION } from "@/components/console/section";
 import { CopyButton } from "@/components/interior/copy-button";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import { Disclosure, NoticeBox } from "@/components/ui";
-import { useRevertConfig, type ConfigField, type ConfigValue, type ConfigWrite } from "@/lib/api/opsConfig";
+import {
+  OPS_CONFIG_QUERY_KEY,
+  useRevertConfig,
+  type ConfigField,
+  type ConfigValue,
+  type ConfigWrite,
+} from "@/lib/api/opsConfig";
 
 import { ConfigForm } from "./ConfigForm";
 import {
@@ -382,6 +389,22 @@ function WriteReceipt({
   // `recorded === false`: the submitted value was ALREADY stored, so nothing moved and no
   // audit entry exists.
   const recorded = write.recorded !== false;
+  const client = useQueryClient();
+
+  // The write answers before it commits and this process refreshes its snapshot after, so
+  // the read that follows a save can still show the old value, and the list itself polls
+  // once a minute. Read again every two seconds until the new value is in force, for at
+  // most half a minute; past that the notice below is the operator's answer.
+  const waiting = recorded && !inForceHere;
+  useEffect(() => {
+    if (!waiting) return;
+    const every = window.setInterval(() => void client.invalidateQueries({ queryKey: OPS_CONFIG_QUERY_KEY }), 2000);
+    const stop = window.setTimeout(() => window.clearInterval(every), 30_000);
+    return () => {
+      window.clearInterval(every);
+      window.clearTimeout(stop);
+    };
+  }, [waiting, client]);
 
   return (
     <div className="mt-2 space-y-2 border-l-2 border-brand/40 py-0.5 pl-3">
@@ -391,7 +414,13 @@ function WriteReceipt({
         {recorded ? (
           <span className="min-w-0 break-words">
             Saved. {field.label} changed from{" "}
-            <span className="font-semibold">{shown(write.previous)}</span> to{" "}
+            {/* `previous` is null when no row existed, i.e. the default was in force. */}
+            <span className="font-semibold">
+              {write.previous === null && field.has_default
+                ? `${shown(write.field.default)} (the default)`
+                : shown(write.previous)}
+            </span>{" "}
+            to{" "}
             <span className="font-semibold">{shown(write.field.value)}</span>.{" "}
             {applies.applies === "live" ? "It applies within a few seconds." : applies.label + "."}
           </span>

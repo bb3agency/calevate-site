@@ -12,9 +12,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { TEXT_ACTION } from "@/components/console/section";
 import { FIELD, SECONDARY_BUTTON_SM } from "@/components/ui";
-import type { ScriptAsk } from "@/lib/api/campaignWorkspace";
-
-import { INSTRUCTION_MAX } from "../agents/[agentId]/script/ProposalReview";
+import { INSTRUCTION_MAX, type ScriptAsk } from "@/lib/api/campaignWorkspace";
 
 export type Tone = NonNullable<ScriptAsk["tone"]>;
 
