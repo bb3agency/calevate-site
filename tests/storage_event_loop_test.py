@@ -205,8 +205,11 @@ def _to_thread_bodies(tree: ast.Module) -> set[int]:
         node.args[0].id
         for node in ast.walk(tree)
         if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "to_thread"
+        and (
+            (isinstance(node.func, ast.Attribute) and node.func.attr == "to_thread")
+            # `_in_thread` is `to_thread` under a whole-call deadline.
+            or (isinstance(node.func, ast.Name) and node.func.id == "_in_thread")
+        )
         and node.args
         and isinstance(node.args[0], ast.Name)
     }
