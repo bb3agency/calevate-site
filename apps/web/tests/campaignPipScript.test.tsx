@@ -46,6 +46,8 @@ const routes = (extra: Routes = {}): Routes => ({
   [`${base}/settings`]: settingsFixture(),
   "/v1/kb/notes": { notes: [] },
   "/v1/kb/uploads": [],
+  // The call flow's voice bar lists the account's agents.
+  "/v1/agents": [],
   ...extra,
 });
 
