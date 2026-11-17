@@ -621,6 +621,15 @@ server {
         proxy_pass http://calevate_api;
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
+    # A campaign's own file, under the same cap as `/v1/kb/uploads`. The path carries the
+    # campaign id, so it needs a regex; the longest prefix here is the plain `/`, so nginx
+    # tries it.
+    location ~ ^/v1/campaigns/[^/]+/sources/upload$ {
+        limit_req zone=client_api burst=10 nodelay;
+        client_max_body_size 20544k;
+        proxy_pass http://calevate_api;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
 
     # PIP'S FILE UPLOAD (D-781). Exact matches, so they win over `^~ /v1/admin/` and `/`
     # and widen nothing else. The body is the file, streamed by the app straight into

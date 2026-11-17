@@ -278,13 +278,39 @@ def check_run_blocks_parse(blocks: list[tuple[str, str]]) -> list[str]:
     return failures
 
 
+#: The two properties that gate a job rather than the file. Each must sit in the `if` of
+#: EVERY job that runs on the production host: a substring search of the whole file is
+#: satisfied by the first job that still carries it, so the job that deploys could lose
+#: its kill switch and the check would stay green.
+JOB_GATES = ("vars.VPS_DEPLOY_ENABLED == 'true'", "github.ref == 'refs/heads/production'")
+HOST_RUNNER_LABEL = "calevate-vps"
+
+
 def check_safety_properties() -> list[str]:
     source = WORKFLOW.read_text(encoding="utf-8")
-    return [
+    failures = [
         f"{WORKFLOW.name} no longer contains `{key}` — {reason}."
         for key, reason in SAFETY_PROPERTIES
         if key not in source
     ]
+    reasons = dict(SAFETY_PROPERTIES)
+    try:
+        jobs: dict[str, Any] = _load().get("jobs") or {}
+    except yaml.YAMLError as exc:
+        return [*failures, f"{WORKFLOW.name} is not valid YAML, so no job's `if` was read: {exc}"]
+    for name, job in jobs.items():
+        runs_on = job.get("runs-on")
+        labels = runs_on if isinstance(runs_on, list) else [runs_on]
+        if HOST_RUNNER_LABEL not in labels:
+            continue
+        condition = str(job.get("if") or "")
+        failures.extend(
+            f"{WORKFLOW.name} job `{name}` runs on the production host without "
+            f"`{key}` in its `if` — {reasons[key]}."
+            for key in JOB_GATES
+            if key not in condition
+        )
+    return failures
 
 
 def main() -> int:

@@ -37,6 +37,8 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
+from apps.api.db.migration_offline import probe_skipped_offline
+
 revision: str = "e3c7a1d9b4f2"
 down_revision: str | None = "d8b2f5a7c3e1"
 branch_labels: str | Sequence[str] | None = None
@@ -151,6 +153,14 @@ def _carry_over(bind: sa.Connection, tenant_id: object) -> None:
 
 
 def _backfill() -> None:
+    # The carry-over reads each account's campaign files and writes them per tenant, so it
+    # has no SQL form to render. Offline the table is created empty; running this
+    # revision online fills it.
+    if probe_skipped_offline(
+        "e3c7a1d9b4f2: campaign files were NOT carried into campaign_sources (needs a "
+        "connection); upgrade online to carry them over"
+    ):
+        return
     bind = op.get_bind()
     # Each write already runs under its own tenant's `app.tenant_id`; the bracket is the
     # repo's form for a migration writing to a live FORCE-RLS table (`d3b71c9a5e08`), and

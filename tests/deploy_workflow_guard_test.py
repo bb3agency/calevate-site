@@ -168,6 +168,17 @@ def test_catches_a_deleted_safety_property(tree: Path, removed: str) -> None:
     assert failures and removed in failures[0]
 
 
+@pytest.mark.parametrize("removed", guard.JOB_GATES)
+def test_catches_a_gate_deleted_from_the_deploying_job_alone(tree: Path, removed: str) -> None:
+    """The `deploy` job is the last that carries each gate; an earlier job keeps the text."""
+    path = tree / "deploy.yml"
+    text = path.read_text(encoding="utf-8")
+    at = text.rindex(removed)
+    path.write_text(text[:at] + "true" + text[at + len(removed) :], encoding="utf-8")
+    failures = guard.check_safety_properties()
+    assert any("job `deploy`" in failure and removed in failure for failure in failures)
+
+
 # --- refusals -----------------------------------------------------------------
 
 

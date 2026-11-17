@@ -225,9 +225,9 @@ echo PASSED
 
 
 def test_both_workers_are_swapped_before_the_api() -> None:
-    swap = re.search(r"^for component in (.*); do$", SCRIPT.read_text("utf-8"), re.M)
-    assert swap
-    order = swap.group(1).split()
+    loops = re.findall(r"^for component in (.*); do$", SCRIPT.read_text("utf-8"), re.M)
+    assert loops
+    order = " ".join(loops).split()
     assert order.index("workers") < order.index("api")
     assert order.index("workers-bulk") < order.index("api")
 
@@ -298,6 +298,7 @@ def _web_build_invocations(extra: str = "") -> list[str]:
         _functions("deploy_web")
         + extra
         + r"""
+WEB_BUILD=""
 WEB_BUILD_HEAP_MB=2048
 LOG=$(mktemp)
 nice() { printf 'nice %s\n' "$1 $2" >> "$LOG"; shift 2; "$@"; }

@@ -19,6 +19,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 from tests.call_translation_test import _outbox_rows, _state, _telugu_call
+from tests.conftest import declare_calling_numbers_for_tests
 from tests.lead_dial_routes_test import (  # reuse, never re-implement
     _daytime,  # noqa: F401  (an autouse fixture: 11:00 IST, so the clock never refuses)
     _dialable_tenant,
@@ -86,6 +87,7 @@ def test_each_action_has_its_buttons_tier_permission_and_area() -> None:
 
 async def test_call_back_rings_through_the_buttons_function_once_per_call() -> None:
     tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    await declare_calling_numbers_for_tests(tenant_id, agent_id)
     token = _token_of(headers)
     lead_id, phone = await _lead(tenant_id, agent_id)
     parent = await _finished_call(tenant_id, agent_id, lead_id, phone)

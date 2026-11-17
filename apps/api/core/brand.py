@@ -36,7 +36,7 @@ LINE: Final = "#e2e8f0"
 #: the background is the same white.
 TEXT: Final = "#171a1c"
 TEXT_MUTED: Final = "#475569"
-TEXT_FAINT: Final = "#64748b"
+TEXT_FAINT: Final = "#5d6b80"
 #: Mirror `--danger`, `--danger-soft`, `--danger-line`: the state that needs action now.
 DANGER: Final = "#be123c"
 DANGER_SOFT: Final = "#fff1f2"

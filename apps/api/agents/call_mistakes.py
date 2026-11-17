@@ -283,6 +283,15 @@ async def record_call_mistakes(
     latest platform fix of that kind, each raised as `call_mistake_back`. Idempotent per
     call, so a re-driven call never double-counts or opens a second fix."""
     async with tenant_session(tenant_id) as session:
+        # Two overlapping post-call runs of one call would both delete nothing and both
+        # insert, and the second dies on `uq_call_mistakes_call_kind` and retries the whole
+        # pipeline. Serialised per call, the second replaces the first's rows and finds the
+        # fixes it opened. Its own key, not the pipeline's `call:{id}`: a run holding that
+        # one in another session would wait on itself.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"call_mistakes:{call_id}"},
+        )
         await session.execute(text("DELETE FROM call_mistakes WHERE call_id = :c"), {"c": call_id})
         for kind, turn_idx in found.items():
             await session.execute(

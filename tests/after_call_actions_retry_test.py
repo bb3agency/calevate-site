@@ -17,14 +17,16 @@ from arq import Retry
 
 class _Session:
     def __init__(self, agent_id: uuid.UUID) -> None:
-        self._row = (agent_id, "exec_1", "inbound", "+911140000000", "+911140000001", {})
+        self._row = (agent_id, "exec_1", "inbound", "+911140000000", "+911140000001", {}, None)
 
     async def execute(self, *_a: Any, **_kw: Any) -> Any:
         return SimpleNamespace(first=lambda: self._row)
 
 
 def _tool(kind: str) -> Any:
-    return SimpleNamespace(id=uuid.uuid4(), kind=kind, enabled=True, trigger="after_call")
+    return SimpleNamespace(
+        id=uuid.uuid4(), name=f"{kind}_tool", kind=kind, enabled=True, trigger="after_call"
+    )
 
 
 @pytest.fixture

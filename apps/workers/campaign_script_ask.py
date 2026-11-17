@@ -48,7 +48,7 @@ CLOSING_STEP: Final = (
 CALL_KINDS: Final[tuple[tuple[str, str], ...]] = (
     (
         "booking",
-        "to book a visit, appointment, demo or test: confirm the right person; one question "
+        "to book a visit, meeting, demo or test: confirm the right person; one question "
         "to learn what they need; one fact from the sources that answers it; ask which day "
         "or time suits them; collect what the booking needs, one detail per step.",
     ),

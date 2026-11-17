@@ -166,6 +166,35 @@ async def arm_agent_for_outbound(
     await verify_kyc_and_pledge_for_tests(tenant_id)
 
 
+async def declare_calling_numbers_for_tests(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:
+    """Record the account's current calling-number declaration covering the agent's numbers,
+    signed by its owner: from `a2p_declaration_enforced_from` an undeclared number cannot
+    place an automated call (D-941)."""
+    from apps.api.compliance.autodialer import (
+        DECLARATION_TEXT_SHA256,
+        DECLARATION_VERSION,
+        agent_calling_numbers,
+        record_declaration,
+    )
+    from apps.api.db.session import tenant_session
+
+    async with tenant_session(tenant_id) as session:
+        owner = (
+            await session.execute(
+                text("SELECT user_id FROM memberships WHERE role = 'owner' LIMIT 1")
+            )
+        ).scalar_one()
+        await record_declaration(
+            session,
+            tenant_id=tenant_id,
+            notified_on=date(2026, 10, 1),
+            recorded_by=owner,
+            attestation_version=DECLARATION_VERSION,
+            attestation_sha256=DECLARATION_TEXT_SHA256,
+            declared_clis=await agent_calling_numbers(session, agent_id=agent_id),
+        )
+
+
 PDF_BYTES = b"%PDF-1.7\n% calevate test certificate\n%%EOF\n"
 
 
