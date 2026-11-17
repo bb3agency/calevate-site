@@ -66,8 +66,8 @@ export function limitsFrom(context: ScriptContext | null): Limits {
 }
 
 /** A stage with every optional field filled, so views never branch on `undefined`. */
-export type Section = Required<Omit<ConversationStage, "position" | "otherwise_via" | "step" | "scripts" | "qa">> &
-  Pick<ConversationStage, "step" | "scripts" | "qa"> & {
+export type Section = Required<Omit<ConversationStage, "position" | "otherwise_via" | "step" | "scripts" | "qa" | "coaching">> &
+  Pick<ConversationStage, "step" | "scripts" | "qa" | "coaching"> & {
   position: { x: number; y: number } | null;
   /** The bend of the arrow to `otherwise` (or the next step), dragged on the canvas. */
   otherwise_via?: { x: number; y: number } | null;
@@ -92,6 +92,7 @@ export function asSection(stage: ConversationStage): Section {
     step: stage.step ?? null,
     scripts: stage.scripts ?? {},
     qa: stage.qa ?? [],
+    coaching: stage.coaching ?? [],
   };
 }
 
@@ -125,6 +126,7 @@ export function sectionDetail(
     procedure?: readonly unknown[];
     scripts?: Record<string, string>;
     qa?: readonly unknown[];
+    coaching?: readonly unknown[];
   },
 ): string {
   const text = collapse(section.instruction);
@@ -132,7 +134,7 @@ export function sectionDetail(
   if (section.sounds_like.trim()) detail += ` It sounds like: ${quote(section.sounds_like)}`;
   if (section.procedure?.length) detail += ` ${procedurePointer(section.name ?? "")}`;
   const scripted = Object.values(section.scripts ?? {}).some((t) => t.trim());
-  if (scripted || section.qa?.length) detail += ` ${scenarioPointer(section.name ?? "")}`;
+  if (scripted || section.qa?.length || section.coaching?.length) detail += ` ${scenarioPointer(section.name ?? "")}`;
   return detail;
 }
 

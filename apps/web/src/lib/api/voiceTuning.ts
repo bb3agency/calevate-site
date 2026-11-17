@@ -153,6 +153,26 @@ export function useSetClientVoiceTuning(
   });
 }
 
+/** A line of the owner's script in the agent's Studio voice and saved settings, as audio;
+ *  each press uses one of the day's samples. */
+export function useHearLine(
+  session: Session,
+  agentId: string,
+  voiceId: string | null,
+): UseMutationResult<Blob, Error, { text: string; language: string | null }> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload) =>
+      apiRequest<Blob>(session, `/v1/agents/${agentId}/voice-tuning/preview-line`, {
+        method: "POST",
+        body: payload,
+        responseType: "blob",
+      }),
+    onSettled: () =>
+      client.invalidateQueries({ queryKey: clientVoiceTuningKey(session.orgSlug, agentId, voiceId) }),
+  });
+}
+
 /** One fixed sample line with the settings sent, as audio; each press uses one of the day's. */
 export function useClientVoiceTuningPreview(
   session: Session,

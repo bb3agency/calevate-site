@@ -96,6 +96,8 @@ export interface ConversationStage {
   scripts?: Record<string, string>;
   /** The caller's likely questions in this scenario, with the answers. */
   qa?: { question: string; answer: string }[];
+  /** How the owner wants the line said, heard and noted (language "" = every language). */
+  coaching?: { language: string; note: string }[];
 }
 
 /** Mirrors `Objection`. */

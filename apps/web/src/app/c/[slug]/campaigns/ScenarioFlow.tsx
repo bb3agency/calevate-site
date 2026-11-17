@@ -18,6 +18,8 @@ import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEven
 import { FIELD, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { CallScript } from "@/lib/api/script";
 
+import { LineCoach, type FlowAgent } from "./LineCoach";
+
 import { languageName } from "./ScriptLanguages";
 import {
   END_NAMES,
@@ -81,7 +83,10 @@ export function ScenarioFlow({
   wide,
   onSelect,
   onChange,
+  agent,
 }: {
+  /** The campaign's agent, whose voice "Hear it" speaks in; null while none is chosen. */
+  agent: FlowAgent | null;
   script: CallScript;
   limits: Limits;
   issues: Issue[];
@@ -122,6 +127,7 @@ export function ScenarioFlow({
       issues={issues.filter((i) => i.section === chosen.section.id)}
       languages={languages}
       readOnly={readOnly}
+      agent={agent}
       onChange={onChange}
       onDelete={() => remove(chosen.section.id)}
     />
@@ -532,9 +538,11 @@ function ScenarioEditor({
   issues,
   languages,
   readOnly,
+  agent,
   onChange,
   onDelete,
 }: {
+  agent: FlowAgent | null;
   item: Placed;
   items: Placed[];
   steps: number;
@@ -617,7 +625,11 @@ function ScenarioEditor({
 
       <fieldset>
         <legend className={label()}>Script</legend>
-        <p className="text-meta text-ink-muted">What the agent says here. It uses the caller&apos;s language.</p>
+        <p className="text-meta text-ink-muted">
+          What the agent says here. It uses the caller&apos;s language. Hear it in the agent&apos;s voice and say how it
+          should sound.
+        </p>
+        {agent?.bar}
         <div className="mt-2 space-y-3">
           {tongues.map((tag) => (
             <div key={tag}>
@@ -635,6 +647,21 @@ function ScenarioEditor({
                   if (!e.target.value.trim()) delete nextScripts[tag];
                   patch(tag === main && legacy ? { scripts: nextScripts, sounds_like: "" } : { scripts: nextScripts });
                 }}
+              />
+              <LineCoach
+                agent={agent}
+                language={tag}
+                line={scripts[tag] ?? (tag === main ? legacy : "")}
+                notes={(s.coaching ?? []).filter((c) => c.language === tag).map((c) => c.note)}
+                readOnly={readOnly}
+                onNotes={(notes) =>
+                  patch({
+                    coaching: [
+                      ...(s.coaching ?? []).filter((c) => c.language !== tag),
+                      ...notes.map((note) => ({ language: tag, note })),
+                    ].slice(0, 10),
+                  })
+                }
               />
             </div>
           ))}

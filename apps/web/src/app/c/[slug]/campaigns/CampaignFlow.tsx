@@ -25,6 +25,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { limitsFrom, sectionsOf, validate } from "../agents/[agentId]/script/scriptModel";
 import { DESKTOP, useMedia } from "../agents/[agentId]/script/useMedia";
 import { ScenarioFlow } from "./ScenarioFlow";
+import { FlowAgentBar, useFlowAgent } from "./FlowAgentBar";
 import { addScenario, placed } from "./scenarioModel";
 
 
@@ -47,7 +48,9 @@ export function CampaignFlow({
   onMapScenarios,
   mapping,
   languages,
+  campaignId,
 }: {
+  campaignId: string;
   agentId: string;
   /** The campaign's languages, main first: each scenario has a script line in each. */
   languages: string[];
@@ -194,9 +197,15 @@ export function CampaignFlow({
     </div>
   );
 
+  // The agent whose voice "Hear it" speaks in, with its picker and voice settings.
+  const flowAgent = useFlowAgent(agentId, (agent) => (
+    <FlowAgentBar campaignId={campaignId} agentId={agentId} agent={agent} canWrite={canWrite} refusal={refusal} />
+  ));
+
   // The steps and the chosen scenario's editor; on a phone the steps stack.
   const body = () => (
     <ScenarioFlow
+      agent={flowAgent}
       script={draft}
       limits={limits}
       issues={issues}

@@ -18998,6 +18998,14 @@
             "title": "Branches",
             "type": "array"
           },
+          "coaching": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioCoaching"
+            },
+            "maxItems": 10,
+            "title": "Coaching",
+            "type": "array"
+          },
           "collect": {
             "items": {
               "type": "string"
@@ -45908,6 +45916,35 @@
         "title": "PreviewIn",
         "type": "object"
       },
+      "PreviewLineIn": {
+        "additionalProperties": false,
+        "description": "A line of the owner's own script to hear, in one of the agent's languages.",
+        "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 10,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "text": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "PreviewLineIn",
+        "type": "object"
+      },
       "PreviewOut": {
         "additionalProperties": false,
         "properties": {
@@ -52250,6 +52287,29 @@
           "count"
         ],
         "title": "ScenarioClassCount",
+        "type": "object"
+      },
+      "ScenarioCoaching": {
+        "additionalProperties": false,
+        "description": "How the owner, having heard it, wants a scenario's line said: slower, warmer, a word\nsaid another way. `language` is the line's tag, or empty for every language.",
+        "properties": {
+          "language": {
+            "default": "",
+            "maxLength": 10,
+            "title": "Language",
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "title": "ScenarioCoaching",
         "type": "object"
       },
       "ScenarioQa": {
@@ -83232,6 +83292,64 @@
           }
         },
         "summary": "Hear this agent's Studio voice with these settings, unsaved",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/voice-tuning/preview-line": {
+      "post": {
+        "description": "Speaks the start of the line sent (whole sentences up to 200 characters) in the agent's Studio voice with its saved speed, loudness and emotion, so an owner hears how a scenario's script sounds (founder, 17 Nov 2026). Counts against the same 20 samples a day as the fixed sample. Refused while the agent's voice is not a Studio one.",
+        "operationId": "preview_agent_line_v1_agents__agent_id__voice_tuning_preview_line_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewLineIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "audio/mpeg": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "audio/wav": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The preview audio."
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Hear a line of the owner's script in this agent's Studio voice",
         "tags": [
           "agents"
         ],

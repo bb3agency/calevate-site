@@ -452,6 +452,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                 )}
               </div>
               <CampaignFlow
+                campaignId={campaignId}
                 agentId={space.agent_id}
                 languages={flowLanguages}
                 script={script}

@@ -5053,6 +5053,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/voice-tuning/preview-line": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hear a line of the owner's script in this agent's Studio voice
+         * @description Speaks the start of the line sent (whole sentences up to 200 characters) in the agent's Studio voice with its saved speed, loudness and emotion, so an owner hears how a scenario's script sounds (founder, 17 Nov 2026). Counts against the same 20 samples a day as the fixed sample. Refused while the agent's voice is not a Studio one.
+         */
+        post: operations["preview_agent_line_v1_agents__agent_id__voice_tuning_preview_line_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/analytics/call-groups": {
         parameters: {
             query?: never;
@@ -21353,6 +21373,8 @@ export interface components {
         ConversationStage: {
             /** Branches */
             branches?: components["schemas"]["StageBranch"][];
+            /** Coaching */
+            coaching?: components["schemas"]["ScenarioCoaching"][];
             /** Collect */
             collect?: string[];
             /** Id */
@@ -31238,6 +31260,16 @@ export interface components {
         PreviewIn: {
             script: components["schemas"]["CallScript"];
         };
+        /**
+         * PreviewLineIn
+         * @description A line of the owner's own script to hear, in one of the agent's languages.
+         */
+        PreviewLineIn: {
+            /** Language */
+            language?: string | null;
+            /** Text */
+            text: string;
+        };
         /** PreviewOut */
         PreviewOut: {
             /** Compiled */
@@ -33568,6 +33600,20 @@ export interface components {
             meaning: string;
             /** Scenario */
             scenario: number;
+        };
+        /**
+         * ScenarioCoaching
+         * @description How the owner, having heard it, wants a scenario's line said: slower, warmer, a word
+         *     said another way. `language` is the line's tag, or empty for every language.
+         */
+        ScenarioCoaching: {
+            /**
+             * Language
+             * @default
+             */
+            language: string;
+            /** Note */
+            note: string;
         };
         /**
          * ScenarioQa
@@ -48990,6 +49036,42 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ClientVoiceTuningIn"];
+            };
+        };
+        responses: {
+            /** @description The preview audio. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/mpeg": string;
+                    "audio/wav": string;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    preview_agent_line_v1_agents__agent_id__voice_tuning_preview_line_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewLineIn"];
             };
         };
         responses: {

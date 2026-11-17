@@ -638,6 +638,16 @@ class ScenarioQa(BaseModel):
     answer: str = Field(min_length=1, max_length=1000)
 
 
+class ScenarioCoaching(BaseModel):
+    """How the owner, having heard it, wants a scenario's line said: slower, warmer, a word
+    said another way. `language` is the line's tag, or empty for every language."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    language: str = Field(default="", max_length=10)
+    note: str = Field(min_length=1, max_length=300)
+
+
 class ProcedureStep(BaseModel):
     """One small step of a section's step-by-step list: what the agent asks the caller to do,
     and what tells it the caller has done it (empty: the caller says so)."""
@@ -687,6 +697,7 @@ class ConversationStage(BaseModel):
     #: What to say in this scenario, by language tag (`en-IN`, `te-IN`, ...).
     scripts: dict[str, str] = Field(default_factory=dict)
     qa: list[ScenarioQa] = Field(default_factory=list, max_length=MAX_SCENARIO_QA)
+    coaching: list[ScenarioCoaching] = Field(default_factory=list, max_length=MAX_SCENARIO_QA)
 
     @field_validator("scripts")
     @classmethod
@@ -935,7 +946,7 @@ def _stage_detail(stage: ConversationStage) -> str:
         detail += f" It sounds like: {_quote(stage.sounds_like)}"
     if stage.procedure:
         detail += f" {procedure_pointer(stage.name)}"
-    if stage.scripts or stage.qa:
+    if stage.scripts or stage.qa or stage.coaching:
         detail += f" {scenario_pointer(stage.name)}"
     return detail
 
@@ -960,6 +971,11 @@ def _scenario_blocks(stages: Sequence[ConversationStage]) -> str:
     for stage in stages:
         lines = [f"{stage.name.strip()}:"]
         lines += [f"{names.get(tag, tag)}: {_quote(text)}" for tag, text in stage.scripts.items()]
+        lines += [
+            f"How to say it{f' in {names.get(c.language, c.language)}' if c.language else ''}: "
+            f"{' '.join(c.note.split())}"
+            for c in stage.coaching
+        ]
         lines += [f"Q: {qa.question.strip()}\nA: {qa.answer.strip()}" for qa in stage.qa]
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
@@ -1164,7 +1180,7 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
     if with_steps:
         add(f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}", _procedures(with_steps))
 
-    scenarios = [s for s in stages if s.scripts or s.qa]
+    scenarios = [s for s in stages if s.scripts or s.qa or s.coaching]
     if scenarios:
         add(f"{SCENARIO_HEADER} {SCENARIO_LEAD}", _scenario_blocks(scenarios))
 
@@ -1303,6 +1319,7 @@ def script_text(script: CallScript) -> str:
         *(f"{p.action} {p.wait_for}" for st in script.stages for p in st.procedure),
         *(text for st in script.stages for text in st.scripts.values()),
         *(f"{qa.question} {qa.answer}" for st in script.stages for qa in st.qa),
+        *(c.note for st in script.stages for c in st.coaching),
         *(f"{b.when}" for st in script.stages for b in st.branches),
         *(f"{o.objection} {o.response}" for o in script.objections),
         script.ending,
@@ -1460,6 +1477,7 @@ __all__ = [
     "Objection",
     "ProcedureStep",
     "Pronunciation",
+    "ScenarioCoaching",
     "ScenarioQa",
     "ScriptPolicies",
     "ScriptStep",

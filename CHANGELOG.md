@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.60 — 17-Nov-2026
+
+- Call flow: the scenario's Script shows the campaign's agent, with a picker to choose one
+  when there is none or change it, and Adjust its voice (speed, loudness, emotion), which
+  changes how the agent sounds on every call.
+- Each language's line has Hear it in the agent's voice (a Studio voice; it speaks the
+  start of the line and uses one of the day's samples). A Clear voice points to Test call.
+- Under each line, say how it should sound ("slower", "say Rytu Khata as రైతు ఖాతా"). The
+  notes are kept on the scenario and the agent follows them on the calls after Save.
+
 ## 0.4.59 — 17-Nov-2026
 
 - **Call flow in steps and scenarios.** Each column is a step of the call, and a step holds
