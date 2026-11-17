@@ -790,6 +790,91 @@ async def _ensure_prompt(tenant_id: UUID, agent_id: UUID) -> None:
         await session.commit()
 
 
+#: The demo business's facts. An agent goes live only once the profile holds hours, an
+#: address, something offered and someone to put a caller through to (D-695).
+DEMO_PROFILE: dict[str, Any] = {
+    "hours": [
+        {"day": day, "opens": "09:30", "closes": "19:00"}
+        for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+    ],
+    "branches": [{"label": "Site office", "address": "Plot 7, Kondapur Main Road, Hyderabad"}],
+    "services": [{"name": "Site visit", "price_inr": "0"}],
+    "contacts": [{"label": "Sales desk", "phone_e164": "+919900000200"}],
+}
+
+
+async def _ensure_business_profile(tenant_id: UUID) -> None:
+    """The demo profile, written once. A profile or contact already on file (the owner's own
+    edits on a re-run) is kept."""
+    from apps.api.db.session import tenant_session
+    from apps.api.tenancy.profile_service import ProfilePatch, hours_map
+
+    patch = ProfilePatch.model_validate(DEMO_PROFILE)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO business_profiles (id, tenant_id, hours, branches, services) "
+                "VALUES (:id, :tid, CAST(:hours AS jsonb), CAST(:branches AS jsonb), "
+                "CAST(:services AS jsonb)) ON CONFLICT (tenant_id) DO NOTHING"
+            ),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "hours": json.dumps(hours_map(patch.hours or [])),
+                "branches": json.dumps([b.model_dump() for b in patch.branches or []]),
+                "services": json.dumps([s.model_dump(mode="json") for s in patch.services or []]),
+            },
+        )
+        for position, contact in enumerate(patch.contacts or []):
+            await session.execute(
+                text(
+                    "INSERT INTO business_contacts (id, tenant_id, position, label, phone_e164) "
+                    "SELECT :id, :tid, :pos, :label, :phone WHERE NOT EXISTS "
+                    "(SELECT 1 FROM business_contacts)"
+                ),
+                {
+                    "id": uuid7(),
+                    "tid": tenant_id,
+                    "pos": position,
+                    "label": contact.label,
+                    "phone": contact.phone_e164,
+                },
+            )
+        await session.commit()
+
+
+async def _accept_agreements(tenant_id: UUID, owner_user_id: UUID) -> None:
+    """The owner's acceptance of the four blocking agreements, as their console records it.
+
+    Every publish is refused for an account that has not accepted them, so without this the
+    seeded agent stays `draft`. Through `record_acceptance`, never a bare INSERT, so the
+    version and statement are the ones the Agreements screen would send. The ledger is
+    append-only: a document already accepted at its current version is skipped, so re-runs
+    add no rows.
+    """
+    from apps.api.db.session import tenant_session
+    from apps.api.legal import catalogue, statements
+    from apps.api.legal import service as legal_service
+
+    async with tenant_session(tenant_id) as session:
+        held = await legal_service.latest_acceptances(session, tenant_id=tenant_id)
+        for slug in catalogue.BLOCKING_SLUGS:
+            spec = catalogue.document(slug)
+            if spec is None:
+                raise RuntimeError(f"agreement {slug} is not in the catalogue")
+            if slug in held and held[slug].document_version == spec.current_version:
+                continue
+            await legal_service.record_acceptance(
+                session,
+                tenant_id=tenant_id,
+                slug=slug,
+                version=spec.current_version,
+                statement_version=statements.statement_version(),
+                user_id=owner_user_id,
+            )
+        await session.commit()
+
+
 async def _publish(tenant_id: UUID, agent_id: UUID) -> str:
     """Publish through the real service, and report the truth if it will not.
 
@@ -849,6 +934,8 @@ async def _run() -> str:
     await _activate(tenant_id)
 
     await _ensure_prompt(tenant_id, agent_id)
+    await _ensure_business_profile(tenant_id)
+    await _accept_agreements(tenant_id, owner_id)
     agent_status = await _publish(tenant_id, agent_id)
     # BEFORE the calls, because `_seed_calls` writes usage rows that debit this wallet:
     # a demo whose first charge lands on an empty balance is one the ledger records as a

@@ -106,7 +106,15 @@ function Summary({ detail }: { detail: CallDetail }) {
     );
   }
   if (!detail.summary && !detail.summary_local) {
-    return <p className="text-body text-ink-muted">Nothing was said, so no summary.</p>;
+    // A reading can come back with no summary while the turns exist; the chat below then
+    // shows what was said, so "nothing was said" would contradict it.
+    return (
+      <p className="text-body text-ink-muted">
+        {detail.transcript?.length
+          ? "No summary for this call. The full chat is below."
+          : "Nothing was said, so no summary."}
+      </p>
+    );
   }
 
   const showLocal = !detail.summary;

@@ -3197,9 +3197,10 @@ async def _record_reading(
     # has a summary to read behind the toggle.
     if english or local:
         state = "ready"
-    elif (model_failed and not snapshot.engine_summary) or (not turns and talked(snapshot)):
-        # An answered call with talk time and no turns was not a silence: its transcript
-        # never reached us, and "nothing was said" would be false (D-848).
+    elif turns or (model_failed and not snapshot.engine_summary) or talked(snapshot):
+        # `empty` is read as "nothing was said". Turns with no summary from any source are
+        # a summary we could not write, and an answered call with talk time and no turns
+        # was not a silence: its transcript never reached us (D-848).
         state = "failed"
     else:
         state = "empty"

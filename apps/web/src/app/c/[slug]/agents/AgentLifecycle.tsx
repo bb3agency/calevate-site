@@ -45,6 +45,7 @@
  * ROSTER is where that refusal is explained (see `Roster.tsx::RowDelete`).
  */
 
+import Link from "next/link";
 import { useState } from "react";
 import { MessageSquareText, Power, PowerOff, Trash2, Undo2 } from "lucide-react";
 
@@ -67,6 +68,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
 import { ApiProblem } from "@/lib/api/client";
 import { ProfileBlockers, blockersFromProblem } from "@/components/businessProfile/ProfileBlockers";
+import { fixDestination } from "../campaigns/blockerCopy";
 
 interface MoveCopy {
   /** What the button says. */
@@ -289,14 +291,31 @@ export function AgentLifecycle({
 /**
  * A refused lifecycle move, as the screen shows it. A go-live refused for missing business
  * facts (`business_profile_incomplete`) becomes a list with a link to each setup step;
- * anything else is the server's own problem notice. One component so the header switch and
- * this panel cannot word the same refusal two ways.
+ * anything else is the server's own problem notice, with a button to the screen that clears
+ * it when the rule has one (`fixDestination`, the map a refused dial uses), so a refusal such
+ * as unaccepted agreements is not a dead end. One component so the header switch and this
+ * panel cannot word the same refusal two ways.
  */
 export function LifecycleError({ error }: { error: Error | null }) {
   const { session, href: realmHref } = useClientRealm();
   if (!error) return null;
   const blockers = error instanceof ApiProblem ? blockersFromProblem(error.code, error.fields) : [];
-  if (blockers.length === 0) return <ProblemNotice error={error} />;
+  if (blockers.length === 0) {
+    const fix =
+      error instanceof ApiProblem && error.code
+        ? fixDestination(error.code, (path) => realmHref(`/c/${session.orgSlug}${path}`))
+        : undefined;
+    return (
+      <div className="space-y-2">
+        <ProblemNotice error={error} />
+        {fix ? (
+          <Link href={fix.href} className={SECONDARY_BUTTON}>
+            {fix.label}
+          </Link>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <ProfileBlockers
       blockers={blockers}
