@@ -4582,14 +4582,12 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # past IST midnight on the 1st and count the call into a month its own usage rows
         # are not in.
         occurred_at = snapshot.ended_at or datetime.now(UTC)
-        # WAS THIS CALL ON US: asked about the instant the call STARTED (lead decision 17 Nov
-        # 2026), not its end and never the clock at settlement. A top-up that converts a
+        # WAS THIS CALL ON US: asked about the instant the call STARTED (D-1013),
+        # not its end and never the clock at settlement. A top-up that converts a
         # trial while the call is running does not charge that call, and an ARQ retry or the
         # reconciliation poller settling it hours later cannot either. With no engine start
         # time, the start is the end less the billed duration.
-        call_started_at = snapshot.started_at or occurred_at - timedelta(
-            seconds=float(duration_s)
-        )
+        call_started_at = snapshot.started_at or occurred_at - timedelta(seconds=float(duration_s))
         on_us = await trial_covers(session, tenant_id=tenant_id, at=call_started_at)
         turns, agent_chars = await _agent_transcript(session, tenant_id=tenant_id, call_id=call_id)
         spoken_chars, spoken_source = spoken_characters(snapshot.tts_characters, agent_chars)

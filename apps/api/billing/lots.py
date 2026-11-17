@@ -755,7 +755,7 @@ async def adjust_lot_for_restatement(
 
 
 async def return_credits(
-    session: AsyncSession, *, lot_id: UUID, credits: Decimal, sold: Decimal = Decimal("0")
+    session: AsyncSession, *, lot_id: UUID, credits_inr: Decimal, sold: Decimal = Decimal("0")
 ) -> bool:
     """Put back credit a debit took off this lot (`_RETURN_TO_LOT`), and say whether it
     went back. `False` leaves the caller holding credit to place elsewhere.
@@ -766,8 +766,8 @@ async def return_credits(
     downward restatement's move of `credits_total`, which can differ from the credit coming
     back because the restatement floored `credits_remaining` at zero.
     """
-    if credits < 0 or sold < 0 or credits + sold <= 0:
-        raise ValueError(f"nothing to return: credits={credits}, sold={sold}")
+    if credits_inr < 0 or sold < 0 or credits_inr + sold <= 0:
+        raise ValueError(f"nothing to return: credits={credits_inr}, sold={sold}")
     # Imported here: `credit_expiry` imports this module.
     from apps.api.billing.credit_expiry import CREDIT_EXPIRY_META_KIND
 
@@ -779,7 +779,7 @@ async def return_credits(
         text(_RETURN_TO_LOT),
         {
             "id": lot_id,
-            "give": _money(credits),
+            "give": _money(credits_inr),
             "sold": _money(sold),
             "closing_kinds": [credit_service.LOT_REPRICE_META_KIND, CREDIT_EXPIRY_META_KIND],
         },

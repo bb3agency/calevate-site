@@ -22,8 +22,8 @@ from tests.journey_audit_2026_11_10_e4_test import (  # noqa: F401 (autouse fixt
     _after_top_up,
     _call,
     _configured,
-    _stub_storage,
     _screens,
+    _stub_storage,
     _wallet_agrees,
     _webhook_top_up,
 )

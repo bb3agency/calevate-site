@@ -72,7 +72,7 @@ founder chose in place of a spend ceiling (see below). What does not happen is
 `apps/workers/pipeline.py` on the instant the call STARTED (`trial_covers`) rather than on
 its end or the clock at settlement — a top-up can convert the trial while the call is
 running, an ARQ retry ladder or a reconciliation poller can settle a call hours after it
-ended, and a call that was free when it began stays free (lead decision 17 Nov 2026). The
+ended, and a call that was free when it began stays free (D-1013). The
 decision is stamped on the call's rows (`TRIAL_COVERED_META_KEY`), because the rows are
 dated at the call's end.
 

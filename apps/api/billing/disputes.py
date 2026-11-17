@@ -491,14 +491,14 @@ async def _return_to_held_lots(
     if lot is not None and lot_restated > 0:
         shortfall = sum((Decimal(str(s["credits"])) for s in taken or []), Decimal("0"))
         give = min(max(lot_restated - shortfall, Decimal("0")), budget)
-        if await return_credits(session, lot_id=lot.lot_id, credits=give, sold=lot_restated):
+        if await return_credits(session, lot_id=lot.lot_id, credits_inr=give, sold=lot_restated):
             returned += give
     for split in taken or []:
         lot_id = split.get("lot_id")
         give = min(Decimal(str(split["credits"])), budget - returned)
         if lot_id is None or give <= 0:
             continue
-        if await return_credits(session, lot_id=UUID(lot_id), credits=give):
+        if await return_credits(session, lot_id=UUID(lot_id), credits_inr=give):
             returned += give
     return returned
 

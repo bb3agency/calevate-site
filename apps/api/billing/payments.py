@@ -1003,7 +1003,8 @@ def refund_idempotency_key(*, payment_id: str, amount_inr: Decimal, attempt: int
     `attempt` counts the earlier attempts of this (payment, amount) that FAILED
     definitively (`refund_intents.failed_at`) or whose refund PROCESSED (`claim_refund`).
     A key stays bound to its attempt: the provider may answer a reused key with the refund
-    it already made or failed, so the next attempt needs a new one. An attempt whose outcome is unknown is not failed and keeps its key,
+    it already made or failed, so the next attempt needs a new one. An attempt whose
+    outcome is unknown is not failed and keeps its key,
     which is the vendor's documented safe retry. Attempt 0 hashes exactly what the key
     always hashed, so keys already sent are unchanged.
 
@@ -1707,8 +1708,8 @@ async def claim_refund(
     onto the refund that already exists, never add to what was returned, so it must not be
     refused as a breach of a ceiling it does not move.
 
-    **ONCE THAT REFUND HAS PROCESSED, THE SAME AMOUNT AGAIN IS A NEW REFUND** (lead decision
-    17 Nov 2026): it gets a new key and passes the dispute check and both ceilings like any
+    **ONCE THAT REFUND HAS PROCESSED, THE SAME AMOUNT AGAIN IS A NEW REFUND** (D-1014):
+    it gets a new key and passes the dispute check and both ceilings like any
     other. Treating it as a replay sent the provider the processed refund's key, which can
     only collapse onto that refund, and skipped the dispute check and the ceilings.
 

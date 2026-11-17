@@ -46,7 +46,9 @@ async def _claim(tenant_id: UUID, payment_id: str, amount: str, total: str) -> p
         )
 
 
-async def _processed(tenant_id: UUID, payment_id: str, claim: payments.RefundClaim, amount: str) -> None:
+async def _processed(
+    tenant_id: UUID, payment_id: str, claim: payments.RefundClaim, amount: str
+) -> None:
     """The provider answered with a refund id and the refund then processed (webhook)."""
     refund_id = _id("rfnd")
     async with tenant_session(tenant_id) as session:
