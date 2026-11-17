@@ -391,7 +391,13 @@ function WriteReceipt({
         {recorded ? (
           <span className="min-w-0 break-words">
             Saved. {field.label} changed from{" "}
-            <span className="font-semibold">{shown(write.previous)}</span> to{" "}
+            {/* `previous` is null when no row existed, i.e. the default was in force. */}
+            <span className="font-semibold">
+              {write.previous === null && field.has_default
+                ? `${shown(write.field.default)} (the default)`
+                : shown(write.previous)}
+            </span>{" "}
+            to{" "}
             <span className="font-semibold">{shown(write.field.value)}</span>.{" "}
             {applies.applies === "live" ? "It applies within a few seconds." : applies.label + "."}
           </span>

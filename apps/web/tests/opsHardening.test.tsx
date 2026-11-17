@@ -1036,6 +1036,32 @@ describe("the receipt is the server's answer", () => {
     expectTextCount(container, "07.25", 0);
   });
 
+  it("names the default as the old value when nothing had been set over it", async () => {
+    // `previous` is null when no row existed: the setting was running on its default, which
+    // the form had just shown as "Now", so the receipt must not say it was "Not set".
+    renderOps(
+      opsRoutes({
+        [`PUT ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: {
+          key: "self_serve_inr_per_min",
+          previous: null,
+          field: configField({ value: "7.25", source: "db", updated_by: "Ops" }),
+          config_version: 43,
+          recorded: true,
+          etag: '"8"',
+        } satisfies ConfigWrite,
+      }),
+    );
+
+    await screen.findByText("self_serve_inr_per_min");
+    fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
+    fillConfigForm({ value: "7.25", reason: "Q3 self-serve price change", confirm: "7.25" });
+    fireEvent.click(saveButton());
+
+    const receipt = await findReceipt();
+    expect(receipt.textContent).toContain("changed from ₹6.00 per minute (the default) to ₹7.25 per minute");
+    expect(receipt.textContent).not.toContain("Not set");
+  });
+
   it("says when the process serving this screen has not picked the change up", async () => {
     // The list keeps answering 6.00 — a `stale` snapshot, or a process that cannot reach
     // the store. Without this the operator sees the old value under a green tick and
