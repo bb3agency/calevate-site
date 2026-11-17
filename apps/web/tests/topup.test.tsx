@@ -431,6 +431,26 @@ describe("the top-up panel", () => {
     expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
 
+  it("gives the bank-transfer path a button that asks us for the bank details", async () => {
+    await renderBillingHub(
+      routes({
+        [CAPABILITY]: {
+          online_payments_available: false,
+          provider_orders_available: false,
+        },
+      }),
+      "Credits",
+    );
+
+    await screen.findByText("Pay by bank transfer");
+    const ask = screen.getByRole("link", { name: "Ask for bank details" });
+    const href = ask.getAttribute("href") ?? "";
+    // The support mailbox for accounts and billing (`SUPPORT_EMAIL`), the channel every
+    // other "contact us" button on the client screens uses.
+    expect(href).toMatch(/^mailto:[^?]+@[^?]+\?subject=/);
+    expect(decodeURIComponent(href)).toContain("Bank details for a top-up");
+  });
+
   it("never names which of our secrets is missing", async () => {
     // `reason` is OUR configuration state and stays server-side. A client cannot act on
     // "no_webhook_secret" and telling them is an internals leak.
