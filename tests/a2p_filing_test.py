@@ -303,6 +303,20 @@ def test_the_migration_goes_down_and_up() -> None:
                     )
                 )
                 connection.execute(text("TRUNCATE a2p_number_filings"))
+                # The banner is written only while its window is open (d941a2c7e5b3), so a
+                # database migrated after 18 Nov has none; put it back here so its wording
+                # change is still exercised both ways.
+                connection.execute(
+                    text(
+                        "INSERT INTO platform_announcements (id, message, link_url, "
+                        "link_label, tone, audience, starts_at, ends_at) VALUES "
+                        "('019a33c0-d941-7000-8000-0000000d0941', :m, "
+                        "'/verify-business#calling-numbers', 'Confirm numbers', 'warning', "
+                        "'outbound', '2026-11-01T00:00:00+05:30', '2026-11-18T00:00:00+05:30') "
+                        "ON CONFLICT (id) DO NOTHING"
+                    ),
+                    {"m": revision.NEW_MESSAGE},
+                )
                 with Operations.context(MigrationContext.configure(connection)):
                     revision.downgrade()
                     message, label = connection.execute(_ANNOUNCEMENT).one()

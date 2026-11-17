@@ -896,7 +896,11 @@ async def test_the_migration_sent_the_announcement_to_the_outbound_audience() ->
                 )
             )
         ).first()
-    assert row is not None
+    if row is None:
+        # Written only while its window was open (it ends at midnight IST on 18 Nov), so a
+        # database migrated after that rightly has no banner.
+        assert datetime.now(UTC) >= datetime(2026, 11, 17, 18, 30, tzinfo=UTC)
+        return
     assert tuple(row) == (
         "outbound",
         "/verify-business#calling-numbers",

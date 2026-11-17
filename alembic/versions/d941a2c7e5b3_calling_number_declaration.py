@@ -62,12 +62,16 @@ def upgrade() -> None:
         f"ALTER TABLE {ANNOUNCEMENTS} ADD CONSTRAINT ck_{ANNOUNCEMENTS}_audience "
         f"CHECK (audience IN ({_NEW_AUDIENCES}))"
     )
+    # The banner runs until the rule starts. A database migrated after that has nothing to
+    # announce, and `starts_at = now()` past the end would break the window CHECK, so the
+    # row is written only while the window is still open.
     op.execute(
         f"INSERT INTO {ANNOUNCEMENTS} (id, message, link_url, link_label, tone, audience, "
-        "starts_at, ends_at, created_at, updated_at) VALUES "
-        f"('{ANNOUNCEMENT_ID}', '{MESSAGE}', '/verify-business#calling-numbers', "
+        "starts_at, ends_at, created_at, updated_at) SELECT "
+        f"'{ANNOUNCEMENT_ID}', '{MESSAGE}', '/verify-business#calling-numbers', "
         "'Declare numbers', 'warning', 'outbound', now(), "
-        "'2026-11-18T00:00:00+05:30', now(), now()) ON CONFLICT (id) DO NOTHING"
+        "'2026-11-18T00:00:00+05:30', now(), now() "
+        "WHERE now() < '2026-11-18T00:00:00+05:30' ON CONFLICT (id) DO NOTHING"
     )
 
 
