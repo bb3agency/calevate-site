@@ -4022,6 +4022,14 @@ async def publish_line(
     if not test:
         # A test holder answers no caller, so the maintenance message has nothing to lose.
         await _refuse_during_maintenance(session)
+    # The tenant's knowledge lock before any row, as `lifecycle.archive_agent` takes it: the
+    # two serialise, so either the archive counts this line live and refuses, or this
+    # publish reads the agent archived below and refuses. Without it both read the other's
+    # state from before, and a line went live in a deleted agent's voice. Imported here:
+    # `kb.service` imports `agents.t0`, which imports this module.
+    from apps.api.kb.service import lock_tenant_knowledge
+
+    await lock_tenant_knowledge(session, tenant_id=tenant_id)
     line = (
         await session.execute(
             text(
@@ -4233,6 +4241,9 @@ class CampaignDial:
 
     ref: str
     campaign_id: UUID
+    #: Made in our developer workspace for a test call on the shared trial line (D-697,
+    #: D-859); False for one in the client's own workspace, rung from the client's number.
+    developer: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -4464,6 +4475,29 @@ async def check_campaign_publishable(
     await _campaign_publishable(session, tenant_id=tenant_id, holder=holder)
 
 
+async def _campaign_test_in_developer(
+    session: AsyncSession, *, tenant_id: UUID, holder: _CampaignHolder, developer: bool
+) -> bool:
+    """Whether a campaign's test holder is made in our developer workspace. Never for a
+    campaign that is dialling or paused: its engine agent is the one its calls ring through
+    in the client's workspace, and moving it to ours for a test would leave the next dial
+    ringing an agent that cannot use the client's numbers. Its test call rings through that
+    same engine agent from the client's own number, as its dials do."""
+    if holder.status in CAMPAIGN_HOLDING_STATUSES:
+        return False
+    return developer or await restricting_trial(session, tenant_id=tenant_id) is not None
+
+
+async def campaign_test_in_developer(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID, developer: bool
+) -> bool:
+    """`publish_campaign_agent(test=True)`'s workspace decision, for the caller that dials."""
+    holder = await _campaign_holder(session, campaign_id)
+    return await _campaign_test_in_developer(
+        session, tenant_id=tenant_id, holder=holder, developer=developer
+    )
+
+
 async def publish_campaign_agent(
     session: AsyncSession,
     *,
@@ -4484,6 +4518,7 @@ async def publish_campaign_agent(
     the shared trial line rings (D-697): a free-trial account's, and a paying account's that
     has no number of its own yet (D-859, option A). Its next publish in the client's own
     workspace recreates it there (`_moves_workspace`), and the old one is retired.
+    `campaign_test_in_developer` decides that, and never for a running or paused campaign.
 
     The campaign row is locked first, so two Starts never make two engine agents for it."""
     if not test:
@@ -4493,8 +4528,8 @@ async def publish_campaign_agent(
     if test:
         # A test holder rings the owner, so the agreements are asked as for a test copy.
         await assert_agreements_accepted(session, tenant_id=tenant_id)
-    in_developer = test and (
-        developer or await restricting_trial(session, tenant_id=tenant_id) is not None
+    in_developer = test and await _campaign_test_in_developer(
+        session, tenant_id=tenant_id, holder=holder, developer=developer
     )
     voice_choice, model_choice = _engine_choice(agent, engine=engine)
     rate_key = await engine_rate_key_for(
@@ -4914,9 +4949,9 @@ async def _refuse_undeclared_caller(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, line: CallerLine | None
 ) -> None:
     """The declaration asked of the number this dial actually presents, at the one place it
-    is known. `check_dispatch` asks it before any dial without the campaign's chosen number,
-    so a campaign dialling from a client number its agent does not hold, or a number lent
-    since the gate, is caught here. Raised before the intent row, so nothing was seized."""
+    is known. `check_dispatch` asks it before the dial of the number its caller named (a
+    campaign's), so a number lent since the gate, or one chosen here when the caller named
+    none, is caught here. Raised before the intent row, so nothing was seized."""
     if not enforcement_active():
         return
     presented = (

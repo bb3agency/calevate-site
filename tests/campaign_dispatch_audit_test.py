@@ -594,6 +594,25 @@ async def test_the_campaigns_number_rings_when_its_agent_has_several() -> None:
     assert presented == {chosen}
 
 
+async def test_the_dial_gate_is_asked_about_the_campaigns_own_number(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The declaration is asked of the number the dial presents. Asked without the campaign's
+    number, the gate checked the agent's numbers, and an undeclared campaign number was caught
+    only by `dispatch_call` after the gate, under a vaguer failure."""
+    tenant_id, _agent_id, campaign_id, number_id, _ = await _launched(phones=("9876600071",))
+    asked: list[Any] = []
+    real = campaign_dispatch.check_dispatch
+
+    async def spy(*args: Any, **kwargs: Any) -> Any:
+        asked.append(kwargs.get("number_id"))
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(campaign_dispatch, "check_dispatch", spy)
+    await _tick_one_campaign(tenant_id, campaign_id)
+    assert asked == [number_id]
+
+
 # ------------------------------------------------------- the switch, live, mid-batch
 
 

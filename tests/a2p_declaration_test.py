@@ -328,6 +328,11 @@ async def test_a_campaigns_chosen_number_is_the_one_asked_at_launch_and_at_the_d
             {"a": agent_id},
         )
     assert refused is not None and refused[0] == A2P_NUMBER_UNDECLARED_RULE
+    # The dial gate names it before the dial when told the number, as campaign dispatch does.
+    assert (await _gate(tenant_id, agent_id, number_id=chosen_id)).rule == (
+        A2P_NUMBER_UNDECLARED_RULE
+    )
+    assert (await _gate(tenant_id, agent_id)).allowed is True
 
     with pytest.raises(ProblemError) as excinfo:
         async with tenant_session(tenant_id) as session:

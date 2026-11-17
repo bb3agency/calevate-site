@@ -108,12 +108,18 @@ async def campaign_test_dial(
     transaction before the dial (`inbound/publish.line_test_dial`'s shape). Published as a
     test holder (`publish_campaign_agent(test=True)`), whatever the campaign's state; with
     `developer` (a free trial, or a paying account with no number yet) in our developer
-    workspace, where the shared trial line rings (D-697, D-859)."""
+    workspace, where the shared trial line rings (D-697, D-859). A running or paused campaign
+    is tested on its own engine agent in the client's workspace whatever `developer` says
+    (`campaign_test_in_developer`); the dial reads `CampaignDial.developer` for its line."""
     async with tenant_session(tenant_id) as session:
         ref = await agents_service.publish_campaign_agent(
             session, tenant_id=tenant_id, campaign_id=campaign_id, test=True, developer=developer
         )
-    return CampaignDial(ref=ref, campaign_id=campaign_id)
+        # Read under the campaign row lock the publish took, so it is the publish's answer.
+        in_developer = await agents_service.campaign_test_in_developer(
+            session, tenant_id=tenant_id, campaign_id=campaign_id, developer=developer
+        )
+    return CampaignDial(ref=ref, campaign_id=campaign_id, developer=in_developer)
 
 
 async def dial_for(*, tenant_id: UUID, campaign_id: UUID) -> CampaignDial | None:

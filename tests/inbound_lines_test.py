@@ -453,3 +453,41 @@ async def test_pip_refuses_to_move_a_lines_number_in_words_before_any_card() -> 
     assert f"inbound_line {line_id}" in refused.value.reason
     assert "answers with your Inbound line “Front desk”" in refused.value.plain
     assert "Change it in Inbound" in refused.value.plain
+
+
+async def test_a_bought_number_skips_a_line_in_a_deleted_agents_voice() -> None:
+    """A bought number goes to the first line that can be put live. The oldest line spoke for
+    an agent since deleted, which `publish_line` refuses, so the number rang nothing."""
+    from apps.api.agents import lifecycle
+    from apps.api.campaigns.engine_number_routes import _onto_first_line
+
+    _fresh_engine()
+    tenant_id, deleted_id, _token = await _tenant()
+    old_line = await _line(tenant_id, deleted_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET status = 'archived', archived_at = now() WHERE id = :a"),
+            {"a": deleted_id},
+        )
+    number_id = await _number(tenant_id, deleted_id, f"num_buy_{uuid.uuid4().hex[:6]}")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE phone_numbers SET agent_id = NULL WHERE id = :n"), {"n": number_id}
+        )
+
+    # Only the deleted agent's line: the number is left for the owner to put on a line.
+    assert await _onto_first_line(tenant_id, number_id) is None
+
+    async with tenant_session(tenant_id) as session:
+        voice_id = await lifecycle.create_agent(
+            session, tenant_id=tenant_id, name="Ravi", direction="both", language_primary="te-IN"
+        )
+    new_line = await _line(tenant_id, voice_id)
+    assert await _onto_first_line(tenant_id, number_id) == new_line
+    async with tenant_session(tenant_id) as session:
+        on = (
+            await session.execute(
+                text("SELECT inbound_line_id FROM phone_numbers WHERE id = :n"), {"n": number_id}
+            )
+        ).scalar_one()
+    assert on == new_line != old_line

@@ -1098,6 +1098,7 @@ async def _dispatch_for_campaign(
                 phone_e164=phone,
                 halt_read_by_caller=True,
                 campaign_id=campaign_id if via is not None else None,
+                number_id=number_id,
             )
             if not decision.allowed:
                 await _refuse_contact(

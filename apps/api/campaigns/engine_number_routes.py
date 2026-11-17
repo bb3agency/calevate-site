@@ -397,8 +397,10 @@ async def purchase_own_number(
 
 
 async def _onto_first_line(tenant_id: UUID, number_id: UUID) -> UUID | None:
-    """A new number is answered by the account's first inbound line (founder, 16 Nov 2026),
-    or by none yet; a number already on a line (a replayed click) keeps it."""
+    """A new number is answered by the account's first inbound line whose agent can still
+    speak (founder, 16 Nov 2026; `lines.first_line`), or by none yet, which the purchase
+    answer shows the owner as a number no line answers; a number already on a line (a
+    replayed click) keeps it."""
     from apps.api.inbound import lines
     from apps.api.inbound.publish import route_numbers
 
