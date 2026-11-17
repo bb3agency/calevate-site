@@ -346,29 +346,3 @@ async def test_a_promotional_campaign_waits_for_the_telemarketer_registration() 
     assert await _with_platform_tm(tenant_id, "not_registered", _create) == (
         "promotional_campaigns_unavailable"
     )
-
-
-# --- 7. a refused apply after the version is saved -------------------------------------
-
-
-async def test_a_refused_apply_says_the_version_is_saved(monkeypatch: pytest.MonkeyPatch) -> None:
-    tenant_id, agent_id, token = await _tenant()
-
-    async def _refuse(**_: Any) -> Any:
-        raise ProblemError.conflict(
-            "engine_unreachable_test", "The calling system did not answer.", remediation="Wait."
-        )
-
-    monkeypatch.setattr(publishing, "apply_to_live", _refuse)
-    code, body = await _post(
-        token,
-        f"/v1/agents/{agent_id}/script/publish",
-        {"summary": "New greeting", "script": {"schema_version": 2, "identity": "Hello."}},
-    )
-    assert code == 409, body
-    assert _code(body) == "engine_unreachable_test"
-    assert "saved as version" in body["detail"] and "did not answer" in body["detail"]
-    assert body["remediation"].startswith("Press Put it live again")
-    async with tenant_session(tenant_id) as session:
-        loaded = await script_builder.load_agent_script(session, agent_id)
-    assert loaded.script.identity == "Hello."

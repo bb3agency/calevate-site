@@ -112,7 +112,7 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | training | Make a call into a test | calls_do:call_test_prepare | now | COVERED |
 | training | Delete a saved test | (none) | now | MISSING |
 | training | Mark a failed test as wrong | (none) | now | MISSING |
-| training | Settle / apply suggested improvements | agents_do:agent_tests_fix | confirm | COVERED |
+| training | Settle suggested facts (script fixes are a draft on the Inbound line or campaign, D-1017) | agents_do:agent_tests_fix | confirm | COVERED |
 | training | Answer the agent's open questions | knowledge_do:knowledge_question_settle | confirm | COVERED |
 | settings | Speed, loudness, tone, pauses, nudges, ambience, longest call, AI model, caller memory, screen guide | agents_do:agent_settings_set | confirm | COVERED |
 | settings | Use these call settings on every agent | agents_do:agent_settings_set (scope all_agents) | confirm | COVERED |

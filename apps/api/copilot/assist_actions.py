@@ -7,7 +7,7 @@ this module moves the rest, each through the same service function its old butto
 
 * `knowledge_teach` — the Knowledge base teach box. Pip sends the words (typed, or read off
   a photo or a file the person attached to Pip); `teach/teaching.start_teaching` queues the
-  sort, and the facts and rules wait in the teach box for review.
+  sort, and the facts wait in the teach box for review.
 * `lead_fields_draft` — the one AI draft of a custom business's lead details;
   `agents/lead_fields.request_draft` queues it, and the drafted fields wait on the Lead
   details screen for the owner to keep field by field (a review step it did not have).
@@ -101,9 +101,9 @@ async def _plan_teach(session: AsyncSession, actor: ToolActor, args: Mapping[str
         object_id="",
         title="Teach your agents",
         summary=(
-            f"{ASSISTANT_NAME} sorts these words into facts every agent gets and rules for "
-            "one agent. They wait in the Add area on the What your agents know screen for you to "
-            "check before anything is saved."
+            f"{ASSISTANT_NAME} splits these words into facts every agent gets. They wait in "
+            "the Add area on the What your agents know screen for you to check before "
+            "anything is saved."
         ),
         current=None,
         proposed=words,
@@ -153,7 +153,7 @@ KNOWLEDGE_TEACH: Final = ActionTool(
     schema=action_schema(
         "knowledge_teach",
         "Teach the agents what the person typed, or an attached photo's or file's words, as "
-        "written; sorted into facts and rules they keep on What your agents know. One fact: "
+        "written; split into facts they keep on What your agents know. One fact: "
         "`propose_knowledge`." + PROPOSES_ONLY,
         {
             "words": {"type": "string"},

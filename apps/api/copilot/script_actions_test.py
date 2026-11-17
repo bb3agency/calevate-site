@@ -124,3 +124,40 @@ async def test_fixes_for_a_neighbours_agent_are_not_found() -> None:
     with pytest.raises(ProblemError) as missing:
         await _propose_fix(tenant_id, token, {"agent_id": str(neighbour_agent), "test_keys": None})
     assert missing.value.status == 404
+
+
+async def test_with_several_lines_pip_asks_which_one_gets_the_script_fixes() -> None:
+    """FAILS IF Pip guesses where a script fix goes when the agent has several Inbound lines
+    (D-1017), or the line it was told is not the one signed into the confirm."""
+    from calevate_shared.call_script import CallScript
+
+    from apps.api.inbound.lines import create_line
+
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    lines = []
+    async with tenant_session(tenant_id) as session:
+        for name in ("Main line", "After hours"):
+            lines.append(
+                await create_line(
+                    session,
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    name=name,
+                    script=CallScript(schema_version=2, opening_line="Namaskaram"),
+                    created_by=None,
+                )
+            )
+    await _failed_run(tenant_id, agent_id, verdicts=("failed",))
+    with pytest.raises(WriteRefusedError) as asked:
+        await _propose_fix(tenant_id, token, {"agent_id": str(agent_id), "test_keys": None})
+    assert "ask the person which" in asked.value.reason
+    assert "After hours" in asked.value.reason and str(lines[1]) in asked.value.reason
+    proposal = await _propose_fix(
+        tenant_id,
+        token,
+        {"agent_id": str(agent_id), "test_keys": None, "holder_id": str(lines[1])},
+    )
+    assert "the Inbound line “After hours”" in proposal.summary
+    outcome = await _confirm(tenant_id, _user_of(token), proposal.token)
+    assert outcome.applied and outcome.queued is True

@@ -1,8 +1,8 @@
 """The teach box and the improvement loop (first live call review, founder decisions 9 and 11).
 
-Each test names the failure it guards against: a fact that never reaches the agents, a rule
-that changes a live agent without the owner putting it live, a teach box that stops working
-when AI help runs out, a test case that copies a caller's raw words, and a neighbour's rows.
+Each test names the failure it guards against: a fact that never reaches the agents, a
+teach box that stops working when AI help runs out, a test case that copies a caller's raw
+words, and a neighbour's rows.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine.test_chat import TestChatTurn
 from apps.api.insights import service as gap_service
 from apps.api.teach import facts as fact_store
-from apps.api.teach import knows, rules, struggles, teaching, test_cases
+from apps.api.teach import knows, struggles, teaching, test_cases
 from apps.workers import agent_test_cases as case_worker
 from apps.workers import kb_teach
 from sqlalchemy import text
@@ -109,13 +109,12 @@ async def _call(
 # --- sorting ------------------------------------------------------------------------
 
 
-def test_the_model_answer_is_cut_to_facts_and_rules_and_nothing_else() -> None:
+def test_the_model_answer_is_cut_to_facts_and_nothing_else() -> None:
     items = kb_teach.items_from_model(
         {
             "items": [
                 {"kind": "fact", "text": "  Red chilli powder is ₹120 for 250 g. "},
-                {"kind": "rule", "text": "Never promise same-day delivery."},
-                {"kind": "opinion", "text": "We are the best."},
+                {"kind": "rule", "text": "Delivery is next day."},
                 {"kind": "fact", "text": ""},
                 {"kind": "fact", "text": "red chilli powder is ₹120 for 250 g."},
                 "not an item",
@@ -124,7 +123,7 @@ def test_the_model_answer_is_cut_to_facts_and_rules_and_nothing_else() -> None:
     )
     assert items == [
         {"kind": "fact", "text": "Red chilli powder is ₹120 for 250 g."},
-        {"kind": "rule", "text": "Never promise same-day delivery."},
+        {"kind": "fact", "text": "Delivery is next day."},
     ]
 
 
@@ -250,7 +249,7 @@ async def test_a_retried_delivery_takes_back_a_teaching_its_cancelled_attempt_le
 
 
 async def test_teaching_without_ai_still_reaches_review_with_the_words_unsorted() -> None:
-    tenant_id, agent_id = await _tenant()
+    tenant_id, _agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         started = await teaching.start_teaching(
             session,
@@ -269,92 +268,29 @@ async def test_teaching_without_ai_still_reaches_review_with_the_words_unsorted(
     assert [i.text for i in ready.items] == ["Chilli powder 120 rupees.", "Always greet in Telugu."]
     assert ready.disclosure  # the screen says why it is not sorted
 
-    # The owner marks the second line as a rule and saves.
+    # The owner keeps the first line and saves.
     async with tenant_session(tenant_id) as session:
         saved = await teaching.save(
             session,
             tenant_id=tenant_id,
             teaching_id=started.id,
-            items=[
-                teaching.TeachItem(kind="fact", text="Chilli powder 120 rupees."),
-                teaching.TeachItem(kind="rule", text="Always greet in Telugu."),
-            ],
-            agent_id=agent_id,
+            items=[teaching.TeachItem(kind="fact", text="Chilli powder 120 rupees.")],
             saved_by=None,
             client_user_id=None,
             auto_approve=True,
         )
-        assert (saved.facts_added, saved.rules_added) == (1, 1)
-        waiting = await rules.list_rules(session, agent_id=agent_id)
-        assert [r.text for r in waiting] == ["Always greet in Telugu."]
+        assert saved.facts_added == 1
         with pytest.raises(ProblemError) as again:
             await teaching.save(
                 session,
                 tenant_id=tenant_id,
                 teaching_id=started.id,
                 items=[teaching.TeachItem(kind="fact", text="x y z")],
-                agent_id=None,
                 saved_by=None,
                 client_user_id=None,
                 auto_approve=True,
             )
         assert again.value.code == "teaching_not_ready"
-
-
-async def test_a_rule_cannot_be_saved_without_naming_its_agent() -> None:
-    tenant_id, _ = await _tenant()
-    async with tenant_session(tenant_id) as session:
-        started = await teaching.start_teaching(
-            session, tenant_id=tenant_id, input_kind="text", words="Be polite.", requested_by=None
-        )
-        await session.execute(
-            text("UPDATE kb_teachings SET status = 'ready' WHERE id = :id"), {"id": started.id}
-        )
-        with pytest.raises(ProblemError) as refused:
-            await teaching.save(
-                session,
-                tenant_id=tenant_id,
-                teaching_id=started.id,
-                items=[teaching.TeachItem(kind="rule", text="Be polite.")],
-                agent_id=None,
-                saved_by=None,
-                client_user_id=None,
-                auto_approve=True,
-            )
-    assert refused.value.code == "teaching_rule_needs_agent"
-
-
-async def test_an_agent_this_business_does_not_have_is_a_404_not_a_stored_reference() -> None:
-    """The foreign key ignores RLS: without the check first, a facts-only save stored another
-    business's agent id, and an unknown id failed the FK as a 500."""
-    tenant_id, _ = await _tenant()
-    neighbour, neighbour_agent = await _tenant()
-    del neighbour
-    for agent_id in (neighbour_agent, uuid.uuid4()):
-        async with tenant_session(tenant_id) as session:
-            started = await teaching.start_teaching(
-                session,
-                tenant_id=tenant_id,
-                input_kind="text",
-                words="We open at 9.",
-                requested_by=None,
-            )
-            await session.execute(
-                text("UPDATE kb_teachings SET status = 'ready' WHERE id = :id"), {"id": started.id}
-            )
-        with pytest.raises(ProblemError) as refused:
-            async with tenant_session(tenant_id) as session:
-                await teaching.save(
-                    session,
-                    tenant_id=tenant_id,
-                    teaching_id=started.id,
-                    items=[teaching.TeachItem(kind="fact", text="We open at 9.")],
-                    agent_id=agent_id,
-                    saved_by=None,
-                    client_user_id=None,
-                    auto_approve=True,
-                )
-        assert refused.value.status == 404
 
 
 async def test_a_voice_note_stops_with_its_words_for_the_teach_box(
@@ -507,7 +443,6 @@ async def test_struggles_link_to_the_call_and_answering_one_closes_it() -> None:
             tenant_id=tenant_id,
             teaching_id=started.id,
             items=[teaching.TeachItem(kind="fact", text="We sell chilli powder.")],
-            agent_id=None,
             saved_by=None,
             client_user_id=None,
             auto_approve=True,
@@ -695,14 +630,6 @@ async def test_one_business_never_sees_anothers_teachings_facts_rules_or_tests()
         started = await teaching.start_teaching(
             session, tenant_id=tenant_a, input_kind="text", words="abc def", requested_by=None
         )
-        await rules.propose_rules(
-            session,
-            tenant_id=tenant_a,
-            agent_id=agent_a,
-            texts=["Be brief."],
-            teaching_id=started.id,
-            created_by=None,
-        )
         await test_cases.create_case(
             session,
             tenant_id=tenant_a,
@@ -722,7 +649,7 @@ async def test_one_business_never_sees_anothers_teachings_facts_rules_or_tests()
             ).scalar()
             assert seen == 0, table
         assert (await knows.what_it_knows(session)).facts == []
-        assert await rules.list_rules(session, agent_id=agent_a) == []
+
         assert await test_cases.list_cases(session, agent_a) == []
         with pytest.raises(ProblemError):
             await teaching.get_teaching(session, started.id)

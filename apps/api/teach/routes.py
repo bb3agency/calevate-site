@@ -3,8 +3,7 @@
 Reads are `agents:read` (what the agents know, a teaching's state, saved tests) or
 `calls:read` (the questions to answer, a test drafted from a call). Changing what the agents
 know is `kb:write` through `requires_kb_curation()`, the gate every knowledge write uses.
-Saved tests and the test chat are `agents:write`; settling a waiting rule is `org:manage`,
-the permission the script itself is written under. Every mutation writes an audit row with
+Saved tests and the test chat are `agents:write`. Every mutation writes an audit row with
 ids and counts only (hard rule 6).
 """
 
@@ -42,7 +41,6 @@ from apps.api.teach.models import (
     MAX_FACT_CHARS,
     MAX_PINNED_ANSWER_CHARS,
     MAX_PINNED_QUESTION_CHARS,
-    MAX_RULE_CHARS,
 )
 
 router = APIRouter(tags=["teach"])
@@ -351,8 +349,9 @@ async def remove_fact(
 
 
 class TeachItemIO(Strict):
-    kind: Literal["fact", "rule"]
-    text: str = Field(min_length=1, max_length=max(MAX_FACT_CHARS, MAX_RULE_CHARS))
+    #: Always a fact: nothing taught goes into an agent's script (D-1017).
+    kind: Literal["fact"] = "fact"
+    text: str = Field(min_length=1, max_length=MAX_FACT_CHARS)
     #: A fact to pin: into every agent's instructions instead of the searched facts.
     pinned: bool = False
 
@@ -507,25 +506,18 @@ async def read_teaching(
 
 class SaveIn(Strict):
     items: list[TeachItemIO] = Field(min_length=1, max_length=30)
-    #: The agent whose script receives the rules; required when any item is a rule.
-    agent_id: UUID | None = None
 
 
 class SavedOut(Strict):
     facts_added: int
-    rules_added: int
-    agent_id: UUID | None
 
 
 @router.post(
     "/v1/kb/teach/{teaching_id}/save",
     response_model=SavedOut,
     openapi_extra=permission_meta("kb:write"),
-    summary="Keep the reviewed facts and rules",
-    description=(
-        "Facts join the business's knowledge and reach every agent without review. Rules "
-        "wait in the chosen agent's script until the owner adds them and puts the script live."
-    ),
+    summary="Keep the reviewed facts",
+    description="Facts join the business's knowledge and reach every agent without review.",
 )
 async def save_teaching(
     teaching_id: UUID,
@@ -535,17 +527,15 @@ async def save_teaching(
     principal: Principal = Depends(requires_kb_curation()),
 ) -> SavedOut:
     assert principal.tenant_id is not None
-    if any(i.pinned and i.kind == "fact" for i in payload.items):
+    if any(i.pinned for i in payload.items):
         _refuse_pinned_for_view_as(principal)
     saved = await teaching.save(
         session,
         tenant_id=principal.tenant_id,
         teaching_id=teaching_id,
         items=[
-            teaching.TeachItem(kind=i.kind, text=i.text, pinned=i.pinned and i.kind == "fact")
-            for i in payload.items
+            teaching.TeachItem(kind="fact", text=i.text, pinned=i.pinned) for i in payload.items
         ],
-        agent_id=payload.agent_id,
         saved_by=principal.user_id,
         client_user_id=principal.client_user_id,
         auto_approve=_auto_approve(principal),
@@ -558,15 +548,9 @@ async def save_teaching(
         object_type="kb_teaching",
         object_id=str(teaching_id),
         ip=client_request_ip(request),
-        summary={
-            "facts": saved.facts_added,
-            "rules": saved.rules_added,
-            "agent_id": str(saved.agent_id) if saved.agent_id else None,
-        },
+        summary={"facts": saved.facts_added},
     )
-    return SavedOut(
-        facts_added=saved.facts_added, rules_added=saved.rules_added, agent_id=saved.agent_id
-    )
+    return SavedOut(facts_added=saved.facts_added)
 
 
 @router.post(

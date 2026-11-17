@@ -1,8 +1,10 @@
 """Pip's fixes for the tests an agent failed (D-724's "Improve my agent", asked of Pip).
 
 `agent_tests_fix` is the Training tab's "Improve my agent" / "Suggest a fix for this": its
-executor is `test_conversations.request_improvement`, the function that section's button
-called, and the fixes are reviewed there (`ImprovementReview`).
+executor is `test_conversations.request_improvement`. Script fixes are written as a Pip draft
+on one of the agent's Inbound lines or campaigns and reviewed on that page; facts wait on the
+Training tab (`agents/test_fixes`, D-1017). An agent with several lines or campaigns needs
+one named (`holder_id`), so Pip asks the owner which.
 
 WHY `confirm`. Writing the fixes spends the account's AI allowance, and the tier rule is
 "reversible, reaches no caller, spends no money — all three" (`actions_test.
@@ -18,13 +20,14 @@ exists, so a suggestion it wrote could never be kept (CAMPAIGN-WORKER-PLAN Phase
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Annotated, Any, Final
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import test_conversations
+from apps.api.agents import test_conversations, test_fixes
+from apps.api.agents.mistake_fixes import Holder
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.copilot.actions import (
     PROPOSES_ONLY,
@@ -48,9 +51,44 @@ class _TestsFixArgs(BaseModel):
 
     agent_id: UUID
     test_keys: Annotated[list[Annotated[str, Field(max_length=100)]], Field(max_length=30)] | None
+    #: The Inbound line or campaign the script fixes are drafted on; null for the agent's
+    #: only one.
+    holder_id: UUID | None = None
+    #: Not in the schema: signed in by the planner beside `holder_id`.
+    holder_kind: Literal["inbound_line", "campaign"] | None = None
     #: Not in the schema: the planner resolves the run and signs it into the canonical
     #: arguments, so a re-plan at approval reads the same run rather than a newer one.
     run_id: UUID | None = None
+
+
+def _where(holder: test_fixes.FixHolder) -> str:
+    kind = "the Inbound line" if holder.kind == "inbound_line" else "the campaign"
+    return f"{kind} “{strip_invisible(holder.name)}”"
+
+
+async def _holder(
+    session: AsyncSession, agent_id: UUID, holder_id: UUID | None
+) -> test_fixes.FixHolder | None:
+    """Where the script fixes go: the named line or campaign, or the agent's only one. With
+    several and none named, the person is asked which, by name."""
+    holders = await test_fixes.fix_holders(session, agent_id)
+    if holder_id is not None:
+        found = next((h for h in holders if h.id == holder_id), None)
+        if found is None:
+            raise WriteRefusedError(
+                "`holder_id` is not one of this agent's Inbound lines or campaigns with a "
+                "script; use an id from SCREEN STATE's fix_holders",
+                plain="That Inbound line or campaign does not use this agent.",
+            )
+        return found
+    if len(holders) > 1:
+        names = "; ".join(f"{_where(h)} (id {h.id})" for h in holders)
+        raise WriteRefusedError(
+            "this agent works on several Inbound lines or campaigns, so ask the person which "
+            f"one the script fixes go to, then call again with its `holder_id`: {names}",
+            plain="Which Inbound line or campaign should the script fixes go to?",
+        )
+    return holders[0] if holders else None
 
 
 async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
@@ -99,6 +137,7 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
             "appear in the agent's Training tab",
             plain="Fixes for this run are already being written.",
         )
+    holder = await _holder(session, parsed.agent_id, parsed.holder_id)
     await require_ai_assist(session, tenant_id=actor.tenant_id)
     titles = [strip_invisible(str(r.get("title") or "")) for r in failures]
     count = "1 failed test" if len(failures) == 1 else f"{len(failures)} failed tests"
@@ -106,21 +145,28 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
         object_id=str(parsed.agent_id),
         title="Suggest fixes for failed tests",
         summary=(
-            f"{ASSISTANT_NAME} suggests changes to {name}'s script and facts for {count}. "
-            "They wait in the agent's Training tab, where you keep the ones you want. They "
-            "are not tested until you put them live and test again."
+            f"{ASSISTANT_NAME} works out fixes for {count} of {name}. "
+            + (
+                f"Script fixes become a draft on {_where(holder)}, for you to review there. "
+                if holder is not None
+                else "This agent has no Inbound line or campaign with a script, so only "
+                "facts can be suggested. "
+            )
+            + "Facts wait in the agent's Training tab."
         ),
         current=None,
         proposed="; ".join(t for t in titles if t) or count,
         cost="Uses your account's AI help allowance.",
         reversal=(
-            "Nothing changes until you keep a fix, and nothing goes live until you put it "
-            "live. Leave the suggestions unkept if you do not want them."
+            "Nothing reaches a caller until you keep the draft and put it live. Discard the "
+            "draft or leave the facts unkept if you do not want them."
         ),
         args={
             "agent_id": str(parsed.agent_id),
             "test_keys": keys or None,
             "run_id": str(run.id),
+            "holder_id": str(holder.id) if holder is not None else None,
+            "holder_kind": holder.kind if holder is not None else None,
         },
     )
 
@@ -141,13 +187,20 @@ async def _execute_tests_fix(
         agent_id=parsed.agent_id,
         run_id=parsed.run_id,
         keys=parsed.test_keys,
+        holder=(
+            Holder(parsed.holder_kind, parsed.holder_id)
+            if parsed.holder_id is not None and parsed.holder_kind is not None
+            else None
+        ),
+        requested_by=actor.user_id,
     )
     return Executed(
         applied=True,
         queued=True,
         detail=(
-            f"Working out the fixes now. In about two minutes they are on {name}'s Training "
-            "tab, under Practice callers. Nothing changes until you keep one."
+            "Working out the fixes now. In about two minutes script fixes are a draft on the "
+            f"Inbound line or campaign, and facts are on {name}'s Training tab. Nothing "
+            "changes until you keep them."
         ),
         audit_summary={
             "agent_id": str(parsed.agent_id),
@@ -168,14 +221,19 @@ AGENT_TESTS_FIX: Final = ActionTool(
     where="in the agent's Training tab, under Agents",
     schema=action_schema(
         "agent_tests_fix",
-        "Suggest fixes for the tests an agent failed in its latest run, kept on its "
-        "Training tab. What a call says is written on its Inbound line or campaign, "
-        "not on the agent." + PROPOSES_ONLY,
+        "Suggest fixes for the tests an agent failed in its latest run. Script fixes become "
+        "a draft on one of its Inbound lines or campaigns; facts wait on its Training tab."
+        + PROPOSES_ONLY,
         {
             "agent_id": {"type": "string", "description": "From SCREEN STATE or `agents_list`."},
             "test_keys": {
                 "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}],
                 "description": "Failed test keys from SCREEN STATE; null for all.",
+            },
+            "holder_id": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "description": "Inbound line or campaign id for script fixes, from SCREEN "
+                "STATE; null when the agent has one.",
             },
         },
     ),

@@ -44,7 +44,7 @@ const SCRIPT: ScriptOut = {
 
 function improvementWith(facts: Improvement["facts"]): Improvement {
   return {
-    base: "live",
+    script_fixes: "none",
     edits: [],
     facts,
     for_keys: [],
@@ -111,8 +111,8 @@ describe("suggested fixes: the facts to pin", () => {
           { action: "add", fact_id: null, question: "What are your opening hours?", answer: "9 to 6", because: null, why: "" },
           { action: "add", fact_id: null, question: "What are your opening hours on Sunday?", answer: "Closed", because: null, why: "" },
         ])}
+        slug="sunrise"
         onClose={() => undefined}
-        onTestAgain={() => undefined}
       />,
       { "/v1/me": OWNER, "/v1/agents/agent-1/script": SCRIPT },
     );
@@ -136,47 +136,62 @@ describe("suggested fixes: the facts to pin", () => {
         improvement={improvementWith([
           { action: "add", fact_id: null, question: "Hours?", answer: "9 to 6", because: null, why: "" },
         ])}
+        slug="sunrise"
         onClose={() => undefined}
-        onTestAgain={() => undefined}
       />,
       routes,
     );
     const adds = () => calls.filter((c: ApiCall) => c.method === "POST" && c.path === "/v1/kb/facts").length;
-    fireEvent.click(await screen.findByRole("button", { name: "Keep 1" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Keep 1 fact" }));
     expect((await screen.findAllByRole("alert"))[0]!.textContent).toContain("Try again in a moment.");
     expect(adds()).toBe(1);
-    fireEvent.click(screen.getByRole("button", { name: "Keep 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep 1 fact" }));
     expect(await screen.findByText("Kept")).toBeTruthy();
     expect(settles).toBe(2);
     expect(adds()).toBe(1);
   });
 
-  it("does not put the same fixes live twice when Keep and put live is pressed again", async () => {
-    let settles = 0;
+  it("points script fixes at the Pip draft on the agent's line, never at the agent's script", async () => {
     const edit = { id: "e1", op: "set_part", label: "How it ends the call", before: "", after: "Thank them.", because: null, why: "x" };
     const { calls } = await renderClientPage(
       <ImprovementReview
         agentId="agent-1"
+        slug="sunrise"
         run={RUN}
-        improvement={{ ...improvementWith([]), edits: [edit] } as Improvement}
+        improvement={
+          {
+            ...improvementWith([]),
+            script_fixes: "drafted",
+            holder: { kind: "inbound_line", id: "line-1", name: "Main line" },
+            edits: [edit],
+          } as Improvement
+        }
         onClose={() => undefined}
-        onTestAgain={() => undefined}
       />,
       {
         "/v1/me": OWNER,
-        "/v1/agents/agent-1/script": SCRIPT,
-        "POST /v1/agents/agent-1/script/tests/run-1/improvement/apply": { script: SCRIPT.script, skipped: [] },
-        "POST /v1/agents/agent-1/script/publish": { version: 4, live: true },
-        "POST /v1/agents/agent-1/script/tests/run-1/improvement/settle": () =>
-          ++settles === 1 ? problem(503, { title: "Try again in a moment.", retryable: true }) : { available: true, latest: null, history: [] },
+        "POST /v1/agents/agent-1/script/tests/run-1/improvement/settle": { available: true, latest: null, history: [] },
       },
     );
-    const publishes = () => calls.filter((c: ApiCall) => c.path === "/v1/agents/agent-1/script/publish").length;
-    fireEvent.click(await screen.findByRole("button", { name: "Keep and put live" }));
-    await waitFor(() => expect(settles).toBe(1));
-    expect(await screen.findByText("Try again in a moment.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Keep and put live" }));
-    expect(await screen.findByText("Callers hear them from the next call.")).toBeTruthy();
-    expect(publishes()).toBe(1);
+    expect(await screen.findByText("1 fix drafted on “Main line”.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Review it" }).getAttribute("href")).toContain("/inbound/line-1");
+    expect(screen.getByText("How it ends the call")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(calls.some((c: ApiCall) => c.path.endsWith("/improvement/settle"))).toBe(true));
+    expect(calls.some((c: ApiCall) => c.method !== "GET" && c.path.startsWith("/v1/agents/agent-1/script") && !c.path.endsWith("/settle"))).toBe(false);
+  });
+
+  it("offers a line when the agent has nowhere for script fixes", async () => {
+    await renderClientPage(
+      <ImprovementReview
+        agentId="agent-1"
+        slug="sunrise"
+        run={RUN}
+        improvement={{ ...improvementWith([]), script_fixes: "no_holder" }}
+        onClose={() => undefined}
+      />,
+      { "/v1/me": OWNER },
+    );
+    expect(screen.getByRole("link", { name: "Set up a line" }).getAttribute("href")).toContain("/inbound");
   });
 });

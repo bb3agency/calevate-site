@@ -8,7 +8,6 @@ import { PipMark } from "@/components/illustration/pip";
 import { SavedTick } from "@/components/console/savedTick";
 import {
   FIELD,
-  FIELD_LABEL,
   PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
@@ -16,7 +15,6 @@ import {
 } from "@/components/ui";
 import { VoiceButton } from "@/components/voiceButton";
 import { useFormValidation } from "@/components/formValidation";
-import { useAgents } from "@/lib/api/agents";
 import { useBusinessCopy } from "@/lib/api/businessCopy";
 import { type BusinessCapabilities, capabilitiesOf, quotesPrices } from "@/lib/businessCapabilities";
 import { useClientSession } from "@/lib/api/session";
@@ -84,8 +82,8 @@ export function exampleSentences(note: string | null | undefined): string[] {
  * D-821 (founder decision 9).
  *
  * The owner types it or says it, and "Teach this" prefills Pip with the words. Pip sorts
- * them into facts (every agent gets them) and rules (how one agent should behave), and they
- * come back HERE for review: nothing is saved until the owner keeps it. A voice note is heard
+ * them into facts (every agent gets them; how calls behave is a line's or campaign's script,
+ * D-1017), and they come back HERE for review: nothing is saved until the owner keeps it. A voice note is heard
  * first and its words land in the box, so a misheard price is caught before anything is
  * sorted. The examples are buttons that write into the box rather than placeholder text,
  * because a long grey sentence reads as something already filled in and vanishes on the
@@ -272,7 +270,6 @@ function Review({
   onSaved: (note: string) => void;
 }) {
   const session = useClientSession();
-  const agents = useAgents(session);
   const save = useSaveTeaching(session);
   const discard = useDiscardTeaching(session);
   const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
@@ -280,25 +277,13 @@ function Review({
   const [items, setItems] = useState<ReviewItem[]>(() =>
     teaching.items.map((item, key) => ({ ...item, key, keep: true })),
   );
-  const [agentId, setAgentId] = useState<string>("");
-  // Undefined until the agents are read; a failed read is shown beside the agent choice.
-  const agentList = agents.data;
-  const onlyAgent = agentList?.length === 1 ? agentList[0]!.id : "";
-  const chosenAgent = agentId || onlyAgent;
   const kept = items.filter((item) => item.keep && item.text.trim());
-  const facts = kept.filter((item) => item.kind === "fact").length;
-  const rules = kept.length - facts;
-  const needsAgent = rules > 0 && !chosenAgent;
+  const facts = kept.length;
 
   const update = (key: number, patch: Partial<ReviewItem>) =>
     setItems((all) => all.map((item) => (item.key === key ? { ...item, ...patch } : item)));
 
-  const summary = [
-    facts ? `${facts} fact${facts === 1 ? "" : "s"}` : null,
-    rules ? `${rules} rule${rules === 1 ? "" : "s"}` : null,
-  ]
-    .filter(Boolean)
-    .join(" and ");
+  const summary = `${facts} fact${facts === 1 ? "" : "s"}`;
 
   return (
     <div className="space-y-4">
@@ -317,32 +302,6 @@ function Review({
         </ul>
       )}
 
-      {rules > 0 && agents.isError ? (
-        <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} />
-      ) : null}
-      {rules > 0 && agentList && agentList.length > 1 ? (
-        <div>
-          <label htmlFor="teach-agent" className={FIELD_LABEL}>
-            Which agent are the rules for?
-          </label>
-          <select
-            id="teach-agent"
-            value={agentId}
-            onChange={(event) => setAgentId(event.target.value)}
-            className={`${FIELD} max-w-sm`}
-          >
-            <option value="">Choose an agent</option>
-            {agentList.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      ) : null}
-      {rules > 0 && agentList && agentList.length === 0 ? (
-        <p className="text-meta text-ink-muted">No agents yet. Keep these as facts.</p>
-      ) : null}
 
       {save.error ? <ProblemNotice error={save.error} /> : null}
       {discard.error ? <ProblemNotice error={discard.error} /> : null}
@@ -353,27 +312,19 @@ function Review({
           successLabel="Saved"
           disabled={discard.isPending}
           waitingFor={
-            kept.length === 0 ? "Keep at least one item." : needsAgent ? "Choose which agent takes the rules." : null
+            kept.length === 0 ? "Keep at least one item." : null
           }
           onClick={() =>
             save.mutate(
               {
                 id: teaching.id,
-                items: kept.map(({ kind, text, pinned }) => ({
-                  kind,
+                items: kept.map(({ text, pinned }) => ({
+                  kind: "fact" as const,
                   text: text.trim(),
-                  pinned: kind === "fact" && Boolean(pinned),
+                  pinned: Boolean(pinned),
                 })),
-                agentId: rules > 0 ? chosenAgent : null,
               },
-              {
-                onSuccess: (saved) =>
-                  onSaved(
-                    saved.rules_added > 0
-                      ? "Facts arrive soon. Rules wait until the script is live."
-                      : "Your agents know this in a minute or two.",
-                  ),
-              },
+              { onSuccess: () => onSaved("Your agents know this in a minute or two.") },
             )
           }
         >
@@ -415,7 +366,7 @@ function ReviewRow({
         />
         <div className="min-w-0 flex-1 space-y-2">
           <p className="text-meta font-medium text-ink-muted">
-            {item.kind === "fact" ? (item.pinned ? "Fact, pinned" : "Fact") : "Rule"}
+            {item.pinned ? "Fact, pinned" : "Fact"}
           </p>
           {editing ? (
             <textarea
@@ -445,23 +396,12 @@ function ReviewRow({
               </button>
               <button
                 type="button"
+                aria-pressed={Boolean(item.pinned)}
                 className={SECONDARY_BUTTON_SM}
-                onClick={() =>
-                  onChange({ kind: item.kind === "fact" ? "rule" : "fact", pinned: false })
-                }
+                onClick={() => onChange({ pinned: !item.pinned })}
               >
-                {item.kind === "fact" ? "It's a rule" : "It's a fact"}
+                {item.pinned ? "Unpin" : "Pin"}
               </button>
-              {item.kind === "fact" ? (
-                <button
-                  type="button"
-                  aria-pressed={Boolean(item.pinned)}
-                  className={SECONDARY_BUTTON_SM}
-                  onClick={() => onChange({ pinned: !item.pinned })}
-                >
-                  {item.pinned ? "Unpin" : "Pin"}
-                </button>
-              ) : null}
             </div>
           ) : null}
         </div>

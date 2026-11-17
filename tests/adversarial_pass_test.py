@@ -1116,18 +1116,9 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # agent under the caller's tenant session.
     ("GET", "/v1/agents/{agent_id}/script/tests", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/tests", {}, {}),
-    # D-823: marking a test wrong and applying kept edits, both resolved through the run.
+    # D-823: marking a test wrong and settling its suggestions, both resolved through the run.
     ("POST", "/v1/agents/{agent_id}/script/tests/{run_id}/results/{key}/wrong", {}, {}),
-    (
-        "POST",
-        "/v1/agents/{agent_id}/script/tests/{run_id}/improvement/apply",
-        {"script": {}, "edits": []},
-        {},
-    ),
     ("POST", "/v1/agents/{agent_id}/script/tests/{run_id}/improvement/settle", {}, {}),
-    ("PUT", "/v1/agents/{agent_id}/script/draft", {"script": {}}, {}),
-    ("POST", "/v1/agents/{agent_id}/script/publish", {"summary": "Changed the greeting"}, {}),
-    ("POST", "/v1/agents/{agent_id}/script/versions/{version}/restore", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/opening-line/put-back", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/script/opening-line", {"opening_line": "Namaskaram"}, {}),
     # D-715: what a lead's calls captured.
@@ -1479,13 +1470,6 @@ _BODY_REFERENCE_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str],
         },
         {},
         "Credential",
-    ),
-    (
-        "POST",
-        "/v1/kb/teach/{teaching_id}/save",
-        {"items": [{"kind": "fact", "text": "Open 9 to 6."}], "agent_id": "{agent_id}"},
-        {},
-        "Agent",
     ),
     (
         "PUT",

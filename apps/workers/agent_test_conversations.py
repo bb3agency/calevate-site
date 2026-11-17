@@ -13,9 +13,11 @@ on our side (a failed platform rule, or replies that sounded wrong) raises
 `agent_test_platform_rule_failed`. One attempt per try: a try that cannot finish marks the
 run failed with a machine code and the owner may start another.
 
-`improve_agent_test_run`: the proposal for the failures the script or the knowledge owns,
-small edits the owner keeps one by one. It never changes the script and never puts anything
-live, and every round ends with a stop reason (`test_conversations.ImproveStop`).
+`improve_agent_test_run`: the proposal for the failures the script or the knowledge owns.
+Script fixes are written as a Pip draft on one of the agent's Inbound lines or campaigns,
+reviewed on that page (`agents/test_fixes`, D-1017); facts wait on the Training tab for the
+owner to keep. Nothing is put live, and every round ends with a stop reason
+(`test_conversations.ImproveStop`).
 
 Generation, judging and improving are separate metered AI requests (`meter_assist`, one
 feature name each). The routes refuse a new run or proposal at the allowance ceiling; a
@@ -34,14 +36,14 @@ from typing import Any, Final, cast
 from uuid import UUID
 
 import httpx
-from calevate_shared.call_script import upgrade_to_v2
 from calevate_shared.engine import VoiceEngine
 from calevate_shared.languages import find_language
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import script_builder, trial_results
+from apps.api.agents import test_fixes, trial_results
 from apps.api.agents.assist_leg import account_assist_leg
+from apps.api.agents.mistake_fixes import DRAFT_OPEN_CODE, Holder, read_holder
 from apps.api.agents.service import AgentRow, in_call_model
 from apps.api.agents.specimen_scenarios import specimen_scenarios
 from apps.api.agents.test_conversations import (
@@ -208,6 +210,20 @@ NO_EDITS_NOTE: Final = (
 WITHHELD_NOTE: Final = (
     "No suggestion is offered for these tests: the changes worked out would have taken "
     "away something your agent does. Each result says why it failed and who can fix it."
+)
+
+#: A round with no fact to offer whose script fixes had nowhere to go (D-1017).
+DRAFT_OPEN_NOTE: Final = (
+    "A draft from Pip is already waiting on “{name}”, so the script fixes were not written. "
+    "Keep or discard it there, then ask again."
+)
+NO_HOLDER_NOTE: Final = (
+    "Script fixes go on an Inbound line or campaign, and this agent has none with a script "
+    "yet. Set one up, then ask again."
+)
+CHOOSE_HOLDER_NOTE: Final = (
+    "This agent works on more than one Inbound line or campaign. Choose which one the script "
+    "fixes go to, then ask again."
 )
 
 Pause = Callable[[], Awaitable[None]]
@@ -866,15 +882,20 @@ async def improve_run(
     run_id: UUID,
     *,
     keys: list[str] | None,
+    holder: Holder | None = None,
+    requested_by: UUID | None = None,
 ) -> tuple[ImproveStop, dict[str, Any] | None]:
     """The proposal for this run's failures the script or the knowledge owns (all of them,
     or `keys`), stored on the run, and why the round stopped.
 
-    The base is the autosaved draft when there is one, else the script callers hear: the
-    owner reviews changes to what they are editing. A request identical to one already
-    answered for this agent is not asked again (`no_change`), and an answer with no edits
-    and no facts says so (`no_change`). Raises the assist refusal (allowance used up, no
-    model), `agent_tests_nothing_to_fix` and `agent_tests_nothing_fixable_by_script`."""
+    Script fixes are edits of the script of the agent's line or campaign (`holder`, or its
+    only one: `test_fixes.choose_holder`), written there as Pip's draft for the owner to
+    review on that page (D-1017); with no holder to write to, the round still offers facts
+    and says where script fixes would go (`script_fixes`). A request identical to one
+    already answered for this agent is not asked again (`no_change`), and an answer with no
+    edits and no facts says so (`no_change`). Raises the assist refusal (allowance used up,
+    no model), `agent_tests_nothing_to_fix`, `agent_tests_nothing_fixable_by_script` and
+    `agent_tests_unknown_holder`."""
     async with tenant_session(tenant_id) as session:
         run = await get_run(session, agent_id, run_id)
         chosen = failing(run)
@@ -889,21 +910,13 @@ async def improve_run(
             raise ProblemError.business_rule(
                 "agent_tests_nothing_fixable_by_script", NOTHING_FOR_THE_SCRIPT
             )
+        choice = await test_fixes.choose_holder(session, agent_id, holder, must_choose=False)
+        current = await read_holder(session, choice.holder.holder) if choice.holder else None
         brief = await load_brief(session, agent_id)
         tenant_leg = await account_assist_leg(session)
-        draft = await script_builder.read_draft(session, agent_id)
-        loaded = await script_builder.load_agent_script(session, agent_id)
-    # A v1 script is reviewed in the v2 steps, exactly as the builder opens it.
-    base = upgrade_to_v2(draft.script if draft is not None else loaded.script)
-    if base.is_raw:
-        # Suggestions are edits to steps and parts; a hand-written script has none.
-        raise ProblemError.business_rule(
-            "agent_tests_hand_written",
-            "Suggested fixes need a script in steps.",
-            remediation=(
-                "Change what calls say on the Inbound line or campaign that uses this agent."
-            ),
-        )
+    # With no holder the improver still sees the tests and the facts; its edits have
+    # nowhere to go and are not kept.
+    base = test_fixes.holder_base(current.script if current is not None else None)
     request_hash = input_hash(improve_request(brief, base, failures))
     if await _answered_before(tenant_id, agent_id, request_hash):
         async with tenant_session(tenant_id) as session:
@@ -918,27 +931,85 @@ async def improve_run(
     record = improvement_record(
         answer,
         base=base,
-        base_kind="draft" if draft is not None else "live",
-        base_saved_at=draft.saved_at if draft is not None else None,
-        base_version=loaded.version,
         for_keys=[str(r.get("key")) for r in failures],
         request_hash=request_hash,
     )
-    found = bool(record.get("edits") or record.get("facts"))
-    stop: ImproveStop = "completed" if found else "no_change"
+    edits = (
+        test_fixes.writable_edits(list(record.get("edits") or []))
+        if choice.holder is not None
+        else []
+    )
+    titles = [str(r.get("title") or "") for r in failures]
     # Charged in the transaction that stores the answer: committed alone, a job stopped
     # before the store re-runs, finds no stored `input_hash` and is charged again.
     async with tenant_session(tenant_id) as session:
+        outcome, draft_id = await _draft_on_holder(
+            session, choice, edits, titles, answer.capability.disclosure, requested_by
+        )
+        if outcome != "drafted":
+            edits = []
+        if outcome == "draft_open":
+            # Not answered: once the waiting draft is kept or discarded, the same request
+            # is asked again rather than refused as already answered.
+            record["input_hash"] = None
+        record.update(
+            edits=edits,
+            script_fixes=outcome,
+            holder=choice.holder.as_dict() if choice.holder is not None else None,
+            draft_id=str(draft_id) if draft_id is not None else None,
+        )
+        found = bool(edits or record.get("facts"))
+        stop: ImproveStop = "completed" if found else "no_change"
         await store_improvement(
             session,
             agent_id=agent_id,
             run_id=run_id,
             improvement=record,
             stop=stop,
-            note=None if found else (WITHHELD_NOTE if record.get("withheld") else NO_EDITS_NOTE),
+            note=None if found else _none_offered_note(record, outcome),
         )
         await _meter_in(session, tenant_id, answer, ASSIST_FEATURE_TEST_IMPROVE)
     return stop, record
+
+
+async def _draft_on_holder(
+    session: AsyncSession,
+    choice: test_fixes.Choice,
+    edits: list[dict[str, Any]],
+    titles: list[str],
+    disclosure: str | None,
+    requested_by: UUID | None,
+) -> tuple[test_fixes.ScriptFixes, UUID | None]:
+    """Write the round's script fixes as the holder's Pip draft, and how that went."""
+    if choice.holder is None:
+        return choice.outcome, None
+    if not edits:
+        return "none", None
+    try:
+        draft_id = await test_fixes.write_holder_draft(
+            session,
+            holder=choice.holder.holder,
+            edits=edits,
+            titles=titles,
+            disclosure=disclosure,
+            requested_by=requested_by,
+        )
+    except ProblemError as refused:
+        if refused.code != DRAFT_OPEN_CODE:
+            raise
+        return "draft_open", None
+    return ("drafted", draft_id) if draft_id is not None else ("none", None)
+
+
+def _none_offered_note(record: dict[str, Any], outcome: test_fixes.ScriptFixes) -> str:
+    holder = record.get("holder") or {}
+    if outcome == "draft_open":
+        return DRAFT_OPEN_NOTE.format(name=holder.get("name") or "")
+    if outcome == "no_holder":
+        return NO_HOLDER_NOTE
+    if outcome == "choose":
+        return CHOOSE_HOLDER_NOTE
+    return WITHHELD_NOTE if record.get("withheld") else NO_EDITS_NOTE
 
 
 #: The stop reason a refused improve round records, by the refusal's code; any other is
@@ -967,8 +1038,21 @@ async def improve_agent_test_run(ctx: dict[str, Any], payload: dict[str, Any]) -
         return "no_run"
     raw_keys = payload.get("keys")
     keys = [str(k) for k in raw_keys] if isinstance(raw_keys, list) else None
+    holder = (
+        Holder(payload["holder_kind"], UUID(str(payload["holder_id"])))
+        if payload.get("holder_kind") in ("inbound_line", "campaign") and payload.get("holder_id")
+        else None
+    )
+    by = payload.get("requested_by")
     try:
-        stop, _record = await improve_run(tenant_id, agent_id, run_id, keys=keys)
+        stop, _record = await improve_run(
+            tenant_id,
+            agent_id,
+            run_id,
+            keys=keys,
+            holder=holder,
+            requested_by=UUID(str(by)) if by else None,
+        )
     except ProblemError as refused:
         log.info(
             "agent_tests_improve_refused", extra={"run_id": str(run_id), "reason": refused.code}
@@ -1011,12 +1095,15 @@ async def _improve_stopped(
 
 
 __all__ = [
+    "CHOOSE_HOLDER_NOTE",
+    "DRAFT_OPEN_NOTE",
     "FROM_REAL_CALLS_NOTE",
     "IMPROVE_CRASHED_CODE",
     "IMPROVE_FAILED_NOTE",
     "IMPROVE_JOB_NAME",
     "JOB_NAME",
     "NO_EDITS_NOTE",
+    "NO_HOLDER_NOTE",
     "PAUSE_S",
     "PLATFORM_FAILURE_CODE",
     "SAME_INPUT_NOTE",

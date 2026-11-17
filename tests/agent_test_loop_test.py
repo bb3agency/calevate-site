@@ -35,6 +35,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine.test_chat import TestChatTool, TestChatTurn
+from apps.api.inbound.lines import create_line
 from apps.api.reliability.engine_actions import (
     ACTION_NAMES,
     CALLBACK,
@@ -802,6 +803,16 @@ async def test_improving_needs_a_failure_and_the_allowance(
     azure: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     tenant_id, agent_id = await _agent()
+    async with tenant_session(tenant_id) as session:
+        # Script fixes are drafted on the agent's line (D-1017).
+        await create_line(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Main line",
+            script=CallScript(schema_version=2, opening_line="Namaskaram"),
+            created_by=None,
+        )
     run_id = await _failed_run(
         tenant_id, agent_id, [{"key": "k1", "title": "Price", "verdict": "passed"}]
     )

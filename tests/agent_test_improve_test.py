@@ -209,49 +209,7 @@ def test_auto_improve_stops_with_a_reason_instead_of_looping() -> None:
     assert test_conversations.wants_auto_improvement(fixable)
 
 
-# --- keeping edits ------------------------------------------------------------------------
-
-
-async def test_kept_edits_are_applied_to_the_owners_copy_one_by_one() -> None:
-    """FAILS IF: keeping one suggestion applies another, or an edit whose step is gone breaks
-    the whole save rather than being left out and named."""
-    tenant_id, slug, token = await _make_tenant()
-    async with tenant_session(tenant_id) as session:
-        agent_id = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
-    run_id = await _failed_run(tenant_id, agent_id, [{"key": "k1", "verdict": "failed"}])
-    edits = [
-        {"id": "e1", "op": "set_step", "step_id": "s1", "text": "Greet and ask the need."},
-        {"id": "e2", "op": "set_step", "step_id": "gone", "text": "x"},
-        {"id": "e3", "op": "set_part", "part": "ending", "text": "Thank them."},
-    ]
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agent_test_runs SET improvement = CAST(:i AS jsonb) WHERE id = :id"),
-            {"id": run_id, "i": json.dumps({"edits": edits, "facts": []})},
-        )
-    working = {
-        "schema_version": 2,
-        "opening_line": "Namaskaram",
-        "stages": [{"id": "s1", "name": "Greet", "instruction": "Greet them."}],
-    }
-    path = f"/v1/agents/{agent_id}/script/tests/{run_id}/improvement/apply"
-    async with _client() as http:
-        response = await http.post(
-            path,
-            json={"script": working, "edits": ["e1", "e2"]},
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
-        )
-        unknown = await http.post(
-            path,
-            json={"script": working, "edits": ["e9"]},
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
-        )
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["skipped"] == ["e2"]
-    assert body["script"]["stages"][0]["instruction"] == "Greet and ask the need."
-    assert body["script"]["ending"] == "" and body["script"]["opening_line"] == "Namaskaram"
-    assert unknown.json()["type"].endswith("/agent_tests_unknown_edit"), unknown.text
+# --- keeping suggestions ------------------------------------------------------------------------
 
 
 async def test_kept_fixes_are_not_offered_again_after_a_reload() -> None:

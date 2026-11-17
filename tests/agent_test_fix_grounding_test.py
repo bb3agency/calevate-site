@@ -236,9 +236,6 @@ def test_a_stored_proposal_says_it_is_not_tested() -> None:
     record = agent_test_ai.improvement_record(
         answer,  # type: ignore[arg-type]
         base=SCRIPT,
-        base_kind="draft",
-        base_saved_at=None,
-        base_version=None,
         for_keys=[],
         request_hash="h",
     )

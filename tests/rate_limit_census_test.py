@@ -162,7 +162,6 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/first-run/agent", "PUT", "costly"),
         ("/v1/first-run/work", "POST", "costly"),
         ("/v1/integrations/credentials/{credential_id}/test", "POST", "costly"),
-        ("/v1/agents/{agent_id}/script/publish", "POST", "costly"),
         ("/v1/agents/{agent_id}/script/apply", "POST", "costly"),
         ("/v1/agents/{agent_id}/script/undo", "POST", "costly"),
         # The other client doors to a vendor write: activating and preparing publish an agent,

@@ -40,7 +40,6 @@ from calevate_shared.call_script import (
     native_steps,
     render_steps,
     splice_quick_facts,
-    upgrade_to_v2,
     without_outline,
 )
 from calevate_shared.engine import (
@@ -746,41 +745,6 @@ async def list_versions(
 
 
 @dataclass(frozen=True, slots=True)
-class Restored:
-    draft: Draft
-    #: The working copy the restore replaced, for its Undo (A-25); None when there was none.
-    replaced: CallScript | None
-
-
-async def restore_into_draft(session: AsyncSession, agent_id: UUID, version: int) -> Restored:
-    """Copy an earlier version into the working copy. Callers keep hearing the live script
-    until the owner puts the draft live. The working copy it replaces is handed back, so
-    the screen can offer the way back to it."""
-    before = await read_draft(session, agent_id)
-    row = (
-        await session.execute(
-            text(
-                "SELECT body, structured_script FROM prompt_versions "
-                "WHERE agent_id = :aid AND version = :v"
-            ),
-            {"aid": agent_id, "v": version},
-        )
-    ).first()
-    if row is None:
-        raise ProblemError.not_found("Script version")
-    script = (
-        upgrade_to_v2(CallScript.model_validate(row[1]))
-        if row[1] is not None
-        else CallScript.from_freeform(str(row[0]))
-    )
-    saved_at = await save_draft(session, agent_id, script)
-    return Restored(
-        draft=Draft(script=script, saved_at=saved_at),
-        replaced=before.script if before is not None else None,
-    )
-
-
-@dataclass(frozen=True, slots=True)
 class ReplacedOpening:
     opening_line: str
     #: The new version, or None when the script already had this line.
@@ -961,7 +925,6 @@ __all__ = [
     "read_draft",
     "recompile_collect",
     "replace_opening_line",
-    "restore_into_draft",
     "rewrite_script",
     "save_agent_script",
     "save_draft",

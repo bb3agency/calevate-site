@@ -28,7 +28,6 @@ import { ApiProblem } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
   useMarkTestWrong,
-  useRestoreVersion,
   useRunTestConversations,
   useTestConversations,
   type RunTestsBody,
@@ -39,7 +38,8 @@ import { openAssistant } from "@/lib/copilot/launcher";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
-import { ImprovementReview } from "../script/ImprovementReview";
+import { ImprovementReview, holderName } from "../script/ImprovementReview";
+import { HolderPicker } from "./HolderPicker";
 import { scriptsHome } from "../sections/agentSections";
 import { CALL_HANDLING_ANCHOR } from "../sections/settingsTab";
 import { Results } from "./TestResults";
@@ -49,6 +49,9 @@ import { NOTHING_CHANGED_CODE, SETTING_LINK, countsOf, isFixable, oursNote } fro
 /** What Pip is asked for the fixes, in the words the owner sees in its ask box (D-820). */
 export const FIX_ALL_REQUEST = "Suggest fixes for the tests this agent failed.";
 export const fixOneRequest = (title: string) => `Suggest a fix for this agent's failed test “${title}”.`;
+/** The ask with where its script fixes go, when the owner picked one of several (D-1017). */
+export const onHolder = (request: string, where: string | null) =>
+  where ? `${request.replace(/\.$/, "")}, as a draft on ${where}.` : request;
 
 export function TestSection({
   agent,
@@ -65,14 +68,15 @@ export function TestSection({
   const tests = useTestConversations(session, agent.id);
   const run = useRunTestConversations(session, agent.id);
   const markWrong = useMarkTestWrong(session, agent.id);
-  const restore = useRestoreVersion(session, agent.id);
   // Every refusal here is drawn on the section (and "nothing changed" as calm guidance), so
   // none is toasted; the buttons carry pending and failure.
   const runFeedback = useActionFeedback(run, { errorDisplay: "inline" });
   const markWrongFeedback = useActionFeedback(markWrong, { errorDisplay: "inline" });
-  const restoreFeedback = useActionFeedback(restore, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "test and improve this agent");
   const [closed, setClosed] = useState<string | null>(null);
+  const holders = tests.data?.fix_holders ?? [];
+  const [picked, setPicked] = useState<string | null>(null);
+  const holder = holders.length === 1 ? holders[0]! : (holders.find((h) => h.id === picked) ?? null);
 
   const data = tests.data;
   const latest = data?.latest ?? null;
@@ -122,6 +126,18 @@ export function TestSection({
             },
             // Pip's `agent_tests_fix` names the failures to fix by these keys: only those the
             // script or the knowledge owns and that failed on most of their tries.
+            // Pip's `agent_tests_fix` names where script fixes are drafted by this id (D-1017).
+            ...(holder
+              ? [{ key: "fix_holder", label: "Script fixes go to (kind, name, id)", value: `${holder.kind}, ${holder.name}, ${holder.id}` }]
+              : holders.length > 1
+                ? [
+                    {
+                      key: "fix_holders",
+                      label: "Lines and campaigns script fixes can go to (kind, name, id); ask which",
+                      value: holders.map((h) => `${h.kind}, ${h.name}, ${h.id}`).join("; "),
+                    },
+                  ]
+                : []),
             ...(fixable.length > 0
               ? [
                   {
@@ -142,7 +158,8 @@ export function TestSection({
   const askForFixes = (key?: string) => {
     setClosed(null);
     const title = key ? fixable.find((r) => r.key === key)?.title : undefined;
-    openAssistant({ prompt: title ? fixOneRequest(title) : FIX_ALL_REQUEST });
+    const where = holders.length > 1 && holder ? holderName(holder) : null;
+    openAssistant({ prompt: onHolder(title ? fixOneRequest(title) : FIX_ALL_REQUEST, where) });
   };
 
   const links = {
@@ -199,18 +216,17 @@ export function TestSection({
             improving={improving}
             hasProposal={proposal !== null}
             showingReview={showReview}
-            restoring={restore.isPending}
-            restoreStatus={restoreFeedback.status}
             runStatus={runStatus}
-            restored={restore.isSuccess}
             links={links}
+            holderPicker={
+              holders.length > 1 ? <HolderPicker holders={holders} value={picked} onChange={setPicked} /> : undefined
+            }
             unchanged={unchanged}
             onTestAgain={testAgain}
             onNewSet={(practice) => start({ practice_callers: practice })}
             onFix={() => askForFixes()}
             onReopen={() => setClosed(null)}
-            onUndo={(version) => restore.mutate(version)}
-            />
+          />
         ) : (
           <FirstRun
             data={data}
@@ -221,20 +237,19 @@ export function TestSection({
           />
         ))}
       {run.error && !refusal && <ProblemNotice error={run.error} />}
-      {restore.error && <ProblemNotice error={restore.error} />}
 
       {done && !testing && (
         <>
           {showReview && proposal && (
             <ImprovementReview
               agentId={agent.id}
+              slug={slug}
               run={done}
               improvement={proposal}
               onClose={() => {
                 setClosed(proposal.created_at);
                 void tests.refetch();
               }}
-              onTestAgain={testAgain}
             />
           )}
           {markWrong.error && <ProblemNotice error={markWrong.error} />}

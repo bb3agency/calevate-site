@@ -1,17 +1,12 @@
-"""Client-realm structured call-script builder (D-21 CONFLICT — see below).
+"""Client-realm reads of an agent's own script, its practice tests, and the few writes left.
 
-⚠ **CONFLICT FLAGGED, NOT SILENTLY RESOLVED (CLAUDE.md: "flag the conflict, don't silently
-pick").** D-21 as reflected in `apps/web/.../agents/[agentId]/page.tsx::ScriptNote` and in
-`agents/routes.py`'s header draws the control boundary so that the SCRIPT is authored
-admin-realm ("with your account manager"), because a script change regenerates prompt hints
-and needs a regression run. This router puts a STRUCTURED script builder on the CLIENT realm
-under `org:manage`, on the founder's APPROVED DECISION that the structured builder is the
-primary authoring model. It is reconciled with D-21's actual concern rather than overriding
-it: every client edit here STAGES (the slow lane, `write_prompt_version`), so nothing a
-client authors reaches a live call until an explicit **Apply** — the same two-speed gate
-D-21's regression concern is really about. The admin-realm prompt/apply endpoints
-(`prompt_routes.py`, `publishing_routes.py`) remain for the account-manager path; this is a
-second surface onto the SAME storage and the SAME staging gate, not a second system.
+An agent has no script for the owner to edit (D-997, D-1000, D-1005, D-1009): what a call says
+is the script of its Inbound line or campaign. The writes left here are the opening line
+(`/opening-line`, and its notice Undo `/opening-line/put-back`, D-971) and putting live or
+discarding a version the admin console staged (`/apply`, `/undo`; `write_prompt_version`'s
+slow lane). A practice test's script fix is a Pip draft on the agent's line or campaign
+(`agents/test_fixes`, D-1017); the routes that wrote the agent's own draft, put it live and
+restored a version are retired.
 
 WHY IT IS ONE ROUTER WITH NO SHARED PREFIX. Every path here is client-realm `/v1/agents/...`
 and tenant-scoped through `Depends(db)` + `requires(...)` (the principal's own tenant), so a
@@ -55,12 +50,11 @@ from apps.api.agents import (
     fix_guard,
     publishing,
     script_builder,
-    script_publish,
     test_conversations,
+    test_fixes,
     test_titles,
     trial_results,
 )
-from apps.api.agents.script_edits import MAX_EDITS, ScriptEdit, apply_edits
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns.contact_details import list_columns
 from apps.api.compliance.audit import write_audit
@@ -496,15 +490,31 @@ class ProposedFactOut(BaseModel):
     why: str
 
 
-class ImprovementOut(BaseModel):
-    """The "Improve my agent" proposal: small edits and facts, each kept or left on its own,
-    never applied by itself. Kept edits are applied to the working copy by
-    `POST .../tests/{run_id}/improvement/apply`."""
+class TestFixHolderOut(BaseModel):
+    """One of the agent's Inbound lines or open campaigns with a script: where a practice
+    test's script fixes can be drafted (D-1017)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    #: `draft` (the autosaved working copy) or `live` (what callers hear).
-    base: Literal["draft", "live"]
+    kind: Literal["inbound_line", "campaign"]
+    id: UUID
+    name: str
+
+
+class ImprovementOut(BaseModel):
+    """The "Improve my agent" proposal (D-1017). Script fixes are a Pip draft on one of the
+    agent's Inbound lines or campaigns (`holder`), reviewed there; `edits` says what that
+    draft changed. Facts are kept or left here one by one, never applied by themselves."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: `drafted` on `holder` · `draft_open`: a Pip draft already waited there, so nothing
+    #: was written · `no_holder`: the agent has no line or campaign with a script ·
+    #: `choose`: it has several and none was picked · `none`: no script fix to write.
+    script_fixes: test_fixes.ScriptFixes = "none"
+    holder: TestFixHolderOut | None = None
+    #: The holder draft's id, when `drafted`.
+    draft_id: UUID | None = None
     edits: list[ScriptEditOut]
     facts: list[ProposedFactOut]
     #: Edits the AI suggested that did not fit the script and were left out.
@@ -677,6 +687,8 @@ class TestConversationsOut(BaseModel):
     #: Facts callers ask for that the business has not given (`prices`), shown before a run
     #: so the owner can add them first (D-849).
     missing_facts: list[test_conversations.MissingFact] = Field(default_factory=list)
+    #: Where script fixes can be drafted: the owner picks one when there are several.
+    fix_holders: list[TestFixHolderOut] = Field(default_factory=list)
     #: Tries per test and the most test-chat replies one run may use.
     trials: int = trial_results.TRIALS
     max_replies: int = test_conversations.MAX_REPLIES_PER_RUN
@@ -827,7 +839,19 @@ def _on_offer(raw: dict[str, Any] | None) -> tuple[list[dict[str, Any]], int] | 
         or raw.get("superseded_at")
     ):
         return None
+    if "script_fixes" not in raw:
+        # Made before D-1017 against the agent's own script, which nothing writes now:
+        # its facts are still offered, its edits are not.
+        return [], 0
     return fix_guard.offered_edits(raw)
+
+
+def _holder_out(raw: Any) -> TestFixHolderOut | None:
+    if not isinstance(raw, dict) or raw.get("kind") not in ("inbound_line", "campaign"):
+        return None
+    return TestFixHolderOut(
+        kind=raw["kind"], id=UUID(str(raw["id"])), name=str(raw.get("name") or "")
+    )
 
 
 def _improvement_out(raw: dict[str, Any] | None) -> ImprovementOut | None:
@@ -839,8 +863,11 @@ def _improvement_out(raw: dict[str, Any] | None) -> ImprovementOut | None:
     if raw is None or on_offer is None:
         return None
     offered, withheld = on_offer
+    draft_id = raw.get("draft_id")
     return ImprovementOut(
-        base=raw.get("base") or "live",
+        script_fixes=raw.get("script_fixes") or "none",
+        holder=_holder_out(raw.get("holder")),
+        draft_id=UUID(str(draft_id)) if draft_id else None,
         edits=[
             ScriptEditOut.model_validate({k: v for k, v in e.items() if k in _EDIT_FIELDS})
             for e in offered
@@ -992,6 +1019,10 @@ async def _tests_out(
             < test_conversations.ENOUGH_REAL_CALLS
         ),
         missing_facts=await test_conversations.missing_facts(session),
+        fix_holders=[
+            TestFixHolderOut(kind=h.kind, id=h.id, name=h.name)
+            for h in await test_fixes.fix_holders(session, agent_id)
+        ],
     )
 
 
@@ -1104,58 +1135,6 @@ async def mark_test_wrong(
     return await _tests_out(session, agent_id, principal.tenant_id)
 
 
-class ApplyEditsIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    #: The owner's working copy: the draft, or the live script when there is no draft.
-    script: CallScript
-    #: The edits kept, by id, in the order to apply them.
-    edits: list[Annotated[str, Field(max_length=8)]] = Field(max_length=MAX_EDITS)
-
-
-class ApplyEditsOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    #: `script` with the kept edits made. Nothing is saved: the caller saves it as the
-    #: draft or puts it live, as it does any edit.
-    script: CallScript
-    #: Kept edits that no longer fit the working copy (their step was removed since, or the
-    #: step limit was reached), left out.
-    skipped: list[str]
-
-
-@router.post(
-    "/tests/{run_id}/improvement/apply",
-    response_model=ApplyEditsOut,
-    openapi_extra=permission_meta("org:manage"),
-    summary="The working script with the kept suggested edits made (nothing is saved)",
-)
-async def apply_suggested_edits(
-    agent_id: UUID,
-    run_id: UUID,
-    payload: ApplyEditsIn,
-    session: Session,
-    principal: ScriptWriter,
-) -> ApplyEditsOut:
-    """The one place a kept edit is applied: the same `script_edits.apply_edit` that built
-    the proposal, onto the copy the owner holds now, so an edit made since is never undone."""
-    run = await test_conversations.get_run(session, agent_id, run_id)
-    # Only what is on offer may be applied: a withheld, kept or replaced edit reads as one
-    # that changed since the owner opened the suggestions.
-    offered, _withheld = _on_offer(run.improvement) or ([], 0)
-    by_id = {str(e.get("id")): e for e in offered}
-    if any(i not in by_id for i in payload.edits):
-        raise ProblemError.business_rule(
-            "agent_tests_unknown_edit",
-            "These suggestions have changed since you opened them.",
-            remediation="Close the suggestions and open them again.",
-        )
-    script, _applied, rejected = apply_edits(
-        upgrade_to_v2(payload.script), [ScriptEdit.of(by_id[i]) for i in payload.edits]
-    )
-    return ApplyEditsOut(script=script, skipped=[edit.id for edit, _why in rejected])
-
-
 @router.post(
     "/tests/{run_id}/improvement/settle",
     response_model=TestConversationsOut,
@@ -1168,131 +1147,13 @@ async def settle_suggested_edits(
     session: Session,
     principal: ScriptWriter,
 ) -> TestConversationsOut:
-    """Called after the kept fixes are saved to the draft or put live. Separate from
-    `apply`, which saves nothing, so a save that fails leaves the fixes on offer."""
+    """Called once the facts the owner kept are saved, or when they are done with the
+    round: its script fixes wait as a draft on the line or campaign (D-1017). Separate
+    from saving the facts, so a save that fails leaves them on offer."""
     assert principal.tenant_id is not None
     await test_conversations.get_run(session, agent_id, run_id)
     await test_conversations.settle_improvement(session, agent_id=agent_id, run_id=run_id)
     return await _tests_out(session, agent_id, principal.tenant_id)
-
-
-# --- the autosaved draft, "Put it live", versions, restore (D-714) ----------------------
-
-
-class SaveDraftIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    script: CallScript
-    #: The draft's `saved_at` the editor loaded (null: there was no draft). When sent, the
-    #: save is refused with `script_changed_elsewhere` (409) if the stored draft moved since.
-    base_saved_at: datetime | None = None
-
-
-class DraftSavedOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    saved_at: datetime
-
-
-@router.put(
-    "/draft",
-    response_model=DraftSavedOut,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Autosave the working copy (no version, never reaches a call)",
-)
-async def save_script_draft(
-    agent_id: UUID, payload: SaveDraftIn, session: Session, principal: ScriptWriter
-) -> DraftSavedOut:
-    # Not audited: an autosave per pause in typing is not a decision. Putting it live is.
-    if "base_saved_at" in payload.model_fields_set:
-        saved_at = await script_builder.save_draft(
-            session, agent_id, payload.script, base_saved_at=payload.base_saved_at
-        )
-    else:
-        saved_at = await script_builder.save_draft(session, agent_id, payload.script)
-    return DraftSavedOut(saved_at=saved_at)
-
-
-class PublishIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    #: What changed, in the owner's words; becomes the version's note.
-    summary: str = Field(min_length=1, max_length=200)
-    #: The script to put live; left out, the autosaved draft is.
-    script: CallScript | None = None
-    #: The version the draft started from (null: no script yet); refused if it moved.
-    expected_version: int | None = Field(default=None, ge=1)
-
-
-class PublishOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    version: int
-    #: True when callers now hear it. False while the agent is not switched on (the version
-    #: is what it will use) or the push to the calling system did not complete.
-    live: bool
-
-
-@router.post(
-    "/publish",
-    response_model=PublishOut,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Put it live: the draft becomes a version with a change summary and is applied",
-)
-async def publish_script(
-    agent_id: UUID, payload: PublishIn, request: Request, principal: ScriptWriter
-) -> PublishOut:
-    """One action in place of Save then Apply: a version with the owner's summary, applied
-    to live calls in the same request. Callers keep the old script until this succeeds."""
-    assert principal.tenant_id is not None
-    tenant_id = principal.tenant_id
-
-    async def audit(session: AsyncSession, version: int) -> None:
-        await write_audit(
-            session,
-            action="agent.script_published",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="agent",
-            object_id=str(agent_id),
-            ip=client_request_ip(request),
-            summary={"version": version},
-        )
-
-    done = await script_publish.put_draft_live(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        summary=payload.summary,
-        created_by=principal.user_id,
-        script=payload.script,
-        check_version="expected_version" in payload.model_fields_set,
-        expected_version=payload.expected_version,
-        on_saved=audit,
-    )
-    return PublishOut(version=done.version, live=done.live)
-
-
-class RestoredOut(DraftOut):
-    #: The draft the restore replaced (null: there was none), so the screen can undo it by
-    #: saving it back with `saved_at` as the base.
-    replaced: CallScript | None = None
-
-
-@router.post(
-    "/versions/{version}/restore",
-    response_model=RestoredOut,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Copy an earlier version into the draft (callers keep the live one)",
-)
-async def restore_script_version(
-    agent_id: UUID, version: int, session: Session, principal: ScriptWriter
-) -> RestoredOut:
-    restored = await script_builder.restore_into_draft(session, agent_id, version)
-    return RestoredOut(
-        script=restored.draft.script,
-        saved_at=restored.draft.saved_at,
-        replaced=restored.replaced,
-    )
 
 
 class OpeningLineIn(BaseModel):

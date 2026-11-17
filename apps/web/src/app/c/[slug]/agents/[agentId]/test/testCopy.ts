@@ -108,23 +108,20 @@ export function progressMoved(points: readonly RunPoint[]): boolean {
 }
 
 /**
- * The one next step at the top of a finished run, most urgent first: undo a change that
- * broke a test, review fixes already waiting, test a script that changed since, ask Pip to
- * fix what the script or knowledge owns, change a setting, or nothing beyond "Test again".
+ * The one next step at the top of a finished run, most urgent first: review fixes already
+ * waiting, test a script that changed since, ask Pip to fix what the script or knowledge
+ * owns, change a setting, or nothing beyond "Test again". There is no Undo here: script
+ * fixes are a draft on the Inbound line or campaign, undone there (D-1017).
  */
-export type NextStep = "undo" | "review" | "retest" | "fix" | "setting" | "hold" | "done";
+export type NextStep = "review" | "retest" | "fix" | "setting" | "hold" | "done";
 
 export function nextStepOf(facts: {
-  canWrite: boolean;
-  broke: boolean;
-  restored: boolean;
   hasProposal: boolean;
   isCurrent: boolean;
   fixable: number;
   settings: number;
   failing: number;
 }): NextStep {
-  if (facts.broke && facts.canWrite && !facts.restored) return "undo";
   if (facts.hasProposal) return "review";
   if (!facts.isCurrent) return "retest";
   if (facts.fixable > 0) return "fix";

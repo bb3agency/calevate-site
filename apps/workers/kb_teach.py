@@ -4,7 +4,7 @@
    words (metered at our cost as `kb_teach_voice`, absorbed), and the teaching STOPS at
    `heard`: the words go back into the teach box for the owner to check. Photos and files
    are read by Pip since D-821 and are never uploaded here.
-2. SORT words Pip was asked to teach into facts and rules with the dashboard-assist ladder
+2. SORT words Pip was asked to teach into facts with the dashboard-assist ladder
    (`script_assist.ask_json`: the account's Gemini leg or Azure, then the disclosed
    standby), metered against the client's AI allowance as `kb_teach`. When the allowance
    is used up or no model answers, the words come back unsorted, one line each,
@@ -33,7 +33,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import job_try
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
-from apps.api.teach.models import MAX_FACT_CHARS, MAX_RULE_CHARS, MAX_TEACH_WORDS
+from apps.api.teach.models import MAX_FACT_CHARS, MAX_TEACH_WORDS
 from apps.api.teach.teaching import ASSIST_FEATURE_KB_TEACH, TEACH_JOB
 from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
@@ -56,17 +56,15 @@ MAX_ITEMS: Final = 30
 SORT_MAX_TOKENS: Final = 2000
 
 SYSTEM_PROMPT: Final = (
-    "You sort what the owner of a small Indian business tells their AI phone agent into "
-    "FACTS and RULES. A FACT is something true about the business that a caller might ask "
-    "about: products, stock, prices, hours, address, delivery areas, offers, policies. A "
-    "RULE tells the agent how to behave on calls: what to say or never say, when to offer "
-    "something, how to treat a kind of caller. Split the owner's words into short items "
-    "that each make sense alone, one fact or one rule per item. Keep the owner's language "
-    "and the English words they use. Never add anything the owner did not say, never "
-    "change a number, price, name or time, and drop greetings and filler. Write each fact "
-    "as a plain statement and each rule as an instruction to the agent. "
+    "You split what the owner of a small Indian business tells their AI phone agent into "
+    "FACTS: things true about the business that a caller might ask about, such as "
+    "products, stock, prices, hours, address, delivery areas, offers and policies. Split "
+    "the owner's words into short facts that each make sense alone. Keep the owner's "
+    "language and the English words they use. Never add anything the owner did not say, "
+    "never change a number, price, name or time, and drop greetings and filler. Write each "
+    "fact as a plain statement. "
     f"At most {MAX_ITEMS} items. "
-    'Return ONLY JSON: {"items": [{"kind": "fact" or "rule", "text": str}]}.'
+    'Return ONLY JSON: {"items": [{"kind": "fact", "text": str}]}.'
 )
 
 _SCHEMA: Final = {
@@ -77,7 +75,7 @@ _SCHEMA: Final = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "kind": {"type": "string", "enum": ["fact", "rule"]},
+                    "kind": {"type": "string", "enum": ["fact"]},
                     "text": {"type": "string"},
                 },
                 "required": ["kind", "text"],
@@ -90,12 +88,12 @@ _SCHEMA: Final = {
 }
 
 UNSORTED_NOTE: Final = (
-    "We could not sort this automatically, so each line is shown as a fact. Mark the ones "
-    "that are rules."
+    "We could not split this automatically, so each line is shown as a fact. Untick any "
+    "you do not want."
 )
 QUOTA_NOTE: Final = (
-    "This month's AI help is used up, so this was not sorted. Each line is shown as a fact; "
-    "mark the ones that are rules."
+    "This month's AI help is used up, so this was not split. Each line is shown as a fact; "
+    "untick any you do not want."
 )
 
 
@@ -119,14 +117,13 @@ def items_from_model(raw: dict[str, Any]) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     seen: set[str] = set()
     for item in raw.get("items") or []:
-        if not isinstance(item, dict) or item.get("kind") not in ("fact", "rule"):
+        if not isinstance(item, dict):
             continue
-        limit = MAX_FACT_CHARS if item["kind"] == "fact" else MAX_RULE_CHARS
-        value = " ".join(str(item.get("text") or "").split())[:limit]
+        value = " ".join(str(item.get("text") or "").split())[:MAX_FACT_CHARS]
         if not value or value.casefold() in seen:
             continue
         seen.add(value.casefold())
-        out.append({"kind": str(item["kind"]), "text": value})
+        out.append({"kind": "fact", "text": value})
         if len(out) >= MAX_ITEMS:
             break
     return out
@@ -158,7 +155,7 @@ def _sorted_items(raw: dict[str, Any]) -> list[dict[str, str]] | None:
 async def sort_words(
     words: str, *, capability: AssistCapability, tenant_leg: Any, quota_exhausted: bool
 ) -> Sorted:
-    """Facts and rules from the owner's words, on the dashboard AI ladder every assist uses
+    """Facts from the owner's words, on the dashboard AI ladder every assist uses
     (`script_assist.ask_json`): the account's Gemini leg or Azure, then the disclosed standby.
     Nothing answering leaves the words unsorted, one fact per line, with a note saying so."""
     if not capability.available:
