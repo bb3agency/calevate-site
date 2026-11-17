@@ -3,6 +3,17 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.66 — 17-Nov-2026
+
+- Translate with Pip works both ways for scripts: a scenario with only Telugu gets its
+  English, one with only English gets its Telugu; caller and agent responses get their
+  Telugu. It sits under the description in its own orange bar, says how many boxes it will
+  fill (or that there is nothing to translate), and shows Pip's reason there if a run fails,
+  instead of in the Script section above.
+- Scenario editor in colours: the name and description (blue), the English script (blue),
+  the Telugu script (amber), caller and agent responses (pink), next scenarios (purple). The
+  description's tip sits on its label's line, and Next scenarios is a narrower column.
+
 ## 0.4.65 — 17-Nov-2026
 
 - Scenario editor: English on the left and Telugu in the middle, side by side (the scripts

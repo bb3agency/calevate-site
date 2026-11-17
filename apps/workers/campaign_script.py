@@ -550,44 +550,51 @@ def too_long_left(size: PromptSize | None) -> list[LeftOut]:
 Spent = ScriptDraft | JsonAnswer[WrittenOpening] | JsonAnswer[Review] | ProblemError
 
 
-#: A key per English line: `<stage id>|script`, `<stage id>|qa|<n>|question|answer`.
-_Lines = dict[str, str]
+#: A key per line to translate, `<stage id>|script|<to tag>` or
+#: `<stage id>|qa|<n>|question|answer`, with its text and the language it goes into.
+_Lines = dict[str, tuple[str, str]]
+_ENGLISH: Final = "en-IN"
 
 
 def untranslated(script: CallScript, language: str) -> _Lines:
-    """The English lines whose `language` box is still empty, by key."""
+    """Each line whose other language's box is empty: a script line either way (English into
+    `language`, or `language` into English), a caller and agent response from English."""
     lines: _Lines = {}
     for stage in script.stages:
-        english = stage.scripts.get("en-IN", "")
-        if english and not stage.scripts.get(language):
-            lines[f"{stage.id}|script"] = english
+        english = stage.scripts.get(_ENGLISH, "")
+        local = stage.scripts.get(language, "")
+        if english and not local:
+            lines[f"{stage.id}|script|{language}"] = (english, language)
+        elif local and not english:
+            lines[f"{stage.id}|script|{_ENGLISH}"] = (local, _ENGLISH)
         for n, qa in enumerate(stage.qa):
             held = qa.translations.get(language)
             if not (held and held.question.strip()):
-                lines[f"{stage.id}|qa|{n}|question"] = qa.question
+                lines[f"{stage.id}|qa|{n}|question"] = (qa.question, language)
             if not (held and held.answer.strip()):
-                lines[f"{stage.id}|qa|{n}|answer"] = qa.answer
+                lines[f"{stage.id}|qa|{n}|answer"] = (qa.answer, language)
     return lines
 
 
 def with_translations(
-    script: CallScript, language: str, english: _Lines, done: _Lines
+    script: CallScript, language: str, asked: _Lines, done: dict[str, str]
 ) -> CallScript:
-    """`script` with each translation in its empty box, where that line still says the
-    English it was translated from; a line edited or filled meanwhile is left alone."""
+    """`script` with each translation in its empty box, where the line it was made from still
+    says the same; a line edited or a box filled meanwhile is left alone."""
     stages = []
     for stage in script.stages:
         scripts = dict(stage.scripts)
-        key = f"{stage.id}|script"
-        if key in done and scripts.get("en-IN") == english.get(key) and not scripts.get(language):
-            scripts[language] = done[key]
+        for to, source in ((language, _ENGLISH), (_ENGLISH, language)):
+            key = f"{stage.id}|script|{to}"
+            if key in done and scripts.get(source) == asked[key][0] and not scripts.get(to):
+                scripts[to] = done[key]
         qas = []
         for n, qa in enumerate(stage.qa):
             held = qa.translations.get(language) or ScenarioQaText()
             fill = {}
             for side in ("question", "answer"):
                 k = f"{stage.id}|qa|{n}|{side}"
-                if k in done and getattr(qa, side) == english.get(k) and not getattr(held, side):
+                if k in done and getattr(qa, side) == asked[k][0] and not getattr(held, side):
                     fill[side] = done[k]
             if fill:
                 filled = held.model_copy(update=fill)
@@ -597,7 +604,7 @@ def with_translations(
     return script.model_copy(update={"stages": stages})
 
 
-def _parsed_translations(raw: dict[str, Any], *, keys: set[str]) -> _Lines | None:
+def _parsed_translations(raw: dict[str, Any], *, keys: set[str]) -> dict[str, str] | None:
     items = raw.get("items")
     if not isinstance(items, list):
         return None
@@ -622,16 +629,26 @@ async def _translate(
         current = (await workspace.read_workspace(session, holder.holder_id)).script
     english = untranslated(current, language) if current is not None else {}
     if not english:
-        await _fail(holder, "Every English line already has its translation.", reason="nothing")
+        await _fail(
+            holder,
+            "There was nothing to translate: every script line and response already has both "
+            "languages, or neither.",
+            reason="nothing",
+        )
         return "nothing"
-    language_name = LANGUAGE_LABELS.get(language, language)
     feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
     try:
         answer = await ask_json(
             json.dumps(
-                {"items": [{"key": k, "text": v} for k, v in english.items()]}, ensure_ascii=False
+                {
+                    "items": [
+                        {"key": k, "to": LANGUAGE_LABELS.get(to, to), "text": line}
+                        for k, (line, to) in english.items()
+                    ]
+                },
+                ensure_ascii=False,
             ),
-            TRANSLATE_INSTRUCTION.format(language=language_name),
+            TRANSLATE_INSTRUCTION,
             parse=partial(_parsed_translations, keys=set(english)),
             tenant_leg=tenant_leg,
             quota_exhausted=quota_exhausted,

@@ -75,7 +75,11 @@ export function CampaignFlow({
   onRestore,
   onTranslate,
   translating = false,
+  translateNote = null,
+  onDismissTranslate,
 }: {
+  translateNote?: string | null;
+  onDismissTranslate?: () => void;
   /** Ask Pip to fill the campaign language's empty boxes from the English. */
   onTranslate?: () => void;
   translating?: boolean;
@@ -269,6 +273,8 @@ export function CampaignFlow({
       agent={flowAgent}
       onTranslate={onTranslate}
       translating={translating}
+      translateNote={translateNote}
+      onDismissTranslate={onDismissTranslate}
       translateBlocked={dirty ? "Save or discard your changes first." : null}
       script={draft}
       limits={limits}

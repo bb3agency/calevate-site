@@ -88,6 +88,27 @@ function link(a: Point, b: Point): string {
   return `M ${a.x} ${a.y} C ${a.x + bend} ${a.y}, ${b.x - bend} ${b.y}, ${b.x} ${b.y}`;
 }
 
+/** A coloured block of the scenario editor: each kind of content keeps its own colour. */
+const SECTION = "rounded-card border border-line border-l-4 p-3";
+
+/** The boxes Pip's translation would fill, as the worker counts them
+ *  (`campaign_script.untranslated`): a script line missing either side, a response's other
+ *  language. */
+function pendingTranslations(script: CallScript, local: string): number {
+  let n = 0;
+  for (const stage of script.stages ?? []) {
+    const en = stage.scripts?.["en-IN"]?.trim();
+    const lo = stage.scripts?.[local]?.trim();
+    if (Boolean(en) !== Boolean(lo)) n += 1;
+    for (const qa of stage.qa ?? []) {
+      const held = qa.translations?.[local];
+      if (!held?.question?.trim()) n += 1;
+      if (!held?.answer?.trim()) n += 1;
+    }
+  }
+  return n;
+}
+
 type Menu = { x: number; y: number; id: string | null; step: number };
 
 export function ScenarioFlow({
@@ -104,7 +125,11 @@ export function ScenarioFlow({
   onTranslate,
   translating = false,
   translateBlocked = null,
+  translateNote = null,
+  onDismissTranslate,
 }: {
+  translateNote?: string | null;
+  onDismissTranslate?: () => void;
   /** Ask Pip to fill the local-language boxes from the English, every scenario. */
   onTranslate?: () => void;
   translating?: boolean;
@@ -159,6 +184,8 @@ export function ScenarioFlow({
       onTranslate={onTranslate}
       translating={translating}
       translateBlocked={translateBlocked}
+      translateNote={translateNote}
+      onDismissTranslate={onDismissTranslate}
       onChange={onChange}
       onDelete={() => remove(chosen.section.id)}
     />
@@ -762,7 +789,12 @@ function ScenarioEditor({
   onTranslate,
   translating,
   translateBlocked,
+  translateNote,
+  onDismissTranslate,
 }: {
+  /** Why the last translation came to nothing, until dismissed. */
+  translateNote: string | null;
+  onDismissTranslate?: () => void;
   onTranslate?: () => void;
   translating: boolean;
   /** Why translating cannot start now (unsaved changes), or null. */
@@ -886,6 +918,7 @@ function ScenarioEditor({
     </label>
   );
 
+  const translatable = local ? pendingTranslations(script, local) : 0;
   // Two columns side by side, English left and the local language beside it; the right
   // column holds where the call goes next (founder, 17 Nov 2026).
   const pair = wide ? "grid gap-x-6 gap-y-3 lg:grid-cols-2" : "space-y-3";
@@ -918,84 +951,117 @@ function ScenarioEditor({
       </div>
 
       <div
-        className={wide ? "grid gap-x-8 gap-y-6 lg:grid-cols-3" : "space-y-5"}
+        className={
+          wide
+            ? "grid gap-x-6 gap-y-6 lg:grid-cols-[minmax(0,1fr)_16rem]"
+            : "space-y-5"
+        }
       >
         {/* English and the local language, side by side. */}
-        <div className={`min-w-0 space-y-6 ${wide ? "lg:col-span-2" : ""}`}>
-          <div className={pair}>
-            <div>
-              <label className={label()} htmlFor={`sc-name-${id}`}>
-                Scenario name
-              </label>
-              <input
-                id={`sc-name-${id}`}
-                className={`${FIELD} mt-1`}
-                value={s.name}
-                maxLength={limits.nameMax}
+        <div className="min-w-0 space-y-5">
+          <div className={`${SECTION} border-l-series-2 bg-series-2/5`}>
+            <label className={label()} htmlFor={`sc-name-${id}`}>
+              Scenario name
+            </label>
+            <input
+              id={`sc-name-${id}`}
+              className={`${FIELD} mt-1 lg:max-w-[calc(50%-0.75rem)]`}
+              value={s.name}
+              maxLength={limits.nameMax}
+              readOnly={readOnly}
+              placeholder="For example: Does not remember Rytu Khata"
+              aria-invalid={issue("name") ? true : undefined}
+              onChange={(e) =>
+                onChange(renameScenario(script, id, e.target.value))
+              }
+            />
+            {issue("name") && (
+              <p className="mt-1 text-meta text-danger">{issue("name")}</p>
+            )}
+
+            <div className="mt-4">
+              <p className="flex flex-wrap items-baseline gap-x-2">
+                <label className={label("inline")} htmlFor={`sc-desc-${id}`}>
+                  Scenario description
+                </label>
+                <span className="text-meta text-ink-muted">
+                  When this happens and what the agent does, in plain English.
+                </span>
+              </p>
+              <textarea
+                id={`sc-desc-${id}`}
+                className={`${FIELD} mt-1 min-h-20`}
+                value={s.instruction}
                 readOnly={readOnly}
-                placeholder="For example: Does not remember Rytu Khata"
-                aria-invalid={issue("name") ? true : undefined}
-                onChange={(e) =>
-                  onChange(renameScenario(script, id, e.target.value))
-                }
+                aria-invalid={issue("instruction") ? true : undefined}
+                onChange={(e) => patch({ instruction: e.target.value })}
               />
-              {issue("name") && (
-                <p className="mt-1 text-meta text-danger">{issue("name")}</p>
+              {issue("instruction") && (
+                <p className="mt-1 text-meta text-danger">
+                  {issue("instruction")}
+                </p>
               )}
             </div>
-            {local && onTranslate && !readOnly && (
-              <div className="flex flex-col justify-end">
-                <button
-                  type="button"
-                  className={`${SECONDARY_BUTTON_SM} self-start`}
-                  disabled={translating || translateBlocked != null}
-                  title={
-                    translateBlocked ??
-                    `Fills each empty ${toLocal} box from its English, in every scenario.`
-                  }
-                  onClick={onTranslate}
-                >
-                  <Languages aria-hidden className="h-3.5 w-3.5" />
-                  {translating
-                    ? "Pip is translating…"
-                    : `Translate into ${toLocal} with Pip`}
-                </button>
-                <p className="mt-1 text-[11px] text-ink-faint">
-                  Only empty {toLocal} boxes are filled; what you wrote stays.
-                </p>
-              </div>
-            )}
           </div>
 
-          <div>
-            <label className={label()} htmlFor={`sc-desc-${id}`}>
-              Scenario description
-            </label>
-            <p className="text-meta text-ink-muted">
-              When this happens and what the agent does, in plain English.
-            </p>
-            <textarea
-              id={`sc-desc-${id}`}
-              className={`${FIELD} mt-1 min-h-20`}
-              value={s.instruction}
-              readOnly={readOnly}
-              aria-invalid={issue("instruction") ? true : undefined}
-              onChange={(e) => patch({ instruction: e.target.value })}
-            />
-            {issue("instruction") && (
-              <p className="mt-1 text-meta text-danger">
-                {issue("instruction")}
-              </p>
-            )}
-          </div>
+          {local && onTranslate && !readOnly && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-card border border-series-3/40 bg-series-3/10 px-3 py-2">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-full bg-series-3 px-3 py-1 text-meta font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                disabled={
+                  translating || translateBlocked != null || translatable === 0
+                }
+                onClick={onTranslate}
+              >
+                <Languages aria-hidden className="h-3.5 w-3.5" />
+                {translating
+                  ? "Pip is translating…"
+                  : `Translate with Pip (English ⇄ ${toLocal})`}
+              </button>
+              <span className="text-[12px] text-ink-muted">
+                {translateBlocked ??
+                  (translatable === 0
+                    ? `Nothing to translate: every line already has English and ${toLocal}.`
+                    : `${translatable} empty ${translatable === 1 ? "box" : "boxes"} across all scenarios will be filled; what you wrote stays.`)}
+              </span>
+              {translateNote && (
+                <span
+                  role="alert"
+                  className="flex w-full items-center gap-2 text-[12px] text-danger"
+                >
+                  {translateNote}
+                  {onDismissTranslate && (
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={onDismissTranslate}
+                    >
+                      Dismiss
+                    </button>
+                  )}
+                </span>
+              )}
+            </div>
+          )}
 
           <div className={pair}>
-            {scriptBox(english)}
-            {local ? scriptBox(local) : null}
+            <div className={`${SECTION} border-l-series-2 bg-series-2/5`}>
+              {scriptBox(english)}
+            </div>
+            {local ? (
+              <div className={`${SECTION} border-l-series-6 bg-series-6/5`}>
+                {scriptBox(local)}
+              </div>
+            ) : null}
           </div>
 
-          <fieldset className="min-w-0">
-            <legend className={label()}>Caller and agent responses</legend>
+          <fieldset
+            className={`min-w-0 ${SECTION} border-l-series-5 bg-series-5/5`}
+          >
+            <legend className={`${label()} rounded bg-surface px-1`}>
+              Caller and agent responses
+            </legend>
             <p className="text-meta text-ink-muted">
               What the caller may say here and what the agent answers, in
               English{local ? ` and ${toLocal}` : ""}.
@@ -1006,7 +1072,10 @@ function ScenarioEditor({
                   ? (row.translations?.[local] ?? { question: "", answer: "" })
                   : null;
                 return (
-                  <li key={i} className="rounded-card border border-line p-3">
+                  <li
+                    key={i}
+                    className="rounded-card border border-line bg-surface p-3"
+                  >
                     <div className="mb-2 flex items-center justify-between">
                       <span className="text-meta font-medium text-ink">
                         Response {i + 1}
@@ -1104,8 +1173,12 @@ function ScenarioEditor({
         </div>
 
         {/* Right: where the call goes next. */}
-        <fieldset className="min-w-0 self-start rounded-card border border-line bg-surface-muted p-3">
-          <legend className={`${label()} px-1`}>Next scenarios</legend>
+        <fieldset
+          className={`min-w-0 self-start ${SECTION} border-l-series-4 bg-series-4/5`}
+        >
+          <legend className={`${label()} rounded bg-surface px-1`}>
+            Next scenarios
+          </legend>
           <p className="text-meta text-ink-muted">
             Where the call can go from here. Up to {limits.maxBranches}.
           </p>

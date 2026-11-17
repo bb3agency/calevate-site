@@ -19536,6 +19536,8 @@ export interface components {
             disclosure: string | null;
             /** Fixes */
             fixes: string | null;
+            /** Focus Part */
+            focus_part?: string | null;
             /**
              * Id
              * Format: uuid

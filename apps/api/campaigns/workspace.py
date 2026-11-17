@@ -69,6 +69,8 @@ class CampaignProposal:
     #: A fix the healer asked for (D-1005): the mistake on real calls it fixes, in the
     #: owner's words. None for a draft the owner asked for.
     fixes: str | None = None
+    #: The one part asked for (`focus.part`: "flow", "translate", a part's name), or None.
+    focus_part: str | None = None
 
 
 def _why(raw: Any) -> dict[str, str]:
@@ -119,6 +121,9 @@ def _proposal(raw: Any, *, now: datetime) -> CampaignProposal | None:
         reason=reason,
         why=_why(raw.get("why")),
         fixes=raw.get("fix_label"),
+        focus_part=str(raw["focus"].get("part"))
+        if isinstance(raw.get("focus"), dict) and raw["focus"].get("part")
+        else None,
     )
 
 

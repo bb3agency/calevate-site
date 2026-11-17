@@ -301,7 +301,10 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
   const [editing, setEditing] = useState(false);
   const [asking, setAsking] = useState<Asking>({ tone: "", note: "" });
-  const proposal = space.proposal;
+  // A translation run (Call flow's Translate with Pip) is shown at its button, not as a
+  // draft to review here: it saves into the script itself.
+  const translateRun = space.proposal?.focus_part === TRANSLATE_PART ? space.proposal : null;
+  const proposal = translateRun ? null : space.proposal;
   const script = space.script;
   const hasTask = space.main_task.trim() !== "";
   // Pip rewrites one part in a chosen language; the draft then comes back for review here.
@@ -469,7 +472,9 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                 beforePipAt={space.script_before_pip_at ?? null}
                 restore={restoreFeedback}
                 onRestore={() => restore.mutateAsync()}
-                translating={ask.isPending || space.proposal?.status === "drafting"}
+                translating={ask.isPending || translateRun?.status === "drafting"}
+                translateNote={translateRun?.status === "failed" ? (translateRun.note ?? "Pip could not translate this time.") : null}
+                onDismissTranslate={translateRun ? () => stopFeedback.run(translateRun.id) : undefined}
                 onTranslate={main ? () => askFeedback.run({ part: TRANSLATE_PART, language: main }) : undefined}
                 onMapScenarios={
                   main ? () => askFeedback.run({ part: FLOW_PART, language: main }) : undefined

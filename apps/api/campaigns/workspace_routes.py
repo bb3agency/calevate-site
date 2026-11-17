@@ -94,6 +94,8 @@ class CampaignProposalOut(_Out):
     #: A fix of a mistake on real calls the healer asked Pip for (D-1005), in the owner's
     #: words; null for a draft the owner asked for.
     fixes: str | None
+    #: The one part asked for ("flow", "translate", a part's name); null for the whole script.
+    focus_part: str | None = None
 
 
 class WorkspaceOut(_Out):
@@ -125,6 +127,7 @@ def _proposal(p: workspace.CampaignProposal | None) -> CampaignProposalOut | Non
         reason=p.reason,
         why=p.why,
         fixes=p.fixes,
+        focus_part=p.focus_part,
         left_out=[
             CampaignLeftOutOut(
                 part=part.part,
