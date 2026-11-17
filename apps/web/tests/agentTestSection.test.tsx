@@ -271,29 +271,47 @@ describe("the practice tests in Training", () => {
     expect(screen.getByText("Team confirm chestundi andi.")).toBeTruthy();
   });
 
-  it("leads a test again with what changed on the same tests, and offers Undo for a regression", async () => {
+  it("leads a test again with what changed on the same tests, and offers the fix for a regression", async () => {
     const compared = run({
       retest_of: "run-1",
       results: [
         { ...PRICE, verdict: "passed", owner: null, standing: "works", reliability: "passed", passes: 3, change: "fixed" },
         { ...HOURS, verdict: "failed", owner: "script", fix: "script_step", standing: "broken", reliability: "failed", passes: 0, change: "broken" },
       ],
-      comparison: { with_run: "run-1", with_version: 11, fixed: 1, broken: 1, still: 0, same: 0, new: 0, same_script: false },
+      comparison: { with_run: "run-1", with_version: 11, fixed: 1, broken: 1, still: 0, same: 0, new: 0, same_script: true },
     });
-    const { calls } = await page(tests(compared), {
-      "POST /v1/agents/agent-1/script/versions/11/restore": { script: { schema_version: 2, stages: [] }, saved_at: "2026-10-19T10:10:00Z" },
-    });
+    await page(tests(compared));
     expect(await screen.findByRole("heading", { name: "1 fixed, 1 broke" })).toBeTruthy();
     expect(screen.getByText("Now 1 of 2 OK")).toBeTruthy();
-    expect(screen.getByText("Your last change broke 1 test.")).toBeTruthy();
-    // The broken test says so in its one status.
+    // The broken test says so in its one status; script fixes go to a line's draft (D-1017).
     expect(card("When do you open?").textContent).toContain("Broke");
-    // Undo leads while a change broke a test; the fixes stay offered beside it.
-    expect(screen.getByRole("button", { name: "Undo last change" }).className).toContain("bg-brand-strong");
-    expect(screen.getByRole("button", { name: "Fix 1 with Pip" }).className).not.toContain("bg-brand-strong");
-    fireEvent.click(screen.getByRole("button", { name: "Undo last change" }));
-    expect(await screen.findByText("Earlier script is in your draft")).toBeTruthy();
-    expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/versions/11/restore"))).toBe(true);
+    expect(screen.getByRole("button", { name: "Fix 1 with Pip" }).className).toContain("bg-brand-strong");
+  });
+
+  it("asks where script fixes go when the agent has several lines, and tells Pip the one picked", async () => {
+    const asked: AssistantRequest[] = [];
+    function Listener() {
+      useAssistantRequests((request) => asked.push(request));
+      return null;
+    }
+    render(<Listener />);
+    const failing = run({
+      results: [{ ...HOURS, verdict: "failed", owner: "script", fix: "script_step", standing: "broken", reliability: "failed", passes: 0 }],
+    });
+    await page(
+      tests(failing, {
+        fix_holders: [
+          { kind: "inbound_line", id: "line-1", name: "Main line" },
+          { kind: "campaign", id: "camp-1", name: "Reminders" },
+        ],
+      }),
+    );
+    const picker = await screen.findByRole("combobox", { name: "Script fixes go to" });
+    fireEvent.change(picker, { target: { value: "camp-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Fix 1 with Pip" }));
+    expect(asked.map((a) => a.prompt)).toEqual([
+      "Suggest fixes for the tests this agent failed, as a draft on the campaign “Reminders”.",
+    ]);
   });
 
   it("asks the same tests again, and adds new tests only as a new set", async () => {
@@ -692,17 +710,13 @@ describe("test copy", () => {
 
   it("picks one next step, most urgent first", () => {
     const base = {
-      canWrite: true,
-      broke: false,
-      restored: false,
       hasProposal: false,
       isCurrent: true,
       fixable: 0,
       settings: 0,
       failing: 0,
     };
-    expect(nextStepOf({ ...base, broke: true, fixable: 2 })).toBe("undo");
-    expect(nextStepOf({ ...base, broke: true, canWrite: false, hasProposal: true })).toBe("review");
+    expect(nextStepOf({ ...base, hasProposal: true, fixable: 2 })).toBe("review");
     expect(nextStepOf({ ...base, isCurrent: false, fixable: 2 })).toBe("retest");
     expect(nextStepOf({ ...base, fixable: 2, settings: 1, failing: 3 })).toBe("fix");
     expect(nextStepOf({ ...base, settings: 1, failing: 1 })).toBe("setting");

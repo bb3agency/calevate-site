@@ -490,7 +490,7 @@ class ProposedFactOut(BaseModel):
     why: str
 
 
-class FixHolderOut(BaseModel):
+class TestFixHolderOut(BaseModel):
     """One of the agent's Inbound lines or open campaigns with a script: where a practice
     test's script fixes can be drafted (D-1017)."""
 
@@ -512,7 +512,7 @@ class ImprovementOut(BaseModel):
     #: was written · `no_holder`: the agent has no line or campaign with a script ·
     #: `choose`: it has several and none was picked · `none`: no script fix to write.
     script_fixes: test_fixes.ScriptFixes = "none"
-    holder: FixHolderOut | None = None
+    holder: TestFixHolderOut | None = None
     #: The holder draft's id, when `drafted`.
     draft_id: UUID | None = None
     edits: list[ScriptEditOut]
@@ -688,7 +688,7 @@ class TestConversationsOut(BaseModel):
     #: so the owner can add them first (D-849).
     missing_facts: list[test_conversations.MissingFact] = Field(default_factory=list)
     #: Where script fixes can be drafted: the owner picks one when there are several.
-    fix_holders: list[FixHolderOut] = Field(default_factory=list)
+    fix_holders: list[TestFixHolderOut] = Field(default_factory=list)
     #: Tries per test and the most test-chat replies one run may use.
     trials: int = trial_results.TRIALS
     max_replies: int = test_conversations.MAX_REPLIES_PER_RUN
@@ -846,10 +846,10 @@ def _on_offer(raw: dict[str, Any] | None) -> tuple[list[dict[str, Any]], int] | 
     return fix_guard.offered_edits(raw)
 
 
-def _holder_out(raw: Any) -> FixHolderOut | None:
+def _holder_out(raw: Any) -> TestFixHolderOut | None:
     if not isinstance(raw, dict) or raw.get("kind") not in ("inbound_line", "campaign"):
         return None
-    return FixHolderOut(kind=raw["kind"], id=UUID(str(raw["id"])), name=str(raw.get("name") or ""))
+    return TestFixHolderOut(kind=raw["kind"], id=UUID(str(raw["id"])), name=str(raw.get("name") or ""))
 
 
 def _improvement_out(raw: dict[str, Any] | None) -> ImprovementOut | None:
@@ -1018,7 +1018,7 @@ async def _tests_out(
         ),
         missing_facts=await test_conversations.missing_facts(session),
         fix_holders=[
-            FixHolderOut(kind=h.kind, id=h.id, name=h.name)
+            TestFixHolderOut(kind=h.kind, id=h.id, name=h.name)
             for h in await test_fixes.fix_holders(session, agent_id)
         ],
     )

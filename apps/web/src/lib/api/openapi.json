@@ -3692,7 +3692,7 @@
           "fix_holder": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/apps__api__agents__call_mistake_routes__FixHolderOut"
+                "$ref": "#/components/schemas/FixHolderOut"
               },
               {
                 "type": "null"
@@ -28431,6 +28431,36 @@
         "title": "FirstRunOut",
         "type": "object"
       },
+      "FixHolderOut": {
+        "additionalProperties": false,
+        "description": "Where a fix's draft waits: an Inbound line or a campaign, by id and name.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "inbound_line",
+              "campaign"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name"
+        ],
+        "title": "FixHolderOut",
+        "type": "object"
+      },
       "FlagStateOut": {
         "additionalProperties": false,
         "properties": {
@@ -32552,7 +32582,7 @@
           "holder": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/apps__api__agents__script_routes__FixHolderOut"
+                "$ref": "#/components/schemas/TestFixHolderOut"
               },
               {
                 "type": "null"
@@ -59541,7 +59571,7 @@
           },
           "fix_holders": {
             "items": {
-              "$ref": "#/components/schemas/apps__api__agents__script_routes__FixHolderOut"
+              "$ref": "#/components/schemas/TestFixHolderOut"
             },
             "title": "Fix Holders",
             "type": "array"
@@ -59622,6 +59652,36 @@
           "history"
         ],
         "title": "TestConversationsOut",
+        "type": "object"
+      },
+      "TestFixHolderOut": {
+        "additionalProperties": false,
+        "description": "One of the agent's Inbound lines or open campaigns with a script: where a practice\ntest's script fixes can be drafted (D-1017).",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "inbound_line",
+              "campaign"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name"
+        ],
+        "title": "TestFixHolderOut",
         "type": "object"
       },
       "TestHistoryOut": {
@@ -68108,36 +68168,6 @@
         "title": "PublishOut",
         "type": "object"
       },
-      "apps__api__agents__call_mistake_routes__FixHolderOut": {
-        "additionalProperties": false,
-        "description": "Where a fix's draft waits: an Inbound line or a campaign, by id and name.",
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "kind": {
-            "enum": [
-              "inbound_line",
-              "campaign"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "id",
-          "name"
-        ],
-        "title": "FixHolderOut",
-        "type": "object"
-      },
       "apps__api__agents__routes__PublishOut": {
         "additionalProperties": false,
         "properties": {
@@ -68161,36 +68191,6 @@
           "status"
         ],
         "title": "PublishOut",
-        "type": "object"
-      },
-      "apps__api__agents__script_routes__FixHolderOut": {
-        "additionalProperties": false,
-        "description": "One of the agent's Inbound lines or open campaigns with a script: where a practice\ntest's script fixes can be drafted (D-1017).",
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "kind": {
-            "enum": [
-              "inbound_line",
-              "campaign"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "id",
-          "name"
-        ],
-        "title": "FixHolderOut",
         "type": "object"
       },
       "apps__api__agents__script_routes__TestTurnOut": {

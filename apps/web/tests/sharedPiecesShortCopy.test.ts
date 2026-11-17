@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { skippedNote } from "@/app/c/[slug]/agents/[agentId]/script/ImprovementReview";
+import { scriptFixLine } from "@/app/c/[slug]/agents/[agentId]/script/ImprovementReview";
 import { TOUR_STEPS } from "@/app/c/[slug]/agents/[agentId]/tour/tourModel";
 import { splitHint } from "@/app/c/[slug]/settings/business/SetupWizard";
 import { openingWaitsLine } from "@/components/callHandlingRows";
@@ -79,8 +79,9 @@ const KEPT_VERBATIM = new Set([
   "This number is my own. Test calls to it can ring at any hour.",
 ]);
 
-const improvement = (labels: string[]): Improvement => ({
-  base: "draft",
+const improvement = (labels: string[], script_fixes: Improvement["script_fixes"] = "drafted"): Improvement => ({
+  script_fixes,
+  holder: { kind: "inbound_line", id: "line-1", name: "After hours" },
   edits: labels.map((label, i) => ({ id: `e${i}`, op: "set_step", label, before: "", after: "", because: null, why: "" })),
   facts: [],
   for_keys: [],
@@ -142,8 +143,10 @@ describe("the shared copy tables say each state in one short line", () => {
     const states = ["queued", "running", "failed", "skipped", null] as const;
     const lines = [
       ...states.flatMap((draft) => [originLine({ starting: true, draft }), originLine({ starting: false, draft })]),
-      skippedNote(["e0", "e1", "e2"], improvement(["A", "B", "C"]))!.line,
-      skippedNote(["e0"], improvement(["A"]))!.line,
+      scriptFixLine(improvement(["A", "B", "C"]))!,
+      scriptFixLine(improvement(["A"], "draft_open"))!,
+      scriptFixLine(improvement([], "no_holder"))!,
+      scriptFixLine(improvement([], "choose"))!,
       openingWaitsLine(10_000),
       modeSummary("conditional", 30),
       ...TOUR_STEPS.flatMap((step) => [step.title, step.body]),

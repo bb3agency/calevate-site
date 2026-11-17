@@ -19,7 +19,7 @@ async function chooseSomethingElse() {
 
 /**
  * The teach box and the improvement loop (founder decisions 9 and 11). Each test names the
- * failure it guards: an owner's words saved without review, a rule saved with no agent, a
+ * failure it guards: an owner's words saved without review, a
  * voice note sorted before its words are checked, and
  * a test from a call that copies more than the caller's redacted lines.
  */
@@ -74,26 +74,18 @@ async function renderKnowledge(over: Routes = {}) {
 }
 
 describe("the teach box", () => {
-  it("shows what Pip sorted for review, lets a fact become a rule, and asks which agent", async () => {
+  it("shows what Pip found as facts for review and saves them, with no agent to choose", async () => {
     const { calls } = await renderKnowledge({
       "/v1/kb/teach/open": { teaching: teaching() },
-      "POST /v1/kb/teach/teach-1/save": { facts_added: 1, rules_added: 1, agent_id: "agent-2" },
+      "POST /v1/kb/teach/teach-1/save": { facts_added: 2 },
     });
 
     const list = await screen.findByRole("list", { name: "Check what we found" });
     const rows = within(list).getAllByRole("listitem");
     expect(rows).toHaveLength(2);
-    fireEvent.click(within(rows[1]!).getByRole("button", { name: "It's a rule" }));
-
-    // A rule belongs to one agent: with two, nothing is saved until one is chosen.
-    const save = screen.getByRole("button", { name: "Save 1 fact and 1 rule" }) as HTMLButtonElement;
-    expect(save.getAttribute("aria-disabled")).toBe("true");
-    expect(screen.getByText("Choose which agent takes the rules.")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Which agent are the rules for?"), {
-      target: { value: "agent-2" },
-    });
-    expect(save.getAttribute("aria-disabled")).toBeNull();
-    fireEvent.click(save);
+    // Nothing taught goes into an agent's script (D-1017): no rule, no agent to pick.
+    expect(within(rows[1]!).queryByRole("button", { name: "It's a rule" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save 2 facts" }));
 
     await waitFor(() =>
       expect(calls.some((c) => c.method === "POST" && c.path === "/v1/kb/teach/teach-1/save")).toBe(true),
@@ -102,23 +94,21 @@ describe("the teach box", () => {
     expect(JSON.parse(posted?.body ?? "{}")).toEqual({
       items: [
         { kind: "fact", text: "Chilli powder is 120 rupees.", pinned: false },
-        { kind: "rule", text: "Never promise same-day delivery.", pinned: false },
+        { kind: "fact", text: "Never promise same-day delivery.", pinned: false },
       ],
-      agent_id: "agent-2",
     });
   });
 
   it("does not save what the owner unticked", async () => {
     const { calls } = await renderKnowledge({
       "/v1/kb/teach/open": { teaching: teaching() },
-      "POST /v1/kb/teach/teach-1/save": { facts_added: 1, rules_added: 0, agent_id: null },
+      "POST /v1/kb/teach/teach-1/save": { facts_added: 1 },
     });
     fireEvent.click(await screen.findByLabelText("Keep: Never promise same-day delivery."));
     fireEvent.click(screen.getByRole("button", { name: "Save 1 fact" }));
     await waitFor(() => expect(calls.some((c) => c.path === "/v1/kb/teach/teach-1/save")).toBe(true));
     const body = JSON.parse(calls.find((c) => c.path === "/v1/kb/teach/teach-1/save")?.body ?? "{}");
     expect(body.items).toEqual([{ kind: "fact", text: "Chilli powder is 120 rupees.", pinned: false }]);
-    expect(body.agent_id).toBeNull();
   });
 
   it("asks Pip to teach the words in the box, and to read a photo or file attached to it", async () => {

@@ -17,6 +17,7 @@
  */
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { CircleAlert, CircleCheck, CircleMinus, CircleX, Info, type LucideIcon } from "lucide-react";
 
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
@@ -276,20 +277,17 @@ export interface NextStepProps {
   improving: boolean;
   hasProposal: boolean;
   showingReview: boolean;
-  restoring: boolean;
-  /** Undo's state, for its button; `restoring` is its pending half. */
-  restoreStatus?: FeedbackStatus;
   /** The "Test again" request's state, for its button. */
   runStatus?: FeedbackStatus;
-  restored: boolean;
   links: ResultLinks;
+  /** Where Pip drafts script fixes, when the agent has several lines or campaigns (D-1017). */
+  holderPicker?: ReactNode;
   /** The server's words when "Test again" was refused because nothing changed. */
   unchanged: { said: string; next: string | null } | null;
   onTestAgain: () => void;
   onNewSet: (practice: boolean) => void;
   onFix: () => void;
   onReopen: () => void;
-  onUndo: (version: number) => void;
 }
 
 /**
@@ -299,16 +297,12 @@ export interface NextStepProps {
  * one short line when earlier fixes still wait (they are still the thing to do).
  */
 export function Verdict(props: NextStepProps) {
-  const { run, data, canRun, fixable, improving, restoring, unchanged } = props;
+  const { run, data, canRun, fixable, improving, unchanged } = props;
   const headline = headlineOf(run);
   const Mark = HEADLINE_MARK[headline.tone];
   const counts = countsOf(run.results);
   const settings = fixGroups(run.results).find((g) => g.group === "setting")?.rows ?? [];
-  const broke = run.comparison && run.comparison.broken > 0 ? run.comparison.with_version : null;
   const step = nextStepOf({
-    canWrite: props.canWrite,
-    broke: broke !== null,
-    restored: props.restored,
     hasProposal: props.hasProposal,
     isCurrent: run.is_current,
     fixable,
@@ -343,23 +337,12 @@ export function Verdict(props: NextStepProps) {
         <>
           {line && <p className="text-body font-medium text-ink">{line}</p>}
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            {step === "undo" && broke !== null && (
-              <ActionButton
-                variant="primary"
-                className="w-full sm:w-auto"
-                status={props.restoreStatus ?? (restoring ? "pending" : "idle")}
-                pendingLabel="Undoing…"
-                successLabel="Undone"
-                onClick={() => props.onUndo(broke)}
-              >
-                Undo last change
-              </ActionButton>
-            )}
             {step === "review" && !props.showingReview && (
               <button type="button" className={PRIMARY_WIDE} onClick={props.onReopen}>
                 See the fixes
               </button>
             )}
+            {fixLeads && props.canWrite && props.holderPicker}
             {fixLeads && props.canWrite && (
               <button type="button" className={PRIMARY_WIDE} onClick={props.onFix}>
                 <PipMark size={18} className="shrink-0" />
@@ -385,14 +368,6 @@ export function Verdict(props: NextStepProps) {
               </ActionButton>
             )}
             <div className="flex flex-wrap gap-2">
-              {/* A newly broken test makes Undo lead; the fixes for tests that were already
-                  failing stay one tap away beside it rather than disappearing behind it. */}
-              {fixable > 0 && props.canWrite && step === "undo" && (
-                <button type="button" className={SECONDARY_WIDE} onClick={props.onFix}>
-                  <PipMark size={16} className="shrink-0" />
-                  Fix {fixable} with {ASSISTANT_NAME}
-                </button>
-              )}
               {!retestLeads && (
                 <ActionButton
                   variant="secondary-sm"
@@ -428,19 +403,6 @@ export function Verdict(props: NextStepProps) {
           </NoticeBox>
         </div>
       )}
-      {props.restored && (
-        <NoticeBox
-          tone="ok"
-          title="Earlier script is in your draft"
-          action={
-            <Link href={props.links.script} className="text-meta font-medium text-ink underline underline-offset-2">
-              Open the script
-            </Link>
-          }
-        >
-          <p className="text-meta text-ink-muted">Put it live, then test again.</p>
-        </NoticeBox>
-      )}
       {stopNote && !props.hasProposal && (
         <div data-server-text>
           <NoticeBox
@@ -474,8 +436,6 @@ function WorkingOnFixes({ count }: { count: number }) {
 /** At most one short line above the buttons, only where the button alone would not say why. */
 function stepLine(step: NextStep, run: TestRun, showingReview: boolean, earlierFixes: boolean): string | null {
   switch (step) {
-    case "undo":
-      return `Your last change broke ${plural(run.comparison?.broken ?? 1, "test", "tests")}.`;
     case "review":
       if (earlierFixes) return "These fixes are from before.";
       return showingReview ? `${ASSISTANT_NAME}'s fixes are below.` : null;

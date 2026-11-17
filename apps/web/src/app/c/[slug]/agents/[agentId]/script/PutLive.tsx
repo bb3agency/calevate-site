@@ -1,66 +1,46 @@
 "use client";
 
 /**
- * "PUT IT LIVE" — the one step between the agent's draft and callers, on the agent page's
- * header.
+ * "PUT IT LIVE" — on the agent page's header, only while a version of the agent's script is
+ * waiting to go live: one the admin console staged for a live agent (`write_prompt_version`'s
+ * slow lane). It applies that version (`POST .../script/apply`) with the version the owner was
+ * looking at, so a change made somewhere else in between is refused rather than overwritten.
  *
- * One request (`POST .../script/publish`) makes the draft a history entry with the
- * owner's note and applies it. A change saved the older way and still waiting is applied
- * instead (`POST .../script/apply`). Both carry the version the owner was looking at, so a
- * change made somewhere else in between is refused rather than overwritten. An agent has no
- * script of its own to fix line by line (D-997), so there is no "Fix them first" here: a
- * job's lines are checked and fixed on its Inbound line or campaign (D-1005).
+ * Owners do not edit an agent's script (D-1005, D-1017): what a call says is the script of
+ * its Inbound line or campaign, put live on that page. An autosaved draft from before that is
+ * never put live from here.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { ModalDialog } from "@/components/modalDialog";
-import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
+import { ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
-import { useApplyScript, usePublishScript, type CallScript, type ScriptOut } from "@/lib/api/script";
-
-import { changeSummary } from "./scriptDiff";
-import { sameScript } from "./scriptDraft";
+import { useApplyScript, type ScriptOut } from "@/lib/api/script";
 
 export type PutLiveResult = { live: boolean };
 
 export function usePutLive(session: Session, agentId: string) {
-  const publish = usePublishScript(session, agentId);
   const apply = useApplyScript(session, agentId);
   // The dialog shows a refusal beside its own button, and the screen says where it went live.
-  const publishFeedback = useActionFeedback(publish, { errorDisplay: "inline" });
-  const applyFeedback = useActionFeedback(apply, { errorDisplay: "inline" });
-  const run = (out: ScriptOut, local: CallScript, summary: string, onDone: (r: PutLiveResult) => void) => {
-    const onlyWaiting = out.version !== null && out.has_pending && sameScript(local, out.script);
-    if (onlyWaiting) {
-      apply.mutate(
-        { expected_version: out.version },
-        { onSuccess: (r) => onDone({ live: r.applied && r.engine_synced }) },
-      );
-      return;
-    }
-    publish.mutate(
-      { summary: summary.trim().slice(0, 200) || "Put the script live", script: local, expected_version: out.version },
-      { onSuccess: (r) => onDone({ live: r.live }) },
+  const feedback = useActionFeedback(apply, { errorDisplay: "inline" });
+  const run = (out: ScriptOut, onDone: (r: PutLiveResult) => void) => {
+    apply.mutate(
+      { expected_version: out.version },
+      { onSuccess: (r) => onDone({ live: r.applied && r.engine_synced }) },
     );
   };
   return {
     run,
-    pending: publish.isPending || apply.isPending,
-    /** Whichever of the two ran last (a cancel resets both). */
-    status: (applyFeedback.status !== "idle" ? applyFeedback.status : publishFeedback.status) as FeedbackStatus,
-    error: publish.error ?? apply.error,
-    reset: () => {
-      publish.reset();
-      apply.reset();
-    },
+    pending: apply.isPending,
+    status: feedback.status as FeedbackStatus,
+    error: apply.error,
+    reset: () => apply.reset(),
   };
 }
 
 export function PutLiveDialog({
-  live,
-  draft,
   agentOn,
   voiceLine,
   pending,
@@ -70,9 +50,6 @@ export function PutLiveDialog({
   onConfirm,
   promo,
 }: {
-  /** What callers hear now (the saved script). */
-  live: CallScript;
-  draft: CallScript;
   /** Whether the agent is switched on, so the consequence is said truly. */
   agentOn: boolean;
   /** The voice tier callers hear it in ("Clear voice · ₹2.50 / min"), when known. */
@@ -82,22 +59,14 @@ export function PutLiveDialog({
   status?: FeedbackStatus;
   error: unknown;
   onCancel: () => void;
-  onConfirm: (summary: string) => void;
-  /** The promo check's warning (D-943), shown above the note; never blocks the button. */
+  onConfirm: () => void;
+  /** The promo check's warning (D-943), shown above the buttons; never blocks them. */
   promo?: ReactNode;
 }) {
-  const [summary, setSummary] = useState(() => changeSummary(live, draft));
-  // The note follows the draft (a fix or its Undo changes it) until the owner types their
-  // own (A-26).
-  const typed = useRef(false);
-  const suggested = changeSummary(live, draft);
-  useEffect(() => {
-    if (!typed.current) setSummary(suggested);
-  }, [suggested]);
   const shown: FeedbackStatus = status ?? (pending ? "pending" : "idle");
   return (
     <ModalDialog
-      title="Put these changes live?"
+      title="Put the waiting changes live?"
       onClose={onCancel}
       initialFocus="first-tabbable"
       description={
@@ -112,13 +81,7 @@ export function PutLiveDialog({
           <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={pending}>
             Not yet
           </button>
-          <ActionButton
-            status={shown}
-            pendingLabel="Putting it live…"
-            successLabel="Live"
-            disabled={summary.trim() === ""}
-            onClick={() => onConfirm(summary)}
-          >
+          <ActionButton status={shown} pendingLabel="Putting it live…" successLabel="Live" onClick={onConfirm}>
             Put it live
           </ActionButton>
         </>
@@ -126,22 +89,6 @@ export function PutLiveDialog({
     >
       {voiceLine && <p className="mt-2 text-meta text-ink-muted">Voice: {voiceLine}</p>}
       {promo && <div className="mt-3">{promo}</div>}
-      <div className="mt-4">
-        <label className={FIELD_LABEL} htmlFor="put-live-summary">
-          What changed
-        </label>
-        <span className={FIELD_HINT}>A short note for History, so you can find this later.</span>
-        <input
-          id="put-live-summary"
-          className={FIELD}
-          value={summary}
-          maxLength={200}
-          onChange={(e) => {
-            typed.current = true;
-            setSummary(e.target.value);
-          }}
-        />
-      </div>
       {error != null && (
         <div className="mt-3">
           <ProblemNotice error={error} />

@@ -5,8 +5,8 @@
  *
  * The teach box: Pip is asked to teach (D-821) and a worker sorts what it sends; the screen
  * polls the open teaching until it is `ready` for review. A voice note is heard here and its
- * words go back into the teach box. Saving puts facts into the business's knowledge at once
- * and rules into the chosen agent's script as waiting rules.
+ * words go back into the teach box. Saving puts facts into the business's knowledge at once;
+ * nothing taught goes into an agent's script (D-1017).
  */
 
 import {
@@ -123,18 +123,10 @@ export function useOpenTeaching(session: Session): UseQueryResult<Teaching | nul
 export function useSaveTeaching(session: Session) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      id,
-      items,
-      agentId,
-    }: {
-      id: string;
-      items: TeachItem[];
-      agentId: string | null;
-    }) =>
+    mutationFn: ({ id, items }: { id: string; items: TeachItem[] }) =>
       apiRequest<Schemas["SavedOut"]>(session, `/v1/kb/teach/${id}/save`, {
         method: "POST",
-        body: { items, agent_id: agentId },
+        body: { items },
       }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: knowsKey(session.orgSlug) });

@@ -1,43 +1,42 @@
 import { describe, expect, it } from "vitest";
 
-import { keptEdits, skippedNote } from "@/app/c/[slug]/agents/[agentId]/script/ImprovementReview";
+import { holderPath, scriptFixLine } from "@/app/c/[slug]/agents/[agentId]/script/ImprovementReview";
 import type { Improvement } from "@/lib/api/script";
 
 /**
- * "Improve my agent" (D-724, small edits since D-823). Each suggestion is one edit with its own
- * tick box; the kept ones go to the server in the order they were suggested, and an edit that
- * no longer fits the owner's copy is named rather than silently lost.
+ * "Improve my agent" since D-1017: script fixes are a Pip draft on the agent's Inbound line or
+ * campaign, and the Training tab says where (or why there is none) in one line.
  */
 
-function improvement(): Improvement {
+function improvement(patch: Partial<Improvement> = {}): Improvement {
   return {
-    base: "draft",
+    script_fixes: "drafted",
+    holder: { kind: "campaign", id: "camp-1", name: "Reminders" },
     edits: [
       { id: "e1", op: "set_step", label: "Step “Price”", before: "Do Price", after: "Give the pinned price.", because: "k1", why: "Use the pinned price." },
-      { id: "e2", op: "set_objection", label: "When a caller says “Not interested”", before: "", after: "సరే అండి, thanks.", because: "k2", why: "Let them go politely." },
-      { id: "e3", op: "set_part", label: "How it ends the call", before: "", after: "Thank them.", because: null, why: "x" },
+      { id: "e2", op: "set_objection", label: "When a caller says “Not interested”", before: "", after: "Thank them.", because: "k2", why: "Let them go politely." },
     ],
     facts: [],
     for_keys: ["k1", "k2"],
     disclosure: null,
-    created_at: "2026-10-18T00:00:00Z",
+    created_at: "2026-11-17T00:00:00Z",
+    ...patch,
   };
 }
 
-describe("improvement review", () => {
-  it("sends only the ticked edits, in the order suggested", () => {
-    expect(keptEdits(improvement(), new Set(["e3", "e1"]))).toEqual(["e1", "e3"]);
-    expect(keptEdits(improvement(), new Set())).toEqual([]);
+describe("where a practice test's script fixes went", () => {
+  it("names the line or campaign holding the draft, and links to its page", () => {
+    expect(scriptFixLine(improvement())).toBe("2 fixes drafted on “Reminders”.");
+    expect(holderPath("acme", { kind: "campaign", id: "camp-1" })).toBe("/c/acme/campaigns/camp-1");
+    expect(holderPath("acme", { kind: "inbound_line", id: "line-1" })).toBe("/c/acme/inbound/line-1");
   });
 
-  it("names an edit that no longer fits instead of dropping it silently", () => {
-    expect(skippedNote([], improvement())).toBeNull();
-    expect(skippedNote(["e1"], improvement())).toEqual({
-      line: "One change no longer fits, so it was left out.",
-      why: "Step “Price”. The part it changed was removed or edited since.",
-    });
-    const two = skippedNote(["e1", "e2"], improvement());
-    expect(two?.line).toBe("2 changes no longer fit, so they were left out.");
-    expect(two?.why).toMatch(/^Step “Price”; .* The parts they changed were removed/);
+  it("says why there is no draft", () => {
+    expect(scriptFixLine(improvement({ script_fixes: "draft_open", edits: [] }))).toBe(
+      "A Pip draft already waits on “Reminders”.",
+    );
+    expect(scriptFixLine(improvement({ script_fixes: "no_holder", holder: null, edits: [] }))).toMatch(/no line or campaign/);
+    expect(scriptFixLine(improvement({ script_fixes: "choose", holder: null, edits: [] }))).toMatch(/^Choose where/);
+    expect(scriptFixLine(improvement({ script_fixes: "none", edits: [] }))).toBeNull();
   });
 });

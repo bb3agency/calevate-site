@@ -164,15 +164,6 @@ export interface CallScript {
   adherence?: "flexible" | "strict";
 }
 
-/**
- * A response model from the schema with its script fields read as `CallScript`. The
- * generated `CallScript` is the request-side shape (every defaulted field optional), while a
- * script the server sends back always carries them; the envelope stays the schema's.
- */
-type WithCallScripts<T, K extends keyof T> = Omit<T, K> & {
-  [P in K]: null extends T[P] ? CallScript | null : CallScript;
-};
-
 /** The empty structured script a brand-new agent opens on. */
 export const EMPTY_SCRIPT: CallScript = {
   opening_line: "",
@@ -293,32 +284,7 @@ export function useUndoScript(
   });
 }
 
-// --- the autosaved draft, "Put it live", history and the hand-written conversion ------
-
-interface SaveDraftIn {
-  script: CallScript;
-  /** The draft's `saved_at` the editor loaded (null: there was none). Sent, the server
-   *  refuses with `script_changed_elsewhere` (409) if the stored draft moved since. */
-  base_saved_at?: string | null;
-}
-
-export interface DraftSavedOut {
-  saved_at: string;
-}
-
-interface PublishIn {
-  /** What changed, in the owner's words; becomes the history entry's note (1-200). */
-  summary: string;
-  /** The script to put live; left out, the autosaved draft is. */
-  script?: CallScript;
-  expected_version?: number | null;
-}
-
-export interface PublishOut {
-  version: number;
-  /** False while the agent is not switched on, or the push did not complete. */
-  live: boolean;
-}
+// --- what a new script version moves ---------------------------------------------------
 
 /** Every read a new script version moves: the script, the agent, the tests, readiness. */
 export function invalidateScript(client: ReturnType<typeof useQueryClient>, session: Session, agentId: string) {
@@ -334,40 +300,6 @@ export function invalidateScript(client: ReturnType<typeof useQueryClient>, sess
   ]);
 }
 
-/**
- * Autosave the working copy. Does NOT invalidate the script read: a save per pause in
- * typing would otherwise refetch per pause. The builder patches the cached read itself
- * (`withDraft`), so the read and the screen stay one copy.
- */
-export function useSaveDraft(
-  session: Session,
-  agentId: string,
-): UseMutationResult<DraftSavedOut, Error, SaveDraftIn> {
-  return useMutation({
-    mutationFn: (payload: SaveDraftIn) =>
-      apiRequest<DraftSavedOut>(session, `${base(agentId)}/draft`, { method: "PUT", body: payload }),
-  });
-}
-
-/** The cached script read with `draft` replaced, after an autosave or a restore. */
-export function withDraft(out: ScriptOut, draft: { script: CallScript; saved_at: string }): ScriptOut {
-  return { ...out, draft };
-}
-
-/** "Put it live": the draft becomes a history entry and is applied in one request. */
-export function usePublishScript(
-  session: Session,
-  agentId: string,
-): UseMutationResult<PublishOut, Error, PublishIn> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: PublishIn) =>
-      apiRequest<PublishOut>(session, `${base(agentId)}/publish`, { method: "POST", body: payload }),
-    // On a failure too: the version may be saved with only the apply refused, and the next
-    // "Put it live" must see it waiting (`script_routes.publish_script`).
-    onSettled: () => invalidateScript(client, session, agentId),
-  });
-}
 
 export type OpeningLineOut = components["schemas"]["OpeningLineOut"];
 
@@ -430,28 +362,6 @@ export function rewrittenOpening(
   const flat = (s: string) => s.split(/\s+/).filter(Boolean).join(" ");
   if (!before || !line.trim() || flat(record?.line ?? "") !== flat(line)) return null;
   return { before, after: line.trim() };
-}
-
-/** A restored draft, and the draft it replaced (null: none) for the Undo (A-25). */
-export type RestoredDraft = WithCallScripts<components["schemas"]["DraftOut"], "script"> & {
-  replaced?: CallScript | null;
-};
-
-/** Copy an earlier entry into the draft; callers keep the live one. */
-export function useRestoreVersion(
-  session: Session,
-  agentId: string,
-): UseMutationResult<RestoredDraft, Error, number> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (version: number) =>
-      apiRequest<RestoredDraft>(
-        session,
-        `${base(agentId)}/versions/${version}/restore`,
-        { method: "POST" },
-      ),
-    onSuccess: () => invalidateScript(client, session, agentId),
-  });
 }
 
 // --- test conversations that improve the agent (D-724) ----------------------------------
@@ -592,8 +502,18 @@ export interface ProposedFact {
   why: string;
 }
 
+/** One of the agent's Inbound lines or open campaigns with a script (D-1017). */
+export type FixHolder = components["schemas"]["TestFixHolderOut"];
+
+/** How a round's script fixes ended up: a Pip draft on `holder`, or why not. */
+export type ScriptFixes = "drafted" | "draft_open" | "no_holder" | "choose" | "none";
+
 export interface Improvement {
-  base: "draft" | "live";
+  script_fixes?: ScriptFixes;
+  /** Where the script fixes were drafted, reviewed and put live (D-1017). */
+  holder?: FixHolder | null;
+  draft_id?: string | null;
+  /** What the draft changed, for reading here; it is kept or discarded on the holder's page. */
   edits: ScriptEdit[];
   facts: ProposedFact[];
   /** Suggested edits that did not fit the script and were left out. */
@@ -676,6 +596,8 @@ export interface TestConversations {
   /** Tries per test, and the most test-chat replies one run may use. */
   trials?: number;
   max_replies?: number;
+  /** Where script fixes can be drafted: the owner picks one when there are several. */
+  fix_holders?: FixHolder[];
 }
 
 /** What starts a run: "Test again" (`retest_of`), or a new set of tests. */
@@ -752,22 +674,3 @@ export function useSettleImprovement(
   });
 }
 
-export interface AppliedEdits {
-  script: CallScript;
-  /** Kept edits that no longer fit the working copy, left out. */
-  skipped: string[];
-}
-
-/** The working copy with the kept suggested edits made. Nothing is saved. */
-export function useApplySuggestedEdits(
-  session: Session,
-  agentId: string,
-): UseMutationResult<AppliedEdits, Error, { runId: string; script: CallScript; edits: string[] }> {
-  return useMutation({
-    mutationFn: ({ runId, script, edits }) =>
-      apiRequest<AppliedEdits>(session, `${base(agentId)}/tests/${runId}/improvement/apply`, {
-        method: "POST",
-        body: { script, edits },
-      }),
-  });
-}

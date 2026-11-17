@@ -15,8 +15,8 @@
  *   (D-838); a refused move shows its reason, with setup links when it is missing facts.
  * - **Try it** opens the Training tab, where the chat and the practice call are (D-825),
  *   through the tabs' own unsaved-edits guard (D-826) like the ⋯ menu's Delete.
- * - **Put it live** is the one filled button, and only while a draft differs from what
- *   callers hear. It is the same step as the builder's (`script/PutLive.tsx`).
+ * - **Put it live** is the one filled button, and only while a version of the script is
+ *   waiting to go live (one the admin console staged; `script/PutLive.tsx`).
  * - A deleted agent has one move: **Bring it back**.
  * - **Show me around** (`tour`, live agents only) sits under the header line rather than
  *   among the actions, so it never competes with them (D-855).
@@ -52,7 +52,6 @@ import { stagedScript, voiceTierLine } from "../../panels/publishing";
 import { PromoWarning } from "../script/PromoWarning";
 import { PutLiveDialog, usePutLive } from "../script/PutLive";
 import { TRY_IT_ANCHOR } from "../tour/tourModel";
-import { hasUnpublished, workingCopy } from "../script/scriptDraft";
 
 export function AgentHeader({
   agent,
@@ -313,7 +312,7 @@ function OnOffSwitch({
   );
 }
 
-/** Shown only while callers hear something different from the draft. */
+/** Shown only while a staged version waits to go live. */
 function PutLiveButton({
   agent,
   canWrite,
@@ -332,8 +331,7 @@ function PutLiveButton({
   const [done, setDone] = useState<string | null>(null);
   if (!script.data) return null;
   const out = script.data;
-  const local = workingCopy(out).script;
-  if (!hasUnpublished(out, local)) {
+  if (!out.has_pending) {
     return done ? (
       <span role="status" className="text-meta text-ink-muted">
         {done}
@@ -354,8 +352,6 @@ function PutLiveButton({
       </ActionButton>
       {asking && (
         <PutLiveDialog
-          live={out.script}
-          draft={local}
           agentOn={agent.published && agent.status === "live"}
           voiceLine={voiceLine}
           promo={<PromoWarning session={session} agentId={agent.id} agentName={agent.name} />}
@@ -366,8 +362,8 @@ function PutLiveButton({
             setAsking(false);
             putLive.reset();
           }}
-          onConfirm={(summary) =>
-            putLive.run(out, local, summary, (r) => {
+          onConfirm={() =>
+            putLive.run(out, (r) => {
               setAsking(false);
               setDone(r.live ? "Live from the next call" : "Saved; callers hear it once it is on");
             })

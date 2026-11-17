@@ -4644,23 +4644,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/agents/{agent_id}/script/draft": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Autosave the working copy (no version, never reaches a call) */
-        put: operations["save_script_draft_v1_agents__agent_id__script_draft_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/agents/{agent_id}/script/opening-line": {
         parameters: {
             query?: never;
@@ -4701,27 +4684,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/agents/{agent_id}/script/publish": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Put it live: the draft becomes a version with a change summary and is applied
-         * @description One action in place of Save then Apply: a version with the owner's summary, applied
-         *     to live calls in the same request. Callers keep the old script until this succeeds.
-         */
-        post: operations["publish_script_v1_agents__agent_id__script_publish_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/agents/{agent_id}/script/tests": {
         parameters: {
             query?: never;
@@ -4740,27 +4702,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/agents/{agent_id}/script/tests/{run_id}/improvement/apply": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * The working script with the kept suggested edits made (nothing is saved)
-         * @description The one place a kept edit is applied: the same `script_edits.apply_edit` that built
-         *     the proposal, onto the copy the owner holds now, so an edit made since is never undone.
-         */
-        post: operations["apply_suggested_edits_v1_agents__agent_id__script_tests__run_id__improvement_apply_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/agents/{agent_id}/script/tests/{run_id}/improvement/settle": {
         parameters: {
             query?: never;
@@ -4772,8 +4713,9 @@ export interface paths {
         put?: never;
         /**
          * The suggested fixes were kept: stop offering them
-         * @description Called after the kept fixes are saved to the draft or put live. Separate from
-         *     `apply`, which saves nothing, so a save that fails leaves the fixes on offer.
+         * @description Called once the facts the owner kept are saved, or when they are done with the
+         *     round: its script fixes wait as a draft on the line or campaign (D-1017). Separate
+         *     from saving the facts, so a save that fails leaves them on offer.
          */
         post: operations["settle_suggested_edits_v1_agents__agent_id__script_tests__run_id__improvement_settle_post"];
         delete?: never;
@@ -4810,23 +4752,6 @@ export interface paths {
         put?: never;
         /** Discard the staged script; the draft returns to what callers hear */
         post: operations["undo_script_v1_agents__agent_id__script_undo_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/versions/{version}/restore": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Copy an earlier version into the draft (callers keep the live one) */
-        post: operations["restore_script_version_v1_agents__agent_id__script_versions__version__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11155,8 +11080,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Keep the reviewed facts and rules
-         * @description Facts join the business's knowledge and reach every agent without review. Rules wait in the chosen agent's script until the owner adds them and puts the script live.
+         * Keep the reviewed facts
+         * @description Facts join the business's knowledge and reach every agent without review.
          */
         post: operations["save_teaching_v1_kb_teach__teaching_id__save_post"];
         delete?: never;
@@ -16899,18 +16824,6 @@ export interface components {
         AnswersIn: {
             /** Answers */
             answers?: components["schemas"]["AnswerIn"][];
-        };
-        /** ApplyEditsIn */
-        ApplyEditsIn: {
-            /** Edits */
-            edits: string[];
-            script: components["schemas"]["CallScript"];
-        };
-        /** ApplyEditsOut */
-        ApplyEditsOut: {
-            script: components["schemas"]["CallScript"];
-            /** Skipped */
-            skipped: string[];
         };
         /**
          * ApplyIn
@@ -23551,14 +23464,6 @@ export interface components {
         DraftRequestOut: {
             draft: components["schemas"]["LeadFieldsDraftOut"];
         };
-        /** DraftSavedOut */
-        DraftSavedOut: {
-            /**
-             * Saved At
-             * Format: date-time
-             */
-            saved_at: string;
-        };
         /**
          * DrawdownOut
          * @description WHERE THE MONEY WENT, over the same window the runway was measured on.
@@ -26307,16 +26212,11 @@ export interface components {
         };
         /**
          * ImprovementOut
-         * @description The "Improve my agent" proposal: small edits and facts, each kept or left on its own,
-         *     never applied by itself. Kept edits are applied to the working copy by
-         *     `POST .../tests/{run_id}/improvement/apply`.
+         * @description The "Improve my agent" proposal (D-1017). Script fixes are a Pip draft on one of the
+         *     agent's Inbound lines or campaigns (`holder`), reviewed there; `edits` says what that
+         *     draft changed. Facts are kept or left here one by one, never applied by themselves.
          */
         ImprovementOut: {
-            /**
-             * Base
-             * @enum {string}
-             */
-            base: "draft" | "live";
             /**
              * Created At
              * Format: date-time
@@ -26324,6 +26224,8 @@ export interface components {
             created_at: string;
             /** Disclosure */
             disclosure: string | null;
+            /** Draft Id */
+            draft_id?: string | null;
             /**
              * Dropped
              * @default 0
@@ -26335,6 +26237,13 @@ export interface components {
             facts: components["schemas"]["ProposedFactOut"][];
             /** For Keys */
             for_keys: string[];
+            holder?: components["schemas"]["TestFixHolderOut"] | null;
+            /**
+             * Script Fixes
+             * @default none
+             * @enum {string}
+             */
+            script_fixes: "drafted" | "draft_open" | "no_holder" | "choose" | "none";
             /**
              * Tested
              * @default false
@@ -31626,6 +31535,13 @@ export interface components {
             /** Reviewer Name */
             reviewer_name: string;
         };
+        /** PublishIn */
+        PublishIn: {
+            /** Note */
+            note?: string | null;
+            /** Reviewer Name */
+            reviewer_name: string;
+        };
         /** PurchaseOwnNumberIn */
         PurchaseOwnNumberIn: {
             /** Agent Id */
@@ -32973,16 +32889,6 @@ export interface components {
             /** Note */
             note?: string | null;
         };
-        /** RestoredOut */
-        RestoredOut: {
-            replaced?: components["schemas"]["CallScript"] | null;
-            /**
-             * Saved At
-             * Format: date-time
-             */
-            saved_at: string;
-            script: components["schemas"]["CallScript"];
-        };
         /** RetentionLineOut */
         RetentionLineOut: {
             /** Days */
@@ -33277,16 +33183,8 @@ export interface components {
             /** Window Days */
             window_days: number;
         };
-        /** SaveDraftIn */
-        SaveDraftIn: {
-            /** Base Saved At */
-            base_saved_at?: string | null;
-            script: components["schemas"]["CallScript"];
-        };
         /** SaveIn */
         SaveIn: {
-            /** Agent Id */
-            agent_id?: string | null;
             /** Items */
             items: components["schemas"]["TeachItemIO"][];
         };
@@ -33302,12 +33200,8 @@ export interface components {
         };
         /** SavedOut */
         SavedOut: {
-            /** Agent Id */
-            agent_id: string | null;
             /** Facts Added */
             facts_added: number;
-            /** Rules Added */
-            rules_added: number;
         };
         /**
          * SavedViewFilters
@@ -35262,9 +35156,10 @@ export interface components {
         TeachItemIO: {
             /**
              * Kind
-             * @enum {string}
+             * @default fact
+             * @constant
              */
-            kind: "fact" | "rule";
+            kind: "fact";
             /**
              * Pinned
              * @default false
@@ -36319,6 +36214,8 @@ export interface components {
             available: boolean;
             /** Cost Note */
             cost_note: string;
+            /** Fix Holders */
+            fix_holders?: components["schemas"]["TestFixHolderOut"][];
             /** History */
             history: components["schemas"]["TestHistoryOut"][];
             latest: components["schemas"]["TestRunOut"] | null;
@@ -36348,6 +36245,25 @@ export interface components {
             waiting_tests: number;
             /** Waiting Update */
             waiting_update?: string | null;
+        };
+        /**
+         * TestFixHolderOut
+         * @description One of the agent's Inbound lines or open campaigns with a script: where a practice
+         *     test's script fixes can be drafted (D-1017).
+         */
+        TestFixHolderOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "inbound_line" | "campaign";
+            /** Name */
+            name: string;
         };
         /** TestHistoryOut */
         TestHistoryOut: {
@@ -39457,21 +39373,6 @@ export interface components {
             /** Status */
             status: string;
         };
-        /** PublishIn */
-        apps__api__agents__script_routes__PublishIn: {
-            /** Expected Version */
-            expected_version?: number | null;
-            script?: components["schemas"]["CallScript"] | null;
-            /** Summary */
-            summary: string;
-        };
-        /** PublishOut */
-        apps__api__agents__script_routes__PublishOut: {
-            /** Live */
-            live: boolean;
-            /** Version */
-            version: number;
-        };
         /** TestTurnOut */
         apps__api__agents__script_routes__TestTurnOut: {
             /** Actions */
@@ -39548,13 +39449,6 @@ export interface components {
             verified_at: string | null;
             /** Verified Name */
             verified_name: string | null;
-        };
-        /** PublishIn */
-        apps__api__ops__spoken_style_routes__PublishIn: {
-            /** Note */
-            note?: string | null;
-            /** Reviewer Name */
-            reviewer_name: string;
         };
         /** TestTurnOut */
         apps__api__teach__routes__TestTurnOut: {
@@ -47954,41 +47848,6 @@ export interface operations {
             };
         };
     };
-    save_script_draft_v1_agents__agent_id__script_draft_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SaveDraftIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DraftSavedOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     replace_opening_line_v1_agents__agent_id__script_opening_line_put: {
         parameters: {
             query?: never;
@@ -48059,41 +47918,6 @@ export interface operations {
             };
         };
     };
-    publish_script_v1_agents__agent_id__script_publish_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["apps__api__agents__script_routes__PublishIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["apps__api__agents__script_routes__PublishOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     get_test_conversations_v1_agents__agent_id__script_tests_get: {
         parameters: {
             query?: never;
@@ -48147,42 +47971,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TestConversationsOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    apply_suggested_edits_v1_agents__agent_id__script_tests__run_id__improvement_apply_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-                run_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ApplyEditsIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApplyEditsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -48279,38 +48067,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UndoScriptOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    restore_script_version_v1_agents__agent_id__script_versions__version__restore_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-                version: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RestoredOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -64404,7 +64160,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["apps__api__ops__spoken_style_routes__PublishIn"];
+                "application/json": components["schemas"]["PublishIn"];
             };
         };
         responses: {
