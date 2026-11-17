@@ -29,6 +29,7 @@ from sqlalchemy import text
 
 from apps.api.agents.assist_leg import google_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
+from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
@@ -191,6 +192,10 @@ async def _name(tenant_id: UUID, agent_id: UUID, call_id: UUID) -> str:
     if not gaps:
         return "no_gaps"
     async with tenant_session(tenant_id) as session:
+        # Nobody asked for this run: it follows a call. So the callers' questions reach a
+        # model only once the owner has turned Pip on; until then the keyword topics stay.
+        if not await account_content_may_reach_models(session, tenant_id=tenant_id):
+            return "no_consent"
         try:
             await require_ai_assist(session, tenant_id=tenant_id)
         except ProblemError:

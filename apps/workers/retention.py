@@ -2734,11 +2734,18 @@ async def _erase_handoff_briefs(session: AsyncSession, *, call_ids: Sequence[UUI
 # through `regexp_replace` per row is unindexable by construction, and the outbox is the
 # one table on this path whose row count is set by every tenant's traffic rather than by
 # this tenant's.
+#
+# AND BY THE PERSON'S LEAD AND CALL IDS, because the number is masked in every delivery to
+# an endpoint that did not opt into it (the default, `integrations.service.lead_payload`):
+# such a body names this person by `data.lead_id` or `data.call_id` and their name, with no
+# digits of theirs to match.
 _OUTBOX_SUBJECT_SQL = """
 DELETE FROM outbox_messages WHERE id IN (
   SELECT id FROM outbox_messages
   WHERE payload->>'tenant_id' = :tid
-    AND strpos(regexp_replace(payload::text, '[^0-9]', '', 'g'), :digits) > 0
+    AND (strpos(regexp_replace(payload::text, '[^0-9]', '', 'g'), :digits) > 0
+      OR payload->'data'->>'lead_id' = ANY(CAST(:lead_ids AS text[]))
+      OR payload->'data'->>'call_id' = ANY(CAST(:call_ids AS text[])))
   LIMIT :batch)
 """
 
@@ -2757,7 +2764,12 @@ DELETE FROM outbox_messages WHERE id IN (
 
 
 async def _erase_outbox_messages(
-    session: AsyncSession, *, tenant_id: UUID, phone: str | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    phone: str | None = None,
+    lead_ids: Sequence[UUID] = (),
+    call_ids: Sequence[UUID] = (),
 ) -> int:
     """Delete queued/dead-lettered job payloads holding this subject. Returns the count.
 
@@ -2770,7 +2782,14 @@ async def _erase_outbox_messages(
     if not digits:
         return 0
     return await _delete_in_batches(
-        session, _OUTBOX_SUBJECT_SQL, {"tid": str(tenant_id), "digits": digits}
+        session,
+        _OUTBOX_SUBJECT_SQL,
+        {
+            "tid": str(tenant_id),
+            "digits": digits,
+            "lead_ids": [str(lead) for lead in lead_ids],
+            "call_ids": [str(call) for call in call_ids],
+        },
     )
 
 
@@ -3122,7 +3141,13 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # calls above, for `_erase_campaign_contacts`' reason: a delivery that never
         # succeeded is filed under no call of ours, and a dead letter can outlive every
         # tenant-scoped row this request touched. See `_OUTBOX_SUBJECT_SQL`.
-        outbox_erased = await _erase_outbox_messages(session, tenant_id=tenant_id, phone=phone)
+        outbox_erased = await _erase_outbox_messages(
+            session,
+            tenant_id=tenant_id,
+            phone=phone,
+            lead_ids=[*{*leads, *linked_leads}],
+            call_ids=list(calls),
+        )
 
         # THE DIALS ALREADY BOOKED AT THE VOICE PLATFORM to this person: `check_dispatch`
         # refuses a new dial to an erased number, but one handed over before this request

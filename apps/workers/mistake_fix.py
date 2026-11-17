@@ -45,6 +45,7 @@ from apps.api.agents.capability_manifest import lint_context_for
 from apps.api.agents.mistake_fixes import Holder, HolderScript, MistakeFix, holder_table
 from apps.api.agents.mistake_lints import mistake_findings
 from apps.api.billing.ai_quota import read_ai_quota
+from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -286,6 +287,7 @@ async def _act(incident: Incident, fix: MistakeFix) -> None:
     async with tenant_session(tenant_id) as session:
         lint = await lint_context_for(session, tenant_id=tenant_id, agent_id=fix.agent_id)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
+        pip_on = await account_content_may_reach_models(session, tenant_id=tenant_id)
     findings = mistake_findings(script, lint, fix.kind)
     paths = mistake_fixes.fix_paths(findings)
     if not paths:
@@ -299,6 +301,11 @@ async def _act(incident: Incident, fix: MistakeFix) -> None:
                 else "only the opening or its notices cause it, which the healer never edits"
             ),
         )
+        return
+    if not pip_on:
+        # The owner turned Pip off after this fix opened (`open_fixes` opens none while it
+        # is off), so no model is asked to write it.
+        await _wait(incident, fix, why="Pip is off for this account")
         return
     if quota.at_ceiling or quota.platform_paused:
         async with tenant_session(tenant_id) as session:
@@ -430,8 +437,9 @@ async def _collect(incident: Incident, fix: MistakeFix) -> None:
         if found is None:
             await _retry_or_give_up(incident, fix, why=f"the {_change_word(holder)} is archived")
             return
-        # Cleared before this step saw it written: the owner has dealt with it.
-        await _proposed(incident, fix)
+        # Cleared before this step saw it written: the owner has dealt with it, so there is
+        # no draft to tell them about.
+        await _gone_unseen(incident, fix)
         return
     if draft.status == "drafting":
         await _advance(incident, state="mitigated", next_in_s=_wait_s(), outcome="fix_requested")
@@ -464,6 +472,19 @@ async def _proposed(incident: Incident, fix: MistakeFix) -> None:
         )
         log.info("call_mistake_fix_proposed", extra={"agent_id": str(fix.agent_id)})
     await _advance(incident, state="mitigated", next_in_s=_wait_s(), outcome="fix_proposed")
+
+
+async def _gone_unseen(incident: Incident, fix: MistakeFix) -> None:
+    """The fix's draft left its line or campaign (kept, discarded or replaced) before this
+    step saw it written: settled as reviewed, with no "fix ready" notice for a draft that is
+    no longer there."""
+    async with tenant_session(fix.tenant_id) as session:
+        await _set_fix(session, fix, "state = 'proposed', settled_at = now()")
+        await _close_client_notice(session, incident)
+    await _record(
+        incident, fix, step="verify", outcome="ok", detail="the draft was gone before it was seen"
+    )
+    await _advance(incident, state="resolved", next_in_s=None, outcome="reviewed")
 
 
 async def _await_review(incident: Incident, fix: MistakeFix) -> None:

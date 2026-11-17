@@ -33,6 +33,7 @@ const ENDPOINT: Endpoint = {
   include_recording_url: false,
   include_transcript: false,
   include_raw_transcript: false,
+  include_raw_phone: false,
   created_at: "2026-10-01T10:00:00Z",
   previous_secret_expires_at: null,
 };

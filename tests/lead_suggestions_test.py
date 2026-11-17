@@ -60,6 +60,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.admin_account_management_test import _operator
 from tests.api_security_test import _make_tenant
+from tests.conftest import turn_pip_on_for_tests
 from tests.pipeline_audit_test import _run_pipeline, _scalar
 from tests.pipeline_audit_test import _stub_storage as _stub_storage
 from tests.smoke_pipeline_test import _seed_tenant
@@ -659,12 +660,29 @@ async def _call_for(tenant_id: UUID, agent_ref: str) -> tuple[str, UUID]:
     return execution_id, UUID(str(call_id))
 
 
+async def test_without_pip_the_second_caller_brings_no_suggestion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: callers' answers reach a language-model provider after a call, on an
+    account whose owner has not turned Pip on. "Check again" stays the way to ask."""
+    monkeypatch.setattr(extraction_module, "get_extractor", lambda: _Runner(SIX))
+    agent_ref = f"fakeagent_six_{uuid.uuid4().hex[:8]}"
+    tenant_id, agent_id = await _seed_tenant(agent_ref)
+    async with tenant_session(tenant_id) as session:
+        await write_schema(session, agent_id=agent_id, fields=[BHK, AREA])
+    for _ in range(2):
+        execution_id, call_id = await _call_for(tenant_id, agent_ref)
+        await _run_pipeline(tenant_id, call_id, execution_id)
+    assert await _jobs(field_suggestions.JOB, agent_id) == []
+
+
 async def test_a_call_keeps_the_callers_words_and_the_second_one_brings_a_suggestion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(extraction_module, "get_extractor", lambda: _Runner(SIX))
     agent_ref = f"fakeagent_six_{uuid.uuid4().hex[:8]}"
     tenant_id, agent_id = await _seed_tenant(agent_ref)
+    await turn_pip_on_for_tests(tenant_id)
     async with tenant_session(tenant_id) as session:
         await write_schema(session, agent_id=agent_id, fields=[BHK, AREA])
 

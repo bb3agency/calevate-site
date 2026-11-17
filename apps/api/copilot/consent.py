@@ -128,6 +128,23 @@ async def read_consent(session: AsyncSession, *, tenant_id: UUID) -> ConsentStat
     return ConsentState(status=status, accepted_version=version, accepted_at=row[1])
 
 
+async def account_content_may_reach_models(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    """May work nobody asked for send this account's content to a language-model provider?
+
+    Only once its owner has turned Pip on: the sub-processor and privacy pages promise that
+    nothing from an account reaches the language-model providers before that. Every
+    automatic path asks this one question (the knowledge gloss and embedding sweeps, the
+    post-call jobs, the healer's script repairs, the memory distiller) and skips the
+    account when the answer is no, leaving its work pending for the first run after the
+    owner turns Pip on. A search embedding asks it too, because its question vector is
+    the same provider. The answer is the same whoever is asking, the admin console
+    included: its Pip has no consent of its own, but the data is still the client's.
+
+    `session` must be scoped to `tenant_id` (RLS on `copilot_consents`).
+    """
+    return (await read_consent(session, tenant_id=tenant_id)).unmasked
+
+
 def consent_required() -> ProblemError:
     """Pip is off for this account. Reached by an ask, an upload or a background task.
 
@@ -253,6 +270,7 @@ __all__ = [
     "ConsentKind",
     "ConsentState",
     "ConsentStatus",
+    "account_content_may_reach_models",
     "consent_out",
     "consent_required",
     "read_consent",

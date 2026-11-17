@@ -62,6 +62,15 @@ internal), `retryable: bool`, `remediation`, `trace_id`, and validation failures
 - 429 carries `Retry-After` from the limiter.
 - 503 is the ONE status allowed to keep its detailed message (ops-UI contract).
 - Every 5xx also fires the alert path with a `failure_stage` tag (§8).
+- Data beside the sentence (the id of the line a refusal names, the list of problems a
+  publish found) is a typed extension member (RFC 9457 §3.2), and there is one way to add
+  one: subclass `core.errors.ProblemExtension` for the problem code (setting `code` and
+  `status`), pass an instance as `ProblemError(extensions=...)`, and declare it on each
+  route that can raise it with `responses=problem_responses(Model)`. That publishes the
+  body as `allOf` `ProblemBody` and the members in the OpenAPI document, so the generated
+  client types it and a screen reads it with `problemOf<"Model">(error, code)`. Never
+  override `as_problem` in a subclass. Members are optional on the wire and a client
+  ignores ones it does not know (D-1016).
 Correlation id: accept `X-Correlation-Id` else generate; echo on response; stamp into
 audit rows and, when an LLM-tracing pipeline exists, its traces (none does — D-49). Response models `extra="forbid"` everywhere —
 serialization is the whitelist the redaction-exposure guardrail checks. Request and response

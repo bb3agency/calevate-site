@@ -63,6 +63,7 @@ from apps.api.billing.models import (
     ASSIST_FEATURE_BUSINESS_COPY_ABSORBED,
 )
 from apps.api.billing.trials import trial_billing_active
+from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -987,7 +988,7 @@ _DIRECTORY: Final = (
 )
 
 
-_ROW_STATE: Final = f"SELECT last_attempt_at, {_BEHIND_SQL} FROM business_copies"
+_ROW_STATE: Final = f"SELECT last_attempt_at, {_BEHIND_SQL}, generated IS NULL FROM business_copies"
 
 
 async def _due(tenant_id: UUID, *, now: datetime) -> bool:
@@ -1005,6 +1006,13 @@ async def _due(tenant_id: UUID, *, now: datetime) -> bool:
     async with tenant_session(tenant_id) as session:
         row = (await session.execute(text(_ROW_STATE), {"version": PROMPT_VERSION})).first()
         behind = row is not None and bool(row[1])
+        missing = row is not None and bool(row[2])
+        # A refresh or a rewrite for a newer prompt is nobody asking, and its inputs include
+        # callers' questions, so it waits for the owner to turn Pip on. A copy that is still
+        # missing because signup's first run failed on our side finishes that run, which
+        # the account's creation asked for, and is not gated.
+        if not missing and not await account_content_may_reach_models(session, tenant_id=tenant_id):
+            return False
         if not behind:
             if await trial_billing_active(session, tenant_id=tenant_id, at=now):
                 return False

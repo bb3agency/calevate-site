@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import agent_pass
 from apps.api.agents.agent_pass import dead_sql
 from apps.api.agents.models import MAX_DISMISSED_SUGGESTIONS
+from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core.errors import ProblemError
 from apps.api.reliability.service import enqueue_outbox
 
@@ -208,6 +209,10 @@ async def queue_on_repeat(
     heard exactly `REPEAT_THRESHOLD` times, so the second caller asking for the same thing is
     what brings it to the owner, and the tenth does not buy another pass."""
     if not unlisted:
+        return False
+    # The one trigger nobody presses: a call. The pass sends callers' answers to a model,
+    # so it waits for the owner to turn Pip on; "Check again" is the way without it.
+    if not await account_content_may_reach_models(session, tenant_id=tenant_id):
         return False
     rows = (
         await session.execute(

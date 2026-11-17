@@ -29,7 +29,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import chat, copilot_memory, retention
 from sqlalchemy import text
-from tests.conftest import create_org_with_receptionist
+from tests.conftest import _owner_of, create_org_with_receptionist, turn_pip_on_for_tests
 
 
 async def _tenant_with_user() -> tuple[uuid.UUID, uuid.UUID]:
@@ -51,6 +51,8 @@ async def _tenant_with_user() -> tuple[uuid.UUID, uuid.UUID]:
             ),
             {"id": user_id, "email": f"{user_id}@example.com"},
         )
+    # Episodes exist only for an account whose owner turned Pip on.
+    await turn_pip_on_for_tests(tenant_id)
     return tenant_id, user_id
 
 
@@ -283,6 +285,30 @@ async def test_the_job_writes_semantic_rows_and_marks_the_episodes(stub_provider
             )
         ).scalar_one()
     assert int(undistilled) == 0, "the stamp IS the idempotency; it must land with the facts"
+
+
+async def test_conversations_are_not_read_back_after_the_owner_turns_pip_off(
+    stub_provider: Any,
+) -> None:
+    """FAILS IF: the distiller sends an account's past Pip conversations to a language-model
+    provider after its owner turned Pip off. The episodes wait, undistilled, and are read
+    on the first run after Pip is on again."""
+    from apps.api.copilot.consent import withdraw_consent
+
+    tenant_id, user_id = await _tenant_with_user()
+    marker = await _quiet_conversation(tenant_id, user_id)
+    owner = await _owner_of(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await withdraw_consent(session, tenant_id=tenant_id, user_id=owner, ip=None)
+    provider = stub_provider(["The clinic opens at nine."])
+
+    await copilot_memory.distil_copilot_memories({})
+    assert provider.calls_for(marker) == 0
+    assert await _count(tenant_id, kind=memory.KIND_SEMANTIC) == 0
+
+    await turn_pip_on_for_tests(tenant_id)
+    await copilot_memory.distil_copilot_memories({})
+    assert provider.calls_for(marker) == 1
 
 
 async def test_a_second_tick_neither_pays_again_nor_duplicates(stub_provider: Any) -> None:

@@ -17,6 +17,7 @@ from apps.workers import business_copy as worker
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 from tests.business_copy_test import _json, _trial, copy_dict
+from tests.conftest import make_tenant_with_pip
 
 
 async def _row(
@@ -76,7 +77,7 @@ async def test_a_prompt_bump_after_the_days_check_still_queues_the_rewrite(
     """Production, 9 Nov 2026: the 10:44 walk spent the day's key on the old prompt's check,
     the deploy's upgrade walk found it taken, and the account was not rewritten that day."""
     _trial(monkeypatch, False)
-    tenant_id, _slug, _token = await _make_tenant()
+    tenant_id, _slug, _token = await make_tenant_with_pip()
     now = datetime(2026, 11, 10, 8, 0, tzinfo=UTC)
     await _row(tenant_id, generated=None, attempted=now - timedelta(days=20), stop_reason=None)
     assert await worker._due(tenant_id, now=now) is True

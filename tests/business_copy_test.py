@@ -41,7 +41,11 @@ from calevate_shared.call_script import SOUNDS_LIKE_MAX, ConversationStage
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
-from tests.conftest import create_org_with_receptionist
+from tests.conftest import (
+    create_org_with_receptionist,
+    make_tenant_with_pip,
+    turn_pip_on_for_tests,
+)
 
 MODEL = "gemini-3.1-flash-lite"
 LEG = TenantModelLeg(model=MODEL, provider="google", serves_dashboard=True)
@@ -1201,7 +1205,7 @@ async def test_the_daily_check_queues_only_accounts_due_and_never_a_trial(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     now = datetime.now(UTC)
-    due, _s, _t = await _make_tenant()
+    due, _s, _t = await make_tenant_with_pip()
     recent, _s2, _t2 = await _make_tenant()
     async with tenant_session(recent) as session:
         await session.execute(
@@ -1229,6 +1233,39 @@ async def test_the_daily_check_queues_only_accounts_due_and_never_a_trial(
             )
         ).scalar()
     assert count == 1
+
+
+async def test_the_daily_check_waits_for_the_owner_to_turn_pip_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: the scheduled refresh sends an account's business details and callers'
+    questions to a language-model provider before its owner turned Pip on. A copy still
+    missing because signup's first run failed on our side is finished regardless."""
+    now = datetime.now(UTC)
+    _trial(monkeypatch, False)
+    stale, _s, _t = await _make_tenant()
+    missing, _s2, _t2 = await _make_tenant()
+    for tenant_id, generated in ((stale, _json(copy_dict())), (missing, None)):
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO business_copies (id, tenant_id, generated, prompt_version, "
+                    "last_attempt_at, stop_reason) VALUES (:id, :t, CAST(:g AS jsonb), :v, "
+                    ":at, :stop)"
+                ),
+                {
+                    "id": uuid7(),
+                    "t": tenant_id,
+                    "g": generated,
+                    "v": worker.PROMPT_VERSION if generated else None,
+                    "at": now - timedelta(days=20),
+                    "stop": None if generated else "answer_unusable",
+                },
+            )
+    assert await worker._due(stale, now=now) is False
+    assert await worker._due(missing, now=now) is True
+    await turn_pip_on_for_tests(stale)
+    assert await worker._due(stale, now=now) is True
 
 
 # --- 8. the capability profile: reading it, and re-judging after a prompt change ------------
@@ -1294,8 +1331,8 @@ async def test_a_copy_behind_the_prompt_is_due_at_once_even_on_a_trial(
     trial, or re-queues an account whose copy is current."""
     now = datetime.now(UTC)
     _trial(monkeypatch, True)
-    behind, _s, _t = await _make_tenant()
-    current, _s2, _t2 = await _make_tenant()
+    behind, _s, _t = await make_tenant_with_pip()
+    current, _s2, _t2 = await make_tenant_with_pip()
     for tenant_id, version in ((behind, None), (current, worker.PROMPT_VERSION)):
         async with tenant_session(tenant_id) as session:
             await session.execute(

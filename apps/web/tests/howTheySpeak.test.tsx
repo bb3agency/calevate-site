@@ -142,6 +142,48 @@ describe("How they speak", () => {
     expect(screen.getByRole("link", { name: "Open Campaigns" }).getAttribute("href")).toBe("/c/acme/campaigns");
   });
 
+  it("links straight to the campaign a too-long refusal names", async () => {
+    await renderClientPage(<HowTheySpeak />, {
+      "/v1/me": OWNER,
+      [PATH]: training({ overview: "We build flats.", training: "Address people as sir or madam.", version: 3 }),
+      [`PUT ${PATH}/training`]: problem(422, {
+        type: "https://calevate.tech/problems/company_training_too_long",
+        title: "That change is not allowed",
+        status: 422,
+        kind: "business_rule",
+        detail: "With this training, the script of the campaign Diwali visits is 1,240 characters too long.",
+        remediation: "Shorten the training or that campaign's script.",
+        campaign_id: "c-42",
+      }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Edit training" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save for every agent" }));
+    const link = await screen.findByRole("link", { name: "Open the campaign" });
+    expect(link.getAttribute("href")).toBe("/c/acme/campaigns/c-42");
+    expect(screen.queryByRole("link", { name: "Open Inbound lines" })).toBeNull();
+  });
+
+  it("links straight to the Inbound line a too-long refusal names", async () => {
+    await renderClientPage(<HowTheySpeak />, {
+      "/v1/me": OWNER,
+      [PATH]: training({ overview: "We build flats.", training: "Address people as sir or madam.", version: 3 }),
+      [`PUT ${PATH}/training`]: problem(422, {
+        type: "https://calevate.tech/problems/company_training_too_long",
+        title: "That change is not allowed",
+        status: 422,
+        kind: "business_rule",
+        detail: "With this training, the script of the Inbound line Front desk is 90 characters too long.",
+        remediation: "Shorten the training or that Inbound line's script.",
+        inbound_line_id: "l-7",
+      }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Edit training" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save for every agent" }));
+    const link = await screen.findByRole("link", { name: "Open the Inbound line" });
+    expect(link.getAttribute("href")).toBe("/c/acme/inbound/l-7");
+    expect(screen.queryByRole("link", { name: "Open Campaigns" })).toBeNull();
+  });
+
   it("offers no way out for a refusal that is not about a script's length", async () => {
     await renderClientPage(<HowTheySpeak />, {
       "/v1/me": OWNER,

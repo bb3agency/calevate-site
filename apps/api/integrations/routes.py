@@ -236,6 +236,10 @@ class EndpointOut(Strict):
     include_recording_url: bool
     include_transcript: bool
     include_raw_transcript: bool
+    # Whether this destination is sent callers' full phone numbers rather than
+    # "[redacted]" (docs/WEBHOOKS.md §1.2). Switched on with our team; the owner can switch
+    # it off with the edit.
+    include_raw_phone: bool
     created_at: datetime
     # Until when the secret a rotation replaced still signs alongside the current one;
     # None outside a rotation window (and on every sheets endpoint).
@@ -361,8 +365,8 @@ async def _endpoint_rows(
             text(
                 "SELECT id, url, events, active, secret_ref, created_at, kind, "
                 "include_recording_url, include_transcript, include_raw_transcript, "
-                "CASE WHEN previous_secret_expires_at > now() THEN previous_secret_expires_at END "
-                "FROM outbound_webhooks " + tail
+                "CASE WHEN previous_secret_expires_at > now() THEN previous_secret_expires_at END, "
+                "mapping FROM outbound_webhooks " + tail
             ),
             params,
         )
@@ -378,6 +382,7 @@ async def _endpoint_rows(
             include_recording_url=bool(r[7]),
             include_transcript=bool(r[8]),
             include_raw_transcript=bool(r[9]),
+            include_raw_phone=service.raw_phone_opted_in(r[11]),
             created_at=r[5],
             previous_secret_expires_at=r[10],
         )
@@ -482,6 +487,9 @@ class UpdateEndpointIn(Strict):
     include_recording_url: bool = False
     include_transcript: bool = False
     include_raw_transcript: bool = False
+    # Left out (null) keeps the raw-phone opt-in as it is; false switches it off. It is
+    # switched on with our team only, so true is accepted only where it is already on.
+    include_raw_phone: bool | None = None
 
 
 @router.patch(
@@ -491,12 +499,14 @@ class UpdateEndpointIn(Strict):
     summary="Change which events an endpoint receives and what each carries",
     description=(
         "Replace an active endpoint's events and its recording-link and transcript "
-        "opt-ins. The address is not changeable: add a new destination to send somewhere "
-        "else. Switching on the recording link or a transcript asks for the emailed code "
-        "(`X-Confirm-Action: endpoint_opt_in:<org>`). "
+        "opt-ins, and switch its full-phone-number opt-in off (`include_raw_phone: false`; "
+        "left out, it stays as it is). The address is not changeable: add a new destination "
+        "to send somewhere else. Switching on the recording link or a transcript asks for "
+        "the emailed code (`X-Confirm-Action: endpoint_opt_in:<org>`). "
         "Refused with `endpoint_inactive` for a switched-off endpoint, "
         "`sheets_endpoint_events_only` when a Google Sheets destination is asked to carry "
-        "a recording or transcript, and with the create route's opt-in refusals."
+        "a recording or transcript, `raw_phone_opt_in_with_us` when full numbers are asked "
+        "for where they are off, and with the create route's opt-in refusals."
     ),
 )
 async def update_endpoint(
@@ -522,6 +532,7 @@ async def update_endpoint(
         include_transcript=payload.include_transcript,
         include_raw_transcript=payload.include_raw_transcript,
         role=principal.role,
+        include_raw_phone=payload.include_raw_phone,
     )
     if opens_call_content(
         before,
@@ -544,6 +555,12 @@ async def update_endpoint(
             "include_recording_url": payload.include_recording_url,
             "include_transcript": payload.include_transcript,
             "include_raw_transcript": payload.include_raw_transcript,
+            "include_raw_phone": (
+                before.include_raw_phone
+                if payload.include_raw_phone is None
+                else payload.include_raw_phone
+            ),
+            "was_include_raw_phone": before.include_raw_phone,
         },
     )
     rows = await _endpoint_rows(session, "WHERE id = :id", {"id": endpoint_id})

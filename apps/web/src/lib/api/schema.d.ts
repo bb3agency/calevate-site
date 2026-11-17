@@ -10696,7 +10696,7 @@ export interface paths {
         head?: never;
         /**
          * Change which events an endpoint receives and what each carries
-         * @description Replace an active endpoint's events and its recording-link and transcript opt-ins. The address is not changeable: add a new destination to send somewhere else. Switching on the recording link or a transcript asks for the emailed code (`X-Confirm-Action: endpoint_opt_in:<org>`). Refused with `endpoint_inactive` for a switched-off endpoint, `sheets_endpoint_events_only` when a Google Sheets destination is asked to carry a recording or transcript, and with the create route's opt-in refusals.
+         * @description Replace an active endpoint's events and its recording-link and transcript opt-ins, and switch its full-phone-number opt-in off (`include_raw_phone: false`; left out, it stays as it is). The address is not changeable: add a new destination to send somewhere else. Switching on the recording link or a transcript asks for the emailed code (`X-Confirm-Action: endpoint_opt_in:<org>`). Refused with `endpoint_inactive` for a switched-off endpoint, `sheets_endpoint_events_only` when a Google Sheets destination is asked to carry a recording or transcript, `raw_phone_opt_in_with_us` when full numbers are asked for where they are off, and with the create route's opt-in refusals.
          */
         patch: operations["update_endpoint_v1_integrations_endpoints__endpoint_id__patch"];
         trace?: never;
@@ -20885,6 +20885,19 @@ export interface components {
             version: number;
         };
         /**
+         * CompanyTrainingTooLong
+         * @description What the training would push past the calling system's box, so the screen can link
+         *     straight to it. Exactly one of the three is set.
+         */
+        CompanyTrainingTooLong: components["schemas"]["ProblemBody"] & {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /** Inbound Line Id */
+            inbound_line_id?: string | null;
+        };
+        /**
          * ComplaintReviewIn
          * @description The client's confirmation that they read the opt-outs. A literal `true`, so the
          *     request states the act rather than toggling a flag.
@@ -23848,6 +23861,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Include Raw Phone */
+            include_raw_phone: boolean;
             /** Include Raw Transcript */
             include_raw_transcript: boolean;
             /** Include Recording Url */
@@ -25230,6 +25245,17 @@ export interface components {
             /** Wallet Fee Percent */
             wallet_fee_percent: string | null;
         };
+        /**
+         * FollowUpChanged
+         * @description The version the server holds, so the screen can reload it.
+         */
+        FollowUpChanged: components["schemas"]["ProblemBody"] & {
+            /**
+             * Expected Updated At
+             * Format: date-time
+             */
+            expected_updated_at: string;
+        };
         /** FollowUpCreateIn */
         FollowUpCreateIn: {
             /** Name */
@@ -25257,6 +25283,14 @@ export interface components {
             settings?: components["schemas"]["Settings"] | null;
             /** Step Edits */
             step_edits?: components["schemas"]["StepEditIn"][] | null;
+        };
+        /**
+         * FollowUpInvalid
+         * @description Every problem that stops the publish, so the screen (and Pip) can list them.
+         */
+        FollowUpInvalid: components["schemas"]["ProblemBody"] & {
+            /** Problems */
+            problems: components["schemas"]["ProblemOut"][];
         };
         /** FollowUpListOut */
         FollowUpListOut: {
@@ -31183,6 +31217,38 @@ export interface components {
             suppressed: number;
             /** Unmatched */
             unmatched: number;
+        };
+        /**
+         * ProblemBody
+         * @description The problem+json body this API sends (RFC 9457 and BACKEND-PATTERNS §3), as a schema
+         *     for the OpenAPI document. `ProblemError.as_problem` writes it; this only describes it.
+         */
+        ProblemBody: {
+            /** Detail */
+            detail: string;
+            /** Fields */
+            fields?: {
+                [key: string]: string;
+            }[] | null;
+            /** Instance */
+            instance?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "validation" | "auth" | "permission" | "not_found" | "conflict" | "business_rule" | "dependency" | "transient" | "internal";
+            /** Remediation */
+            remediation: string;
+            /** Retryable */
+            retryable: boolean;
+            /** Status */
+            status: number;
+            /** Title */
+            title: string;
+            /** Trace Id */
+            trace_id?: string | null;
+            /** Type */
+            type: string;
         };
         /** ProblemOut */
         ProblemOut: {
@@ -37929,6 +37995,8 @@ export interface components {
         UpdateEndpointIn: {
             /** Events */
             events: ("lead.created" | "lead.updated" | "call.completed" | "call.updated" | "call.recording_ready" | "campaign.completed")[];
+            /** Include Raw Phone */
+            include_raw_phone?: boolean | null;
             /**
              * Include Raw Transcript
              * @default false
@@ -53946,6 +54014,15 @@ export interface operations {
                     "application/json": components["schemas"]["CompanyTrainingOut"];
                 };
             };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["CompanyTrainingTooLong"];
+                };
+            };
             /** @description RFC-9457 problem+json */
             default: {
                 headers: {
@@ -57215,6 +57292,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FollowUpOut"];
+                };
+            };
+            /** @description RFC 9457 problem+json */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["FollowUpChanged"];
+                };
+            };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["FollowUpInvalid"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -29,14 +29,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Final, Literal
+from typing import Any, ClassVar, Final, Literal
 from uuid import UUID
 
 from calevate_shared.engine import AgentConfig
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.core.errors import ProblemError
+from apps.api.core.errors import ProblemError, ProblemExtension
 from apps.api.db.base import uuid7
 from apps.api.reliability.service import enqueue_outbox
 
@@ -204,6 +204,18 @@ async def save_overview(session: AsyncSession, tenant_id: UUID, value: str) -> s
     return overview
 
 
+class CompanyTrainingTooLong(ProblemExtension):
+    """What the training would push past the calling system's box, so the screen can link
+    straight to it. Exactly one of the three is set."""
+
+    code: ClassVar[str] = "company_training_too_long"
+    status: ClassVar[int] = 422
+
+    agent_id: UUID | None = None
+    inbound_line_id: UUID | None = None
+    campaign_id: UUID | None = None
+
+
 async def _refuse_if_any_agent_overflows(
     session: AsyncSession, tenant_id: UUID, training: str
 ) -> None:
@@ -249,6 +261,7 @@ async def _refuse_if_any_agent_overflows(
                     "Shorten the training, or move product and price details into "
                     "Knowledge, which every agent searches."
                 ),
+                extensions=CompanyTrainingTooLong(agent_id=agent_id),
             )
 
 
@@ -307,6 +320,11 @@ async def _refuse_if_any_job_overflows(
                 remediation=(
                     f"Shorten the training or that {where}'s script, or move product and "
                     "price details into Knowledge, which every agent searches."
+                ),
+                extensions=(
+                    CompanyTrainingTooLong(inbound_line_id=job_id)
+                    if kind == "line"
+                    else CompanyTrainingTooLong(campaign_id=job_id)
                 ),
             )
 

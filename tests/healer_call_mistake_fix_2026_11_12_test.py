@@ -40,7 +40,7 @@ from calevate_shared.call_script import CallScript, ConversationStage
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine, text
 from tests.a2p_declaration_test import _org_headers
-from tests.conftest import create_org_with_receptionist
+from tests.conftest import _owner_of, create_org_with_receptionist, turn_pip_on_for_tests
 
 pytestmark = [pytest.mark.rls]
 
@@ -60,7 +60,7 @@ def _script(first: str = GREETS) -> CallScript:
     )
 
 
-async def _agent(prefix: str) -> tuple[UUID, UUID]:
+async def _agent(prefix: str, *, pip_on: bool = True) -> tuple[UUID, UUID]:
     created = await create_org_with_receptionist(
         name="Fix Homes",
         slug=f"fix-{prefix}-{uuid.uuid4().hex[:8]}",
@@ -69,7 +69,10 @@ async def _agent(prefix: str) -> tuple[UUID, UUID]:
         language="en-IN",
         created_by=None,
     )
-    return UUID(str(created["id"])), UUID(str(created["agent_id"]))
+    tenant_id = UUID(str(created["id"]))
+    if pip_on:
+        await turn_pip_on_for_tests(tenant_id)
+    return tenant_id, UUID(str(created["agent_id"]))
 
 
 async def _line(tenant_id: UUID, agent_id: UUID, script: CallScript | None = None) -> UUID:
@@ -263,6 +266,45 @@ async def test_a_call_showing_a_mistake_opens_one_fix_and_one_incident() -> None
     async with tenant_session(tenant_id) as session:
         mistakes = await call_mistakes.agent_mistakes(session, agent_id)
     assert [(m.kind, m.state) for m in mistakes] == [(KIND, "script_fixing")]
+
+
+async def test_no_fix_opens_while_the_owner_has_pip_off() -> None:
+    """FAILS IF: the healer asks a model to rewrite a line's script, unasked, on an account
+    whose owner has not turned Pip on. The mistake still shows; once Pip is on, the next
+    call showing it opens the fix."""
+    tenant_id, agent_id = await _agent("nopip", pip_on=False)
+    line_id = await _line(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, line_id=line_id)
+    async with tenant_session(tenant_id) as session:
+        opened = (
+            await session.execute(
+                text("SELECT count(*) FROM agent_mistake_fixes WHERE agent_id = :a"),
+                {"a": agent_id},
+            )
+        ).scalar_one()
+        mistakes = await call_mistakes.agent_mistakes(session, agent_id)
+    assert opened == 0
+    assert [m.kind for m in mistakes] == [KIND]
+    assert await _draft_of(tenant_id, "inbound_lines", line_id) is None
+
+    await turn_pip_on_for_tests(tenant_id)
+    await _seen(tenant_id, agent_id, line_id=line_id)
+    assert (await _fix(tenant_id, agent_id)).state == "fixing"
+
+
+async def test_a_fix_whose_owner_turned_pip_off_waits_rather_than_ask_a_model() -> None:
+    from apps.api.copilot.consent import withdraw_consent
+
+    tenant_id, agent_id = await _agent("pipoff")
+    line_id = await _line(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, line_id=line_id)
+    async with tenant_session(tenant_id) as session:
+        await withdraw_consent(
+            session, tenant_id=tenant_id, user_id=await _owner_of(tenant_id), ip=None
+        )
+    fix = await _step(tenant_id, agent_id)
+    assert (fix.state, fix.proposal_id, fix.waits) == ("fixing", None, 1)
+    assert await _draft_of(tenant_id, "inbound_lines", line_id) is None
 
 
 # --- where the fix goes -------------------------------------------------------------------------
@@ -513,6 +555,34 @@ async def test_a_written_fix_waits_for_the_owner_who_is_told_and_then_reviews_it
         [mistake] = await call_mistakes.agent_mistakes(session, agent_id)
     assert closed == "resolved"
     assert (mistake.state, mistake.fix_waiting) == ("script_proposed", False)
+
+
+async def test_a_draft_gone_before_the_next_look_brings_no_fix_ready_notice() -> None:
+    """FAILS IF: the owner is told a fix is ready to review when its draft had already left
+    the line (stopped, kept or discarded) before the healer looked again."""
+    tenant_id, agent_id = await _agent("gone")
+    line_id = await _line(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, line_id=line_id)
+    fix = await _step(tenant_id, agent_id)
+    assert fix.proposal_id is not None
+    async with tenant_session(tenant_id) as session:
+        await lines.clear_proposal(session, line_id, fix.proposal_id)
+    fix = await _step(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        told = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM heal_client_incidents WHERE incident_id = :i "
+                    "AND kind = :k AND state = 'open'"
+                ),
+                {"i": fix.incident_id, "k": mistake_fix.PROPOSED_NOTICE},
+            )
+        ).scalar_one()
+    assert told == 0
+    assert (await _incident(fix)).state == "resolved"
+    # The next call showing the kind starts a fresh fix.
+    await _seen(tenant_id, agent_id, line_id=line_id)
+    assert (await _fix(tenant_id, agent_id)).id != fix.id
 
 
 async def test_a_draft_that_could_not_be_written_is_cleared_and_tried_again(

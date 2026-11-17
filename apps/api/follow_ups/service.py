@@ -11,17 +11,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Final
+from typing import Any, ClassVar, Final
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.core.errors import ProblemError
+from apps.api.core.errors import ProblemError, ProblemExtension
 from apps.api.db.base import uuid7
 from apps.api.follow_ups import definition as d
 from apps.api.follow_ups import runner
 from apps.api.follow_ups.definition import Problem
+from apps.api.follow_ups.schemas import ProblemOut
 
 #: The most leads one request starts at once (`POST /v1/follow-ups/{id}/start`).
 MAX_START_LEADS: Final = 200
@@ -31,6 +32,15 @@ LIST_MAX: Final = 200
 
 
 # --- errors --------------------------------------------------------------------------
+
+
+class FollowUpInvalid(ProblemExtension):
+    """Every problem that stops the publish, so the screen (and Pip) can list them."""
+
+    code: ClassVar[str] = "follow_up_invalid"
+    status: ClassVar[int] = 422
+
+    problems: list[ProblemOut]
 
 
 class FollowUpInvalidError(ProblemError):
@@ -46,15 +56,22 @@ class FollowUpInvalidError(ProblemError):
             else (f"{len(problems)} things need fixing before it can be published."),
             remediation="Fix each step listed, then publish again.",
             status=422,
+            extensions=FollowUpInvalid(
+                problems=[
+                    ProblemOut(step_id=p.step_id, code=p.code, message=p.message) for p in problems
+                ]
+            ),
         )
         self.problems = problems
 
-    def as_problem(self, instance: str | None = None) -> dict[str, Any]:
-        body = super().as_problem(instance)
-        body["problems"] = [
-            {"step_id": p.step_id, "code": p.code, "message": p.message} for p in self.problems
-        ]
-        return body
+
+class FollowUpChanged(ProblemExtension):
+    """The version the server holds, so the screen can reload it."""
+
+    code: ClassVar[str] = "follow_up_changed"
+    status: ClassVar[int] = 409
+
+    expected_updated_at: datetime
 
 
 class FollowUpChangedError(ProblemError):
@@ -67,13 +84,9 @@ class FollowUpChangedError(ProblemError):
             title="This follow-up changed",
             detail="Someone changed this follow-up since you opened it, so it was not published.",
             remediation="Look at the latest version, then publish again.",
+            extensions=FollowUpChanged(expected_updated_at=updated_at),
         )
         self.updated_at = updated_at
-
-    def as_problem(self, instance: str | None = None) -> dict[str, Any]:
-        body = super().as_problem(instance)
-        body["expected_updated_at"] = self.updated_at.isoformat()
-        return body
 
 
 def _not_live(detail: str) -> ProblemError:

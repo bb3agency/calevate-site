@@ -18,6 +18,7 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
+from apps.api.core.errors import problem_responses
 from apps.api.core.rbac import permission_meta
 
 router = APIRouter(prefix="/v1/company-training", tags=["company-training"])
@@ -130,6 +131,7 @@ class TrainingIn(BaseModel):
 @router.put(
     "/training",
     response_model=CompanyTrainingOut,
+    responses=problem_responses(training_rules.CompanyTrainingTooLong),
     openapi_extra=permission_meta("org:manage"),
     summary="Save the training; every agent is brought onto it",
 )

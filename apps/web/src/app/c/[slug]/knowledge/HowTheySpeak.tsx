@@ -29,7 +29,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
-import { ApiProblem } from "@/lib/api/client";
+import { problemOf } from "@/lib/api/client";
 import {
   useClearTrainingProposal,
   useCompanyTraining,
@@ -225,7 +225,7 @@ function Training({ data, canWrite, refusal }: Props) {
       {save.error != null && (
         <div className="mb-3 space-y-2">
           <ProblemNotice error={save.error} />
-          {save.error instanceof ApiProblem && save.error.code === TOO_LONG_CODE && <ScriptPlaces />}
+          <ScriptPlaces error={save.error} />
         </div>
       )}
 
@@ -365,16 +365,38 @@ function Training({ data, canWrite, refusal }: Props) {
  * Where the script the refusal names is shortened. The refusal names the line or campaign in
  * its sentence but carries no id, so both lists are offered rather than one guessed.
  */
-function ScriptPlaces() {
+/**
+ * The way out of a too-long refusal: a button straight to the Inbound line, campaign or
+ * agent the server named, or both lists when it named none (a server older than the id).
+ */
+function ScriptPlaces({ error }: { error: unknown }) {
   const { session, href } = useClientRealm();
+  const tooLong = problemOf<"CompanyTrainingTooLong">(error, TOO_LONG_CODE);
+  if (!tooLong) return null;
+  const base = `/c/${session.orgSlug}`;
+  const named = tooLong.inbound_line_id
+    ? { to: `${base}/inbound/${tooLong.inbound_line_id}`, label: "Open the Inbound line" }
+    : tooLong.campaign_id
+      ? { to: `${base}/campaigns/${tooLong.campaign_id}`, label: "Open the campaign" }
+      : tooLong.agent_id
+        ? { to: `${base}/agents/${tooLong.agent_id}`, label: "Open the agent" }
+        : null;
   return (
     <div className="flex flex-wrap gap-2">
-      <Link href={href(`/c/${session.orgSlug}/inbound`)} className={SECONDARY_BUTTON_SM}>
-        Open Inbound lines
-      </Link>
-      <Link href={href(`/c/${session.orgSlug}/campaigns`)} className={SECONDARY_BUTTON_SM}>
-        Open Campaigns
-      </Link>
+      {named ? (
+        <Link href={href(named.to)} className={SECONDARY_BUTTON_SM}>
+          {named.label}
+        </Link>
+      ) : (
+        <>
+          <Link href={href(`${base}/inbound`)} className={SECONDARY_BUTTON_SM}>
+            Open Inbound lines
+          </Link>
+          <Link href={href(`${base}/campaigns`)} className={SECONDARY_BUTTON_SM}>
+            Open Campaigns
+          </Link>
+        </>
+      )}
     </div>
   );
 }

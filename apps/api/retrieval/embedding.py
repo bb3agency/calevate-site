@@ -44,7 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.llm_models import client_content_data_use_reason
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.billing.rates import llm_price_is_billable
-from apps.api.copilot.consent import read_consent
+from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core import provider_health
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -185,21 +185,6 @@ def embedding_leg() -> ChatLeg | None:
     )
 
 
-async def tenant_allows_embedding(session: AsyncSession, *, tenant_id: UUID) -> bool:
-    """May this account's content be sent to the embedding provider?
-
-    Only once its owner has turned Pip on (`copilot/consent`, D-788): the sub-processor and
-    privacy pages promise that nothing from an account reaches the language-model providers
-    before that, and an embedding sends the account's knowledge, calls and leads to one.
-    The same answer whoever is asking, the admin console included — its Pip has no consent
-    of its own, but the data is still the client's. A refused account's rows stay `pending`
-    and are embedded by the first sweep after the owner turns Pip on.
-
-    `session` must be scoped to `tenant_id` (RLS on `copilot_consents`).
-    """
-    return (await read_consent(session, tenant_id=tenant_id)).unmasked
-
-
 async def embed_query_vector(
     session: AsyncSession, *, tenant_id: UUID, question: str, feature: str
 ) -> list[float] | None:
@@ -235,7 +220,7 @@ async def embed_query_vector(
     if leg is None:
         log.info("query_embedding_no_provider", extra={"feature": feature})
         return None
-    if not await tenant_allows_embedding(session, tenant_id=tenant_id):
+    if not await account_content_may_reach_models(session, tenant_id=tenant_id):
         log.info("query_embedding_no_consent", extra={"feature": feature})
         return None
     try:
@@ -344,6 +329,5 @@ __all__ = [
     "embedding_leg",
     "embedding_price_is_billable",
     "stored_vector_width",
-    "tenant_allows_embedding",
     "vector_literal",
 ]

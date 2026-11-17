@@ -84,6 +84,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
+from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -100,7 +101,6 @@ from apps.api.retrieval.embedding import (
     embedding_leg,
     embedding_price_is_billable,
     stored_vector_width,
-    tenant_allows_embedding,
 )
 from apps.workers import chat, gemini_native
 from apps.workers.kb_gloss import tenants_holding_knowledge
@@ -454,7 +454,7 @@ async def embed_knowledge_chunks(ctx: dict[str, Any]) -> str:
             break
         try:
             async with tenant_session(tenant_id) as session:
-                allowed = await tenant_allows_embedding(session, tenant_id=tenant_id)
+                allowed = await account_content_may_reach_models(session, tenant_id=tenant_id)
             if not allowed:
                 continue
             remaining = min(MAX_CHUNKS_PER_TENANT, budget)

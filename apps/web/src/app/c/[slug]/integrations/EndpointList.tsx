@@ -85,6 +85,7 @@ export function EndpointList({
       cell: (endpoint) => (
         <span className="text-xs text-ink-muted">
           {endpoint.events.map((name) => eventLabel(name) ?? name).join(", ")}
+          {endpoint.include_raw_phone && <span className="block">with full phone numbers</span>}
         </span>
       ),
     },

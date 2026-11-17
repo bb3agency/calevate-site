@@ -260,6 +260,51 @@ async def test_an_erasure_deletes_the_dead_letter_holding_this_person() -> None:
     assert await _outbox(message_id) is None, "the dead letter still holds this person's lead"
 
 
+async def test_a_delivery_with_the_number_masked_is_found_by_the_persons_lead() -> None:
+    """FAILS IF: a queued lead delivery survives the erasure because its endpoint was sent
+    the number masked (the default), so no digits in the body name this person. The lead
+    id does, and the body still holds their name."""
+    created = await create_org_with_receptionist(
+        name="DLQ Clinic",
+        slug=f"dlq-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id = uuid.UUID(str(created["id"]))
+    phone = _phone()
+    lead_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status) "
+                "VALUES (:i, :t, :a, :p, 'Padma Reddy', 'inbound_call', 'new')"
+            ),
+            {"i": lead_id, "t": tenant_id, "a": created["agent_id"], "p": phone},
+        )
+    message_id = uuid7()
+    _SEEDED_OUTBOX.append(message_id)
+    payload = {
+        "tenant_id": str(tenant_id),
+        "event": "lead.created",
+        "data": {"lead_id": str(lead_id), "name": "Padma Reddy", "phone": "[redacted]"},
+    }
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO outbox_messages (id, queue, job, payload, status, "
+                "attempt_count, created_at, updated_at) VALUES (:i, 'default', "
+                "'deliver_outbound_webhook', CAST(:p AS jsonb), 'pending', 0, now(), now())"
+            ),
+            {"i": message_id, "p": json.dumps(payload)},
+        )
+
+    await _erase_subject(tenant_id, phone)
+
+    assert await _outbox(message_id) is None, "a masked delivery still names the erased lead"
+
+
 async def test_a_queued_delivery_cannot_fire_after_the_certificate_was_issued() -> None:
     """`_erase_scheduled_callbacks`' argument, one table along: a `pending` row is work
     that has not happened yet, and it names somebody we have just certified as erased."""

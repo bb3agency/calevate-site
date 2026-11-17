@@ -71,6 +71,11 @@ export class ApiProblem extends Error {
    * to this), so a screen that wants the server's headline AND its sentence reads both.
    */
   readonly title?: string;
+  /**
+   * The body as it arrived, for a problem type's typed extension members (RFC 9457 §3.2).
+   * Read through `problemOf`, never by poking at keys here.
+   */
+  readonly body: Readonly<Record<string, unknown>>;
 
   constructor(status: number, body: Record<string, unknown>, retryAfterSeconds?: number) {
     // `??` alone was not enough and the gap only opened in production: `??` falls
@@ -92,7 +97,28 @@ export class ApiProblem extends Error {
     this.traceId = text(body.trace_id);
     this.retryAfterSeconds = retryAfterSeconds;
     this.title = text(body.title);
+    this.body = body;
   }
+}
+
+/** The problem schemas that carry extension members (`ProblemExtension` on the server). */
+type ProblemSchemas = {
+  [N in keyof components["schemas"]]: components["schemas"][N] extends components["schemas"]["ProblemBody"]
+    ? N
+    : never;
+}[keyof components["schemas"]];
+
+/**
+ * `error` as the typed problem `schema` describes, when it is the problem `code` names;
+ * otherwise undefined. The one way a screen reads a problem's extension members. Every
+ * member is optional on the wire (an absent one is left out), so read each as maybe-missing.
+ */
+export function problemOf<N extends ProblemSchemas>(
+  error: unknown,
+  code: string,
+): Partial<components["schemas"][N]> | undefined {
+  if (!(error instanceof ApiProblem) || error.code !== code) return undefined;
+  return error.body as Partial<components["schemas"][N]>;
 }
 
 /**
