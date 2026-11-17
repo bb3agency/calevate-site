@@ -184,6 +184,12 @@ async def _set_voice(tenant_id: UUID, agent_id: UUID, voice: str | None) -> None
         )
 
 
+def _after_top_up(seconds: int) -> datetime:
+    """The end of a call of `seconds` that STARTS now, after the top-up just made: a trial
+    call is free by its start, so a call ending now would have begun inside the trial."""
+    return datetime.now(UTC) + timedelta(seconds=seconds + 1)
+
+
 async def _call(
     tenant_id: UUID, agent_id: UUID, *, seconds: int, ended: datetime, spend: str = "0.5000"
 ) -> UUID:
@@ -344,9 +350,9 @@ async def test_one_clients_money_walks_a_month_and_its_boundary_to_the_paisa(
     #    rupee on the usage panel, the limit panel, the drawdown, the statement and the
     #    document.
     await _set_voice(tenant_id, outbound_agent, None)
-    await _call(tenant_id, outbound_agent, seconds=125, ended=datetime.now(UTC))
+    await _call(tenant_id, outbound_agent, seconds=125, ended=_after_top_up(125))
     await _set_voice(tenant_id, outbound_agent, _STUDIO_VOICE)
-    await _call(tenant_id, outbound_agent, seconds=61, ended=datetime.now(UTC))
+    await _call(tenant_id, outbound_agent, seconds=61, ended=_after_top_up(61))
     await _set_voice(tenant_id, outbound_agent, None)
     calls_spent = await _call_debits(tenant_id, month)
     assert calls_spent > 0

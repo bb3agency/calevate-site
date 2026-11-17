@@ -69,10 +69,12 @@ throughout the trial, exactly as it always did. That is not incidental: it is th
 reason anybody can answer "what is this trial costing us", which is the mitigation the
 founder chose in place of a spend ceiling (see below). What does not happen is
 `billing.service.charge_for_call` against the client's wallet, and the decision is taken in
-`apps/workers/pipeline.py` on the CALL'S OWN INSTANT (`trial_covers`) rather than on the
-clock at settlement — an ARQ retry ladder or a reconciliation poller can settle a call
-hours after it ended, and a client must never be charged for a minute that was free when
-they spoke it.
+`apps/workers/pipeline.py` on the instant the call STARTED (`trial_covers`) rather than on
+its end or the clock at settlement — a top-up can convert the trial while the call is
+running, an ARQ retry ladder or a reconciliation poller can settle a call hours after it
+ended, and a call that was free when it began stays free (D-1013). The
+decision is stamped on the call's rows (`TRIAL_COVERED_META_KEY`), because the rows are
+dated at the call's end.
 
 --------------------------------------------------------------------------------
 4. NO SPEND CEILING, BY EXPLICIT CHOICE — SO DAYS ARE BOUNDED TWICE AND COST IS PUBLISHED
@@ -361,10 +363,11 @@ async def trial_covers(session: AsyncSession, *, tenant_id: UUID, at: datetime) 
 
     Distinct from `trial_billing_active` because the two ask about different instants and
     the difference is money. The gate asks about NOW: may this call be placed. The meter
-    asks about THEN: was the call that just settled free when it was spoken. A call can end
-    inside a trial and settle after it — an ARQ retry ladder, or the reconciliation poller
-    picking up a call the webhook lost — and charging a client for a minute that was free
-    when they used it is the one direction of error they will notice and be right about.
+    asks about THEN: was the call that just settled free when it STARTED (the meter passes
+    the call's start). A call can start inside a trial and end or settle after it — a
+    top-up converting the trial mid-call, an ARQ retry ladder, or the reconciliation poller
+    picking up a call the webhook lost — and charging a client for a call that was free
+    when it began is the one direction of error they will notice and be right about.
 
     Bounded at BOTH ends by the trial's own instants, so a trial stopped early does not go
     on covering calls placed after the operator stopped it. `ended_at` beats `ends_at`
@@ -385,15 +388,31 @@ _TRIAL_COVERS_SQL: Final = (
 )
 
 
+#: The `usage_events.meta` key the meter stamps with its trial decision (`trial_covers` at
+#: the call's START). The rows are dated at the call's END, so a call that began inside a
+#: trial and ended after a first payment converted it cannot be classified from
+#: `occurred_at`; the decision travels on the row instead.
+TRIAL_COVERED_META_KEY: Final = "trial_covered"
+
 #: `trial_covers` as a predicate on a `usage_events` row, for the readers that split a month
-#: into calls a trial paid for and calls the client paid for. The meter decides on the
-#: call's own instant and stamps the rows at that same instant, so `occurred_at` answers
-#: the question the meter asked. EVERY trial is consulted, not only the newest: a call
-#: covered by an earlier trial stays covered after a later one opens.
+#: into calls a trial paid for and calls the client paid for. In order:
+#:
+#: 1. the meter's own stamp on a metered call row;
+#: 2. for a correction row (`unit_type = 'other'`, written later beside a call by
+#:    `cost_unit` or `engine_charges` and carrying no stamp), the stamp on its call's rows;
+#: 3. for a row with no stamp anywhere (metered before the stamp existed, a number's
+#:    rental, an AI row), `occurred_at` inside any trial window — which is exactly what the
+#:    meter asked of those rows when it wrote them. EVERY trial is consulted, not only the
+#:    newest: a call covered by an earlier trial stays covered after a later one opens.
 ON_TRIAL_ROW_SQL: Final = (
+    "COALESCE("
+    f"(usage_events.meta ->> '{TRIAL_COVERED_META_KEY}')::boolean, "
+    "CASE WHEN usage_events.unit_type = 'other' AND usage_events.call_id IS NOT NULL THEN "
+    f"(SELECT bool_or((m.meta ->> '{TRIAL_COVERED_META_KEY}')::boolean) FROM usage_events m "
+    "WHERE m.tenant_id = usage_events.tenant_id AND m.call_id = usage_events.call_id) END, "
     "EXISTS (SELECT 1 FROM tenant_trials tt WHERE tt.tenant_id = usage_events.tenant_id "
     "AND usage_events.occurred_at >= tt.started_at "
-    "AND usage_events.occurred_at < LEAST(tt.ends_at, COALESCE(tt.ended_at, tt.ends_at)))"
+    "AND usage_events.occurred_at < LEAST(tt.ends_at, COALESCE(tt.ended_at, tt.ends_at))))"
 )
 
 _TRIAL_OVERLAPS_SQL = (
@@ -913,6 +932,7 @@ __all__ = [
     "REPLACED_REASON",
     "TRIAL_ACTIVE",
     "TRIAL_CONVERTED",
+    "TRIAL_COVERED_META_KEY",
     "TRIAL_EXPIRED",
     "TRIAL_HUMAN_OUTCOMES",
     "TRIAL_STOPPED",

@@ -101,7 +101,12 @@ async def _release_failed_refund(
         currency=SUPPORTED_CURRENCY,
     )
     async with tenant_session(tenant_id) as session:
-        key = await claim_of_failed_refund(session, tenant_id=tenant_id, refund=event)
+        key = await claim_of_failed_refund(
+            session,
+            tenant_id=tenant_id,
+            refund=event,
+            issued_by_us=_tenant_of_notes(refund.notes) is not None,
+        )
         if key is None:
             return
         await release_refund_claim(

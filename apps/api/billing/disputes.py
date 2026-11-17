@@ -47,9 +47,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.billing.auto_recharge import owe_dispute_outcome_notice
 from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, OPEN_STATES, dispute_hold_active
 from apps.api.billing.first_payment import alert_payment_reversed
-from apps.api.billing.lots import split_meta
+from apps.api.billing.lots import read_lot, return_credits, split_meta
 from apps.api.billing.payments import PROVIDER, paise_to_inr
 from apps.api.billing.service import (
+    EntryLot,
+    LotRates,
     apply_credit_to_lots,
     find_entry_by_ref,
     find_topup,
@@ -435,6 +437,9 @@ async def _hold(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFacts
         # The part of the hold met from credit that had lapsed: given back by a
         # compensating row, so a release must not credit it a second time.
         meta["expiry_restated_inr"] = str(removal.expiry_restated_inr)
+    # How far the hold restated the purchase's lot down, always written (zero included) so a
+    # release can tell this hold from one written before the key existed.
+    meta["lot_restated_inr"] = str(removal.lot_restated_inr)
     await record_entry(
         session,
         tenant_id=tenant_id,
@@ -443,6 +448,7 @@ async def _hold(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFacts
         ref=ref,
         meta=meta,
         allow_negative=True,
+        paired_with_inr=removal.expiry_restated_inr,
     )
     await session.execute(
         text("UPDATE payment_disputes SET hold_inr = :amt WHERE dispute_id = :did"),
@@ -460,6 +466,41 @@ async def _is_fee_payment(session: AsyncSession, *, payment_id: str) -> bool:
         {"ref": payment_id},
     )
     return row.first() is not None
+
+
+async def _return_to_held_lots(
+    session: AsyncSession,
+    *,
+    lot: EntryLot | None,
+    lot_restated: Decimal,
+    taken: Any,
+    amount: Decimal,
+    balance_after: Decimal,
+) -> Decimal:
+    """Give a released hold's credit back where the hold took it, after the release has
+    repaid any overdraft (plan §0 Q5); return how much credit went back.
+
+    First the purchase's own lot, if the hold restated it down (`lot_restated`): its
+    `credits_total` back in full, its `credits_remaining` by what the restatement took off
+    it (the restatement less the splits that met its shortfall). Then each `meta.lots`
+    split to its lot, in the order taken. A lot that can no longer take credit back
+    (lapsed, re-priced) is skipped and its share is left for the caller to place."""
+    overdraft_before = max(-(balance_after - amount), Decimal("0"))
+    budget = amount - min(amount, overdraft_before)
+    returned = Decimal("0")
+    if lot is not None and lot_restated > 0:
+        shortfall = sum((Decimal(str(s["credits"])) for s in taken or []), Decimal("0"))
+        give = min(max(lot_restated - shortfall, Decimal("0")), budget)
+        if await return_credits(session, lot_id=lot.lot_id, credits_inr=give, sold=lot_restated):
+            returned += give
+    for split in taken or []:
+        lot_id = split.get("lot_id")
+        give = min(Decimal(str(split["credits"])), budget - returned)
+        if lot_id is None or give <= 0:
+            continue
+        if await return_credits(session, lot_id=UUID(lot_id), credits_inr=give):
+            returned += give
+    return returned
 
 
 async def _release(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFacts) -> bool:
@@ -484,12 +525,15 @@ async def _release(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFa
     ref = f"{DISPUTE_RELEASE_KIND}:{dispute.dispute_id}{open_rounds[-1]}"
     # What the hold actually took: its own row, less any lapsed credit the hold was met
     # from and that a compensating row already gave back.
-    restated = (
+    restated, taken, lot_restated = (
         await session.execute(
-            text("SELECT meta->>'expiry_restated_inr' FROM credit_ledger WHERE id = :id"),
+            text(
+                "SELECT meta->>'expiry_restated_inr', meta->'lots', meta->>'lot_restated_inr' "
+                "FROM credit_ledger WHERE id = :id"
+            ),
             {"id": hold.entry_id},
         )
-    ).scalar()
+    ).one()
     amount = abs(hold.amount_inr) - Decimal(str(restated or 0))
     balance = await record_entry(
         session,
@@ -515,18 +559,49 @@ async def _release(session: AsyncSession, *, tenant_id: UUID, dispute: DisputeFa
             session, tenant_id=tenant_id, ledger_entry_id=paid.entry_id
         )
     )
+    # THE CREDIT GOES BACK WHERE THE HOLD TOOK IT FROM. A hold larger than what was left on
+    # the disputed purchase's lot was met from later lots too (`meta.lots`), and restating
+    # the whole release onto the one lot moved that credit to the disputed purchase's rates
+    # and left its lot claiming a purchase larger than the one made. A hold written before
+    # `lot_restated_inr` existed records too little to undo it, and keeps the restatement.
+    legacy = lot_restated is None
+    returned = (
+        Decimal("0")
+        if legacy
+        else await _return_to_held_lots(
+            session,
+            lot=lot,
+            lot_restated=Decimal(str(lot_restated)),
+            taken=taken,
+            amount=amount,
+            balance_after=balance.amount_inr,
+        )
+    )
+    if returned >= amount:
+        return True
+    # What is left: the overdraft the release repays, the part of the hold that reached no
+    # lot, and the share of a lot that could no longer take it back. It opens its own lot,
+    # at the disputed purchase's rates when there is one.
+    purchase = None if lot is None else await read_lot(session, lot_id=lot.lot_id)
     await apply_credit_to_lots(
         session,
         tenant_id=tenant_id,
-        credits_inr=amount,
-        balance_after=balance.amount_inr,
-        rates=(await rate_card_at(session, at=datetime.now(UTC))).for_purchase(
-            pack_id=None, amount_inr=amount
+        credits_inr=amount - returned,
+        balance_after=balance.amount_inr - returned,
+        rates=(
+            LotRates(
+                clear_inr_per_min=purchase.clear_inr_per_min,
+                studio_inr_per_min=purchase.studio_inr_per_min,
+            )
+            if purchase is not None
+            else (await rate_card_at(session, at=datetime.now(UTC))).for_purchase(
+                pack_id=None, amount_inr=amount
+            )
         ),
         source="topup",
         pack_id=None,
         ledger_entry_id=released.entry_id,
-        restate_lot_id=None if lot is None else lot.lot_id,
+        restate_lot_id=lot.lot_id if legacy and lot is not None else None,
     )
     return True
 

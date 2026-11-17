@@ -82,7 +82,7 @@ from apps.api.billing.rates import (
     is_surchargeable_llm_model,
     stored_voice_tier,
 )
-from apps.api.billing.trials import counter_epoch, read_trial
+from apps.api.billing.trials import ON_TRIAL_ROW_SQL, counter_epoch, read_trial
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -421,8 +421,17 @@ async def record_entry(
     meta: dict[str, Any] | None = None,
     allow_negative: bool = False,
     allow_zero: bool = False,
+    paired_with_inr: Decimal = Decimal("0"),
 ) -> Balance:
     """Append one entry and return the new balance.
+
+    `paired_with_inr` is the delta of the OTHER row of a pair written as one act: the
+    lapsed-credit give-back (`_restate_lapsed_credit`, +X) and the reversal it nets against
+    (-X or more). The crossings below — the low/empty email, the inbound cutover, the hold
+    settlement — are measured from `current - paired_with_inr`, so the pair reads as the
+    one movement it is: the give-back crosses nothing, and the reversal is measured from
+    the balance before the give-back. Without it, a wallet already emptied by the lapse
+    was told it was empty again.
 
     `allow_negative=False` refuses a DEBIT that would leave the balance below zero. The
     exception is deliberate: usage recorded AFTER a call completes must always land,
@@ -510,7 +519,8 @@ async def record_entry(
     #
     # The payload carries the tenant and nothing else: the job RE-READS `credits_exhausted`
     # rather than trusting a verdict that was true when it was queued (see the job).
-    if crossed_zero(current, new_balance) is not None:
+    before = current - paired_with_inr
+    if crossed_zero(before, new_balance) is not None:
         await enqueue_outbox(
             session,
             job=INBOUND_CUTOVER_JOB,
@@ -519,12 +529,12 @@ async def record_entry(
     # Back to zero or more ends a hold on the client's rented numbers (D-860), so the hold
     # job is owed a pass now rather than at its next hourly tick. Imported here:
     # `campaigns.number_holds` reads balances through this module.
-    if current < 0 <= new_balance:
+    if before < 0 <= new_balance:
         from apps.api.campaigns.number_holds import queue_hold_settlement
 
         await queue_hold_settlement(session, tenant_id=tenant_id)
     line = await low_balance_line(session, tenant_id=tenant_id)
-    level = crossed_downwards(current, new_balance, line)
+    level = crossed_downwards(before, new_balance, line)
     if level is not None:
         await enqueue_outbox(
             session,
@@ -1531,6 +1541,10 @@ class CreditRemoval:
     #: (`_restate_lapsed_credit`), by a compensating row already written; the caller's
     #: own row still records the whole reversal.
     expiry_restated_inr: Decimal = Decimal("0.00")
+    #: How far the first shape restated the corrected purchase's lot DOWN (`credits_total`
+    #: fell by this; `credits_remaining` by this less the splits). Zero in the second shape.
+    #: A dispute release reverses exactly this (`disputes._release`).
+    lot_restated_inr: Decimal = Decimal("0.00")
 
 
 #: `credit_ledger.meta.kind` of the row that gives back credit an expiry took, because a
@@ -1581,6 +1595,8 @@ async def _restate_lapsed_credit(
             "credits_inr": str(restated),
         },
         allow_negative=True,
+        # The reversal the caller writes next takes at least this back.
+        paired_with_inr=-restated,
     )
     return restated
 
@@ -1679,7 +1695,7 @@ async def remove_credit_from_lots(
             session, lot_id=lot.lot_id, delta=-amount_inr
         )
         if restated.shortfall <= 0:
-            return CreditRemoval(splits=[], overdraft_inr=_ZERO_PAISE)
+            return CreditRemoval(splits=[], overdraft_inr=_ZERO_PAISE, lot_restated_inr=amount_inr)
         # `AiAssistDemand` and not a call: this is rupees off a wallet with no minutes and
         # no voice behind them, which is precisely what that demand means (ADDENDUM 2
         # §2.1). The splits land in the adjustment row's `meta.lots` beside the second
@@ -1689,7 +1705,11 @@ async def remove_credit_from_lots(
             tenant_id=tenant_id,
             demand=credit_lots.AiAssistDemand(credits=restated.shortfall),
         )
-        return CreditRemoval(splits=shortfall_splits, overdraft_inr=_overdraft_of(shortfall_splits))
+        return CreditRemoval(
+            splits=shortfall_splits,
+            overdraft_inr=_overdraft_of(shortfall_splits),
+            lot_restated_inr=amount_inr,
+        )
     demand = credit_lots.AiAssistDemand(credits=amount_inr)
     splits = (
         await credit_lots.consume(session, tenant_id=tenant_id, demand=demand)
@@ -2026,6 +2046,12 @@ _IST_MONTH = "to_char(occurred_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM')"
 # HALF-OPEN, `>= :month_from AND < :month_to`, the same SQL:2011 application-time reading
 # `plan_in_effect_sql` uses: no instant lands in two months and none lands in neither.
 _IST_MONTH_WINDOW = "occurred_at >= :month_from AND occurred_at < :month_to"
+
+
+def _paid_rows(paid_only: bool) -> str:
+    """`AND NOT <the trial predicate>` for a paid period (`usage_summary`'s `paid_only`), or
+    nothing."""
+    return f" AND NOT {ON_TRIAL_ROW_SQL}" if paid_only else ""
 
 
 def _month_bounds(month: str, *, since: datetime | None = None) -> dict[str, datetime]:
@@ -2388,7 +2414,12 @@ class MonthSeconds:
 
 
 async def rung_seconds(
-    session: AsyncSession, *, tenant_id: UUID, month: str, since: datetime | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    month: str,
+    since: datetime | None = None,
+    paid_only: bool = False,
 ) -> MonthSeconds:
     """(SECONDS, our cost) per TTS rung — and per surcharged model — for one month. THE query.
 
@@ -2425,7 +2456,7 @@ async def rung_seconds(
                 f"    {_BILLED_SECS_SQL} AS secs, "
                 f"   {_ROW_COST_SQL} AS cost "
                 f"  FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} "
-                f"  AND {_NOT_AI_UNITS}"
+                f"  AND {_NOT_AI_UNITS}{_paid_rows(paid_only)}"
                 ") attributed GROUP BY tier, llm_model"
             ),
             {"tid": tenant_id, **_month_bounds(month, since=since), **_surcharge_binds()},
@@ -2506,7 +2537,12 @@ class MonthTotals:
 
 
 async def _tier_totals(
-    session: AsyncSession, *, tenant_id: UUID, month: str, since: datetime | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    month: str,
+    since: datetime | None = None,
+    paid_only: bool = False,
 ) -> MonthTotals:
     """(minutes, our cost) per TTS rung — and minutes per surcharged model — for one month.
 
@@ -2553,7 +2589,9 @@ async def _tier_totals(
     sentence is corrected rather than deleted because a reader who finds the old claim
     elsewhere should be able to see it was retired and why.
     """
-    read = await rung_seconds(session, tenant_id=tenant_id, month=month, since=since)
+    read = await rung_seconds(
+        session, tenant_id=tenant_id, month=month, since=since, paid_only=paid_only
+    )
     return MonthTotals(
         by_rung=rung_minutes(read.by_rung),
         cost_by_rung=read.cost_by_rung,
@@ -2854,7 +2892,12 @@ async def month_increment(
 
 
 async def _month_call_count(
-    session: AsyncSession, *, tenant_id: UUID, month: str, since: datetime | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    month: str,
+    since: datetime | None = None,
+    paid_only: bool = False,
 ) -> int:
     """Distinct calls with usage in `month`, floored at `since` (`_month_bounds`).
 
@@ -2873,7 +2916,7 @@ async def _month_call_count(
             text(
                 "SELECT COUNT(DISTINCT call_id) "
                 f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} "
-                "AND unit_type <> 'other'"
+                f"AND unit_type <> 'other'{_paid_rows(paid_only)}"
             ),
             {"tid": tenant_id, **_month_bounds(month, since=since)},
         )
@@ -2944,14 +2987,30 @@ async def usage_summary(
     # over or stopped the numbers should start from 0 again". Nothing is deleted to make
     # that true; the WINDOW moves, and `usage_events` keeps every row (hard rule 4).
     epoch = await counter_epoch(session, tenant_id=tenant_id)
+    trial = await read_trial(session, tenant_id=tenant_id)
+    trial_active = trial is not None and trial.is_active(at=at)
+    # WHETHER THE MONTH ON SCREEN IS THE ONE ON US. A running trial covers the open period
+    # only: a closed month was charged, and reading it while a later trial runs must still
+    # say what it cost rather than ₹0.00 "on us".
+    period_on_us = trial_active and period == today
+    # A PAID PERIOD COUNTS ONLY PAID CALLS. The window is dated by `occurred_at`, a call's
+    # END, and a trial call is free by its START, so a call that began inside the trial and
+    # ended after the first top-up lands inside the paid window with no debit behind it
+    # (`trials.ON_TRIAL_ROW_SQL` reads the meter's decision). Only an account that has had
+    # a trial (`epoch`) pays for the predicate.
+    paid_only = epoch is not None and not period_on_us
     # WHICH VOICE SPOKE THIS MONTH'S MINUTES, AND WHAT THE WALLET WAS ACTUALLY CHARGED
     # (D-547) — out of the ledger's own lot splits, over the same window as the minutes.
     lot_charges = await voice_tier_usage(session, tenant_id=tenant_id, month=period, since=epoch)
     voices = lot_charges.by_voice
-    totals = await _tier_totals(session, tenant_id=tenant_id, month=period, since=epoch)
+    totals = await _tier_totals(
+        session, tenant_id=tenant_id, month=period, since=epoch, paid_only=paid_only
+    )
     tier_minutes = totals.by_rung
     minutes = sum(tier_minutes.values(), _ZERO_PAISE)
-    calls = await _month_call_count(session, tenant_id=tenant_id, month=period, since=epoch)
+    calls = await _month_call_count(
+        session, tenant_id=tenant_id, month=period, since=epoch, paid_only=paid_only
+    )
 
     # WHICH PLAN PRICES THIS MONTH. Not the newest row — the row whose valid-time
     # window contains `priced_at` (`billing/plans.py`). For a closed month that instant
@@ -3072,12 +3131,7 @@ async def usage_summary(
     # IS THIS CLIENT'S CALLING ON US RIGHT NOW (D-536)? Asked AFTER the runway above so
     # the trial's answer overrides it rather than being computed around it, and asked as a
     # fact about the account today for the runway, the same reading `capped` takes.
-    trial = await read_trial(session, tenant_id=tenant_id)
-    trial_active = trial is not None and trial.is_active(at=at)
-    # WHETHER THE MONTH ON SCREEN IS THE ONE ON US. A running trial covers the open period
-    # only: a closed month was charged, and reading it while a later trial runs must still
-    # say what it cost rather than ₹0.00 "on us".
-    period_on_us = trial_active and period == today
+    # (`trial`, `trial_active` and `period_on_us` are read above, before the window.)
     if trial_active:
         # A trial bypasses the credit gate entirely (`compliance.service.credits_exhausted`),
         # so a wallet balance is not what limits this client's calling and quoting minutes

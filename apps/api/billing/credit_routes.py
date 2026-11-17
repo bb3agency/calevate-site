@@ -1579,6 +1579,7 @@ async def record_adjustment(
         #   the Literal in `billing/lots.py` and a migration to move together for a
         #   distinction the `corrects_entry_id` on the row already carries.
         overdraft = _ZERO
+        given_back = _ZERO
         if delta < 0:
             returned = await remove_credit_from_lots(
                 scoped,
@@ -1587,6 +1588,7 @@ async def record_adjustment(
                 amount_inr=amount,
             )
             overdraft = returned.overdraft_inr
+            given_back = returned.expiry_restated_inr
             if returned.splits:
                 meta["lots"] = split_meta(returned.splits)
         balance = await record_entry(
@@ -1601,6 +1603,7 @@ async def record_adjustment(
             # the balance says what it says. What that COSTS the client is answered by
             # `stops_dialling` below rather than by refusing to record the truth.
             allow_negative=True,
+            paired_with_inr=given_back,
         )
         written = await _find_entry_by_ref(
             scoped, tenant_id=tenant_id, reason="adjustment", ref=ref

@@ -134,7 +134,7 @@ from apps.api.billing.service import (
     plan_tier_of,
     rate_card_at,
 )
-from apps.api.billing.trials import trial_covers
+from apps.api.billing.trials import TRIAL_COVERED_META_KEY, trial_covers
 from apps.api.billing.tts_speaking_rate import TTS_CHARACTERS_META_KEY, bump_speaking_rate
 from apps.api.billing.tts_volume import (
     CHARS_PER_KCHAR,
@@ -4577,12 +4577,28 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             return 0
 
         duration_s = _billable_seconds(snapshot, tenant_id=tenant_id, call_id=call_id)
+        # The call's instant, read ONCE: the rows' `occurred_at`, the IST month the counters
+        # and rates resolve at all use it. With no `ended_at`, a second clock read could fall
+        # past IST midnight on the 1st and count the call into a month its own usage rows
+        # are not in.
+        occurred_at = snapshot.ended_at or datetime.now(UTC)
+        # WAS THIS CALL ON US: asked about the instant the call STARTED (D-1013),
+        # not its end and never the clock at settlement. A top-up that converts a
+        # trial while the call is running does not charge that call, and an ARQ retry or the
+        # reconciliation poller settling it hours later cannot either. With no engine start
+        # time, the start is the end less the billed duration.
+        call_started_at = snapshot.started_at or occurred_at - timedelta(seconds=float(duration_s))
+        on_us = await trial_covers(session, tenant_id=tenant_id, at=call_started_at)
         turns, agent_chars = await _agent_transcript(session, tenant_id=tenant_id, call_id=call_id)
         spoken_chars, spoken_source = spoken_characters(snapshot.tts_characters, agent_chars)
         meta = _json(
             {
                 "engine": snapshot.engine,
                 "engine_call_id": snapshot.engine_call_id,
+                # The trial decision above, stamped because it is not re-derivable from
+                # `occurred_at` (the call's END): every reader that splits trial from paid
+                # reads it through `trials.ON_TRIAL_ROW_SQL`.
+                TRIAL_COVERED_META_KEY: on_us,
                 # Which count the synthesis row and the fleet counters used (`spoken_characters`).
                 TTS_CHARACTERS_SOURCE_META_KEY: spoken_source,
                 # The engine's own count, null when it gave none: the speaking-rate board
@@ -4701,12 +4717,6 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         minutes = _ledger_minutes(duration_s)
         # WHAT THE CLIENT IS BILLED FOR, which is not the measured minute above: whole
         # 30-second steps, rounded up (D-681). `minutes` stays the cost rows' quantity.
-        #
-        # The call's instant, read ONCE: the rows' `occurred_at`, the IST month the counters
-        # and rates resolve at and the trial question all use it. With no `ended_at`, a
-        # second clock read could fall past IST midnight on the 1st and count the call into
-        # a month its own usage rows are not in.
-        occurred_at = snapshot.ended_at or datetime.now(UTC)
         client_seconds = client_billed_seconds(duration_s, at=occurred_at)
         client_minutes = client_billed_minutes(duration_s, at=occurred_at)
         rows: list[tuple[str, Decimal, Decimal | None]] = [
@@ -4922,14 +4932,11 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # PREPAID HAS NO ALLOWANCE, so the debit needs no month arithmetic and can be
         # taken before the `spend_state` lock: every minute is charged at the list price.
         #
-        # AND NOTHING AT ALL IF THIS CALL WAS ON US (D-536). The question is asked about the
-        # CALL'S OWN INSTANT, not about the clock right now: an ARQ retry ladder or the
-        # reconciliation poller can settle a call hours after it ended, and charging a
-        # client for a minute that was free when they spoke it is the one direction of error
-        # they will notice and be right about. `usage_events` above is untouched — every
-        # minute and its real `unit_cost_paid` is still metered, which is the only reason
-        # anyone can say what a trial cost us. What does not happen is the wallet debit.
-        on_us = await trial_covers(session, tenant_id=tenant_id, at=occurred_at)
+        # AND NOTHING AT ALL IF THIS CALL WAS ON US (D-536; `on_us`, decided at the call's
+        # start above). `usage_events` above is untouched — every minute and its real
+        # `unit_cost_paid` is still metered, which is the only reason anyone can say what a
+        # trial cost us. What does not happen is the wallet debit.
+        #
         # AN INBOUND CALL ON AN EMPTY WALLET IS BILLED INTO OVERDRAFT (D-840, founder 20 Oct
         # 2026, replacing the 8 Sep rule that charged it nothing). The call was answered, so
         # its minutes are owed like an outbound call's last minutes; `charge_for_call`

@@ -14,6 +14,7 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON,
   Skeleton,
   formatCount,
   formatINR,
@@ -31,6 +32,7 @@ import {
   type TopUpIntent,
 } from "@/lib/api/billing";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { resolvePlaceholders } from "@/lib/legal/placeholders";
 import { formatPayableINR } from "@/lib/numberDisplay";
 import { CREDIT_WAIT_MS, useCreditLanding, type AwaitedCredit, type CreditLanding } from "@/lib/api/wallet";
 import { openRazorpayCheckout, paymentFailedProblem } from "@/lib/razorpayCheckout";
@@ -258,8 +260,9 @@ export function TopUp({ session }: { session: Session }) {
         )}
 
         {bankOnly && (
-          /* Honest and compact: no payment method and no contact channel is invented here,
-             because none has been chosen yet. */
+          /* The bank details come from us by email: the support mailbox for accounts and
+             billing (`SUPPORT_EMAIL`), the channel every other "contact us" button on the
+             client screens opens. Not Pip, which is off until the owner turns it on. */
           <div
             role="note"
             aria-label="Pay by bank transfer"
@@ -270,9 +273,14 @@ export function TopUp({ session }: { session: Session }) {
               <p className="font-medium text-ink">{TOPUP_COPY.bankTitle}</p>
               <p className="text-ink-muted">{TOPUP_COPY.bankOff}</p>
               <p className="text-ink-muted">{TOPUP_COPY.bankDetails}</p>
-              {/* SLOT: the "Get bank details" button goes here, full width on a phone,
-                  once the founder chooses how bank details are sent. Until then nothing
-                  is offered, because a button with nowhere to go is worse than none. */}
+              <a
+                className={`${SECONDARY_BUTTON} mt-2 w-full justify-center sm:w-auto`}
+                href={`mailto:${resolvePlaceholders("{{SUPPORT_EMAIL}}")}?subject=${encodeURIComponent(
+                  `Bank details for a top-up (${session.orgSlug})`,
+                )}`}
+              >
+                {TOPUP_COPY.bankAsk}
+              </a>
               <Why label="How it works">
                 <p>The credit appears here once the transfer lands.</p>
               </Why>
@@ -366,7 +374,8 @@ function PaymentOutcome({ landing }: { landing: CreditLanding }) {
 export const TOPUP_COPY = {
   bankTitle: "Pay by bank transfer",
   bankOff: "Card and UPI payment isn't on yet.",
-  bankDetails: "Ask us for our bank details.",
+  bankDetails: "We send our bank details by email.",
+  bankAsk: "Ask for bank details",
 } as const;
 
 /** The value of `choice` that means "Other amount", distinct from any pack id. */

@@ -697,16 +697,20 @@ async def test_the_refund_route_is_idempotent_on_a_second_click(
     tenant_id = await _tenant()
     pid = _payment_id("ROUTE2")
     await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
-    _install_refund(monkeypatch, _refund_ok(refund_id="rfnd_ONCE"))
+    """Once the first refund has processed, the second click is a NEW refund (lead decision
+    17 Nov 2026) and the payment ceiling refuses it before the provider is asked."""
+    seen = _install_refund(monkeypatch, _refund_ok(refund_id="rfnd_ONCE"))
 
     first = await issue_tenant_refund(
         tenant_id, RefundIn(payment_id=pid, reason="x"), _request(), _admin()
     )
-    second = await issue_tenant_refund(
-        tenant_id, RefundIn(payment_id=pid, reason="x"), _request(), _admin()
-    )
+    with pytest.raises(ProblemError) as refused:
+        await issue_tenant_refund(
+            tenant_id, RefundIn(payment_id=pid, reason="x"), _request(), _admin()
+        )
     assert first.recorded is True
-    assert second.recorded is False, "the same refund id credits the wallet only once"
+    assert refused.value.code == "refund_exceeds_payment"
+    assert len(seen) == 1, "the refusal never reaches the provider"
     assert len([r for r in await _ledger(tenant_id) if r[0] == "refund"]) == 1
 
 
@@ -1715,13 +1719,13 @@ async def test_a_charged_back_payment_is_never_refunded(
 async def test_a_second_click_on_one_refund_is_still_a_replay_and_not_a_breach(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The provider's idempotency key is `(payment_id, amount)`, so the same amount asked
-    twice can only collapse onto the refund that exists. It must stay the no-op it was
-    and must not be refused as a breach of a ceiling it does not move."""
+    """While the first refund is still in flight (accepted, not processed), the same amount
+    asked again carries its idempotency key and can only collapse onto it. It must stay a
+    no-op and must not be refused as a breach of a ceiling it does not move."""
     tenant_id = await _tenant()
     pid = _payment_id("REPLAY")
     await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
-    _install_refund(monkeypatch, _refund_by_amount("rfnd_REPLAY"))
+    seen = _install_refund(monkeypatch, _refund_ok(refund_id="rfnd_REPLAY", status="pending"))
 
     first = await issue_tenant_refund(
         tenant_id,
@@ -1735,8 +1739,9 @@ async def test_a_second_click_on_one_refund_is_still_a_replay_and_not_a_breach(
         _request(),
         _admin(),
     )
-    assert first.recorded is True
-    assert second.recorded is False
+    assert first.recorded is False and second.recorded is False
+    keys = {r.headers["X-Refund-Idempotency"] for r in seen}
+    assert len(seen) == 2 and len(keys) == 1, "the replay carries the first refund's key"
     async with tenant_session(tenant_id) as session:
         assert await payments.claimed_refund_total_inr(
             session, tenant_id=tenant_id, payment_id=pid
