@@ -19068,11 +19068,39 @@
             "title": "Procedure",
             "type": "array"
           },
+          "qa": {
+            "items": {
+              "$ref": "#/components/schemas/ScenarioQa"
+            },
+            "maxItems": 10,
+            "title": "Qa",
+            "type": "array"
+          },
+          "scripts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Scripts",
+            "type": "object"
+          },
           "sounds_like": {
             "default": "",
             "maxLength": 200,
             "title": "Sounds Like",
             "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "maximum": 12.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
           }
         },
         "required": [
@@ -52222,6 +52250,30 @@
           "count"
         ],
         "title": "ScenarioClassCount",
+        "type": "object"
+      },
+      "ScenarioQa": {
+        "additionalProperties": false,
+        "description": "A question the caller may ask in this scenario, and the answer to give.",
+        "properties": {
+          "answer": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          },
+          "question": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question",
+          "answer"
+        ],
+        "title": "ScenarioQa",
         "type": "object"
       },
       "ScheduleCallbackIn": {

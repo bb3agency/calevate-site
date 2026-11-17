@@ -3,6 +3,22 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.59 — 17-Nov-2026
+
+- **Call flow in steps and scenarios.** Each column is a step of the call, and a step holds
+  one or more scenarios, numbered 2.1, 2.2 and so on. Arrows run from each scenario's green
+  dot to the left of the scenarios it can go on to, green for a yes, orange for a no.
+- A scenario has a name, a description, its script in English and the campaign's languages,
+  any number of questions and answers, and its next scenarios (several can be ticked,
+  including End the call, Hand to a person and Offer a call back).
+- Add a scenario from a step's header, add a whole step at the end, or right-click a box for
+  Edit, Add a scenario below, Add a scenario in the next step, Move up or down and Delete.
+  Right-click a step to add to it or insert a step before it. Dragging a green dot onto a
+  box links them. A scenario's Step box moves it to another step.
+- Let Pip map the scenarios now writes steps with several scenarios each and links them.
+- The agent gets each scenario's script lines and answers in its instructions.
+
+
 ## 0.4.58 — 16-Nov-2026
 
 - **Each campaign speaks through its own calling agent**, in the voice you chose. Your

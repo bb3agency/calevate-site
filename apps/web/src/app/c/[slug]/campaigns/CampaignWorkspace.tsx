@@ -304,6 +304,13 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   // Pip rewrites one part in a chosen language; the draft then comes back for review here.
   const settings = useCampaignSettings(session, campaignId, space.agent_id).data;
   const main = settings ? (settings.overrides.language_primary ?? settings.defaults.language_primary) : null;
+  const flowLanguages = [
+    ...new Set(
+      [main, ...(settings?.overrides.languages_extra ?? settings?.defaults.languages_extra ?? [])].filter(
+        (t): t is string => Boolean(t),
+      ),
+    ),
+  ];
   const generatePart = settings
     ? {
         languages: settings.offered_languages.map((tag) => ({ tag, name: languageName(tag) })),
@@ -446,6 +453,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
               </div>
               <CampaignFlow
                 agentId={space.agent_id}
+                languages={flowLanguages}
                 script={script}
                 canWrite={canWrite}
                 refusal={refusal}

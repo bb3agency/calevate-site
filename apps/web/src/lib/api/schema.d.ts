@@ -21376,11 +21376,19 @@ export interface components {
             position?: components["schemas"]["CanvasPosition"] | null;
             /** Procedure */
             procedure?: components["schemas"]["ProcedureStep"][];
+            /** Qa */
+            qa?: components["schemas"]["ScenarioQa"][];
+            /** Scripts */
+            scripts?: {
+                [key: string]: string;
+            };
             /**
              * Sounds Like
              * @default
              */
             sounds_like: string;
+            /** Step */
+            step?: number | null;
         };
         /**
          * CopilotActionOut
@@ -33560,6 +33568,16 @@ export interface components {
             meaning: string;
             /** Scenario */
             scenario: number;
+        };
+        /**
+         * ScenarioQa
+         * @description A question the caller may ask in this scenario, and the answer to give.
+         */
+        ScenarioQa: {
+            /** Answer */
+            answer: string;
+            /** Question */
+            question: string;
         };
         /** ScheduleCallbackIn */
         ScheduleCallbackIn: {

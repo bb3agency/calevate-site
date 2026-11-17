@@ -172,13 +172,15 @@ PART_ASK: Final = (
 FLOW_PART: Final = "flow"
 #: The call's steps rewritten as the ways it is likely to go, each with its way out.
 FLOW_ASK: Final = (
-    "Rewrite only the steps of the campaign's call script as a flow of scenarios. Predict the "
-    "ways a call is likely to go: for example the person recognises the business, does not "
-    "remember it, is busy, is not interested, or has already done what the call asks. Make a "
-    "step for each scenario worth handling, and give each step its ways out (branches): when "
-    "the person says or does this, go to the step that handles it, to a call back, or to the "
-    "end of the call. Write each step's instruction in plain English and its sounds-like line "
-    "in {language}. Leave every other part of the script exactly as it is."
+    "Rewrite only the stages of the campaign's call script as a flow of steps and scenarios. "
+    "Each step is a moment of the call (for example: the greeting, whether they know the "
+    "business, what they need, the close); each stage is one scenario of a step, a way that "
+    "moment can go: for example the person recognises the business, does not remember it, is "
+    "busy, is not interested, or has already done what the call asks. Give each stage its "
+    "step number and in next the stages it can go on to (0 to end the call), so a step's "
+    "scenarios lead to the scenarios of a later step. Name each scenario for what happens. "
+    "Write each instruction in plain English and its sounds-like line in {language}. Keep "
+    "to 12 stages in all. Leave every other part of the script exactly as it is."
 ) + CLOSING_STEP
 
 Tone = Literal["warm", "respectful", "brief"]

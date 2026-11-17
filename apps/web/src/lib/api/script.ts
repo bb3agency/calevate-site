@@ -90,6 +90,12 @@ export interface ConversationStage {
   position?: { x: number; y: number } | null;
   /** The bend of the arrow to `otherwise` (or the next section). Layout only. */
   otherwise_via?: { x: number; y: number } | null;
+  /** The call flow step (column) this is a scenario of, 1-based; null: its own step. */
+  step?: number | null;
+  /** What to say in this scenario, by language tag. */
+  scripts?: Record<string, string>;
+  /** The caller's likely questions in this scenario, with the answers. */
+  qa?: { question: string; answer: string }[];
 }
 
 /** Mirrors `Objection`. */

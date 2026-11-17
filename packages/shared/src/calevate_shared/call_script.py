@@ -46,6 +46,7 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from calevate_shared.languages import built_languages
 from calevate_shared.opening_notices import NONE_SAID, OpeningNotices, SaidNotices, said_in
 
 # ---------------------------------------------------------------------------
@@ -413,6 +414,10 @@ MAX_SCRIPT_STAGES: Final = 12
 STAGE_TITLE_MAX: Final = 80
 STAGE_DETAIL_MAX: Final = 600
 MAX_STAGE_BRANCHES: Final = 6
+#: A scenario's own questions and answers, and the most one script line in one language may
+#: hold. They compile into `SCENARIO_HEADER`, outside the 600-character step detail.
+MAX_SCENARIO_QA: Final = 10
+SCENARIO_SCRIPT_MAX: Final = 1000
 MAX_STAGE_COLLECT: Final = 10
 #: A section's step-by-step list (D-908): the small actions a caller does one at a time, such as
 #: tapping through an app install. Ours, not a vendor limit: the list is compiled into the
@@ -624,6 +629,15 @@ class StageBranch(BaseModel):
     via: CanvasPosition | None = None
 
 
+class ScenarioQa(BaseModel):
+    """A question the caller may ask in this scenario, and the answer to give."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=300)
+    answer: str = Field(min_length=1, max_length=1000)
+
+
 class ProcedureStep(BaseModel):
     """One small step of a section's step-by-step list: what the agent asks the caller to do,
     and what tells it the caller has done it (empty: the caller says so)."""
@@ -666,6 +680,28 @@ class ConversationStage(BaseModel):
     position: CanvasPosition | None = None
     #: The bend of the arrow to `otherwise` (or the next section). Layout only.
     otherwise_via: CanvasPosition | None = None
+    #: The step (column) of the call flow this section is a scenario of, 1-based; None for a
+    #: script drawn before scenarios, where each section is its own step. Layout only: the
+    #: call order is the list order, which the builder keeps sorted by step.
+    step: int | None = Field(default=None, ge=1, le=MAX_SCRIPT_STAGES)
+    #: What to say in this scenario, by language tag (`en-IN`, `te-IN`, ...).
+    scripts: dict[str, str] = Field(default_factory=dict)
+    qa: list[ScenarioQa] = Field(default_factory=list, max_length=MAX_SCENARIO_QA)
+
+    @field_validator("scripts")
+    @classmethod
+    def _scripts_by_language(cls, value: dict[str, str]) -> dict[str, str]:
+        known = {lang.bcp47 for lang in built_languages()}
+        out: dict[str, str] = {}
+        for tag, text in value.items():
+            if tag not in known:
+                raise ValueError(f"{tag!r} is not a language an agent speaks")
+            line = text.strip()
+            if len(line) > SCENARIO_SCRIPT_MAX:
+                raise ValueError(f"a script line holds at most {SCENARIO_SCRIPT_MAX} characters")
+            if line:
+                out[tag] = line
+        return out
 
     @field_validator("collect")
     @classmethod
@@ -899,7 +935,34 @@ def _stage_detail(stage: ConversationStage) -> str:
         detail += f" It sounds like: {_quote(stage.sounds_like)}"
     if stage.procedure:
         detail += f" {procedure_pointer(stage.name)}"
+    if stage.scripts or stage.qa:
+        detail += f" {scenario_pointer(stage.name)}"
     return detail
+
+
+#: Each scenario's script lines by language and its own questions and answers.
+SCENARIO_HEADER: Final = "[SCENARIO SCRIPTS]"
+SCENARIO_LEAD: Final = (
+    "What to say in each scenario. Use the line in the caller's language, in your own natural "
+    "words; answer their questions from these answers."
+)
+SCENARIO_POINTER: Final = "Its script and answers are under {name} in {header}."
+
+
+def scenario_pointer(name: str) -> str:
+    """The sentence a scenario with script lines or answers ends its step detail with."""
+    return SCENARIO_POINTER.format(name=_quote(name), header=SCENARIO_HEADER)
+
+
+def _scenario_blocks(stages: Sequence[ConversationStage]) -> str:
+    names = {lang.bcp47: lang.english_name for lang in built_languages()}
+    blocks: list[str] = []
+    for stage in stages:
+        lines = [f"{stage.name.strip()}:"]
+        lines += [f"{names.get(tag, tag)}: {_quote(text)}" for tag, text in stage.scripts.items()]
+        lines += [f"Q: {qa.question.strip()}\nA: {qa.answer.strip()}" for qa in stage.qa]
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
 
 
 def procedure_pointer(name: str) -> str:
@@ -1101,6 +1164,10 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
     if with_steps:
         add(f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}", _procedures(with_steps))
 
+    scenarios = [s for s in stages if s.scripts or s.qa]
+    if scenarios:
+        add(f"{SCENARIO_HEADER} {SCENARIO_LEAD}", _scenario_blocks(scenarios))
+
     asks = [f for f in collect if f.label.strip()]
     if asks:
         lines = []
@@ -1234,6 +1301,8 @@ def script_text(script: CallScript) -> str:
         *script.style.sample_phrases,
         *(f"{st.name} {st.instruction} {st.sounds_like}" for st in script.stages),
         *(f"{p.action} {p.wait_for}" for st in script.stages for p in st.procedure),
+        *(text for st in script.stages for text in st.scripts.values()),
+        *(f"{qa.question} {qa.answer}" for st in script.stages for qa in st.qa),
         *(f"{b.when}" for st in script.stages for b in st.branches),
         *(f"{o.objection} {o.response}" for o in script.objections),
         script.ending,
@@ -1391,6 +1460,7 @@ __all__ = [
     "Objection",
     "ProcedureStep",
     "Pronunciation",
+    "ScenarioQa",
     "ScriptPolicies",
     "ScriptStep",
     "ScriptVariable",
