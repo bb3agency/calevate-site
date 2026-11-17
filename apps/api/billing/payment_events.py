@@ -398,7 +398,10 @@ async def apply_refund_failed(envelope: Any) -> EventResult:
     refund: RefundEvent = extract_refund(envelope)
     async with tenant_session(refund.tenant_id) as session:
         await _require_tenant(session, refund.tenant_id)
-        key = await claim_of_failed_refund(session, tenant_id=refund.tenant_id, refund=refund)
+        # `extract_refund` resolves the tenant from our own notes, so this refund is ours.
+        key = await claim_of_failed_refund(
+            session, tenant_id=refund.tenant_id, refund=refund, issued_by_us=True
+        )
         if key is not None:
             await release_refund_claim(
                 session, tenant_id=refund.tenant_id, refund_key=key, refund_id=refund.refund_id

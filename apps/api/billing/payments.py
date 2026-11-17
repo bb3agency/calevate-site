@@ -1849,12 +1849,17 @@ async def bind_refund_claim(
 
 
 async def claim_of_failed_refund(
-    session: AsyncSession, *, tenant_id: UUID, refund: RefundEvent
+    session: AsyncSession, *, tenant_id: UUID, refund: RefundEvent, issued_by_us: bool
 ) -> str | None:
     """The live claim a `refund.failed` event fails: the one bound to that refund id, or,
     for an attempt whose answer never reached us, the unbound live claim of that payment
     and amount. None when no live claim matches: a late event for an attempt already
     failed, or a refund made outside this platform.
+
+    `issued_by_us` is whether the refund carries the notes `issue_refund` puts on every
+    refund we create. Only such a refund may fall back to an unbound claim: a failed refund
+    made from the provider's dashboard on the same payment and amount is not the console's
+    attempt, whose answer was lost and which may have moved money.
 
     A failure already recorded against this refund id is a replay (a redelivered webhook,
     or the same failed refund in the next reconciliation listing), and answers None: the
@@ -1864,7 +1869,7 @@ async def claim_of_failed_refund(
         await session.execute(
             text(
                 "SELECT refund_key FROM refund_intents WHERE tenant_id = :tid "
-                "AND failed_at IS NULL AND (refund_ref = :rid OR (refund_ref IS NULL "
+                "AND failed_at IS NULL AND (refund_ref = :rid OR (:ours AND refund_ref IS NULL "
                 "AND payment_ref = :pid AND amount_inr = :amount)) "
                 "AND NOT EXISTS (SELECT 1 FROM refund_intents f WHERE f.tenant_id = :tid "
                 "AND f.refund_ref = :rid AND f.failed_at IS NOT NULL) "
@@ -1875,6 +1880,7 @@ async def claim_of_failed_refund(
                 "rid": refund.refund_id,
                 "pid": refund.payment_id,
                 "amount": refund.amount_inr,
+                "ours": issued_by_us,
             },
         )
     ).scalar()
@@ -2022,6 +2028,7 @@ async def _claw_back_pack_bonus(
         ref=refund.refund_id,
         meta=clawback_meta,
         allow_negative=True,
+        paired_with_inr=removal.expiry_restated_inr,
     )
     await write_audit(
         session,
@@ -2148,6 +2155,7 @@ async def credit_refund(
         ref=refund.refund_id,
         meta=refund_meta,
         allow_negative=True,
+        paired_with_inr=removal.expiry_restated_inr,
     )
     written = await find_entry_by_ref(
         session, tenant_id=refund.tenant_id, reason="refund", ref=refund.refund_id

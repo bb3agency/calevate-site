@@ -188,6 +188,25 @@ SET credits_remaining = credits_remaining - :take,
 WHERE id = :id AND credits_remaining = :seen AND closed_at IS NULL
 """
 
+#: Credit a debit took off this lot, put back: `credits_remaining` rises by `:give` and the
+#: lot reopens; `credits_total` (what was sold) moves only by `:sold`, the part of a
+#: downward restatement being reversed. Refused, by matching no row,
+#: when the lot would hold more than it was sold as, when it has lapsed (its expiry has
+#: passed, or the lapse job keyed it), or when a re-price closed it in favour of a
+#: replacement (`service.LOT_REPRICE_META_KIND`'s marker names it).
+_RETURN_TO_LOT = """
+UPDATE credit_lots l
+SET credits_total = l.credits_total + :sold,
+    credits_remaining = l.credits_remaining + :give,
+    closed_at = CASE WHEN l.credits_remaining + :give = 0 THEN l.closed_at ELSE NULL END,
+    updated_at = clock_timestamp()
+WHERE l.id = :id AND l.credits_remaining + :give <= l.credits_total + :sold
+  AND (l.expires_at IS NULL OR l.expires_at > clock_timestamp())
+  AND NOT EXISTS (
+    SELECT 1 FROM credit_ledger e WHERE e.tenant_id = l.tenant_id AND e.reason = 'adjustment'
+    AND e.meta->>'lot_id' = l.id::text AND e.meta->>'kind' = ANY(:closing_kinds))
+"""
+
 #: ADDENDUM 2 §2.2. `credits_total` moves by the delta; `credits_remaining` FLOORS at
 #: zero, because moving both by the same delta is what violates
 #: `credits_remaining >= 0` and stops an operator mid-correction. The lot closes when the
@@ -733,6 +752,39 @@ async def adjust_lot_for_restatement(
         closed=remaining == 0,
         shortfall=_money(max(-delta - lot.credits_remaining, Decimal("0"))),
     )
+
+
+async def return_credits(
+    session: AsyncSession, *, lot_id: UUID, credits: Decimal, sold: Decimal = Decimal("0")
+) -> bool:
+    """Put back credit a debit took off this lot (`_RETURN_TO_LOT`), and say whether it
+    went back. `False` leaves the caller holding credit to place elsewhere.
+
+    The inverse of a split, not a restatement: `adjust_lot_for_restatement` moves what a lot
+    was SOLD as by the same amount as what is left, and using it to undo a consumption would
+    leave the lot claiming a purchase larger than the one the client made. `sold` reverses a
+    downward restatement's move of `credits_total`, which can differ from the credit coming
+    back because the restatement floored `credits_remaining` at zero.
+    """
+    if credits < 0 or sold < 0 or credits + sold <= 0:
+        raise ValueError(f"nothing to return: credits={credits}, sold={sold}")
+    # Imported here: `credit_expiry` imports this module.
+    from apps.api.billing.credit_expiry import CREDIT_EXPIRY_META_KIND
+
+    lot = await read_lot(session, lot_id=lot_id)
+    if lot is None:
+        return False
+    await credit_service.lock_tenant_credits(session, lot.tenant_id)
+    result = await session.execute(
+        text(_RETURN_TO_LOT),
+        {
+            "id": lot_id,
+            "give": _money(credits),
+            "sold": _money(sold),
+            "closing_kinds": [credit_service.LOT_REPRICE_META_KIND, CREDIT_EXPIRY_META_KIND],
+        },
+    )
+    return rowcount_of(result) == 1
 
 
 @dataclass(frozen=True, slots=True)

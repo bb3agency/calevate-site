@@ -421,8 +421,17 @@ async def record_entry(
     meta: dict[str, Any] | None = None,
     allow_negative: bool = False,
     allow_zero: bool = False,
+    paired_with_inr: Decimal = Decimal("0"),
 ) -> Balance:
     """Append one entry and return the new balance.
+
+    `paired_with_inr` is the delta of the OTHER row of a pair written as one act: the
+    lapsed-credit give-back (`_restate_lapsed_credit`, +X) and the reversal it nets against
+    (-X or more). The crossings below — the low/empty email, the inbound cutover, the hold
+    settlement — are measured from `current - paired_with_inr`, so the pair reads as the
+    one movement it is: the give-back crosses nothing, and the reversal is measured from
+    the balance before the give-back. Without it, a wallet already emptied by the lapse
+    was told it was empty again.
 
     `allow_negative=False` refuses a DEBIT that would leave the balance below zero. The
     exception is deliberate: usage recorded AFTER a call completes must always land,
@@ -510,7 +519,8 @@ async def record_entry(
     #
     # The payload carries the tenant and nothing else: the job RE-READS `credits_exhausted`
     # rather than trusting a verdict that was true when it was queued (see the job).
-    if crossed_zero(current, new_balance) is not None:
+    before = current - paired_with_inr
+    if crossed_zero(before, new_balance) is not None:
         await enqueue_outbox(
             session,
             job=INBOUND_CUTOVER_JOB,
@@ -519,12 +529,12 @@ async def record_entry(
     # Back to zero or more ends a hold on the client's rented numbers (D-860), so the hold
     # job is owed a pass now rather than at its next hourly tick. Imported here:
     # `campaigns.number_holds` reads balances through this module.
-    if current < 0 <= new_balance:
+    if before < 0 <= new_balance:
         from apps.api.campaigns.number_holds import queue_hold_settlement
 
         await queue_hold_settlement(session, tenant_id=tenant_id)
     line = await low_balance_line(session, tenant_id=tenant_id)
-    level = crossed_downwards(current, new_balance, line)
+    level = crossed_downwards(before, new_balance, line)
     if level is not None:
         await enqueue_outbox(
             session,
@@ -1531,6 +1541,10 @@ class CreditRemoval:
     #: (`_restate_lapsed_credit`), by a compensating row already written; the caller's
     #: own row still records the whole reversal.
     expiry_restated_inr: Decimal = Decimal("0.00")
+    #: How far the first shape restated the corrected purchase's lot DOWN (`credits_total`
+    #: fell by this; `credits_remaining` by this less the splits). Zero in the second shape.
+    #: A dispute release reverses exactly this (`disputes._release`).
+    lot_restated_inr: Decimal = Decimal("0.00")
 
 
 #: `credit_ledger.meta.kind` of the row that gives back credit an expiry took, because a
@@ -1581,6 +1595,8 @@ async def _restate_lapsed_credit(
             "credits_inr": str(restated),
         },
         allow_negative=True,
+        # The reversal the caller writes next takes at least this back.
+        paired_with_inr=-restated,
     )
     return restated
 
@@ -1679,7 +1695,7 @@ async def remove_credit_from_lots(
             session, lot_id=lot.lot_id, delta=-amount_inr
         )
         if restated.shortfall <= 0:
-            return CreditRemoval(splits=[], overdraft_inr=_ZERO_PAISE)
+            return CreditRemoval(splits=[], overdraft_inr=_ZERO_PAISE, lot_restated_inr=amount_inr)
         # `AiAssistDemand` and not a call: this is rupees off a wallet with no minutes and
         # no voice behind them, which is precisely what that demand means (ADDENDUM 2
         # §2.1). The splits land in the adjustment row's `meta.lots` beside the second
@@ -1689,7 +1705,11 @@ async def remove_credit_from_lots(
             tenant_id=tenant_id,
             demand=credit_lots.AiAssistDemand(credits=restated.shortfall),
         )
-        return CreditRemoval(splits=shortfall_splits, overdraft_inr=_overdraft_of(shortfall_splits))
+        return CreditRemoval(
+            splits=shortfall_splits,
+            overdraft_inr=_overdraft_of(shortfall_splits),
+            lot_restated_inr=amount_inr,
+        )
     demand = credit_lots.AiAssistDemand(credits=amount_inr)
     splits = (
         await credit_lots.consume(session, tenant_id=tenant_id, demand=demand)
