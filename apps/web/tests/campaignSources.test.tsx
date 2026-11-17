@@ -108,6 +108,22 @@ describe("a campaign's sources", () => {
     expect(rendered.calls.some((c) => c.method === "POST")).toBe(false);
   });
 
+  it("clears picked sources that were removed, which have no box to untick", async () => {
+    const GONE = "0192f0aa-5555-7000-8000-0000000000ff";
+    const rendered = await render({
+      [`${base}/workspace`]: workspaceFixture({ source_ids: [NOTE_ID, GONE] }),
+      [`PUT ${base}/sources`]: workspaceFixture({ source_ids: [NOTE_ID] }),
+    });
+    await screen.findByRole("group", { name: "Sources for this campaign" });
+    expect(screen.getByText("1 picked source was removed.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear them" }));
+    expect(screen.queryByText("1 picked source was removed.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save sources" }));
+    await waitFor(() =>
+      expect(bodyOf(rendered.calls, "PUT", `${base}/sources`)).toEqual({ source_ids: [NOTE_ID] }),
+    );
+  });
+
   it("offers adding a file or note when the account knows nothing yet", async () => {
     await render({ "/v1/kb/notes": { notes: [] }, "/v1/kb/uploads": [] });
     expect(await screen.findByText("Nothing added to What your agents know yet.")).toBeTruthy();

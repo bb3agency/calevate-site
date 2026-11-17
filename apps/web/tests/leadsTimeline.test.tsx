@@ -464,3 +464,15 @@ describe("what was captured about this person (L3-10, L3-11)", () => {
     expect(container.textContent).not.toContain("Budget");
   });
 });
+
+describe("calling a lead when no agent makes calls", () => {
+  it("says why Call is held and offers the way to set an agent up", async () => {
+    await renderClientPage(
+      page(),
+      routes({ "/v1/me": { ...ME, permissions: [...ME.permissions, "leads:dispatch"] } }),
+    );
+    await screen.findByText("No agent makes calls yet. Set one up first.");
+    const setUp = screen.getByRole("link", { name: "Set up an agent" });
+    expect(setUp.getAttribute("href")).toContain("/c/acme/agents");
+  });
+});

@@ -76,6 +76,9 @@ export function SourcePicker<TData, TError, TContext>({
   const chosen = picked ?? saved;
   const dirty = picked !== null && [...picked].sort().join() !== [...saved].sort().join();
   const shown = sources.choices.filter((choice) => matchesWords(query, [choice.name, choice.kind]));
+  // Picked ids no longer in the list have no box to untick, so they are cleared as a group.
+  const known = new Set(sources.choices.map((choice) => choice.id));
+  const gone = sources.ready ? chosen.filter((id) => !known.has(id)) : [];
   const toggle = (id: string) =>
     setPicked((current) => {
       const base = current ?? saved;
@@ -86,20 +89,65 @@ export function SourcePicker<TData, TError, TContext>({
   if (!sources.ready) {
     return <ProblemNotice error={sources.error ?? new Error("Your sources did not load.")} onRetry={sources.refetch} />;
   }
+  const removed =
+    gone.length > 0 ? (
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-body text-ink-muted">
+          {gone.length === 1 ? "1 picked source was removed." : `${gone.length} picked sources were removed.`}
+        </p>
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_SM}
+          disabled={!canWrite || save.isPending}
+          title={refusal}
+          onClick={() => setPicked(chosen.filter((id) => known.has(id)))}
+        >
+          Clear them
+        </button>
+      </div>
+    ) : null;
+  const actions = (
+    <div className="flex flex-wrap gap-2">
+      <button
+        type="button"
+        className={PRIMARY_BUTTON_SM}
+        disabled={!canWrite || !dirty || save.isPending}
+        title={refusal}
+        onClick={() => save.mutate(chosen, { onSuccess: () => setPicked(null) })}
+      >
+        {save.isPending ? "Saving…" : "Save sources"}
+      </button>
+      {dirty && (
+        <button type="button" className={SECONDARY_BUTTON_SM} disabled={save.isPending} onClick={() => setPicked(null)}>
+          Cancel
+        </button>
+      )}
+    </div>
+  );
   if (sources.choices.length === 0) {
     return (
-      <div className="flex flex-wrap items-center gap-3">
-        <p className="text-body text-ink-muted">Nothing added to What your agents know yet.</p>
-        {emptyAction && (
-          <Link href={href(`/c/${session.orgSlug}/knowledge`)} className={SECONDARY_BUTTON_SM}>
-            Add knowledge
-          </Link>
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-body text-ink-muted">Nothing added to What your agents know yet.</p>
+          {emptyAction && (
+            <Link href={href(`/c/${session.orgSlug}/knowledge`)} className={SECONDARY_BUTTON_SM}>
+              Add knowledge
+            </Link>
+          )}
+        </div>
+        {(removed || dirty) && (
+          <>
+            {removed}
+            {actions}
+            {save.error != null && <ProblemNotice error={save.error} />}
+          </>
         )}
       </div>
     );
   }
   return (
     <div className="space-y-3">
+      {removed}
       {sources.choices.length >= SEARCH_FROM && (
         <SearchField label="Search sources" hideLabel value={query} onValueChange={setQuery} placeholder="Search sources" />
       )}
@@ -126,22 +174,7 @@ export function SourcePicker<TData, TError, TContext>({
           {shown.length === 0 && <li className="py-3 text-meta text-ink-muted">Nothing matches “{query}”.</li>}
         </ul>
       </fieldset>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          className={PRIMARY_BUTTON_SM}
-          disabled={!canWrite || !dirty || save.isPending}
-          title={refusal}
-          onClick={() => save.mutate(chosen, { onSuccess: () => setPicked(null) })}
-        >
-          {save.isPending ? "Saving…" : "Save sources"}
-        </button>
-        {dirty && (
-          <button type="button" className={SECONDARY_BUTTON_SM} disabled={save.isPending} onClick={() => setPicked(null)}>
-            Cancel
-          </button>
-        )}
-      </div>
+      {actions}
       {save.error != null && <ProblemNotice error={save.error} />}
     </div>
   );
