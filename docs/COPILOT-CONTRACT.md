@@ -484,12 +484,17 @@ one moved; `agent_script_suggest` is its tool.
   shapes the suggestion and reaches calls (D-868). Removing the file does not undo a change already kept.
 * **`agent_tests_fix`** is the Test section's "Improve my agent" / "Suggest a fix for this",
   moved the same way: confirm tier, `org:manage`, audit `agent.tests_improvement`,
-  arguments `agent_id` and `test_keys` (null for every failure; keys from the screen's
-  `failed_tests` fact). The planner resolves the latest finished run and signs its id into
-  the canonical arguments, refuses unknown keys, a run with nothing to fix or one already
-  being worked out, then asks the allowance; the executor runs
-  `test_conversations.request_improvement` (the queued job, D-748). Review stays in
-  `ImprovementReview`.
+  arguments `agent_id`, `test_keys` (null for every failure; keys from the screen's
+  `failed_tests` fact) and `holder_id` (the Inbound line or campaign the script fixes are
+  drafted on, from the screen's `fix_holder` fact; null when the agent has exactly one). The
+  planner resolves the latest finished run and the holder and signs both into the canonical
+  arguments, refuses unknown keys, a run with nothing to fix or one already being worked
+  out, and an agent with several lines or campaigns and no `holder_id` (naming each, so Pip
+  asks which), then asks the allowance; the executor runs
+  `test_conversations.request_improvement` (the queued job, D-748). Since D-1017 script
+  fixes are written as a Pip draft on that line or campaign (`agents/test_fixes`, the
+  healer's holder-draft shape, D-1005) and reviewed on its page; facts are kept on the
+  Training tab (`ImprovementReview`). Nothing writes the agent's own script.
 
 ## 11. The remaining helpers (`copilot/assist_actions.py`, D-821)
 

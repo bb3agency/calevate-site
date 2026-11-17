@@ -10,8 +10,10 @@ The flow, one `kb_teachings` row per use:
 
 Reading and sorting happen in a worker (`apps/workers/kb_teach.py`), never in a request
 handler. Saving is the owner's act: facts go into the business's knowledge at once
-(`teach/facts.py`, every agent), rules go to the chosen agent's script as pending
-'anytime' rules (`teach/rules.py`).
+(`teach/facts.py`, every agent). Nothing taught here goes into an agent's script: how calls
+behave is the script of an Inbound line or campaign, which Pip writes on that page (D-1005,
+D-1017), so the sorter returns facts only and an item stored as a rule before D-1017 is read
+as a fact for the owner to keep or drop.
 
 Nothing is refused for lack of AI: when the AI allowance is used up or no model can answer,
 the worker returns the owner's words unsorted, line by line, for them to mark as facts or
@@ -33,7 +35,6 @@ from apps.api.db.base import uuid7
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.teach import facts as fact_store
 from apps.api.teach import pinned as pinned_store
-from apps.api.teach import rules as rule_store
 from apps.api.teach.models import MAX_TEACH_WORDS
 
 #: The worker job (`apps/workers/kb_teach.JOB_NAME`).
@@ -52,7 +53,7 @@ VOICE_CONTENT_TYPES: Final = frozenset(
 )
 MIN_TEACH_CHARS: Final = 3
 
-ItemKind = Literal["fact", "rule"]
+ItemKind = Literal["fact"]
 #: What a teaching can start from now. Rows from before D-821 may say `photo` or `file`.
 InputKind = Literal["text", "voice"]
 
@@ -87,12 +88,11 @@ _COLUMNS = (
 def _items_of(raw: Any) -> list[TeachItem]:
     out: list[TeachItem] = []
     for item in raw or []:
+        # "rule": sorted before D-1017, reviewed now as a fact.
         if isinstance(item, dict) and item.get("kind") in ("fact", "rule"):
             value = str(item.get("text") or "").strip()
             if value:
-                out.append(
-                    TeachItem(kind=item["kind"], text=value, pinned=bool(item.get("pinned")))
-                )
+                out.append(TeachItem(kind="fact", text=value, pinned=bool(item.get("pinned"))))
     return out
 
 
@@ -232,18 +232,6 @@ async def discard(session: AsyncSession, teaching_id: UUID) -> Teaching:
 @dataclass(frozen=True, slots=True)
 class Saved:
     facts_added: int
-    rules_added: int
-    agent_id: UUID | None
-
-
-async def _agent_exists(session: AsyncSession, agent_id: UUID) -> None:
-    found = (
-        await session.execute(
-            text("SELECT 1 FROM agents WHERE id = :id AND deleted_at IS NULL"), {"id": agent_id}
-        )
-    ).scalar()
-    if found is None:
-        raise ProblemError.not_found("Agent")
 
 
 async def save(
@@ -252,26 +240,20 @@ async def save(
     tenant_id: UUID,
     teaching_id: UUID,
     items: list[TeachItem],
-    agent_id: UUID | None,
     saved_by: UUID | None,
     client_user_id: UUID | None,
     auto_approve: bool,
 ) -> Saved:
-    """Keep the reviewed items: facts into knowledge now, rules to one agent's script."""
-    # Before the write: `kb_teachings.agent_id`'s foreign key ignores RLS, so another
-    # business's agent would be stored, and an unknown id would fail the key as a 500.
-    if agent_id is not None:
-        await _agent_exists(session, agent_id)
+    """Keep the reviewed facts: into the business's knowledge now."""
     claimed = (
         await session.execute(
             text(
-                "UPDATE kb_teachings SET status = 'saved', agent_id = :agent, "
+                "UPDATE kb_teachings SET status = 'saved', "
                 "items = CAST(:items AS jsonb), completed_at = now(), updated_at = now() "
                 "WHERE id = :id AND status = 'ready' RETURNING gap_id"
             ),
             {
                 "id": teaching_id,
-                "agent": agent_id,
                 "items": _items_json(items),
             },
         )
@@ -287,13 +269,8 @@ async def save(
     gap_id: UUID | None = claimed[0]
     fact_texts = [item.text for item in items if item.kind == "fact" and not item.pinned]
     pinned_texts = [item.text for item in items if item.kind == "fact" and item.pinned]
-    rule_texts = [item.text for item in items if item.kind == "rule"]
-    if not fact_texts and not pinned_texts and not rule_texts:
-        raise ProblemError.business_rule("teaching_empty", "Keep at least one fact or rule.")
-    if rule_texts and agent_id is None:
-        raise ProblemError.business_rule(
-            "teaching_rule_needs_agent", "Choose which agent the rules are for."
-        )
+    if not fact_texts and not pinned_texts:
+        raise ProblemError.business_rule("teaching_empty", "Keep at least one fact.")
     added = await fact_store.add_facts(
         session,
         tenant_id=tenant_id,
@@ -313,28 +290,14 @@ async def save(
             created_by=saved_by,
             teaching_id=teaching_id,
         )
-    rules = (
-        await rule_store.propose_rules(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            texts=rule_texts,
-            teaching_id=teaching_id,
-            created_by=saved_by,
-        )
-        if agent_id is not None and rule_texts
-        else []
-    )
     if gap_id is not None:
         await _mark_gap_taught(
             session,
             gap_id,
-            answer="\n".join(fact_texts + pinned_texts + rule_texts),
+            answer="\n".join(fact_texts + pinned_texts),
             by=client_user_id,
         )
-    return Saved(
-        facts_added=len(added) + len(pinned_texts), rules_added=len(rules), agent_id=agent_id
-    )
+    return Saved(facts_added=len(added) + len(pinned_texts))
 
 
 async def _mark_gap_taught(

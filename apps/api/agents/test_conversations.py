@@ -87,7 +87,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.actions import service as action_service
 from apps.api.agents import handoff, script_builder, trial_results
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit, business_fit
+from apps.api.agents.mistake_fixes import Holder
 from apps.api.agents.script_lint import CapabilityManifest, presumed_lines
+from apps.api.agents.test_fixes import choose_holder
 from apps.api.agents.trial_results import OWNERS, Owner, owner_of, result_owner
 from apps.api.agents.turn_checks import (
     ENGLISH_SWITCH_LINES,
@@ -1736,12 +1738,19 @@ async def request_run(
 
 
 async def queue_improvement(
-    session: AsyncSession, *, tenant_id: UUID, run_id: UUID, keys: list[str] | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    run_id: UUID,
+    keys: list[str] | None = None,
+    holder: Holder | None = None,
+    requested_by: UUID | None = None,
 ) -> None:
     """Prepare the "Improve my agent" proposal for a finished run (its fixable failures, or
     `keys`), in the caller's transaction. Two model legs do not fit a route's budget, so it
     is always the worker's job; the screen polls `improving` until the proposal or
-    `improve_note` arrives."""
+    `improve_note` arrives. `holder` is the line or campaign its script fixes are drafted
+    on (`test_fixes`, D-1017); without one the job picks the agent's only one, if any."""
     await session.execute(
         text(
             "UPDATE agent_test_runs SET improve_requested_at = now(), improve_note = NULL, "
@@ -1752,6 +1761,11 @@ async def queue_improvement(
     payload: dict[str, Any] = {"tenant_id": str(tenant_id), "run_id": str(run_id)}
     if keys:
         payload["keys"] = keys
+    if holder is not None:
+        payload["holder_kind"] = holder.kind
+        payload["holder_id"] = str(holder.id)
+    if requested_by is not None:
+        payload["requested_by"] = str(requested_by)
     await enqueue_outbox(session, job=IMPROVE_JOB, payload=payload)
 
 
@@ -1780,9 +1794,13 @@ async def request_improvement(
     agent_id: UUID,
     run_id: UUID,
     keys: list[str] | None,
+    holder: Holder | None = None,
+    requested_by: UUID | None = None,
 ) -> TestRun:
     """ "Improve my agent" or "Fix this": refused when nothing chosen failed or nothing that
-    failed is the script's to fix, queued once while one is already being worked out."""
+    failed is the script's to fix, or when the agent has several lines or campaigns and
+    `holder` names none of them (`test_fixes.choose_holder`); queued once while one is
+    already being worked out."""
     await session.execute(
         text("SELECT 1 FROM agent_test_runs WHERE id = :id AND agent_id = :aid FOR UPDATE"),
         {"id": run_id, "aid": agent_id},
@@ -1802,7 +1820,15 @@ async def request_improvement(
         )
     if run.improving:
         return run
-    await queue_improvement(session, tenant_id=tenant_id, run_id=run_id, keys=keys)
+    await choose_holder(session, agent_id, holder, must_choose=True)
+    await queue_improvement(
+        session,
+        tenant_id=tenant_id,
+        run_id=run_id,
+        keys=keys,
+        holder=holder,
+        requested_by=requested_by,
+    )
     return await get_run(session, agent_id, run_id)
 
 

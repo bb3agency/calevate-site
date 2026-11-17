@@ -1045,7 +1045,9 @@ Owner surfaces: client — Pip's panel and `/c/<slug>/agents/<id>/script`.
 
 The Test section's fixes follow the same path (D-820): "Let Pip suggest fixes" (or "Let Pip
 suggest a fix" on one failed test) prefills Pip; Pip proposes `agent_tests_fix`; confirming
-queues the improve job (D-724/D-748), and the fixes are kept one by one in that section.
+queues the improve job (D-724/D-748). Script fixes become a Pip draft on the agent's Inbound
+line or campaign (the one it has, or the one the owner picks), reviewed on that page; facts
+are kept one by one in the Training tab (D-1017).
 
 ## 13. The Other AI Requests, through Pip (D-821)
 
@@ -1054,8 +1056,8 @@ comes back. Pip proposes; the person confirms the card; the old button's own fun
 
 - **Teach the agents (Knowledge base).** Type it or say it in the teach box (a voice note is
   heard and its words land in the box to check), or attach a photo or file in Pip, which reads
-  it. "Let Pip teach it" → `knowledge_teach` → the words are sorted by the worker → the facts
-  and rules wait in the teach box (`GET /v1/kb/teach/open`) for the owner to keep; nothing is
+  it. "Let Pip teach it" → `knowledge_teach` → the words are split into facts by the worker
+  (nothing taught goes into an agent's script, D-1017) → the facts wait in the teach box (`GET /v1/kb/teach/open`) for the owner to keep; nothing is
   saved before that. Answering a caller's question carries its `gap_id`, which closes it.
 - **Draft the lead details (Lead details, custom business).** "Let Pip draft them" →
   `lead_fields_draft` → drafted once → the owner keeps them field by field ("Add N to my

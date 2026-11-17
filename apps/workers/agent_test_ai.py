@@ -961,20 +961,15 @@ def improvement_record(
     answer: JsonAnswer[dict[str, Any]],
     *,
     base: CallScript,
-    base_kind: str,
-    base_saved_at: datetime | None,
-    base_version: int | None,
     for_keys: Sequence[str],
     request_hash: str,
 ) -> dict[str, Any]:
-    """What is stored on the run and returned: the edits, the script they were made from,
-    who wrote them, and the request's fingerprint (`input_hash`)."""
+    """What is stored on the run and returned: the edits, the script they were made from
+    (the line's or campaign's, D-1017), who wrote them, and the request's fingerprint
+    (`input_hash`)."""
     return {
         **answer.value,
         "base_script": base.model_dump(mode="json"),
-        "base": base_kind,
-        "base_saved_at": base_saved_at.isoformat() if base_saved_at else None,
-        "base_version": base_version,
         "for_keys": list(for_keys),
         "disclosure": answer.capability.disclosure,
         "input_hash": request_hash,

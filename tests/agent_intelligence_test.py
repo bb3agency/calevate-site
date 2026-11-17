@@ -640,7 +640,7 @@ def test_a_conversion_shows_what_it_could_not_place() -> None:
 
 
 @pytest.mark.rls
-async def test_the_draft_autosaves_without_a_version_and_restores_a_version() -> None:
+async def test_the_draft_autosaves_without_a_version() -> None:
     from apps.api.agents import script_builder
 
     created = await create_org_with_receptionist(
@@ -673,9 +673,5 @@ async def test_the_draft_autosaves_without_a_version_and_restores_a_version() ->
         await script_builder.save_draft(session, agent_id, V2, base_saved_at=draft.saved_at)
         # No version per autosave.
         assert len(await script_builder.list_versions(session, agent_id)) == len(before)
-        restored = await script_builder.restore_into_draft(session, agent_id, before[0].version)
-        assert restored.draft.script.schema_version == 2
-        # The draft it replaced comes back, for the Undo (A-25).
-        assert restored.replaced == V2
         await script_builder.clear_draft(session, agent_id)
         assert await script_builder.read_draft(session, agent_id) is None

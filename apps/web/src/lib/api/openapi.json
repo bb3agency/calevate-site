@@ -3692,7 +3692,7 @@
           "fix_holder": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/FixHolderOut"
+                "$ref": "#/components/schemas/apps__api__agents__call_mistake_routes__FixHolderOut"
               },
               {
                 "type": "null"
@@ -6356,50 +6356,6 @@
           }
         },
         "title": "AnswersIn",
-        "type": "object"
-      },
-      "ApplyEditsIn": {
-        "additionalProperties": false,
-        "properties": {
-          "edits": {
-            "items": {
-              "maxLength": 8,
-              "type": "string"
-            },
-            "maxItems": 12,
-            "title": "Edits",
-            "type": "array"
-          },
-          "script": {
-            "$ref": "#/components/schemas/CallScript"
-          }
-        },
-        "required": [
-          "script",
-          "edits"
-        ],
-        "title": "ApplyEditsIn",
-        "type": "object"
-      },
-      "ApplyEditsOut": {
-        "additionalProperties": false,
-        "properties": {
-          "script": {
-            "$ref": "#/components/schemas/CallScript"
-          },
-          "skipped": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Skipped",
-            "type": "array"
-          }
-        },
-        "required": [
-          "script",
-          "skipped"
-        ],
-        "title": "ApplyEditsOut",
         "type": "object"
       },
       "ApplyIn": {
@@ -24753,21 +24709,6 @@
         "title": "DraftRequestOut",
         "type": "object"
       },
-      "DraftSavedOut": {
-        "additionalProperties": false,
-        "properties": {
-          "saved_at": {
-            "format": "date-time",
-            "title": "Saved At",
-            "type": "string"
-          }
-        },
-        "required": [
-          "saved_at"
-        ],
-        "title": "DraftSavedOut",
-        "type": "object"
-      },
       "DrawdownOut": {
         "additionalProperties": false,
         "description": "WHERE THE MONEY WENT, over the same window the runway was measured on.\n\nEvery figure is POSITIVE and its direction is in the field name, never in a sign \u2014 a\nscreen that had to decide whether `-340.00` was a debit or a correction of one is a\nscreen that will eventually decide wrong.\n\nTHERE IS NO MESSAGING BUCKET, and that is deliberate rather than missing: nothing on\nthis platform debits the wallet for a WhatsApp message or an SMS, so a \"Messaging\"\nrow reading \u20b90.00 would be a category invented to look complete, and a client reading\nit would reasonably conclude they are being charged for messages.",
@@ -28488,36 +28429,6 @@
           "default_agent"
         ],
         "title": "FirstRunOut",
-        "type": "object"
-      },
-      "FixHolderOut": {
-        "additionalProperties": false,
-        "description": "Where a fix's draft waits: an Inbound line or a campaign, by id and name.",
-        "properties": {
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "kind": {
-            "enum": [
-              "inbound_line",
-              "campaign"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "id",
-          "name"
-        ],
-        "title": "FixHolderOut",
         "type": "object"
       },
       "FlagStateOut": {
@@ -32582,16 +32493,8 @@
       },
       "ImprovementOut": {
         "additionalProperties": false,
-        "description": "The \"Improve my agent\" proposal: small edits and facts, each kept or left on its own,\nnever applied by itself. Kept edits are applied to the working copy by\n`POST .../tests/{run_id}/improvement/apply`.",
+        "description": "The \"Improve my agent\" proposal (D-1017). Script fixes are a Pip draft on one of the\nagent's Inbound lines or campaigns (`holder`), reviewed there; `edits` says what that\ndraft changed. Facts are kept or left here one by one, never applied by themselves.",
         "properties": {
-          "base": {
-            "enum": [
-              "draft",
-              "live"
-            ],
-            "title": "Base",
-            "type": "string"
-          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -32607,6 +32510,18 @@
               }
             ],
             "title": "Disclosure"
+          },
+          "draft_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Draft Id"
           },
           "dropped": {
             "default": 0,
@@ -32634,6 +32549,28 @@
             "title": "For Keys",
             "type": "array"
           },
+          "holder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/apps__api__agents__script_routes__FixHolderOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "script_fixes": {
+            "default": "none",
+            "enum": [
+              "drafted",
+              "draft_open",
+              "no_holder",
+              "choose",
+              "none"
+            ],
+            "title": "Script Fixes",
+            "type": "string"
+          },
           "tested": {
             "default": false,
             "title": "Tested",
@@ -32646,7 +32583,6 @@
           }
         },
         "required": [
-          "base",
           "edits",
           "facts",
           "for_keys",
@@ -47437,6 +47373,34 @@
         "title": "PublicationOut",
         "type": "object"
       },
+      "PublishIn": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reviewer_name": {
+            "maxLength": 80,
+            "minLength": 2,
+            "title": "Reviewer Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reviewer_name"
+        ],
+        "title": "PublishIn",
+        "type": "object"
+      },
       "PurchaseOwnNumberIn": {
         "additionalProperties": false,
         "properties": {
@@ -50903,35 +50867,6 @@
         "title": "RestoreIn",
         "type": "object"
       },
-      "RestoredOut": {
-        "additionalProperties": false,
-        "properties": {
-          "replaced": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CallScript"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "saved_at": {
-            "format": "date-time",
-            "title": "Saved At",
-            "type": "string"
-          },
-          "script": {
-            "$ref": "#/components/schemas/CallScript"
-          }
-        },
-        "required": [
-          "script",
-          "saved_at"
-        ],
-        "title": "RestoredOut",
-        "type": "object"
-      },
       "RetentionLineOut": {
         "additionalProperties": false,
         "properties": {
@@ -51725,46 +51660,9 @@
         "title": "RunwayOut",
         "type": "object"
       },
-      "SaveDraftIn": {
-        "additionalProperties": false,
-        "properties": {
-          "base_saved_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Base Saved At"
-          },
-          "script": {
-            "$ref": "#/components/schemas/CallScript"
-          }
-        },
-        "required": [
-          "script"
-        ],
-        "title": "SaveDraftIn",
-        "type": "object"
-      },
       "SaveIn": {
         "additionalProperties": false,
         "properties": {
-          "agent_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Id"
-          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/TeachItemIO"
@@ -51812,31 +51710,13 @@
       "SavedOut": {
         "additionalProperties": false,
         "properties": {
-          "agent_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Id"
-          },
           "facts_added": {
             "title": "Facts Added",
-            "type": "integer"
-          },
-          "rules_added": {
-            "title": "Rules Added",
             "type": "integer"
           }
         },
         "required": [
-          "facts_added",
-          "rules_added",
-          "agent_id"
+          "facts_added"
         ],
         "title": "SavedOut",
         "type": "object"
@@ -56842,10 +56722,8 @@
         "additionalProperties": false,
         "properties": {
           "kind": {
-            "enum": [
-              "fact",
-              "rule"
-            ],
+            "const": "fact",
+            "default": "fact",
             "title": "Kind",
             "type": "string"
           },
@@ -56862,7 +56740,6 @@
           }
         },
         "required": [
-          "kind",
           "text"
         ],
         "title": "TeachItemIO",
@@ -59661,6 +59538,13 @@
           "cost_note": {
             "title": "Cost Note",
             "type": "string"
+          },
+          "fix_holders": {
+            "items": {
+              "$ref": "#/components/schemas/apps__api__agents__script_routes__FixHolderOut"
+            },
+            "title": "Fix Holders",
+            "type": "array"
           },
           "history": {
             "items": {
@@ -68224,6 +68108,36 @@
         "title": "PublishOut",
         "type": "object"
       },
+      "apps__api__agents__call_mistake_routes__FixHolderOut": {
+        "additionalProperties": false,
+        "description": "Where a fix's draft waits: an Inbound line or a campaign, by id and name.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "inbound_line",
+              "campaign"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name"
+        ],
+        "title": "FixHolderOut",
+        "type": "object"
+      },
       "apps__api__agents__routes__PublishOut": {
         "additionalProperties": false,
         "properties": {
@@ -68249,61 +68163,34 @@
         "title": "PublishOut",
         "type": "object"
       },
-      "apps__api__agents__script_routes__PublishIn": {
+      "apps__api__agents__script_routes__FixHolderOut": {
         "additionalProperties": false,
+        "description": "One of the agent's Inbound lines or open campaigns with a script: where a practice\ntest's script fixes can be drafted (D-1017).",
         "properties": {
-          "expected_version": {
-            "anyOf": [
-              {
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "inbound_line",
+              "campaign"
             ],
-            "title": "Expected Version"
+            "title": "Kind",
+            "type": "string"
           },
-          "script": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CallScript"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "summary": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Summary",
+          "name": {
+            "title": "Name",
             "type": "string"
           }
         },
         "required": [
-          "summary"
+          "kind",
+          "id",
+          "name"
         ],
-        "title": "PublishIn",
-        "type": "object"
-      },
-      "apps__api__agents__script_routes__PublishOut": {
-        "additionalProperties": false,
-        "properties": {
-          "live": {
-            "title": "Live",
-            "type": "boolean"
-          },
-          "version": {
-            "title": "Version",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "version",
-          "live"
-        ],
-        "title": "PublishOut",
+        "title": "FixHolderOut",
         "type": "object"
       },
       "apps__api__agents__script_routes__TestTurnOut": {
@@ -68638,34 +68525,6 @@
           "documents"
         ],
         "title": "KycRecordOut",
-        "type": "object"
-      },
-      "apps__api__ops__spoken_style_routes__PublishIn": {
-        "additionalProperties": false,
-        "properties": {
-          "note": {
-            "anyOf": [
-              {
-                "maxLength": 500,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "reviewer_name": {
-            "maxLength": 80,
-            "minLength": 2,
-            "title": "Reviewer Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "reviewer_name"
-        ],
-        "title": "PublishIn",
         "type": "object"
       },
       "apps__api__teach__routes__TestTurnOut": {
@@ -81762,56 +81621,6 @@
         "x-calevate-permission": "org:manage"
       }
     },
-    "/v1/agents/{agent_id}/script/draft": {
-      "put": {
-        "operationId": "save_script_draft_v1_agents__agent_id__script_draft_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SaveDraftIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DraftSavedOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Autosave the working copy (no version, never reaches a call)",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
     "/v1/agents/{agent_id}/script/opening-line": {
       "put": {
         "description": "For shortening the opening line where a notice switch was refused for want of room (D-846), and for setting the line an agent that answers and places calls opens the calls it places with (`when: calls`, D-920). The rest of the script is kept. Refused while other script changes are waiting to go live, and when the line would not fit after the notices switched on.",
@@ -81914,57 +81723,6 @@
         "x-calevate-permission": "org:manage"
       }
     },
-    "/v1/agents/{agent_id}/script/publish": {
-      "post": {
-        "description": "One action in place of Save then Apply: a version with the owner's summary, applied\nto live calls in the same request. Callers keep the old script until this succeeds.",
-        "operationId": "publish_script_v1_agents__agent_id__script_publish_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/apps__api__agents__script_routes__PublishIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/apps__api__agents__script_routes__PublishOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Put it live: the draft becomes a version with a change summary and is applied",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
     "/v1/agents/{agent_id}/script/tests": {
       "get": {
         "operationId": "get_test_conversations_v1_agents__agent_id__script_tests_get",
@@ -82060,70 +81818,9 @@
         "x-calevate-permission": "org:manage"
       }
     },
-    "/v1/agents/{agent_id}/script/tests/{run_id}/improvement/apply": {
-      "post": {
-        "description": "The one place a kept edit is applied: the same `script_edits.apply_edit` that built\nthe proposal, onto the copy the owner holds now, so an edit made since is never undone.",
-        "operationId": "apply_suggested_edits_v1_agents__agent_id__script_tests__run_id__improvement_apply_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "run_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Run Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApplyEditsIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApplyEditsOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "The working script with the kept suggested edits made (nothing is saved)",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
     "/v1/agents/{agent_id}/script/tests/{run_id}/improvement/settle": {
       "post": {
-        "description": "Called after the kept fixes are saved to the draft or put live. Separate from\n`apply`, which saves nothing, so a save that fails leaves the fixes on offer.",
+        "description": "Called once the facts the owner kept are saved, or when they are done with the\nround: its script fixes wait as a draft on the line or campaign (D-1017). Separate\nfrom saving the facts, so a save that fails leaves them on offer.",
         "operationId": "settle_suggested_edits_v1_agents__agent_id__script_tests__run_id__improvement_settle_post",
         "parameters": [
           {
@@ -82267,55 +81964,6 @@
           }
         },
         "summary": "Discard the staged script; the draft returns to what callers hear",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/agents/{agent_id}/script/versions/{version}/restore": {
-      "post": {
-        "operationId": "restore_script_version_v1_agents__agent_id__script_versions__version__restore_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "version",
-            "required": true,
-            "schema": {
-              "title": "Version",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RestoredOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Copy an earlier version into the draft (callers keep the live one)",
         "tags": [
           "agents"
         ],
@@ -98111,7 +97759,7 @@
     },
     "/v1/kb/teach/{teaching_id}/save": {
       "post": {
-        "description": "Facts join the business's knowledge and reach every agent without review. Rules wait in the chosen agent's script until the owner adds them and puts the script live.",
+        "description": "Facts join the business's knowledge and reach every agent without review.",
         "operationId": "save_teaching_v1_kb_teach__teaching_id__save_post",
         "parameters": [
           {
@@ -98153,7 +97801,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Keep the reviewed facts and rules",
+        "summary": "Keep the reviewed facts",
         "tags": [
           "teach"
         ],
@@ -104723,7 +104371,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/apps__api__ops__spoken_style_routes__PublishIn"
+                "$ref": "#/components/schemas/PublishIn"
               }
             }
           },

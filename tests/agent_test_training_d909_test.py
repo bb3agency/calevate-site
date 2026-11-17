@@ -266,6 +266,8 @@ def _proposal(**extra: Any) -> dict[str, Any]:
         ],
         "facts": [],
         "base_script": SCRIPT.model_dump(mode="json"),
+        # Drafted on the agent's line (D-1017); `edits` says what the draft changed.
+        "script_fixes": "drafted",
         "for_keys": ["g1"],
         "created_at": datetime.now(UTC).isoformat(),
         **extra,

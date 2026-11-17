@@ -334,7 +334,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/campaigns/*/test-call", "costly", _m("POST")),
     # An inbound line's own engine agent (D-997): putting it live and saving its script are a
     # publish with its read-back, a number on it is a vendor binding, and Pip's draft is a
-    # model call; the same work as `/v1/agents/*/script/publish`.
+    # model call; the same work as `/v1/agents/*/script/apply`.
     Rule("/v1/inbound-lines/*/publish", "costly", _m("POST")),
     Rule("/v1/inbound-lines/*/script", "costly", _m("PUT")),
     Rule("/v1/inbound-lines/*/numbers", "costly", _m("POST")),
@@ -404,10 +404,9 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/agents/*/actions/*/test", "costly", _m("POST")),
     # Proves a stored connection by calling its vendor (Razorpay, an OAuth token endpoint).
     Rule("/v1/integrations/credentials/*/test", "costly", _m("POST")),
-    # The client's own publish, apply and undo push the agent to the voice platform: several
-    # vendor writes on the platform's shared key per click, the same work as the admin
-    # routes below, which were weighted while these fell through to `client_api`.
-    Rule("/v1/agents/*/script/publish", "costly", _m("POST")),
+    # The client's own apply and undo push the agent to the voice platform: several vendor
+    # writes on the platform's shared key per click, the same work as the admin routes
+    # below, which were weighted while these fell through to `client_api`.
     Rule("/v1/agents/*/script/apply", "costly", _m("POST")),
     Rule("/v1/agents/*/script/undo", "costly", _m("POST")),
     # The same vendor writes behind other doors: activating and preparing are a publish with

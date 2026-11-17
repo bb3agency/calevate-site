@@ -1110,10 +1110,6 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="`give_callers_time_settings` names call settings of the fixed preset in "
         "`agents/give_callers_time.py`, never a caller's row count."
     ),
-    "POST /v1/agents/{agent_id}/script/versions/{version}/restore": BoundedByConstruction(
-        by="one version copied into the draft: a `CallScript` under the same "
-        "`calevate_shared.call_script` `max_length` ceilings as `GET .../script`."
-    ),
     "GET /v1/agents/{agent_id}/script/tests": BoundedByConstruction(
         by="one run's `results`, at most `MAX_GENERATED` scenarios, `MAX_REAL_QUESTIONS` "
         "questions from real calls, `MAX_SAVED` saved "
@@ -1121,18 +1117,13 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         "at most `HISTORY_RUNS` runs (`agents.test_conversations` constants), and the run's "
         "improvement: at most `MAX_EDITS` edits (`agents/script_edits`) and `MAX_FACTS` facts "
         "(`workers/agent_test_ai.proposal_from_model`) and `for_keys`, the keys of one run's "
-        "scenarios."
+        "scenarios; `fix_holders`, at most `agents.test_fixes.MAX_FIX_HOLDERS` (SQL LIMIT)."
     ),
     "POST /v1/agents/{agent_id}/script/tests/{run_id}/results/{key}/wrong": BoundedByConstruction(
         by="the same shape as `GET .../script/tests`, read back after the label is written."
     ),
     "POST /v1/agents/{agent_id}/script/tests/{run_id}/improvement/settle": BoundedByConstruction(
         by="the same shape as `GET .../script/tests`, read back after the proposal is settled."
-    ),
-    "POST /v1/agents/{agent_id}/script/tests/{run_id}/improvement/apply": BoundedByConstruction(
-        by="one `CallScript` under the `calevate_shared.call_script` ceilings, and `skipped`, "
-        "ids of the kept edits sent, at most `script_edits.MAX_EDITS` (`ApplyEditsIn.edits` "
-        "max_length)."
     ),
     "POST /v1/agents/{agent_id}/script/tests": BoundedByConstruction(
         by="the same shape as `GET .../script/tests`: one run's scenarios under "
