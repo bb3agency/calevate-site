@@ -82,7 +82,7 @@ from apps.api.billing.rates import (
     is_surchargeable_llm_model,
     stored_voice_tier,
 )
-from apps.api.billing.trials import counter_epoch, read_trial
+from apps.api.billing.trials import ON_TRIAL_ROW_SQL, counter_epoch, read_trial
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -2028,6 +2028,12 @@ _IST_MONTH = "to_char(occurred_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM')"
 _IST_MONTH_WINDOW = "occurred_at >= :month_from AND occurred_at < :month_to"
 
 
+def _paid_rows(paid_only: bool) -> str:
+    """`AND NOT <the trial predicate>` for a paid period (`usage_summary`'s `paid_only`), or
+    nothing."""
+    return f" AND NOT {ON_TRIAL_ROW_SQL}" if paid_only else ""
+
+
 def _month_bounds(month: str, *, since: datetime | None = None) -> dict[str, datetime]:
     """The two binds `_IST_MONTH_WINDOW` reads, so a caller cannot name the window and
     then supply half of it.
@@ -2388,7 +2394,12 @@ class MonthSeconds:
 
 
 async def rung_seconds(
-    session: AsyncSession, *, tenant_id: UUID, month: str, since: datetime | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    month: str,
+    since: datetime | None = None,
+    paid_only: bool = False,
 ) -> MonthSeconds:
     """(SECONDS, our cost) per TTS rung — and per surcharged model — for one month. THE query.
 
@@ -2425,7 +2436,7 @@ async def rung_seconds(
                 f"    {_BILLED_SECS_SQL} AS secs, "
                 f"   {_ROW_COST_SQL} AS cost "
                 f"  FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} "
-                f"  AND {_NOT_AI_UNITS}"
+                f"  AND {_NOT_AI_UNITS}{_paid_rows(paid_only)}"
                 ") attributed GROUP BY tier, llm_model"
             ),
             {"tid": tenant_id, **_month_bounds(month, since=since), **_surcharge_binds()},
@@ -2506,7 +2517,12 @@ class MonthTotals:
 
 
 async def _tier_totals(
-    session: AsyncSession, *, tenant_id: UUID, month: str, since: datetime | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    month: str,
+    since: datetime | None = None,
+    paid_only: bool = False,
 ) -> MonthTotals:
     """(minutes, our cost) per TTS rung — and minutes per surcharged model — for one month.
 
@@ -2553,7 +2569,9 @@ async def _tier_totals(
     sentence is corrected rather than deleted because a reader who finds the old claim
     elsewhere should be able to see it was retired and why.
     """
-    read = await rung_seconds(session, tenant_id=tenant_id, month=month, since=since)
+    read = await rung_seconds(
+        session, tenant_id=tenant_id, month=month, since=since, paid_only=paid_only
+    )
     return MonthTotals(
         by_rung=rung_minutes(read.by_rung),
         cost_by_rung=read.cost_by_rung,
@@ -2854,7 +2872,12 @@ async def month_increment(
 
 
 async def _month_call_count(
-    session: AsyncSession, *, tenant_id: UUID, month: str, since: datetime | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    month: str,
+    since: datetime | None = None,
+    paid_only: bool = False,
 ) -> int:
     """Distinct calls with usage in `month`, floored at `since` (`_month_bounds`).
 
@@ -2873,7 +2896,7 @@ async def _month_call_count(
             text(
                 "SELECT COUNT(DISTINCT call_id) "
                 f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} "
-                "AND unit_type <> 'other'"
+                f"AND unit_type <> 'other'{_paid_rows(paid_only)}"
             ),
             {"tid": tenant_id, **_month_bounds(month, since=since)},
         )
@@ -2944,14 +2967,30 @@ async def usage_summary(
     # over or stopped the numbers should start from 0 again". Nothing is deleted to make
     # that true; the WINDOW moves, and `usage_events` keeps every row (hard rule 4).
     epoch = await counter_epoch(session, tenant_id=tenant_id)
+    trial = await read_trial(session, tenant_id=tenant_id)
+    trial_active = trial is not None and trial.is_active(at=at)
+    # WHETHER THE MONTH ON SCREEN IS THE ONE ON US. A running trial covers the open period
+    # only: a closed month was charged, and reading it while a later trial runs must still
+    # say what it cost rather than ₹0.00 "on us".
+    period_on_us = trial_active and period == today
+    # A PAID PERIOD COUNTS ONLY PAID CALLS. The window is dated by `occurred_at`, a call's
+    # END, and a trial call is free by its START, so a call that began inside the trial and
+    # ended after the first top-up lands inside the paid window with no debit behind it
+    # (`trials.ON_TRIAL_ROW_SQL` reads the meter's decision). Only an account that has had
+    # a trial (`epoch`) pays for the predicate.
+    paid_only = epoch is not None and not period_on_us
     # WHICH VOICE SPOKE THIS MONTH'S MINUTES, AND WHAT THE WALLET WAS ACTUALLY CHARGED
     # (D-547) — out of the ledger's own lot splits, over the same window as the minutes.
     lot_charges = await voice_tier_usage(session, tenant_id=tenant_id, month=period, since=epoch)
     voices = lot_charges.by_voice
-    totals = await _tier_totals(session, tenant_id=tenant_id, month=period, since=epoch)
+    totals = await _tier_totals(
+        session, tenant_id=tenant_id, month=period, since=epoch, paid_only=paid_only
+    )
     tier_minutes = totals.by_rung
     minutes = sum(tier_minutes.values(), _ZERO_PAISE)
-    calls = await _month_call_count(session, tenant_id=tenant_id, month=period, since=epoch)
+    calls = await _month_call_count(
+        session, tenant_id=tenant_id, month=period, since=epoch, paid_only=paid_only
+    )
 
     # WHICH PLAN PRICES THIS MONTH. Not the newest row — the row whose valid-time
     # window contains `priced_at` (`billing/plans.py`). For a closed month that instant
@@ -3072,12 +3111,7 @@ async def usage_summary(
     # IS THIS CLIENT'S CALLING ON US RIGHT NOW (D-536)? Asked AFTER the runway above so
     # the trial's answer overrides it rather than being computed around it, and asked as a
     # fact about the account today for the runway, the same reading `capped` takes.
-    trial = await read_trial(session, tenant_id=tenant_id)
-    trial_active = trial is not None and trial.is_active(at=at)
-    # WHETHER THE MONTH ON SCREEN IS THE ONE ON US. A running trial covers the open period
-    # only: a closed month was charged, and reading it while a later trial runs must still
-    # say what it cost rather than ₹0.00 "on us".
-    period_on_us = trial_active and period == today
+    # (`trial`, `trial_active` and `period_on_us` are read above, before the window.)
     if trial_active:
         # A trial bypasses the credit gate entirely (`compliance.service.credits_exhausted`),
         # so a wallet balance is not what limits this client's calling and quoting minutes

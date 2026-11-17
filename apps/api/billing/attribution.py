@@ -306,7 +306,7 @@ class CallAttribution:
     #: (OPERATIONS §2 gate 7). Admin-only, because it qualifies OUR figure and nothing
     #: about what the client was charged.
     cost_currency_assumed: bool
-    #: A free trial covered this call (`trials.trial_covers` at its own instant): the
+    #: A free trial covered this call (`trials.trial_covers` at its start): the
     #: client was charged nothing by design and `cost_inr` is what we paid to win them.
     trial_covered: bool = False
 
