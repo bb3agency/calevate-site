@@ -3,7 +3,7 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
-## 0.4.59 — 18-Nov-2026
+## 0.4.67 — 18-Nov-2026
 
 - A script you save on a running or paused campaign reaches its very next call; before, it
   waited until the campaign was stopped. Clearing a campaign's own call settings while it
@@ -65,6 +65,87 @@ page (`apps/web/package.json` holds the version). Dates are IST.
 - The agent page opens faster on a phone; page numbers are easier to tap.
 - When an agent can't be switched on, the notice has a button to the screen that fixes it,
   and a call that was talked through no longer says "Nothing was said".
+
+## 0.4.66 — 17-Nov-2026
+
+- Translate with Pip works both ways for scripts: a scenario with only Telugu gets its
+  English, one with only English gets its Telugu; caller and agent responses get their
+  Telugu. It sits under the description in its own orange bar, says how many boxes it will
+  fill (or that there is nothing to translate), and shows Pip's reason there if a run fails,
+  instead of in the Script section above.
+- Scenario editor in colours: the name and description (blue), the English script (blue),
+  the Telugu script (amber), caller and agent responses (pink), next scenarios (purple). The
+  description's tip sits on its label's line, and Next scenarios is a narrower column.
+
+## 0.4.65 — 17-Nov-2026
+
+- Scenario editor: English on the left and Telugu in the middle, side by side (the scripts
+  and every caller and agent response), the description across both, and Next scenarios
+  in the right-hand column.
+- Translate into Telugu with Pip: fills every empty Telugu box (scripts and caller and
+  agent responses, in all scenarios) from its English, and saves it. What you wrote in
+  Telugu stays; the flow from before can be put back.
+
+## 0.4.64 — 17-Nov-2026
+
+- Scenario editor laid out in three columns: the name and the English script on the left,
+  the description in the centre, the script in the campaign's language (Telugu) on the
+  right. Hindi script boxes are off for now.
+- Next scenarios sit under the description and the Telugu script, across both columns.
+- Questions and answers are now Caller and agent responses: the caller's words and the
+  agent's answer in English on the left, their Telugu translation beside them, one row per
+  pair, with Add a caller response for more. The agent gets both languages.
+
+## 0.4.63 — 17-Nov-2026
+
+- Call flow: choosing a scenario no longer scrolls the page to its editor; scroll down to it
+  when you want it.
+
+## 0.4.62 — 17-Nov-2026
+
+- Call flow: the steps take the full width, and the chosen scenario's editor sits under
+  them, across the page in three columns: name, description and next scenarios; the script
+  with Hear it and how it should sound; questions and answers. Choosing a box scrolls to it.
+- Before Pip writes or rewrites the script (Let Pip map the scenarios, Generate, a part in
+  a language), the flow you had is kept aside. Put back the flow from before Pip switches to
+  it, after a confirmation; the two swap, so the newer one can be brought back the same way.
+
+## 0.4.61 — 17-Nov-2026
+
+- **Teach the agent how to sound.** A note written under a scenario's line in Call flow
+  ("slower", "say Rytu Khata as రైతు ఖాతా") is also taught to the agent, unless you untick
+  it; a note already on the scenario has Teach [agent]. The agent keeps what it was taught
+  and follows it on every call: its own, every campaign's and every inbound line's, from
+  the next time each is put live (Start, Test call, Put live).
+- The agent's page, under its voice settings, lists How it should sound: each note, its
+  language and where it was taught, with a box to teach one there and an × to stop
+  following one (kept, not deleted). Up to 20 at a time.
+
+## 0.4.60 — 17-Nov-2026
+
+- Call flow: the scenario's Script shows the campaign's agent, with a picker to choose one
+  when there is none or change it, and Adjust its voice (speed, loudness, emotion), which
+  changes how the agent sounds on every call.
+- Each language's line has Hear it in the agent's voice (a Studio voice; it speaks the
+  start of the line and uses one of the day's samples). A Clear voice points to Test call.
+- Under each line, say how it should sound ("slower", "say Rytu Khata as రైతు ఖాతా"). The
+  notes are kept on the scenario and the agent follows them on the calls after Save.
+
+## 0.4.59 — 17-Nov-2026
+
+- **Call flow in steps and scenarios.** Each column is a step of the call, and a step holds
+  one or more scenarios, numbered 2.1, 2.2 and so on. Arrows run from each scenario's green
+  dot to the left of the scenarios it can go on to, green for a yes, orange for a no.
+- A scenario has a name, a description, its script in English and the campaign's languages,
+  any number of questions and answers, and its next scenarios (several can be ticked,
+  including End the call, Hand to a person and Offer a call back).
+- Add a scenario from a step's header, add a whole step at the end, or right-click a box for
+  Edit, Add a scenario below, Add a scenario in the next step, Move up or down and Delete.
+  Right-click a step to add to it or insert a step before it. Dragging a green dot onto a
+  box links them. A scenario's Step box moves it to another step.
+- Let Pip map the scenarios now writes steps with several scenarios each and links them.
+- The agent gets each scenario's script lines and answers in its instructions.
+
 
 ## 0.4.58 — 16-Nov-2026
 

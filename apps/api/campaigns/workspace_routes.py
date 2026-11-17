@@ -95,6 +95,8 @@ class CampaignProposalOut(_Out):
     #: A fix of a mistake on real calls the healer asked Pip for (D-1005), in the owner's
     #: words; null for a draft the owner asked for.
     fixes: str | None
+    #: The one part asked for ("flow", "translate", a part's name); null for the whole script.
+    focus_part: str | None = None
 
 
 class WorkspaceOut(_Out):
@@ -108,6 +110,8 @@ class WorkspaceOut(_Out):
     proposal: CampaignProposalOut | None
     #: The sources from What your agents know the campaign is written from.
     source_ids: list[UUID]
+    #: When the script from before Pip's last draft was kept aside; None: nothing to put back.
+    script_before_pip_at: datetime | None = None
 
 
 def _proposal(p: workspace.CampaignProposal | None) -> CampaignProposalOut | None:
@@ -124,6 +128,7 @@ def _proposal(p: workspace.CampaignProposal | None) -> CampaignProposalOut | Non
         reason=p.reason,
         why=p.why,
         fixes=p.fixes,
+        focus_part=p.focus_part,
         left_out=[
             CampaignLeftOutOut(
                 part=part.part,
@@ -148,6 +153,7 @@ async def _workspace_out(session: AsyncSession, campaign_id: UUID) -> WorkspaceO
         script_live_version=w.script_live_version,
         proposal=_proposal(w.proposal),
         source_ids=list(w.sources),
+        script_before_pip_at=w.script_before_pip_at,
     )
 
 
@@ -179,6 +185,30 @@ async def save_main_task(
     _: Dispatcher,
 ) -> WorkspaceOut:
     await workspace.save_main_task(session, campaign_id, payload.main_task)
+    return await _workspace_out(session, campaign_id)
+
+
+@router.post(
+    "/{campaign_id}/script/restore-before-pip",
+    response_model=WorkspaceOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Put back the script from before Pip's last draft (the two swap)",
+)
+async def restore_script_before_pip(
+    campaign_id: UUID, session: Session, request: Request, principal: Dispatcher
+) -> WorkspaceOut:
+    assert principal.tenant_id is not None
+    await workspace.restore_before_pip(session, campaign_id)
+    await write_audit(
+        session,
+        action="campaign.script_restored_before_pip",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="campaign",
+        object_id=str(campaign_id),
+        ip=client_request_ip(request),
+        summary={},
+    )
     return await _workspace_out(session, campaign_id)
 
 

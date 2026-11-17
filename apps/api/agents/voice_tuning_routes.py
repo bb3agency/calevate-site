@@ -5,6 +5,7 @@ a Clear voice's speed is saved and heard on the next call.
     GET   /v1/agents/{aid}/voice-tuning                                speed, loudness, emotion
     PATCH /v1/agents/{aid}/voice-tuning                                set or clear (audited)
     POST  /v1/agents/{aid}/voice-tuning/preview                        hear a sample, unsaved
+    POST  /v1/agents/{aid}/voice-tuning/preview-line                   hear a script line
     GET   /v1/admin/tenants/{tid}/agents/{aid}/voice-tuning            every setting held
     PATCH /v1/admin/tenants/{tid}/agents/{aid}/voice-tuning            set or clear (audited)
     POST  /v1/admin/tenants/{tid}/agents/{aid}/voice-tuning/preview    hear them, unsaved
@@ -436,6 +437,73 @@ async def preview_agent_voice_tuning(
             # The engine's own greeting when no line of ours fits; its length is not ours.
             "characters": len(line) if line else None,
         },
+    )
+    return _audio(audio.data, audio.content_type)
+
+
+class PreviewLineIn(BaseModel):
+    """A line of the owner's own script to hear, in one of the agent's languages."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=1000)
+    language: str | None = Field(default=None, max_length=10)
+
+
+def spoken_part(text: str, limit: int = _PREVIEW_TEXT_MAX_CHARS) -> str:
+    """The line cut to what the engine speaks: whole sentences while they fit, else whole
+    words, so a sample never stops mid-word."""
+    line = " ".join(text.split())
+    if len(line) <= limit:
+        return line
+    cut = line[:limit]
+    for mark in (". ", "? ", "! ", "। "):
+        at = cut.rfind(mark)
+        if at > limit // 3:
+            return cut[: at + 1]
+    return cut.rsplit(" ", 1)[0] if " " in cut else cut
+
+
+@router.post(
+    f"{_CLIENT_PATH}/preview-line",
+    response_class=Response,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Hear a line of the owner's script in this agent's Studio voice",
+    description=(
+        "Speaks the start of the line sent (whole sentences up to "
+        f"{_PREVIEW_TEXT_MAX_CHARS} characters) in the agent's Studio voice with its saved "
+        "speed, loudness and emotion, so an owner hears how a scenario's script sounds "
+        "(founder, 17 Nov 2026). Counts against the same "
+        f"{voice_tuning.CLIENT_PREVIEWS_PER_DAY} samples a day as the fixed sample. Refused "
+        "while the agent's voice is not a Studio one."
+    ),
+    responses=PREVIEW_RESPONSES,
+)
+async def preview_agent_line(agent_id: UUID, payload: PreviewLineIn, principal: Owner) -> Response:
+    tenant_id = principal.tenant_id
+    assert tenant_id is not None  # client realm; `requires()` resolves it
+    async with tenant_session(tenant_id) as scoped:
+        state = await voice_tuning.read_voice_tuning(scoped, agent_id)
+        language = (await scoped.execute(text(_SAMPLE_SQL), {"aid": agent_id})).one()[0]
+    ref = parse_hosted_voice_id(state.voice_id)
+    if not state.studio or ref is None:
+        raise _not_studio("client")
+    engine, workspace = await _speaking_engine("client")
+    line = spoken_part(payload.text)
+    spoken_in = payload.language or (str(language) if language else None)
+    counted = await voice_tuning.take_client_preview(tenant_id)
+    try:
+        with in_workspace(workspace):
+            audio = await engine.preview_own_key_voice(
+                voice_id=ref.vendor_id, text=line, language=spoken_in, tuning=state.tuning
+            )
+    except Exception:
+        await voice_tuning.refund_client_preview(counted)
+        raise
+    # The owner's words are not logged (hard rule 6), only how many were spoken.
+    log.info(
+        "client_voice_line_spoken",
+        extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "characters": len(line)},
     )
     return _audio(audio.data, audio.content_type)
 

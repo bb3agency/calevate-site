@@ -130,6 +130,7 @@ TENANT_TABLES = [
     "agent_test_labels",
     # The facts each agent knows by heart (D-896).
     "agent_hot_facts",
+    "agent_voice_notes",
     # Tell my team (D-904): the business's verified team addresses, each agent's triggers,
     # and one delivery row per call and address.
     "team_alert_contacts",

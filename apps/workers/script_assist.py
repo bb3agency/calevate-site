@@ -52,6 +52,7 @@ from calevate_shared.call_script import (
     MAX_SCRIPT_FAQS,
     MAX_SCRIPT_OBJECTIONS,
     MAX_SCRIPT_STAGES,
+    MAX_STAGE_BRANCHES,
     NOTICE_RECORDS,
     PROCEDURE_STEP_MAX,
     PROCEDURE_WAIT_MAX,
@@ -180,6 +181,10 @@ _SYSTEM_INSTRUCTION = (
     "A stage's procedure lists, in order, small actions the caller does one by one on their "
     "phone (each an English instruction with wait_for, what shows it is done); it is empty "
     "for a stage with no such actions. "
+    "step is the stage's moment in the call, counting from 1; stages that are alternative "
+    "ways the same moment can go share a step number. next lists the numbers (counting from "
+    "1 in this list of stages) of the stages the call can go on to from this one, with 0 for "
+    "ending the call; leave next empty for a straight run on to the following stage. "
     "2 to 5 objections the business really meets. 3 to 6 sample "
     "phrases. pronunciations only for names a voice might misread. code_mix is light, "
     "natural or heavy. business_line is one line under 200 characters on what the business "
@@ -758,6 +763,8 @@ _DRAFT_PROPERTIES: Final[dict[str, object]] = {
             "sounds_like": _STR,
             "exit_when": _STR,
             "procedure": _array_of({"action": _STR, "wait_for": _STR}),
+            "step": {"type": "integer"},
+            "next": {"type": "array", "items": {"type": "integer"}},
         }
     ),
     "objections": _array_of({"objection": _STR, "response": _STR}),
@@ -955,6 +962,33 @@ def _rows(raw: dict[str, Any], key: str) -> list[dict[str, Any]]:
     return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
+def _next_branches(value: object, rows: list[dict[str, Any]], own: int) -> list[StageBranch]:
+    """A stage's `next` numbers as ways out, each saying its target's name (the call flow's
+    scenarios, founder 17 Nov 2026); [] when the model gave none it can use."""
+    if not isinstance(value, list):
+        return []
+    out: list[StageBranch] = []
+    for n in value:
+        if not isinstance(n, int) or n == own or len(out) >= MAX_STAGE_BRANCHES:
+            continue
+        if n == 0:
+            out.append(StageBranch(when="The call is done", target=END_OF_CALL))
+        elif 1 <= n <= len(rows):
+            name = _text(rows[n - 1], "name", 80) or f"Section {n}"
+            out.append(StageBranch(when=name[:300], target=f"s{n}"))
+    return list({b.target: b for b in out}.values())
+
+
+def _steps_in_order(stages: list[ConversationStage]) -> list[ConversationStage]:
+    """Stages sorted by step when the model numbered every one, so the call order is step by
+    step; otherwise as written, with no steps (each its own step)."""
+    if not stages or any(s.step is None for s in stages):
+        return [s.model_copy(update={"step": None}) for s in stages]
+    ordered = sorted(stages, key=lambda s: s.step or 0)
+    renumber = {n: i for i, n in enumerate(sorted({s.step or 0 for s in ordered}), 1)}
+    return [s.model_copy(update={"step": renumber[s.step or 0]}) for s in ordered]
+
+
 def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
     """The model's JSON as a validated v2 `CallScript`.
 
@@ -990,16 +1024,22 @@ def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
             room -= len(procedure_pointer(name)) + 1
         exit_when = _text(row, "exit_when", 300)
         target = f"s{i + 1}" if i < len(rows) else END_OF_CALL
+        step = row.get("step")
         stages.append(
             ConversationStage(
                 id=f"s{i}",
                 name=name,
                 instruction=_text(row, "instruction", room),
                 sounds_like=sounds_like,
-                branches=[StageBranch(when=exit_when, target=target)] if exit_when else [],
+                branches=(
+                    _next_branches(row.get("next"), rows, i)
+                    or ([StageBranch(when=exit_when, target=target)] if exit_when else [])
+                ),
                 procedure=procedure,
+                step=step if isinstance(step, int) and 1 <= step <= MAX_SCRIPT_STAGES else None,
             )
         )
+    stages = _steps_in_order(stages)
     objections = [
         Objection(objection=_text(row, "objection", 300), response=_text(row, "response", 1000))
         for row in _rows(raw, "objections")[:MAX_SCRIPT_OBJECTIONS]

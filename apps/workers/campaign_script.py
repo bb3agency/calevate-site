@@ -29,7 +29,7 @@ from functools import partial
 from typing import Any, Final
 from uuid import UUID
 
-from calevate_shared.call_script import CallScript
+from calevate_shared.call_script import CallScript, ScenarioQaText
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,6 +57,8 @@ from apps.workers.campaign_script_ask import (
     SHORTEN_ASK,
     TONES,
     TOO_LONG_RULE,
+    TRANSLATE_INSTRUCTION,
+    TRANSLATE_PART,
     UNSOURCED_RULE,
     Review,
     budget_of,
@@ -385,6 +387,13 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
         budget=await _budget(tenant_id, space.agent_id, base),
     )
     language_name = LANGUAGE_LABELS.get(str(part_language), str(part_language))
+    if isinstance(focus, dict) and focus.get("part") == TRANSLATE_PART and part_language:
+        return await _translate(
+            holder,
+            str(part_language),
+            tenant_leg=tenant_leg,
+            quota_exhausted=quota.at_ceiling or quota.platform_paused,
+        )
     is_flow = isinstance(focus, dict) and focus.get("part") == FLOW_PART
     part_ask = (
         FLOW_ASK.format(language=language_name)
@@ -539,6 +548,155 @@ def too_long_left(size: PromptSize | None) -> list[LeftOut]:
 
 
 Spent = ScriptDraft | JsonAnswer[WrittenOpening] | JsonAnswer[Review] | ProblemError
+
+
+#: A key per line to translate, `<stage id>|script|<to tag>` or
+#: `<stage id>|qa|<n>|question|answer`, with its text and the language it goes into.
+_Lines = dict[str, tuple[str, str]]
+_ENGLISH: Final = "en-IN"
+
+
+def untranslated(script: CallScript, language: str) -> _Lines:
+    """Each line whose other language's box is empty: a script line either way (English into
+    `language`, or `language` into English), a caller and agent response from English."""
+    lines: _Lines = {}
+    for stage in script.stages:
+        english = stage.scripts.get(_ENGLISH, "")
+        local = stage.scripts.get(language, "")
+        if english and not local:
+            lines[f"{stage.id}|script|{language}"] = (english, language)
+        elif local and not english:
+            lines[f"{stage.id}|script|{_ENGLISH}"] = (local, _ENGLISH)
+        for n, qa in enumerate(stage.qa):
+            held = qa.translations.get(language)
+            if not (held and held.question.strip()):
+                lines[f"{stage.id}|qa|{n}|question"] = (qa.question, language)
+            if not (held and held.answer.strip()):
+                lines[f"{stage.id}|qa|{n}|answer"] = (qa.answer, language)
+    return lines
+
+
+def with_translations(
+    script: CallScript, language: str, asked: _Lines, done: dict[str, str]
+) -> CallScript:
+    """`script` with each translation in its empty box, where the line it was made from still
+    says the same; a line edited or a box filled meanwhile is left alone."""
+    stages = []
+    for stage in script.stages:
+        scripts = dict(stage.scripts)
+        for to, source in ((language, _ENGLISH), (_ENGLISH, language)):
+            key = f"{stage.id}|script|{to}"
+            if key in done and scripts.get(source) == asked[key][0] and not scripts.get(to):
+                scripts[to] = done[key]
+        qas = []
+        for n, qa in enumerate(stage.qa):
+            held = qa.translations.get(language) or ScenarioQaText()
+            fill = {}
+            for side in ("question", "answer"):
+                k = f"{stage.id}|qa|{n}|{side}"
+                if k in done and getattr(qa, side) == asked[k][0] and not getattr(held, side):
+                    fill[side] = done[k]
+            if fill:
+                filled = held.model_copy(update=fill)
+                qa = qa.model_copy(update={"translations": {**qa.translations, language: filled}})
+            qas.append(qa)
+        stages.append(stage.model_copy(update={"scripts": scripts, "qa": qas}))
+    return script.model_copy(update={"stages": stages})
+
+
+def _parsed_translations(raw: dict[str, Any], *, keys: set[str]) -> dict[str, str] | None:
+    items = raw.get("items")
+    if not isinstance(items, list):
+        return None
+    out = {
+        str(i["key"]): " ".join(str(i["text"]).split())
+        for i in items
+        if isinstance(i, dict)
+        and i.get("key") in keys
+        and isinstance(i.get("text"), str)
+        and str(i["text"]).strip()
+    }
+    return out or None
+
+
+async def _translate(
+    holder: _Holder, language: str, *, tenant_leg: Any, quota_exhausted: bool
+) -> str:
+    """Call flow's "Translate with Pip": the English lines put into `language` where its box
+    is empty, saved straight onto the campaign's script (the request kept the script as it was,
+    `workspace._keep_before_pip`, so it can be put back), then the request is settled."""
+    async with tenant_session(holder.tenant_id) as session:
+        current = (await workspace.read_workspace(session, holder.holder_id)).script
+    english = untranslated(current, language) if current is not None else {}
+    if not english:
+        await _fail(
+            holder,
+            "There was nothing to translate: every script line and response already has both "
+            "languages, or neither.",
+            reason="nothing",
+        )
+        return "nothing"
+    feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
+    try:
+        answer = await ask_json(
+            json.dumps(
+                {
+                    "items": [
+                        {"key": k, "to": LANGUAGE_LABELS.get(to, to), "text": line}
+                        for k, (line, to) in english.items()
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            TRANSLATE_INSTRUCTION,
+            parse=partial(_parsed_translations, keys=set(english)),
+            tenant_leg=tenant_leg,
+            quota_exhausted=quota_exhausted,
+            max_tokens=PROPOSAL_MAX_TOKENS,
+            temperature=0.2,
+            timeout_s=PROPOSAL_REQUEST_TIMEOUT_S,
+        )
+    except ProblemError as refused:
+        async with tenant_session(holder.tenant_id) as session:
+            await crm_assist.meter_refusal(
+                session, tenant_id=holder.tenant_id, refusal=refused, feature=feature
+            )
+        await _fail(holder, refusal_note(refused, AskTrace()), reason=refused.code)
+        return "refused"
+    except Exception:
+        log.exception("holder_translation_crashed", extra={holder.log_key: str(holder.holder_id)})
+        await _fail(holder, workspace.FAILED_NOTE, reason="crashed")
+        return "failed"
+    async with tenant_session(holder.tenant_id) as session:
+        latest = (await workspace.read_workspace(session, holder.holder_id)).script
+        claimed = (
+            await session.execute(
+                text(
+                    "UPDATE campaigns SET script_proposal = NULL WHERE id = :cid "
+                    "AND script_proposal->>'id' = :pid RETURNING id"
+                ),
+                {"cid": holder.holder_id, "pid": str(holder.proposal_id)},
+            )
+        ).first()
+        if claimed is not None and latest is not None:
+            translated = with_translations(latest, language, english, answer.value)
+            await workspace.save_script(session, holder.holder_id, translated)
+        await crm_assist.meter_earlier(
+            session, tenant_id=holder.tenant_id, earlier=answer.earlier, feature=feature
+        )
+        await crm_assist.meter_assist(
+            session,
+            tenant_id=holder.tenant_id,
+            ref=new_assist_ref(),
+            result=answer,
+            model=answer.model,
+            feature=feature,
+        )
+    log.info(
+        "holder_lines_translated",
+        extra={holder.log_key: str(holder.holder_id), "lines": len(answer.value)},
+    )
+    return "ready" if claimed is not None else "not_pending"
 
 
 async def _write(

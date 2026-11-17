@@ -66,7 +66,8 @@ export function limitsFrom(context: ScriptContext | null): Limits {
 }
 
 /** A stage with every optional field filled, so views never branch on `undefined`. */
-export type Section = Required<Omit<ConversationStage, "position" | "otherwise_via">> & {
+export type Section = Required<Omit<ConversationStage, "position" | "otherwise_via" | "step" | "scripts" | "qa" | "coaching">> &
+  Pick<ConversationStage, "step" | "scripts" | "qa" | "coaching"> & {
   position: { x: number; y: number } | null;
   /** The bend of the arrow to `otherwise` (or the next step), dragged on the canvas. */
   otherwise_via?: { x: number; y: number } | null;
@@ -88,6 +89,10 @@ export function asSection(stage: ConversationStage): Section {
     })),
     position: stage.position ?? null,
     otherwise_via: stage.otherwise_via ?? null,
+    step: stage.step ?? null,
+    scripts: stage.scripts ?? {},
+    qa: stage.qa ?? [],
+    coaching: stage.coaching ?? [],
   };
 }
 
@@ -119,13 +124,23 @@ export function sectionDetail(
   section: Pick<Section, "mode" | "instruction" | "sounds_like"> & {
     name?: string;
     procedure?: readonly unknown[];
+    scripts?: Record<string, string>;
+    qa?: readonly unknown[];
+    coaching?: readonly unknown[];
   },
 ): string {
   const text = collapse(section.instruction);
   let detail = section.mode === "say" ? `Say: ${quote(text)}` : text;
   if (section.sounds_like.trim()) detail += ` It sounds like: ${quote(section.sounds_like)}`;
   if (section.procedure?.length) detail += ` ${procedurePointer(section.name ?? "")}`;
+  const scripted = Object.values(section.scripts ?? {}).some((t) => t.trim());
+  if (scripted || section.qa?.length || section.coaching?.length) detail += ` ${scenarioPointer(section.name ?? "")}`;
   return detail;
+}
+
+/** `call_script.SCENARIO_POINTER` as the server fills it. */
+export function scenarioPointer(name: string): string {
+  return `Its script and answers are under ${quote(name)} in [SCENARIO SCRIPTS].`;
 }
 
 /** `call_script.PROCEDURE_POINTER` as the server fills it. */
@@ -459,6 +474,9 @@ export function validate(script: CallScript, limits: Limits = DEFAULT_LIMITS): I
     if (s.branches.length > limits.maxBranches) {
       add(s.id, "branches", `At most ${limits.maxBranches} ways out of one step.`);
     }
+    (s.qa ?? []).forEach((row, j) => {
+      if (!row.question.trim() || !row.answer.trim()) add(s.id, `qa-${j}`, "Fill in or remove each question and answer.");
+    });
     s.branches.forEach((b, j) => {
       if (!b.when.trim()) add(s.id, `branch-${j}`, "Say when the call goes this way.");
       if (!targetOk(b.target)) add(s.id, `branch-${j}`, "This goes to a step that is not there any more.");

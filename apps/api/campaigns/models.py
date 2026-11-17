@@ -141,6 +141,9 @@ class Campaign(PKMixin, TimestampMixin, Base):
     script_proposal: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: The agent's script version this campaign put live at its last Start.
     script_live_version: Mapped[int | None]
+    #: The saved script as it was when Pip was last asked to write it, to switch back to.
+    script_before_pip: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    script_before_pip_at: Mapped[datetime | None]
     #: A second opening line tested against the script's own, alternating per person (D-992).
     opening_b: Mapped[str | None] = mapped_column(Text)
     #: The agent settings this campaign sets for its own calls (D-994), each key present only

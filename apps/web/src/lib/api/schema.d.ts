@@ -4848,6 +4848,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/voice-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How the owner taught this agent to sound */
+        get: operations["list_voice_notes_v1_agents__agent_id__voice_notes_get"];
+        put?: never;
+        /**
+         * Teach this agent how to sound on every call
+         * @description Every call the agent makes follows its active notes, from the next time each of its agents, campaigns and lines is put live. At most 20; the same words in the same language return the note already held.
+         */
+        post: operations["add_voice_note_v1_agents__agent_id__voice_notes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/voice-notes/{note_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop this agent following a note (kept, not deleted) */
+        post: operations["retire_voice_note_v1_agents__agent_id__voice_notes__note_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/voice-tuning": {
         parameters: {
             query?: never;
@@ -4886,6 +4924,26 @@ export interface paths {
          * @description Speaks one fixed sample line in the agent's main language, in its Studio voice, with the speed, loudness and emotion sent (the saved ones are not read). 20 samples per account per day (India time); past that it is refused with `voice_preview_daily_cap`. Refused while the agent's voice is not a Studio one.
          */
         post: operations["preview_agent_voice_tuning_v1_agents__agent_id__voice_tuning_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/voice-tuning/preview-line": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hear a line of the owner's script in this agent's Studio voice
+         * @description Speaks the start of the line sent (whole sentences up to 200 characters) in the agent's Studio voice with its saved speed, loudness and emotion, so an owner hears how a scenario's script sounds (founder, 17 Nov 2026). Counts against the same 20 samples a day as the fixed sample. Refused while the agent's voice is not a Studio one.
+         */
+        post: operations["preview_agent_line_v1_agents__agent_id__voice_tuning_preview_line_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7553,6 +7611,23 @@ export interface paths {
         post?: never;
         /** Stop Pip's draft while it is written, or discard it once reviewed */
         delete: operations["clear_proposal_v1_campaigns__campaign_id__script_proposal__proposal_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script/restore-before-pip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put back the script from before Pip's last draft (the two swap) */
+        post: operations["restore_script_before_pip_v1_campaigns__campaign_id__script_restore_before_pip_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -19322,6 +19397,8 @@ export interface components {
             disclosure: string | null;
             /** Fixes */
             fixes: string | null;
+            /** Focus Part */
+            focus_part?: string | null;
             /**
              * Id
              * Format: uuid
@@ -21227,6 +21304,8 @@ export interface components {
         ConversationStage: {
             /** Branches */
             branches?: components["schemas"]["StageBranch"][];
+            /** Coaching */
+            coaching?: components["schemas"]["ScenarioCoaching"][];
             /** Collect */
             collect?: string[];
             /** Id */
@@ -21250,11 +21329,19 @@ export interface components {
             position?: components["schemas"]["CanvasPosition"] | null;
             /** Procedure */
             procedure?: components["schemas"]["ProcedureStep"][];
+            /** Qa */
+            qa?: components["schemas"]["ScenarioQa"][];
+            /** Scripts */
+            scripts?: {
+                [key: string]: string;
+            };
             /**
              * Sounds Like
              * @default
              */
             sounds_like: string;
+            /** Step */
+            step?: number | null;
         };
         /**
          * CopilotActionOut
@@ -31145,6 +31232,16 @@ export interface components {
             unmatched: number;
         };
         /**
+         * PreviewLineIn
+         * @description A line of the owner's own script to hear, in one of the agent's languages.
+         */
+        PreviewLineIn: {
+            /** Language */
+            language?: string | null;
+            /** Text */
+            text: string;
+        };
+        /**
          * ProblemBody
          * @description The problem+json body this API sends (RFC 9457 and BACKEND-PATTERNS §3), as a schema
          *     for the OpenAPI document. `ProblemError.as_problem` writes it; this only describes it.
@@ -33418,6 +33515,51 @@ export interface components {
             meaning: string;
             /** Scenario */
             scenario: number;
+        };
+        /**
+         * ScenarioCoaching
+         * @description How the owner, having heard it, wants a scenario's line said: slower, warmer, a word
+         *     said another way. `language` is the line's tag, or empty for every language.
+         */
+        ScenarioCoaching: {
+            /**
+             * Language
+             * @default
+             */
+            language: string;
+            /** Note */
+            note: string;
+        };
+        /**
+         * ScenarioQa
+         * @description What the caller may say in this scenario and what the agent answers, in English, with
+         *     the same pair in the campaign's languages (`translations`, by language tag).
+         */
+        ScenarioQa: {
+            /** Answer */
+            answer: string;
+            /** Question */
+            question: string;
+            /** Translations */
+            translations?: {
+                [key: string]: components["schemas"]["ScenarioQaText"];
+            };
+        };
+        /**
+         * ScenarioQaText
+         * @description A caller and agent response in one other language; either may still be blank.
+         */
+        ScenarioQaText: {
+            /**
+             * Answer
+             * @default
+             */
+            answer: string;
+            /**
+             * Question
+             * @default
+             */
+            question: string;
         };
         /** ScheduleCallbackIn */
         ScheduleCallbackIn: {
@@ -38564,6 +38706,47 @@ export interface components {
             /** Sarvam Note */
             sarvam_note: string | null;
         };
+        /** VoiceNoteIn */
+        VoiceNoteIn: {
+            /**
+             * Language
+             * @default
+             */
+            language: string;
+            /** Note */
+            note: string;
+            /**
+             * Source
+             * @default
+             */
+            source: string;
+        };
+        /** VoiceNoteOut */
+        VoiceNoteOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Language */
+            language: string;
+            /** Note */
+            note: string;
+            /** Source */
+            source: string;
+        };
+        /** VoiceNotesOut */
+        VoiceNotesOut: {
+            /** Items */
+            items: components["schemas"]["VoiceNoteOut"][];
+            /** Limit */
+            limit: number;
+        };
         /**
          * VoiceStateOut
          * @description The voice CONFIGURED on the agent and the voice the engine was last SENT.
@@ -39399,6 +39582,8 @@ export interface components {
             main_task: string;
             proposal: components["schemas"]["CampaignProposalOut"] | null;
             script: components["schemas"]["CallScript"] | null;
+            /** Script Before Pip At */
+            script_before_pip_at?: string | null;
             /** Script Live Version */
             script_live_version: number | null;
             /** Source Ids */
@@ -48415,6 +48600,102 @@ export interface operations {
             };
         };
     };
+    list_voice_notes_v1_agents__agent_id__voice_notes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceNotesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_voice_note_v1_agents__agent_id__voice_notes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceNoteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceNoteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    retire_voice_note_v1_agents__agent_id__voice_notes__note_id__retire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_agent_voice_tuning_v1_agents__agent_id__voice_tuning_get: {
         parameters: {
             query?: never;
@@ -48493,6 +48774,42 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ClientVoiceTuningIn"];
+            };
+        };
+        responses: {
+            /** @description The preview audio. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "audio/mpeg": string;
+                    "audio/wav": string;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    preview_agent_line_v1_agents__agent_id__voice_tuning_preview_line_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewLineIn"];
             };
         };
         responses: {
@@ -53206,6 +53523,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_script_before_pip_v1_campaigns__campaign_id__script_restore_before_pip_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

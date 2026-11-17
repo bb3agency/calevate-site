@@ -1284,6 +1284,34 @@ class AgentTestLabel(PKMixin, TimestampMixin, Base):
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
 
 
+class AgentVoiceNote(PKMixin, TimestampMixin, Base):
+    """How the owner wants this agent to sound, noted after hearing a line in its voice
+    (founder, 17 Nov 2026; `agents/voice_notes.py`). Every call the agent makes follows the
+    active ones. `language` is a tag, or empty for every language; `source` names where it was
+    taught ("Campaign: name, scenario 2.1"). Retired, never deleted.
+    """
+
+    __tablename__ = "agent_voice_notes"
+    __table_args__ = (
+        CheckConstraint("char_length(note) BETWEEN 1 AND 300", name="note_length"),
+        CheckConstraint("char_length(language) <= 10", name="language_length"),
+        CheckConstraint("char_length(source) <= 200", name="source_length"),
+        Index("ix_agent_voice_notes_agent_active", "agent_id", "created_at"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    language: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    retired_at: Mapped[datetime | None]
+
+
 class AgentHotFacts(PKMixin, TimestampMixin, Base):
     """The facts one agent knows by heart (D-896): chosen from the client's live knowledge by
     what its callers ask (`agents/hot_facts.py`) and spliced into its instructions at publish.

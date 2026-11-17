@@ -144,6 +144,7 @@ from apps.api.agents import (
     company_training,
     field_suggestions,
     hot_facts,
+    voice_notes,
 )
 from apps.api.agents import handoff as handoff_module
 from apps.api.agents.call_handling import (
@@ -577,6 +578,8 @@ class AgentRow(TypedDict):
     opening_waits_for_caller: NotRequired[bool]
     # The facts the agent knows by heart, in rank order (D-896, `agents/hot_facts`).
     hot_facts: NotRequired[tuple[str, ...]]
+    #: How the owner taught the agent to sound, (language, note) (`agents/voice_notes`).
+    voice_notes: NotRequired[tuple[tuple[str, str], ...]]
     #: The client's company training, the first section of every agent's script
     #: (`agents/company_training`); '' when the client has none.
     company_training: NotRequired[str]
@@ -796,6 +799,7 @@ async def _load_agent(
         "forwarded_line": await has_forwarded_line(session),
         # The facts this agent knows by heart, in rank order (D-896, `agents/hot_facts`).
         "hot_facts": await hot_facts.load_texts(session, agent_id=agent_id),
+        "voice_notes": await voice_notes.load(session, agent_id=agent_id),
         "company_training": await company_training.live_text(session),
     }
     # The agent's own defaults only. A campaign's settings are laid over them on the
@@ -1084,6 +1088,7 @@ def _to_config(
     )
     # The company training first, so the known facts below are cut to fit beside it.
     config = company_training.with_training(config, agent.get("company_training") or "")
+    config = voice_notes.with_voice_notes(config, agent.get("voice_notes") or ())
     # The facts this agent knows by heart, cut to fit (D-896); a no-op on every engine that
     # holds the facts in the prompt already.
     return hot_facts.with_known_facts(config, agent.get("hot_facts") or (), engine)
@@ -3666,6 +3671,7 @@ def _variant_config(
     # The arm's own body replaced the agent's above, so its known facts are spliced again:
     # an arm carries the client's knowledge like the agent (D-689), and its training.
     arm = company_training.with_training(arm, agent.get("company_training") or "")
+    arm = voice_notes.with_voice_notes(arm, agent.get("voice_notes") or ())
     return hot_facts.with_known_facts(arm, agent.get("hot_facts") or (), engine)
 
 
