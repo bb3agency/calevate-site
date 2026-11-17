@@ -650,6 +650,7 @@ function ScenarioEditor({
               />
               <LineCoach
                 agent={agent}
+                source={`Call flow, scenario ${item.label}`}
                 language={tag}
                 line={scripts[tag] ?? (tag === main ? legacy : "")}
                 notes={(s.coaching ?? []).filter((c) => c.language === tag).map((c) => c.note)}

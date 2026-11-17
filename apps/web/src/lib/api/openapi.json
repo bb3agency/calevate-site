@@ -65746,6 +65746,90 @@
         "title": "VoiceComparisonVoicesOut",
         "type": "object"
       },
+      "VoiceNoteIn": {
+        "additionalProperties": false,
+        "properties": {
+          "language": {
+            "default": "",
+            "maxLength": 10,
+            "title": "Language",
+            "type": "string"
+          },
+          "note": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Note",
+            "type": "string"
+          },
+          "source": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "title": "VoiceNoteIn",
+        "type": "object"
+      },
+      "VoiceNoteOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "language",
+          "note",
+          "source",
+          "created_at"
+        ],
+        "title": "VoiceNoteOut",
+        "type": "object"
+      },
+      "VoiceNotesOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceNoteOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "limit"
+        ],
+        "title": "VoiceNotesOut",
+        "type": "object"
+      },
       "VoiceStateOut": {
         "additionalProperties": false,
         "description": "The voice CONFIGURED on the agent and the voice the engine was last SENT.\n\nTwo fields because they are two facts. A voice written to our row\nreaches the engine only at a publish, so a paused agent keeps its old voice \u2014 one\nvalue labelled \"the voice\" would be a claim about a client's phone line that nobody\nchecked.\n\n`live` is null when nothing is recorded as sent, which reads two ways and is\ndisambiguated by `PendingOut.published`: an unpublished agent has nothing live, and\na published one was published before the mirror existed (or with no voice set). Both\nresolve to `republish_required` when a voice is configured, because a sync we cannot\nprove is not a sync.",
@@ -83146,6 +83230,138 @@
         "summary": "Chat with the live agent in text, as a caller would",
         "tags": [
           "teach"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/agents/{agent_id}/voice-notes": {
+      "get": {
+        "operationId": "list_voice_notes_v1_agents__agent_id__voice_notes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceNotesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How the owner taught this agent to sound",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "post": {
+        "description": "Every call the agent makes follows its active notes, from the next time each of its agents, campaigns and lines is put live. At most 20; the same words in the same language return the note already held.",
+        "operationId": "add_voice_note_v1_agents__agent_id__voice_notes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VoiceNoteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceNoteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Teach this agent how to sound on every call",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
+    "/v1/agents/{agent_id}/voice-notes/{note_id}/retire": {
+      "post": {
+        "operationId": "retire_voice_note_v1_agents__agent_id__voice_notes__note_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "note_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Note Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop this agent following a note (kept, not deleted)",
+        "tags": [
+          "agents"
         ],
         "x-calevate-permission": "agents:write"
       }

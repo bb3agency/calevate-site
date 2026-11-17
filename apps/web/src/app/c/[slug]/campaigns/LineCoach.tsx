@@ -17,6 +17,7 @@ import { Play, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { problemToast, useActionFeedback } from "@/components/arc/feedback";
+import { useTeachVoiceNote, useVoiceNotes } from "@/lib/api/voiceNotes";
 import { FIELD, SECONDARY_BUTTON_SM } from "@/components/ui";
 import { useClientRealm } from "@/lib/api/session";
 import { useClientVoiceTuning, useHearLine } from "@/lib/api/voiceTuning";
@@ -36,7 +37,10 @@ export function LineCoach({
   notes,
   readOnly,
   onNotes,
+  source,
 }: {
+  /** Where a note taught to the agent came from, e.g. "Call flow, scenario 2.1". */
+  source: string;
   agent: FlowAgent | null;
   language: string;
   line: string;
@@ -45,10 +49,20 @@ export function LineCoach({
   onNotes: (notes: string[]) => void;
 }) {
   const [typed, setTyped] = useState("");
+  const { session } = useClientRealm();
+  const agentId = agent?.id ?? "";
+  const taught = useVoiceNotes(session, agentId);
+  const teach = useTeachVoiceNote(session, agentId);
+  useActionFeedback(teach, { errorDisplay: "inline", successToast: agent ? `Taught to ${agent.name}` : undefined });
+  // On by default: each small lesson also becomes how the agent sounds on all its calls.
+  const [toAgent, setToAgent] = useState(true);
+  const isTaught = (note: string) =>
+    (taught.data?.items ?? []).some((n) => n.language === language && n.note.toLowerCase() === note.toLowerCase());
   const add = () => {
     const note = typed.trim();
     if (!note) return;
     onNotes([...notes, note].slice(0, 10));
+    if (toAgent && agentId) teach.mutate({ language, note, source });
     setTyped("");
   };
   return (
@@ -62,6 +76,16 @@ export function LineCoach({
               className="inline-flex items-center gap-1 rounded-full border border-series-4/40 bg-series-4/10 px-2 py-0.5 text-[12px] text-ink"
             >
               {note}
+              {isTaught(note) && <span className="text-[10px] font-medium text-series-4">· {agent?.name}</span>}
+              {!readOnly && agentId && !isTaught(note) && (
+                <button
+                  type="button"
+                  className="text-[10px] font-medium text-brand-strong hover:underline"
+                  onClick={() => teach.mutate({ language, note, source })}
+                >
+                  Teach {agent?.name}
+                </button>
+              )}
               {!readOnly && (
                 <button
                   type="button"
@@ -96,6 +120,17 @@ export function LineCoach({
             Add
           </button>
         </div>
+      )}
+      {!readOnly && agentId && (
+        <label className="flex items-center gap-1.5 text-[11px] text-ink-muted">
+          <input type="checkbox" className="h-3.5 w-3.5 accent-brand-strong" checked={toAgent} onChange={(e) => setToAgent(e.target.checked)} />
+          Also teach {agent?.name}, so it sounds this way on all its calls
+        </label>
+      )}
+      {teach.error != null && (
+        <p role="alert" className="text-[12px] text-danger">
+          {problemToast(teach.error, "It could not be taught").description ?? "It could not be taught"}
+        </p>
       )}
     </div>
   );

@@ -150,6 +150,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.routes import router as agents_router
     from apps.api.agents.script_routes import router as script_router
     from apps.api.agents.trial_call_routes import router as trial_calls_router
+    from apps.api.agents.voice_notes_routes import router as voice_notes_router
     from apps.api.agents.voice_tuning_routes import admin_router as voice_tuning_admin_router
     from apps.api.agents.voice_tuning_routes import router as voice_tuning_router
     from apps.api.analytics.routes import router as analytics_router
@@ -396,6 +397,7 @@ def _mount_routers(application: FastAPI) -> None:
     # How a Studio voice sounds (D-843): four- and five-segment agent paths, so mount order
     # is not load-bearing.
     application.include_router(voice_tuning_router)
+    application.include_router(voice_notes_router)
     application.include_router(voice_tuning_admin_router)
     application.include_router(reply_length_admin_router)
     # A client's calls at once (F7): `/v1/admin/organizations/{id}/call-lines`.

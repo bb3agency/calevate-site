@@ -461,6 +461,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "facts by `hot_facts.LOOKED_UP_SHOWN` in the read (D-896)."
         )
     ),
+    "GET /v1/agents/{agent_id}/voice-notes": BoundedByConstruction(
+        by=(
+            "active notes capped by `agents.voice_notes.MAX_ACTIVE_NOTES` under a per-agent "
+            "lock when taught, and the read's LIMIT is the same constant."
+        )
+    ),
     "GET /v1/kb/teach/{teaching_id}": BoundedByConstruction(
         by="one teaching's items, at most `workers.kb_teach.MAX_ITEMS` and 30 on save (`SaveIn`)."
     ),

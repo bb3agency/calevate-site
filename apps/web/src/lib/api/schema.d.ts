@@ -5009,6 +5009,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/voice-notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How the owner taught this agent to sound */
+        get: operations["list_voice_notes_v1_agents__agent_id__voice_notes_get"];
+        put?: never;
+        /**
+         * Teach this agent how to sound on every call
+         * @description Every call the agent makes follows its active notes, from the next time each of its agents, campaigns and lines is put live. At most 20; the same words in the same language return the note already held.
+         */
+        post: operations["add_voice_note_v1_agents__agent_id__voice_notes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/voice-notes/{note_id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop this agent following a note (kept, not deleted) */
+        post: operations["retire_voice_note_v1_agents__agent_id__voice_notes__note_id__retire_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/voice-tuning": {
         parameters: {
             query?: never;
@@ -38740,6 +38778,47 @@ export interface components {
             /** Sarvam Note */
             sarvam_note: string | null;
         };
+        /** VoiceNoteIn */
+        VoiceNoteIn: {
+            /**
+             * Language
+             * @default
+             */
+            language: string;
+            /** Note */
+            note: string;
+            /**
+             * Source
+             * @default
+             */
+            source: string;
+        };
+        /** VoiceNoteOut */
+        VoiceNoteOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Language */
+            language: string;
+            /** Note */
+            note: string;
+            /** Source */
+            source: string;
+        };
+        /** VoiceNotesOut */
+        VoiceNotesOut: {
+            /** Items */
+            items: components["schemas"]["VoiceNoteOut"][];
+            /** Limit */
+            limit: number;
+        };
         /**
          * VoiceStateOut
          * @description The voice CONFIGURED on the agent and the voice the engine was last SENT.
@@ -48946,6 +49025,102 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["TryChatOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_voice_notes_v1_agents__agent_id__voice_notes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceNotesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_voice_note_v1_agents__agent_id__voice_notes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceNoteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceNoteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    retire_voice_note_v1_agents__agent_id__voice_notes__note_id__retire_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                note_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {

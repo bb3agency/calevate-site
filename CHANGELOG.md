@@ -3,6 +3,17 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.61 — 17-Nov-2026
+
+- **Teach the agent how to sound.** A note written under a scenario's line in Call flow
+  ("slower", "say Rytu Khata as రైతు ఖాతా") is also taught to the agent, unless you untick
+  it; a note already on the scenario has Teach [agent]. The agent keeps what it was taught
+  and follows it on every call: its own, every campaign's and every inbound line's, from
+  the next time each is put live (Start, Test call, Put live).
+- The agent's page, under its voice settings, lists How it should sound: each note, its
+  language and where it was taught, with a box to teach one there and an × to stop
+  following one (kept, not deleted). Up to 20 at a time.
+
 ## 0.4.60 — 17-Nov-2026
 
 - Call flow: the scenario's Script shows the campaign's agent, with a picker to choose one
