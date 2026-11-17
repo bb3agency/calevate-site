@@ -107,10 +107,10 @@ async def test_a_borrowed_number_is_held_and_lent_before_the_dial(
     real_hold = agents_service._hold_client_number
 
     async def _hold(
-        session: AsyncSession, *, number: agents_service.CallerLine, agent_id: UUID
+        session: AsyncSession, *, number: agents_service.CallerLine, engine_agent_ref: str
     ) -> None:
         held.append(number.number_id)
-        await real_hold(session, number=number, agent_id=agent_id)
+        await real_hold(session, number=number, engine_agent_ref=engine_agent_ref)
 
     async def _lend(number_ref: str, agent_ref: str) -> bool:
         lent.append(number_ref)

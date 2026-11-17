@@ -1169,15 +1169,12 @@ class TestRedactionExposure:
             "PromptLayerOut.text",
             # The planner's sentence about a waiting approval, redacted before it leaves.
             "CopilotApprovalPreviewOut.summary",
-            # The business's own words, never a caller's: facts and rules taught in the
-            # teach box (D-719), an agent script's sample dialogue and a version's change
-            # note (D-714).
+            # The business's own words, never a caller's: facts taught in the teach box
+            # (D-719) and an agent script's sample dialogue (D-714).
             "FactOut.text",
             "KnownFactOut.text",
             "TeachItemIO.text",
-            "RuleOut.text",
             "ExampleLine.text",
-            "VersionOut.summary",
             # A call instruction read out of a document the business uploaded.
             "CallInstructionOut.text",
             # D-744: the platform's spoken-style table under review, platform words.
