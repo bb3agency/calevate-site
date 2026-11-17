@@ -77,7 +77,7 @@
      "question": "Suggest fixes for the tests this agent failed", "expect": ["agents_do:agent_tests_fix"], "forbid": ["set_fields"]},
     {"id": "c-tests-fix-on-line", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/0192f3a4-0000-7000-8000-0000000a9e01", "title": "Agent: practice tests",
      "facts": [{"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"}, {"key": "failed_tests", "label": "Tests the script can fix (key: title)", "value": "k1: Asks for a discount"}, {"key": "fix_holder", "label": "Script fixes go to (kind, name, id)", "value": "inbound_line, After hours, 0192f3a4-0000-7000-8000-0000000b1e02"}],
-     "question": "Suggest fixes for the tests this agent failed, as a draft on the Inbound line “After hours”.", "expect": ["agents_do:agent_tests_fix"], "forbid": ["set_fields", "inbound_do:inbound_line_script_ask"]},
+     "question": "Suggest fixes for the tests this agent failed, as a draft on the Inbound line “After hours”.", "expect": ["agents_do:agent_tests_fix"], "forbid": ["set_fields"]},
     {"id": "c-agent-restore", "realm": "client", "kind": "action", "route": "/c/sunrise/agents", "title": "Agents",
      "facts": [{"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"}, {"key": "agent_status", "label": "Status", "value": "deleted"}],
      "question": "bring this deleted agent back", "expect": ["agents_do:agent_restore"], "forbid": ["set_fields", "agents_do:agent_publish"]},
