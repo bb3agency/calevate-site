@@ -1664,7 +1664,7 @@ describe("putting a waiting script live from the header", () => {
     await act(async () => {
       fireEvent.click(open);
     });
-    const dialog = await screen.findByRole("dialog", { name: "Put these changes live?" });
+    const dialog = await screen.findByRole("dialog", { name: "Put the waiting changes live?" });
     await act(async () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Put it live" }));
     });
@@ -2518,18 +2518,18 @@ describe("the header holds the one primary, and Overview keeps the guarantee fir
   const HEADER_PRIMARY = "bg-brand-strong px-4 py-2";
 
   it("puts a single primary in the header, and no hero-sized button anywhere", async () => {
-    // CHANGED 10 Oct 2026: switching on is the header's switch, so the one filled button is
-    // "Put it live", and only while the script's draft differs from what callers hear.
+    // Switching on is the header's switch, so the one filled button is "Put it live", shown
+    // only while a staged version waits (D-1017: an autosaved draft is never put live).
     const { container } = await renderClientPage(
       page,
       routes({
         ...SWITCHED_OFF,
+        "/v1/agents/agent-1/pending": STAGED,
         "/v1/agents/agent-1/script": {
           script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram." },
-          draft: { script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram andi." }, saved_at: "2026-10-10T10:00:00Z" },
           version: 4,
           is_freeform: false,
-          has_pending: false,
+          has_pending: true,
           standard_variables: [],
         },
       }),

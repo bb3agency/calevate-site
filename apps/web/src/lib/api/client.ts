@@ -109,16 +109,26 @@ type ProblemSchemas = {
 }[keyof components["schemas"]];
 
 /**
- * `error` as the typed problem `schema` describes, when it is the problem `code` names;
- * otherwise undefined. The one way a screen reads a problem's extension members. Every
- * member is optional on the wire (an absent one is left out), so read each as maybe-missing.
+ * A problem's extension members by their schema NAMES, each value `unknown`. The names come
+ * from the generated schema, so a misspelt member fails to compile; the values are not
+ * asserted onto the schema's types, because nothing checked the body against them
+ * (`wireFixtureGuard`). A screen narrows each member it reads (`typeof x === "string"`).
+ */
+export type ProblemMembers<N extends ProblemSchemas> = {
+  readonly [K in keyof components["schemas"][N]]?: unknown;
+};
+
+/**
+ * `error`'s extension members, when it is the problem `code` names; otherwise undefined.
+ * The one way a screen reads a problem's extension members (D-1016).
  */
 export function problemOf<N extends ProblemSchemas>(
   error: unknown,
   code: string,
-): Partial<components["schemas"][N]> | undefined {
+): ProblemMembers<N> | undefined {
   if (!(error instanceof ApiProblem) || error.code !== code) return undefined;
-  return error.body as Partial<components["schemas"][N]>;
+  const members: ProblemMembers<N> = error.body;
+  return members;
 }
 
 /**

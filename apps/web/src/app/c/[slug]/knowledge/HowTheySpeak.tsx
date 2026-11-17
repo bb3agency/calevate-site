@@ -374,12 +374,16 @@ function ScriptPlaces({ error }: { error: unknown }) {
   const tooLong = problemOf<"CompanyTrainingTooLong">(error, TOO_LONG_CODE);
   if (!tooLong) return null;
   const base = `/c/${session.orgSlug}`;
-  const named = tooLong.inbound_line_id
-    ? { to: `${base}/inbound/${tooLong.inbound_line_id}`, label: "Open the Inbound line" }
-    : tooLong.campaign_id
-      ? { to: `${base}/campaigns/${tooLong.campaign_id}`, label: "Open the campaign" }
-      : tooLong.agent_id
-        ? { to: `${base}/agents/${tooLong.agent_id}`, label: "Open the agent" }
+  const id = (value: unknown) => (typeof value === "string" && value ? value : null);
+  const lineId = id(tooLong.inbound_line_id);
+  const campaignId = id(tooLong.campaign_id);
+  const agentId = id(tooLong.agent_id);
+  const named = lineId
+    ? { to: `${base}/inbound/${lineId}`, label: "Open the Inbound line" }
+    : campaignId
+      ? { to: `${base}/campaigns/${campaignId}`, label: "Open the campaign" }
+      : agentId
+        ? { to: `${base}/agents/${agentId}`, label: "Open the agent" }
         : null;
   return (
     <div className="flex flex-wrap gap-2">

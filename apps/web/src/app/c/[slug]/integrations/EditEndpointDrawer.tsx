@@ -150,7 +150,7 @@ export function EditEndpointDrawer({
               <span className="block text-meta text-ink-faint">
                 {rawPhone
                   ? "Untick to send numbers masked from now on."
-                  : "Numbers will be masked, even on resends. Turning this back on needs our team."}
+                  : "Numbers go masked, even on resends. Ask us to undo."}
               </span>
             </span>
           </label>
