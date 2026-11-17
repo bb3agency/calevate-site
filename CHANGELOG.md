@@ -3,7 +3,7 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
-## 0.4.59 — 17-Nov-2026
+## 0.4.59 — 18-Nov-2026
 
 - A script you save on a running or paused campaign reaches its very next call; before, it
   waited until the campaign was stopped. Clearing a campaign's own call settings while it
@@ -47,6 +47,24 @@ page (`apps/web/package.json` holds the version). Dates are IST.
 - A transcript you stop sending to your CRM is no longer sent on later retries.
 - Call recordings are no longer lost when storage is slow, and a new opening line you save
   while Pip adds the notices is no longer replaced.
+- **Test calls:** a test call of a campaign that hasn't started, or of a draft Inbound line,
+  rings from our test number and no longer needs one of your calling setups. When Start, a
+  test call or putting a line live needs a setup and none is free, the message lists what is
+  using each one, with a link and what frees it, and **Ask us to raise your limit** emails us.
+- Fixes for failed practice tests arrive as a draft from Pip on your Inbound line or
+  campaign; if your agent works on several, choose where they go. The teach box keeps facts.
+- Your AI helper works on your account in the background only once you turn Pip on.
+- You can stop full phone numbers being sent to a connected system from Integrations.
+- When someone asks to be erased, deliveries still waiting to go to your systems that name
+  them are removed too.
+- A free trial test call stays free if you add credit while it is still going. Refunding the
+  same amount twice is checked as a new refund, and a won dispute returns your credit to the
+  packs it came from. Bank-transfer accounts get an **Ask for bank details** button.
+- A test call on a running campaign rings from your own number without disturbing its calls,
+  and a new number goes to your first Inbound line whose agent is still working.
+- The agent page opens faster on a phone; page numbers are easier to tap.
+- When an agent can't be switched on, the notice has a button to the screen that fixes it,
+  and a call that was talked through no longer says "Nothing was said".
 
 ## 0.4.58 — 16-Nov-2026
 
