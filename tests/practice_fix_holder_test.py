@@ -232,7 +232,11 @@ async def test_a_draft_already_waiting_is_never_replaced(
     round is then remembered as answered, so asking again after the review is refused."""
     tenant_id, agent_id = await _agent()
     line_id = await _line(tenant_id, agent_id, "Main line")
-    waiting = {"id": str(uuid.uuid4()), "status": "ready", "requested_at": "2026-11-17T10:00:00+00:00"}
+    waiting = {
+        "id": str(uuid.uuid4()),
+        "status": "ready",
+        "requested_at": "2026-11-17T10:00:00+00:00",
+    }
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE inbound_lines SET script_proposal = CAST(:p AS jsonb) WHERE id = :h"),

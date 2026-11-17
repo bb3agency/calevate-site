@@ -533,7 +533,9 @@ async def save_teaching(
         session,
         tenant_id=principal.tenant_id,
         teaching_id=teaching_id,
-        items=[teaching.TeachItem(kind="fact", text=i.text, pinned=i.pinned) for i in payload.items],
+        items=[
+            teaching.TeachItem(kind="fact", text=i.text, pinned=i.pinned) for i in payload.items
+        ],
         saved_by=principal.user_id,
         client_user_id=principal.client_user_id,
         auto_approve=_auto_approve(principal),

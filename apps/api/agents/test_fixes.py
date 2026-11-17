@@ -187,7 +187,9 @@ async def write_holder_draft(
     a fix never replaces a draft the owner has not seen."""
     current = await read_holder(session, holder, lock=True)
     if current is None:
-        raise ProblemError.not_found("Inbound line" if holder.kind == "inbound_line" else "Campaign")
+        raise ProblemError.not_found(
+            "Inbound line" if holder.kind == "inbound_line" else "Campaign"
+        )
     if current.proposal is not None and current.proposal.status in ("drafting", "ready"):
         raise ProblemError.conflict(
             DRAFT_OPEN_CODE,
@@ -201,7 +203,7 @@ async def write_holder_draft(
         return None
     proposal_id = uuid7()
     now = datetime.now(UTC).isoformat()
-    record = {
+    record: dict[str, Any] = {
         "id": str(proposal_id),
         "status": "ready",
         "requested_at": now,

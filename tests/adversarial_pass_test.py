@@ -1472,13 +1472,6 @@ _BODY_REFERENCE_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str],
         "Credential",
     ),
     (
-        "POST",
-        "/v1/kb/teach/{teaching_id}/save",
-        {"items": [{"kind": "fact", "text": "Open 9 to 6."}], "agent_id": "{agent_id}"},
-        {},
-        "Agent",
-    ),
-    (
         "PUT",
         "/v1/company-training/training",
         {"training": "Be brief.", "proposal_id": "{training_proposal_id}"},

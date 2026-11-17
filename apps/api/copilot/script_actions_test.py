@@ -129,8 +129,9 @@ async def test_fixes_for_a_neighbours_agent_are_not_found() -> None:
 async def test_with_several_lines_pip_asks_which_one_gets_the_script_fixes() -> None:
     """FAILS IF Pip guesses where a script fix goes when the agent has several Inbound lines
     (D-1017), or the line it was told is not the one signed into the confirm."""
-    from apps.api.inbound.lines import create_line
     from calevate_shared.call_script import CallScript
+
+    from apps.api.inbound.lines import create_line
 
     tenant_id, _slug, token = await _make_tenant()
     agent_id = await _agent_of(tenant_id)

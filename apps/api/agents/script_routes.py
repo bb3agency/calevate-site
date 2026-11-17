@@ -849,7 +849,9 @@ def _on_offer(raw: dict[str, Any] | None) -> tuple[list[dict[str, Any]], int] | 
 def _holder_out(raw: Any) -> TestFixHolderOut | None:
     if not isinstance(raw, dict) or raw.get("kind") not in ("inbound_line", "campaign"):
         return None
-    return TestFixHolderOut(kind=raw["kind"], id=UUID(str(raw["id"])), name=str(raw.get("name") or ""))
+    return TestFixHolderOut(
+        kind=raw["kind"], id=UUID(str(raw["id"])), name=str(raw.get("name") or "")
+    )
 
 
 def _improvement_out(raw: dict[str, Any] | None) -> ImprovementOut | None:

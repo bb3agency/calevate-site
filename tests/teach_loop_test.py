@@ -249,7 +249,7 @@ async def test_a_retried_delivery_takes_back_a_teaching_its_cancelled_attempt_le
 
 
 async def test_teaching_without_ai_still_reaches_review_with_the_words_unsorted() -> None:
-    tenant_id, agent_id = await _tenant()
+    tenant_id, _agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
         started = await teaching.start_teaching(
             session,

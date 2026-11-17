@@ -40,7 +40,6 @@ from calevate_shared.call_script import (
     native_steps,
     render_steps,
     splice_quick_facts,
-    upgrade_to_v2,
     without_outline,
 )
 from calevate_shared.engine import (
