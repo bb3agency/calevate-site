@@ -1062,6 +1062,44 @@ describe("the receipt is the server's answer", () => {
     expect(receipt.textContent).not.toContain("Not set");
   });
 
+  it("reads the list again until the saved value is in force, without a reload", async () => {
+    // The write answers before its transaction commits and the process refreshes its
+    // snapshot afterwards, so the read that follows a save can still carry the old value.
+    // The list itself polls only once a minute; the screen must not sit on the old value.
+    let saved = false;
+    let readsAfterSave = 0;
+    renderOps(
+      opsRoutes({
+        [OPS_CONFIG_PATH]: () => {
+          if (saved) readsAfterSave += 1;
+          // The first read after the save is the stale one; the next is in force.
+          return configList([readsAfterSave >= 2 ? configField({ value: "7.25", source: "db" }) : configField()]);
+        },
+        [`PUT ${OPS_CONFIG_PATH}/self_serve_inr_per_min`]: () => {
+          saved = true;
+          return {
+            key: "self_serve_inr_per_min",
+            previous: "6.00",
+            field: configField({ value: "7.25", source: "db", updated_by: "Ops" }),
+            config_version: 43,
+            recorded: true,
+            etag: '"8"',
+          } satisfies ConfigWrite;
+        },
+      }),
+    );
+
+    await screen.findByText("self_serve_inr_per_min");
+    fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
+    fillConfigForm({ value: "7.25", reason: "Q3 self-serve price change", confirm: "7.25" });
+    fireEvent.click(saveButton());
+
+    await screen.findByText(/has not picked up the change yet/);
+    await waitFor(() => expect(screen.queryByText(/has not picked up the change yet/)).toBeNull(), {
+      timeout: 6000,
+    });
+  }, 15000);
+
   it("says when the process serving this screen has not picked the change up", async () => {
     // The list keeps answering 6.00 — a `stale` snapshot, or a process that cannot reach
     // the store. Without this the operator sees the old value under a green tick and
