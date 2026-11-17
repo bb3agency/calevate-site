@@ -371,16 +371,19 @@ async def place_trial_call(
         owner_test = OwnerTestDial(
             max_call_seconds=call_seconds, daily_cap=paid.daily_cap, day_start=paid.day_start
         )
-        if campaign_test is not None and paid.line != "own_number":
-            # No number of its own yet: the shared trial line, through the campaign's test
-            # holder made in our developer workspace above.
-            caller_number = get_settings().trial_caller_number
-            assert caller_number is not None  # `read_paid_test_access` refused otherwise
-            trial = TrialDial(
-                from_e164=caller_number,
-                max_call_seconds=call_seconds,
-                agent_ref=campaign_test.ref,
-            )
+        if campaign_test is not None:
+            # A running or paused campaign's test holder is never made in our developer
+            # workspace, so it rings from the client's own number like its dials (no
+            # `trial`). Otherwise, with no number of its own yet: the shared trial line,
+            # through the test holder made in our developer workspace above.
+            if campaign_test.developer:
+                caller_number = get_settings().trial_caller_number
+                assert caller_number is not None  # `read_paid_test_access` refused otherwise
+                trial = TrialDial(
+                    from_e164=caller_number,
+                    max_call_seconds=call_seconds,
+                    agent_ref=campaign_test.ref,
+                )
         elif line_test is None and paid.line in ("trial_line_own", "trial_line_copy"):
             # Before the client has a number of its own: the shared trial line, through the
             # agent's developer-workspace engine agent, republished first when it is the test

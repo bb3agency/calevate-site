@@ -26,7 +26,6 @@ router keeps no suggestion of an agent's script. The test routes below gate on t
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import datetime
 from typing import Annotated, Any, Final, Literal, get_args
 from uuid import UUID
@@ -47,7 +46,7 @@ from calevate_shared.call_script import (
     upgrade_to_v2,
 )
 from calevate_shared.spoken_style import style_for
-from fastapi import APIRouter, Depends, Path, Query, Request
+from fastapi import APIRouter, Depends, Path, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,11 +60,7 @@ from apps.api.agents import (
     test_titles,
     trial_results,
 )
-from apps.api.agents.capability_manifest import lint_context_for
-from apps.api.agents.engine_limits import too_long_sentence
-from apps.api.agents.mistake_lints import script_mistakes
 from apps.api.agents.script_edits import MAX_EDITS, ScriptEdit, apply_edits
-from apps.api.agents.script_lint import LintContext, plain, script_problems
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns.contact_details import list_columns
 from apps.api.compliance.audit import write_audit
@@ -233,82 +228,6 @@ class ScriptOut(BaseModel):
     standard_variables: list[VariableSuggestion]
 
 
-class SaveScriptIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    script: CallScript
-    notes: str | None = Field(default=None, max_length=200)
-    #: The draft version this edit started from (null: the agent had no script). When sent,
-    #: the save is refused with `script_changed_elsewhere` if the draft has moved since, so
-    #: a builder holding an older copy can never save over a newer version. Left out, the
-    #: save is unconditional, as before.
-    expected_version: int | None = Field(default=None, ge=1)
-
-
-class SaveScriptOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    version: int
-    #: True = live agent, edit is waiting for Apply. False = draft/paused, applied as written.
-    staged: bool
-
-
-class SizePartOut(BaseModel):
-    """One part of the instructions and its length. Never its text."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    key: str
-    label: str
-    chars: int
-
-
-class PreviewIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    script: CallScript
-
-
-class PreviewOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    #: The exact engine prompt: the disclosure opening, the compiled script, and the
-    #: non-removable platform rules appended last — what the engine actually holds — then,
-    #: on an engine with its own step list, the stages as sent there.
-    compiled: str
-    #: Characters of the instructions text and the engine's ceiling on it (null: none), so
-    #: the builder can show the budget as the owner types. Publishing over it is refused.
-    instructions_chars: int = 0
-    instructions_limit: int | None = None
-    #: Stages sent as the engine's own step list (0 where they stay in the text).
-    native_steps: int = 0
-    #: How far `instructions_chars` is over the limit (0 when it fits).
-    over_chars: int = 0
-    #: The sentence to show when it is over, null when it fits.
-    too_long: str | None = None
-    #: The instructions by layer (Calevate's rules and the script) and the script by
-    #: section, longest first, so the owner can see what to shorten. Counts only.
-    layers: list[SizePartOut] = Field(default_factory=list)
-    script_parts: list[SizePartOut] = Field(default_factory=list)
-
-
-def preview_out(preview: script_builder.Preview) -> PreviewOut:
-    size = preview.size
-    return PreviewOut(
-        compiled=preview.compiled,
-        instructions_chars=preview.instructions_chars,
-        instructions_limit=preview.instructions_limit,
-        native_steps=preview.native_steps,
-        over_chars=size.over,
-        too_long=None if size.fits else too_long_sentence(size),
-        layers=[SizePartOut(key=p.key, label=p.label, chars=p.chars) for p in size.layers],
-        script_parts=[
-            SizePartOut(key=p.key, label=p.label, chars=p.chars)
-            for p in sorted(size.script_parts, key=lambda p: p.chars, reverse=True)
-        ],
-    )
-
-
 _STANDARD_VARIABLES = [
     VariableSuggestion(key=key, label=label) for key, label in STANDARD_VARIABLES
 ]
@@ -398,98 +317,6 @@ def _limits() -> ScriptLimitsOut:
         native_steps=limits.native_steps,
         special_targets=sorted(SPECIAL_TARGETS),
     )
-
-
-@router.post(
-    "/preview",
-    response_model=PreviewOut,
-    openapi_extra=permission_meta("agents:read"),
-    summary="Compile a (possibly unsaved) script into the exact engine prompt",
-)
-async def preview_script(
-    agent_id: UUID, payload: PreviewIn, session: Session, _: ScriptReader
-) -> PreviewOut:
-    return preview_out(await script_builder.compiled_preview(session, agent_id, payload.script))
-
-
-class ScriptCheckOut(BaseModel):
-    """What the script lint finds in a (possibly unsaved) script (D-945): warnings shown
-    before it goes live, never a refusal. Promotional wording is left to the D-943 promo
-    check, which the same dialog shows (`/v1/compliance/promo-check/agents/{id}`)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    warnings: list[str]
-    #: Lines that can cause a known mistake on calls (D-989, `mistake_lints.script_mistakes`),
-    #: shown as their own group of lines to fix. Never a refusal; "Fix them first" fixes
-    #: them with the warnings.
-    mistakes: list[str]
-
-
-def _check_findings(script: CallScript, context: LintContext) -> tuple[list[str], list[str]]:
-    """The script check's findings and the call-mistake checks' on the lines it does not name,
-    on the lint context the readiness card uses without the promo check (D-943 shows that)."""
-    lint = replace(context, promo=False)
-    found = script_problems(script, lint)
-    return found, script_mistakes(script, lint, beside=found)
-
-
-@router.post(
-    "/check",
-    response_model=ScriptCheckOut,
-    openapi_extra=permission_meta("agents:read"),
-    summary="What the script lint finds in a (possibly unsaved) script, before it goes live",
-)
-async def check_script(
-    agent_id: UUID, payload: PreviewIn, session: Session, principal: ScriptReader
-) -> ScriptCheckOut:
-    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
-    await script_builder.assert_agent_visible(session, agent_id)
-    context = await lint_context_for(session, tenant_id=principal.tenant_id, agent_id=agent_id)
-    found, mistakes = _check_findings(upgrade_to_v2(payload.script), context)
-    return ScriptCheckOut(
-        warnings=[plain(problem) for problem in found],
-        mistakes=[plain(problem) for problem in mistakes],
-    )
-
-
-@router.put(
-    "",
-    response_model=SaveScriptOut,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Save the structured script as a new version (staged on a live agent)",
-)
-async def save_script(
-    agent_id: UUID,
-    payload: SaveScriptIn,
-    session: Session,
-    request: Request,
-    principal: ScriptWriter,
-) -> SaveScriptOut:
-    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
-    await script_builder.refuse_if_too_long(session, agent_id, payload.script)
-    saved = await script_builder.save_agent_script(
-        session,
-        tenant_id=principal.tenant_id,
-        agent_id=agent_id,
-        script=payload.script,
-        notes=payload.notes,
-        created_by=principal.user_id,
-        check_version="expected_version" in payload.model_fields_set,
-        expected_version=payload.expected_version,
-    )
-    await write_audit(
-        session,
-        action="agent.script_saved",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="agent",
-        object_id=str(agent_id),
-        ip=client_request_ip(request),
-        # Version and a boolean only — a script body embeds client business detail (rule 6).
-        summary={"version": saved.version, "staged": saved.staged},
-    )
-    return SaveScriptOut(version=saved.version, staged=saved.staged)
 
 
 TestVerdict = Literal["passed", "needs_fix", "failed", "unjudged"]
@@ -1443,34 +1270,6 @@ async def publish_script(
         on_saved=audit,
     )
     return PublishOut(version=done.version, live=done.live)
-
-
-class VersionOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    version: int
-    summary: str | None
-    created_at: datetime
-    is_live: bool
-
-
-@router.get(
-    "/versions",
-    response_model=list[VersionOut],
-    openapi_extra=permission_meta("agents:read"),
-    summary="The script's versions, newest first, and which one callers hear",
-)
-async def script_versions(
-    agent_id: UUID,
-    session: Session,
-    _: ScriptReader,
-    limit: int = Query(script_builder.MAX_VERSIONS_PAGE, ge=1, le=script_builder.MAX_VERSIONS_PAGE),
-) -> list[VersionOut]:
-    await script_builder.assert_agent_visible(session, agent_id)
-    return [
-        VersionOut(version=v.version, summary=v.summary, created_at=v.created_at, is_live=v.is_live)
-        for v in await script_builder.list_versions(session, agent_id, limit=limit)
-    ]
 
 
 class RestoredOut(DraftOut):

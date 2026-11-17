@@ -66,9 +66,7 @@ AGENT_READS = (
     "/voice-tuning",
     "/actions",
     "/script",
-    "/script/versions",
     "/script/tests",
-    "/script/proposed-rules",
 )
 
 

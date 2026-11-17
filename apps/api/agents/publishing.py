@@ -134,8 +134,12 @@ log = get_logger(__name__)
 
 Lane = Literal["staged", "live"]
 
-# §2b, verbatim enough to be quotable in the UI and short enough to fit in a banner.
-PRECEDENCE_RULE = "Script decides content, rules decide conduct, voice only changes delivery."
+# SURFACES §2b's rule, short enough for a banner, worded for where a call's words are now
+# written: on each Inbound line and campaign, never on an agent (D-1005, D-1009).
+PRECEDENCE_RULE = (
+    "Each Inbound line's and campaign's script decides what is said, rules decide conduct, "
+    "the voice only changes delivery."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,8 +165,9 @@ LANES: tuple[LaneEntry, ...] = (
         lane="staged",
         precedence=1,
         why=(
-            "The script decides what the agent says, and a bad version is discovered "
-            "by a customer on the phone. On an agent taking calls it waits until it is put live."
+            "What a call says is written on its Inbound line or campaign, and a bad version "
+            "is discovered by a customer on the phone, so a change there waits until it is "
+            "put live on that line or campaign."
         ),
     ),
     LaneEntry(
@@ -185,9 +190,8 @@ LANES: tuple[LaneEntry, ...] = (
         lane="live",
         precedence=2,
         why=(
-            "Approved knowledge is recompiled into T0 and applies immediately — "
-            "unless a script edit is already staged, in which case it waits with it, "
-            "because both live in the same prompt body."
+            "Approved knowledge belongs to the business, so once it is published it reaches "
+            "the calls of every Inbound line and campaign, whichever agent's voice they use."
         ),
     ),
     LaneEntry(

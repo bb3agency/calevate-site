@@ -1046,6 +1046,57 @@ async def test_a_draft_line_of_a_deleted_agent_cannot_be_put_live() -> None:
     assert refused.value.code == "line_agent_deleted"
 
 
+async def test_a_line_cannot_go_live_on_an_agent_being_deleted() -> None:
+    """The delete counted no live line and committed after a put-live had read the agent as
+    working; the line then went live in a deleted agent's voice. Both take the tenant's
+    knowledge lock first, so the put-live waits and reads the agent deleted."""
+    from apps.api.inbound import lines
+    from calevate_shared.call_script import CallScript
+
+    _fresh_engine()
+    tenant_id, agent_id, _token = await _tenant()
+    await _write_script(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        line_id = await lines.create_line(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            script=CallScript(opening_line="Hello, you have reached the clinic."),
+            created_by=None,
+        )
+    archived = asyncio.Event()
+    publishing = asyncio.Event()
+    outcome: list[str] = []
+
+    async def archiver() -> None:
+        async with tenant_session(tenant_id) as session:
+            await lifecycle.archive_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+            archived.set()
+            await publishing.wait()
+            # Long enough for the put-live to reach whatever it reads next.
+            await asyncio.sleep(0.5)
+
+    async def publisher() -> None:
+        await archived.wait()
+        publishing.set()
+        try:
+            async with tenant_session(tenant_id) as session:
+                await publish_line(session, tenant_id=tenant_id, line_id=line_id)
+            outcome.append("published")
+        except ProblemError as refused:
+            outcome.append(refused.code)
+
+    await asyncio.gather(archiver(), publisher())
+    assert outcome == ["line_agent_deleted"]
+    async with tenant_session(tenant_id) as session:
+        published = (
+            await session.execute(
+                text("SELECT published_at FROM inbound_lines WHERE id = :l"), {"l": line_id}
+            )
+        ).scalar_one()
+    assert published is None
+
+
 async def test_archiving_is_not_a_delete() -> None:
     """The row, its script and its calls all stay readable — that is the whole point."""
     _fresh_engine()

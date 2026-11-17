@@ -444,13 +444,16 @@ async def assign_number(session: AsyncSession, line_id: UUID, number_id: UUID) -
 
 
 async def first_line(session: AsyncSession) -> UUID | None:
-    """The account's oldest line, which answers a newly bought number (founder, 16 Nov 2026);
-    None when the account has none yet and the owner is asked to make one."""
+    """The account's oldest line whose agent can still speak, which answers a newly bought
+    number (founder, 16 Nov 2026). A line in a deleted agent's voice is passed over: it can
+    never be put live (`publish_line` refuses it), so a number on it would ring nothing.
+    None when no such line exists and the owner is asked to make one."""
     return (
         await session.execute(
             text(
-                "SELECT id FROM inbound_lines WHERE archived_at IS NULL "
-                "ORDER BY created_at, id LIMIT 1"
+                "SELECT l.id FROM inbound_lines l JOIN agents a ON a.id = l.agent_id "
+                "WHERE l.archived_at IS NULL AND a.deleted_at IS NULL "
+                "AND a.status <> 'archived' ORDER BY l.created_at, l.id LIMIT 1"
             )
         )
     ).scalar_one_or_none()

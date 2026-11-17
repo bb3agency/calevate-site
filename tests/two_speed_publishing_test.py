@@ -506,6 +506,12 @@ async def test_the_lane_table_states_the_precedence_rule_surfaces_asks_for() -> 
     assert lanes["script"].precedence < lanes["max_call_duration_s"].precedence
     assert lanes["max_call_duration_s"].precedence < lanes["voice"].precedence
 
+    # What a call says is written on its Inbound line or campaign (D-1005, D-1009): the rule
+    # and the reasons name those, never an agent's own script.
+    for said in (publishing.PRECEDENCE_RULE, lanes["script"].why, lanes["training"].why):
+        assert "Inbound line" in said and "campaign" in said, said
+        assert "agent says" not in said and "script edit" not in said, said
+
 
 def test_on_a_recording_engine_the_served_lanes_are_the_table_itself() -> None:
     assert publishing.lanes(records_audio=True) == publishing.LANES

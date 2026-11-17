@@ -496,6 +496,44 @@ async def test_an_unused_test_holder_of_a_draft_is_retired_and_a_running_one_kep
     assert refs[draft] is None and refs[running] is not None
 
 
+async def test_a_running_campaigns_test_call_never_moves_its_engine_agent_to_our_workspace() -> (
+    None
+):
+    """A paying account whose agent holds no number of its own asks for a campaign test call
+    with `developer` (D-859). On a running campaign that moved the engine agent its dials ring
+    through into our developer workspace, where the client's numbers cannot reach it."""
+    _fresh_engine()
+    tenant_id, agent_id = await _live_agent()
+    running = await _campaign(tenant_id, agent_id, status="running")
+    draft = await _campaign(tenant_id, agent_id, script=OTHER)
+    live_ref = f"{await _publish(tenant_id, running)}@org_{uuid.uuid4().hex[:12]}"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET engine_agent_ref = :r WHERE id = :c"),
+            {"r": live_ref, "c": running},
+        )
+
+    tested = await engine_agent.campaign_test_dial(
+        tenant_id=tenant_id, campaign_id=running, developer=True
+    )
+    assert tested.ref == live_ref
+    assert tested.developer is False
+    async with tenant_session(tenant_id) as session:
+        kept = (
+            await session.execute(
+                text("SELECT engine_agent_ref FROM campaigns WHERE id = :c"), {"c": running}
+            )
+        ).scalar_one()
+    assert kept == live_ref
+
+    # A draft campaign is still tested from our workspace on the shared trial line.
+    assert (
+        await engine_agent.campaign_test_dial(
+            tenant_id=tenant_id, campaign_id=draft, developer=True
+        )
+    ).developer is True
+
+
 async def test_what_a_campaign_notes_is_its_own_saved_under_a_compare_and_set() -> None:
     tenant_id, agent_id = await _live_agent()
     other_tenant, _other_agent = await _live_agent()

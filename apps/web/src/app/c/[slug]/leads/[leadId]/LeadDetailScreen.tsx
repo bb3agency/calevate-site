@@ -4,7 +4,7 @@ import Link from "next/link";
 
 import { ButtonGroup } from "@/components/arc/button-group";
 import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
-import { useFollowUpActions } from "@/components/calls/followUpActions";
+import { NO_DIALER_REASON, NO_DIALER_SETUP, useFollowUpActions } from "@/components/calls/followUpActions";
 
 import {
   NoticeBox,
@@ -283,7 +283,16 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
 
           {/* A held call says why on the page: a disabled button's title is out of reach on
               a phone and to a keyboard. */}
-          {callHeld?.hint ? <p className="mt-2 text-meta text-ink-muted">{callHeld.hint}</p> : null}
+          {callHeld?.hint ? (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+              <p className="text-meta text-ink-muted">{callHeld.hint}</p>
+              {callHeld.hint === NO_DIALER_REASON && (
+                <Link href={href(NO_DIALER_SETUP.path(slug))} className={SECONDARY_BUTTON_SM}>
+                  {NO_DIALER_SETUP.label}
+                </Link>
+              )}
+            </div>
+          ) : null}
 
           {(leadNextStep(lead.data) || lead.data.last_call_headline) && (
             <dl className="mt-4 max-w-2xl space-y-1 border-t border-line pt-4">

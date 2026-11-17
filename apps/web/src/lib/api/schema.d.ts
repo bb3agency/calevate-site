@@ -4619,8 +4619,7 @@ export interface paths {
         };
         /** Load the agent's draft script for the structured builder */
         get: operations["get_script_v1_agents__agent_id__script_get"];
-        /** Save the structured script as a new version (staged on a live agent) */
-        put: operations["save_script_v1_agents__agent_id__script_put"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -4639,23 +4638,6 @@ export interface paths {
         put?: never;
         /** Apply the staged script to live calls */
         post: operations["apply_script_v1_agents__agent_id__script_apply_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/check": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** What the script lint finds in a (possibly unsaved) script, before it goes live */
-        post: operations["check_script_v1_agents__agent_id__script_check_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4713,57 +4695,6 @@ export interface paths {
          * @description The Undo for the notice writer (D-971): the opening line it replaced goes live again and is not rewritten on the next publish; the stored notice sentences are said beside it. Refused when the line has changed since it was rewritten, or while other script changes are waiting to go live.
          */
         post: operations["put_back_opening_line_v1_agents__agent_id__script_opening_line_put_back_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/preview": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Compile a (possibly unsaved) script into the exact engine prompt */
-        post: operations["preview_script_v1_agents__agent_id__script_preview_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/proposed-rules": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Rules the owner taught that are waiting to be added to this agent's script */
-        get: operations["list_proposed_rules_v1_agents__agent_id__script_proposed_rules_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/proposed-rules/{rule_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Mark a waiting rule as added to the script, or dismiss it */
-        post: operations["resolve_proposed_rule_v1_agents__agent_id__script_proposed_rules__rule_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4879,23 +4810,6 @@ export interface paths {
         put?: never;
         /** Discard the staged script; the draft returns to what callers hear */
         post: operations["undo_script_v1_agents__agent_id__script_undo_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** The script's versions, newest first, and which one callers hear */
-        get: operations["script_versions_v1_agents__agent_id__script_versions_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -31270,38 +31184,6 @@ export interface components {
             /** Unmatched */
             unmatched: number;
         };
-        /** PreviewIn */
-        PreviewIn: {
-            script: components["schemas"]["CallScript"];
-        };
-        /** PreviewOut */
-        PreviewOut: {
-            /** Compiled */
-            compiled: string;
-            /**
-             * Instructions Chars
-             * @default 0
-             */
-            instructions_chars: number;
-            /** Instructions Limit */
-            instructions_limit?: number | null;
-            /** Layers */
-            layers?: components["schemas"]["SizePartOut"][];
-            /**
-             * Native Steps
-             * @default 0
-             */
-            native_steps: number;
-            /**
-             * Over Chars
-             * @default 0
-             */
-            over_chars: number;
-            /** Script Parts */
-            script_parts?: components["schemas"]["SizePartOut"][];
-            /** Too Long */
-            too_long?: string | null;
-        };
         /** ProblemOut */
         ProblemOut: {
             /** Code */
@@ -33031,14 +32913,6 @@ export interface components {
              */
             email: string;
         };
-        /** ResolveRuleIn */
-        ResolveRuleIn: {
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "applied" | "dismissed";
-        };
         /**
          * RestatementIn
          * @description A payment that credited LESS than the bank moved, described by the TRUE TOTAL.
@@ -33340,28 +33214,6 @@ export interface components {
             /** Secret Header */
             secret_header: string;
         };
-        /** RuleOut */
-        RuleOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Status */
-            status: string;
-            /** Text */
-            text: string;
-        };
         /** RunEventOut */
         RunEventOut: {
             /**
@@ -33447,21 +33299,6 @@ export interface components {
         SaveNumberOut: {
             /** Enabled */
             enabled: boolean;
-        };
-        /** SaveScriptIn */
-        SaveScriptIn: {
-            /** Expected Version */
-            expected_version?: number | null;
-            /** Notes */
-            notes?: string | null;
-            script: components["schemas"]["CallScript"];
-        };
-        /** SaveScriptOut */
-        SaveScriptOut: {
-            /** Staged */
-            staged: boolean;
-            /** Version */
-            version: number;
         };
         /** SavedOut */
         SavedOut: {
@@ -33758,18 +33595,6 @@ export interface components {
             reason: string;
             /** Suggested */
             suggested: boolean;
-        };
-        /**
-         * ScriptCheckOut
-         * @description What the script lint finds in a (possibly unsaved) script (D-945): warnings shown
-         *     before it goes live, never a refusal. Promotional wording is left to the D-943 promo
-         *     check, which the same dialog shows (`/v1/compliance/promo-check/agents/{id}`).
-         */
-        ScriptCheckOut: {
-            /** Mistakes */
-            mistakes: string[];
-            /** Warnings */
-            warnings: string[];
         };
         /**
          * ScriptContextOut
@@ -34350,18 +34175,6 @@ export interface components {
         SizeOut: {
             /** Chars */
             chars: number;
-            /** Label */
-            label: string;
-        };
-        /**
-         * SizePartOut
-         * @description One part of the instructions and its length. Never its text.
-         */
-        SizePartOut: {
-            /** Chars */
-            chars: number;
-            /** Key */
-            key: string;
             /** Label */
             label: string;
         };
@@ -38426,20 +38239,6 @@ export interface components {
             state: string;
             /** Verified At */
             verified_at: string | null;
-        };
-        /** VersionOut */
-        VersionOut: {
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /** Is Live */
-            is_live: boolean;
-            /** Summary */
-            summary: string | null;
-            /** Version */
-            version: number;
         };
         /**
          * ViewDaysIn
@@ -48120,41 +47919,6 @@ export interface operations {
             };
         };
     };
-    save_script_v1_agents__agent_id__script_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SaveScriptIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SaveScriptOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     apply_script_v1_agents__agent_id__script_apply_post: {
         parameters: {
             query?: never;
@@ -48177,41 +47941,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApplyScriptOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    check_script_v1_agents__agent_id__script_check_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PreviewIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScriptCheckOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -48317,110 +48046,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OpeningLineOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    preview_script_v1_agents__agent_id__script_preview_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PreviewIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PreviewOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    list_proposed_rules_v1_agents__agent_id__script_proposed_rules_get: {
-        parameters: {
-            query?: {
-                status?: "pending" | "applied" | "dismissed";
-            };
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RuleOut"][];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    resolve_proposed_rule_v1_agents__agent_id__script_proposed_rules__rule_id__post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-                rule_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ResolveRuleIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RuleOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -48654,39 +48279,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UndoScriptOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    script_versions_v1_agents__agent_id__script_versions_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-            };
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["VersionOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -120,35 +120,10 @@ async def list_rules(
     ]
 
 
-async def resolve_rule(
-    session: AsyncSession,
-    *,
-    agent_id: UUID,
-    rule_id: UUID,
-    status: Literal["applied", "dismissed"],
-    resolved_by: UUID | None,
-) -> RuleProposal:
-    row = (
-        await session.execute(
-            text(
-                "UPDATE agent_rule_proposals SET status = :status, resolved_by = :by, "
-                "resolved_at = now(), updated_at = now() "
-                "WHERE id = :id AND agent_id = :aid AND status = 'pending' "
-                "RETURNING id, agent_id, text, status, created_at"
-            ),
-            {"id": rule_id, "aid": agent_id, "status": status, "by": resolved_by},
-        )
-    ).first()
-    if row is None:
-        raise ProblemError.not_found("Waiting rule")
-    return RuleProposal(id=row[0], agent_id=row[1], text=row[2], status=row[3], created_at=row[4])
-
-
 __all__ = [
     "MAX_PENDING_RULES",
     "RuleProposal",
     "clean_rule",
     "list_rules",
     "propose_rules",
-    "resolve_rule",
 ]

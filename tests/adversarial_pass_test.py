@@ -1021,9 +1021,6 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # neighbour's agent is invisible → 404. Clearing a script suggestion (D-820) writes
     # without loading the script, so it asserts the agent is visible first (hard rule 1).
     ("GET", "/v1/agents/{agent_id}/script", {}, {}),
-    ("PUT", "/v1/agents/{agent_id}/script", {"script": {}}, {}),
-    ("POST", "/v1/agents/{agent_id}/script/preview", {"script": {}}, {}),
-    ("POST", "/v1/agents/{agent_id}/script/check", {"script": {}}, {}),
     ("POST", "/v1/agents/{agent_id}/script/apply", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/undo", {}, {}),
     # The Actions lane. The `{agent_id}` routes all gate on `_assert_agent` (RLS) first, so
@@ -1130,7 +1127,6 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/agents/{agent_id}/script/tests/{run_id}/improvement/settle", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/script/draft", {"script": {}}, {}),
     ("POST", "/v1/agents/{agent_id}/script/publish", {"summary": "Changed the greeting"}, {}),
-    ("GET", "/v1/agents/{agent_id}/script/versions", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/versions/{version}/restore", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/opening-line/put-back", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/script/opening-line", {"opening_line": "Namaskaram"}, {}),
@@ -1152,13 +1148,6 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # D-918: a neighbour's knowledge upload named as a brief document, added or removed.
     ("POST", "/v1/first-run/documents", {"upload_id": "{upload_id}"}, {}),
     ("DELETE", "/v1/first-run/documents/{upload_id}", {}, {}),
-    ("GET", "/v1/agents/{agent_id}/script/proposed-rules", {}, {}),
-    (
-        "POST",
-        "/v1/agents/{agent_id}/script/proposed-rules/{rule_id}",
-        {"status": "dismissed"},
-        {},
-    ),
     ("GET", "/v1/agents/{agent_id}/test-cases", {}, {}),
     (
         "POST",

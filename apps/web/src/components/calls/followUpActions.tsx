@@ -221,11 +221,17 @@ export type FollowUpActions = {
   dialogs: ReactNode;
 };
 
+/** Why Call is held when no agent of the account makes calls; a screen showing it offers
+ *  the way to set one up beside it (`NO_DIALER_SETUP`). */
+export const NO_DIALER_REASON = "No agent makes calls yet. Set one up first.";
+/** The button that answers `NO_DIALER_REASON`: the Agents page, where one is switched on. */
+export const NO_DIALER_SETUP = { label: "Set up an agent", path: (slug: string) => `/c/${slug}/agents` };
+
 export function useFollowUpActions(
   session: Session,
   {
     dialerFor,
-    noDialerReason = "No agent makes calls yet. Set one up first.",
+    noDialerReason = NO_DIALER_REASON,
   }: {
     /** The agent that places a call for this row, or null when none can. */
     dialerFor: (target: FollowUpTarget) => Dialer | null;

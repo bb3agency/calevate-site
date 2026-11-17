@@ -1,10 +1,9 @@
 """The call-mistake checks run before any call can hear a mistake (D-989, founder, 13 Nov
 2026: "why cant we solve this problem from the start?").
 
-1. When Pip writes or changes a script (`script_proposal.finish_written`, every writer's
-   tail), every kind's check reads the draft and the writer's repair round rewrites the
-   lines it finds; what is still found is told to the owner.
-2. `POST .../script/check` shows them as their own group, never a block.
+When Pip writes or changes a script (`script_proposal.finish_written`, every writer's
+tail), every kind's check reads the draft and the writer's repair round rewrites the
+lines it finds; what is still found is told to the owner.
 
 SHARED DATABASE DISCIPLINE: every organisation is minted here and every assertion is scoped
 to its own ids. The model is never called: the writer is replaced, as the D-985 tests do.
@@ -21,20 +20,15 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.agents import script_builder, script_proposals
+from apps.api.agents import script_proposals
 from apps.api.agents.mistake_lints import fixable_findings, script_mistakes
 from apps.api.agents.script_lint import LintContext, script_problems
 from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session
 from apps.api.healer import notices
-from apps.api.main import app
 from apps.api.ops.config_catalog import FIELD_META
 from apps.workers import script_proposal as worker
 from calevate_shared.call_script import CallScript, ConversationStage
 from calevate_shared.opening_notices import OpeningNotices
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
-from tests.a2p_declaration_test import _org_headers
 from tests.conftest import create_org_with_receptionist
 
 LINT = LintContext(promo=False)
@@ -212,45 +206,6 @@ async def test_an_owners_own_finding_in_an_edit_is_not_pips_to_rewrite(
     finished, changes = await _write(monkeypatch, base, [_script(THIRD_PERSON, ONE_QUESTION)])
     assert changes == []
     assert finished.left_out == []
-
-
-# --- 2. on save: the script check -----------------------------------------------------------------
-
-
-async def _agent(prefix: str, script: CallScript, *, status: str = "live") -> tuple[UUID, UUID]:
-    tenant_id, agent_id = await _org(prefix)
-    async with tenant_session(tenant_id) as session:
-        await script_builder.clear_draft(session, agent_id)
-        await script_builder.save_agent_script(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            script=script,
-            notes="test script",
-            created_by=None,
-        )
-        await session.execute(
-            text("UPDATE agents SET status = :s WHERE id = :a"), {"s": status, "a": agent_id}
-        )
-    return tenant_id, agent_id
-
-
-@pytest.mark.rls
-async def test_the_card_and_put_it_live_show_the_lines_without_blocking() -> None:
-    tenant_id, agent_id = await _agent("card", _script(THIRD_PERSON))
-    headers = await _org_headers(tenant_id)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
-        checked = await http.post(
-            f"/v1/agents/{agent_id}/script/check",
-            json={"script": _script(THIRD_PERSON).model_dump(mode="json")},
-            headers=headers,
-        )
-    assert checked.status_code == 200, checked.text
-    body = checked.json()
-    # The agent's own lint context finds other things in this bare test script; the
-    # mistake line is its own group and is not among them.
-    assert [m.split(": ")[0] for m in body["mistakes"]] == ["Step 1"]
-    assert all(not w.startswith("Step 1:") for w in body["warnings"])
 
 
 def test_the_repair_rounds_are_on_the_console() -> None:

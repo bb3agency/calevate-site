@@ -1062,6 +1062,7 @@ async def check_dispatch(
     places_call: bool = True,
     through_line: bool = False,
     campaign_id: UUID | None = None,
+    number_id: UUID | None = None,
 ) -> DispatchDecision:
     """Returns a decision rather than raising, so callers can render *why* a button is
     disabled — SURFACES §2b asks for blocked features to be visibly explained instead
@@ -1094,6 +1095,9 @@ async def check_dispatch(
     `campaign_id` is a call rung through that campaign's own engine agent (D-1003): the
     first words checked are the campaign's own opening (`_campaign_opening_body`), and the
     truthful-answer verdict read is that engine agent's (`truthful_answer_drift_blocker`).
+
+    `number_id` is the number the dial will present when the caller chose one (a campaign's
+    calling number), so the declaration is asked of that number rather than of the agent's.
 
     The big red switch is read FRESH, past the process memo and the Redis copy, unless
     `halt_read_by_caller`: a click-to-dial is one read per click, and a halt set in another
@@ -1294,6 +1298,7 @@ async def check_dispatch(
             agent_id=agent_id,
             trial_call=trial_call,
             own_number_attested=own_number_attested,
+            number_id=number_id,
             campaign_ref=str(campaign_ref) if campaign_ref else None,
         )
         if undeclared is not None:

@@ -281,10 +281,6 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "memory left empty (`agents/prompt_anatomy`), never transcript text; admin realm "
         "only, each read audited"
     ),
-    "RuleOut.text": (
-        "a rule the owner taught for one agent's script (`agent_rule_proposals`), the "
-        "business's own instruction, never transcript text"
-    ),
     "ExampleLine.text": (
         "a line of SAMPLE dialogue in the agent's script (`CallScript.example_exchange`, "
         "D-714): typed by the owner, seeded from the `calevate_shared.spoken_style` table, "
@@ -302,12 +298,6 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "a line of an EXAMPLE exchange in the platform's spoken-style table (D-744), "
         "written by us or the founder to show how a language sounds; the caller is "
         "imagined, never recorded"
-    ),
-    "VersionOut.summary": (
-        "a script version's change note (`prompt_versions.notes`): the owner's own words "
-        "when they put it live (`PublishIn.summary`) or OUR sentence for a rollback, a "
-        "starter or a promoted experiment arm; nothing writes a caller's words there "
-        "(tests/agent_intelligence_test.py)"
     ),
     "TranscriptTurnOut.text": (
         "holds `text_redacted` by default and carries a `redacted` flag saying which it "

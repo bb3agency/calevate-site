@@ -138,7 +138,7 @@ async def test_a_client_can_read_what_is_pending_on_their_own_agent() -> None:
     body = response.json()
     assert body["has_pending"] is True
     assert body["pending"][0]["field"] == "script"
-    assert body["precedence_rule"].startswith("Script decides content")
+    assert body["precedence_rule"] == publishing.PRECEDENCE_RULE
     # Version numbers, never the script (hard rule 6).
     assert "body" not in body["pending"][0]
 

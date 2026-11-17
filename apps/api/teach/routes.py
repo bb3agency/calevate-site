@@ -32,7 +32,7 @@ from apps.api.core.schemas import Strict
 from apps.api.db.base import uuid7
 from apps.api.kb.curation import goes_live_without_review, requires_kb_curation
 from apps.api.teach import facts as fact_store
-from apps.api.teach import knows, questions, rules, teaching, test_cases, try_chat
+from apps.api.teach import knows, questions, teaching, test_cases, try_chat
 from apps.api.teach import pinned as pinned_store
 from apps.api.teach.models import (
     MAX_CASE_EXPECTED_CHARS,
@@ -755,77 +755,6 @@ async def dismiss_teach_question(
     )
     await _audit_question(session, request, principal, settled, "teach_question.dismiss")
     return QuestionSettledOut(key=settled.key, fact_id=None, gaps_closed=settled.gaps_closed)
-
-
-# --- rules waiting for a script ----------------------------------------------------
-
-
-class RuleOut(Strict):
-    id: UUID
-    agent_id: UUID
-    text: str
-    #: `pending` · `applied` · `dismissed`.
-    status: str
-    created_at: datetime
-
-
-@router.get(
-    "/v1/agents/{agent_id}/script/proposed-rules",
-    response_model=list[RuleOut],
-    openapi_extra=permission_meta("agents:read"),
-    summary="Rules the owner taught that are waiting to be added to this agent's script",
-)
-async def list_proposed_rules(
-    agent_id: UUID,
-    session: Session,
-    status: Literal["pending", "applied", "dismissed"] = Query(default="pending"),
-    _: Principal = Depends(requires("agents:read")),
-) -> list[RuleOut]:
-    # A neighbour's agent is a 404, not an empty list: one answer for every `{agent_id}`.
-    await assert_agent_visible(session, agent_id)
-    return [
-        RuleOut.model_validate(r, from_attributes=True)
-        for r in await rules.list_rules(session, agent_id=agent_id, status=status)
-    ]
-
-
-class ResolveRuleIn(Strict):
-    #: `applied` once the rule is written into the script; `dismissed` to drop it.
-    status: Literal["applied", "dismissed"]
-
-
-@router.post(
-    "/v1/agents/{agent_id}/script/proposed-rules/{rule_id}",
-    response_model=RuleOut,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Mark a waiting rule as added to the script, or dismiss it",
-)
-async def resolve_proposed_rule(
-    agent_id: UUID,
-    rule_id: UUID,
-    payload: ResolveRuleIn,
-    session: Session,
-    request: Request,
-    principal: Principal = Depends(requires("org:manage")),
-) -> RuleOut:
-    resolved = await rules.resolve_rule(
-        session,
-        agent_id=agent_id,
-        rule_id=rule_id,
-        status=payload.status,
-        resolved_by=principal.user_id,
-    )
-    await write_audit(
-        session,
-        action=f"agent_rule.{payload.status}",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="agent_rule_proposal",
-        object_id=str(rule_id),
-        ip=client_request_ip(request),
-        summary={"agent_id": str(agent_id)},
-    )
-    return RuleOut.model_validate(resolved, from_attributes=True)
 
 
 # --- saved tests -------------------------------------------------------------------
