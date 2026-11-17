@@ -13,6 +13,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -64,7 +65,6 @@ import { useClientRealm } from "@/lib/api/session";
 import { endingLabel } from "@/lib/callReview";
 
 import { LeftOutNotice } from "../agents/[agentId]/script/PipProposal";
-import { ProposalReview } from "../agents/[agentId]/script/ProposalReview";
 import { TestCallForm } from "../campaigns/CampaignBoosters";
 import { ScriptSummary } from "../campaigns/CampaignWorkspace";
 import { FoldGroup, FoldSection } from "../campaigns/FoldSection";
@@ -74,6 +74,12 @@ import { PipFailed, PipWriting, retryable } from "../campaigns/PipScriptStatus";
 import { SourcePicker } from "../campaigns/SourcePicker";
 
 import { LineStatusPill, lineState } from "./lineStatus";
+
+// Drawn only while Pip's draft waits or the script is being edited: its own chunk.
+const ProposalReview = dynamic(
+  () => import("../agents/[agentId]/script/ProposalReview").then((m) => m.ProposalReview),
+  { loading: () => <Skeleton rows={4} /> },
+);
 
 const NAME_MAX = 80;
 const MAIN_TASK_MAX = 4000;

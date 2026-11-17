@@ -16,6 +16,7 @@
  *     (`tests/noticeStyle.test.tsx`).
  */
 
+import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -37,7 +38,6 @@ import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 import { useClientRealm } from "@/lib/api/session";
 
 import { LeftOutNotice } from "../agents/[agentId]/script/PipProposal";
-import { ProposalReview } from "../agents/[agentId]/script/ProposalReview";
 
 import { AddSourceForm, SOURCES_HINT, SOURCES_INFO } from "./AddSource";
 import { PipGenerateBand } from "./PipGenerateBand";
@@ -47,6 +47,13 @@ import { FoldSection } from "./FoldSection";
 import { SourcePicker } from "./SourcePicker";
 import { CampaignFlow, FLOW_PART } from "./CampaignFlow";
 import { ScriptLanguagePick, languageName } from "./ScriptLanguages";
+
+// The review is drawn only while Pip's draft waits or the script is being edited, so it is
+// its own chunk rather than part of every campaign page's first load.
+const ProposalReview = dynamic(
+  () => import("../agents/[agentId]/script/ProposalReview").then((m) => m.ProposalReview),
+  { loading: () => <Skeleton rows={4} /> },
+);
 
 export const MAIN_TASK_HINT = "What should this campaign achieve?";
 export const MAIN_TASK_INFO = "Write it in your own words, as much as you like. Pip writes the script from it.";
