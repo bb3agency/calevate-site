@@ -171,7 +171,7 @@ describe("lead details written for more than one agent", () => {
 });
 
 describe("putting a staged script live, or undoing it", () => {
-  it("re-reads the history, whose 'Callers hear this now' mark moved", async () => {
+  it("re-reads the script callers hear", async () => {
     stubApi({
       [`POST /v1/agents/${AGENT}/script/apply`]: { version: 3 },
       [`POST /v1/agents/${AGENT}/script/undo`]: { version: 2 },
@@ -186,7 +186,7 @@ describe("putting a staged script live, or undoing it", () => {
       await undo.result.current.mutateAsync();
     });
     await waitFor(() =>
-      expect(keys().filter((k) => k === key("script-versions", "acme", AGENT))).toHaveLength(2),
+      expect(keys().filter((k) => k === key("script", "acme", AGENT))).toHaveLength(2),
     );
   });
 });

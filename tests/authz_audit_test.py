@@ -339,17 +339,6 @@ READS_SHAPED_AS_POSTS: dict[str, str] = {
     "/v1/compliance/messaging-consent/lookup": (
         "'May we message this number?' — the same shape and the same reason as `/v1/dnc/check`"
     ),
-    "/v1/agents/{agent_id}/script/preview": (
-        "compiles a (possibly unsaved) structured script into the exact engine prompt and "
-        "writes nothing — `script_builder.compiled_preview` only runs the composer. It is a "
-        "POST because the whole `CallScript` travels in the body, not because it mutates, so "
-        "it keeps `agents:read` (the reader scope) rather than a manage permission"
-    ),
-    "/v1/agents/{agent_id}/script/check": (
-        "runs the script lint (`agents/script_lint`, D-945) over a (possibly unsaved) script "
-        "and writes nothing; a POST only because the whole `CallScript` travels in the body, "
-        "for the same reason as `.../script/preview`"
-    ),
     "/v1/compliance/promo-check": (
         "runs the D-943 promo check (`compliance/call_purpose.lint`) over wording a person "
         "is writing and writes nothing; a POST because the text travels in the body"

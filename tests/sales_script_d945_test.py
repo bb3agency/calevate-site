@@ -52,7 +52,6 @@ from apps.api.agents.trade_playbooks import (
 from apps.api.agents.turn_checks import JOB_KINDS, SOUND_KINDS, conversation_problems, wrong_weekday
 from apps.api.db.session import tenant_session
 from apps.api.first_run.questions import ONE_THING, with_one_thing
-from apps.api.main import app
 from apps.workers import agent_test_ai
 from apps.workers.script_assist import (
     OWNER_QUESTIONS,
@@ -76,7 +75,6 @@ from calevate_shared.spoken_style import (
     opening_in,
     reason_clause,
 )
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 
@@ -506,7 +504,7 @@ def test_advice_is_passed_through_and_never_scored() -> None:
 async def test_the_account_is_read_for_the_manifest_the_facts_and_the_advice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    tenant_id, slug, token = await _make_tenant()
+    tenant_id, _slug, _token = await _make_tenant()
     async with tenant_session(tenant_id) as session:
         agent_id = uuid.UUID(
             str((await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar())
@@ -547,35 +545,6 @@ async def test_the_account_is_read_for_the_manifest_the_facts_and_the_advice(
     assert [a.kind for a in advice] == ["calendar"]
     assert advice[0].href == f"/agents/{agent_id}?section=actions"
     assert without == ()
-
-    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
-        checked = await http.post(
-            f"/v1/agents/{agent_id}/script/check",
-            json={
-                "script": _script(agent_line="I will send it on WhatsApp, hurry!").model_dump(
-                    mode="json"
-                )
-            },
-            headers=headers,
-        )
-        clean = await http.post(
-            f"/v1/agents/{agent_id}/script/check",
-            json={
-                "script": _script(
-                    opening="Hello {{lead_name}}, calling from Acme about your enquiry. "
-                    "Can you talk now?"
-                ).model_dump(mode="json")
-            },
-            headers=headers,
-        )
-    assert checked.status_code == 200, checked.text
-    warnings = checked.json()["warnings"]
-    assert any("WhatsApp" in w for w in warnings)
-    # The put-live dialog shows promotional wording through the D-943 promo check, once.
-    assert not any("hurry" in w.lower() for w in warnings)
-    # Lines that could cause mistakes on calls come back apart, as `mistakes` (D-989).
-    assert clean.json()["warnings"] == []
 
 
 def test_a_finding_names_its_place_in_the_owners_words() -> None:

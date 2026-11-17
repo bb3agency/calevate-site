@@ -165,7 +165,6 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/agents/{agent_id}/script/publish", "POST", "costly"),
         ("/v1/agents/{agent_id}/script/apply", "POST", "costly"),
         ("/v1/agents/{agent_id}/script/undo", "POST", "costly"),
-        ("/v1/agents/{agent_id}/script", "PUT", "client_api"),
         # The other client doors to a vendor write: activating and preparing publish an agent,
         # switching off stops its numbers answering, the opening-line edit puts it live, the own
         # number routes buy and release on the voice platform, and a link is DNS-vetted and

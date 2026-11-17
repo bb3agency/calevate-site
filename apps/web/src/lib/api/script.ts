@@ -236,42 +236,6 @@ export interface ScriptOut {
   standard_variables: { key: string; label: string }[];
 }
 
-interface SaveScriptIn {
-  script: CallScript;
-  notes?: string | null;
-  /** The draft version the edit started from (null: no script yet). Sent, the server
-   *  refuses the save with `script_changed_elsewhere` if the draft has moved since. */
-  expected_version?: number | null;
-}
-
-interface SaveScriptOut {
-  version: number;
-  staged: boolean;
-}
-
-/** One part of what the calling system receives, and its length. Never its text. */
-export interface SizePart {
-  key: string;
-  label: string;
-  chars: number;
-}
-
-export interface PreviewOut {
-  compiled: string;
-  /** Characters of everything the calling system receives (Calevate's rules and the
-   *  script) and its ceiling (null: none). */
-  instructions_chars?: number;
-  instructions_limit?: number | null;
-  /** Stages sent as the engine's own step list. */
-  native_steps?: number;
-  /** How far over the ceiling, and the sentence to show then (null when it fits). */
-  over_chars?: number;
-  too_long?: string | null;
-  layers?: SizePart[];
-  /** The script's own sections, longest first. */
-  script_parts?: SizePart[];
-}
-
 interface ApplyIn {
   expected_version?: number | null;
 }
@@ -299,38 +263,6 @@ export function useScript(session: Session, agentId: string): UseQueryResult<Scr
   return useQuery({
     queryKey: scriptKeys.one(session.orgSlug, agentId),
     queryFn: () => apiRequest<ScriptOut>(session, base(agentId)),
-  });
-}
-
-/** Save the structured script as a new version (staged on a live agent). */
-export function useSaveScript(
-  session: Session,
-  agentId: string,
-): UseMutationResult<SaveScriptOut, Error, SaveScriptIn> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: SaveScriptIn) =>
-      apiRequest<SaveScriptOut>(session, base(agentId), { method: "PUT", body: payload }),
-    // Includes the history, which marks the version callers hear.
-    onSuccess: () => invalidateScript(client, session, agentId),
-  });
-}
-
-/**
- * Compile a (possibly unsaved) script into the exact engine prompt. A mutation, not a
- * query: it takes the current editor state as input rather than reading the server's copy,
- * so "view compiled prompt" reflects unsaved edits.
- */
-export function usePreviewScript(
-  session: Session,
-  agentId: string,
-): UseMutationResult<PreviewOut, Error, CallScript> {
-  return useMutation({
-    mutationFn: (script: CallScript) =>
-      apiRequest<PreviewOut>(session, `${base(agentId)}/preview`, {
-        method: "POST",
-        body: { script },
-      }),
   });
 }
 
@@ -388,21 +320,10 @@ export interface PublishOut {
   live: boolean;
 }
 
-/** One history entry. Mirrors `VersionOut`; `version` is an id, never shown. */
-export interface ScriptVersion {
-  version: number;
-  summary: string | null;
-  created_at: string;
-  is_live: boolean;
-}
-
-const versionsKey = (org: string, agentId: string) => ["script-versions", org, agentId] as const;
-
-/** Every read a new script version moves: the script, its history, the agent, the tests, readiness. */
+/** Every read a new script version moves: the script, the agent, the tests, readiness. */
 export function invalidateScript(client: ReturnType<typeof useQueryClient>, session: Session, agentId: string) {
   return Promise.all([
     client.invalidateQueries({ queryKey: scriptKeys.one(session.orgSlug, agentId) }),
-    client.invalidateQueries({ queryKey: versionsKey(session.orgSlug, agentId) }),
     client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
     // The roster carries the applied script's opening line (`useReplaceOpeningLine` says
     // why), and the tests and readiness read whether the agent can be tried.
@@ -509,19 +430,6 @@ export function rewrittenOpening(
   const flat = (s: string) => s.split(/\s+/).filter(Boolean).join(" ");
   if (!before || !line.trim() || flat(record?.line ?? "") !== flat(line)) return null;
   return { before, after: line.trim() };
-}
-
-/** The script's history, newest first. */
-export function useScriptVersions(
-  session: Session,
-  agentId: string,
-  enabled = true,
-): UseQueryResult<ScriptVersion[], Error> {
-  return useQuery({
-    queryKey: versionsKey(session.orgSlug, agentId),
-    queryFn: () => apiRequest<ScriptVersion[]>(session, `${base(agentId)}/versions`),
-    enabled,
-  });
 }
 
 /** A restored draft, and the draft it replaced (null: none) for the Undo (A-25). */

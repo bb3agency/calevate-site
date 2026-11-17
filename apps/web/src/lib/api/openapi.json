@@ -46015,84 +46015,6 @@
         "title": "PreferenceScrubOut",
         "type": "object"
       },
-      "PreviewIn": {
-        "additionalProperties": false,
-        "properties": {
-          "script": {
-            "$ref": "#/components/schemas/CallScript"
-          }
-        },
-        "required": [
-          "script"
-        ],
-        "title": "PreviewIn",
-        "type": "object"
-      },
-      "PreviewOut": {
-        "additionalProperties": false,
-        "properties": {
-          "compiled": {
-            "title": "Compiled",
-            "type": "string"
-          },
-          "instructions_chars": {
-            "default": 0,
-            "title": "Instructions Chars",
-            "type": "integer"
-          },
-          "instructions_limit": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Instructions Limit"
-          },
-          "layers": {
-            "items": {
-              "$ref": "#/components/schemas/SizePartOut"
-            },
-            "title": "Layers",
-            "type": "array"
-          },
-          "native_steps": {
-            "default": 0,
-            "title": "Native Steps",
-            "type": "integer"
-          },
-          "over_chars": {
-            "default": 0,
-            "title": "Over Chars",
-            "type": "integer"
-          },
-          "script_parts": {
-            "items": {
-              "$ref": "#/components/schemas/SizePartOut"
-            },
-            "title": "Script Parts",
-            "type": "array"
-          },
-          "too_long": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Too Long"
-          }
-        },
-        "required": [
-          "compiled"
-        ],
-        "title": "PreviewOut",
-        "type": "object"
-      },
       "ProblemOut": {
         "additionalProperties": false,
         "properties": {
@@ -50818,24 +50740,6 @@
         "title": "ResetRequestIn",
         "type": "object"
       },
-      "ResolveRuleIn": {
-        "additionalProperties": false,
-        "properties": {
-          "status": {
-            "enum": [
-              "applied",
-              "dismissed"
-            ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "ResolveRuleIn",
-        "type": "object"
-      },
       "RestatementIn": {
         "additionalProperties": false,
         "description": "A payment that credited LESS than the bank moved, described by the TRUE TOTAL.\n\nIt does NOT inherit `MoneyIn`, and the field is not called `amount_inr`. The other\ntwo writes on this router take an amount to MOVE; this one takes the amount the\npayment WAS. One name for two meanings on one router is the confusion that would\neventually be resolved at 2am by a tired operator, so the names differ and the\nshared part \u2014 the float refusal \u2014 is shared as a function.",
@@ -51684,43 +51588,6 @@
         "title": "RotateSecretOut",
         "type": "object"
       },
-      "RuleOut": {
-        "additionalProperties": false,
-        "properties": {
-          "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
-          },
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "text": {
-            "title": "Text",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "agent_id",
-          "text",
-          "status",
-          "created_at"
-        ],
-        "title": "RuleOut",
-        "type": "object"
-      },
       "RunEventOut": {
         "additionalProperties": false,
         "properties": {
@@ -51940,62 +51807,6 @@
           "enabled"
         ],
         "title": "SaveNumberOut",
-        "type": "object"
-      },
-      "SaveScriptIn": {
-        "additionalProperties": false,
-        "properties": {
-          "expected_version": {
-            "anyOf": [
-              {
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expected Version"
-          },
-          "notes": {
-            "anyOf": [
-              {
-                "maxLength": 200,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notes"
-          },
-          "script": {
-            "$ref": "#/components/schemas/CallScript"
-          }
-        },
-        "required": [
-          "script"
-        ],
-        "title": "SaveScriptIn",
-        "type": "object"
-      },
-      "SaveScriptOut": {
-        "additionalProperties": false,
-        "properties": {
-          "staged": {
-            "title": "Staged",
-            "type": "boolean"
-          },
-          "version": {
-            "title": "Version",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "version",
-          "staged"
-        ],
-        "title": "SaveScriptOut",
         "type": "object"
       },
       "SavedOut": {
@@ -52676,32 +52487,6 @@
           "reason"
         ],
         "title": "ScreenGuide",
-        "type": "object"
-      },
-      "ScriptCheckOut": {
-        "additionalProperties": false,
-        "description": "What the script lint finds in a (possibly unsaved) script (D-945): warnings shown\nbefore it goes live, never a refusal. Promotional wording is left to the D-943 promo\ncheck, which the same dialog shows (`/v1/compliance/promo-check/agents/{id}`).",
-        "properties": {
-          "mistakes": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Mistakes",
-            "type": "array"
-          },
-          "warnings": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Warnings",
-            "type": "array"
-          }
-        },
-        "required": [
-          "warnings",
-          "mistakes"
-        ],
-        "title": "ScriptCheckOut",
         "type": "object"
       },
       "ScriptContextOut": {
@@ -54177,31 +53962,6 @@
           "chars"
         ],
         "title": "SizeOut",
-        "type": "object"
-      },
-      "SizePartOut": {
-        "additionalProperties": false,
-        "description": "One part of the instructions and its length. Never its text.",
-        "properties": {
-          "chars": {
-            "title": "Chars",
-            "type": "integer"
-          },
-          "key": {
-            "title": "Key",
-            "type": "string"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          }
-        },
-        "required": [
-          "key",
-          "label",
-          "chars"
-        ],
-        "title": "SizePartOut",
         "type": "object"
       },
       "SlowCall": {
@@ -64969,43 +64729,6 @@
           "publishable"
         ],
         "title": "VerificationOut",
-        "type": "object"
-      },
-      "VersionOut": {
-        "additionalProperties": false,
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "is_live": {
-            "title": "Is Live",
-            "type": "boolean"
-          },
-          "summary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Summary"
-          },
-          "version": {
-            "title": "Version",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "version",
-          "summary",
-          "created_at",
-          "is_live"
-        ],
-        "title": "VersionOut",
         "type": "object"
       },
       "ViewDaysIn": {
@@ -81987,54 +81710,6 @@
           "agents"
         ],
         "x-calevate-permission": "agents:read"
-      },
-      "put": {
-        "operationId": "save_script_v1_agents__agent_id__script_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SaveScriptIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SaveScriptOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Save the structured script as a new version (staged on a live agent)",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/agents/{agent_id}/script/apply": {
@@ -82085,56 +81760,6 @@
           "agents"
         ],
         "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/agents/{agent_id}/script/check": {
-      "post": {
-        "operationId": "check_script_v1_agents__agent_id__script_check_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PreviewIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScriptCheckOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "What the script lint finds in a (possibly unsaved) script, before it goes live",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/agents/{agent_id}/script/draft": {
@@ -82285,175 +81910,6 @@
         "summary": "Put back the opening line Pip rewrote to say the notices, and put it live",
         "tags": [
           "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/agents/{agent_id}/script/preview": {
-      "post": {
-        "operationId": "preview_script_v1_agents__agent_id__script_preview_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PreviewIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PreviewOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Compile a (possibly unsaved) script into the exact engine prompt",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "agents:read"
-      }
-    },
-    "/v1/agents/{agent_id}/script/proposed-rules": {
-      "get": {
-        "operationId": "list_proposed_rules_v1_agents__agent_id__script_proposed_rules_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "default": "pending",
-              "enum": [
-                "pending",
-                "applied",
-                "dismissed"
-              ],
-              "title": "Status",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/RuleOut"
-                  },
-                  "title": "Response List Proposed Rules V1 Agents  Agent Id  Script Proposed Rules Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Rules the owner taught that are waiting to be added to this agent's script",
-        "tags": [
-          "teach"
-        ],
-        "x-calevate-permission": "agents:read"
-      }
-    },
-    "/v1/agents/{agent_id}/script/proposed-rules/{rule_id}": {
-      "post": {
-        "operationId": "resolve_proposed_rule_v1_agents__agent_id__script_proposed_rules__rule_id__post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "rule_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Rule Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResolveRuleIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RuleOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Mark a waiting rule as added to the script, or dismiss it",
-        "tags": [
-          "teach"
         ],
         "x-calevate-permission": "org:manage"
       }
@@ -82815,62 +82271,6 @@
           "agents"
         ],
         "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/agents/{agent_id}/script/versions": {
-      "get": {
-        "operationId": "script_versions_v1_agents__agent_id__script_versions_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 100,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/VersionOut"
-                  },
-                  "title": "Response Script Versions V1 Agents  Agent Id  Script Versions Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "The script's versions, newest first, and which one callers hear",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/agents/{agent_id}/script/versions/{version}/restore": {

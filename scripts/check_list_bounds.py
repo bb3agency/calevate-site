@@ -473,9 +473,6 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/kb/teach/{teaching_id}/discard": BoundedByConstruction(
         by="the same one teaching as `GET /v1/kb/teach/{teaching_id}`."
     ),
-    "GET /v1/agents/{agent_id}/script/proposed-rules": BoundedByConstruction(
-        by="LIMIT 100, and `teach.rules.MAX_PENDING_RULES` pending per agent on write."
-    ),
     "GET /v1/agents/{agent_id}/test-cases": BoundedByConstruction(
         by=(
             "`teach.test_cases.MAX_CASES_PER_AGENT` (refused on write, and the LIMIT), each "
@@ -1116,15 +1113,6 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/agents/{agent_id}/script/versions/{version}/restore": BoundedByConstruction(
         by="one version copied into the draft: a `CallScript` under the same "
         "`calevate_shared.call_script` `max_length` ceilings as `GET .../script`."
-    ),
-    "POST /v1/agents/{agent_id}/script/preview": BoundedByConstruction(
-        by="one composed prompt's size: `layers` is one row per prompt layer and "
-        "`script_parts` one row per `CallScript` section, both fixed sets in "
-        "`agents/prompt_size.py`, never a caller's row count."
-    ),
-    "POST /v1/agents/{agent_id}/script/check": BoundedByConstruction(
-        by="at most a few findings per field of one `CallScript`, whose fields are bounded by "
-        "the `calevate_shared.call_script` `max_length` ceilings (D-945)."
     ),
     "GET /v1/agents/{agent_id}/script/tests": BoundedByConstruction(
         by="one run's `results`, at most `MAX_GENERATED` scenarios, `MAX_REAL_QUESTIONS` "

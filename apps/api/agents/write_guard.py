@@ -21,9 +21,9 @@ endpoint's author doing anything and without one lane editing another lane's fil
 
 **WHAT IT KEYS ON**, and each clause is doing work:
 
-* the permission is in `rbac.MUTATING_PERMISSIONS` — so `POST .../script/preview`, which
-  is a compile-and-return under `agents:read`, still works on a retired agent. Reading a
-  deleted agent is the whole point of archiving instead of erasing.
+* the permission is in `rbac.MUTATING_PERMISSIONS` — so a POST that only reads under
+  `agents:read` still works on a retired agent. Reading a deleted agent is the whole point
+  of archiving instead of erasing.
 * the HTTP method writes — a GET carrying a mutating permission is not a write.
 * the path names an `{agent_id}` — the subject has to be an agent.
 * the route is not one of `ARCHIVED_WRITE_EXEMPT_PATHS` — the two moves whose subject is

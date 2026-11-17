@@ -29,7 +29,6 @@ export type Fact = Schemas["FactOut"];
 export type KnownItem = Schemas["KnownItemOut"];
 export type Teaching = Schemas["TeachingOut"];
 export type TeachItem = Schemas["TeachItemIO"];
-export type ProposedRule = Schemas["RuleOut"];
 export type TestCase = Schemas["TestCaseOut"];
 export type TestCases = Schemas["TestCasesOut"];
 export type CaseDraft = Schemas["CaseDraftOut"];
@@ -204,31 +203,6 @@ export function useRemoveFact(session: Session) {
     mutationFn: (id: string) =>
       apiRequest<void>(session, `/v1/kb/facts/${id}`, { method: "DELETE" }),
     onSuccess: () => afterFactChange(client, session.orgSlug),
-  });
-}
-
-export function useProposedRules(session: Session, agentId: string) {
-  return useQuery({
-    queryKey: ["agent-proposed-rules", session.orgSlug, agentId],
-    queryFn: () =>
-      apiRequest<ProposedRule[]>(session, `/v1/agents/${agentId}/script/proposed-rules`),
-  });
-}
-
-export function useResolveRule(session: Session, agentId: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ ruleId, status }: { ruleId: string; status: "applied" | "dismissed" }) =>
-      apiRequest<ProposedRule>(
-        session,
-        `/v1/agents/${agentId}/script/proposed-rules/${ruleId}`,
-        { method: "POST", body: { status } },
-      ),
-    // Awaited, so the rule is off the list before its buttons are offered again.
-    onSuccess: () =>
-      client.invalidateQueries({
-        queryKey: ["agent-proposed-rules", session.orgSlug, agentId],
-      }),
   });
 }
 

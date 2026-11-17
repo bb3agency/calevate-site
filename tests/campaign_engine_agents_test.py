@@ -528,7 +528,9 @@ async def test_a_running_campaigns_test_call_never_moves_its_engine_agent_to_our
 
     # A draft campaign is still tested from our workspace on the shared trial line.
     assert (
-        await engine_agent.campaign_test_dial(tenant_id=tenant_id, campaign_id=draft, developer=True)
+        await engine_agent.campaign_test_dial(
+            tenant_id=tenant_id, campaign_id=draft, developer=True
+        )
     ).developer is True
 
 

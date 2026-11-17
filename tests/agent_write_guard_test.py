@@ -94,30 +94,27 @@ async def test_the_guard_refuses_only_an_archived_agent() -> None:
     )
 
 
-async def test_the_script_builder_cannot_write_to_a_deleted_agent() -> None:
-    """THE SCREENSHOT, end to end. `PUT /v1/agents/{id}/script` had no check of its own.
+async def test_an_agent_setting_cannot_be_written_to_a_deleted_agent() -> None:
+    """End to end: an agent write route with no check of its own is refused once the agent
+    is deleted.
 
-    It is the representative endpoint precisely because it is not special: nothing was added
-    to `script_routes.py` to make this pass, so the same assertion holds for the voice, the
+    The call cap is the representative endpoint precisely because it is not special: nothing
+    was added to its route to make this pass, so the same assertion holds for the voice, the
     model, the toggles, the extraction schema and the handoff configuration.
     """
     reset_engine_cache()
     tenant_id, agent_id, token = await _tenant()
     await _write_script(tenant_id, agent_id)
 
-    script = {"opening_line": "Hello, this is the clinic.", "steps": []}
+    cap = {"max_call_duration_s": 300}
     async with _client() as http:
         headers = {"Authorization": f"Bearer {token}"}
-        before = await http.put(
-            f"/v1/agents/{agent_id}/script", json={"script": script}, headers=headers
-        )
+        before = await http.patch(f"/v1/agents/{agent_id}/call-cap", json=cap, headers=headers)
         assert before.status_code == 200, before.text
 
         await _archive(tenant_id, agent_id)
 
-        after = await http.put(
-            f"/v1/agents/{agent_id}/script", json={"script": script}, headers=headers
-        )
+        after = await http.patch(f"/v1/agents/{agent_id}/call-cap", json=cap, headers=headers)
         assert after.status_code == 409, after.text
         body = after.json()
         assert _code(body) == "agent_archived", body
@@ -152,9 +149,9 @@ async def test_restore_and_a_second_delete_are_not_refused_by_their_own_guard() 
 
         # And the edit the guard was refusing works again the moment it is restored, which
         # is the promise the refusal's remediation makes.
-        saved = await http.put(
-            f"/v1/agents/{agent_id}/script",
-            json={"script": {"opening_line": "Back in service.", "steps": []}},
+        saved = await http.patch(
+            f"/v1/agents/{agent_id}/call-cap",
+            json={"max_call_duration_s": 240},
             headers=headers,
         )
         assert saved.status_code == 200, saved.text
