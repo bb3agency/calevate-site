@@ -7094,6 +7094,20 @@
       "BlockerOut": {
         "additionalProperties": false,
         "properties": {
+          "holders": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SlotHolder"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holders"
+          },
           "reason": {
             "title": "Reason",
             "type": "string"
@@ -25412,6 +25426,45 @@
         ],
         "title": "EndpointOut",
         "type": "object"
+      },
+      "EngineAgentAllowanceFull": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ProblemBody"
+          },
+          {
+            "properties": {
+              "context": {
+                "enum": [
+                  "test_call",
+                  "start",
+                  "line_live"
+                ],
+                "title": "Context",
+                "type": "string"
+              },
+              "holders": {
+                "items": {
+                  "$ref": "#/components/schemas/SlotHolder"
+                },
+                "title": "Holders",
+                "type": "array"
+              },
+              "limit": {
+                "title": "Limit",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "context",
+              "limit",
+              "holders"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "No free calling setup: the cap, what was attempted and every setup held.",
+        "title": "EngineAgentAllowanceFull"
       },
       "EngineAgentOut": {
         "additionalProperties": false,
@@ -54067,6 +54120,43 @@
           "chars"
         ],
         "title": "SizeOut",
+        "type": "object"
+      },
+      "SlotHolder": {
+        "additionalProperties": false,
+        "description": "One calling setup in the workspace. `id` is the agent's for an agent or a script\ntrial of it, the line's for a line, the campaign's for a campaign. `removing`: its\nholder has let go of it and the deletion has not run yet; nothing to do but wait.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "agent",
+              "inbound_line",
+              "campaign",
+              "script_trial"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "removing": {
+            "title": "Removing",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "removing"
+        ],
+        "title": "SlotHolder",
         "type": "object"
       },
       "SlowCall": {
@@ -88504,6 +88594,20 @@
             },
             "description": "Successful Response"
           },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EngineAgentAllowanceFull"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
+          },
           "default": {
             "content": {
               "application/problem+json": {}
@@ -89693,6 +89797,20 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EngineAgentAllowanceFull"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
           },
           "default": {
             "content": {
@@ -95926,6 +96044,20 @@
             },
             "description": "Successful Response"
           },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EngineAgentAllowanceFull"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
+          },
           "default": {
             "content": {
               "application/problem+json": {}
@@ -95975,6 +96107,20 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EngineAgentAllowanceFull"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
           },
           "default": {
             "content": {
@@ -96076,6 +96222,20 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EngineAgentAllowanceFull"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
           },
           "default": {
             "content": {

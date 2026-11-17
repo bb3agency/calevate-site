@@ -34,6 +34,7 @@ import { hourWords } from "@/lib/clock";
 
 import { CampaignVoiceSettings } from "./CampaignVoiceSettings";
 import { FoldSection } from "./FoldSection";
+import { SlotsFullProblem, isSlotsFull } from "./SlotHolders";
 import { agentSectionId } from "./StartCampaign";
 import { AgentChoice } from "./NewCampaignSteps";
 import { TestCallList } from "./TestCallList";
@@ -88,7 +89,7 @@ export function ImproveTab(props: Common) {
   );
 }
 
-function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
+function HearItFirst({ slug, campaignId, canWrite, refusal, fromTestLine = false }: Common & { fromTestLine?: boolean }) {
   const { session } = useClientRealm();
   const call = useCampaignTestCall(session, campaignId);
   useActionFeedback(call, { errorDisplay: "inline" });
@@ -103,6 +104,7 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
       saveNumbers={saveNumbers}
       canWrite={canWrite}
       refusal={refusal}
+      fromTestLine={fromTestLine}
     />
   );
 }
@@ -126,6 +128,7 @@ export function TestCallForm({
   saveNumbers,
   canWrite,
   refusal,
+  fromTestLine = false,
 }: {
   slug: string;
   call: UseMutationResult<TestCallAnswer, Error, { number: string; numberIsMine: boolean }>;
@@ -133,6 +136,8 @@ export function TestCallForm({
   saveNumbers?: UseMutationResult<unknown, Error, string[]>;
   canWrite: boolean;
   refusal?: string;
+  /** The call rings from our shared test number, not the account's own (D-1018). */
+  fromTestLine?: boolean;
 }) {
   const { href } = useClientRealm();
   // Saving replaces the whole list, so nothing is saved or removed until the list is read:
@@ -232,6 +237,7 @@ export function TestCallForm({
         </button>
       </div>
       <p className="mt-1 text-meta text-ink-muted">A number you call is saved for next time. Up to 10.</p>
+      {fromTestLine && <p className="mt-1 text-meta text-ink-muted">It rings from our test number.</p>}
       <label className="mt-2 flex w-fit items-center gap-2 text-meta text-ink-muted touch:min-h-11">
         <input
           type="checkbox"
@@ -246,11 +252,14 @@ export function TestCallForm({
           {errorText(saveNumbers.error, "The number did not save")}
         </p>
       )}
-      {call.error != null && (
-        <p role="alert" className="mt-2 text-meta text-danger">
-          {errorText(call.error, "The test call did not start")}
-        </p>
-      )}
+      {call.error != null &&
+        (isSlotsFull(call.error) ? (
+          <SlotsFullProblem slug={slug} error={call.error} />
+        ) : (
+          <p role="alert" className="mt-2 text-meta text-danger">
+            {errorText(call.error, "The test call did not start")}
+          </p>
+        ))}
       {result?.status === "queued" && (
         <p role="status" className="mt-2 text-meta text-ink">
           Calling you now.{" "}
@@ -539,8 +548,12 @@ export function AgentSection({
   );
 }
 
-/** The chosen agent rings the owner's phone with this campaign's script. */
-export function TestCallSection(props: Common) {
+/**
+ * The chosen agent rings the owner's phone with this campaign's script. Before Start (or once
+ * stopped) it rings from our test number, so a test never takes one of the account's calling
+ * setups (D-1018); a running or paused campaign rings from the account's own number.
+ */
+export function TestCallSection(props: Common & { fromTestLine: boolean }) {
   return (
     <FoldSection
       id={CAMPAIGN_TEST_ANCHOR}

@@ -19,8 +19,10 @@ The line is released by the call ending (its `calls` row leaving `queued`/`ringi
 `in_progress`), or by the row ageing out at `trial_access.trial_line_horizon()`.
 
 After the first payment the same route places the owner's PAID test call (D-859,
-`agents/paid_test_calls.py`): from the agent's own number in the account's own workspace,
-billed like any call, never from the shared number.
+`agents/paid_test_calls.py`), billed like any call: from the account's own number when the
+agent, a live line or a running campaign already has an engine agent there, and from the
+shared number otherwise (an agent before its number, "Just the business", a draft line, a
+campaign not running), so a test never takes one of the account's calling setups (D-1018).
 """
 
 from __future__ import annotations
@@ -201,17 +203,23 @@ async def place_trial_call(
     shared line's per-call limit; the gate, the caps and the billing are the same.
 
     `line_id` rings through that inbound line's own engine agent, `agent_id` being the
-    line's voice (Phase 3b): put on the platform as a test holder first, so a draft line can
-    be heard (`inbound/publish.line_test_dial`). Every gate is the same: the dial gate on the
-    agent, the trial's limits, its Studio minutes, a paid account's daily cap. On a trial it
-    rings from the shared trial line; after payment from the client's own number.
+    line's voice (Phase 3b). Every gate is the same: the dial gate on the agent, the trial's
+    limits, its Studio minutes, a paid account's daily cap. A draft line is put on the
+    platform as a test holder in our developer workspace first and rings from the shared test
+    line (`inbound/publish.line_test_dial`, D-1018); a live line rings from the client's own
+    number through the engine agent its callers reach.
 
     `campaign_id` rings through that campaign's own engine agent (D-1003), `agent_id` being its
     voice: published as a test holder first (`campaigns/engine_agent.campaign_test_dial`), so
-    a draft campaign is heard as it would call and the agent is never touched. On a trial, or
-    a paying account with no number of its own yet, it is made in our developer workspace and
-    rings from the shared trial line, as the agent's test copy did (D-859, option A); with a
-    number, from that number, lent to it for the call."""
+    a campaign is heard as it would call and the agent is never touched. Unless the campaign
+    is running or paused, the holder is made in our developer workspace and rings from the
+    shared test line, on a paying account too (D-1018): a holder in the client's own
+    workspace would take one of its few engine agents. A running or paused campaign rings
+    through its own engine agent from the client's number, lent to it for the call.
+
+    Whatever the line, a paying account's test call is billed like any call
+    (`OwnerTestDial`), and one on the shared test line is cut at that line's per-call limit,
+    since the one number serves every account's test calls in turn."""
     if sum((business, line_id is not None, campaign_id is not None)) > 1:
         raise ValueError("a test call rings the business copy, a line or a campaign, one of them")
     tenant_id = tenant_id or principal.tenant_id
@@ -222,7 +230,11 @@ async def place_trial_call(
     # A paid account's own test call rings from its own number, so only the engine is asked;
     # every call on the shared trial line needs that number too.
     paid_account = await has_paid(session, tenant_id=tenant_id)
-    on_trial_line = business or not paid_account
+    on_trial_line = (
+        business
+        or not paid_account
+        or await _tests_on_shared_line(session, line_id=line_id, campaign_id=campaign_id)
+    )
     if not (
         trial_calling_ready() if on_trial_line else get_settings().engine in TRIAL_CALL_ENGINES
     ):
@@ -315,8 +327,10 @@ async def place_trial_call(
 
         try:
             line_test = await line_test_dial(tenant_id=tenant_id, line_id=line_id)
-            no_number = paid is not None and not await caller_lines(
-                session, agent_id=agent_id, dial_ref=line_test.ref
+            no_number = (
+                paid is not None
+                and not line_test.developer
+                and not await caller_lines(session, agent_id=agent_id, dial_ref=line_test.ref)
             )
         except Exception:
             await release()
@@ -329,11 +343,7 @@ async def place_trial_call(
         from apps.api.campaigns.engine_agent import campaign_test_dial
 
         try:
-            campaign_test = await campaign_test_dial(
-                tenant_id=tenant_id,
-                campaign_id=campaign_id,
-                developer=paid is None or paid.line != "own_number",
-            )
+            campaign_test = await campaign_test_dial(tenant_id=tenant_id, campaign_id=campaign_id)
         except Exception:
             await release()
             raise
@@ -363,28 +373,39 @@ async def place_trial_call(
             from_e164=caller_number, max_call_seconds=call_seconds, agent_ref=copy_ref
         )
     elif paid is not None:
+        # A test holder in our developer workspace rings from the shared test line (D-1018),
+        # under that line's per-call limit; the call is billed as any paid test call.
+        shared_holder = (campaign_test is not None and campaign_test.developer) or (
+            line_test is not None and line_test.developer
+        )
         call_seconds = (
-            paid.max_call_seconds
+            get_settings().trial_call_max_seconds
+            if shared_holder
+            else paid.max_call_seconds
             if line_test is None
             else own_number_call_seconds(await _agent_call_cap(session, agent_id))
         )
         owner_test = OwnerTestDial(
             max_call_seconds=call_seconds, daily_cap=paid.daily_cap, day_start=paid.day_start
         )
-        if campaign_test is not None:
-            # A running or paused campaign's test holder is never made in our developer
-            # workspace, so it rings from the client's own number like its dials (no
-            # `trial`). Otherwise, with no number of its own yet: the shared trial line,
-            # through the test holder made in our developer workspace above.
-            if campaign_test.developer:
-                caller_number = get_settings().trial_caller_number
-                assert caller_number is not None  # `read_paid_test_access` refused otherwise
-                trial = TrialDial(
-                    from_e164=caller_number,
-                    max_call_seconds=call_seconds,
-                    agent_ref=campaign_test.ref,
-                )
-        elif line_test is None and paid.line in ("trial_line_own", "trial_line_copy"):
+        if shared_holder:
+            caller_number = get_settings().trial_caller_number
+            if caller_number is None:
+                # Checked before anything was readied; only a campaign that stopped in
+                # between lands here.
+                return await blocked(NOT_READY_RULE, NOT_READY_REASON)
+            trial = TrialDial(
+                from_e164=caller_number,
+                max_call_seconds=call_seconds,
+                agent_ref=campaign_test.ref if campaign_test is not None else None,
+            )
+        # Otherwise a running or paused campaign, or a live line, rings from the client's own
+        # number through the engine agent its calls use (no `trial`).
+        elif (
+            campaign_test is None
+            and line_test is None
+            and paid.line in ("trial_line_own", "trial_line_copy")
+        ):
             # Before the client has a number of its own: the shared trial line, through the
             # agent's developer-workspace engine agent, republished first when it is the test
             # copy so it never lags the agent (D-859, option A).
@@ -494,6 +515,30 @@ TRIAL_CALL_NOT_PLACED: Final = "trial_call_not_placed"
 #: workspace there is nothing it can ring from yet.
 LINE_TEST_NO_NUMBER_RULE: Final = "line_test_no_number"
 LINE_TEST_NO_NUMBER_REASON: Final = "Get a number first. Test calls ring from your own number."
+
+
+async def _tests_on_shared_line(
+    session: AsyncSession, *, line_id: UUID | None, campaign_id: UUID | None
+) -> bool:
+    """Will this test call ring from the shared test line whatever the account (D-1018)? A
+    draft line's, and a campaign's that is not running or paused: their test holders are made
+    in our developer workspace. Asked before the gate, so a platform with no shared line set
+    up refuses before anything is readied."""
+    from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES
+
+    if line_id is not None:
+        published = await session.execute(
+            text("SELECT published_at IS NULL FROM inbound_lines WHERE id = :lid"),
+            {"lid": line_id},
+        )
+        return bool(published.scalar_one_or_none())
+    if campaign_id is not None:
+        status = await session.execute(
+            text("SELECT status FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+        )
+        found = status.scalar_one_or_none()
+        return found is not None and found not in CAMPAIGN_HOLDING_STATUSES
+    return False
 
 
 async def _agent_call_cap(session: AsyncSession, agent_id: UUID) -> int | None:

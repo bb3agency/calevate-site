@@ -1,6 +1,6 @@
-"""Campaign engine agents kept honest, hourly (D-1003).
+"""Campaign engine agents and test holders kept honest, hourly (D-1003, D-1018).
 
-Two jobs, one walk over the accounts that have an engine agent routed:
+Three jobs, one walk over the accounts that have an engine agent routed:
 
 * **Retire what a campaign no longer needs.** Stop, completion, Unschedule and Archive give a
   campaign's engine agent back as they happen (`campaigns/engine_agent.end_campaign_agent`);
@@ -11,6 +11,11 @@ Two jobs, one walk over the accounts that have an engine agent routed:
   test holder made while it waits, is retired on the same idle rule, and the start makes
   it again when it fires. `TEST_HOLDER_IDLE` is also what keeps this off a start firing
   now, whose engine agent is minutes old when the campaign turns running.
+* **Retire a draft line's idle test holder.** A draft line's test call is rung through an
+  engine agent of its own, made in our developer workspace (D-1018), whose 100 agents every
+  account's test calls share; one unused for `TEST_HOLDER_IDLE` is retired, and the next
+  test call makes it again. One made in the client's own workspace before D-1018 goes the
+  same way, freeing that slot.
 * **Give an agent its own script back.** Before D-1003, Start put the campaign's script ON
   the agent as a new prompt version noted "Campaign: <name>" and marked the campaign
   `agent_held_at`. Once every campaign going in that agent's voice dials through its own
@@ -36,7 +41,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.opening_notices import WEAVE_NOTE
 from apps.api.agents.prompts import rollback_prompt
-from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES, retire_campaign_agent
+from apps.api.agents.service import (
+    CAMPAIGN_HOLDING_STATUSES,
+    retire_campaign_agent,
+    retire_line_test_holder,
+)
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -72,6 +81,15 @@ _TO_RETIRE_SQL: Final = (
     "OR status IN ('completed', 'cancelled') OR (NOT (status = ANY(:holding)) "
     "AND (engine_agent_at IS NULL OR engine_agent_at < now() - make_interval(secs => :idle)))) "
     "ORDER BY id"
+)
+
+#: Draft lines whose test holder has not been published for `TEST_HOLDER_IDLE`. A line has no
+#: publish stamp of its own; every publish rewrites its route's `updated_at`.
+_IDLE_LINE_HOLDERS_SQL: Final = (
+    "SELECT l.id FROM inbound_lines l JOIN engine_agent_routes r "
+    "ON r.engine_agent_ref = l.engine_agent_ref AND r.tenant_id = l.tenant_id "
+    "WHERE l.published_at IS NULL AND l.engine_agent_ref IS NOT NULL "
+    "AND r.updated_at < now() - make_interval(secs => :idle) ORDER BY l.id"
 )
 
 #: Agents a campaign put its script on before D-1003, and whether every campaign still going
@@ -126,6 +144,14 @@ async def _retire_unneeded(session: AsyncSession, *, tenant_id: UUID) -> int:
         if await retire_campaign_agent(
             session, tenant_id=tenant_id, campaign_id=UUID(str(campaign_id))
         ):
+            retired += 1
+    lines = (
+        await session.execute(
+            text(_IDLE_LINE_HOLDERS_SQL), {"idle": TEST_HOLDER_IDLE.total_seconds()}
+        )
+    ).scalars()
+    for line_id in list(lines):
+        if await retire_line_test_holder(session, tenant_id=tenant_id, line_id=UUID(str(line_id))):
             retired += 1
     return retired
 

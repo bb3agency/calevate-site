@@ -192,6 +192,15 @@ from apps.api.agents.verification import verify_publish
 from apps.api.agents.voice_stamp import stamp_of
 from apps.api.agents.voice_tuning import TUNING_COLUMNS, config_speaking_speed, config_tuning
 from apps.api.agents.voices import get_voice, speech_for_voice_id, voice_id_of
+from apps.api.agents.workspace_slots import (
+    ALLOWANCE_FULL_REMEDIATION,
+    ENGINE_AGENT_ALLOWANCE_FULL_RULE,
+    AllowanceContext,
+    EngineAgentAllowanceFull,
+    SlotHolder,
+    allowance_reason,
+    slot_holders,
+)
 from apps.api.agents.write_guard import archived_refusal, assert_agent_writable
 from apps.api.billing.engine_minutes import (
     ATTESTED_MINUTE_ENGINES,
@@ -4010,12 +4019,13 @@ async def publish_line(
     knowledge and the in-call actions. A vendor agent this publish created and could not
     finish is reclaimed.
 
-    `test=True` publishes it as a TEST HOLDER, for the owner's test call (Phase 3b): the same
-    engine agent, but `published_at` is left as it was, so a draft line stays a draft and no
-    number is routed to it (`route_line_numbers` routes live lines only). A free-trial
-    account has no workspace of its own, so its test holder is made in our developer
-    workspace, where the shared trial line rings (D-697); its first live publish after payment
-    recreates it in the client's workspace (`_moves_workspace`).
+    `test=True` publishes it as a TEST HOLDER, for the owner's test call of a draft line
+    (Phase 3b): the same engine agent, but `published_at` is left as it was, so a draft line
+    stays a draft and no number is routed to it (`route_line_numbers` routes live lines only).
+    It is made in our developer workspace, where the shared test line rings, on a trial and a
+    paying account alike (D-697, D-1018): the client's own workspace allows only a few engine
+    agents and a test holder there took one. Its first live publish recreates it in the
+    client's workspace (`_moves_workspace`), and the hourly sweep retires it once idle.
 
     The line's numbers are not touched here: `inbound/publish.put_line_live` attaches them
     after this commits, so a number never points at an agent the transaction rolled away."""
@@ -4060,7 +4070,7 @@ async def publish_line(
     if test:
         # A test holder rings the owner, so the agreements are asked as for a test copy.
         await assert_agreements_accepted(session, tenant_id=tenant_id)
-    in_developer = test and await restricting_trial(session, tenant_id=tenant_id) is not None
+    in_developer = test
     voice_choice, model_choice = _engine_choice(agent, engine=engine)
     rate_key = await engine_rate_key_for(
         session, engine, voice_id=voice_choice, model_id=model_choice
@@ -4076,8 +4086,15 @@ async def publish_line(
     )
     existing_ref: str | None = line.engine_agent_ref
     moved_from: str | None = None
-    if existing_ref and _moves_workspace(existing_ref, config):
+    if existing_ref and (
+        _moves_workspace(existing_ref, config)
+        or (in_developer and scope_of(existing_ref) is not None)
+    ):
         moved_from, existing_ref = existing_ref, None
+    if existing_ref is None and not in_developer:
+        await _refuse_if_allowance_full(
+            session, tenant_id=tenant_id, workspace=config.engine_workspace, context="line_live"
+        )
     if existing_ref:
         await engine.update_agent(existing_ref, config)
         ref = existing_ref
@@ -4229,9 +4246,6 @@ async def republish_lines(session: AsyncSession, *, tenant_id: UUID, agent_id: U
 #: fires, not when it is set, and a repeat gives it back between runs.
 CAMPAIGN_HOLDING_STATUSES: Final = ("running", "paused")
 
-#: The refusal when a client's workspace holds as many engine agents as its plan allows.
-ENGINE_AGENT_ALLOWANCE_FULL_RULE: Final = "engine_agent_allowance_full"
-
 
 @dataclass(frozen=True, slots=True)
 class CampaignDial:
@@ -4373,17 +4387,6 @@ async def engine_agents_in_workspace(
     return sum(1 for ref in refs if scope_of(str(ref)) == workspace)
 
 
-def _allowance_reason(limit: int) -> str:
-    return f"Your account can run {limit} calling agents at once, and all are in use."
-
-
-#: What the owner can do about a full allowance, said with the refusal and on the launch gate.
-ALLOWANCE_FULL_REMEDIATION: Final = (
-    "Stop or finish another campaign, or archive an inbound line you no longer use, then "
-    "press Start again. To run more at once, ask us to raise your limit."
-)
-
-
 async def _allowance_full(
     session: AsyncSession, *, tenant_id: UUID, workspace: str | None
 ) -> int | None:
@@ -4408,22 +4411,34 @@ async def _allowance_full(
 
 
 async def _refuse_if_allowance_full(
-    session: AsyncSession, *, tenant_id: UUID, workspace: str | None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace: str | None,
+    context: AllowanceContext,
 ) -> None:
+    """Refuse a new engine agent in a full workspace, naming what holds every setup."""
     limit = await _allowance_full(session, tenant_id=tenant_id, workspace=workspace)
-    if limit is not None:
-        raise ProblemError.business_rule(
-            ENGINE_AGENT_ALLOWANCE_FULL_RULE,
-            _allowance_reason(limit),
-            remediation=ALLOWANCE_FULL_REMEDIATION,
-        )
+    if limit is None:
+        return
+    assert workspace is not None  # `_allowance_full` answers None without one
+    holders = await slot_holders(
+        session, tenant_id=tenant_id, engine=get_engine().name, workspace=workspace
+    )
+    raise ProblemError.business_rule(
+        ENGINE_AGENT_ALLOWANCE_FULL_RULE,
+        allowance_reason(limit, holders, context),
+        remediation=ALLOWANCE_FULL_REMEDIATION,
+        extensions=EngineAgentAllowanceFull(context=context, limit=limit, holders=holders),
+    )
 
 
 async def engine_agent_allowance_blocker(
     session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
-) -> tuple[str, str] | None:
-    """The launch gate's form of the pre-flight (D-1003): `(rule, reason)` when Start would
-    have to make this campaign a new engine agent and the client's workspace has no room."""
+) -> tuple[str, str, tuple[SlotHolder, ...]] | None:
+    """The launch gate's form of the pre-flight (D-1003): `(rule, reason, holders)` when Start
+    would have to make this campaign a new engine agent and the client's workspace has no
+    room."""
     if not engine_has_workspaces(get_engine().name):
         return None
     ref = (
@@ -4437,9 +4452,14 @@ async def engine_agent_allowance_blocker(
     limit = await _allowance_full(session, tenant_id=tenant_id, workspace=workspace)
     if limit is None:
         return None
+    assert workspace is not None  # `_allowance_full` answers None without one
+    holders = await slot_holders(
+        session, tenant_id=tenant_id, engine=get_engine().name, workspace=workspace
+    )
     return (
         ENGINE_AGENT_ALLOWANCE_FULL_RULE,
-        f"{_allowance_reason(limit)} {ALLOWANCE_FULL_REMEDIATION}",
+        f"{allowance_reason(limit, holders, 'start')} {ALLOWANCE_FULL_REMEDIATION}",
+        tuple(holders),
     )
 
 
@@ -4475,27 +4495,25 @@ async def check_campaign_publishable(
     await _campaign_publishable(session, tenant_id=tenant_id, holder=holder)
 
 
-async def _campaign_test_in_developer(
-    session: AsyncSession, *, tenant_id: UUID, holder: _CampaignHolder, developer: bool
-) -> bool:
-    """Whether a campaign's test holder is made in our developer workspace. Never for a
-    campaign that is dialling or paused: its engine agent is the one its calls ring through
-    in the client's workspace, and moving it to ours for a test would leave the next dial
-    ringing an agent that cannot use the client's numbers. Its test call rings through that
-    same engine agent from the client's own number, as its dials do."""
-    if holder.status in CAMPAIGN_HOLDING_STATUSES:
-        return False
-    return developer or await restricting_trial(session, tenant_id=tenant_id) is not None
+def _campaign_test_in_developer(holder: _CampaignHolder) -> bool:
+    """Whether a campaign's test holder is made in our developer workspace (D-1018): always,
+    unless the campaign is dialling or paused, on a trial and a paying account alike. The
+    client's own workspace allows only a few engine agents (`_allowance_full`) and its
+    agents hold them, so a test holder made there refused every test of a draft; ours
+    allows 100 (VENDOR-STATED 23 Oct 2026, replies §28), the call rings from our shared test
+    line as an agent's Try-it test copy does (D-859), and the hourly sweep retires it once
+    idle (`workers/campaign_engine_agents`).
+
+    A running or paused campaign keeps its engine agent in the client's workspace: it is the
+    one its calls ring through, and moving it to ours for a test would leave the next dial
+    ringing an agent that cannot use the client's numbers. Its test rings through that same
+    engine agent from the client's own number, as its dials do, and needs no new one."""
+    return holder.status not in CAMPAIGN_HOLDING_STATUSES
 
 
-async def campaign_test_in_developer(
-    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID, developer: bool
-) -> bool:
+async def campaign_test_in_developer(session: AsyncSession, *, campaign_id: UUID) -> bool:
     """`publish_campaign_agent(test=True)`'s workspace decision, for the caller that dials."""
-    holder = await _campaign_holder(session, campaign_id)
-    return await _campaign_test_in_developer(
-        session, tenant_id=tenant_id, holder=holder, developer=developer
-    )
+    return _campaign_test_in_developer(await _campaign_holder(session, campaign_id))
 
 
 async def publish_campaign_agent(
@@ -4504,7 +4522,6 @@ async def publish_campaign_agent(
     tenant_id: UUID,
     campaign_id: UUID,
     test: bool = False,
-    developer: bool = False,
 ) -> str:
     """Create or update a campaign's own engine agent (D-1003): `campaign_config` read back
     like every publish, routed for intake (`engine_agent_routes.campaign_id`), given its
@@ -4514,11 +4531,10 @@ async def publish_campaign_agent(
 
     `test=True` is the campaign's test call (`campaigns/engine_agent.campaign_test_dial`): the
     same engine agent, published whatever the campaign's state and even during maintenance,
-    since it answers no caller. With `developer` it is made in our developer workspace, where
-    the shared trial line rings (D-697): a free-trial account's, and a paying account's that
-    has no number of its own yet (D-859, option A). Its next publish in the client's own
-    workspace recreates it there (`_moves_workspace`), and the old one is retired.
-    `campaign_test_in_developer` decides that, and never for a running or paused campaign.
+    since it answers no caller. Unless the campaign is running or paused it is made in our
+    developer workspace, where the shared trial line rings (D-697, D-1018,
+    `_campaign_test_in_developer`). Its next publish in the client's own workspace recreates
+    it there (`_moves_workspace`), and the old one is retired.
 
     The campaign row is locked first, so two Starts never make two engine agents for it."""
     if not test:
@@ -4528,9 +4544,7 @@ async def publish_campaign_agent(
     if test:
         # A test holder rings the owner, so the agreements are asked as for a test copy.
         await assert_agreements_accepted(session, tenant_id=tenant_id)
-    in_developer = test and await _campaign_test_in_developer(
-        session, tenant_id=tenant_id, holder=holder, developer=developer
-    )
+    in_developer = test and _campaign_test_in_developer(holder)
     voice_choice, model_choice = _engine_choice(agent, engine=engine)
     rate_key = await engine_rate_key_for(
         session, engine, voice_id=voice_choice, model_id=model_choice
@@ -4553,7 +4567,10 @@ async def publish_campaign_agent(
         moved_from, existing_ref = existing_ref, None
     if existing_ref is None:
         await _refuse_if_allowance_full(
-            session, tenant_id=tenant_id, workspace=config.engine_workspace
+            session,
+            tenant_id=tenant_id,
+            workspace=config.engine_workspace,
+            context="test_call" if test else "start",
         )
     if existing_ref:
         await engine.update_agent(existing_ref, config)
@@ -4735,6 +4752,42 @@ async def retire_campaign_agent(
         "campaign_engine_agent_retired",
         extra={"campaign_id": str(campaign_id), "agent_id": str(holder.agent_id)},
     )
+    return ref
+
+
+async def retire_line_test_holder(
+    session: AsyncSession, *, tenant_id: UUID, line_id: UUID
+) -> str | None:
+    """A draft line gives back the engine agent its test call was rung through (D-1018), as
+    `retire_campaign_agent` does for a campaign: the line forgets it in this transaction, its
+    knowledge claims go with the vendor agent, and the deletion is owed through the outbox,
+    which waits out a call still on it. A line put live meanwhile keeps it. Returns the
+    retired ref, or None."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT agent_id, engine_agent_ref FROM inbound_lines "
+                "WHERE id = :lid AND published_at IS NULL AND engine_agent_ref IS NOT NULL "
+                "FOR UPDATE"
+            ),
+            {"lid": line_id},
+        )
+    ).first()
+    if row is None:
+        return None
+    ref = str(row.engine_agent_ref)
+    await session.execute(
+        text("UPDATE inbound_lines SET engine_agent_ref = NULL WHERE id = :lid"),
+        {"lid": line_id},
+    )
+    await session.execute(
+        text("DELETE FROM engine_kb_routes WHERE inbound_line_id = :lid AND tenant_id = :tid"),
+        {"lid": line_id, "tid": tenant_id},
+    )
+    await retire_engine_agent(
+        session, tenant_id=tenant_id, agent_id=UUID(str(row.agent_id)), ref=ref
+    )
+    log.info("line_test_holder_retired", extra={"line_id": str(line_id)})
     return ref
 
 
@@ -5062,6 +5115,9 @@ class LineTestDial:
     #: The line's numbers the engine already routes to `ref` (a live line's): a dial from one
     #: needs no lend. Any other number of the client is lent to `ref` for the call.
     routed_number_ids: frozenset[UUID] = frozenset()
+    #: A draft line's test holder, made in our developer workspace (D-1018): the call rings
+    #: from the shared test line, never from the client's numbers.
+    developer: bool = False
 
 
 @dataclass(frozen=True, slots=True)

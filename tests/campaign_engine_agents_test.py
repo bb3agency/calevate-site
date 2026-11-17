@@ -323,11 +323,13 @@ async def test_a_full_workspace_is_refused_plainly_before_a_new_engine_agent(
         )
         with pytest.raises(ProblemError) as refused:
             await agents_service._refuse_if_allowance_full(
-                session, tenant_id=tenant_id, workspace=workspace
+                session, tenant_id=tenant_id, workspace=workspace, context="start"
             )
     assert blocked is not None and blocked[0] == agents_service.ENGINE_AGENT_ALLOWANCE_FULL_RULE
     assert refused.value.code == agents_service.ENGINE_AGENT_ALLOWANCE_FULL_RULE
-    assert "2 calling agents" in refused.value.detail
+    assert refused.value.detail.startswith(
+        "Starting needs a free calling setup. Your account can have 2, and both are in use:"
+    )
 
 
 def test_the_agent_is_given_back_the_version_from_before_the_campaigns() -> None:
@@ -499,9 +501,9 @@ async def test_an_unused_test_holder_of_a_draft_is_retired_and_a_running_one_kep
 async def test_a_running_campaigns_test_call_never_moves_its_engine_agent_to_our_workspace() -> (
     None
 ):
-    """A paying account whose agent holds no number of its own asks for a campaign test call
-    with `developer` (D-859). On a running campaign that moved the engine agent its dials ring
-    through into our developer workspace, where the client's numbers cannot reach it."""
+    """A draft campaign's test holder is made in our developer workspace (D-1018). Doing that
+    for a running campaign would move the engine agent its dials ring through into our
+    workspace, where the client's numbers cannot reach it."""
     _fresh_engine()
     tenant_id, agent_id = await _live_agent()
     running = await _campaign(tenant_id, agent_id, status="running")
@@ -513,9 +515,7 @@ async def test_a_running_campaigns_test_call_never_moves_its_engine_agent_to_our
             {"r": live_ref, "c": running},
         )
 
-    tested = await engine_agent.campaign_test_dial(
-        tenant_id=tenant_id, campaign_id=running, developer=True
-    )
+    tested = await engine_agent.campaign_test_dial(tenant_id=tenant_id, campaign_id=running)
     assert tested.ref == live_ref
     assert tested.developer is False
     async with tenant_session(tenant_id) as session:
@@ -528,9 +528,7 @@ async def test_a_running_campaigns_test_call_never_moves_its_engine_agent_to_our
 
     # A draft campaign is still tested from our workspace on the shared trial line.
     assert (
-        await engine_agent.campaign_test_dial(
-            tenant_id=tenant_id, campaign_id=draft, developer=True
-        )
+        await engine_agent.campaign_test_dial(tenant_id=tenant_id, campaign_id=draft)
     ).developer is True
 
 

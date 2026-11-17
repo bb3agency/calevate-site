@@ -62,6 +62,7 @@ from apps.api.agents.service import (
     engine_agent_allowance_blocker,
     outbound_number_provider,
 )
+from apps.api.agents.workspace_slots import SlotHolder
 from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, dispute_hold_active
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.billing.platform_fee import (
@@ -233,6 +234,9 @@ NUMBER_NOT_MOVED_REASON = (
 class LaunchBlocker:
     rule: str
     reason: str
+    #: For `engine_agent_allowance_full` only: what holds each calling setup, so the
+    #: checklist can link to what frees one (`agents/workspace_slots`).
+    holders: tuple[SlotHolder, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

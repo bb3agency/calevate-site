@@ -69,6 +69,7 @@ import { TestCallForm } from "../campaigns/CampaignBoosters";
 import { ScriptSummary } from "../campaigns/CampaignWorkspace";
 import { FoldGroup, FoldSection } from "../campaigns/FoldSection";
 import { TestCallRows } from "../campaigns/TestCallList";
+import { SlotsFullProblem, isSlotsFull } from "../campaigns/SlotHolders";
 import { PipGenerateBand } from "../campaigns/PipGenerateBand";
 import { PipFailed, PipWriting, retryable } from "../campaigns/PipScriptStatus";
 import { SourcePicker, useChosenCount } from "../campaigns/SourcePicker";
@@ -161,6 +162,8 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
         }
       />
       <RestrictionNote reason={write.reason} />
+      {/* No free calling setup: what holds each one, as links (the toast cannot). */}
+      <SlotsFullProblem slug={slug} error={publish.error} />
 
       <FoldGroup className="space-y-8">
         <VoiceSection {...props} />
@@ -378,7 +381,11 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
 
       {save.error != null && (
         <div className="mb-3 space-y-2">
-          <ProblemNotice error={save.error} />
+          {isSlotsFull(save.error) ? (
+            <SlotsFullProblem slug={session.orgSlug} error={save.error} />
+          ) : (
+            <ProblemNotice error={save.error} />
+          )}
           {/* A live line keeps its old "Live" state when only the platform step failed, so
               the header offers no Put it live; the retry the refusal names is here. */}
           {line.script && (
@@ -392,7 +399,12 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
               {publish.isPending ? "Putting it live…" : "Put it live"}
             </button>
           )}
-          {publish.error != null && <ProblemNotice error={publish.error} />}
+          {publish.error != null &&
+            (isSlotsFull(publish.error) ? (
+              <SlotsFullProblem slug={session.orgSlug} error={publish.error} />
+            ) : (
+              <ProblemNotice error={publish.error} />
+            ))}
         </div>
       )}
 
@@ -712,7 +724,14 @@ function TestCallSection({
   return (
     <FoldSection id={LINE_TEST_ANCHOR} title="Test call" tone="test" hint="This line rings your phone." info={TEST_CALL_INFO}>
       {line.script ? (
-        <TestCallForm slug={slug} call={call} saved={saved} canWrite={canWrite} refusal={refusal} />
+        <TestCallForm
+          slug={slug}
+          call={call}
+          saved={saved}
+          canWrite={canWrite}
+          refusal={refusal}
+          fromTestLine={!line.live}
+        />
       ) : (
         <p className="text-body text-ink-muted">Write the script first, then hear it here.</p>
       )}
