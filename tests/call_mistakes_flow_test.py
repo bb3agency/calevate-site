@@ -22,7 +22,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.a2p_declaration_test import _org_headers
 from tests.call_mistakes_test import SRI_ESTATES
-from tests.conftest import create_org_with_receptionist
+from tests.conftest import create_org_with_receptionist, turn_pip_on_for_tests
 
 pytestmark = pytest.mark.rls
 
@@ -56,6 +56,8 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
         language="te-IN",
         created_by=None,
     )
+    # The healer drafts a fix only for an account whose owner turned Pip on.
+    await turn_pip_on_for_tests(uuid.UUID(str(created["id"])))
     return created["id"], created["agent_id"]
 
 

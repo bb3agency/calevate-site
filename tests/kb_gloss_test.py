@@ -31,6 +31,7 @@ from apps.api.kb.gloss import (
 )
 from apps.workers import kb_gloss
 from sqlalchemy import text
+from tests.conftest import turn_pip_on_for_tests
 from tests.kb_workflow_test import _tenant_with_published_agent
 
 #: One Telugu-script fact and one English fact, both real sentences a clinic would write.
@@ -94,7 +95,9 @@ def _unique(body: str) -> str:
     return f"{body} {uuid.uuid4().int % 10**12:012d}"
 
 
-async def _tenant_with_pending_chunks(*bodies: str) -> tuple[uuid.UUID, uuid.UUID, list[str]]:
+async def _tenant_with_pending_chunks(
+    *bodies: str, pip_on: bool = True
+) -> tuple[uuid.UUID, uuid.UUID, list[str]]:
     """A tenant whose agent has one submitted source per body, awaiting review.
 
     Submitted through `kb.service.submit_source` and never inserted: what makes a chunk
@@ -112,6 +115,8 @@ async def _tenant_with_pending_chunks(*bodies: str) -> tuple[uuid.UUID, uuid.UUI
                 name=f"Source {i}",
                 body=body,
             )
+    if pip_on:
+        await turn_pip_on_for_tests(uuid.UUID(str(tenant_id)))
     return uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id)), stored
 
 
@@ -145,6 +150,8 @@ async def _run_sweep(
     monkeypatch.setattr(kb_gloss.chat, "complete", provider)
     monkeypatch.setattr(kb_gloss, "azure_credentials", lambda: ("res", "key", "deployment-abc"))
     if only is not None:
+        # The account under test has Pip on: a gloss is bought only for one that does.
+        await turn_pip_on_for_tests(only)
 
         async def _one() -> list[uuid.UUID]:
             return [only]
@@ -222,6 +229,32 @@ async def test_a_telugu_chunk_is_glossed_and_an_english_chunk_costs_nothing(
     assert english_row[1] is None and english_row[2] is None
     assert provider.seen.count(telugu) == 1
     assert english not in provider.seen, "an English chunk reached the provider"
+
+
+async def test_knowledge_is_not_glossed_until_the_owner_turns_pip_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: a client's knowledge reaches a language-model provider before the account's
+    owner turned Pip on (the published sub-processor promise). The chunk stays `pending`
+    and is glossed by the first tick after consent."""
+    tenant_id, _, (telugu,) = await _tenant_with_pending_chunks(TELUGU_BODY, pip_on=False)
+    provider = _RecordingProvider()
+    monkeypatch.setattr(kb_gloss.chat, "complete", provider)
+    monkeypatch.setattr(kb_gloss, "azure_credentials", lambda: ("res", "key", "deployment-abc"))
+
+    async def _one() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _one)
+    await kb_gloss.write_knowledge_glosses({"job_try": 1})
+
+    assert provider.seen == []
+    assert [s[0] for s in await _states(tenant_id)] == [GLOSS_PENDING]
+
+    await turn_pip_on_for_tests(tenant_id)
+    await kb_gloss.write_knowledge_glosses({"job_try": 1})
+    assert provider.seen == [telugu]
+    assert [s[0] for s in await _states(tenant_id)] == [GLOSS_READY]
 
 
 async def test_re_running_the_sweep_neither_duplicates_nor_re_pays(

@@ -32,6 +32,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.lead_fields import MAX_AGENTS
+from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core.errors import ProblemError
 from apps.api.reliability.service import enqueue_outbox
 
@@ -230,7 +231,15 @@ def dump_outcomes(outcomes: Sequence[BusinessOutcome]) -> str:
 async def queue_draft(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> bool:
     """Queue the agent's one AI draft in the caller's transaction; False when it was queued
     before or the agent already has outcomes of its own. Compare-and-swap from NULL, so two
-    callers racing queue it once."""
+    callers racing queue it once.
+
+    Its callers are a first publish and a call, neither of which asks for a draft, and the
+    draft sends the agent's business and script to a model. So it is queued only once the
+    owner has turned Pip on; until then the starting outcomes serve, the column stays NULL,
+    and the first call after Pip is on queues it. "Write them for me" (`request_draft`) is
+    the owner asking, and is not gated here."""
+    if not await account_content_may_reach_models(session, tenant_id=tenant_id):
+        return False
     return await _queue(
         session,
         tenant_id=tenant_id,

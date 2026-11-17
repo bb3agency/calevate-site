@@ -64,6 +64,7 @@ from apps.api.billing.ai_quota import (
     platform_brake_tripped,
     record_ai_assist_usage,
 )
+from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.copilot.memory import KIND_EPISODIC, KIND_SEMANTIC, redacted_content
 from apps.api.core import provider_health
 from apps.api.core.alerting import alert
@@ -435,6 +436,11 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
             break
         try:
             async with tenant_session(tenant_id) as session:
+                # An owner who turned Pip off has withdrawn the account from the
+                # language-model providers, so its past conversations are not read back to
+                # one either. Their episodes keep a NULL `distilled_at` until Pip is on again.
+                if not await account_content_may_reach_models(session, tenant_id=tenant_id):
+                    continue
                 people = (
                     await session.execute(
                         text(_PEOPLE_SQL),

@@ -95,6 +95,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
+from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -426,15 +427,24 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
             refusals = RefusalStreak()
             try:
                 async with tenant_session(tenant_id) as session:
+                    # A gloss sends the account's own knowledge to a language-model
+                    # provider, so it waits for the owner to turn Pip on, as embeddings do
+                    # (D-952). Its chunks stay `pending` and are glossed on the first tick
+                    # after; the re-key below still runs, since it calls no provider.
+                    allowed = await account_content_may_reach_models(session, tenant_id=tenant_id)
                     rows = (
-                        await session.execute(
-                            text(_CLAIM_SQL),
-                            {
-                                "limit": min(MAX_CHUNKS_PER_TENANT, budget),
-                                "set_aside": set_aside_chunks,
-                            },
-                        )
-                    ).all()
+                        (
+                            await session.execute(
+                                text(_CLAIM_SQL),
+                                {
+                                    "limit": min(MAX_CHUNKS_PER_TENANT, budget),
+                                    "set_aside": set_aside_chunks,
+                                },
+                            )
+                        ).all()
+                        if allowed
+                        else []
+                    )
                     for row in rows:
                         budget -= 1
                         # A SAVEPOINT PER CHUNK. Each gloss is paid for when the provider

@@ -1015,8 +1015,8 @@ adopted as D-502 on 1 Sep 2026):
   Reciprocal Rank Fusion, behind FORCEd RLS. Embeddings come from `gemini-embedding-2`
   (D-952) through Gemini's native `batchEmbedContents` on our existing Google key —
   **no new sub-processor** — only while the Google data-use attestation is recorded, and only
-  for accounts whose owner turned Pip on (`retrieval/embedding.tenant_allows_embedding`;
-  others search by keyword).
+  for accounts whose owner turned Pip on (`copilot/consent.account_content_may_reach_models`,
+  the one check every automatic path to a language model asks; others search by keyword).
   Passages are embedded with the document prefix and the source's name as title, questions
   with the query prefix. One encoder, never a chain: two models' vectors are not comparable
   in one column, so the dense arm reads only rows whose `embed_model`/`embed_dim` match the

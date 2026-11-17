@@ -54,6 +54,7 @@ from calevate_shared.lead_fields import OUTPUT_KEYS
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
+from tests.conftest import turn_pip_on_for_tests
 from tests.pipeline_audit_test import _completed_call, _run_pipeline, _scalar
 from tests.pipeline_audit_test import _stub_storage as _stub_storage
 
@@ -225,6 +226,34 @@ def test_a_business_outcome_moves_the_lead_up_and_never_down() -> None:
 # --- 3. the pipeline --------------------------------------------------------------------
 
 
+async def test_without_pip_a_call_queues_no_outcomes_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: a call sends the agent's business and script to a language-model provider
+    for an outcomes draft on an account whose owner has not turned Pip on. The starting
+    outcomes still read the call."""
+    runner = _Runner(
+        {
+            "summary": "Asked for 2 kg of dried chilli delivered to Guntur.",
+            "outcome_tag": "answered",
+            "business_outcome": "interested",
+            "sentiment": "neutral",
+        }
+    )
+    monkeypatch.setattr(extraction_module, "get_extractor", lambda: runner)
+    tenant_id, execution_id, call_id = await _completed_call("buyer")
+    await _run_pipeline(tenant_id, call_id, execution_id)
+
+    assert [o.key for o in runner.offered] == [o.key for o in STARTING_OUTCOMES]
+    agent_id = await _scalar(tenant_id, "SELECT agent_id FROM calls WHERE id = :c", c=call_id)
+    assert (
+        await _scalar(
+            tenant_id, "SELECT business_outcomes_draft FROM agents WHERE id = :a", a=agent_id
+        )
+        is None
+    )
+
+
 async def test_a_buying_call_reads_as_the_agents_outcome_and_moves_the_lead(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -241,6 +270,7 @@ async def test_a_buying_call_reads_as_the_agents_outcome_and_moves_the_lead(
     )
     monkeypatch.setattr(extraction_module, "get_extractor", lambda: runner)
     tenant_id, execution_id, call_id = await _completed_call("buyer")
+    await turn_pip_on_for_tests(tenant_id)
     await _run_pipeline(tenant_id, call_id, execution_id)
 
     assert [o.key for o in runner.offered] == [o.key for o in STARTING_OUTCOMES]
@@ -373,6 +403,7 @@ async def _agent_of(tenant_id: UUID) -> UUID:
 
 
 async def _queue(tenant_id: UUID, agent_id: UUID) -> bool:
+    await turn_pip_on_for_tests(tenant_id)
     async with tenant_session(tenant_id) as session:
         return await call_outcomes.queue_draft(session, tenant_id=tenant_id, agent_id=agent_id)
 

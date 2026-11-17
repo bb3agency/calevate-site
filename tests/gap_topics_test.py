@@ -20,7 +20,11 @@ from apps.api.insights import service as gap_service
 from apps.workers import gap_topics
 from apps.workers.script_assist import JsonAnswer
 from sqlalchemy import text
-from tests.conftest import accept_agreements, create_org_with_receptionist
+from tests.conftest import (
+    accept_agreements,
+    create_org_with_receptionist,
+    turn_pip_on_for_tests,
+)
 
 
 @dataclass(frozen=True)
@@ -69,7 +73,7 @@ def test_a_name_with_no_letters_a_key_can_hold_is_unusable() -> None:
     assert gap_topics.named_topic("x" * (gap_topics.MAX_TOPIC_CHARS + 1), KNOWN) is None
 
 
-async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
+async def _tenant(*, pip_on: bool = True) -> tuple[uuid.UUID, uuid.UUID]:
     created = await create_org_with_receptionist(
         name="Gap Topics Farm Records",
         slug=f"gt-{uuid.uuid4().hex[:8]}",
@@ -80,6 +84,8 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     )
     tenant_id = uuid.UUID(str(created["id"]))
     await accept_agreements(tenant_id)
+    if pip_on:
+        await turn_pip_on_for_tests(tenant_id)
     return tenant_id, uuid.UUID(str(created["agent_id"]))
 
 
@@ -225,6 +231,23 @@ async def test_a_renaming_of_gaps_a_redrive_replaced_changes_nothing() -> None:
         named=[("q_something_else", ("t_soil_testing", "Soil testing"))],
     )
     assert renamed is False
+    assert await _topics(tenant_id) == before
+
+
+async def test_callers_questions_wait_for_the_owner_to_turn_pip_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: callers' questions reach a language-model provider after a call, on an
+    account whose owner has not turned Pip on. The keyword topics stay."""
+    tenant_id, agent_id = await _tenant(pip_on=False)
+    call_id = await _call_with_gaps(tenant_id, agent_id)
+    before = await _topics(tenant_id)
+    seen = _model(monkeypatch, {"topics": []})
+    outcome = await gap_topics.name_gap_topics(
+        {}, {"tenant_id": str(tenant_id), "agent_id": str(agent_id), "call_id": str(call_id)}
+    )
+    assert outcome == "no_consent"
+    assert seen["asked"] == 0
     assert await _topics(tenant_id) == before
 
 

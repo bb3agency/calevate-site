@@ -9,8 +9,8 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, tenant_session
 from apps.workers import business_copy as worker
 from sqlalchemy import text
-from tests.api_security_test import _make_tenant
 from tests.business_copy_test import _json, _trial, copy_dict
+from tests.conftest import make_tenant_with_pip
 
 
 async def test_a_copy_check_is_queued_once_per_ist_day_across_0530_ist(
@@ -20,7 +20,7 @@ async def test_a_copy_check_is_queued_once_per_ist_day_across_0530_ist(
     queues at 01:00 IST and the daily walk at 10:44 IST the same Indian day both queue a
     rewrite of one account."""
     _trial(monkeypatch, False)
-    tenant_id, _slug, _token = await _make_tenant()
+    tenant_id, _slug, _token = await make_tenant_with_pip()
     # 01:00 IST on 10 Nov is 19:30 UTC on 9 Nov; 10:44 IST is 05:14 UTC on 10 Nov.
     early = datetime(2026, 11, 9, 19, 30, tzinfo=UTC)
     daily = datetime(2026, 11, 10, 5, 14, tzinfo=UTC)

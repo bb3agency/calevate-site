@@ -90,6 +90,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import new_assist_ref, read_platform_ai_spend
 from apps.api.billing.platform_ai import record_platform_ai_usage
+from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core import provider_health
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -120,7 +121,6 @@ from apps.api.retrieval.embedding import (
     embedding_leg,
     embedding_price_is_billable,
     stored_vector_width,
-    tenant_allows_embedding,
 )
 from apps.api.retrieval.models import EMBED_READY, EMBED_REFUSED
 from apps.workers import chat, gemini_native
@@ -454,7 +454,7 @@ async def _sweep_tenant(
     remaining = min(MAX_CHUNKS_PER_TENANT, budget)
     # Discovery still runs without consent: it writes the keyword arm and calls no provider.
     async with tenant_session(tenant_id) as session:
-        allowed = await tenant_allows_embedding(session, tenant_id=tenant_id)
+        allowed = await account_content_may_reach_models(session, tenant_id=tenant_id)
     for projection in registered_projections():
         async with tenant_session(tenant_id) as session:
             tally.projected += await _discover(session, tenant_id=tenant_id, projection=projection)

@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.models import MistakeFixFoundBy, MistakeFixState
 from apps.api.agents.prompts import rollback_prompt
 from apps.api.campaigns.workspace import CampaignProposal, read_script_proposal
+from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.healer import incidents
@@ -254,7 +255,13 @@ async def open_fixes(
     the pipeline's transaction for the kinds a call showed. Returns the kinds opened.
 
     The partial unique index on (agent, kind) for a fix in progress is the guard against two
-    calls of one agent finishing together; the loser's insert is a no-op."""
+    calls of one agent finishing together; the loser's insert is a no-op.
+
+    None opens while the owner has Pip off: the fix is Pip's draft, written by a model from
+    the line's or campaign's script, and nobody asked for it. The mistake still shows on the
+    Training tab, and the first call showing it after Pip is on opens the fix."""
+    if not await account_content_may_reach_models(session, tenant_id=tenant_id):
+        return []
     latest = await latest_fixes(session, agent_id, kinds)
     opened: list[str] = []
     for kind in sorted(set(kinds)):
