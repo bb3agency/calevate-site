@@ -173,6 +173,8 @@ async def test_a_training_that_would_overflow_an_agent_is_refused_unsaved(
         with pytest.raises(ProblemError) as refused:
             await company_training.save_training(session, tenant, TRAINING, saved_by=None)
     assert refused.value.code == "company_training_too_long"
+    body = refused.value.as_problem()
+    assert body["agent_id"] and "inbound_line_id" not in body and "campaign_id" not in body
     async with tenant_session(tenant) as session:
         assert await company_training.live_text(session) == ""
 
@@ -220,6 +222,7 @@ async def test_a_training_that_would_overflow_a_published_inbound_line_is_refuse
             await company_training.save_training(session, tenant, TRAINING, saved_by=None)
     assert refused.value.code == "company_training_too_long"
     assert "Site visits desk" in str(refused.value.detail)
+    assert refused.value.as_problem()["inbound_line_id"] == str(line_id)
     async with tenant_session(tenant) as session:
         assert await company_training.live_text(session) == ""
 

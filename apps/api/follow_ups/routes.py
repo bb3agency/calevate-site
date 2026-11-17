@@ -21,7 +21,7 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
-from apps.api.core.errors import ProblemError
+from apps.api.core.errors import ProblemError, problem_responses
 from apps.api.core.rbac import permission_meta
 from apps.api.follow_ups import definition as d
 from apps.api.follow_ups import service, starters
@@ -293,6 +293,7 @@ async def save_follow_up_draft(
 @router.post(
     "/{follow_up_id}/publish",
     response_model=FollowUpOut,
+    responses=problem_responses(service.FollowUpInvalid, service.FollowUpChanged),
     openapi_extra=permission_meta("leads:dispatch"),
     summary="Publish the draft as the next version; runs already going keep theirs",
 )

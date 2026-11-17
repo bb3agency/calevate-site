@@ -17939,6 +17939,56 @@
         "title": "CompanyTrainingOut",
         "type": "object"
       },
+      "CompanyTrainingTooLong": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ProblemBody"
+          },
+          {
+            "properties": {
+              "agent_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Agent Id"
+              },
+              "campaign_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Campaign Id"
+              },
+              "inbound_line_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Inbound Line Id"
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "What the training would push past the calling system's box, so the screen can link\nstraight to it. Exactly one of the three is set.",
+        "title": "CompanyTrainingTooLong"
+      },
       "ComplaintReviewIn": {
         "additionalProperties": false,
         "description": "The client's confirmation that they read the opt-outs. A literal `true`, so the\nrequest states the act rather than toggling a flag.",
@@ -25351,6 +25401,10 @@
             "title": "Id",
             "type": "string"
           },
+          "include_raw_phone": {
+            "title": "Include Raw Phone",
+            "type": "boolean"
+          },
           "include_raw_transcript": {
             "title": "Include Raw Transcript",
             "type": "boolean"
@@ -25412,6 +25466,7 @@
           "include_recording_url",
           "include_transcript",
           "include_raw_transcript",
+          "include_raw_phone",
           "created_at"
         ],
         "title": "EndpointOut",
@@ -29155,6 +29210,28 @@
         "title": "FloorInputsOut",
         "type": "object"
       },
+      "FollowUpChanged": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ProblemBody"
+          },
+          {
+            "properties": {
+              "expected_updated_at": {
+                "format": "date-time",
+                "title": "Expected Updated At",
+                "type": "string"
+              }
+            },
+            "required": [
+              "expected_updated_at"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "The version the server holds, so the screen can reload it.",
+        "title": "FollowUpChanged"
+      },
       "FollowUpCreateIn": {
         "additionalProperties": false,
         "properties": {
@@ -29415,6 +29492,30 @@
         },
         "title": "FollowUpEditIn",
         "type": "object"
+      },
+      "FollowUpInvalid": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ProblemBody"
+          },
+          {
+            "properties": {
+              "problems": {
+                "items": {
+                  "$ref": "#/components/schemas/ProblemOut"
+                },
+                "title": "Problems",
+                "type": "array"
+              }
+            },
+            "required": [
+              "problems"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Every problem that stops the publish, so the screen (and Pip) can list them.",
+        "title": "FollowUpInvalid"
       },
       "FollowUpListOut": {
         "additionalProperties": false,
@@ -46091,6 +46192,100 @@
           "compiled"
         ],
         "title": "PreviewOut",
+        "type": "object"
+      },
+      "ProblemBody": {
+        "description": "The problem+json body this API sends (RFC 9457 and BACKEND-PATTERNS \u00a73), as a schema\nfor the OpenAPI document. `ProblemError.as_problem` writes it; this only describes it.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fields"
+          },
+          "instance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instance"
+          },
+          "kind": {
+            "enum": [
+              "validation",
+              "auth",
+              "permission",
+              "not_found",
+              "conflict",
+              "business_rule",
+              "dependency",
+              "transient",
+              "internal"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "remediation": {
+            "title": "Remediation",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "kind",
+          "retryable",
+          "remediation"
+        ],
+        "title": "ProblemBody",
         "type": "object"
       },
       "ProblemOut": {
@@ -64233,6 +64428,17 @@
             "minItems": 1,
             "title": "Events",
             "type": "array"
+          },
+          "include_raw_phone": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Include Raw Phone"
           },
           "include_raw_transcript": {
             "default": false,
@@ -90864,6 +91070,20 @@
             },
             "description": "Successful Response"
           },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CompanyTrainingTooLong"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
+          },
           "default": {
             "content": {
               "application/problem+json": {}
@@ -95026,6 +95246,34 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/FollowUpChanged"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/FollowUpInvalid"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
+          },
           "default": {
             "content": {
               "application/problem+json": {}
@@ -97510,7 +97758,7 @@
         "x-calevate-permission": "org:manage"
       },
       "patch": {
-        "description": "Replace an active endpoint's events and its recording-link and transcript opt-ins. The address is not changeable: add a new destination to send somewhere else. Switching on the recording link or a transcript asks for the emailed code (`X-Confirm-Action: endpoint_opt_in:<org>`). Refused with `endpoint_inactive` for a switched-off endpoint, `sheets_endpoint_events_only` when a Google Sheets destination is asked to carry a recording or transcript, and with the create route's opt-in refusals.",
+        "description": "Replace an active endpoint's events and its recording-link and transcript opt-ins, and switch its full-phone-number opt-in off (`include_raw_phone: false`; left out, it stays as it is). The address is not changeable: add a new destination to send somewhere else. Switching on the recording link or a transcript asks for the emailed code (`X-Confirm-Action: endpoint_opt_in:<org>`). Refused with `endpoint_inactive` for a switched-off endpoint, `sheets_endpoint_events_only` when a Google Sheets destination is asked to carry a recording or transcript, `raw_phone_opt_in_with_us` when full numbers are asked for where they are off, and with the create route's opt-in refusals.",
         "operationId": "update_endpoint_v1_integrations_endpoints__endpoint_id__patch",
         "parameters": [
           {

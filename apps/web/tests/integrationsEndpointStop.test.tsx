@@ -68,6 +68,7 @@ function endpoint(over: Partial<Endpoint> = {}): Endpoint {
     include_recording_url: false,
     include_transcript: false,
     include_raw_transcript: false,
+    include_raw_phone: false,
     created_at: "2026-08-01T10:00:00Z",
     ...over,
   };

@@ -34,6 +34,7 @@ const ENDPOINT: Endpoint = {
   include_recording_url: false,
   include_transcript: false,
   include_raw_transcript: false,
+  include_raw_phone: false,
   created_at: "2026-10-20T10:00:00Z",
   previous_secret_expires_at: null,
 };
@@ -80,6 +81,44 @@ describe("changing what a destination is sent", () => {
       include_raw_transcript: false,
     });
     await waitFor(() => expect(closed).toBe(true));
+  });
+
+  it("switches full phone numbers off, and offers no way to switch them on", async () => {
+    const { calls } = await renderClientPage(
+      <EditHarness endpoint={{ ...ENDPOINT, include_raw_phone: true }} onClose={() => undefined} />,
+      {
+        "/v1/me": ME,
+        "PATCH /v1/integrations/endpoints/e1": { ...ENDPOINT, include_raw_phone: false },
+      },
+    );
+    const box = screen.getByRole("checkbox", { name: /Full phone numbers/ }) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    await act(async () => {
+      fireEvent.click(box);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).toMatchObject({
+      events: ["lead.created"],
+      include_raw_phone: false,
+    });
+  });
+
+  it("does not offer full phone numbers to a destination that is not sent them", async () => {
+    const { calls } = await renderClientPage(
+      <EditHarness endpoint={ENDPOINT} onClose={() => undefined} />,
+      { "/v1/me": ME, "PATCH /v1/integrations/endpoints/e1": ENDPOINT },
+    );
+    expect(screen.queryByRole("checkbox", { name: /Full phone numbers/ })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PATCH")?.body ?? "{}")).not.toHaveProperty(
+      "include_raw_phone",
+    );
   });
 
   it("offers a spreadsheet events only, and keeps the drawer open on a refusal", async () => {

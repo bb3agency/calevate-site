@@ -505,7 +505,7 @@ async def enqueue_events(
             # client opted into that link. Subscribing without the opt-in is refused at
             # registration; this covers a row written before that check.
             continue
-        opted_in = bool((mapping or {}).get("include_raw_phone"))
+        opted_in = raw_phone_opted_in(mapping)
         for data in rows:
             payload_data = lead_payload(data, include_raw_phone=opted_in)
             if is_call_completed and (inc_transcript or inc_raw_transcript):
@@ -593,7 +593,13 @@ async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, A
         "previous_secret": row[7],
         "include_transcript": bool(row[8]),
         "include_raw_transcript": bool(row[9]),
+        "include_raw_phone": raw_phone_opted_in(row[3]),
     }
+
+
+def raw_phone_opted_in(mapping: dict[str, Any] | None) -> bool:
+    """The endpoint's raw-phone opt-in (docs/WEBHOOKS.md §1.2), recorded in `mapping`."""
+    return bool((mapping or {}).get("include_raw_phone"))
 
 
 #: The body keys each transcript opt-in adds at fan-out (`call_completed_payload`), and the
@@ -631,6 +637,10 @@ async def with_delivery_time_fields(
     ]
     if withheld:
         data = {key: value for key, value in data.items() if key not in withheld}
+    # The raw phone is applied at fan-out like a transcript, so a body queued while the
+    # endpoint was opted in is masked here once the owner has switched the opt-in off.
+    if not endpoint.get("include_raw_phone"):
+        data = lead_payload(data, include_raw_phone=False)
     if event not in RECORDING_LINK_EVENTS or not endpoint.get("include_recording_url"):
         return data
     call_id = data.get("call_id")
@@ -800,6 +810,7 @@ class EndpointChoices:
     include_recording_url: bool
     include_transcript: bool
     include_raw_transcript: bool
+    include_raw_phone: bool = False
 
 
 #: The emailed-code verb for switching call content on for an existing endpoint, beside the
@@ -828,7 +839,7 @@ async def read_endpoint_choices(session: AsyncSession, endpoint_id: UUID) -> End
         await session.execute(
             text(
                 "SELECT kind, events, include_recording_url, include_transcript, "
-                "include_raw_transcript, active FROM outbound_webhooks WHERE id = :id"
+                "include_raw_transcript, active, mapping FROM outbound_webhooks WHERE id = :id"
             ),
             {"id": endpoint_id},
         )
@@ -847,6 +858,7 @@ async def read_endpoint_choices(session: AsyncSession, endpoint_id: UUID) -> End
         include_recording_url=bool(row[2]),
         include_transcript=bool(row[3]),
         include_raw_transcript=bool(row[4]),
+        include_raw_phone=raw_phone_opted_in(row[6]),
     )
 
 
@@ -873,6 +885,7 @@ async def update_endpoint(
     include_transcript: bool,
     include_raw_transcript: bool,
     role: str | None,
+    include_raw_phone: bool | None = None,
 ) -> EndpointChoices:
     """Change which events an ACTIVE endpoint receives and what each carries:
     `PATCH /v1/integrations/endpoints/{id}` and Pip's `crm_endpoint_edit`. Returns what
@@ -881,7 +894,12 @@ async def update_endpoint(
     The same body checks as the create (`assert_raw_transcript_opt_in`,
     `assert_recording_ready_opt_in`). A Google Sheets destination takes events only: it
     writes rows, never a recording link or a transcript. The row is locked first so two
-    edits serialise rather than each computing from the same "before"."""
+    edits serialise rather than each computing from the same "before".
+
+    `include_raw_phone` None leaves the raw-phone opt-in as it is. False switches it off,
+    and the worker masks the number on every delivery from then on, retries of bodies
+    queued earlier included (`with_delivery_time_fields`). True is accepted only where it
+    is already on: the opt-in is made with our team (docs/WEBHOOKS.md §1.2), never here."""
     if not events:
         raise ProblemError(
             kind="validation",
@@ -918,11 +936,21 @@ async def update_endpoint(
         role=role,
     )
     assert_recording_ready_opt_in(events=events, include_recording_url=include_recording_url)
+    if include_raw_phone and not before.include_raw_phone:
+        raise ProblemError.business_rule(
+            "raw_phone_opt_in_with_us",
+            "Sending full phone numbers is switched on with our team, not here.",
+            remediation="Ask our team to send full numbers to this destination.",
+        )
+    raw_phone = before.include_raw_phone if include_raw_phone is None else include_raw_phone
     await session.execute(
         text(
             "UPDATE outbound_webhooks SET events = :events, "
             "include_recording_url = :rec, include_transcript = :tr, "
-            "include_raw_transcript = :raw, updated_at = now() WHERE id = :id"
+            "include_raw_transcript = :raw, "
+            "mapping = CASE WHEN :phone THEN mapping "
+            "ELSE mapping - 'include_raw_phone' END, "
+            "updated_at = now() WHERE id = :id"
         ),
         {
             "id": endpoint_id,
@@ -930,6 +958,7 @@ async def update_endpoint(
             "rec": include_recording_url,
             "tr": include_transcript,
             "raw": include_raw_transcript,
+            "phone": raw_phone,
         },
     )
     return before

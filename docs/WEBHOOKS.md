@@ -54,7 +54,10 @@ type:
   on `data.lead_id`.
 - **`phone` is masked by default** — the literal string `"[redacted]"`. Receiving the
   raw E.164 number is a per-endpoint opt-in you make explicitly with us; it is recorded
-  in your endpoint config, not assumed.
+  in your endpoint config, not assumed. You can switch it off yourself (Integrations,
+  "Change what is sent", or `PATCH /v1/integrations/endpoints/{id}` with
+  `"include_raw_phone": false`); from then on every delivery to that endpoint carries the
+  masked number, retries and resends of events queued earlier included.
 - **`created_at` is when the event happened, not when we posted it.** UTC, ISO-8601, and
   identical on every retry of the same `id`. Order by it if your system applies
   last-write-wins to a lead: deliveries can arrive out of order — a retried event is

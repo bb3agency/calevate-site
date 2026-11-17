@@ -18,13 +18,15 @@ Rules that are not negotiable:
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from http import HTTPStatus
-from typing import Any, Literal, Self
+from typing import Any, ClassVar, Final, Literal, Self
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from apps.api.core.alerting import FailureStage, alert
@@ -382,11 +384,100 @@ def validation_summary(entries: Sequence[Mapping[str, str]]) -> str:
     return f"{messages[0]} {messages[1]} There are {len(messages) - 2} more to fix."
 
 
+#: The members every problem body may carry: RFC 9457 §3.1's five and this module's own.
+#: An extension may not reuse one, or a client could not tell which meaning it holds.
+RESERVED_PROBLEM_MEMBERS: Final = frozenset(
+    {"type", "title", "status", "detail", "instance"}
+    | {"kind", "retryable", "remediation", "fields", "trace_id"}
+)
+
+#: Every problem type that carries extension members, by its code (`ProblemExtension`).
+PROBLEM_EXTENSIONS: dict[str, type[ProblemExtension]] = {}
+
+
+class ProblemBody(BaseModel):
+    """The problem+json body this API sends (RFC 9457 and BACKEND-PATTERNS §3), as a schema
+    for the OpenAPI document. `ProblemError.as_problem` writes it; this only describes it."""
+
+    type: str
+    title: str
+    status: int
+    detail: str
+    kind: ErrorKind
+    retryable: bool
+    remediation: str
+    instance: str | None = None
+    fields: list[dict[str, str]] | None = None
+    trace_id: str | None = None
+
+
+class ProblemExtension(BaseModel):
+    """The extension members (RFC 9457 §3.2) one problem type carries, typed.
+
+    The one way to put data beside a problem's sentence for a screen to act on, such as the
+    id of the thing a refusal names. Subclass once per problem code, set `code`, declare
+    the members as fields, and pass an instance as `ProblemError(extensions=...)`; the
+    members are written at the top level of the body, as the RFC places them, with absent
+    (None) members left out. A route that can raise it declares the body with
+    `problem_responses(...)`, which puts the full shape in the OpenAPI document and so in
+    the generated client.
+
+    A client must ignore members it does not know (RFC 9457 §3.2), so adding one to a model
+    is safe; renaming or removing one is a breaking change. Names follow the RFC's advice
+    (start with a letter, then letters, digits or underscores, at least three characters)
+    and may not reuse a member every problem already has (`RESERVED_PROBLEM_MEMBERS`).
+    Never put anything here a log line could not hold: problem bodies are logged by id but
+    stored by the idempotency layer (hard rule 6)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: The problem code this model extends, and the status that problem is sent with; a
+    #: `ProblemError` whose code or status differs refuses the model.
+    code: ClassVar[str]
+    status: ClassVar[int]
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        super().__pydantic_init_subclass__(**kwargs)
+        code = cls.__dict__.get("code")
+        if not isinstance(code, str) or not code:
+            raise TypeError(f"{cls.__name__} must set `code` to the problem code it extends")
+        if not isinstance(cls.__dict__.get("status"), int):
+            raise TypeError(f"{cls.__name__} must set the `status` its problem is sent with")
+        for name in cls.model_fields:
+            if name in RESERVED_PROBLEM_MEMBERS or not _EXTENSION_NAME.fullmatch(name):
+                raise TypeError(f"{cls.__name__}.{name} is not a usable extension member name")
+        if PROBLEM_EXTENSIONS.setdefault(code, cls) is not cls:
+            raise TypeError(f"problem code {code!r} already has an extension model")
+
+    def members(self) -> dict[str, Any]:
+        return self.model_dump(mode="json", exclude_none=True)
+
+
+_EXTENSION_NAME: Final = re.compile(r"[A-Za-z][A-Za-z0-9_]{2,}")
+
+
+def problem_responses(*extensions: type[ProblemExtension]) -> dict[int | str, dict[str, Any]]:
+    """`responses=` for a route that can raise these problems: each extension's body,
+    under its problem's status, as `application/problem+json` with its schema named after
+    the model (`install_problem_schemas` publishes the schemas)."""
+    out: dict[int | str, dict[str, Any]] = {}
+    for model in extensions:
+        entry = out.setdefault(
+            model.status,
+            {"description": "RFC 9457 problem+json", "content": {PROBLEM_CONTENT_TYPE: {}}},
+        )
+        refs = entry["content"][PROBLEM_CONTENT_TYPE].setdefault("schema", {"oneOf": []})
+        refs["oneOf"].append({"$ref": f"#/components/schemas/{model.__name__}"})
+    return out
+
+
 class ProblemError(Exception):
     """Raise this, never HTTPException — the handler renders problem+json.
 
     `code` is the stable machine identifier the frontend switches on; it becomes
-    the last segment of `type` (`https://calevate.tech/problems/<code>`).
+    the last segment of `type` (`https://calevate.tech/problems/<code>`). Data beside the
+    sentence travels as `extensions`, never as a subclass overriding `as_problem`.
     """
 
     def __init__(
@@ -401,12 +492,19 @@ class ProblemError(Exception):
         fields: list[dict[str, str]] | None = None,
         headers: dict[str, str] | None = None,
         failure_stage: FailureStage = "ROUTE_HANDLER",
+        extensions: ProblemExtension | None = None,
     ) -> None:
+        self.status = status if status is not None else _DEFAULT_STATUS[kind]
+        if extensions is not None and (extensions.code, extensions.status) != (code, self.status):
+            raise ValueError(
+                f"{type(extensions).__name__} extends {extensions.code} ({extensions.status}), "
+                f"not {code} ({self.status})"
+            )
+        self.extensions = extensions
         self.kind = kind
         self.code = code
         self.title = title
         self.detail = detail
-        self.status = status if status is not None else _DEFAULT_STATUS[kind]
         self.remediation = remediation
         self.fields = fields
         self.headers = headers or {}
@@ -430,6 +528,8 @@ class ProblemError(Exception):
         body["remediation"] = self.remediation or _DEFAULT_REMEDIATION[self.kind]
         if self.fields:
             body["fields"] = self.fields
+        if self.extensions is not None:
+            body.update(self.extensions.members())
         trace_id = correlation_id_var.get()
         if trace_id:
             body["trace_id"] = trace_id
@@ -453,13 +553,21 @@ class ProblemError(Exception):
         )
 
     @classmethod
-    def conflict(cls, code: str, detail: str, *, remediation: str | None = None) -> Self:
+    def conflict(
+        cls,
+        code: str,
+        detail: str,
+        *,
+        remediation: str | None = None,
+        extensions: ProblemExtension | None = None,
+    ) -> Self:
         return cls(
             kind="conflict",
             code=code,
             title="We could not complete that",
             detail=detail,
             remediation=remediation,
+            extensions=extensions,
         )
 
     @classmethod
@@ -479,13 +587,21 @@ class ProblemError(Exception):
         )
 
     @classmethod
-    def business_rule(cls, code: str, detail: str, *, remediation: str | None = None) -> Self:
+    def business_rule(
+        cls,
+        code: str,
+        detail: str,
+        *,
+        remediation: str | None = None,
+        extensions: ProblemExtension | None = None,
+    ) -> Self:
         return cls(
             kind="business_rule",
             code=code,
             title="We cannot do that",
             detail=detail,
             remediation=remediation,
+            extensions=extensions,
         )
 
 
@@ -622,8 +738,58 @@ def unhandled_problem_response(path: str, exc: BaseException) -> JSONResponse:
     return problem_response(problem, path)
 
 
+_SCHEMA_REF: Final = "#/components/schemas/{model}"
+
+
+def _absent_when_unset(schema: dict[str, Any]) -> dict[str, Any]:
+    """A member left out of the body when it has no value is OPTIONAL, not "null by
+    default": the body is written with None members dropped, and a generated client
+    (openapi-typescript's `defaultNonNullable`) reads a `default` as always present."""
+    for member in schema.get("properties", {}).values():
+        member.pop("default", None)
+    return schema
+
+
+def install_problem_schemas(app: FastAPI) -> None:
+    """Publish `ProblemBody` and every `ProblemExtension` in the OpenAPI components, each
+    extension as `allOf` the body and its own members (the usual OpenAPI shape for a
+    specialised problem type), so `problem_responses` refs resolve and the generated client
+    types them. FastAPI's documented way to extend the document: wrap `app.openapi`."""
+    build = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        schema = build()
+        components = schema.setdefault("components", {}).setdefault("schemas", {})
+        components.setdefault(
+            ProblemBody.__name__,
+            _absent_when_unset(
+                ProblemBody.model_json_schema(ref_template=_SCHEMA_REF, mode="serialization")
+            ),
+        )
+        for model in sorted(PROBLEM_EXTENSIONS.values(), key=lambda m: m.__name__):
+            members = _absent_when_unset(
+                model.model_json_schema(ref_template=_SCHEMA_REF, mode="serialization")
+            )
+            for name, nested in members.pop("$defs", {}).items():
+                components.setdefault(name, nested)
+            members.pop("title", None)
+            members.pop("additionalProperties", None)
+            components.setdefault(
+                model.__name__,
+                {
+                    "title": model.__name__,
+                    "description": members.pop("description", ""),
+                    "allOf": [{"$ref": _SCHEMA_REF.format(model=ProblemBody.__name__)}, members],
+                },
+            )
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]
+
+
 def install_error_handlers(app: FastAPI) -> None:
     """Bootstrap step 5 wires this — every escape route ends in problem+json."""
+    install_problem_schemas(app)
 
     @app.exception_handler(ProblemError)
     async def _problem(request: Request, exc: ProblemError) -> JSONResponse:
@@ -739,10 +905,16 @@ def install_error_handlers(app: FastAPI) -> None:
 
 __all__ = [
     "PROBLEM_CONTENT_TYPE",
+    "PROBLEM_EXTENSIONS",
+    "RESERVED_PROBLEM_MEMBERS",
     "ErrorKind",
     "InvalidStatusTransitionError",
+    "ProblemBody",
     "ProblemError",
+    "ProblemExtension",
     "install_error_handlers",
+    "install_problem_schemas",
     "problem_response",
+    "problem_responses",
     "unhandled_problem_response",
 ]

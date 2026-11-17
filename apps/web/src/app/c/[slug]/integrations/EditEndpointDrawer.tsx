@@ -57,6 +57,8 @@ export function EditEndpointDrawer({
   const [events, setEvents] = useState<OutboundEvent[]>(
     endpoint.events.filter((name): name is OutboundEvent => hasKey(EVENT_LABELS, name)),
   );
+  // Full phone numbers are switched on with our team; here they can only be switched off.
+  const [rawPhone, setRawPhone] = useState(endpoint.include_raw_phone);
   const [extras, setExtras] = useState<ExtrasState>({
     includeRecordingUrl: endpoint.include_recording_url,
     includeTranscript: endpoint.include_transcript,
@@ -74,14 +76,18 @@ export function EditEndpointDrawer({
     feedback.run(
       {
         endpointId: endpoint.id,
-        change: eventsOnly
-          ? {
-              events,
-              include_recording_url: false,
-              include_transcript: false,
-              include_raw_transcript: false,
-            }
-          : { events, ...wireExtras(events, extras) },
+        change: {
+          ...(eventsOnly
+            ? {
+                events,
+                include_recording_url: false,
+                include_transcript: false,
+                include_raw_transcript: false,
+              }
+            : { events, ...wireExtras(events, extras) }),
+          // Sent only to switch it off; left out, the server keeps it as it is.
+          ...(endpoint.include_raw_phone && !rawPhone ? { include_raw_phone: false } : {}),
+        },
       },
     );
 
@@ -129,6 +135,25 @@ export function EditEndpointDrawer({
           <p className="text-meta text-warn">
             Choose at least one, or stop this destination.
           </p>
+        )}
+        {endpoint.include_raw_phone && (
+          <label className="flex items-start gap-2 text-body">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={rawPhone}
+              disabled={!write.allowed}
+              onChange={(e) => setRawPhone(e.target.checked)}
+            />
+            <span className="text-ink-muted">
+              Full phone numbers
+              <span className="block text-meta text-ink-faint">
+                {rawPhone
+                  ? "Untick to send numbers masked from now on."
+                  : "Numbers will be masked, even on resends. Turning this back on needs our team."}
+              </span>
+            </span>
+          </label>
         )}
         {!eventsOnly && (
           <EndpointExtras
