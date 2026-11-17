@@ -997,14 +997,13 @@ def refund_idempotency_key(*, payment_id: str, amount_inr: Decimal, attempt: int
 
     Content-addressed like `topup_receipt`/`adjustment_ref`: the same refund asked for
     twice derives the same key, so a double-click or an operator retry issues ONE refund
-    at the provider. Two GENUINELY distinct partial refunds of the same amount against one
-    payment collapse onto one key — the safe direction on money leaving us, and the remedy
-    (a different amount, or the full remaining balance) is one field away.
+    at the provider. While one refund of an amount is in flight, a second of the same amount
+    collapses onto it — the safe direction on money leaving us.
 
     `attempt` counts the earlier attempts of this (payment, amount) that FAILED
-    definitively (`refund_intents.failed_at`). A key stays bound to its attempt: the
-    provider may answer a reused key with the refund that failed, so the next attempt
-    needs a new one. An attempt whose outcome is unknown is not failed and keeps its key,
+    definitively (`refund_intents.failed_at`) or whose refund PROCESSED (`claim_refund`).
+    A key stays bound to its attempt: the provider may answer a reused key with the refund
+    it already made or failed, so the next attempt needs a new one. An attempt whose outcome is unknown is not failed and keeps its key,
     which is the vendor's documented safe retry. Attempt 0 hashes exactly what the key
     always hashed, so keys already sent are unchanged.
 
@@ -1555,6 +1554,16 @@ async def claimed_refund_total_inr(
     return Decimal(str(total or 0))
 
 
+#: The in-flight claim of one (payment, amount) a repeat request replays: not failed, and
+#: its refund not on the ledger (`credit_refund` binds and records it as one act).
+_LIVE_CLAIM_SQL: Final = (
+    "SELECT ri.refund_key FROM refund_intents ri WHERE ri.tenant_id = :tid "
+    "AND ri.payment_ref = :pid AND ri.amount_inr = :amount AND ri.failed_at IS NULL "
+    "AND NOT EXISTS (SELECT 1 FROM credit_ledger cl WHERE cl.tenant_id = :tid "
+    "AND cl.reason = 'refund' AND cl.ref = ri.refund_ref) "
+    "ORDER BY ri.created_at DESC, ri.id DESC LIMIT 1"
+)
+
 #: Live claims of this payment whose refund is not on the ledger yet. A claim is settled by
 #: the ledger row its bound `refund_ref` names (`credit_refund` binds an unbound one).
 _PENDING_CLAIMS_SQL: Final = (
@@ -1692,14 +1701,16 @@ async def claim_refund(
     backstop behind it exactly as `ux_usage_events_tenant_call_unit` is behind
     `lock_call_writes`.
 
-    **A REPEAT OF AN AMOUNT ALREADY CLAIMED IS A REPLAY AND IS ALLOWED THROUGH.** The
-    provider idempotency key is derived from `(payment_id, amount)`, so a second click on
-    one refund is the same key at the vendor and the same row here — it can only ever
-    collapse onto the refund that already exists, never add to what was returned. It
-    therefore must not be refused as a breach of a ceiling it does not move; that would
-    turn today's harmless double-click into an error on a money dialog. Two genuinely
-    distinct refunds of one payment for the identical amount are not representable at the
-    provider either, so this admits a replay and nothing else.
+    **A REPEAT OF AN AMOUNT STILL IN FLIGHT IS A REPLAY AND IS ALLOWED THROUGH.** While a
+    claim of the same `(payment_id, amount)` is live and its refund has not processed, a
+    second click is the same key at the vendor and the same row here — it can only collapse
+    onto the refund that already exists, never add to what was returned, so it must not be
+    refused as a breach of a ceiling it does not move.
+
+    **ONCE THAT REFUND HAS PROCESSED, THE SAME AMOUNT AGAIN IS A NEW REFUND** (lead decision
+    17 Nov 2026): it gets a new key and passes the dispute check and both ceilings like any
+    other. Treating it as a replay sent the provider the processed refund's key, which can
+    only collapse onto that refund, and skipped the dispute check and the ceilings.
 
     A NEW claim is refused while a dispute on the payment is open (`refund_payment_disputed`)
     or after one was lost (`refund_payment_charged_back`): a refund beside a chargeback can
@@ -1714,27 +1725,26 @@ async def claim_refund(
     await lock_tenant_credits(session, tenant_id)
     live = (
         await session.execute(
-            text(
-                "SELECT refund_key FROM refund_intents WHERE tenant_id = :tid "
-                "AND payment_ref = :pid AND amount_inr = :amount AND failed_at IS NULL LIMIT 1"
-            ),
-            {"tid": tenant_id, "pid": payment_id, "amount": amount_inr},
+            text(_LIVE_CLAIM_SQL), {"tid": tenant_id, "pid": payment_id, "amount": amount_inr}
         )
     ).scalar()
     if live is not None:
         return RefundClaim(refund_key=str(live), claimed=False)
     await _refuse_if_disputed(session, tenant_id=tenant_id, payment_id=payment_id)
-    failed_attempts = (
+    # Every earlier attempt of this (payment, amount) is now failed or processed (a live one
+    # returned above), and each needs a key of its own: a reused key would collapse onto the
+    # refund that failed or the refund that already went back.
+    earlier_attempts = (
         await session.execute(
             text(
                 "SELECT count(*) FROM refund_intents WHERE tenant_id = :tid "
-                "AND payment_ref = :pid AND amount_inr = :amount AND failed_at IS NOT NULL"
+                "AND payment_ref = :pid AND amount_inr = :amount"
             ),
             {"tid": tenant_id, "pid": payment_id, "amount": amount_inr},
         )
     ).scalar()
     key = refund_idempotency_key(
-        payment_id=payment_id, amount_inr=amount_inr, attempt=int(failed_attempts or 0)
+        payment_id=payment_id, amount_inr=amount_inr, attempt=int(earlier_attempts or 0)
     )
 
     claimed = await committed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)

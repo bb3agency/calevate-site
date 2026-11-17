@@ -1358,9 +1358,10 @@ async def issue_tenant_refund(
     # BOTH CEILINGS ARE ON THE TOTAL, NOT ON THIS REQUEST — the payment itself and the part
     # of it the client has not spent (D-699) — and both are enforced by a COMMITTED CLAIM
     # rather than by a read (`claim_refund`, and the docstring above for why the read could
-    # not hold it). A repeat of an amount already claimed comes back `claimed=False` and is
-    # let through as the replay it is: the provider's own idempotency key is
-    # `(payment_id, amount)`, so it can only collapse onto the refund that already exists.
+    # not hold it). A repeat of an amount whose refund is still in flight comes back
+    # `claimed=False` and is let through as the replay it is: it carries that refund's
+    # idempotency key, so it can only collapse onto it. Once that refund has processed, the
+    # same amount again is a new claim with a new key.
     async with tenant_session(tenant_id) as session:
         claim = await claim_refund(
             session,
