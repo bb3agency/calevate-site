@@ -44,7 +44,7 @@ import { PipGenerateBand } from "./PipGenerateBand";
 import { NoSourcesHint, PipNote, TonePick, type Tone } from "./PipScriptAsk";
 import { PipAskRefused, PipFailed, PipWriting, retryable } from "./PipScriptStatus";
 import { FoldSection } from "./FoldSection";
-import { SourcePicker } from "./SourcePicker";
+import { SourcePicker, useChosenCount } from "./SourcePicker";
 import { CampaignFlow, FLOW_PART } from "./CampaignFlow";
 import { ScriptLanguagePick, languageName } from "./ScriptLanguages";
 
@@ -263,7 +263,7 @@ function Sources({ campaignId, space, canWrite, refusal }: Props) {
   const add = useAddCampaignSource(session, campaignId);
   useActionFeedback(save, { errorDisplay: "inline", successToast: "Sources saved" });
   useActionFeedback(add, { errorDisplay: "inline", successToast: "Added and picked" });
-  const count = space.source_ids.length;
+  const count = useChosenCount(space.source_ids);
 
   return (
     <FoldSection

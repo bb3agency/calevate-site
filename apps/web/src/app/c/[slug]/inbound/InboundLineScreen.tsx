@@ -71,7 +71,7 @@ import { FoldGroup, FoldSection } from "../campaigns/FoldSection";
 import { TestCallRows } from "../campaigns/TestCallList";
 import { PipGenerateBand } from "../campaigns/PipGenerateBand";
 import { PipFailed, PipWriting, retryable } from "../campaigns/PipScriptStatus";
-import { SourcePicker } from "../campaigns/SourcePicker";
+import { SourcePicker, useChosenCount } from "../campaigns/SourcePicker";
 
 import { LineStatusPill, lineState } from "./lineStatus";
 
@@ -301,7 +301,7 @@ function SourcesSection({ line, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const save = useSetLineSources(session, line.id);
   useActionFeedback(save, { errorDisplay: "inline", successToast: "Sources saved" });
-  const count = line.source_ids.length;
+  const count = useChosenCount(line.source_ids);
 
   return (
     <FoldSection
