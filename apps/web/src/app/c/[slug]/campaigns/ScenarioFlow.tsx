@@ -12,7 +12,14 @@
  * columns stack, and the links read as "Next: 3.1, 3.2" in each box.
  */
 
-import { ArrowDown, ArrowUp, MoreHorizontal, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Languages,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -94,7 +101,14 @@ export function ScenarioFlow({
   onSelect,
   onChange,
   agent,
+  onTranslate,
+  translating = false,
+  translateBlocked = null,
 }: {
+  /** Ask Pip to fill the local-language boxes from the English, every scenario. */
+  onTranslate?: () => void;
+  translating?: boolean;
+  translateBlocked?: string | null;
   /** The campaign's agent, whose voice "Hear it" speaks in; null while none is chosen. */
   agent: FlowAgent | null;
   script: CallScript;
@@ -142,6 +156,9 @@ export function ScenarioFlow({
       readOnly={readOnly}
       agent={agent}
       wide={wide}
+      onTranslate={onTranslate}
+      translating={translating}
+      translateBlocked={translateBlocked}
       onChange={onChange}
       onDelete={() => remove(chosen.section.id)}
     />
@@ -742,7 +759,14 @@ function ScenarioEditor({
   wide,
   onChange,
   onDelete,
+  onTranslate,
+  translating,
+  translateBlocked,
 }: {
+  onTranslate?: () => void;
+  translating: boolean;
+  /** Why translating cannot start now (unsaved changes), or null. */
+  translateBlocked: string | null;
   agent: FlowAgent | null;
   /** Under the picture at full width: three columns. */
   wide: boolean;
@@ -862,15 +886,14 @@ function ScenarioEditor({
     </label>
   );
 
+  // Two columns side by side, English left and the local language beside it; the right
+  // column holds where the call goes next (founder, 17 Nov 2026).
+  const pair = wide ? "grid gap-x-6 gap-y-3 lg:grid-cols-2" : "space-y-3";
+  const toLocal = local ? languageName(local) : "";
+
   return (
-    <div
-      className={
-        wide ? "grid gap-x-8 gap-y-6 p-4 lg:grid-cols-3" : "space-y-5 p-4"
-      }
-    >
-      <div
-        className={`flex flex-wrap items-center gap-3 ${wide ? "lg:col-span-3" : ""}`}
-      >
+    <div className="space-y-5 p-4">
+      <div className="flex flex-wrap items-center gap-3">
         <span className="rounded-full bg-series-2 px-2 py-0.5 text-meta font-semibold tabular-nums text-white">
           Scenario {item.label}
         </span>
@@ -894,211 +917,240 @@ function ScenarioEditor({
         </label>
       </div>
 
-      {/* Left: the name and the English line. */}
-      <div className="min-w-0 space-y-5">
-        <div>
-          <label className={label()} htmlFor={`sc-name-${id}`}>
-            Scenario name
-          </label>
-          <input
-            id={`sc-name-${id}`}
-            className={`${FIELD} mt-1`}
-            value={s.name}
-            maxLength={limits.nameMax}
-            readOnly={readOnly}
-            placeholder="For example: Does not remember Rytu Khata"
-            aria-invalid={issue("name") ? true : undefined}
-            onChange={(e) =>
-              onChange(renameScenario(script, id, e.target.value))
-            }
-          />
-          {issue("name") && (
-            <p className="mt-1 text-meta text-danger">{issue("name")}</p>
-          )}
-        </div>
-        {scriptBox(english)}
-      </div>
-
-      {/* Centre: the description. */}
-      <div className="min-w-0">
-        <label className={label()} htmlFor={`sc-desc-${id}`}>
-          Scenario description
-        </label>
-        <p className="text-meta text-ink-muted">
-          When this happens and what the agent does, in plain English.
-        </p>
-        <textarea
-          id={`sc-desc-${id}`}
-          className={`${FIELD} mt-1 min-h-40`}
-          value={s.instruction}
-          readOnly={readOnly}
-          aria-invalid={issue("instruction") ? true : undefined}
-          onChange={(e) => patch({ instruction: e.target.value })}
-        />
-        {issue("instruction") && (
-          <p className="mt-1 text-meta text-danger">{issue("instruction")}</p>
-        )}
-      </div>
-
-      {/* Right: the line in the campaign's own language. */}
-      <div className="min-w-0">{local ? scriptBox(local) : null}</div>
-
-      {/* Under the description and the local line: where the call goes next. */}
-      <fieldset
-        className={wide ? "min-w-0 lg:col-span-2 lg:col-start-2" : "min-w-0"}
+      <div
+        className={wide ? "grid gap-x-8 gap-y-6 lg:grid-cols-3" : "space-y-5"}
       >
-        <legend className={label()}>Next scenarios</legend>
-        <p className="text-meta text-ink-muted">
-          Where the call can go from here. Up to {limits.maxBranches}.
-        </p>
-        <div className="mt-2 grid gap-x-6 gap-y-3 sm:grid-cols-2">
-          {Array.from({ length: steps }, (_, i) => i + 1).map((step) => {
-            const choices = items.filter(
-              (p) => p.step === step && p.section.id !== id,
-            );
-            if (choices.length === 0) return null;
-            return (
-              <div key={step}>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-                  Step {step}
+        {/* English and the local language, side by side. */}
+        <div className={`min-w-0 space-y-6 ${wide ? "lg:col-span-2" : ""}`}>
+          <div className={pair}>
+            <div>
+              <label className={label()} htmlFor={`sc-name-${id}`}>
+                Scenario name
+              </label>
+              <input
+                id={`sc-name-${id}`}
+                className={`${FIELD} mt-1`}
+                value={s.name}
+                maxLength={limits.nameMax}
+                readOnly={readOnly}
+                placeholder="For example: Does not remember Rytu Khata"
+                aria-invalid={issue("name") ? true : undefined}
+                onChange={(e) =>
+                  onChange(renameScenario(script, id, e.target.value))
+                }
+              />
+              {issue("name") && (
+                <p className="mt-1 text-meta text-danger">{issue("name")}</p>
+              )}
+            </div>
+            {local && onTranslate && !readOnly && (
+              <div className="flex flex-col justify-end">
+                <button
+                  type="button"
+                  className={`${SECONDARY_BUTTON_SM} self-start`}
+                  disabled={translating || translateBlocked != null}
+                  title={
+                    translateBlocked ??
+                    `Fills each empty ${toLocal} box from its English, in every scenario.`
+                  }
+                  onClick={onTranslate}
+                >
+                  <Languages aria-hidden className="h-3.5 w-3.5" />
+                  {translating
+                    ? "Pip is translating…"
+                    : `Translate into ${toLocal} with Pip`}
+                </button>
+                <p className="mt-1 text-[11px] text-ink-faint">
+                  Only empty {toLocal} boxes are filled; what you wrote stays.
                 </p>
-                {choices.map((p) =>
-                  nextChoice(
-                    p.section.id,
-                    <>
-                      <span className="tabular-nums text-ink-muted">
-                        {p.label}
-                      </span>{" "}
-                      {p.section.name}
-                    </>,
-                  ),
-                )}
               </div>
-            );
-          })}
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-              End points
-            </p>
-            {SPECIAL_TARGETS.map((t) => nextChoice(t, END_NAMES[t]))}
+            )}
           </div>
-        </div>
-        {s.branches.length === 0 && (
-          <p className="mt-2 text-meta text-ink-muted">
-            With none chosen, the call goes on to the next scenario in order.
-          </p>
-        )}
-      </fieldset>
 
-      {/* What the caller may say and how the agent answers: English left, the local words beside. */}
-      <fieldset className={wide ? "min-w-0 lg:col-span-3" : "min-w-0"}>
-        <legend className={label()}>Caller and agent responses</legend>
-        <p className="text-meta text-ink-muted">
-          What the caller may say here and what the agent answers, in English
-          {local ? ` and ${languageName(local)}` : ""}.
-        </p>
-        <ul className="mt-3 space-y-3">
-          {qa.map((row, i) => {
-            const held = local
-              ? (row.translations?.[local] ?? { question: "", answer: "" })
-              : null;
-            return (
-              <li
-                key={i}
-                className="grid gap-x-8 gap-y-3 rounded-card border border-line p-3 lg:grid-cols-3"
+          <div>
+            <label className={label()} htmlFor={`sc-desc-${id}`}>
+              Scenario description
+            </label>
+            <p className="text-meta text-ink-muted">
+              When this happens and what the agent does, in plain English.
+            </p>
+            <textarea
+              id={`sc-desc-${id}`}
+              className={`${FIELD} mt-1 min-h-20`}
+              value={s.instruction}
+              readOnly={readOnly}
+              aria-invalid={issue("instruction") ? true : undefined}
+              onChange={(e) => patch({ instruction: e.target.value })}
+            />
+            {issue("instruction") && (
+              <p className="mt-1 text-meta text-danger">
+                {issue("instruction")}
+              </p>
+            )}
+          </div>
+
+          <div className={pair}>
+            {scriptBox(english)}
+            {local ? scriptBox(local) : null}
+          </div>
+
+          <fieldset className="min-w-0">
+            <legend className={label()}>Caller and agent responses</legend>
+            <p className="text-meta text-ink-muted">
+              What the caller may say here and what the agent answers, in
+              English{local ? ` and ${toLocal}` : ""}.
+            </p>
+            <ul className="mt-3 space-y-3">
+              {qa.map((row, i) => {
+                const held = local
+                  ? (row.translations?.[local] ?? { question: "", answer: "" })
+                  : null;
+                return (
+                  <li key={i} className="rounded-card border border-line p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-meta font-medium text-ink">
+                        Response {i + 1}
+                      </span>
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          className="text-meta text-danger hover:underline"
+                          onClick={() =>
+                            patch({ qa: qa.filter((_, j) => j !== i) })
+                          }
+                          aria-label={`Remove response ${i + 1}`}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <div className={pair}>
+                      <label className="block text-meta text-ink-muted">
+                        Caller (English)
+                        <input
+                          className={`${FIELD} mt-0.5`}
+                          placeholder="What the caller says"
+                          value={row.question}
+                          maxLength={300}
+                          readOnly={readOnly}
+                          onChange={(e) =>
+                            setQa(i, { question: e.target.value })
+                          }
+                        />
+                      </label>
+                      {local && held ? (
+                        <label className="block text-meta text-ink-muted">
+                          Caller ({toLocal})
+                          <input
+                            className={`${FIELD} mt-0.5`}
+                            value={held.question}
+                            maxLength={300}
+                            readOnly={readOnly}
+                            onChange={(e) =>
+                              setLocalQa(i, "question", e.target.value)
+                            }
+                          />
+                        </label>
+                      ) : null}
+                      <label className="block text-meta text-ink-muted">
+                        Agent (English)
+                        <textarea
+                          className={`${FIELD} mt-0.5 min-h-14`}
+                          placeholder="What the agent answers"
+                          value={row.answer}
+                          maxLength={1000}
+                          readOnly={readOnly}
+                          onChange={(e) => setQa(i, { answer: e.target.value })}
+                        />
+                      </label>
+                      {local && held ? (
+                        <label className="block text-meta text-ink-muted">
+                          Agent ({toLocal})
+                          <textarea
+                            className={`${FIELD} mt-0.5 min-h-14`}
+                            value={held.answer}
+                            maxLength={1000}
+                            readOnly={readOnly}
+                            onChange={(e) =>
+                              setLocalQa(i, "answer", e.target.value)
+                            }
+                          />
+                        </label>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {!readOnly && (
+              <button
+                type="button"
+                className={`${SECONDARY_BUTTON_SM} mt-3`}
+                disabled={qa.length >= 10}
+                onClick={() =>
+                  patch({ qa: [...qa, { question: "", answer: "" }] })
+                }
               >
-                <div className="min-w-0 space-y-2">
-                  <label className="block text-meta text-ink-muted">
-                    Caller response {i + 1}
-                    <input
-                      className={`${FIELD} mt-0.5`}
-                      placeholder="What the caller says"
-                      value={row.question}
-                      maxLength={300}
-                      readOnly={readOnly}
-                      onChange={(e) => setQa(i, { question: e.target.value })}
-                    />
-                  </label>
-                  <label className="block text-meta text-ink-muted">
-                    Agent response (English)
-                    <textarea
-                      className={`${FIELD} mt-0.5 min-h-14`}
-                      placeholder="What the agent answers"
-                      value={row.answer}
-                      maxLength={1000}
-                      readOnly={readOnly}
-                      onChange={(e) => setQa(i, { answer: e.target.value })}
-                    />
-                  </label>
-                </div>
-                {local && held && (
-                  <div className="min-w-0 space-y-2">
-                    <label className="block text-meta text-ink-muted">
-                      Caller response in {languageName(local)}
-                      <input
-                        className={`${FIELD} mt-0.5`}
-                        value={held.question}
-                        maxLength={300}
-                        readOnly={readOnly}
-                        onChange={(e) =>
-                          setLocalQa(i, "question", e.target.value)
-                        }
-                      />
-                    </label>
-                    <label className="block text-meta text-ink-muted">
-                      Agent response in {languageName(local)}
-                      <textarea
-                        className={`${FIELD} mt-0.5 min-h-14`}
-                        value={held.answer}
-                        maxLength={1000}
-                        readOnly={readOnly}
-                        onChange={(e) =>
-                          setLocalQa(i, "answer", e.target.value)
-                        }
-                      />
-                    </label>
-                  </div>
-                )}
-                {!readOnly && (
-                  <div className="lg:text-right">
-                    <button
-                      type="button"
-                      className="text-meta text-danger hover:underline"
-                      onClick={() =>
-                        patch({ qa: qa.filter((_, j) => j !== i) })
-                      }
-                      aria-label={`Remove caller response ${i + 1}`}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-        {!readOnly && (
-          <button
-            type="button"
-            className={`${SECONDARY_BUTTON_SM} mt-3`}
-            disabled={qa.length >= 10}
-            onClick={() => patch({ qa: [...qa, { question: "", answer: "" }] })}
-          >
-            <Plus aria-hidden className="h-3.5 w-3.5" />
-            Add a caller response
-          </button>
-        )}
-        {issues.some((i) => i.field.startsWith("qa")) && (
-          <p className="mt-1 text-meta text-danger">
-            Fill in the English caller and agent responses, or remove the row.
+                <Plus aria-hidden className="h-3.5 w-3.5" />
+                Add a caller response
+              </button>
+            )}
+            {issues.some((i) => i.field.startsWith("qa")) && (
+              <p className="mt-1 text-meta text-danger">
+                Fill in the English caller and agent words, or remove the row.
+              </p>
+            )}
+          </fieldset>
+        </div>
+
+        {/* Right: where the call goes next. */}
+        <fieldset className="min-w-0 self-start rounded-card border border-line bg-surface-muted p-3">
+          <legend className={`${label()} px-1`}>Next scenarios</legend>
+          <p className="text-meta text-ink-muted">
+            Where the call can go from here. Up to {limits.maxBranches}.
           </p>
-        )}
-      </fieldset>
+          <div className="mt-2 space-y-3">
+            {Array.from({ length: steps }, (_, i) => i + 1).map((step) => {
+              const choices = items.filter(
+                (p) => p.step === step && p.section.id !== id,
+              );
+              if (choices.length === 0) return null;
+              return (
+                <div key={step}>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                    Step {step}
+                  </p>
+                  {choices.map((p) =>
+                    nextChoice(
+                      p.section.id,
+                      <span>
+                        <span className="tabular-nums text-ink-muted">
+                          {p.label}
+                        </span>{" "}
+                        {p.section.name}
+                      </span>,
+                    ),
+                  )}
+                </div>
+              );
+            })}
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                End points
+              </p>
+              {SPECIAL_TARGETS.map((t) => nextChoice(t, END_NAMES[t]))}
+            </div>
+          </div>
+          {s.branches.length === 0 && (
+            <p className="mt-2 text-meta text-ink-muted">
+              With none chosen, the call goes on to the next scenario in order.
+            </p>
+          )}
+        </fieldset>
+      </div>
 
       {!readOnly && (
-        <div
-          className={`border-t border-line pt-4 ${wide ? "lg:col-span-3" : ""}`}
-        >
+        <div className="border-t border-line pt-4">
           <button
             type="button"
             className={`${SECONDARY_BUTTON_SM} border-danger text-danger`}

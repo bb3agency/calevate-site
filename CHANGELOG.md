@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.65 — 17-Nov-2026
+
+- Scenario editor: English on the left and Telugu in the middle, side by side (the scripts
+  and every caller and agent response), the description across both, and Next scenarios
+  in the right-hand column.
+- Translate into Telugu with Pip: fills every empty Telugu box (scripts and caller and
+  agent responses, in all scenarios) from its English, and saves it. What you wrote in
+  Telugu stays; the flow from before can be put back.
+
 ## 0.4.64 — 17-Nov-2026
 
 - Scenario editor laid out in three columns: the name and the English script on the left,

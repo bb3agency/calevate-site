@@ -46,7 +46,7 @@ import { NoSourcesHint, PipNote, TonePick, type Tone } from "./PipScriptAsk";
 import { PipAskRefused, PipFailed, PipWriting, retryable } from "./PipScriptStatus";
 import { FoldSection } from "./FoldSection";
 import { SourcePicker } from "./SourcePicker";
-import { CampaignFlow, FLOW_PART } from "./CampaignFlow";
+import { CampaignFlow, FLOW_PART, TRANSLATE_PART } from "./CampaignFlow";
 import { ScriptLanguagePick, languageName } from "./ScriptLanguages";
 
 export const MAIN_TASK_HINT = "What should this campaign achieve?";
@@ -469,6 +469,8 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                 beforePipAt={space.script_before_pip_at ?? null}
                 restore={restoreFeedback}
                 onRestore={() => restore.mutateAsync()}
+                translating={ask.isPending || space.proposal?.status === "drafting"}
+                onTranslate={main ? () => askFeedback.run({ part: TRANSLATE_PART, language: main }) : undefined}
                 onMapScenarios={
                   main ? () => askFeedback.run({ part: FLOW_PART, language: main }) : undefined
                 }

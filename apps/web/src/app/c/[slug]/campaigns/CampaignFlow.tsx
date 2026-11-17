@@ -11,25 +11,42 @@
  * above, like any script Pip writes.
  */
 
-import { ChevronDown, History, Maximize2, Plus, Redo2, Undo2, Workflow, X } from "lucide-react";
+import {
+  ChevronDown,
+  History,
+  Maximize2,
+  Plus,
+  Redo2,
+  Undo2,
+  Workflow,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
 import type { ActionFeedback } from "@/components/arc/feedback";
-import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM, ScrollRegion, formatIST } from "@/components/ui";
+import {
+  PRIMARY_BUTTON_SM,
+  SECONDARY_BUTTON_SM,
+  ScrollRegion,
+  formatIST,
+} from "@/components/ui";
 import { useFocusTrap } from "@/lib/focusTrap";
 import { keepInView } from "@/lib/keepInView";
 import type { CallScript } from "@/lib/api/script";
 import { useScript } from "@/lib/api/script";
 import { useClientRealm } from "@/lib/api/session";
 
-import { limitsFrom, sectionsOf, validate } from "../agents/[agentId]/script/scriptModel";
+import {
+  limitsFrom,
+  sectionsOf,
+  validate,
+} from "../agents/[agentId]/script/scriptModel";
 import { DESKTOP, useMedia } from "../agents/[agentId]/script/useMedia";
 import { ScenarioFlow } from "./ScenarioFlow";
 import { FlowAgentBar, useFlowAgent } from "./FlowAgentBar";
 import { addScenario, placed } from "./scenarioModel";
-
 
 const FOLD_KEY = "calevate:fold:call-flow";
 /** How many changes Undo can step back through. */
@@ -39,6 +56,8 @@ const MERGE_MS = 800;
 
 /** The part name the server recognises for "map the call's scenarios as steps". */
 export const FLOW_PART = "flow";
+/** The part name the server reads as "translate the English lines" (`campaign_script_ask`). */
+export const TRANSLATE_PART = "translate";
 
 export function CampaignFlow({
   agentId,
@@ -54,7 +73,12 @@ export function CampaignFlow({
   beforePipAt,
   restore,
   onRestore,
+  onTranslate,
+  translating = false,
 }: {
+  /** Ask Pip to fill the campaign language's empty boxes from the English. */
+  onTranslate?: () => void;
+  translating?: boolean;
   /** When the flow from before Pip's last draft was kept aside; null: nothing to put back. */
   beforePipAt: string | null;
   restore: ActionFeedback<void>;
@@ -109,7 +133,8 @@ export function CampaignFlow({
   const commit = (next: CallScript) => {
     if (next === draft) return;
     const now = Date.now();
-    if (now - lastChange.current > MERGE_MS || past.length === 0) setPast((p) => [...p, draft].slice(-HISTORY));
+    if (now - lastChange.current > MERGE_MS || past.length === 0)
+      setPast((p) => [...p, draft].slice(-HISTORY));
     lastChange.current = now;
     setFuture([]);
     setDraft(next);
@@ -133,7 +158,11 @@ export function CampaignFlow({
   // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y over the flow; a text box keeps its own undo.
   const onKeys = (e: React.KeyboardEvent) => {
     const t = e.target as HTMLElement;
-    if (!(e.ctrlKey || e.metaKey) || t.closest("input, textarea, select, [contenteditable]")) return;
+    if (
+      !(e.ctrlKey || e.metaKey) ||
+      t.closest("input, textarea, select, [contenteditable]")
+    )
+      return;
     const key = e.key.toLowerCase();
     if (key === "z" && !e.shiftKey) {
       e.preventDefault();
@@ -199,7 +228,11 @@ export function CampaignFlow({
           type="button"
           className={SECONDARY_BUTTON_SM}
           disabled={readOnly || dirty}
-          title={dirty ? "Save or discard your changes first." : `The flow as it was on ${formatIST(beforePipAt)}, before Pip wrote.`}
+          title={
+            dirty
+              ? "Save or discard your changes first."
+              : `The flow as it was on ${formatIST(beforePipAt)}, before Pip wrote.`
+          }
           onClick={() => setConfirmRestore(true)}
         >
           <History aria-hidden className="h-3.5 w-3.5" />
@@ -221,13 +254,22 @@ export function CampaignFlow({
 
   // The agent whose voice "Hear it" speaks in, with its picker and voice settings.
   const flowAgent = useFlowAgent(agentId, (agent) => (
-    <FlowAgentBar campaignId={campaignId} agentId={agentId} agent={agent} canWrite={canWrite} refusal={refusal} />
+    <FlowAgentBar
+      campaignId={campaignId}
+      agentId={agentId}
+      agent={agent}
+      canWrite={canWrite}
+      refusal={refusal}
+    />
   ));
 
   // The steps and the chosen scenario's editor; on a phone the steps stack.
   const body = () => (
     <ScenarioFlow
       agent={flowAgent}
+      onTranslate={onTranslate}
+      translating={translating}
+      translateBlocked={dirty ? "Save or discard your changes first." : null}
       script={draft}
       limits={limits}
       issues={issues}
@@ -265,11 +307,17 @@ export function CampaignFlow({
             >
               Discard changes
             </button>
-            {issues.length > 0 && <span className="text-meta text-danger">{issues[0].message}</span>}
+            {issues.length > 0 && (
+              <span className="text-meta text-danger">{issues[0].message}</span>
+            )}
           </>
         )}
         {always && (
-          <button type="button" className={`${SECONDARY_BUTTON_SM} ml-auto`} onClick={() => setFull(false)}>
+          <button
+            type="button"
+            className={`${SECONDARY_BUTTON_SM} ml-auto`}
+            onClick={() => setFull(false)}
+          >
             Close
           </button>
         )}
@@ -291,7 +339,10 @@ export function CampaignFlow({
               }}
               className="inline-flex items-center gap-1.5"
             >
-              <ChevronDown aria-hidden className={`h-4 w-4 transition-transform ${folded ? "-rotate-90" : ""}`} />
+              <ChevronDown
+                aria-hidden
+                className={`h-4 w-4 transition-transform ${folded ? "-rotate-90" : ""}`}
+              />
               <Workflow aria-hidden className="h-4 w-4 text-series-2" />
               <span>
                 Call flow{" "}
@@ -303,15 +354,20 @@ export function CampaignFlow({
           </h3>
           {!folded && (
             <p className="mt-0.5 text-meta text-ink-muted">
-              Each column is a step of the call; each box a way it can go (a scenario). Click a box to edit it,
-              right-click for more, and drag its green dot to a scenario in a later step to link them.
+              Each column is a step of the call; each box a way it can go (a
+              scenario). Click a box to edit it, right-click for more, and drag
+              its green dot to a scenario in a later step to link them.
             </p>
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {!folded && toolbar}
           {desktop && (
-            <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setFull(true)}>
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              onClick={() => setFull(true)}
+            >
               <Maximize2 aria-hidden className="h-3.5 w-3.5" />
               Open full screen
             </button>
@@ -338,11 +394,17 @@ export function CampaignFlow({
             restore.reset();
             setConfirmRestore(false);
           }}
-          onConfirm={() => void onRestore().then(() => setConfirmRestore(false), () => undefined)}
+          onConfirm={() =>
+            void onRestore().then(
+              () => setConfirmRestore(false),
+              () => undefined,
+            )
+          }
         >
           <span className="block">
-            The steps and scenarios go back to how they were on {formatIST(beforePipAt)}, before Pip wrote. The flow
-            you have now is kept, so you can switch back to it the same way.
+            The steps and scenarios go back to how they were on{" "}
+            {formatIST(beforePipAt)}, before Pip wrote. The flow you have now is
+            kept, so you can switch back to it the same way.
           </span>
         </ConfirmDialog>
       )}
@@ -351,8 +413,9 @@ export function CampaignFlow({
         <FullScreen title="Call flow" onClose={() => setFull(false)}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <p className="text-meta text-ink-muted">
-              Click a box to edit it on the right, right-click for more, and drag its green dot to a scenario
-              in a later step to link them. Save keeps the changes.
+              Click a box to edit it on the right, right-click for more, and
+              drag its green dot to a scenario in a later step to link them.
+              Save keeps the changes.
             </p>
             {toolbar}
           </div>
@@ -369,7 +432,15 @@ export function CampaignFlow({
  * focus contract is `useFocusTrap`'s, as in `ModalDialog`: focus moves in, Tab stays inside,
  * Escape closes and focus goes back to "Open full screen".
  */
-function FullScreen({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+function FullScreen({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
   const panel = useRef<HTMLDivElement>(null);
   useFocusTrap(panel, true, onClose, "container");
   useEffect(() => {
@@ -394,12 +465,21 @@ function FullScreen({ title, onClose, children }: { title: string; onClose: () =
             <Workflow aria-hidden className="h-5 w-5 text-series-2" />
             {title}
           </h2>
-          <button type="button" className={SECONDARY_BUTTON_SM} onClick={onClose} aria-label="Close full screen">
+          <button
+            type="button"
+            className={SECONDARY_BUTTON_SM}
+            onClick={onClose}
+            aria-label="Close full screen"
+          >
             <X aria-hidden className="h-3.5 w-3.5" />
             Close
           </button>
         </div>
-        <ScrollRegion label={title} edgeCue={false} className="min-h-0 flex-1 overflow-y-auto">
+        <ScrollRegion
+          label={title}
+          edgeCue={false}
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
           {children}
         </ScrollRegion>
       </div>
