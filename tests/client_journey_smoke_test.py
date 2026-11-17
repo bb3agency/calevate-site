@@ -89,7 +89,9 @@ async def test_a_line_put_live_takes_a_call_that_reaches_calls_and_leads() -> No
         l=line_id,
     )
     line_ref = str(route.engine_agent_ref)
-    agent_ref = (await _one(tenant_id, "SELECT engine_agent_ref FROM agents WHERE id = :a", a=agent_id))[0]
+    agent_ref = (
+        await _one(tenant_id, "SELECT engine_agent_ref FROM agents WHERE id = :a", a=agent_id)
+    )[0]
     assert line_ref != agent_ref, "a line answers on its own engine agent, never the agent's"
 
     # 3. A caller rings the line's engine agent; the engine's webhook arrives.
@@ -171,8 +173,6 @@ async def test_a_line_put_live_takes_a_call_that_reaches_calls_and_leads() -> No
         assert page["transcript"][0]["text"] == redacted.text_redacted
 
         leads = (await http.get("/v1/leads", headers=_as(token))).json()["items"]
-        assert [(lead["id"], lead["phone_e164"]) for lead in leads] == [
-            (str(db_lead.id), caller)
-        ]
+        assert [(lead["id"], lead["phone_e164"]) for lead in leads] == [(str(db_lead.id), caller)]
         lead = (await http.get(f"/v1/leads/{db_lead.id}", headers=_as(token))).json()
         assert (lead["call_count"], lead["last_call_id"]) == (db_lead.call_count, call_id)

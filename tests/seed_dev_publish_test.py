@@ -19,7 +19,10 @@ async def _owner() -> uuid.UUID:
     user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
-            text("INSERT INTO users (id, email, created_at, updated_at) VALUES (:i, :e, now(), now())"),
+            text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
+            ),
             {"i": user_id, "e": f"{user_id}@example.com"},
         )
     return user_id
