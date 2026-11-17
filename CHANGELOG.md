@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.62 — 17-Nov-2026
+
+- Call flow: the steps take the full width, and the chosen scenario's editor sits under
+  them, across the page in three columns: name, description and next scenarios; the script
+  with Hear it and how it should sound; questions and answers. Choosing a box scrolls to it.
+- Before Pip writes or rewrites the script (Let Pip map the scenarios, Generate, a part in
+  a language), the flow you had is kept aside. Put back the flow from before Pip switches to
+  it, after a confirmation; the two swap, so the newer one can be brought back the same way.
+
 ## 0.4.61 — 17-Nov-2026
 
 - **Teach the agent how to sound.** A note written under a scenario's line in Call flow

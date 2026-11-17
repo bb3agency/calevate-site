@@ -88,6 +88,8 @@ class Workspace:
     proposal: CampaignProposal | None
     #: The sources from What your agents know it is written from.
     sources: tuple[UUID, ...]
+    #: When the copy of the script from before Pip's last draft was taken; None: no copy.
+    script_before_pip_at: datetime | None = None
 
 
 def _script(raw: Any) -> CallScript | None:
@@ -131,8 +133,8 @@ async def _campaign_row(session: AsyncSession, campaign_id: UUID, *, lock: bool 
         await session.execute(
             text(
                 "SELECT id, agent_id, status, main_task, script, script_proposal, "
-                "script_live_version FROM campaigns WHERE id = :cid AND archived_at IS NULL"
-                + (" FOR UPDATE" if lock else "")
+                "script_live_version, script_before_pip_at FROM campaigns "
+                "WHERE id = :cid AND archived_at IS NULL" + (" FOR UPDATE" if lock else "")
             ),
             {"cid": campaign_id},
         )
@@ -154,6 +156,7 @@ async def read_workspace(session: AsyncSession, campaign_id: UUID) -> Workspace:
         script_live_version=row.script_live_version,
         proposal=_proposal(row.script_proposal, now=datetime.now(UTC)),
         sources=tuple(picked[campaign_id]),
+        script_before_pip_at=row.script_before_pip_at,
     )
 
 
@@ -190,6 +193,46 @@ async def save_script(session: AsyncSession, campaign_id: UUID, script: CallScri
     await session.execute(
         text("UPDATE campaigns SET script = CAST(:s AS jsonb), updated_at = now() WHERE id = :cid"),
         {"s": script.model_dump_json(), "cid": campaign_id},
+    )
+
+
+async def _keep_before_pip(session: AsyncSession, campaign_id: UUID) -> None:
+    """Copy the saved script aside before Pip writes (founder, 17 Nov 2026), so whatever the
+    owner keeps of the draft, the flow they had can be put back. One copy, the latest."""
+    await session.execute(
+        text(
+            "UPDATE campaigns SET script_before_pip = script, script_before_pip_at = now() "
+            "WHERE id = :cid AND script IS NOT NULL"
+        ),
+        {"cid": campaign_id},
+    )
+
+
+async def restore_before_pip(session: AsyncSession, campaign_id: UUID) -> None:
+    """Put back the script from before Pip's last draft. The two swap, so the script it
+    replaces is kept as the copy and pressing again brings it back."""
+    row = await _campaign_row(session, campaign_id, lock=True)
+    held = (
+        await session.execute(
+            text("SELECT script_before_pip FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+        )
+    ).scalar()
+    if not held:
+        raise _invalid(
+            "campaign_no_script_before_pip",
+            "There is nothing to put back",
+            "Pip has not written this campaign's script since it had one.",
+        )
+    previous = CallScript.model_validate(held)
+    from apps.api.agents import script_builder
+
+    await script_builder.refuse_if_too_long(session, row.agent_id, previous)
+    await session.execute(
+        text(
+            "UPDATE campaigns SET script_before_pip = script, script = script_before_pip, "
+            "script_before_pip_at = now(), updated_at = now() WHERE id = :cid"
+        ),
+        {"cid": campaign_id},
     )
 
 
@@ -319,6 +362,8 @@ async def request_proposal(
         )
     now = datetime.now(UTC)
     pending = _proposal(row.script_proposal, now=now)
+    if pending is None or pending.status != "drafting":
+        await _keep_before_pip(session, campaign_id)
     if pending is not None and pending.status == "drafting":
         raise ProblemError.conflict(
             "campaign_script_in_progress",

@@ -11,11 +11,13 @@
  * above, like any script Pip writes.
  */
 
-import { ChevronDown, Maximize2, Plus, Redo2, Undo2, Workflow, X } from "lucide-react";
+import { ChevronDown, History, Maximize2, Plus, Redo2, Undo2, Workflow, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM, ScrollRegion } from "@/components/ui";
+import { ConfirmDialog } from "@/components/confirmDialog";
+import type { ActionFeedback } from "@/components/arc/feedback";
+import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM, ScrollRegion, formatIST } from "@/components/ui";
 import { useFocusTrap } from "@/lib/focusTrap";
 import { keepInView } from "@/lib/keepInView";
 import type { CallScript } from "@/lib/api/script";
@@ -49,7 +51,14 @@ export function CampaignFlow({
   mapping,
   languages,
   campaignId,
+  beforePipAt,
+  restore,
+  onRestore,
 }: {
+  /** When the flow from before Pip's last draft was kept aside; null: nothing to put back. */
+  beforePipAt: string | null;
+  restore: ActionFeedback<void>;
+  onRestore: () => Promise<unknown>;
   campaignId: string;
   agentId: string;
   /** The campaign's languages, main first: each scenario has a script line in each. */
@@ -147,6 +156,7 @@ export function CampaignFlow({
     setSelected(made.id);
   };
 
+  const [confirmRestore, setConfirmRestore] = useState(false);
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
       {!readOnly && (
@@ -182,6 +192,18 @@ export function CampaignFlow({
           onClick={onMapScenarios}
         >
           {mapping ? "Pip is mapping…" : "Let Pip map the scenarios"}
+        </button>
+      )}
+      {beforePipAt && (
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_SM}
+          disabled={readOnly || dirty}
+          title={dirty ? "Save or discard your changes first." : `The flow as it was on ${formatIST(beforePipAt)}, before Pip wrote.`}
+          onClick={() => setConfirmRestore(true)}
+        >
+          <History aria-hidden className="h-3.5 w-3.5" />
+          Put back the flow from before Pip
         </button>
       )}
       <button
@@ -302,6 +324,27 @@ export function CampaignFlow({
           {body()}
           {saveBar(false)}
         </>
+      )}
+
+      {confirmRestore && beforePipAt && (
+        <ConfirmDialog
+          title="Put back the flow from before Pip?"
+          confirmLabel="Put it back"
+          pendingLabel="Putting it back"
+          cancelLabel="Keep this one"
+          status={restore.status}
+          error={restore.error ?? null}
+          onCancel={() => {
+            restore.reset();
+            setConfirmRestore(false);
+          }}
+          onConfirm={() => void onRestore().then(() => setConfirmRestore(false), () => undefined)}
+        >
+          <span className="block">
+            The steps and scenarios go back to how they were on {formatIST(beforePipAt)}, before Pip wrote. The flow
+            you have now is kept, so you can switch back to it the same way.
+          </span>
+        </ConfirmDialog>
       )}
 
       {full && (

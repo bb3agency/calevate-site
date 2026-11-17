@@ -68271,6 +68271,18 @@
               }
             ]
           },
+          "script_before_pip_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Script Before Pip At"
+          },
           "script_live_version": {
             "anyOf": [
               {
@@ -90227,6 +90239,46 @@
           }
         },
         "summary": "Stop Pip's draft while it is written, or discard it once reviewed",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/script/restore-before-pip": {
+      "post": {
+        "operationId": "restore_script_before_pip_v1_campaigns__campaign_id__script_restore_before_pip_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put back the script from before Pip's last draft (the two swap)",
         "tags": [
           "campaigns"
         ],

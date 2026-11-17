@@ -86,6 +86,15 @@ export function useSaveCampaignScript(session: Session, campaignId: string) {
   );
 }
 
+/** Put back the script from before Pip's last draft; the two swap, so it can be undone. */
+export function useRestoreScriptBeforePip(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, (_: void) =>
+    apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/script/restore-before-pip`, {
+      method: "POST",
+    }),
+  );
+}
+
 /** The sources from What your agents know that Pip writes the campaign from. */
 export function useSetCampaignSources(session: Session, campaignId: string) {
   return useWorkspaceMutation(session, campaignId, (sourceIds: string[]) =>

@@ -7765,6 +7765,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/script/restore-before-pip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put back the script from before Pip's last draft (the two swap) */
+        post: operations["restore_script_before_pip_v1_campaigns__campaign_id__script_restore_before_pip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/settings": {
         parameters: {
             query?: never;
@@ -39654,6 +39671,8 @@ export interface components {
             main_task: string;
             proposal: components["schemas"]["CampaignProposalOut"] | null;
             script: components["schemas"]["CallScript"] | null;
+            /** Script Before Pip At */
+            script_before_pip_at?: string | null;
             /** Script Live Version */
             script_live_version: number | null;
             /** Source Ids */
@@ -53948,6 +53967,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_script_before_pip_v1_campaigns__campaign_id__script_restore_before_pip_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

@@ -27,6 +27,7 @@ import {
   useCampaignWorkspace,
   useClearCampaignProposal,
   useRequestCampaignScript,
+  useRestoreScriptBeforePip,
   useSaveCampaignScript,
   useSaveMainTask,
   useSetCampaignSources,
@@ -292,6 +293,8 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const clear = useClearCampaignProposal(session, campaignId);
   const save = useSaveCampaignScript(session, campaignId);
+  const restore = useRestoreScriptBeforePip(session, campaignId);
+  const restoreFeedback = useActionFeedback(restore, { errorDisplay: "inline", successToast: "Flow put back" });
   const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
   useActionFeedback(save, { errorDisplay: "inline" });
   const ask = useRequestCampaignScript(session, campaignId);
@@ -463,6 +466,9 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                   await save.mutateAsync(next);
                 }}
                 mapping={ask.isPending}
+                beforePipAt={space.script_before_pip_at ?? null}
+                restore={restoreFeedback}
+                onRestore={() => restore.mutateAsync()}
                 onMapScenarios={
                   main ? () => askFeedback.run({ part: FLOW_PART, language: main }) : undefined
                 }
