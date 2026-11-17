@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.63 — 17-Nov-2026
+
+- Call flow: choosing a scenario no longer scrolls the page to its editor; scroll down to it
+  when you want it.
+
 ## 0.4.62 — 17-Nov-2026
 
 - Call flow: the steps take the full width, and the chosen scenario's editor sits under

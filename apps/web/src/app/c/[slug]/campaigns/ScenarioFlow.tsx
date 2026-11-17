@@ -112,11 +112,6 @@ export function ScenarioFlow({
   const steps = Math.max(0, ...items.map((p) => p.step));
   const full = items.length >= limits.maxSections;
   const [menu, setMenu] = useState<Menu | null>(null);
-  const panel = useRef<HTMLElement>(null);
-  useEffect(() => {
-    if (selected && wide)
-      panel.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [selected, wide]);
 
   const add = (
     step: number,
@@ -285,7 +280,6 @@ export function ScenarioFlow({
         <div className="mt-4 space-y-4">
           <div className="min-w-0">{picture}</div>
           <aside
-            ref={panel}
             aria-label="Edit the chosen scenario"
             className="min-w-0 scroll-mt-4 rounded-card border border-series-2/40 bg-surface"
           >
