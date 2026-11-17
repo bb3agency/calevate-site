@@ -107,6 +107,38 @@ STORE_CONNECT_TIMEOUT_S = 10.0
 STORE_READ_TIMEOUT_S = 30.0
 #: botocore counts these as retries after the first attempt.
 STORE_RETRIES = 3
+#: Every other single call into the store (a payload archive, a delivered body, a copilot
+#: upload's part or chunk, a knowledge document, a HEAD), as one deadline, for the
+#: recording upload's reason: the per-operation timeouts above, retried `STORE_RETRIES`
+#: times, outlast `WorkerSettings.job_timeout` on their own.
+STORE_CALL_DEADLINE_S = 60.0
+#: A listing or a batch delete walks pages of keys, so it gets twice as long. Still well
+#: inside `job_timeout`, so an erasure or retention sweep that meets a stalled store fails
+#: into its own retry rather than being killed with its work half recorded.
+STORE_BULK_DEADLINE_S = 120.0
+
+
+class StoreDeadlineError(BotoCoreError):  # type: ignore[misc]  # botocore ships untyped
+    """A store call that outlived its whole-call deadline.
+
+    A `BotoCoreError`, like botocore's own `ReadTimeoutError`, so every caller's existing
+    botocore branch treats it as the outage it is: the best-effort writers log and return
+    None, the rest raise `StorageUnavailableError` into the retry ladder."""
+
+    fmt = "Object storage did not answer within {deadline_s:.0f}s"
+
+
+async def _in_thread[T](work: Callable[[], T], *, deadline_s: float) -> T:
+    """`work` (a blocking boto3 call) off the event loop, bounded as a whole.
+
+    The deadline frees the job; the thread it leaves running is ended by the client's own
+    timeouts, and can only finish the same idempotent request (a PUT to a fixed key, a
+    read, a delete of named keys), so the retry that follows is safe."""
+    try:
+        async with asyncio.timeout(deadline_s):
+            return await asyncio.to_thread(work)
+    except TimeoutError as exc:
+        raise StoreDeadlineError(deadline_s=deadline_s) from exc
 
 
 def _store_config() -> Config:
@@ -600,9 +632,8 @@ async def copy_recording(
         # over the network — stalled every other job in the worker for its duration.
         # A thread the deadline leaves running can only finish the same PUT to the same
         # key (a pure function of tenant and call), so the retry that follows is safe.
-        async with asyncio.timeout(RECORDING_UPLOAD_DEADLINE_S):
-            await asyncio.to_thread(_put)
-    except TimeoutError as exc:
+        await _in_thread(_put, deadline_s=RECORDING_UPLOAD_DEADLINE_S)
+    except StoreDeadlineError as exc:
         raise StorageUnavailableError(
             f"recording upload exceeded {RECORDING_UPLOAD_DEADLINE_S:.0f}s"
         ) from exc
@@ -679,7 +710,7 @@ async def archive_payload(
         )
 
     try:
-        await asyncio.to_thread(_put)
+        await _in_thread(_put, deadline_s=STORE_CALL_DEADLINE_S)
     except (BotoCoreError, ClientError):
         # Ids, an engine name and nothing else. Never one byte of the document — the thing
         # that could not be written is a phone number and a transcript (hard rule 6).
@@ -809,7 +840,7 @@ async def _put_document(
         )
 
     try:
-        await asyncio.to_thread(_put)
+        await _in_thread(_put, deadline_s=STORE_CALL_DEADLINE_S)
     except (BotoCoreError, ClientError) as exc:
         log.warning(log_event, extra={"bytes": len(data), "error": type(exc).__name__})
         raise StorageUnavailableError(refusal) from exc
@@ -831,7 +862,7 @@ async def read_kb_object(key: str) -> bytes | None:
         return body
 
     try:
-        return await asyncio.to_thread(_get)
+        return await _in_thread(_get, deadline_s=STORE_CALL_DEADLINE_S)
     except ClientError as exc:
         code = str(exc.response.get("Error", {}).get("Code", ""))
         if code in ("NoSuchKey", "404", "NotFound"):
@@ -1110,7 +1141,7 @@ async def store_delivery_body(
         )
 
     try:
-        await asyncio.to_thread(_put)
+        await _in_thread(_put, deadline_s=STORE_CALL_DEADLINE_S)
     except (BotoCoreError, ClientError) as exc:
         # Ids, byte counts and an exception TYPE. Never the key's subject segment as a
         # separate field and never one byte of the body (hard rule 6).
@@ -1152,7 +1183,7 @@ async def read_delivery_body(key: str) -> dict[str, Any] | None:
         return bytes(response["Body"].read())
 
     try:
-        raw = await asyncio.to_thread(_get)
+        raw = await _in_thread(_get, deadline_s=STORE_CALL_DEADLINE_S)
     except ClientError as exc:
         code = str(exc.response.get("Error", {}).get("Code", ""))
         # `NoSuchKey` is S3's; MinIO answers the same, and a 404 status covers a store
@@ -1229,7 +1260,7 @@ async def objects_under(prefix: str) -> list[StoredObject]:
         return found
 
     try:
-        return await asyncio.to_thread(_list)
+        return await _in_thread(_list, deadline_s=STORE_BULK_DEADLINE_S)
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"object list failed: {type(exc).__name__}") from exc
 
@@ -1279,7 +1310,7 @@ async def delete_objects(keys: Sequence[str]) -> int:
                 raise StorageUnavailableError(f"object delete refused {len(errors)} key(s)")
 
     try:
-        await asyncio.to_thread(_delete)
+        await _in_thread(_delete, deadline_s=STORE_BULK_DEADLINE_S)
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"object delete failed: {type(exc).__name__}") from exc
     return len(keys)
@@ -1310,7 +1341,7 @@ async def object_exists(key: str) -> bool:
         return True
 
     try:
-        return await asyncio.to_thread(_head)
+        return await _in_thread(_head, deadline_s=STORE_CALL_DEADLINE_S)
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"object head failed: {type(exc).__name__}") from exc
 
@@ -1575,7 +1606,7 @@ class UploadWriter:
     @staticmethod
     async def _call(work: Callable[[], None]) -> None:
         try:
-            await asyncio.to_thread(work)
+            await _in_thread(work, deadline_s=STORE_CALL_DEADLINE_S)
         except (BotoCoreError, ClientError, UploadsNotConfiguredError) as exc:
             raise StorageUnavailableError(f"upload write failed: {type(exc).__name__}") from exc
 
@@ -1598,7 +1629,7 @@ async def upload_chunks(key: str) -> AsyncIterator[bytes] | None:
             raise
 
     try:
-        body = await asyncio.to_thread(_open)
+        body = await _in_thread(_open, deadline_s=STORE_CALL_DEADLINE_S)
     except (BotoCoreError, ClientError, UploadsNotConfiguredError) as exc:
         raise StorageUnavailableError(f"upload read failed: {type(exc).__name__}") from exc
     if body is None:
@@ -1607,12 +1638,16 @@ async def upload_chunks(key: str) -> AsyncIterator[bytes] | None:
     async def _stream() -> AsyncIterator[bytes]:
         try:
             while True:
-                chunk: bytes = await asyncio.to_thread(body.read, DOWNLOAD_CHUNK_BYTES)
+                # A deadline per chunk, not per download: a large file on a slow phone is
+                # a long download, and only a store that stops answering should end it.
+                chunk: bytes = await _in_thread(
+                    lambda: body.read(DOWNLOAD_CHUNK_BYTES), deadline_s=STORE_CALL_DEADLINE_S
+                )
                 if not chunk:
                     return
                 yield chunk
         finally:
-            await asyncio.to_thread(body.close)
+            await _in_thread(body.close, deadline_s=STORE_CALL_DEADLINE_S)
 
     return _stream()
 
@@ -1646,7 +1681,7 @@ async def upload_read(key: str, *, max_bytes: int, head_only: bool = False) -> b
         return body
 
     try:
-        return await asyncio.to_thread(_get)
+        return await _in_thread(_get, deadline_s=STORE_CALL_DEADLINE_S)
     except (BotoCoreError, ClientError, UploadsNotConfiguredError) as exc:
         raise StorageUnavailableError(f"upload read failed: {type(exc).__name__}") from exc
 
@@ -1662,7 +1697,7 @@ async def upload_keys_under(prefix: str) -> list[str]:
         return found
 
     try:
-        return await asyncio.to_thread(_list)
+        return await _in_thread(_list, deadline_s=STORE_BULK_DEADLINE_S)
     except (BotoCoreError, ClientError, UploadsNotConfiguredError) as exc:
         raise StorageUnavailableError(f"upload list failed: {type(exc).__name__}") from exc
 
@@ -1682,7 +1717,7 @@ async def delete_uploads(keys: Sequence[str]) -> int:
                 raise StorageUnavailableError("upload delete refused")
 
     try:
-        await asyncio.to_thread(_delete)
+        await _in_thread(_delete, deadline_s=STORE_BULK_DEADLINE_S)
     except (BotoCoreError, ClientError, UploadsNotConfiguredError) as exc:
         raise StorageUnavailableError(f"upload delete failed: {type(exc).__name__}") from exc
     return len(keys)
