@@ -22,6 +22,7 @@ import { InlineEdit } from "@/components/arc/inline-edit";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
 import { TEXT_ACTION, TEXT_ACTION_SM } from "@/components/console/section";
+import { StatusPill } from "@/components/console/statusPill";
 import {
   FIELD,
   FIELD_LABEL,
@@ -172,7 +173,11 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
         <ScriptSection {...props} />
         <ActionsSection {...props} slug={slug} />
         <OutsideHoursSection slug={slug} />
-        <NumbersSection {...props} />
+        <NumbersSection
+          {...props}
+          putLive={() => publishFeedback.run(undefined)}
+          puttingLive={publish.isPending}
+        />
         <TestCallSection line={data} slug={slug} canWrite={canTest.allowed} refusal={canTest.reason ?? undefined} />
         <CallsSection line={data} slug={slug} />
         <ArchiveSection {...props} slug={slug} />
@@ -579,7 +584,18 @@ function OutsideHoursSection({ slug }: { slug: string }) {
   );
 }
 
-function NumbersSection({ line, canWrite, refusal }: Props) {
+/**
+ * A number on a line that is not live answers nobody (D-1019 D3): only a live line holds
+ * what answers it, so each number says so and the section offers the one move that fixes
+ * it. Putting the line live is the owner's press, never done for them.
+ */
+function NumbersSection({
+  line,
+  canWrite,
+  refusal,
+  putLive,
+  puttingLive,
+}: Props & { putLive: () => void; puttingLive: boolean }) {
   const { session } = useClientRealm();
   const numbers = useCampaignNumbers(session);
   const lines = useInboundLines(session);
@@ -615,11 +631,38 @@ function NumbersSection({ line, canWrite, refusal }: Props) {
         ) : (
           <ul className="max-w-md divide-y divide-line border-y border-line">
             {line.numbers.map((n) => (
-              <li key={n.id} className="py-2.5 text-body tabular-nums text-ink">
-                {formatPhone(n.e164)}
+              <li key={n.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2.5 text-body text-ink">
+                <span className="tabular-nums">{formatPhone(n.e164)}</span>
+                {!line.live && <StatusPill tone="warn">Not answering</StatusPill>}
               </li>
             ))}
           </ul>
+        )}
+
+        {!line.live && line.numbers.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3">
+            {line.script ? (
+              <>
+                <p className="text-body text-ink-muted">Callers hear nothing until this line is live.</p>
+                <button
+                  type="button"
+                  className={PRIMARY_BUTTON_SM}
+                  disabled={!canWrite || puttingLive}
+                  title={refusal}
+                  onClick={putLive}
+                >
+                  {puttingLive ? "Putting it live…" : "Put this line live"}
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-body text-ink-muted">Write the script, then put this line live.</p>
+                <a href="#line-script" className={SECONDARY_BUTTON_SM}>
+                  Write the script
+                </a>
+              </>
+            )}
+          </div>
         )}
 
         {!adding ? (

@@ -186,6 +186,26 @@ describe("putting an agent on the voice platform for the first time", () => {
     expect(posted[0]!.headers["X-Impersonate-Org"]).toBeUndefined();
   });
 
+  it.each([
+    ["null", { agent_id: AGENT, engine_agent_ref: null, status: "live" }],
+    ["absent", { agent_id: AGENT, status: "live" }],
+  ])(
+    "says what carries an agent with no platform agent of its own when the ref is %s (D-1019)",
+    async (_label, answer) => {
+      const { container } = await render({ [`POST ${PUBLISH_PATH}`]: answer });
+
+      fireEvent.click(await publishButton());
+
+      expect(
+        await screen.findByText(
+          "Published. Its live inbound lines and running campaigns carry it to callers.",
+        ),
+      ).toBeTruthy();
+      expect(container.textContent).not.toContain("holds this agent as");
+      expect(container.textContent).not.toMatch(/\bnull\b|undefined/);
+    },
+  );
+
   it("shows a skeleton rather than a publish button while the reads are in flight", async () => {
     // A never-resolving pending read: the panel has no answer about whether this agent
     // is on the platform, so it must claim neither.

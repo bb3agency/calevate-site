@@ -230,6 +230,21 @@ describe("what recording a rented number did to the client's account", () => {
     expect(await screen.findByText(/nobody answers it/)).toBeTruthy();
     expect(screen.getByText(/Still in Calevate's account/)).toBeTruthy();
   });
+
+  it("lists an agent with no platform agent of its own without an empty id (D-1019)", async () => {
+    const engine = routes()[ENGINE_PATH] as Record<string, unknown>;
+    await render({
+      [ENGINE_PATH]: {
+        ...engine,
+        agents: [
+          { agent_id: AGENT, name: "Front desk", engine_agent_ref: null, answers_a_number: true },
+        ],
+      },
+    });
+    const row = (await screen.findByText("Held by its lines and campaigns")).closest("li");
+    expect(within(row as HTMLElement).getByText("Front desk")).toBeTruthy();
+    expect(row?.textContent).not.toContain("null");
+  });
 });
 
 describe("the voice platform's business details on the ops page", () => {

@@ -826,6 +826,9 @@ export function settledPending(over: Record<string, unknown> = {}) {
       verified_at: "2026-10-13T09:20:00Z",
       headline: "The voice platform was read back and is running this script and voice.",
     },
+    // The worst verdict over the lines and campaigns that carry the agent (D-1019); null
+    // means nothing carries it and a screen reads `engine_verification`.
+    holders_verification: null,
     ...over,
   };
 }

@@ -323,6 +323,39 @@ describe("one inbound line", () => {
     expect(screen.getByText("Not live yet")).toBeTruthy();
   });
 
+  it("says a number on a line that is not live answers nobody, with the button that puts it live (D3)", async () => {
+    const withNumber = line({ main_task: "Book visits.", script: SCRIPT, numbers: [{ id: "num-1", e164: NUMBER.e164 }] });
+    const rendered = await renderClientPage(
+      linePage(),
+      lineRoutes(withNumber, {
+        [`POST /v1/inbound-lines/${LINE_ID}/publish`]: { ...withNumber, live: true },
+      }),
+    );
+    const fold = (await screen.findByRole("heading", { name: "Numbers" })).closest("section") as HTMLElement;
+    expect(within(fold).getByText("Not answering")).toBeTruthy();
+    fireEvent.click(within(fold).getByRole("button", { name: "Put this line live" }));
+    await waitFor(() => expect(writes(rendered.calls)).toHaveLength(1));
+    expect(writes(rendered.calls)[0]?.path).toBe(`/v1/inbound-lines/${LINE_ID}/publish`);
+  });
+
+  it("asks for the script first when a draft line has a number", async () => {
+    await renderClientPage(linePage(), lineRoutes(line({ numbers: [{ id: "num-1", e164: NUMBER.e164 }] })));
+    const fold = (await screen.findByRole("heading", { name: "Numbers" })).closest("section") as HTMLElement;
+    expect(within(fold).getByText("Not answering")).toBeTruthy();
+    expect(within(fold).queryByRole("button", { name: "Put this line live" })).toBeNull();
+    expect(within(fold).getByRole("link", { name: "Write the script" }).getAttribute("href")).toBe("#line-script");
+  });
+
+  it("shows no warning on the numbers of a live line", async () => {
+    await renderClientPage(
+      linePage(),
+      lineRoutes(line({ script: SCRIPT, live: true, numbers: [{ id: "num-1", e164: NUMBER.e164 }] })),
+    );
+    const fold = (await screen.findByRole("heading", { name: "Numbers" })).closest("section") as HTMLElement;
+    expect(within(fold).queryByText("Not answering")).toBeNull();
+    expect(within(fold).queryByRole("button", { name: "Put this line live" })).toBeNull();
+  });
+
   it("counts only the sources still in the pick list as chosen", async () => {
     const KEPT = "0192f0aa-5555-7000-8000-0000000000a1";
     const GONE = "0192f0aa-5555-7000-8000-0000000000a2";

@@ -121,18 +121,27 @@ export function EngineNumbersPanel({
           </p>
         ) : (
           <ul className={`mt-2 ${HAIRLINE_LIST}`}>
-            {data.agents.map((agent) => (
-              <li
-                key={agent.agent_id}
-                className="flex flex-wrap items-center gap-3 py-2.5 text-body sm:px-2"
-              >
-                <span className="font-medium text-ink">{agent.name}</span>
-                <span className="font-mono text-meta text-ink-muted">{agent.engine_agent_ref}</span>
-                <span className="ml-auto text-ink-muted">
-                  {agent.answers_a_number ? "Answers a number" : "Answers no number yet"}
-                </span>
-              </li>
-            ))}
+            {data.agents.map((agent) => {
+              // An agent need not hold a platform agent of its own (D-1019); its lines and
+              // campaigns each hold one. Widened so a server that sends null reads as that.
+              const ref: string | null | undefined = agent.engine_agent_ref;
+              return (
+                <li
+                  key={agent.agent_id}
+                  className="flex flex-wrap items-center gap-3 py-2.5 text-body sm:px-2"
+                >
+                  <span className="font-medium text-ink">{agent.name}</span>
+                  {ref ? (
+                    <span className="font-mono text-meta text-ink-muted">{ref}</span>
+                  ) : (
+                    <span className="text-meta text-ink-muted">Held by its lines and campaigns</span>
+                  )}
+                  <span className="ml-auto text-ink-muted">
+                    {agent.answers_a_number ? "Answers a number" : "Answers no number yet"}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

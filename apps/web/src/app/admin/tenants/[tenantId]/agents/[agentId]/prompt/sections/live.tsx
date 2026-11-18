@@ -16,6 +16,7 @@ import {
 import type { useAdminAccess } from "@/app/admin/access";
 import { HeldBackNotice } from "@/components/heldBackNotice";
 import {
+  agentVerification,
   useApplyChanges,
   usePublishAgent,
   useTenantEngineState,
@@ -44,8 +45,8 @@ import {
  *
  * ## What this panel refuses to guess
  *
- * `published` is the SERVER's answer (`engine_agent_ref IS NOT NULL`), never inferred
- * from `status`, and while the read has not landed the panel is a skeleton — not a
+ * `published` is the SERVER's answer (`agents/models.is_published`), never inferred
+ * here from `status` or from whether a ref came back, and while the read has not landed the panel is a skeleton — not a
  * button that might be about to publish an agent that is already live, and not an
  * "unpublished" state built from an absent read (§52).
  *
@@ -141,9 +142,9 @@ export function GoLivePanel({
               title="This agent has never reached the voice platform"
             >
               <p className="mt-0.5">
-                Nothing dials it and nothing answers on it. Publishing creates the agent
-                on the platform and records the routing that lets an inbound call find
-                this client.
+                Nothing dials it and nothing answers on it. Publishing makes it ready, and
+                its live inbound lines and running campaigns then answer and call in its
+                voice.
               </p>
             </NoticeBox>
             <div className="flex flex-wrap items-center gap-2">
@@ -180,10 +181,18 @@ export function GoLivePanel({
               aria-hidden
               sizeClassName="h-10 w-10 shrink-0 sm:h-12 sm:w-12"
             />
-            <p className="text-meta text-ink-muted">
-              Published — the platform holds this agent as{" "}
-              <span className="font-mono">{publish.data.engine_agent_ref}</span>.
-            </p>
+            {/* No ref when the agent holds no platform agent of its own (D-1019): its live
+                lines and running campaigns each hold one, so there is no single id to show. */}
+            {publish.data.engine_agent_ref ? (
+              <p className="text-meta text-ink-muted">
+                Published — the platform holds this agent as{" "}
+                <span className="font-mono">{publish.data.engine_agent_ref}</span>.
+              </p>
+            ) : (
+              <p className="text-meta text-ink-muted">
+                Published. Its live inbound lines and running campaigns carry it to callers.
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -321,7 +330,7 @@ export function PublishingPanel({
           <LiveConfirmation
             slug={slug}
             agentId={agentId}
-            verification={pending.engine_verification}
+            verification={agentVerification(pending)}
             published={pending.published}
           />
         )}

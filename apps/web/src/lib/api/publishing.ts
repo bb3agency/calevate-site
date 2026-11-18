@@ -78,8 +78,18 @@ export type AgentVoice = Schemas["AgentVoiceOut"];
  */
 export type AgentVoiceState = Schemas["VoiceStateOut"];
 
-/** What the unsaved-changes banner and the voice picker render, in one read. */
-export type PendingState = Schemas["PendingOut"];
+/**
+ * What the unsaved-changes banner and the voice picker render, in one read.
+ *
+ * `holders_verification` is declared here as well as in the generated schema because an
+ * agent need not hold a voice-platform agent of its own (D-1019): its live inbound lines
+ * and running or paused campaigns each hold one, and what was confirmed is the worst
+ * verdict over those. Optional and nullable so this build reads a server that does not
+ * send it yet; `agentVerification` below falls back to `engine_verification`.
+ */
+export type PendingState = Omit<Schemas["PendingOut"], "holders_verification"> & {
+  holders_verification?: Schemas["VerificationOut"] | null;
+};
 export type PendingChange = Schemas["PendingChangeOut"];
 
 /**
@@ -116,6 +126,14 @@ export function voiceTierRate(
 export type EngineVerification = Schemas["VerificationOut"];
 
 /**
+ * The verdict a screen renders for an agent: the worst over everything that carries it to
+ * callers (`holders_verification`) when the server sends one, else the agent's own.
+ */
+export function agentVerification(pending: PendingState): EngineVerification {
+  return pending.holders_verification ?? pending.engine_verification;
+}
+
+/**
  * What the voice platform is running RIGHT NOW, read on demand.
  *
  * A vendor round trip per call, which is why it is a separate query with `enabled`
@@ -126,12 +144,18 @@ export type EngineVerification = Schemas["VerificationOut"];
 export type EngineState = Schemas["EngineStateOut"];
 
 /**
- * What `POST …/agents/{id}/publish` answers: the engine's own ref for this agent.
+ * What `POST …/agents/{id}/publish` answers: the engine's own ref for this agent, or none.
  *
  * The fully-qualified schema key, because `admin/routes.py` has a `PublishOut` of its
  * own (KB publishing) and the generator namespaces both rather than picking one.
+ *
+ * `engine_agent_ref` is null or absent when the agent holds no voice-platform agent of its
+ * own (D-1019): its lines and campaigns hold one each. Typed here rather than only in the
+ * generated schema so this build reads either server.
  */
-export type PublishOut = Schemas["apps__api__agents__routes__PublishOut"];
+export type PublishOut = Omit<Schemas["apps__api__agents__routes__PublishOut"], "engine_agent_ref"> & {
+  engine_agent_ref?: string | null;
+};
 
 export type ApplyIn = Schemas["ApplyIn"];
 export type ApplyOut = Schemas["ApplyOut"];
