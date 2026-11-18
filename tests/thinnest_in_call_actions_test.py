@@ -1030,7 +1030,8 @@ async def test_switching_an_agent_off_keeps_its_actions(monkeypatch: pytest.Monk
         ).one()
     assert result.changed and status == "paused"
     assert retired == []
-    assert is_published(status, ref), "switched off with an engine agent reads as ready"
+    assert ref is not None, "switching off keeps the engine agent"
+    assert is_published(status), "switched off, it reads as ready"
 
 
 # --- live transfer (D-690) -------------------------------------------------------------

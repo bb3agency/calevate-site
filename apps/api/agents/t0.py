@@ -186,7 +186,6 @@ def compile_block(*, facts: Sequence[str], knowledge: Sequence[KnowledgeFact]) -
 class _AgentState:
     name: str
     status: str
-    engine_agent_ref: str | None
     body: str | None
     compiled: str | None
     #: The authored structure of the draft, or None for a freeform one.
@@ -204,7 +203,7 @@ async def _agent_state(session: AsyncSession, agent_id: UUID) -> _AgentState:
     row = (
         await session.execute(
             text(
-                "SELECT a.name, a.status, a.engine_agent_ref, pv.body, pv.compiled_t0_context, "
+                "SELECT a.name, a.status, pv.body, pv.compiled_t0_context, "
                 "(a.system_prompt_id IS DISTINCT FROM a.live_prompt_id), pv.structured_script "
                 "FROM agents a LEFT JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
@@ -217,11 +216,10 @@ async def _agent_state(session: AsyncSession, agent_id: UUID) -> _AgentState:
     return _AgentState(
         name=str(row[0]),
         status=str(row[1]),
-        engine_agent_ref=row[2],
-        body=row[3],
-        compiled=row[4],
-        structured=row[6],
-        script_staged=bool(row[5]),
+        body=row[2],
+        compiled=row[3],
+        structured=row[5],
+        script_staged=bool(row[4]),
     )
 
 
@@ -306,7 +304,7 @@ async def recompile_t0(
         apply_live=applies_now,
     )
 
-    live = is_published(agent.status, agent.engine_agent_ref) and applies_now
+    live = is_published(agent.status) and applies_now
     if live:
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
 

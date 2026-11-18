@@ -113,7 +113,7 @@ class GiveCallersTime:
 
 
 _AGENT: Final = (
-    "SELECT language_primary, max_call_duration_s, status, engine_agent_ref, caller_has_screen "
+    "SELECT language_primary, max_call_duration_s, status, caller_has_screen "
     "FROM agents WHERE id = :aid AND deleted_at IS NULL"
 )
 
@@ -128,7 +128,7 @@ async def read_give_callers_time(
     cap = effective_call_cap(row[1])
     return GiveCallersTime(
         applied=is_applied(state.resolved, cap),
-        nudge_phrase=nudge_phrase_for(str(row[0]), caller_has_screen=bool(row[4])),
+        nudge_phrase=nudge_phrase_for(str(row[0]), caller_has_screen=bool(row[3])),
         call_cap_s=preset_call_cap_s(),
     )
 
@@ -156,12 +156,12 @@ async def apply_give_callers_time(
     row = (await session.execute(text(_AGENT + " FOR UPDATE"), {"aid": agent_id})).first()
     if row is None:
         raise ProblemError.not_found("Agent")
-    own_cap, status, ref = row[1], row[2], row[3]
+    own_cap, status = row[1], row[2]
     state, moved = await call_handling.set_agent_call_handling(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
-        changes=preset_changes(str(row[0]), caller_has_screen=bool(row[4])),
+        changes=preset_changes(str(row[0]), caller_has_screen=bool(row[3])),
     )
     before = effective_call_cap(own_cap)
     after = max(before, preset_call_cap_s())
@@ -172,7 +172,7 @@ async def apply_give_callers_time(
             ),
             {"cap": after, "aid": agent_id},
         )
-        if is_published(status, ref):
+        if is_published(status):
             await queue_live_apply(
                 session, scope="agent", tenant_id=tenant_id, agent_id=agent_id, reason="call_cap"
             )

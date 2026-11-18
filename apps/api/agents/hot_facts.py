@@ -581,7 +581,7 @@ async def recompute_agent(
     agent = (
         await session.execute(
             text(
-                "SELECT a.status, a.engine_agent_ref, pv.body FROM agents a "
+                "SELECT a.status, pv.body FROM agents a "
                 "LEFT JOIN prompt_versions pv ON pv.id = COALESCE(a.live_prompt_id, "
                 "a.system_prompt_id) WHERE a.id = :aid AND a.deleted_at IS NULL "
                 "AND a.status <> 'archived'"
@@ -589,7 +589,7 @@ async def recompute_agent(
             {"aid": agent_id},
         )
     ).first()
-    if agent is None or not agent[2]:
+    if agent is None or not agent[1]:
         return "not_applicable"
     stamp = now or datetime.now(UTC)
     stored = await load(session, agent_id=agent_id)
@@ -597,7 +597,7 @@ async def recompute_agent(
     if enabled:
         candidates = await gather_candidates(session, tenant_id=tenant_id)
         evidence, calls_read = await gather_demand(
-            session, agent_id=agent_id, now=stamp, script=str(agent[2])
+            session, agent_id=agent_id, now=stamp, script=str(agent[1])
         )
         # The gap detector's topics, less those this business cannot have. Imported here for
         # the import cycle `gather_candidates` names.
@@ -641,7 +641,7 @@ async def recompute_agent(
             "calls_read": calls_read,
         },
     )
-    if is_published(str(agent[0]), agent[1]):
+    if is_published(agent[0]):
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
         return "republished"
     return "changed"

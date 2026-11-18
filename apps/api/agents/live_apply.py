@@ -450,14 +450,24 @@ async def read_run(session: AsyncSession, run_id: UUID) -> LiveApplyRunView | No
 
 # ------------------------------------------------------------------ converging one agent
 
-#: Live, or ready and not taking calls (D-838): both are agents the engine holds, and a ready
-#: one skipped here kept the old platform text and settings while its Try it chat and trial
-#: test calls ran them, and read as drift on every sweep (D-876).
+#: Live, or ready and not taking calls (D-838): a ready one skipped here kept the old platform
+#: text and settings while its Try it chat and trial test calls ran them, and read as drift
+#: on every sweep (D-876). Whether the agent holds an engine agent of its own is not asked
+#: (D-1019): its live lines and running campaigns speak for it, and the publish fans out.
 _PUBLISHED_AGENT: Final = text(
     "SELECT name FROM agents WHERE id = :aid AND deleted_at IS NULL AND archived_at IS NULL "
-    "AND status IN ('live', 'paused') AND engine_agent_ref IS NOT NULL"
+    "AND status IN ('live', 'paused')"
 )
-_REF: Final = text("SELECT engine_agent_ref FROM agents WHERE id = :aid")
+#: Every engine agent the publish just wrote for this agent, whose settings are read back:
+#: its own while it holds one, its live lines' and its going campaigns'. Test copies and
+#: script-test arms are not here: the publish does not write them.
+_HOLDER_REFS: Final = text(
+    "SELECT engine_agent_ref FROM agents WHERE id = :aid AND engine_agent_ref IS NOT NULL "
+    "UNION ALL SELECT engine_agent_ref FROM inbound_lines WHERE agent_id = :aid "
+    "AND archived_at IS NULL AND published_at IS NOT NULL AND engine_agent_ref IS NOT NULL "
+    "UNION ALL SELECT engine_agent_ref FROM campaigns WHERE agent_id = :aid "
+    "AND archived_at IS NULL AND engine_agent_ref IS NOT NULL AND status = ANY(:holding)"
+)
 
 Outcome = Literal["applied", "not_live"]
 
@@ -482,7 +492,7 @@ async def converge_agent(*, tenant_id: UUID, agent_id: UUID) -> tuple[Outcome, s
     deleted agent is left alone, since its first publish sends everything anyway.
     """
     from apps.api.agents.engine_settings import check_agent_settings
-    from apps.api.agents.service import publish_agent
+    from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES, publish_agent
     from apps.api.db.session import tenant_session
 
     async with tenant_session(tenant_id) as session:
@@ -490,10 +500,15 @@ async def converge_agent(*, tenant_id: UUID, agent_id: UUID) -> tuple[Outcome, s
         if name is None:
             return "not_live", None
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
-        ref = (await session.execute(_REF, {"aid": agent_id})).scalar()
-    if ref:
+        refs = (
+            await session.execute(
+                _HOLDER_REFS, {"aid": agent_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)}
+            )
+        ).scalars()
+        holders = [str(ref) for ref in refs]
+    for ref in holders:
         checked = await check_agent_settings(
-            tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=str(ref)
+            tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=ref
         )
         if checked is not None and checked.drifted and not checked.repaired:
             raise SettingsNotHeldError(checked.drifted)

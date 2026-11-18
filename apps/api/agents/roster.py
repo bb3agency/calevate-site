@@ -54,7 +54,7 @@ from apps.api.agents.engine_limits import greeting_budget
 from apps.api.agents.languages import Language, published_extra_languages
 from apps.api.agents.llm_models import resolve_llm_model
 from apps.api.agents.llm_tiers import engine_model_token, tier_label, tier_of_model
-from apps.api.agents.models import AgentStatus
+from apps.api.agents.models import AgentStatus, is_published
 from apps.api.agents.schemas import AgentOut, GreetingBudgetOut
 from apps.api.billing.rates import llm_surcharge_applies
 from apps.api.compliance.caller_memory import CALLER_MEMORY_ATTESTATION, statement_is_current
@@ -79,7 +79,9 @@ from apps.api.engine import engine_capabilities, get_engine
 #: every reader bounds at `AGENT_ROSTER_LIMIT`.
 AGENT_ROSTER_SQL = (
     "SELECT a.id, a.name, a.direction, a.status, a.language_primary, "
-    "a.disclosure_line, a.engine, a.engine_agent_ref, es.fields, "
+    # Slot 7 is unused: `published` is the status (D-1019), and a NULL keeps every later
+    # positional index meaning what it meant.
+    "a.disclosure_line, a.engine, NULL, es.fields, "
     "a.ai_disclosure_line, a.ai_disclosure_enabled, "
     "a.recording_notice_line, a.recording_notice_enabled, a.archived_at, "
     "(SELECT count(*) FROM phone_numbers pn WHERE pn.agent_id = a.id), "
@@ -174,7 +176,7 @@ def agent_out(r: Any) -> AgentOut:
         ),
         disclosure_line=r[5],
         engine=r[6],
-        published=bool(r[7]),
+        published=is_published(r[3]),
         # The agent's OWN fields; the core every agent also captures is
         # `GET /v1/lead-fields` (`calevate_shared.lead_fields`).
         extraction_fields=business_only(r[8]),

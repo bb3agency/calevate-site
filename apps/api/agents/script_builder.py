@@ -624,7 +624,7 @@ async def rewrite_script(
         structured_script=script.model_dump(mode="json"),
         apply_live=not staged,
     )
-    if is_published(row[1], row[2]) and not staged:
+    if is_published(row[1]) and not staged:
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
     return version
 

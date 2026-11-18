@@ -25,21 +25,21 @@ _DIRECTORY: Final = "SELECT id FROM organizations WHERE deleted_at IS NULL"
 #: `agents.engine_voice_id` holds the hosted catalogue id.
 _USE_BY_ENGINE_VOICE_SQL: Final = (
     "SELECT engine_voice_id, "
-    "count(*) FILTER (WHERE status = 'live' AND coalesce(engine_agent_ref, '') <> ''), "
-    "count(*) FILTER (WHERE status = :ready AND coalesce(engine_agent_ref, '') <> ''), "
+    "count(*) FILTER (WHERE status = 'live'), "
+    "count(*) FILTER (WHERE status = :ready), "
     "count(*) "
     "FROM agents WHERE deleted_at IS NULL AND engine_voice_id IS NOT NULL "
     "GROUP BY engine_voice_id"
 )
 
 #: How an agent uses its voice: on the phone, ready and not taking calls, or not published
-#: (a draft, an agent paused before it was ever published, an archived one).
+#: (a draft or an archived one).
 VoiceUse = Literal["live", "ready", "not_published"]
 
 
-def use_of(status: str, engine_agent_ref: str | None) -> VoiceUse:
+def use_of(status: str) -> VoiceUse:
     """One agent's use of its voice, by `models.is_published`'s rule."""
-    if not is_published(status, engine_agent_ref):
+    if not is_published(status):
         return "not_published"
     return "live" if status == "live" else "ready"
 

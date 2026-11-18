@@ -581,9 +581,21 @@ class EngineNumbersOut(BaseModel):
     agents: list[EngineAgentOut]
 
 
+#: Every engine agent that answers or calls for this client's agents: an agent's own while
+#: it holds one, and its live lines' and going campaigns' (D-997, D-1003), which hold them
+#: for an agent that has none of its own (D-1019). A number answered by a line's engine
+#: agent is this client's, not another's.
 _ENGINE_PUBLISHED_AGENTS = (
-    "SELECT id, name, engine_agent_ref FROM agents WHERE deleted_at IS NULL "
-    "AND engine = :engine AND engine_agent_ref IS NOT NULL ORDER BY name, id LIMIT :limit"
+    "SELECT a.id, a.name, a.engine_agent_ref FROM agents a WHERE a.deleted_at IS NULL "
+    "AND a.engine = :engine AND a.engine_agent_ref IS NOT NULL "
+    "UNION ALL SELECT a.id, a.name || ' (Inbound line: ' || l.name || ')', l.engine_agent_ref "
+    "FROM inbound_lines l JOIN agents a ON a.id = l.agent_id WHERE a.deleted_at IS NULL "
+    "AND a.engine = :engine AND l.archived_at IS NULL AND l.published_at IS NOT NULL "
+    "AND l.engine_agent_ref IS NOT NULL "
+    "UNION ALL SELECT a.id, a.name || ' (Campaign: ' || c.name || ')', c.engine_agent_ref "
+    "FROM campaigns c JOIN agents a ON a.id = c.agent_id WHERE a.deleted_at IS NULL "
+    "AND a.engine = :engine AND c.archived_at IS NULL AND c.engine_agent_ref IS NOT NULL "
+    "AND c.status = ANY(:holding) ORDER BY 2, 1 LIMIT :limit"
 )
 
 #: This client's live records, matched to the platform's list on the digits.
@@ -628,7 +640,12 @@ async def tenant_engine_numbers(
             raise ProblemError.not_found("Client")
         rows = (
             await scoped.execute(
-                text(_ENGINE_PUBLISHED_AGENTS), {"engine": engine.name, "limit": 200}
+                text(_ENGINE_PUBLISHED_AGENTS),
+                {
+                    "engine": engine.name,
+                    "limit": 200,
+                    "holding": list(agents_service.CAMPAIGN_HOLDING_STATUSES),
+                },
             )
         ).all()
         recorded = {

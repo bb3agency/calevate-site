@@ -871,7 +871,12 @@ async def list_numbers(
                 "SELECT n.id, n.e164, n.series, n.dlt_status, n.engine_owned, "
                 "n.agent_id, n.direction, n.client_inr_per_month, "
                 "n.activated_at IS NOT NULL, n.provider, n.engine_number_ref, "
-                "a.engine_agent_ref, a.status, a.direction, a.deleted_at IS NOT NULL, "
+                # What answers it, as `engine_numbers._ATTACHMENT_SQL` reads it: a live
+                # line's own engine agent, else the agent's own (D-997, D-1019).
+                "COALESCE(CASE WHEN l.published_at IS NOT NULL THEN l.engine_agent_ref END, "
+                "a.engine_agent_ref), a.status, "
+                "CASE WHEN l.published_at IS NOT NULL AND l.engine_agent_ref IS NOT NULL "
+                "THEN 'inbound' ELSE a.direction END, a.deleted_at IS NOT NULL, "
                 "l.id, l.name "
                 "FROM phone_numbers n LEFT JOIN agents a ON a.id = n.agent_id "
                 "LEFT JOIN inbound_lines l "

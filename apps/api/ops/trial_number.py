@@ -92,8 +92,13 @@ async def _agent_names(refs: set[str]) -> dict[str, str]:
     for tenant_id in await live_tenants():
         async with tenant_session(tenant_id) as scoped:
             rows = await scoped.execute(
+                # Through the routes, which name every holder (an agent's own, its lines',
+                # campaigns' and test copies'), so a handle held for an agent without one
+                # of its own (D-1019) still reads as that agent.
                 text(
-                    "SELECT engine_agent_ref, name FROM agents WHERE engine_agent_ref = ANY(:refs)"
+                    "SELECT engine_agent_ref, name FROM agents WHERE engine_agent_ref = ANY(:refs) "
+                    "UNION SELECT r.engine_agent_ref, a.name FROM engine_agent_routes r "
+                    "JOIN agents a ON a.id = r.agent_id WHERE r.engine_agent_ref = ANY(:refs)"
                 ),
                 {"refs": sorted(refs)},
             )

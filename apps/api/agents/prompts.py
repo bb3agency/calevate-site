@@ -65,24 +65,18 @@ from apps.api.db.result import rowcount_of
 log = get_logger(__name__)
 
 
-async def _agent_state(session: AsyncSession, agent_id: UUID) -> tuple[str, str | None]:
-    """(status, engine_agent_ref) — and the existence check, so a bad agent id is a
+async def _agent_state(session: AsyncSession, agent_id: UUID) -> str:
+    """The agent's status — and the existence check, so a bad agent id is a
     clean 404 rather than an FK IntegrityError from the version insert."""
     row = (
         await session.execute(
-            text(
-                "SELECT status, engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"
-            ),
+            text("SELECT status FROM agents WHERE id = :aid AND deleted_at IS NULL"),
             {"aid": agent_id},
         )
     ).first()
     if row is None:
         raise ProblemError.not_found("Agent")
-    return str(row[0]), row[1]
-
-
-def _is_live(status: str, engine_agent_ref: str | None) -> bool:
-    return status == "live" and bool(engine_agent_ref)
+    return str(row[0])
 
 
 async def insert_prompt_version(
@@ -215,8 +209,8 @@ async def write_prompt_version(
     (`agents/script_builder.py`), or None for a freeform (raw) write — stamped at INSERT
     beside the body so the builder can reload the exact structure the author last saw.
     """
-    status, engine_ref = await _agent_state(session, agent_id)
-    live = _is_live(status, engine_ref)
+    status = await _agent_state(session, agent_id)
+    live = status == "live"
     version = await insert_prompt_version(
         session,
         tenant_id=tenant_id,
@@ -227,7 +221,7 @@ async def write_prompt_version(
         structured_script=structured_script,
         apply_live=not live,
     )
-    if not live and is_published(status, engine_ref):
+    if not live and is_published(status):
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
     # ids and version only — prompt bodies can embed client business detail (rule 6).
     log.info(
@@ -296,7 +290,7 @@ async def rollback_prompt(
     than silent by construction — `prompt_routes.rollback_prompt` writes an audit row
     naming both versions.
     """
-    status, engine_ref = await _agent_state(session, agent_id)
+    status = await _agent_state(session, agent_id)
     target = (
         await session.execute(
             text(
@@ -320,7 +314,7 @@ async def rollback_prompt(
         structured_script=target[1],
         apply_live=True,
     )
-    if is_published(status, engine_ref):
+    if is_published(status):
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
     log.info(
         "prompt_rolled_back",

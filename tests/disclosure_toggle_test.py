@@ -644,17 +644,19 @@ async def test_switching_the_ai_notice_off_does_not_unblock_or_block_a_dial() ->
     A toggle that quietly became a dial blocker would be a compliance control a client
     could trip by accident; one that became a bypass would be worse."""
     tenant_id, agent_id = await _tenant()
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET direction = 'outbound', status = 'live' WHERE id = :a"),
-            {"a": agent_id},
-        )
+    # Switched off while a draft, then put live by hand: a live agent is republished by the
+    # switch (D-1019), and this fixture's agent has no script to publish.
     await publishing.set_disclosure_posture(
         tenant_id=tenant_id,
         agent_id=agent_id,
         ai_disclosure_enabled=False,
         recording_notice_enabled=False,
     )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET direction = 'outbound', status = 'live' WHERE id = :a"),
+            {"a": agent_id},
+        )
     async with tenant_session(tenant_id) as session:
         decision = await check_dispatch(
             session, tenant_id=tenant_id, agent_id=agent_id, phone_e164="+919876500011"

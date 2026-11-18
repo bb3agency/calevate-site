@@ -568,7 +568,7 @@ class _AgentRow:
 
     @property
     def is_live(self) -> bool:
-        return self.status == "live" and bool(self.engine_agent_ref)
+        return self.status == "live"
 
     @property
     def has_pending(self) -> bool:
@@ -576,7 +576,10 @@ class _AgentRow:
 
     @property
     def published(self) -> bool:
-        return bool(self.engine_agent_ref)
+        # Ready by its status (D-1019): an agent whose lines and campaigns hold the engine
+        # agents has no ref of its own. A ref still counts while agents keep one, so an
+        # archived agent whose vendor object stands reads as it did.
+        return is_published(self.status) or bool(self.engine_agent_ref)
 
     @property
     def voice_diverged(self) -> bool:
@@ -1604,7 +1607,7 @@ async def set_disclosure_posture(
                 body=row[9],
                 names=(str(row[11] or ""), str(row[12] or "")),
             )
-        on_engine = is_published(row[4], row[5])
+        on_engine = is_published(row[4])
         if changed:
             await session.execute(
                 text(
@@ -1683,7 +1686,7 @@ async def set_caller_has_screen(
         row = (
             await session.execute(
                 text(
-                    "SELECT caller_has_screen, status, engine_agent_ref FROM agents "
+                    "SELECT caller_has_screen, status FROM agents "
                     "WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
                 ),
                 {"aid": agent_id},
@@ -1692,7 +1695,7 @@ async def set_caller_has_screen(
         if row is None:
             raise ProblemError.not_found("Agent")
         unchanged = bool(row[0]) == enabled
-        on_engine = is_published(row[1], row[2])
+        on_engine = is_published(row[1])
         give_time: tuple[str, ...] = ()
         if not unchanged:
             await session.execute(
@@ -1863,7 +1866,7 @@ async def set_caller_memory(
                 ),
                 {"on": enabled, "aid": agent_id},
             )
-        on_engine = is_published(row[6], row[7])
+        on_engine = is_published(row[6])
         engine_synced = (current != enabled or resumed) and on_engine
         if engine_synced:
             await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
@@ -1929,14 +1932,14 @@ async def set_call_cap(
         result = await session.execute(
             text(
                 "UPDATE agents SET max_call_duration_s = :cap, updated_at = now() "
-                "WHERE id = :aid AND deleted_at IS NULL RETURNING status, engine_agent_ref"
+                "WHERE id = :aid AND deleted_at IS NULL RETURNING status"
             ),
             {"cap": max_call_duration_s, "aid": agent_id},
         )
         agent = result.first()
         if agent is None:
             raise ProblemError.not_found("Agent")
-        on_engine = is_published(agent[0], agent[1])
+        on_engine = is_published(agent[0])
         if on_engine:
             await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
         rate = await worst_case_rate(session, tenant_id)

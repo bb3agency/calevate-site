@@ -114,6 +114,7 @@ from apps.api.engine.dial_lines import outbound_line_pool
 from apps.api.ingest.service import normalize_phone
 from apps.api.legal.service import agreements_blocker
 from apps.api.tenancy.call_lines import read_call_lines
+from apps.api.tenancy.engine_workspace import resolve_workspace
 
 log = get_logger(__name__)
 
@@ -267,6 +268,15 @@ class _CampaignFacts:
     #: to an agent in the workspace that holds it.
     number_engine_ref: str | None = None
     agent_engine_ref: str | None = None
+    #: The client's own workspace, where the campaign's engine agent is made, for an agent
+    #: that holds no engine agent of its own (D-1019); None otherwise.
+    client_workspace: str | None = None
+
+    @property
+    def dialler_scope(self) -> str | None:
+        """The workspace the call is placed from: the agent's own engine agent's while it
+        holds one, else the client's workspace."""
+        return scope_of(self.agent_engine_ref) if self.agent_engine_ref else self.client_workspace
 
 
 async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _CampaignFacts:
@@ -284,7 +294,7 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
                 "  a.status AS agent_status, a.ai_disclosure_line, "
                 "  a.direction AS agent_direction, a.deleted_at AS agent_deleted_at, "
                 "  c.consent_source, c.consent_collected_at, "
-                "  n.engine_number_ref, a.engine_agent_ref "
+                "  n.engine_number_ref, a.engine_agent_ref, c.tenant_id "
                 "FROM campaigns c "
                 "LEFT JOIN phone_numbers n ON n.id = c.number_id "
                 "JOIN agents a ON a.id = c.agent_id "
@@ -310,6 +320,11 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
         consent_collected_at=row[11],
         number_engine_ref=row[12],
         agent_engine_ref=row[13],
+        # Only asked when the agent holds no engine agent of its own (D-1019): the campaign's
+        # own engine agent is then made in the client's workspace.
+        client_workspace=(
+            None if row[13] else await resolve_workspace(session, UUID(str(row[14])))
+        ),
     )
 
 
@@ -427,8 +442,8 @@ def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
     if (
         outbound_number_provider() is not None
         and facts.number_engine_ref
-        and facts.agent_engine_ref
-        and scope_of(facts.number_engine_ref) != scope_of(facts.agent_engine_ref)
+        and (facts.agent_engine_ref or facts.client_workspace)
+        and scope_of(facts.number_engine_ref) != facts.dialler_scope
     ):
         blockers.append(LaunchBlocker(NUMBER_NOT_MOVED_RULE, NUMBER_NOT_MOVED_REASON))
 

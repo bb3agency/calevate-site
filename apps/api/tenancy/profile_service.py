@@ -374,10 +374,21 @@ async def record_setup(
 
 
 _AGENT_STATE: Final = (
-    "SELECT a.status, a.engine_agent_ref, a.system_prompt_id IS NOT NULL, "
+    "SELECT a.status, a.system_prompt_id IS NOT NULL, "
     "(a.system_prompt_id IS DISTINCT FROM a.live_prompt_id), pv.compiled_t0_context "
     "FROM agents a LEFT JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
     "WHERE a.id = :aid AND a.deleted_at IS NULL"
+)
+#: The engine agents that speak for one agent and carry its business facts (D-1019): its
+#: own while it holds one, its live lines' and its going campaigns', each with the holder
+#: `sync_business_facts` files the knowledge claim under.
+_FACT_HOLDERS: Final = (
+    "SELECT engine_agent_ref, NULL::uuid, NULL::uuid FROM agents "
+    "WHERE id = :aid AND engine_agent_ref IS NOT NULL "
+    "UNION ALL SELECT engine_agent_ref, id, NULL::uuid FROM inbound_lines WHERE agent_id = :aid "
+    "AND archived_at IS NULL AND published_at IS NOT NULL AND engine_agent_ref IS NOT NULL "
+    "UNION ALL SELECT engine_agent_ref, NULL::uuid, id FROM campaigns WHERE agent_id = :aid "
+    "AND archived_at IS NULL AND engine_agent_ref IS NOT NULL AND status = ANY(:holding)"
 )
 
 
@@ -390,6 +401,7 @@ async def apply_to_agents(session: AsyncSession, *, tenant_id: UUID, changed: se
         return 0
     from apps.api.agents.engine_facts import sync_business_facts
     from apps.api.agents.live_apply import queue_live_apply
+    from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES
     from apps.api.agents.t0 import recompile_t0
     from apps.api.engine import get_engine
     from apps.api.engine.hosted_platform import hosted_agent_limits
@@ -407,8 +419,8 @@ async def apply_to_agents(session: AsyncSession, *, tenant_id: UUID, changed: se
         row = (await session.execute(text(_AGENT_STATE), {"aid": agent_id})).first()
         if row is None:
             continue
-        status, ref, has_script, staged = str(row[0]), row[1], bool(row[2]), bool(row[3])
-        live = status == "live" and bool(ref)
+        status, has_script, staged = str(row[0]), bool(row[1]), bool(row[2])
+        live = status == "live"
         version: int | None = None
         # A scriptless agent gets its first prompt from the profile, as the old admin intake
         # did for the draft receptionist; an empty profile mints nothing.
@@ -426,9 +438,22 @@ async def apply_to_agents(session: AsyncSession, *, tenant_id: UUID, changed: se
                 touched += 1
         elif version is not None and hosted_agent_limits(engine).facts_in_knowledge:
             block = (await session.execute(text(_AGENT_STATE), {"aid": agent_id})).first()
-            await sync_business_facts(
-                session, engine, agent_id=agent_id, ref=str(ref), facts=block[4] if block else None
-            )
+            holders = (
+                await session.execute(
+                    text(_FACT_HOLDERS),
+                    {"aid": agent_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
+                )
+            ).all()
+            for ref, line_id, campaign_id in holders:
+                await sync_business_facts(
+                    session,
+                    engine,
+                    agent_id=agent_id,
+                    ref=str(ref),
+                    facts=block[3] if block else None,
+                    inbound_line_id=line_id,
+                    campaign_id=campaign_id,
+                )
     if facts_changed:
         # The profile's lines are facts an agent may know by heart (D-896).
         from apps.api.agents.hot_facts import request_recompute

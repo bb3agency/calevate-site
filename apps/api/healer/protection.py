@@ -279,13 +279,17 @@ async def resolve_client_rows(session: AsyncSession, *, incident_id: UUID) -> in
 
 
 async def live_answering_agents(session: AsyncSession) -> list[UUID]:
-    """The tenant's live agents that answer calls, for a platform-wide hold."""
+    """The tenant's live agents that answer calls, for a platform-wide hold: those that answer
+    as themselves and those a live inbound line answers in the voice of. Whether the agent
+    holds an engine agent of its own is not asked (D-1019); its lines hold theirs."""
     rows = (
         await session.execute(
             text(
-                "SELECT id FROM agents WHERE status = 'live' AND engine_agent_ref IS NOT NULL "
-                "AND direction IN ('inbound', 'both') AND deleted_at IS NULL "
-                "AND archived_at IS NULL ORDER BY id"
+                "SELECT a.id FROM agents a WHERE a.status = 'live' "
+                "AND a.deleted_at IS NULL AND a.archived_at IS NULL "
+                "AND (a.direction IN ('inbound', 'both') OR EXISTS (SELECT 1 FROM inbound_lines l "
+                "WHERE l.agent_id = a.id AND l.archived_at IS NULL "
+                "AND l.published_at IS NOT NULL)) ORDER BY a.id"
             )
         )
     ).all()

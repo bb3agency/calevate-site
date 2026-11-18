@@ -37,8 +37,7 @@ TOKENS_MAX: Final = REPLY_TOKENS_MAX
 LIVE_APPLY_REASON: Final = "reply_length"
 
 _READ_SQL: Final = (
-    "SELECT max_reply_tokens, status, engine_agent_ref FROM agents "
-    "WHERE id = :aid AND deleted_at IS NULL"
+    "SELECT max_reply_tokens, status FROM agents WHERE id = :aid AND deleted_at IS NULL"
 )
 _UPDATE_SQL: Final = (
     "UPDATE agents SET max_reply_tokens = :tokens, updated_at = now() WHERE id = :aid"
@@ -86,7 +85,7 @@ async def set_reply_length(
     moved = row[0] != tokens
     if moved:
         await session.execute(text(_UPDATE_SQL), {"tokens": tokens, "aid": agent_id})
-        if is_published(row[1], row[2]):
+        if is_published(row[1]):
             await queue_live_apply(
                 session,
                 scope="agent",

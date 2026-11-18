@@ -165,7 +165,7 @@ async def agent_voice(session: AsyncSession, agent_id: UUID) -> AgentVoice | Non
         await session.execute(
             text(
                 "SELECT a.engine_voice_id, a.language_primary, a.direction, o.name, "
-                "a.status IN ('live', 'ready') AND a.engine_agent_ref IS NOT NULL "
+                "a.status IN ('live', 'paused') "
                 "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),

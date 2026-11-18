@@ -582,7 +582,7 @@ _AGENTS_WITH_OWN: Final = (
 _AGENT_FOR_UPDATE: Final = (
     "SELECT "
     + ", ".join((*SETTING_FIELDS, *AGENT_ONLY_FIELDS))
-    + ", status, engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
+    + ", status FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
 )
 _UPDATE_AGENT: Final = (
     "UPDATE agents SET "
@@ -738,8 +738,8 @@ async def set_agent_call_handling(
             {**_binds(wanted), **held_own, **own_only, "aid": agent_id},
         )
         extra = len(AGENT_ONLY_FIELDS)
-        status, ref = row[width + extra], row[width + extra + 1]
-        if is_published(status, ref):
+        status = row[width + extra]
+        if is_published(status):
             await queue_live_apply(
                 session,
                 scope="agent",
@@ -779,8 +779,7 @@ async def read_organization_call_handling(session: AsyncSession) -> Organization
 
 
 _LIVE_AGENT: Final = (
-    "SELECT 1 FROM agents WHERE deleted_at IS NULL AND status IN ('live', 'paused') "
-    "AND engine_agent_ref IS NOT NULL AND "
+    "SELECT 1 FROM agents WHERE deleted_at IS NULL AND status IN ('live', 'paused') AND "
 )
 #: Per field: a live or ready agent (D-838) that inherits the account value, so changing it
 #: moves a line.
@@ -825,8 +824,7 @@ async def set_organization_call_handling(
 _LIVE_AGENTS_FOR_UPDATE: Final = (
     "SELECT "
     + ", ".join(SETTING_FIELDS)
-    + " FROM agents WHERE deleted_at IS NULL AND status IN ('live', 'paused') "
-    "AND engine_agent_ref IS NOT NULL FOR UPDATE"
+    + " FROM agents WHERE deleted_at IS NULL AND status IN ('live', 'paused') FOR UPDATE"
 )
 #: Per field: drop every agent's own value so the agent follows the account again.
 _CLEAR_AGENT_FIELD: Final = {
@@ -917,8 +915,7 @@ def turn_detection_of(value: object) -> TurnDetection | None:
 
 
 _AGENT_TURN_DETECTION: Final = (
-    "SELECT turn_detection, status, engine_agent_ref FROM agents "
-    "WHERE id = :aid AND deleted_at IS NULL"
+    "SELECT turn_detection, status FROM agents WHERE id = :aid AND deleted_at IS NULL"
 )
 
 
@@ -945,7 +942,7 @@ async def set_agent_turn_detection(
             text("UPDATE agents SET turn_detection = :mode, updated_at = now() WHERE id = :aid"),
             {"mode": mode, "aid": agent_id},
         )
-        if is_published(row[1], row[2]):
+        if is_published(row[1]):
             await queue_live_apply(
                 session,
                 scope="agent",

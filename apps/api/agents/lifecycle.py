@@ -84,6 +84,7 @@ from apps.api.agents.service import (
     refuse_call_cap_out_of_range,
     retire_in_call_actions,
     route_inbound_numbers,
+    route_line_numbers,
     write_ai_line,
 )
 from apps.api.agents.starters import JobChoice, apply_starter, direction_for, starter_jobs
@@ -608,7 +609,7 @@ async def update_agent(
         raise ProblemError.not_found("Agent")
     if str(row[0]) == "archived":
         raise archived_refusal("edited")
-    republish = is_published(row[0], row[1])
+    republish = is_published(row[0])
     # The screen sends the whole reply-language list whenever any of it moved, so a main
     # language that arrives is not necessarily a new one.
     language_changed = language_primary is not None and language_primary != str(row[4])
@@ -1287,6 +1288,11 @@ async def _locked_status(session: AsyncSession, agent_id: UUID) -> str:
     return str(row[0])
 
 
+async def _has_live_line_numbers(session: AsyncSession, *, agent_id: UUID) -> bool:
+    found = await session.execute(text(_LIVE_LINES_WITH_NUMBERS_SQL), {"aid": agent_id})
+    return found.first() is not None
+
+
 async def _release_inbound_numbers(session: AsyncSession, *, agent_id: UUID) -> int:
     """Tell the engine this agent answers nothing, and report how many numbers moved.
 
@@ -1306,12 +1312,14 @@ async def _release_inbound_numbers(session: AsyncSession, *, agent_id: UUID) -> 
             text("SELECT engine_agent_ref FROM agents WHERE id = :aid"), {"aid": agent_id}
         )
     ).scalar()
-    if not ref:
-        # Never published: the engine holds nothing for this agent and no number can be
-        # bound to it, so there is nothing to release and no vendor call worth making.
+    if not ref and not await _has_live_line_numbers(session, agent_id=agent_id):
+        # Neither an engine agent of its own nor a live line's: nothing at the engine can
+        # be answering for this agent, so there is no vendor call worth making.
         return 0
+    # The release arm never reads `ref`: an agent whose live lines hold the engine agents
+    # (D-1019) releases their numbers all the same.
     routing = await route_inbound_numbers(
-        session, get_engine(), agent_id=agent_id, ref=str(ref), answers=False
+        session, get_engine(), agent_id=agent_id, ref=str(ref or ""), answers=False
     )
     return routing.released
 
@@ -1325,24 +1333,33 @@ async def _release_inbound_numbers(session: AsyncSession, *, agent_id: UUID) -> 
 # release: whether a client's number is released or ported is theirs to say (FLOWS §9), and
 # a released number cannot be taken back.
 
-#: Every agent of this account that has numbers attached and was ever published. Paused and
+#: Every agent of this account that has numbers attached, its own and its lines' alike
+#: (a line's numbers carry its agent). Whether the agent holds an engine agent of its own is
+#: not asked (D-1019): a live line's engine agent answers its numbers either way. Paused and
 #: archived agents are included: their numbers should already be detached, and detaching a
 #: number twice costs a round trip, while skipping one that a failed release left attached
 #: costs a caller reaching a closed business.
 _ACCOUNT_NUMBER_AGENTS_SQL = (
     "SELECT DISTINCT a.id, a.engine_agent_ref FROM agents a "
-    "JOIN phone_numbers n ON n.agent_id = a.id "
-    "WHERE a.engine_agent_ref IS NOT NULL ORDER BY a.id"
+    "JOIN phone_numbers n ON n.agent_id = a.id ORDER BY a.id"
 )
 
-#: The agents whose numbers a reopen re-attaches: live, answering, and not silenced for
-#: running without the truthful-answer rule — that silence is an unbind of its own, and a
-#: reopen must not undo it (`agents/service.reconcile_inbound_truthful_answer`).
+#: The agents whose numbers a reopen re-attaches: live, and not silenced for running without
+#: the truthful-answer rule — that silence is an unbind of its own, and a reopen must not
+#: undo it (`agents/service.reconcile_inbound_truthful_answer`). With whether each answers
+#: as itself, which only an agent holding its own engine agent can.
 _ACCOUNT_ANSWERING_AGENTS_SQL = (
-    "SELECT id, engine_agent_ref FROM agents WHERE status = 'live' "
-    "AND engine_agent_ref IS NOT NULL AND direction IN ('inbound', 'both') "
-    "AND deleted_at IS NULL AND archived_at IS NULL "
+    "SELECT id, engine_agent_ref, direction IN ('inbound', 'both') FROM agents "
+    "WHERE status = 'live' AND deleted_at IS NULL AND archived_at IS NULL "
     "AND inbound_silence_reason IS DISTINCT FROM :truthful ORDER BY id"
+)
+
+#: One agent's live lines that hold numbers, which a reopen points back at their own
+#: engine agents.
+_LIVE_LINES_WITH_NUMBERS_SQL = (
+    "SELECT l.id FROM inbound_lines l WHERE l.agent_id = :aid AND l.archived_at IS NULL "
+    "AND l.published_at IS NOT NULL AND EXISTS (SELECT 1 FROM phone_numbers n "
+    "WHERE n.inbound_line_id = l.id AND n.released_at IS NULL) ORDER BY l.created_at, l.id"
 )
 
 
@@ -1368,8 +1385,10 @@ async def release_account_numbers(session: AsyncSession) -> AccountNumbers:
     engine = get_engine()
     moved = failed = unsupported = 0
     for agent_id, ref in (await session.execute(text(_ACCOUNT_NUMBER_AGENTS_SQL))).all():
+        # The release arm never reads `ref` (`_apply_inbound_bindings`): a detach names the
+        # number, so an agent without an engine agent of its own releases its lines' too.
         routing = await route_inbound_numbers(
-            session, engine, agent_id=UUID(str(agent_id)), ref=str(ref), answers=False
+            session, engine, agent_id=UUID(str(agent_id)), ref=str(ref or ""), answers=False
         )
         moved += routing.released
         failed += routing.failed
@@ -1390,13 +1409,28 @@ async def restore_account_numbers(session: AsyncSession) -> AccountNumbers:
             text(_ACCOUNT_ANSWERING_AGENTS_SQL), {"truthful": INBOUND_SILENCE_TRUTHFUL_ANSWER}
         )
     ).all()
-    for agent_id, ref in rows:
-        routing = await route_inbound_numbers(
-            session, engine, agent_id=UUID(str(agent_id)), ref=str(ref), answers=True
-        )
-        moved += routing.bound
-        failed += routing.failed
-        unsupported += routing.unsupported
+    for agent_id, ref, answers_itself in rows:
+        aid = UUID(str(agent_id))
+        if ref and answers_itself:
+            routings = [
+                await route_inbound_numbers(
+                    session, engine, agent_id=aid, ref=str(ref), answers=True
+                )
+            ]
+        else:
+            # No engine agent of its own to answer with (D-1019), or it does not answer as
+            # itself: only its live lines' numbers go back, each to its line's engine agent.
+            lines = (
+                await session.execute(text(_LIVE_LINES_WITH_NUMBERS_SQL), {"aid": aid})
+            ).scalars()
+            routings = [
+                await route_line_numbers(session, line_id=UUID(str(line_id)))
+                for line_id in list(lines)
+            ]
+        for routing in routings:
+            moved += routing.bound
+            failed += routing.failed
+            unsupported += routing.unsupported
     return AccountNumbers(moved=moved, failed=failed, unsupported=unsupported)
 
 

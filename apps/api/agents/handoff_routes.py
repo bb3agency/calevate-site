@@ -52,6 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import handoff as handoff_service
 from apps.api.agents.business_hours import DAYS
+from apps.api.agents.models import is_published
 from apps.api.agents.transfer_providers import transfer_blocked_reason, transfer_platform_note
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
@@ -211,7 +212,7 @@ class HandoffOut(Strict):
     #: `RECENT_ATTEMPTS`; a client wanting the whole history reads it on the calls list,
     #: where each escalated call carries its own row.
     recent: list[HandoffAttemptOut]
-    #: HAS THIS AGENT EVER BEEN PUBLISHED? The honest half of "is my handover list live".
+    #: IS THIS AGENT PUBLISHED (live, or ready)? The honest half of "is my handover list live".
     #:
     #: False means nothing here is in effect at all — the agent is not on the voice
     #: platform. True does NOT mean the platform is holding today's on-duty member, and
@@ -231,7 +232,7 @@ class HandoffOut(Strict):
 _AGENT_SQL = (
     "SELECT a.id, a.handoff_enabled, a.handoff_trigger, "
     "(SELECT bp.hours FROM business_profiles bp WHERE bp.tenant_id = a.tenant_id), "
-    "a.language_primary, a.engine_agent_ref FROM agents a "
+    "a.language_primary, a.status FROM agents a "
     "WHERE a.id = :aid AND a.deleted_at IS NULL"
 )
 
@@ -290,7 +291,7 @@ async def _render(session: AsyncSession, agent_id: UUID) -> HandoffOut:
         on_duty_member_id=duty.member.id if duty.member is not None else None,
         unavailable_reason=duty.reason,
         remediation=duty.remediation,
-        published=bool(row[5]),
+        published=is_published(row[5]),
         platform_note=transfer_platform_note(get_engine()),
     )
 

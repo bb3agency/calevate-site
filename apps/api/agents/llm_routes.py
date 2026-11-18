@@ -351,10 +351,10 @@ _ORG_MODEL_FOR_UPDATE = (
 )
 
 #: Whether this account default MOVES any published agent (live, or ready and not taking
-#: calls, D-838): one that is known to the engine and has no model of its own.
+#: calls, D-838) that has no model of its own.
 _INHERITING_LIVE_AGENT = (
     "SELECT 1 FROM agents WHERE deleted_at IS NULL AND status IN ('live', 'paused') "
-    "AND engine_agent_ref IS NOT NULL AND llm_model IS NULL LIMIT 1"
+    "AND llm_model IS NULL LIMIT 1"
 )
 
 

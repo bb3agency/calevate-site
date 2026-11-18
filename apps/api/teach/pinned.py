@@ -109,8 +109,8 @@ async def assert_room(
 
 
 _LIVE_AGENTS: Final = (
-    "SELECT id, name FROM agents WHERE (status = 'live' OR (status = 'paused' "
-    "AND engine_agent_ref IS NOT NULL)) AND deleted_at IS NULL ORDER BY id"
+    "SELECT id, name FROM agents WHERE status IN ('live', 'paused') "
+    "AND deleted_at IS NULL ORDER BY id"
 )
 
 
@@ -356,7 +356,7 @@ async def recompile_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: U
         structured_script=structured,
         apply_live=not staged,
     )
-    if is_published(row[0], row[1]) and not staged:
+    if is_published(row[0]) and not staged:
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
     log.info(
         "pinned_facts_recompiled",

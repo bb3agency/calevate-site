@@ -1081,7 +1081,7 @@ class AgentOnVoice:
 
 #: One tenant's agents set to one hosted voice, live first. Read on the tenant's own session.
 _AGENTS_ON_VOICE_SQL: Final = (
-    "SELECT id, name, status, engine_agent_ref FROM agents "
+    "SELECT id, name, status FROM agents "
     "WHERE engine_voice_id = :v AND deleted_at IS NULL "
     "ORDER BY status = 'live' DESC, name LIMIT :cap"
 )
@@ -1116,9 +1116,9 @@ async def agents_on_hosted_voice(
                 agent_id=agent_id,
                 agent_name=str(name),
                 status=str(status),
-                use=use_of(str(status), ref),
+                use=use_of(str(status)),
             )
-            for agent_id, name, status, ref in rows
+            for agent_id, name, status in rows
         )
     return sorted(found, key=lambda a: (_USE_ORDER[a.use], a.tenant_name, a.agent_name))
 

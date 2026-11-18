@@ -96,9 +96,15 @@ AGENT_READY_STATUS: Final[AgentStatus] = "paused"
 PUBLISHED_STATUSES: Final[tuple[AgentStatus, ...]] = ("live", AGENT_READY_STATUS)
 
 
-def is_published(status: object, engine_agent_ref: object) -> bool:
-    """Does the engine hold this agent, so a change to what it says must be sent to it?"""
-    return str(status) in PUBLISHED_STATUSES and bool(engine_agent_ref)
+def is_published(status: object) -> bool:
+    """Is this agent ready, so a change to what it says must be republished?
+
+    Readiness is the agent's status, never whether it holds an engine agent of its own
+    (D-1019): an agent's live lines and running campaigns hold the engine objects that
+    speak for it, and `publish_agent` fans a change out to them, so an agent without a
+    ref of its own still has every edit sent to the engine.
+    """
+    return str(status) in PUBLISHED_STATUSES
 
 
 #: Derived, never retyped (D-104). This WAS a hand-typed pair, and it is the copy that had

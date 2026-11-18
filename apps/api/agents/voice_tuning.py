@@ -132,7 +132,7 @@ TUNING_COLUMNS: Final = (
     "a.studio_voice_model, a.studio_voice_dictionary_id"
 )
 _READ_SQL: Final = (
-    f"SELECT {TUNING_COLUMNS}, a.engine_voice_id, a.status, a.engine_agent_ref "
+    f"SELECT {TUNING_COLUMNS}, a.engine_voice_id, a.status "
     "FROM agents a WHERE a.id = :aid AND a.deleted_at IS NULL"
 )
 _UPDATE_SQL: Final = (
@@ -395,8 +395,8 @@ async def set_voice_tuning(
         await session.execute(
             text(_UPDATE_SQL), {**{f: getattr(wanted, f) for f in FIELDS}, "aid": agent_id}
         )
-        status, ref = row[6], row[7]
-        if is_published(status, ref) and (state.studio or "speed" in moved):
+        status = row[6]
+        if is_published(status) and (state.studio or "speed" in moved):
             await queue_live_apply(
                 session,
                 scope="agent",

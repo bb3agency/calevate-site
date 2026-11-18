@@ -227,7 +227,7 @@ async def _agent_row(session: AsyncSession, agent_id: UUID) -> Mapping[str, Any]
             await session.execute(
                 text(
                     "SELECT name, status, direction, deleted_at IS NOT NULL AS deleted, "
-                    "engine_agent_ref, inbound_silence_reason FROM agents WHERE id = :aid"
+                    "inbound_silence_reason FROM agents WHERE id = :aid"
                 ),
                 {"aid": agent_id},
             )
@@ -302,10 +302,11 @@ async def agent_matches_engine(
     session: AsyncSession, row: Mapping[str, Any] | None, agent_id: UUID
 ) -> Check:
     """The drift sweep's verdict: is the agent on the phone the one that was saved?"""
+    from apps.api.agents.models import is_published
     from apps.api.agents.reconciliation import DRIFT_STATES_OUT_OF_SYNC
 
     label = "The agent on the phone matches what you saved"
-    if row is None or not row["engine_agent_ref"]:
+    if row is None or not is_published(row["status"]):
         return unknown(
             "drift", label, "It has not been put on the phone yet.", f"agent_id {agent_id}"
         )
