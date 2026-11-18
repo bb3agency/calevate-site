@@ -42,10 +42,18 @@ log = get_logger(__name__)
 #: A campaign with something of its own to say: its own script (D-992) or its own settings
 #: (D-994). One with neither (made before D-992, or a Pip dialling plan) says exactly what
 #: its agent says, so it dials through the agent's own engine agent, as it always did, and
-#: takes none of the workspace's allowance.
+#: takes none of the workspace's allowance — but only while that agent still holds one: an
+#: agent holds no engine agent of its own since D-1019, so its campaign publishes one.
 _SPEAKS_ITS_OWN_SQL = (
     "SELECT script IS NOT NULL OR COALESCE(settings_overrides, '{}'::jsonb) <> '{}'::jsonb "
     "FROM campaigns WHERE id = :cid"
+)
+
+#: Whether the campaign's agent holds an engine agent of its own (published before D-1019),
+#: the only thing a campaign can dial through besides its own.
+_AGENT_HOLDS_ONE_SQL = (
+    "SELECT a.engine_agent_ref IS NOT NULL AND a.engine_agent_ref <> '' "
+    "FROM campaigns c JOIN agents a ON a.id = c.agent_id WHERE c.id = :cid"
 )
 
 #: Whether the campaign holds an engine agent now. One that does is republished even when it
@@ -60,17 +68,31 @@ async def speaks_its_own(session: AsyncSession, campaign_id: UUID) -> bool:
     return bool((await session.execute(text(_SPEAKS_ITS_OWN_SQL), {"cid": campaign_id})).scalar())
 
 
+async def _agent_holds_one(session: AsyncSession, campaign_id: UUID) -> bool:
+    """See `_AGENT_HOLDS_ONE_SQL`."""
+    return bool((await session.execute(text(_AGENT_HOLDS_ONE_SQL), {"cid": campaign_id})).scalar())
+
+
+async def needs_its_own(session: AsyncSession, campaign_id: UUID) -> bool:
+    """Whether the campaign must dial through an engine agent of its own: it says something of
+    its own, it already holds one, or its agent holds none to dial through (D-1019)."""
+    return (
+        await speaks_its_own(session, campaign_id)
+        or bool((await session.execute(text(_HOLDS_ONE_SQL), {"cid": campaign_id})).scalar())
+        or not await _agent_holds_one(session, campaign_id)
+    )
+
+
 async def put_campaign_live(*, tenant_id: UUID, campaign_id: UUID) -> str | None:
     """Start's first step, and a scheduled start's: the campaign's own engine agent is created or
     brought up to date and read back, in its own committed transaction, so the dial that
     follows rings what the campaign says now. A free-trial account is refused with the step
     that opens campaigns, before anything reaches the calling platform. None for a campaign
-    that says what its agent says (`speaks_its_own`) and holds no engine agent yet."""
+    that says what its agent says (`speaks_its_own`), holds no engine agent yet and whose
+    agent still holds its own (`needs_its_own`), which it dials through until R3 of D-1019."""
     async with tenant_session(tenant_id) as session:
         await refuse_on_trial(session, tenant_id=tenant_id, locked="campaigns")
-        if not await speaks_its_own(session, campaign_id) and not (
-            (await session.execute(text(_HOLDS_ONE_SQL), {"cid": campaign_id})).scalar()
-        ):
+        if not await needs_its_own(session, campaign_id):
             return None
         ref = await agents_service.publish_campaign_agent(
             session, tenant_id=tenant_id, campaign_id=campaign_id
@@ -95,7 +117,7 @@ async def check_before_schedule(
     the platform (`agents/service.check_campaign_publishable`). The engine agent, and the
     workspace slot it takes, are claimed when the start fires."""
     await refuse_on_trial(session, tenant_id=tenant_id, locked="campaigns")
-    if await speaks_its_own(session, campaign_id):
+    if await needs_its_own(session, campaign_id):
         await agents_service.check_campaign_publishable(
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
@@ -124,18 +146,21 @@ async def dial_for(*, tenant_id: UUID, campaign_id: UUID) -> CampaignDial | None
 
     A campaign going with none of its own (one running at deploy, before D-1003, or one whose
     Start could not finish) has it published now, in its own transaction. None for a campaign
-    that says what its agent says (`speaks_its_own`), and for one that put its script on its
-    agent before D-1003 (`campaigns.agent_held_at`) whose own engine agent cannot be made yet
-    (the workspace's allowance is full, the platform refused): its agent still speaks its
-    script, so it keeps dialling through the agent exactly as before rather than dropping a
-    call, and the hourly sweep gives that agent its own script back only once the campaign
-    has its own. Any other failure is raised: the campaign does not dial."""
+    that dials through its agent's own engine agent (`needs_its_own`), and for one that put
+    its script on its agent before D-1003 (`campaigns.agent_held_at`) whose own engine agent
+    cannot be made yet (the workspace's allowance is full, the platform refused) while that
+    agent still holds one: it still speaks the campaign's script, so the campaign keeps
+    dialling through it exactly as before rather than dropping a call, and the hourly sweep
+    gives that agent its own script back only once the campaign has its own. Any other
+    failure is raised: the campaign does not dial."""
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
                 text(
-                    "SELECT engine_agent_ref, status, agent_held_at IS NOT NULL FROM campaigns "
-                    "WHERE id = :cid AND archived_at IS NULL"
+                    "SELECT c.engine_agent_ref, c.status, c.agent_held_at IS NOT NULL "
+                    "AND a.engine_agent_ref IS NOT NULL AND a.engine_agent_ref <> '' "
+                    "FROM campaigns c JOIN agents a ON a.id = c.agent_id "
+                    "WHERE c.id = :cid AND c.archived_at IS NULL"
                 ),
                 {"cid": campaign_id},
             )
@@ -161,24 +186,6 @@ async def dial_for(*, tenant_id: UUID, campaign_id: UUID) -> CampaignDial | None
         return None
     log.info("campaign_engine_agent_published_for_dial", extra={"campaign_id": str(campaign_id)})
     return CampaignDial(ref=ref, campaign_id=campaign_id)
-
-
-async def held_dial(session: AsyncSession, *, campaign_id: UUID | None) -> CampaignDial | None:
-    """The engine agent a call made FOR a campaign rings through when the campaign still
-    holds one (a call-back it promised): the campaign's own script, else None for the
-    agent's. Read on the caller's session; never publishes."""
-    if campaign_id is None:
-        return None
-    ref = (
-        await session.execute(
-            text(
-                "SELECT engine_agent_ref FROM campaigns WHERE id = :cid AND archived_at IS NULL "
-                "AND status = ANY(:holding)"
-            ),
-            {"cid": campaign_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
-        )
-    ).scalar_one_or_none()
-    return CampaignDial(ref=str(ref), campaign_id=campaign_id) if ref else None
 
 
 async def end_campaign_agent(
@@ -214,6 +221,6 @@ __all__ = [
     "check_before_schedule",
     "dial_for",
     "end_campaign_agent",
-    "held_dial",
+    "needs_its_own",
     "put_campaign_live",
 ]

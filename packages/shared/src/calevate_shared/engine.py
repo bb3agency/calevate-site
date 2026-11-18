@@ -2813,7 +2813,7 @@ def role_sentence(cfg: AgentConfig) -> str:
         "inbound": "answering calls for",
         "outbound": "calling people for",
         "both": "on phone calls for",
-    }[cfg.direction]
+    }["both" if cfg.places_call_backs else cfg.direction]
     return f"You are the AI assistant {job} {business}."
 
 
@@ -3533,10 +3533,11 @@ _LABEL_MAX: Final = 40
 
 
 def places_calls(cfg: AgentConfig) -> bool:
-    """Whether this agent is set up to dial (outbound or both). An answering agent's prompt
-    stays as it was: it reads every turn of every inbound call, inside the per-call budget
+    """Whether this agent is set up to dial (outbound or both, or an inbound line's engine
+    agent, which places its voice's call-backs, D-1019). An answering agent's own prompt stays
+    as it was: it reads every turn of every inbound call, inside the per-call budget
     (`tests/agent_prompt_budget_test.py`), for the rare call-back it dials itself."""
-    return cfg.direction != "inbound"
+    return cfg.direction != "inbound" or cfg.places_call_backs
 
 
 def _one_line(value: object) -> str:
@@ -4103,6 +4104,12 @@ class AgentConfig(BaseModel):
     holder: str | None = Field(default=None, exclude=True)
     name: str
     direction: Literal["inbound", "outbound", "both"]
+    #: An answering engine agent that also places calls: an inbound line's (D-1019 D2), which
+    #: rings the call-backs and lead calls of an agent that holds no engine agent of its own.
+    #: It answers as `direction` says, and reads the placed-call values and rules
+    #: (`places_calls`). Its first words on a placed call come from the dial, so no notice
+    #: moves. Excluded from every dump, like `holder`.
+    places_call_backs: bool = Field(default=False, exclude=True)
     language_primary: str = DEFAULT_PRIMARY_LANGUAGE
     languages_extra: list[str] = Field(default_factory=list)
     system_prompt: str
@@ -4791,6 +4798,12 @@ TEST_CALL_OPENING_RULE: Final = (
     " On a test call you place, a line on who is calling and why is said in its place."
 )
 
+#: `TEST_CALL_OPENING_RULE` for an inbound line's engine agent (D-1019 D2), whose call-backs
+#: open with a placed-call line from the dial as its test calls do.
+PLACED_CALL_OPENING_RULE: Final = (
+    " On a call you place, a line on who is calling and why is said in its place."
+)
+
 
 def quoted_client_words(text: str) -> str:
     """Client words as the platform quotes them outside the fence (the first words under
@@ -4842,7 +4855,13 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
     if not first_words:
         return ""
     has_opening = bool(opening_line_of(cfg.system_prompt))
-    test_call = TEST_CALL_OPENING_RULE if cfg.direction == "inbound" and has_opening else ""
+    test_call = (
+        ""
+        if cfg.direction != "inbound" or not has_opening
+        else PLACED_CALL_OPENING_RULE
+        if cfg.places_call_backs
+        else TEST_CALL_OPENING_RULE
+    )
     return (
         f'{START_OF_CALL_HEADER}\nAlready said for you as your first turn: "{first_words}".'
         f"{test_call}{OPENING_CONTINUES_RULE}{reason}"
@@ -6848,6 +6867,7 @@ __all__ = [
     "PHONE_LINE",
     "PHONE_VARIABLE",
     "PIPECAT_REF_PREFIX",
+    "PLACED_CALL_OPENING_RULE",
     "PLACED_CALL_PERMISSION_RULE",
     "PLATFORM_CALL_VARIABLES",
     "PLATFORM_RULES_HEADER",

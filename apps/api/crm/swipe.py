@@ -275,10 +275,17 @@ async def standing_refusal(
     (`STANDING_REFUSALS`), or None. The person first, on its own: in `check_dispatch` the
     hours and the account come before the do-not-call list, so a booking made at night
     would otherwise never learn the number is on it. Asked by the call-back route and by
-    Pip's call-back actions before they book or move one."""
+    Pip's call-back actions before they book or move one. An agent that only answers is not
+    refused while a live line in its voice can place the call (D-1019); which assignment the
+    call goes through is decided when it is placed, so `unassigned` is not asked here."""
+    from apps.api.agents.dial_through import dial_through
+
+    through = await dial_through(session, agent_id=agent_id)
     decision = await person_level_refusal(
         session, tenant_id=tenant_id, phone_e164=phone
-    ) or await check_dispatch(session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone)
+    ) or await check_dispatch(
+        session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone, line=through.line
+    )
     if not decision.allowed and decision.rule in STANDING_REFUSALS:
         return decision
     return None

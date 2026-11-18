@@ -1571,8 +1571,18 @@ async def test_webhook(
         )
         return LeadSourceDryRunOut(would_call=False, steps=steps)
 
+    from apps.api.agents.dial_through import dial_through
+
+    # A new lead's call goes through a live line in the agent's voice, else the agent's own
+    # engine agent (D-1019), as `service.ingest_lead` asks.
+    through = await dial_through(session, agent_id=caller.agent_id)
     decision = await check_dispatch(
-        session, tenant_id=principal.tenant_id, agent_id=caller.agent_id, phone_e164=phone
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=caller.agent_id,
+        phone_e164=phone,
+        line=through.line,
+        unassigned=through.unassigned,
     )
     steps.append(
         LeadSourceDryRunStepOut(

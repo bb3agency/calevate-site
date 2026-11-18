@@ -790,7 +790,11 @@ async def book_next_try(
 
 
 async def _calling_agent(session: AsyncSession, step: d.CallStep, run: Run) -> UUID | None:
-    """The step's agent if it is published, else the lead's own agent if that one is."""
+    """The step's agent if a call of it has something to ring through (its own engine agent,
+    or a live line in its voice while it is ready, D-1019), else the lead's own agent if that
+    one has. Which assignment the call takes is decided when the call-back tick places it."""
+    from apps.api.agents.dial_through import holder_resolves_sql
+
     candidates: list[UUID] = [step.agent_id] if step.agent_id is not None else []
     if run.lead_id is not None:
         lead_agent = (
@@ -801,16 +805,16 @@ async def _calling_agent(session: AsyncSession, step: d.CallStep, run: Run) -> U
         if lead_agent is not None:
             candidates.append(UUID(str(lead_agent)))
     for candidate in dict.fromkeys(candidates):
-        ref = (
+        callable_now = (
             await session.execute(
                 text(
-                    "SELECT engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL "
-                    "AND archived_at IS NULL"
+                    "SELECT 1 FROM agents WHERE id = :aid AND deleted_at IS NULL "
+                    f"AND archived_at IS NULL AND {holder_resolves_sql('agents')}"
                 ),
                 {"aid": candidate},
             )
         ).scalar()
-        if isinstance(ref, str) and ref:
+        if callable_now:
             return candidate
     return None
 

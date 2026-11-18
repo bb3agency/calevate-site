@@ -143,19 +143,22 @@ def _problem_text(problems: Sequence[d.Problem]) -> str:
 
 async def _ingredients(session: AsyncSession) -> list[str]:
     from apps.api.agents.call_outcomes import outcomes_in_use
+    from apps.api.agents.dial_through import holder_resolves_sql
     from apps.api.whatsapp import templates
 
     lines = ["What steps can name, each [id]:"]
     agents = (
         await session.execute(
             text(
-                "SELECT id, name, direction, engine_agent_ref, business_outcomes FROM agents "
+                f"SELECT id, name, direction, {holder_resolves_sql('agents')}, "
+                "business_outcomes FROM agents "
                 "WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY created_at"
             )
         )
     ).all()
     for agent in agents:
         calls = str(agent[2]) in ("outbound", "both")
+        # Something to place the call through: its own engine agent or a live line (D-1019).
         state = ("calls" if agent[3] else "calls once published") if calls else "answers only"
         keys = ", ".join(o.key for o in outcomes_in_use(agent[4])[0])
         lines.append(f"- agent [{agent[0]}] {_clean(str(agent[1]))} ({state}); outcomes: {keys}")

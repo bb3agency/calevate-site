@@ -28,6 +28,7 @@ from calevate_shared.calling_window import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.dial_through import dial_through
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.alerting import record_compliance_block
@@ -122,10 +123,19 @@ async def place_lead_call(
 
     try:
         phone, name = await service.lead_phone(session, lead_id)
+        # The assignment the call is placed through (D-1019): the lead's campaign, its line,
+        # a live line in the agent's voice, or the agent's own engine agent.
+        through = await dial_through(session, agent_id=agent_id, lead_id=lead_id)
         # D-21: a client-initiated dial runs the same pre-checks as webhook dispatch, and a
         # DECISION comes back so the caller can say why it refused.
         decision = await check_dispatch(
-            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            phone_e164=phone,
+            campaign_id=through.campaign_id,
+            line=through.line,
+            unassigned=through.unassigned,
         )
     except Exception:
         await _release_undialled_claim(tenant_id, claim)
@@ -175,6 +185,8 @@ async def place_lead_call(
             context_note=context_note,
             contact_details=contact,
             on_reserved=reserved,
+            campaign=through.campaign,
+            line=through.line,
         )
     except DialUnconfirmedError as unconfirmed:
         # The claim stays `in_doubt`: releasing it would let the next press re-dial
@@ -241,8 +253,17 @@ async def call_back_check(
         if problem.kind != "business_rule":
             raise
         return CallbackEligibilityOut(eligible=False, reason=problem.detail, rule=problem.code)
+    through = await dial_through(
+        session, agent_id=plan.agent_id, lead_id=plan.lead_id, origin_call_id=call_id
+    )
     decision = await check_dispatch(
-        session, tenant_id=tenant_id, agent_id=plan.agent_id, phone_e164=plan.phone_e164
+        session,
+        tenant_id=tenant_id,
+        agent_id=plan.agent_id,
+        phone_e164=plan.phone_e164,
+        campaign_id=through.campaign_id,
+        line=through.line,
+        unassigned=through.unassigned,
     )
     if decision.allowed:
         return CallbackEligibilityOut(eligible=True, follow_up_number=plan.depth + 1)
@@ -311,8 +332,17 @@ async def place_call_back(
         return CallbackOut.model_validate(claim.response_payload)
 
     try:
+        through = await dial_through(
+            session, agent_id=plan.agent_id, lead_id=plan.lead_id, origin_call_id=call_id
+        )
         decision = await check_dispatch(
-            session, tenant_id=tenant_id, agent_id=plan.agent_id, phone_e164=plan.phone_e164
+            session,
+            tenant_id=tenant_id,
+            agent_id=plan.agent_id,
+            phone_e164=plan.phone_e164,
+            campaign_id=through.campaign_id,
+            line=through.line,
+            unassigned=through.unassigned,
         )
     except Exception:
         await _release_undialled_claim(tenant_id, claim)
@@ -345,6 +375,8 @@ async def place_call_back(
             lead_name=plan.lead_name,
             context_note=plan.context_note,
             on_reserved=reserved,
+            campaign=through.campaign,
+            line=through.line,
         )
     except DialUnconfirmedError as unconfirmed:
         raise ProblemError(

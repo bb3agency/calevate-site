@@ -182,6 +182,19 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
         assert size.total <= INSTRUCTIONS_MAX_CHARS - GUIDED_MARGIN, (job, size.total)
 
 
+def test_an_inbound_lines_engine_agent_that_places_calls_fits_the_same_margins() -> None:
+    """D-1019 D2: a line's engine agent answers AND places its voice's call-backs, so it
+    carries the placed-call values and rules on top of the answering script."""
+    margins = ((_starter, False, OWNER_RESERVE), (_long, True, LONG_MARGIN))
+    for build, pinned, margin in (*margins, (_guided, True, GUIDED_MARGIN)):
+        cfg = _config(build("answer_calls"), "answer_calls", pinned=pinned).model_copy(
+            update={"places_call_backs": True}
+        )
+        size = measure(cfg, INSTRUCTIONS_MAX_CHARS)
+        print(f"line {build.__name__}: {size.total} chars, {size.headroom} free")
+        assert size.total <= INSTRUCTIONS_MAX_CHARS - margin, (build.__name__, size.total)
+
+
 #: What a call reads of OURS on every turn for the agents below: the platform layers of the
 #: instructions plus `CALL_INSTRUCTIONS`, which the engine reads on calls in place of its
 #: default call rules. The founder's rule of 14 Oct 2026 stands: a prompt change may not grow

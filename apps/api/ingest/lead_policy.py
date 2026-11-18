@@ -292,6 +292,7 @@ async def save_and_apply(
     Returns the plan as stored and how many live agents are being updated.
 
     `PUT /v1/lead-calling` and Pip's `lead_calling_rules_set` both call this."""
+    from apps.api.agents.dial_through import holder_resolves_sql
     from apps.api.agents.live_apply import queue_live_apply
 
     stored, machine_changed = await save_plan(
@@ -302,9 +303,10 @@ async def save_and_apply(
     updating = int(
         (
             await session.execute(
+                # A live agent holding an engine agent of its own, or one live line (D-1019).
                 text(
-                    "SELECT count(*) FROM agents WHERE status = 'live' "
-                    "AND engine_agent_ref IS NOT NULL AND deleted_at IS NULL"
+                    "SELECT count(*) FROM agents WHERE status = 'live' AND deleted_at IS NULL "
+                    f"AND {holder_resolves_sql('agents')}"
                 )
             )
         ).scalar()

@@ -237,13 +237,17 @@ async def _exists(session: AsyncSession, sql: str, params: dict[str, Any]) -> bo
 async def _call_problems(session: AsyncSession, step: d.CallStep) -> list[Problem]:
     if step.agent_id is None:
         return []
+    from apps.api.agents.dial_through import holder_resolves_sql
+    from apps.api.agents.models import PUBLISHED_STATUSES
+
     row = (
         await session.execute(
             text(
-                "SELECT direction, engine_agent_ref FROM agents WHERE id = :aid "
-                "AND deleted_at IS NULL AND archived_at IS NULL"
+                f"SELECT direction, {holder_resolves_sql('agents')}, "
+                "engine_agent_ref IS NOT NULL OR status = ANY(:ready) FROM agents "
+                "WHERE id = :aid AND deleted_at IS NULL AND archived_at IS NULL"
             ),
-            {"aid": step.agent_id},
+            {"aid": step.agent_id, "ready": list(PUBLISHED_STATUSES)},
         )
     ).first()
     if row is None:
@@ -256,8 +260,20 @@ async def _call_problems(session: AsyncSession, step: d.CallStep) -> list[Proble
                 "This agent only answers calls. Choose one that calls.",
             )
         ]
-    if not row[1]:
+    if not row[2]:
         return [Problem(step.id, "agent_not_published", "Publish this agent before it can call.")]
+    if not row[1]:
+        # Ready, and working nowhere a call can be placed through (D-1019).
+        from apps.api.compliance.service import NO_ASSIGNMENT_RULE
+
+        return [
+            Problem(
+                step.id,
+                NO_ASSIGNMENT_RULE,
+                "This agent is not working anywhere that can call. Start a campaign or put "
+                "an inbound line live for it.",
+            )
+        ]
     return []
 
 

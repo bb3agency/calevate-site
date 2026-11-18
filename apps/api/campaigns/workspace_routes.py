@@ -34,7 +34,7 @@ from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import learning, workspace
 from apps.api.campaigns import notes as campaign_notes
 from apps.api.campaigns import settings as campaign_settings_rules
-from apps.api.campaigns.engine_agent import put_campaign_live, speaks_its_own
+from apps.api.campaigns.engine_agent import needs_its_own, put_campaign_live
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
@@ -744,8 +744,9 @@ async def campaign_test_call(
         idempotency_key=idem_key,
         ip=client_request_ip(request),
         own_number_attested=payload.number_is_mine,
-        # A campaign that says only what its agent says is heard through the agent itself.
-        campaign_id=campaign_id if await speaks_its_own(session, campaign_id) else None,
+        # A campaign that says only what its agent says is heard through the agent itself,
+        # while that agent holds an engine agent of its own (D-1019).
+        campaign_id=campaign_id if await needs_its_own(session, campaign_id) else None,
     )
     if result.call_id is not None:
         await remember_test_number(session, payload.number)

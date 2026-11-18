@@ -49,6 +49,7 @@ from apps.api.compliance import service as gate_module
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_RULE,
     MAINTENANCE_DRAIN_RULE,
+    NO_ASSIGNMENT_RULE,
     PERSON_LEVEL_REFUSALS,
     TRUTHFUL_ANSWER_DRIFT_RULE,
     dial_refusal_for_agent_status,
@@ -117,6 +118,9 @@ TRANSIENT_REFUSALS: dict[str, str] = {
     "trial_call_not_on_trial": "the account starts a free trial or adds credit",
     # D-853: a test call from an agent nobody has got ready; the owner presses Get it ready.
     "agent_not_ready": "the agent is got ready (published)",
+    # D-1019 D1: a fact about the CLIENT's set-up, never about the person: a direct call
+    # whose agent holds no engine agent waits for a campaign started or a line put live.
+    NO_ASSIGNMENT_RULE: "the client starts a campaign or puts an inbound line live for it",
     # TRANSIENT, and it is the one entry here whose lifting fact is a MEASUREMENT rather
     # than something somebody sets (D-562/D-564). Two doors open it and both are real: the
     # client republishes the agent, whose read-back refuses unless the truthful-answer

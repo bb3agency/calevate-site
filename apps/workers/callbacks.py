@@ -17,10 +17,10 @@ from uuid import UUID
 
 from calevate_shared.calling_window import ist_wall_clock
 
+from apps.api.agents.dial_through import dial_through
 from apps.api.agents.service import DialUnconfirmedError, dispatch_call
 from apps.api.callbacks import service as callbacks
 from apps.api.campaigns.contact_details import call_origin
-from apps.api.campaigns.engine_agent import held_dial
 from apps.api.compliance.platform_dnc import ENGINE_PERSON_REFUSALS
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_REASON,
@@ -189,14 +189,22 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
             # Who it is for and what they asked, from the call it was promised on: their name,
             # their row of a campaign's list, and the campaign, which counts this call too. A
             # campaign still going rings it back through its own engine agent (D-1003), so the
-            # person hears the campaign that promised it, and the gate asks that holder.
+            # person hears the campaign that promised it; else the line the call came in on, a
+            # live line in the agent's voice, or the agent's own (D-1019). The gate asks that
+            # holder.
             origin = await call_origin(
                 session,
                 source_call_id=callback.source_call_id,
                 lead_id=callback.lead_id,
                 phone_e164=callback.phone_e164,
             )
-            via = await held_dial(session, campaign_id=origin.campaign_id)
+            via = await dial_through(
+                session,
+                agent_id=callback.agent_id,
+                lead_id=callback.lead_id,
+                origin_call_id=callback.source_call_id,
+                campaign_id=origin.campaign_id,
+            )
             if (await get_platform_status(force_refresh=True)).outbound_halted:
                 decision = DispatchDecision(
                     allowed=False, rule=BIG_RED_SWITCH_RULE, reason=BIG_RED_SWITCH_REASON
@@ -209,7 +217,9 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                     phone_e164=callback.phone_e164,
                     # Read fresh three lines up, once per call-back.
                     halt_read_by_caller=True,
-                    campaign_id=via.campaign_id if via is not None else None,
+                    campaign_id=via.campaign_id,
+                    line=via.line,
+                    unassigned=via.unassigned,
                 )
             if not decision.allowed:
                 rule = decision.rule or "unknown"
@@ -286,7 +296,8 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                         else link
                     ),
                     contact_details=origin.details,
-                    campaign=via,
+                    campaign=via.campaign,
+                    line=via.line,
                 )
             except callbacks.CallbackNoLongerClaimedError:
                 # Settled by another writer since the claim (an erasure, in practice).
