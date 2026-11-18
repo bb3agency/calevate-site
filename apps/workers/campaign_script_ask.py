@@ -183,18 +183,6 @@ FLOW_ASK: Final = (
     "to 12 stages in all. Leave every other part of the script exactly as it is."
 ) + CLOSING_STEP
 
-#: The part name Call flow's "Translate with Pip" sends: the English scripts and caller and
-#: agent responses put into the campaign's language where that language's box is empty.
-TRANSLATE_PART: Final = "translate"
-TRANSLATE_INSTRUCTION: Final = (
-    "You translate a business's phone-call script lines into the language each item names in "
-    "`to`, as a person from the region would naturally say them on a phone call: everyday "
-    "spoken words in that language's own script, never word for word. Keep names, brand "
-    "names, app names, numbers and amounts as they are. Translate every item and nothing "
-    'else. Return JSON: {"items": [{"key": "<the key you were given>", "text": '
-    '"<the translation>"}]}.'
-)
-
 Tone = Literal["warm", "respectful", "brief"]
 #: The owner's tone (D-1004), as the writer reads it. Keys are the request's `tone`.
 TONES: Final[dict[str, str]] = {
@@ -451,8 +439,6 @@ __all__ = [
     "SHORTEN_ASK",
     "TONES",
     "TOO_LONG_RULE",
-    "TRANSLATE_INSTRUCTION",
-    "TRANSLATE_PART",
     "UNSOURCED_RULE",
     "Review",
     "ReviewedPart",

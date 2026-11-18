@@ -45,7 +45,7 @@ import {
 } from "../agents/[agentId]/script/scriptModel";
 import { DESKTOP, useMedia } from "../agents/[agentId]/script/useMedia";
 import { ScenarioFlow } from "./ScenarioFlow";
-import { FlowAgentBar, useFlowAgent } from "./FlowAgentBar";
+import { ChooseAgentPrompt, useFlowAgent } from "./FlowAgentBar";
 import { addScenario, placed } from "./scenarioModel";
 
 const FOLD_KEY = "calevate:fold:call-flow";
@@ -56,8 +56,6 @@ const MERGE_MS = 800;
 
 /** The part name the server recognises for "map the call's scenarios as steps". */
 export const FLOW_PART = "flow";
-/** The part name the server reads as "translate the English lines" (`campaign_script_ask`). */
-export const TRANSLATE_PART = "translate";
 
 export function CampaignFlow({
   agentId,
@@ -73,16 +71,7 @@ export function CampaignFlow({
   beforePipAt,
   restore,
   onRestore,
-  onTranslate,
-  translating = false,
-  translateNote = null,
-  onDismissTranslate,
 }: {
-  translateNote?: string | null;
-  onDismissTranslate?: () => void;
-  /** Ask Pip to fill the campaign language's empty boxes from the English. */
-  onTranslate?: () => void;
-  translating?: boolean;
   /** When the flow from before Pip's last draft was kept aside; null: nothing to put back. */
   beforePipAt: string | null;
   restore: ActionFeedback<void>;
@@ -256,26 +245,16 @@ export function CampaignFlow({
     </div>
   );
 
-  // The agent whose voice "Hear it" speaks in, with its picker and voice settings.
-  const flowAgent = useFlowAgent(agentId, (agent) => (
-    <FlowAgentBar
-      campaignId={campaignId}
-      agentId={agentId}
-      agent={agent}
-      canWrite={canWrite}
-      refusal={refusal}
-    />
-  ));
+  // The agent whose voice "Hear it" speaks in; chosen in Set up, prompted for here.
+  const flowAgent = useFlowAgent(
+    agentId,
+    <ChooseAgentPrompt campaignId={campaignId} />,
+  );
 
   // The steps and the chosen scenario's editor; on a phone the steps stack.
   const body = () => (
     <ScenarioFlow
       agent={flowAgent}
-      onTranslate={onTranslate}
-      translating={translating}
-      translateNote={translateNote}
-      onDismissTranslate={onDismissTranslate}
-      translateBlocked={dirty ? "Save or discard your changes first." : null}
       script={draft}
       limits={limits}
       issues={issues}

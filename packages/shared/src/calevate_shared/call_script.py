@@ -719,6 +719,8 @@ class ConversationStage(BaseModel):
     #: What to say in this scenario, by language tag (`en-IN`, `te-IN`, ...).
     scripts: dict[str, str] = Field(default_factory=dict)
     qa: list[ScenarioQa] = Field(default_factory=list, max_length=MAX_SCENARIO_QA)
+    #: Delivery notes a scenario once held (17 Nov 2026), kept as stored and never compiled:
+    #: the Call flow only plays a line in the agent's voice (founder, 18 Nov 2026).
     coaching: list[ScenarioCoaching] = Field(default_factory=list, max_length=MAX_SCENARIO_QA)
 
     @field_validator("scripts")
@@ -968,7 +970,7 @@ def _stage_detail(stage: ConversationStage) -> str:
         detail += f" It sounds like: {_quote(stage.sounds_like)}"
     if stage.procedure:
         detail += f" {procedure_pointer(stage.name)}"
-    if stage.scripts or stage.qa or stage.coaching:
+    if stage.scripts or stage.qa:
         detail += f" {scenario_pointer(stage.name)}"
     return detail
 
@@ -993,11 +995,6 @@ def _scenario_blocks(stages: Sequence[ConversationStage]) -> str:
     for stage in stages:
         lines = [f"{stage.name.strip()}:"]
         lines += [f"{names.get(tag, tag)}: {_quote(text)}" for tag, text in stage.scripts.items()]
-        lines += [
-            f"How to say it{f' in {names.get(c.language, c.language)}' if c.language else ''}: "
-            f"{' '.join(c.note.split())}"
-            for c in stage.coaching
-        ]
         for qa in stage.qa:
             lines.append(f"Caller: {qa.question.strip()}\nYou: {qa.answer.strip()}")
             for tag, said in qa.translations.items():
@@ -1209,7 +1206,7 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
     if with_steps:
         add(f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}", _procedures(with_steps))
 
-    scenarios = [s for s in stages if s.scripts or s.qa or s.coaching]
+    scenarios = [s for s in stages if s.scripts or s.qa]
     if scenarios:
         add(f"{SCENARIO_HEADER} {SCENARIO_LEAD}", _scenario_blocks(scenarios))
 
@@ -1354,7 +1351,6 @@ def script_text(script: CallScript) -> str:
             for qa in st.qa
             for t in qa.translations.values()
         ),
-        *(c.note for st in script.stages for c in st.coaching),
         *(f"{b.when}" for st in script.stages for b in st.branches),
         *(f"{o.objection} {o.response}" for o in script.objections),
         script.ending,

@@ -46,7 +46,7 @@ import { NoSourcesHint, PipNote, TonePick, type Tone } from "./PipScriptAsk";
 import { PipAskRefused, PipFailed, PipWriting, retryable } from "./PipScriptStatus";
 import { FoldSection } from "./FoldSection";
 import { SourcePicker, useChosenCount } from "./SourcePicker";
-import { CampaignFlow, FLOW_PART, TRANSLATE_PART } from "./CampaignFlow";
+import { CampaignFlow, FLOW_PART } from "./CampaignFlow";
 import { ScriptLanguagePick, languageName } from "./ScriptLanguages";
 
 // The review is drawn only while Pip's draft waits or the script is being edited, so it is
@@ -314,10 +314,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
   const [editing, setEditing] = useState(false);
   const [asking, setAsking] = useState<Asking>({ tone: "", note: "" });
-  // A translation run (Call flow's Translate with Pip) is shown at its button, not as a
-  // draft to review here: it saves into the script itself.
-  const translateRun = space.proposal?.focus_part === TRANSLATE_PART ? space.proposal : null;
-  const proposal = translateRun ? null : space.proposal;
+  const proposal = space.proposal;
   const script = space.script;
   const hasTask = space.main_task.trim() !== "";
   // Pip rewrites one part in a chosen language; the draft then comes back for review here.
@@ -485,10 +482,6 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                 beforePipAt={space.script_before_pip_at ?? null}
                 restore={restoreFeedback}
                 onRestore={() => restore.mutateAsync()}
-                translating={ask.isPending || translateRun?.status === "drafting"}
-                translateNote={translateRun?.status === "failed" ? (translateRun.note ?? "Pip could not translate this time.") : null}
-                onDismissTranslate={translateRun ? () => stopFeedback.run(translateRun.id) : undefined}
-                onTranslate={main ? () => askFeedback.run({ part: TRANSLATE_PART, language: main }) : undefined}
                 onMapScenarios={
                   main ? () => askFeedback.run({ part: FLOW_PART, language: main }) : undefined
                 }

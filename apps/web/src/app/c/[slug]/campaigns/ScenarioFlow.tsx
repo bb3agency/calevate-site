@@ -33,7 +33,7 @@ import {
 import { FIELD, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { CallScript } from "@/lib/api/script";
 
-import { LineCoach, type FlowAgent } from "./LineCoach";
+import { HearLine, type FlowAgent } from "./LineCoach";
 
 import { languageName } from "./ScriptLanguages";
 import {
@@ -91,24 +91,6 @@ function link(a: Point, b: Point): string {
 /** A coloured block of the scenario editor: each kind of content keeps its own colour. */
 const SECTION = "rounded-card border border-line border-l-4 p-3";
 
-/** The boxes Pip's translation would fill, as the worker counts them
- *  (`campaign_script.untranslated`): a script line missing either side, a response's other
- *  language. */
-function pendingTranslations(script: CallScript, local: string): number {
-  let n = 0;
-  for (const stage of script.stages ?? []) {
-    const en = stage.scripts?.["en-IN"]?.trim();
-    const lo = stage.scripts?.[local]?.trim();
-    if (Boolean(en) !== Boolean(lo)) n += 1;
-    for (const qa of stage.qa ?? []) {
-      const held = qa.translations?.[local];
-      if (!held?.question?.trim()) n += 1;
-      if (!held?.answer?.trim()) n += 1;
-    }
-  }
-  return n;
-}
-
 type Menu = { x: number; y: number; id: string | null; step: number };
 
 export function ScenarioFlow({
@@ -122,18 +104,7 @@ export function ScenarioFlow({
   onSelect,
   onChange,
   agent,
-  onTranslate,
-  translating = false,
-  translateBlocked = null,
-  translateNote = null,
-  onDismissTranslate,
 }: {
-  translateNote?: string | null;
-  onDismissTranslate?: () => void;
-  /** Ask Pip to fill the local-language boxes from the English, every scenario. */
-  onTranslate?: () => void;
-  translating?: boolean;
-  translateBlocked?: string | null;
   /** The campaign's agent, whose voice "Hear it" speaks in; null while none is chosen. */
   agent: FlowAgent | null;
   script: CallScript;
@@ -181,11 +152,6 @@ export function ScenarioFlow({
       readOnly={readOnly}
       agent={agent}
       wide={wide}
-      onTranslate={onTranslate}
-      translating={translating}
-      translateBlocked={translateBlocked}
-      translateNote={translateNote}
-      onDismissTranslate={onDismissTranslate}
       onChange={onChange}
       onDelete={() => remove(chosen.section.id)}
     />
@@ -786,19 +752,7 @@ function ScenarioEditor({
   wide,
   onChange,
   onDelete,
-  onTranslate,
-  translating,
-  translateBlocked,
-  translateNote,
-  onDismissTranslate,
 }: {
-  /** Why the last translation came to nothing, until dismissed. */
-  translateNote: string | null;
-  onDismissTranslate?: () => void;
-  onTranslate?: () => void;
-  translating: boolean;
-  /** Why translating cannot start now (unsaved changes), or null. */
-  translateBlocked: string | null;
   agent: FlowAgent | null;
   /** Under the picture at full width: three columns. */
   wide: boolean;
@@ -862,23 +816,10 @@ function ScenarioEditor({
           );
         }}
       />
-      <LineCoach
+      <HearLine
         agent={agent}
-        source={`Call flow, scenario ${item.label}`}
         language={tag}
         line={scripts[tag] ?? (tag === main ? legacy : "")}
-        notes={(s.coaching ?? [])
-          .filter((c) => c.language === tag)
-          .map((c) => c.note)}
-        readOnly={readOnly}
-        onNotes={(notes) =>
-          patch({
-            coaching: [
-              ...(s.coaching ?? []).filter((c) => c.language !== tag),
-              ...notes.map((note) => ({ language: tag, note })),
-            ].slice(0, 10),
-          })
-        }
       />
     </div>
   );
@@ -918,7 +859,6 @@ function ScenarioEditor({
     </label>
   );
 
-  const translatable = local ? pendingTranslations(script, local) : 0;
   // Two columns side by side, English left and the local language beside it; the right
   // column holds where the call goes next (founder, 17 Nov 2026).
   const pair = wide ? "grid gap-x-6 gap-y-3 lg:grid-cols-2" : "space-y-3";
@@ -930,7 +870,9 @@ function ScenarioEditor({
         <span className="rounded-full bg-series-2 px-2 py-0.5 text-meta font-semibold tabular-nums text-white">
           Scenario {item.label}
         </span>
-        <div className="min-w-0 flex-1">{agent?.bar}</div>
+        <div className="min-w-0 flex-1">
+          {agent && !agent.id ? agent.missing : null}
+        </div>
         <label className="flex items-center gap-1.5 text-meta text-ink">
           Step
           <select
@@ -1003,47 +945,6 @@ function ScenarioEditor({
               )}
             </div>
           </div>
-
-          {local && onTranslate && !readOnly && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-card border border-series-3/40 bg-series-3/10 px-3 py-2">
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-full bg-series-3 px-3 py-1 text-meta font-semibold text-white hover:opacity-90 disabled:opacity-50"
-                disabled={
-                  translating || translateBlocked != null || translatable === 0
-                }
-                onClick={onTranslate}
-              >
-                <Languages aria-hidden className="h-3.5 w-3.5" />
-                {translating
-                  ? "Pip is translating…"
-                  : `Translate with Pip (English ⇄ ${toLocal})`}
-              </button>
-              <span className="text-[12px] text-ink-muted">
-                {translateBlocked ??
-                  (translatable === 0
-                    ? `Nothing to translate: every line already has English and ${toLocal}.`
-                    : `${translatable} empty ${translatable === 1 ? "box" : "boxes"} across all scenarios will be filled; what you wrote stays.`)}
-              </span>
-              {translateNote && (
-                <span
-                  role="alert"
-                  className="flex w-full items-center gap-2 text-[12px] text-danger"
-                >
-                  {translateNote}
-                  {onDismissTranslate && (
-                    <button
-                      type="button"
-                      className="underline"
-                      onClick={onDismissTranslate}
-                    >
-                      Dismiss
-                    </button>
-                  )}
-                </span>
-              )}
-            </div>
-          )}
 
           <div className={pair}>
             <div className={`${SECTION} border-l-series-2 bg-series-2/5`}>
@@ -1121,30 +1022,46 @@ function ScenarioEditor({
                           />
                         </label>
                       ) : null}
-                      <label className="block text-meta text-ink-muted">
-                        Agent (English)
-                        <textarea
-                          className={`${FIELD} mt-0.5 min-h-14`}
-                          placeholder="What the agent answers"
-                          value={row.answer}
-                          maxLength={1000}
-                          readOnly={readOnly}
-                          onChange={(e) => setQa(i, { answer: e.target.value })}
-                        />
-                      </label>
-                      {local && held ? (
+                      <div>
                         <label className="block text-meta text-ink-muted">
-                          Agent ({toLocal})
+                          Agent (English)
                           <textarea
                             className={`${FIELD} mt-0.5 min-h-14`}
-                            value={held.answer}
+                            placeholder="What the agent answers"
+                            value={row.answer}
                             maxLength={1000}
                             readOnly={readOnly}
                             onChange={(e) =>
-                              setLocalQa(i, "answer", e.target.value)
+                              setQa(i, { answer: e.target.value })
                             }
                           />
                         </label>
+                        <HearLine
+                          agent={agent}
+                          language={english}
+                          line={row.answer}
+                        />
+                      </div>
+                      {local && held ? (
+                        <div>
+                          <label className="block text-meta text-ink-muted">
+                            Agent ({toLocal})
+                            <textarea
+                              className={`${FIELD} mt-0.5 min-h-14`}
+                              value={held.answer}
+                              maxLength={1000}
+                              readOnly={readOnly}
+                              onChange={(e) =>
+                                setLocalQa(i, "answer", e.target.value)
+                              }
+                            />
+                          </label>
+                          <HearLine
+                            agent={agent}
+                            language={local}
+                            line={held.answer}
+                          />
+                        </div>
                       ) : null}
                     </div>
                   </li>
