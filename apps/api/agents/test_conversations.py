@@ -88,6 +88,7 @@ from apps.api.actions import service as action_service
 from apps.api.agents import handoff, script_builder, trial_results
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit, business_fit
 from apps.api.agents.mistake_fixes import Holder
+from apps.api.agents.models import PUBLISHED_STATUSES
 from apps.api.agents.script_lint import CapabilityManifest, presumed_lines
 from apps.api.agents.test_fixes import choose_holder
 from apps.api.agents.trial_results import OWNERS, Owner, owner_of, result_owner
@@ -1416,8 +1417,8 @@ async def _agent(session: AsyncSession, agent_id: UUID) -> Any:
     row = (
         await session.execute(
             text(
-                "SELECT a.engine_agent_ref, a.direction, a.language_primary, pv.version "
-                "FROM agents a LEFT JOIN prompt_versions pv ON pv.id = a.live_prompt_id "
+                "SELECT a.engine_agent_ref, a.direction, a.language_primary, pv.version, "
+                "a.status FROM agents a LEFT JOIN prompt_versions pv ON pv.id = a.live_prompt_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
             {"aid": agent_id},
@@ -1426,6 +1427,13 @@ async def _agent(session: AsyncSession, agent_id: UUID) -> Any:
     if row is None:
         raise ProblemError.not_found("Agent")
     return row
+
+
+def testable(engine_agent_ref: object, status: object) -> bool:
+    """Can test chats reach this agent? Through its own engine agent while it holds one, and
+    once it is got ready without one (D-1019) through its "Just the business" test copy
+    (`paid_test_calls.agent_test_ref`). A draft has neither."""
+    return engine_agent_ref is not None or status in PUBLISHED_STATUSES
 
 
 async def readiness(session: AsyncSession, agent_id: UUID) -> TestReadiness:
@@ -1438,7 +1446,7 @@ async def readiness(session: AsyncSession, agent_id: UUID) -> TestReadiness:
             reason="Test conversations are not available on this calling system yet.",
             live_version=live_version,
         )
-    if row.engine_agent_ref is None:
+    if not testable(row.engine_agent_ref, row.status):
         return TestReadiness(
             available=False,
             reason=(
@@ -2209,6 +2217,7 @@ __all__ = [
     "standard_scenarios",
     "store_improve_stop",
     "store_improvement",
+    "testable",
     "untested_callers",
     "waiting_tests",
     "wants_auto_improvement",

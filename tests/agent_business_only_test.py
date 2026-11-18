@@ -247,6 +247,12 @@ async def test_the_sweep_keeps_a_business_copy_once_the_client_has_a_number(
             for a in (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalars()
         ]
         second = await _second_agent(session, tenant_id)
+        # A copy kept for paid test calls is of an agent still holding an engine agent of its
+        # own; one that holds none is tried only through its copy (D-1019).
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = :r WHERE id = :a"),
+            {"r": f"ag_own_{uuid.uuid4().hex}@org_own", "a": agents[0]},
+        )
         kept_for_calls, business_copy = (
             f"ref_agent_{uuid.uuid4().hex}",
             f"ref_biz_{uuid.uuid4().hex}",

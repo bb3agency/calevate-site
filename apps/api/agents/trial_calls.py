@@ -23,6 +23,10 @@ After the first payment the same route places the owner's PAID test call (D-859,
 agent, a live line or a running campaign already has an engine agent there, and from the
 shared number otherwise (an agent before its number, "Just the business", a draft line, a
 campaign not running), so a test never takes one of the account's calling setups (D-1018).
+
+An agent holds no engine agent of its own once its lines and campaigns hold them (D-1019), so
+its plain test call, on a trial or a paid account, is the "Just the business" call through its
+developer-workspace test copy on the shared number.
 """
 
 from __future__ import annotations
@@ -200,7 +204,8 @@ async def place_trial_call(
     `business`: the agent page's "Just the business" call. It rings through the agent's
     business-only test copy (`agents/business_only`), which lives in our developer
     workspace, so it always takes the shared trial line, on a paying account too, under the
-    shared line's per-call limit; the gate, the caps and the billing are the same.
+    shared line's per-call limit; the gate, the caps and the billing are the same. A plain
+    test call of an agent holding no engine agent of its own (D-1019) is this call.
 
     `line_id` rings through that inbound line's own engine agent, `agent_id` being the
     line's voice (Phase 3b). Every gate is the same: the dial gate on the agent, the trial's
@@ -230,8 +235,14 @@ async def place_trial_call(
     # A paid account's own test call rings from its own number, so only the engine is asked;
     # every call on the shared trial line needs that number too.
     paid_account = await has_paid(session, tenant_id=tenant_id)
+    # The request's own `business` stays what the idempotency key is checked against.
+    through_copy = business or (
+        line_id is None
+        and campaign_id is None
+        and await _holds_own_engine_agent(session, agent_id) is False
+    )
     on_trial_line = (
-        business
+        through_copy
         or not paid_account
         or await _tests_on_shared_line(session, line_id=line_id, campaign_id=campaign_id)
     )
@@ -350,7 +361,7 @@ async def place_trial_call(
 
     trial: TrialDial | None = None
     owner_test: OwnerTestDial | None = None
-    if business:
+    if through_copy:
         # The business-only copy, republished first so it never lags the agent.
         try:
             copy_ref = await refresh_test_copy(
@@ -539,6 +550,21 @@ async def _tests_on_shared_line(
         found = status.scalar_one_or_none()
         return found is not None and found not in CAMPAIGN_HOLDING_STATUSES
     return False
+
+
+async def _holds_own_engine_agent(session: AsyncSession, agent_id: UUID) -> bool | None:
+    """Does the agent still hold an engine agent of its own (D-1019)? None for an agent this
+    account does not have, which the dial gate words."""
+    value = (
+        await session.execute(
+            text(
+                "SELECT engine_agent_ref IS NOT NULL FROM agents "
+                "WHERE id = :aid AND deleted_at IS NULL"
+            ),
+            {"aid": agent_id},
+        )
+    ).scalar()
+    return None if value is None else bool(value)
 
 
 async def _agent_call_cap(session: AsyncSession, agent_id: UUID) -> int | None:
