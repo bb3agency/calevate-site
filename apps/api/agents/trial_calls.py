@@ -365,22 +365,19 @@ async def place_trial_call(
     # free engine agent (D-1020): the call then rings from the shared test number, and the
     # screen says why.
     shared_fallback = False
-    # The full workspace's own refusal, said instead of "not available yet" when there is no
-    # shared number to fall back to: the owner can free a setup, but cannot set our number.
-    slots_full: ProblemError | None = None
 
-    async def unready() -> TrialCallResult:
-        if slots_full is None:
-            return await blocked(NOT_READY_RULE, NOT_READY_REASON)
-        reason = " ".join(part for part in (slots_full.detail, slots_full.remediation) if part)
-        return await blocked(slots_full.code, reason)
+    async def slots_full(refused: ProblemError) -> TrialCallResult:
+        # The full workspace's own refusal, said instead of "not available yet" when there is
+        # no shared number to fall back to: the owner can free a setup, but cannot set ours.
+        reason = " ".join(part for part in (refused.detail, refused.remediation) if part)
+        return await blocked(refused.code, reason)
 
-    async def ready(make: Callable[[bool], Awaitable[_Held]]) -> _Held | None:
+    async def ready(make: Callable[[bool], Awaitable[_Held]]) -> _Held | ProblemError:
         """The holder this test rings through: made in the client's workspace when the account
         tests from its own number, else in ours. A full client workspace (our pre-check, or
         the platform's own 409, `create-agent.md:654-668` in the 2026-10-19 mirror) falls back
-        to ours; None when that needs the shared number and none is set."""
-        nonlocal shared_fallback, slots_full
+        to ours; the refusal itself when that needs the shared number and none is set."""
+        nonlocal shared_fallback
         try:
             try:
                 return await make(own)
@@ -388,8 +385,7 @@ async def place_trial_call(
                 if not (own and refused.code in _SLOTS_FULL):
                     raise
                 if not trial_calling_ready():
-                    slots_full = refused
-                    return None
+                    return refused
             log.info("test_call_slots_full_fallback", extra={"tenant_id": str(tenant_id)})
             shared_fallback = True
             return await make(False)
@@ -406,8 +402,8 @@ async def place_trial_call(
                 tenant_id=tenant_id, line_id=line_id, in_client=in_client
             )
         )
-        if made_line is None:
-            return await unready()
+        if isinstance(made_line, ProblemError):
+            return await slots_full(made_line)
         line_test = made_line
         try:
             no_number = (
@@ -430,8 +426,8 @@ async def place_trial_call(
                 tenant_id=tenant_id, campaign_id=campaign_id, in_client=in_client
             )
         )
-        if made_campaign is None:
-            return await unready()
+        if isinstance(made_campaign, ProblemError):
+            return await slots_full(made_campaign)
         campaign_test = made_campaign
 
     # Which test copy of the agent the call rings through, if any: "Just the business" for a
@@ -454,13 +450,14 @@ async def place_trial_call(
     if copy_business is not None:
         business_copy = copy_business
         # Republished first so it never lags the agent.
-        copy_ref = await ready(
+        made_copy = await ready(
             lambda in_client: refresh_test_copy(
                 tenant_id=tenant_id, agent_id=agent_id, business=business_copy, in_client=in_client
             )
         )
-        if copy_ref is None:
-            return await unready()
+        if isinstance(made_copy, ProblemError):
+            return await slots_full(made_copy)
+        copy_ref = made_copy
 
     # The shared test line: every free-trial call, and a paid one rung through an engine agent
     # in our developer workspace. Anything else rings from the client's own number through an
