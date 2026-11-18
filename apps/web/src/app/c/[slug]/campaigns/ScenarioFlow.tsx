@@ -1022,30 +1022,46 @@ function ScenarioEditor({
                           />
                         </label>
                       ) : null}
-                      <label className="block text-meta text-ink-muted">
-                        Agent (English)
-                        <textarea
-                          className={`${FIELD} mt-0.5 min-h-14`}
-                          placeholder="What the agent answers"
-                          value={row.answer}
-                          maxLength={1000}
-                          readOnly={readOnly}
-                          onChange={(e) => setQa(i, { answer: e.target.value })}
-                        />
-                      </label>
-                      {local && held ? (
+                      <div>
                         <label className="block text-meta text-ink-muted">
-                          Agent ({toLocal})
+                          Agent (English)
                           <textarea
                             className={`${FIELD} mt-0.5 min-h-14`}
-                            value={held.answer}
+                            placeholder="What the agent answers"
+                            value={row.answer}
                             maxLength={1000}
                             readOnly={readOnly}
                             onChange={(e) =>
-                              setLocalQa(i, "answer", e.target.value)
+                              setQa(i, { answer: e.target.value })
                             }
                           />
                         </label>
+                        <HearLine
+                          agent={agent}
+                          language={english}
+                          line={row.answer}
+                        />
+                      </div>
+                      {local && held ? (
+                        <div>
+                          <label className="block text-meta text-ink-muted">
+                            Agent ({toLocal})
+                            <textarea
+                              className={`${FIELD} mt-0.5 min-h-14`}
+                              value={held.answer}
+                              maxLength={1000}
+                              readOnly={readOnly}
+                              onChange={(e) =>
+                                setLocalQa(i, "answer", e.target.value)
+                              }
+                            />
+                          </label>
+                          <HearLine
+                            agent={agent}
+                            language={local}
+                            line={held.answer}
+                          />
+                        </div>
                       ) : null}
                     </div>
                   </li>

@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+##  — 18-Nov-2026
+
+- Call flow: each agent response, in English and in Telugu, has Hear it in the agent's
+  voice, like the script lines.
+
 ## 0.4.70 — 18-Nov-2026
 
 - Call flow's scenario editor no longer has its own agent picker and voice settings: it
