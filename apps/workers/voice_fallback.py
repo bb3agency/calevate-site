@@ -368,13 +368,17 @@ async def _move(tenant_id: UUID, agent_id: UUID, *, to_voice: str) -> str | None
                 engine_voice_id=to_voice,
                 set_engine_voice_id=True,
             )
-            state = (
+            row = (
                 await session.execute(
-                    text("SELECT live_verify_state FROM agents WHERE id = :aid"), {"aid": agent_id}
+                    text("SELECT engine_agent_ref, live_verify_state FROM agents WHERE id = :aid"),
+                    {"aid": agent_id},
                 )
-            ).scalar()
-            if state != "applied":
-                raise _NotReadBackError(str(state))
+            ).one_or_none()
+            # An agent with no engine agent of its own (D-1019) has no read-back of its own:
+            # the voice reached callers through its lines' and campaigns' publishes, each of
+            # which raises when its own read-back does not prove it applied.
+            if row is not None and row[0] is not None and row[1] != "applied":
+                raise _NotReadBackError(str(row[1]))
     except (ProblemError, _NotReadBackError) as refused:
         why = refused.code if isinstance(refused, ProblemError) else f"read_back_{refused}"
         await _republish(tenant_id, agent_id)

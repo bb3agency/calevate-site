@@ -100,8 +100,7 @@ def agents_hold_engine_agent() -> bool:
     """The platform setting `agents_hold_engine_agent` (D-1019). Once off, a publish creates no
     engine agent for an agent and recreates none elsewhere, so there is nothing a move could
     do: an agent's old engine agent is adopted by its line or campaign, or retired, by
-    `agents/engine_retirement`, never moved. Read with a default because the setting is
-    declared by the release that adds it."""
+    `agents/engine_retirement`, never moved."""
     return get_settings().agents_hold_engine_agent
 
 
