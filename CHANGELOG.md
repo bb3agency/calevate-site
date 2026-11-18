@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.75 — 19-Nov-2026
+
+- A campaign testing a second opening rings people again. Before this, every contact of
+  such a campaign went to retry without ringing.
+
 ## 0.4.74 — 19-Nov-2026
 
 - A test call that needs a calling setup when both are in use, with no test number to fall
