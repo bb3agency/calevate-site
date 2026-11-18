@@ -163,6 +163,7 @@ _CAMPAIGN_WORKSPACE_ROUTES = (
     "GET /v1/campaigns/{campaign_id}/workspace",
     "PUT /v1/campaigns/{campaign_id}/main-task",
     "PUT /v1/campaigns/{campaign_id}/script",
+    "POST /v1/campaigns/{campaign_id}/script/restore-before-pip",
     "PUT /v1/campaigns/{campaign_id}/sources",
     "POST /v1/campaigns/{campaign_id}/sources/note",
     "POST /v1/campaigns/{campaign_id}/sources/link",

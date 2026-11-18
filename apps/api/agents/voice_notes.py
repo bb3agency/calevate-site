@@ -74,6 +74,20 @@ async def list_notes(session: AsyncSession, *, agent_id: UUID) -> list[VoiceNote
     return [VoiceNote(r[0], str(r[1]), str(r[2]), str(r[3]), r[4]) for r in rows]
 
 
+async def notes_of_agent(session: AsyncSession, *, agent_id: UUID) -> list[VoiceNote]:
+    """`list_notes` for a caller-supplied id: an agent this account cannot see is not
+    found, like every other agent route, rather than an empty list."""
+    visible = (
+        await session.execute(
+            text("SELECT 1 FROM agents WHERE id = :aid AND deleted_at IS NULL"),
+            {"aid": agent_id},
+        )
+    ).first()
+    if visible is None:
+        raise ProblemError.not_found("Agent")
+    return await list_notes(session, agent_id=agent_id)
+
+
 async def load(session: AsyncSession, *, agent_id: UUID) -> tuple[tuple[str, str], ...]:
     """(language, note) pairs for `agents/service._load_agent`."""
     return tuple((n.language, n.note) for n in await list_notes(session, agent_id=agent_id))

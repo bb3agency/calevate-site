@@ -580,6 +580,15 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             ),
             {"i": uuid.uuid4(), "t": tenant_id, "u": user_id, "turn": uuid.UUID(ids["turn_id"])},
         )
+        # How the owner taught the agent to sound, under the `{note_id}` the Pip note already
+        # holds (a different table), so retiring it from a neighbour reaches a real row.
+        await s.execute(
+            text(
+                "INSERT INTO agent_voice_notes (id, tenant_id, agent_id, note) "
+                "VALUES (:i, :t, :a, 'Speak slowly.')"
+            ),
+            {"i": uuid.UUID(ids["note_id"]), "t": tenant_id, "a": agent_id},
+        )
         # D-940: a live Follow-up and one lead going through it. The run reuses the
         # `{run_id}` the script-test row already holds (a different table, so the same uuid
         # is free), and the rights-desk request (D-944) reuses `{request_id}` the same way, so
@@ -764,6 +773,10 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/agents/{agent_id}/voice-tuning", {}, {}),
     ("PATCH", "/v1/agents/{agent_id}/voice-tuning", {"speed": 1.1}, {}),
     ("POST", "/v1/agents/{agent_id}/voice-tuning/preview", {"speed": 1.1}, {}),
+    ("POST", "/v1/agents/{agent_id}/voice-tuning/preview-line", {"text": "Namaste."}, {}),
+    ("GET", "/v1/agents/{agent_id}/voice-notes", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/voice-notes", {"note": "Speak slowly."}, {}),
+    ("POST", "/v1/agents/{agent_id}/voice-notes/{note_id}/retire", {}, {}),
     # D-586. The two DELIVERY writes that became client-realm when a live agent's voice and
     # call cap stopped needing an operator. Both matter more here than a read would: each
     # RE-PUBLISHES the named agent to the voice platform in the same transaction, so
@@ -887,6 +900,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/inbound-lines/{line_id}/test-calls", {}, {}),
     ("GET", "/v1/inbound-lines/{line_id}/test-numbers", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/script/proposal", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/script/restore-before-pip", {}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/script/proposal/{proposal_id}", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/questions", {}, {}),
     (

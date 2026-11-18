@@ -148,6 +148,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "team_alert_rules": "agents",
     "team_alert_contacts": "account",
     "agent_rule_proposals": "agents",
+    "agent_voice_notes": "agents",
     "agent_test_cases": "agents",
     "call_test_case_drafts": "agents",
     "agent_test_labels": "agents",

@@ -3982,6 +3982,8 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         await session.execute(text("DELETE FROM agent_test_cases"))
         await session.execute(text("DELETE FROM call_test_case_drafts"))
         await session.execute(text("DELETE FROM agent_rule_proposals"))
+        # How the owner taught each agent to sound: the business's own words.
+        await session.execute(text("DELETE FROM agent_voice_notes"))
         await session.execute(text("DELETE FROM kb_facts"))
         await session.execute(text("DELETE FROM kb_teachings"))
         await session.execute(text("DELETE FROM teach_questions"))

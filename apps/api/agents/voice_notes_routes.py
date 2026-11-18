@@ -36,6 +36,8 @@ _PATH = "/v1/agents/{agent_id}/voice-notes"
 
 
 class VoiceNoteOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: UUID
     #: A language tag, or "" for every language.
     language: str
@@ -46,6 +48,8 @@ class VoiceNoteOut(BaseModel):
 
 
 class VoiceNotesOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     items: list[VoiceNoteOut]
     #: The most active notes an agent keeps.
     limit: int
@@ -76,7 +80,7 @@ def _out(note: voice_notes.VoiceNote) -> VoiceNoteOut:
     summary="How the owner taught this agent to sound",
 )
 async def list_voice_notes(agent_id: UUID, session: Session, _: Reader) -> VoiceNotesOut:
-    notes = await voice_notes.list_notes(session, agent_id=agent_id)
+    notes = await voice_notes.notes_of_agent(session, agent_id=agent_id)
     return VoiceNotesOut(items=[_out(n) for n in notes], limit=voice_notes.MAX_ACTIVE_NOTES)
 
 

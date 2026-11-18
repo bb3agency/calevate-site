@@ -333,6 +333,10 @@ async def test_every_client_route_holding_agents_write_is_declared() -> None:
         # D-822: discarding the test Pip prepared from a call, the save above's undo.
         "/v1/calls/{call_id}/test-case-draft/pending",
         "/v1/agents/{agent_id}/try-chat",
+        # Teaching an agent how to sound edits what it says on its next publish, the same
+        # authority as editing its script.
+        "/v1/agents/{agent_id}/voice-notes",
+        "/v1/agents/{agent_id}/voice-notes/{note_id}/retire",
     }
     open_to_clients: set[str] = set()
     for route in iter_api_routes(app):

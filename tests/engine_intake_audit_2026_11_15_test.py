@@ -13,21 +13,26 @@ from apps.api.db.session import untenanted_session
 from apps.api.reliability.service import body_hash, mark_inbox_failed
 from fastapi import Response
 
+#: A signed delivery is only ever filed by an engine in `signed_intake.SIGNED_INTAKES`;
+#: filing one as signed under any other name trips
+#: `test_no_delivery_has_ever_been_filed_as_signed`.
+ENGINE = "thinnest"
+
 
 def _opt_out_work(token: str) -> webhook_routes.InboxWork:
     execution_id = f"evt_{token}"
     event_name = f"contact.opted_out:evt_{token}"
     return webhook_routes.InboxWork(
-        provider="fake",
+        provider=ENGINE,
         key_id=execution_id,
         event_name=event_name,
         payload_hash=body_hash(
-            {"engine": "fake", "execution_id": execution_id, "raw_status": event_name}
+            {"engine": ENGINE, "execution_id": execution_id, "raw_status": event_name}
         ),
-        redis_key=f"calevate:wh:fake:{execution_id}:{event_name}",
+        redis_key=f"calevate:wh:{ENGINE}:{execution_id}:{event_name}",
         job=webhook_routes.ENGINE_OPT_OUT_JOB,
-        job_id=f"{webhook_routes.ENGINE_OPT_OUT_JOB}:fake:{execution_id}:{token}",
-        job_payload={"engine": "fake", "execution_id": execution_id},
+        job_id=f"{webhook_routes.ENGINE_OPT_OUT_JOB}:{ENGINE}:{execution_id}:{token}",
+        job_payload={"engine": ENGINE, "execution_id": execution_id},
     )
 
 
