@@ -3407,7 +3407,6 @@ async def publish_agent(
             tenant_id=tenant_id,
             agent=agent,
             takes_calls=takes_calls,
-            moved_from=moved_from,
         )
         return None
     created = not (isinstance(existing_ref, str) and existing_ref)
@@ -3682,7 +3681,6 @@ async def _publish_without_engine_agent(
     tenant_id: UUID,
     agent: AgentRow,
     takes_calls: bool,
-    moved_from: str | None,
 ) -> None:
     """The rest of `publish_agent` for an agent that holds no engine agent of its own
     (D-1019), after its row is written there.
@@ -3692,19 +3690,12 @@ async def _publish_without_engine_agent(
     own. Its numbers on no live line are released, because nothing of its own answers them,
     and its live lines and running campaigns are republished in its voice, each read back by
     its own publish. The voice mirror `publish_agent` wrote is the voice they are republished
-    with, which clears the voice-divergence banner as any publish does. An agent recreated
-    out of the developer workspace (`moved_from`) gives its old vendor agent up as a publish
-    that moves it would.
+    with, which clears the voice-divergence banner as any publish does.
     """
     agent_id = UUID(str(agent["id"]))
     await call_outcomes.queue_draft(session, tenant_id=tenant_id, agent_id=agent_id)
     await field_suggestions.queue_first_pass(session, tenant_id=tenant_id, agent_id=agent_id)
     await caller_help.queue_first_pass(session, tenant_id=tenant_id, agent_id=agent_id)
-    if moved_from is not None:
-        await _after_workspace_move(
-            session, tenant_id=tenant_id, agent_id=agent_id, old_ref=moved_from
-        )
-        await _resync_agent_numbers(session, agent_id=agent_id)
     routing = await route_inbound_numbers(
         session, engine, agent_id=agent_id, ref=None, answers=False, lines_answer=takes_calls
     )
