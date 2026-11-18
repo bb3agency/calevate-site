@@ -629,6 +629,12 @@ class Settings(BaseSettings):
     #: uses it, or retires it (D-1019, `agents/engine_retirement`). Off: it runs only when an
     #: operator runs it for one client from the admin console.
     agent_engine_retirement_sweep: bool = False
+    #: Whether a publish makes an agent an engine agent of its own (D-1019). Off, an agent is
+    #: an employee and holds no slot: only its live inbound lines and its running or paused
+    #: campaigns hold engine agents, so a publish writes the agent's row and republishes
+    #: those. An agent that already holds one keeps having it updated either way. On by
+    #: default until every client's agents have been handed to their lines and campaigns.
+    agents_hold_engine_agent: bool = True
     #: Our OWN (developer) workspace's id, `org_…` like every customer's (`GET /workspace`,
     #: `thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/workspace/
     #: get-workspace.md:327-351`). Never accepted as a client's own workspace: a person-level

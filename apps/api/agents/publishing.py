@@ -105,7 +105,9 @@ from apps.api.agents.hosted_voices import parse_hosted_voice_id, source_rate_key
 from apps.api.agents.live_apply import queue_live_apply
 from apps.api.agents.models import is_published
 from apps.api.agents.opening_notices import queue_opening_notices
+from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.api.agents.service import (
+    CAMPAIGN_HOLDING_STATUSES,
     AgentRow,
     effective_call_cap,
     publish_agent,
@@ -438,6 +440,11 @@ class PendingState:
     #: same reason `voice` is not: neither Apply nor Undo acts on it, and an unconfirmed
     #: publish is cleared by publishing again, not by moving a pointer.
     engine_verification: VerificationState
+    #: The WORST verdict over the engine agents carrying this agent's work (D-1019): its own
+    #: while it holds one, its live inbound lines' and its running or paused campaigns'. None
+    #: when nothing carries it. For an agent holding no engine agent of its own this is what
+    #: "confirmed on the voice platform" means (`holders_verification`).
+    holders_verification: VerificationState | None = None
     precedence_rule: str = PRECEDENCE_RULE
     lanes: tuple[LaneEntry, ...] = field(default=LANES)
 
@@ -905,6 +912,110 @@ _VERIFY_HEADLINE: dict[str, str] = {
 }
 
 
+#: Every verdict a holder's route can carry, WORST FIRST. A proven missing truthful-answer
+#: rule outranks any other mismatch (D-562); a proven mismatch outranks "not there"; and
+#: every "we could not tell" outranks `applied`, so nothing unread is rounded up.
+HOLDER_STATES_WORST_FIRST: Final = (
+    TRUTHFUL_ANSWER_MISSING,
+    "not_applied",
+    "not_published",
+    "unreachable",
+    "unreadable",
+    "unverified",
+    "applied",
+)
+
+_HOLDERS_HEADLINE: Final[dict[str, str]] = {
+    "applied": (
+        "Everything answering or calling in this agent's voice was read back from the voice "
+        "platform and is running what we sent."
+    ),
+    "unverified": (
+        "Something answering or calling in this agent's voice has not been read back from the "
+        "voice platform yet."
+    ),
+    "unreadable": (
+        "Something answering or calling in this agent's voice could not be confirmed: the "
+        "voice platform did not report back enough to check it."
+    ),
+    "unreachable": (
+        "Something answering or calling in this agent's voice could not be confirmed: the "
+        "voice platform did not answer when it was read back."
+    ),
+}
+#: For the three proven mismatches.
+_HOLDERS_MISMATCH = (
+    "Something answering or calling in this agent's voice is not running what we sent. Publish "
+    "the agent again to put it back."
+)
+
+#: Each holder's verdict and when it was read, from the routes of the engine agents that hold
+#: this agent's work: its own (whose drift reading falls back to its publish read-back), its
+#: live lines' and its running or paused campaigns'. `engine_agent_routes` carries no tenant
+#: policy, so the tenant is named.
+_HOLDER_VERDICTS_SQL: Final = (
+    "SELECT COALESCE(r.drift_state, CASE WHEN r.engine_agent_ref = a.engine_agent_ref "
+    "THEN a.live_verify_state END, 'unverified'), "
+    "CASE WHEN r.drift_state IS NOT NULL THEN r.drift_checked_at "
+    "WHEN r.engine_agent_ref = a.engine_agent_ref THEN a.live_verified_at END "
+    "FROM engine_agent_routes r JOIN agents a ON a.id = r.agent_id "
+    "WHERE r.agent_id = :aid AND r.tenant_id = :tid AND r.active AND a.deleted_at IS NULL "
+    "AND (r.engine_agent_ref = a.engine_agent_ref "
+    "OR EXISTS (SELECT 1 FROM inbound_lines l WHERE l.agent_id = a.id "
+    "AND l.engine_agent_ref = r.engine_agent_ref AND l.archived_at IS NULL "
+    "AND l.published_at IS NOT NULL) "
+    "OR EXISTS (SELECT 1 FROM campaigns g WHERE g.agent_id = a.id "
+    "AND g.engine_agent_ref = r.engine_agent_ref AND g.archived_at IS NULL "
+    "AND g.status = ANY(:holding)))"
+)
+
+
+def worst_holder_state(states: list[str]) -> str | None:
+    """The worst of `states` by `HOLDER_STATES_WORST_FIRST`; a value outside it counts as
+    `unverified`, never as applied. None for no states."""
+    if not states:
+        return None
+    ranks = [
+        HOLDER_STATES_WORST_FIRST.index(s)
+        if s in HOLDER_STATES_WORST_FIRST
+        else HOLDER_STATES_WORST_FIRST.index("unverified")
+        for s in states
+    ]
+    return HOLDER_STATES_WORST_FIRST[min(ranks)]
+
+
+async def holders_verification(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+) -> VerificationState | None:
+    """The WORST verdict over the engine agents carrying this agent's work (D-1019), read in
+    the caller's session; None when nothing carries it.
+
+    Worst rather than a list because a screen asks one question — "is what callers reach
+    confirmed?" — and one line running something we did not send makes the answer no. A
+    holder never read back is `unverified`, never assumed applied. `verified_at` is the
+    OLDEST reading when every holder is confirmed, so the time shown is the weakest one.
+    """
+    rows = (
+        await session.execute(
+            text(_HOLDER_VERDICTS_SQL),
+            {"aid": agent_id, "tid": tenant_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
+        )
+    ).all()
+    worst = worst_holder_state([str(row[0]) for row in rows])
+    if worst is None:
+        return None
+    confirmed = worst == "applied"
+    read_at = [row[1] for row in rows if row[1] is not None]
+    return VerificationState(
+        state=worst,
+        # An `applied` reading always carries its time (the sweep's and the publish's).
+        verified_at=min(read_at, default=None) if confirmed else None,
+        confirmed=confirmed,
+        headline=_HOLDERS_HEADLINE.get(worst, _HOLDERS_MISMATCH),
+        publishable=engine_capabilities().hosts_agents(),
+    )
+
+
 def _verification_state(row: _AgentRow) -> VerificationState:
     # THE ENGINE'S OWN ANSWER, ASKED FIRST (D-281). `engine_capabilities()` is synchronous
     # and makes no network call — `VoiceEngine.capabilities` is an attribute precisely so a
@@ -964,6 +1075,9 @@ async def _state(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> Pend
         worst_case_call_cost_inr=worst_case_cost(cap, await worst_case_rate(session, tenant_id)),
         voice=_voice_state(row),
         engine_verification=_verification_state(row),
+        holders_verification=await holders_verification(
+            session, tenant_id=tenant_id, agent_id=agent_id
+        ),
     )
 
 
@@ -1962,6 +2076,7 @@ async def set_call_cap(
 
 __all__ = [
     "DISCLOSURE_TOGGLES",
+    "HOLDER_STATES_WORST_FIRST",
     "LANES",
     "PRECEDENCE_RULE",
     "VOICE_NOT_IN_CATALOGUE_NOTE",
@@ -1981,6 +2096,7 @@ __all__ = [
     "apply_to_live",
     "audit_action_for",
     "engine_drift_for",
+    "holders_verification",
     "lane_of",
     "lanes",
     "pending_state_for",
@@ -1990,4 +2106,5 @@ __all__ = [
     "undo_staged",
     "worst_case_cost",
     "worst_case_rate",
+    "worst_holder_state",
 ]

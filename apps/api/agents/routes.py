@@ -125,7 +125,9 @@ class PublishOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_id: UUID
-    engine_agent_ref: str
+    #: Null for an agent that holds no engine agent of its own (D-1019): it answers and calls
+    #: through its live inbound lines and running campaigns.
+    engine_agent_ref: str | None
     status: str
 
 

@@ -86,6 +86,7 @@ from typing import (
     TypedDict,
     TypeGuard,
     cast,
+    overload,
     runtime_checkable,
 )
 from uuid import UUID
@@ -1344,11 +1345,15 @@ async def route_inbound_numbers(
     engine: VoiceEngine,
     *,
     agent_id: UUID,
-    ref: str,
+    ref: str | None,
     answers: bool,
     lines_answer: bool | None = None,
 ) -> InboundRouting:
     """Make the engine agree with `phone_numbers.agent_id` (D-420).
+
+    `ref` is None for an agent that holds no engine agent of its own (D-1019): its numbers
+    on no live line are released whatever `answers` says, since nothing of its own could
+    answer them.
 
     **A NUMBER ON A PUBLISHED INBOUND LINE IS ANSWERED BY THE LINE'S OWN ENGINE AGENT**
     (D-997), never by `ref`. `lines_answer` says whether those numbers answer, and defaults
@@ -1400,7 +1405,10 @@ async def route_inbound_numbers(
         if row[5]:
             by_line.setdefault(str(row[5]), []).append(row[:5])
     totals = InboundRouting(bound=0, released=0, failed=0, unsupported=0)
-    groups: list[tuple[str, bool, list[Any]]] = [(ref, answers, own)] if own else []
+    # The release arm names the number, not an agent, so an absent `ref` is never sent.
+    groups: list[tuple[str, bool, list[Any]]] = (
+        [(ref or "", answers and ref is not None, own)] if own else []
+    )
     line_answers = answers if lines_answer is None else lines_answer
     groups += [(line_ref, line_answers, line_rows) for line_ref, line_rows in by_line.items()]
     for target, answering, group in groups:
@@ -1729,10 +1737,13 @@ _ANSWERING_AGENT_COLUMNS = (
     "FROM agents"
 )
 
-#: An agent with a live inbound line answers on it whatever its own direction (D-997).
+#: An agent with a live inbound line answers on it whatever its own direction (D-997), and
+#: whether or not it holds an engine agent of its own (D-1019); one with no live line answers
+#: only as itself, which needs its own engine agent.
 _ANSWERING_AGENTS_SQL = (
-    _ANSWERING_AGENT_COLUMNS + " WHERE status = 'live' AND engine_agent_ref IS NOT NULL"
-    " AND (direction IN ('inbound', 'both') OR EXISTS (SELECT 1 FROM inbound_lines l"
+    _ANSWERING_AGENT_COLUMNS + " WHERE status = 'live'"
+    " AND ((engine_agent_ref IS NOT NULL AND direction IN ('inbound', 'both'))"
+    " OR EXISTS (SELECT 1 FROM inbound_lines l"
     " WHERE l.agent_id = agents.id AND l.archived_at IS NULL AND l.published_at IS NOT NULL"
     " AND l.engine_agent_ref IS NOT NULL))"
     " AND deleted_at IS NULL AND archived_at IS NULL ORDER BY id"
@@ -1803,7 +1814,8 @@ async def answering_refs(session: AsyncSession, *, row: Any) -> list[str]:
     row: its own while it answers as itself, and each of its live lines' (D-997). A silence
     that changes what the agent says applies to all of them, or a line would go on taking
     calls the agent has stopped taking."""
-    own = [str(row[1])] if agent_answers_inbound(cast(AgentDirection, str(row[10]))) else []
+    answers_as_itself = row[1] and agent_answers_inbound(cast(AgentDirection, str(row[10])))
+    own = [str(row[1])] if answers_as_itself else []
     return own + await live_line_refs(session, agent_id=UUID(str(row[0])))
 
 
@@ -2264,7 +2276,9 @@ async def reconcile_inbound_truthful_answer(
         # Deleted between the sweep's read and this write. Not an error — the same
         # non-outcome `record_drift` reports when a route vanishes under it.
         return "gone"
-    ref, reason = str(row[1]), row[9]
+    # None for an agent answering only through its lines (D-1019).
+    ref: str | None = str(row[1]) if row[1] else None
+    reason = row[9]
     silenced_for_compliance = reason == INBOUND_SILENCE_TRUTHFUL_ANSWER
     if not await answering_refs(session, row=row):
         # Nobody can ring it, so there is nothing to take away. Its outbound is already
@@ -2347,7 +2361,7 @@ async def _settle_inbound_silence(
     *,
     tenant_id: UUID,
     agent_id: UUID,
-    ref: str,
+    ref: str | None,
     answers: bool,
     truthful_answer_proven: bool,
 ) -> None:
@@ -2468,7 +2482,7 @@ async def _settle_inbound_silence(
     if not engine.capabilities.has("script_override"):
         return
     try:
-        if agent_answers_inbound(cast(AgentDirection, str(row[10]))):
+        if ref and agent_answers_inbound(cast(AgentDirection, str(row[10]))):
             # Only the agent's own: its lines are republished after this and each holds the
             # stop itself (`publish_line`'s `_hold_line_if_silenced`).
             await engine.override_call_script(ref, **_credit_stop_words(engine, row))
@@ -3006,6 +3020,32 @@ async def _refuse_during_maintenance(session: AsyncSession) -> None:
         )
 
 
+@overload
+async def publish_agent(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    take_calls: bool = ...,
+    onto_test_copy: Literal[True],
+    business_only: bool = ...,
+) -> str:
+    """Typing only: a test copy is always made, so its handle is always returned."""
+
+
+@overload
+async def publish_agent(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    take_calls: bool = ...,
+    onto_test_copy: bool = ...,
+    business_only: bool = ...,
+) -> str | None:
+    """Typing only: None for an agent published without an engine agent of its own."""
+
+
 async def publish_agent(
     session: AsyncSession,
     *,
@@ -3014,8 +3054,13 @@ async def publish_agent(
     take_calls: bool = True,
     onto_test_copy: bool = False,
     business_only: bool = False,
-) -> str:
+) -> str | None:
     """Create or update the agent on the engine, VERIFY it, then record the mapping.
+
+    Returns the engine agent's handle, or None for an agent that holds none of its own
+    (D-1019): with `agents_hold_engine_agent` off, an agent that does not already hold one
+    is published without one (`_publish_without_engine_agent`) and answers and calls only
+    through its live inbound lines and running campaigns. A test copy is always made.
 
     `take_calls=False` is "Ready, not taking calls" (D-838): the agent is published and read
     back like any other, so the Try it chat talks to it, but its status is left as it is, no
@@ -3284,6 +3329,45 @@ async def publish_agent(
     ):
         # Made afresh below; `_record_test_copy` retires the old one.
         existing_ref = None
+    if (
+        not onto_test_copy
+        and not (isinstance(existing_ref, str) and existing_ref)
+        and not get_settings().agents_hold_engine_agent
+    ):
+        # An agent holding no engine agent of its own (D-1019). `live` is still only written
+        # here: what callers reach is its lines' and campaigns' engine agents, each read back
+        # by its own publish in this same transaction (`_publish_without_engine_agent`), so
+        # a refused read-back rolls this status back with it.
+        result = await session.execute(
+            text(
+                (
+                    "UPDATE agents SET engine_agent_ref = NULL, engine = :engine, status = 'live', "
+                    if takes_calls
+                    else "UPDATE agents SET engine_agent_ref = NULL, engine = :engine, "
+                )
+                + "live_tts_voice = :live_voice, live_tts_provider = :live_provider, "
+                "voice_settings = CAST(:voice_settings AS jsonb), updated_at = now() "
+                "WHERE id = :aid AND deleted_at IS NULL AND status <> 'archived'"
+            ),
+            {
+                "engine": engine.name,
+                "aid": agent_id,
+                "live_voice": voice_id_of(config.models.tts_model, config.models.tts_voice),
+                "live_provider": config.models.tts_provider,
+                "voice_settings": json.dumps(stamp_of(config, engine)),
+            },
+        )
+        if rowcount_of(result) == 0:
+            raise _deleted_during_publish()
+        await _publish_without_engine_agent(
+            session,
+            engine,
+            tenant_id=tenant_id,
+            agent=agent,
+            takes_calls=takes_calls,
+            moved_from=moved_from,
+        )
+        return None
     created = not (isinstance(existing_ref, str) and existing_ref)
     if isinstance(existing_ref, str) and existing_ref:
         try:
@@ -3421,14 +3505,7 @@ async def publish_agent(
             },
         )
         if rowcount_of(result) == 0:
-            raise ProblemError.conflict(
-                "agent_deleted_during_publish",
-                "This agent was deleted or archived while it was being published.",
-                remediation=(
-                    "Nothing was recorded as live. Restore the agent, or recreate it if it is "
-                    "still needed."
-                ),
-            )
+            raise _deleted_during_publish()
         # D-836: its own call outcomes, drafted once, queued in this transaction so a failed
         # publish queues nothing. A no-op for an agent that has them or was drafted before.
         await call_outcomes.queue_draft(session, tenant_id=tenant_id, agent_id=agent_id)
@@ -3541,6 +3618,77 @@ async def publish_agent(
         },
     )
     return ref
+
+
+def _deleted_during_publish() -> ProblemError:
+    return ProblemError.conflict(
+        "agent_deleted_during_publish",
+        "This agent was deleted or archived while it was being published.",
+        remediation=(
+            "Nothing was recorded as live. Restore the agent, or recreate it if it is still needed."
+        ),
+    )
+
+
+async def _publish_without_engine_agent(
+    session: AsyncSession,
+    engine: VoiceEngine,
+    *,
+    tenant_id: UUID,
+    agent: AgentRow,
+    takes_calls: bool,
+    moved_from: str | None,
+) -> None:
+    """The rest of `publish_agent` for an agent that holds no engine agent of its own
+    (D-1019), after its row is written there.
+
+    Every check and the config are `publish_agent`'s, so an agent its lines and campaigns
+    could not carry is refused exactly as before. Nothing is written at the vendor of its
+    own. Its numbers on no live line are released, because nothing of its own answers them,
+    and its live lines and running campaigns are republished in its voice, each read back by
+    its own publish. The voice mirror `publish_agent` wrote is the voice they are republished
+    with, which clears the voice-divergence banner as any publish does. An agent recreated
+    out of the developer workspace (`moved_from`) gives its old vendor agent up as a publish
+    that moves it would.
+    """
+    agent_id = UUID(str(agent["id"]))
+    await call_outcomes.queue_draft(session, tenant_id=tenant_id, agent_id=agent_id)
+    await field_suggestions.queue_first_pass(session, tenant_id=tenant_id, agent_id=agent_id)
+    await caller_help.queue_first_pass(session, tenant_id=tenant_id, agent_id=agent_id)
+    if moved_from is not None:
+        await _after_workspace_move(
+            session, tenant_id=tenant_id, agent_id=agent_id, old_ref=moved_from
+        )
+        await _resync_agent_numbers(session, agent_id=agent_id)
+    routing = await route_inbound_numbers(
+        session, engine, agent_id=agent_id, ref=None, answers=False, lines_answer=takes_calls
+    )
+    await _warn_if_answering_nothing(
+        session,
+        agent_id=agent_id,
+        answers_inbound=takes_calls and agent_answers_inbound(agent["direction"]),
+        routing=routing,
+        through_lines_only=True,
+    )
+    await _settle_inbound_silence(
+        session,
+        engine,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        ref=None,
+        answers=takes_calls and bool(await live_line_refs(session, agent_id=agent_id)),
+        # Nothing of its own was read back, so a compliance silence outlives this publish;
+        # the drift sweep of its lines' engine agents is what lifts it.
+        truthful_answer_proven=False,
+    )
+    await republish_running_variants(session, tenant_id=tenant_id, agent_id=agent_id)
+    await republish_lines(session, tenant_id=tenant_id, agent_id=agent_id)
+    await republish_campaign_agents(session, tenant_id=tenant_id, agent_id=agent_id)
+    await queue_opening_notices(session, tenant_id=tenant_id, agent_id=agent_id)
+    log.info(
+        "agent_published",
+        extra={"agent_id": str(agent_id), "engine": engine.name, "verify_state": "no_engine_agent"},
+    )
 
 
 _VARIANT_CONFIG_SQL = (
@@ -6408,7 +6556,12 @@ _UNATTACHED_NUMBERS_SQL = (
 
 
 async def _warn_if_answering_nothing(
-    session: AsyncSession, *, agent_id: UUID, answers_inbound: bool, routing: InboundRouting
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    answers_inbound: bool,
+    routing: InboundRouting,
+    through_lines_only: bool = False,
 ) -> None:
     """Make a publish that answers NO number loud, when the client has one to answer (D-576).
 
@@ -6456,12 +6609,15 @@ async def _warn_if_answering_nothing(
     orphaned = (await session.execute(text(_UNATTACHED_NUMBERS_SQL))).scalar() or 0
     if not orphaned:
         return
+    # An agent with no engine agent of its own (D-1019) answers only on its live lines, so
+    # the fix is a number on one of them rather than on the agent.
+    where = "on a live inbound line of this agent" if through_lines_only else "attached to it"
     alert(
         "CORE_LOGIC",
         "agent_published_answering_no_number",
         detail=(
-            "this agent answers incoming calls and is now live, but no number is attached "
-            f"to it — while this client holds {orphaned} recorded number(s) attached to no "
+            f"this agent answers incoming calls and is now live, but no number is {where} "
+            f"— while this client holds {orphaned} recorded number(s) attached to no "
             "agent at all. Nothing rings it. The publish itself succeeded."
         ),
         agent_id=str(agent_id),

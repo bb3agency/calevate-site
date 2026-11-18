@@ -102,7 +102,7 @@ def agents_hold_engine_agent() -> bool:
     do: an agent's old engine agent is adopted by its line or campaign, or retired, by
     `agents/engine_retirement`, never moved. Read with a default because the setting is
     declared by the release that adds it."""
-    return bool(getattr(get_settings(), "agents_hold_engine_agent", True))
+    return get_settings().agents_hold_engine_agent
 
 
 async def agents_to_move(session: AsyncSession, *, tenant_id: UUID, workspace: str) -> list[UUID]:

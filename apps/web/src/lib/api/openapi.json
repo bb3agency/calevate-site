@@ -44468,6 +44468,16 @@
               }
             ]
           },
+          "holders_verification": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VerificationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "pending": {
             "items": {
               "$ref": "#/components/schemas/PendingChangeOut"
@@ -44517,6 +44527,7 @@
           "worst_case_call_cost_inr",
           "voice",
           "engine_verification",
+          "holders_verification",
           "voice_tier_rates",
           "precedence_rule"
         ],
@@ -68822,8 +68833,15 @@
             "type": "string"
           },
           "engine_agent_ref": {
-            "title": "Engine Agent Ref",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Agent Ref"
           },
           "status": {
             "title": "Status",

@@ -648,8 +648,21 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "On: every hour, each agent's own setup goes to what uses it, or is removed.",
         _THINNEST,
         details=(
-            "Off: it runs only for one client at a time, from that client's voice workspace "
-            "page. Run a dry run there first."
+            "Off: it runs only when an operator runs it for one client "
+            "(POST /v1/admin/engine-workspaces/tenants/{id}/agent-engine-retirement), "
+            "dry run first."
+        ),
+    ),
+    "agents_hold_engine_agent": _m(
+        "voice-engine",
+        "thinnest",
+        "Agents hold an engine agent of their own",
+        "On: publishing an agent makes it its own engine agent. Off: only live inbound lines "
+        "and running campaigns hold one.",
+        _THINNEST,
+        details=(
+            "Off frees a workspace slot per agent. An agent that already holds one keeps it "
+            "until it is handed to its line or campaign."
         ),
     ),
     "thinnest_developer_workspace_id": _m(
@@ -1894,6 +1907,8 @@ HIGH_RISK: Final[dict[str, str]] = {
     "thinnest_clear_voice_band": "Changes which ThinnestAI band clients are sold as Clear.",
     "thinnest_own_rules": "Every live agent is republished, and its hand-over, lead and "
     "call-back rules come from our prompt alone (on) or from ThinnestAI as well (off).",
+    "agents_hold_engine_agent": "Off: an agent published for the first time answers only "
+    "through its live inbound lines and places calls only through its campaigns.",
     "thinnest_call_instructions": "Every live agent is republished, and how it speaks on calls "
     "follows our call rules (on) or ThinnestAI's default call rules (off).",
     "thinnest_in_call_default_model": "Changes the language model every agent with none of its "

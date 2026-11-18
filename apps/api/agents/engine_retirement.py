@@ -150,7 +150,7 @@ def agents_still_get_their_own() -> bool:
     """Whether a publish still makes an agent an engine agent of its own (WP-B's setting,
     on by default in release R1). While it is, retiring one only has the next publish make
     another, so the job refuses."""
-    return bool(getattr(get_settings(), "agents_hold_engine_agent", True))
+    return get_settings().agents_hold_engine_agent
 
 
 def _creation_still_on() -> ProblemError:

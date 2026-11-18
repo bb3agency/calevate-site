@@ -33,6 +33,7 @@ from sqlalchemy import text
 
 from apps.api.agents.engine_settings import check_agent_settings
 from apps.api.agents.publishing import engine_drift_for
+from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import job_try
@@ -982,34 +983,53 @@ async def _verify_dlq_empty(incident: Incident) -> bool:
 # --- agent playbooks ------------------------------------------------------------------------
 
 
-async def _agent_ref(tenant_id: UUID, agent_id: UUID) -> str | None:
+#: Every engine agent a caller of this agent reaches or is called by: its own while it holds
+#: one, its live inbound lines' (D-997) and its running or paused campaigns' (D-1003). An
+#: agent that holds none of its own (D-1019) is repaired through these alone.
+_AGENT_HOLDER_REFS_SQL = (
+    "SELECT a.engine_agent_ref FROM agents a WHERE a.id = :aid AND a.deleted_at IS NULL "
+    "AND a.engine_agent_ref IS NOT NULL UNION ALL "
+    "SELECT l.engine_agent_ref FROM inbound_lines l JOIN agents a ON a.id = l.agent_id "
+    "WHERE l.agent_id = :aid AND a.deleted_at IS NULL AND l.archived_at IS NULL "
+    "AND l.published_at IS NOT NULL AND l.engine_agent_ref IS NOT NULL UNION ALL "
+    "SELECT g.engine_agent_ref FROM campaigns g JOIN agents a ON a.id = g.agent_id "
+    "WHERE g.agent_id = :aid AND a.deleted_at IS NULL AND g.archived_at IS NULL "
+    "AND g.engine_agent_ref IS NOT NULL AND g.status = ANY(:holding)"
+)
+
+
+async def _agent_refs(tenant_id: UUID, agent_id: UUID) -> list[str]:
     async with tenant_session(tenant_id) as session:
-        row = (
-            await session.execute(
-                text("SELECT engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"),
-                {"aid": agent_id},
-            )
-        ).first()
-    return str(row[0]) if row and row[0] else None
+        rows = await session.execute(
+            text(_AGENT_HOLDER_REFS_SQL),
+            {"aid": agent_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
+        )
+        return list(dict.fromkeys(str(ref) for ref in rows.scalars()))
 
 
 async def repair_agent_plumbing(tenant_id: UUID, agent_id: UUID) -> str:
-    """Re-check and repair the parts of one agent that our own records decide: its call
-    settings, its call-event endpoint and its in-call actions. Never its script."""
-    ref = await _agent_ref(tenant_id, agent_id)
-    if ref is None:
+    """Re-check and repair the parts of one agent that our own records decide, on each
+    engine agent that holds it: its call settings, its call-event endpoint and its in-call
+    actions. Never its script."""
+    refs = await _agent_refs(tenant_id, agent_id)
+    if not refs:
         return "not_published"
     engine = get_settings().engine
-    checked = await check_agent_settings(
-        tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=ref
-    )
-    async with tenant_session(tenant_id) as session:
-        webhook = await ensure_agent_webhook(session, engine=engine, engine_agent_ref=ref)
-    actions = await check_agent_actions(tenant_id=tenant_id, engine=engine, engine_agent_ref=ref)
-    settings_outcome = (
-        "unchecked" if checked is None else ("repaired" if checked.repaired else "clean")
-    )
-    return f"settings={settings_outcome} webhook={webhook.outcome} actions={actions}"
+    outcomes: list[str] = []
+    for ref in refs:
+        checked = await check_agent_settings(
+            tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=ref
+        )
+        async with tenant_session(tenant_id) as session:
+            webhook = await ensure_agent_webhook(session, engine=engine, engine_agent_ref=ref)
+        actions = await check_agent_actions(
+            tenant_id=tenant_id, engine=engine, engine_agent_ref=ref
+        )
+        settings_outcome = (
+            "unchecked" if checked is None else ("repaired" if checked.repaired else "clean")
+        )
+        outcomes.append(f"settings={settings_outcome} webhook={webhook.outcome} actions={actions}")
+    return "; ".join(outcomes)
 
 
 async def _agent_reads_back(tenant_id: UUID, agent_id: UUID) -> bool:

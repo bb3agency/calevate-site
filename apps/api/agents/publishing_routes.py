@@ -369,6 +369,13 @@ class PendingOut(Strict):
     # a `prompt_versions` pointer, and neither can turn an unconfirmed publish into a
     # confirmed one. Publishing again is what does that.
     engine_verification: VerificationOut
+    #: The WORST verdict over every engine agent carrying this agent's work (D-1019): its
+    #: live inbound lines', its running or paused campaigns' and its own while it holds one.
+    #: Null when nothing carries it. `state` may also be `not_applied`,
+    #: `truthful_answer_missing` or `not_published` here (a drift-sweep reading); `confirmed`
+    #: is true only when every holder reads `applied`. For an agent holding no engine agent of
+    #: its own, this is what "confirmed on the voice platform" means.
+    holders_verification: VerificationOut | None
     #: One entry per voice tier, both always present. The voice picker's price column —
     #: see `VoiceTierRateOut`. Read from the wallet's own lots, so it is a fact about THIS
     #: client rather than about the catalogue.
@@ -500,6 +507,16 @@ def _render_voice(voice: publishing.AgentVoice | None) -> AgentVoiceOut | None:
     )
 
 
+def _render_verification(verdict: publishing.VerificationState) -> VerificationOut:
+    return VerificationOut(
+        state=verdict.state,
+        verified_at=verdict.verified_at,
+        confirmed=verdict.confirmed,
+        headline=verdict.headline,
+        publishable=verdict.publishable,
+    )
+
+
 def _render(
     state: publishing.PendingState,
     *,
@@ -542,12 +559,11 @@ def _render(
             )
             for tier in tier_rates
         ],
-        engine_verification=VerificationOut(
-            state=state.engine_verification.state,
-            verified_at=state.engine_verification.verified_at,
-            confirmed=state.engine_verification.confirmed,
-            headline=state.engine_verification.headline,
-            publishable=state.engine_verification.publishable,
+        engine_verification=_render_verification(state.engine_verification),
+        holders_verification=(
+            None
+            if state.holders_verification is None
+            else _render_verification(state.holders_verification)
         ),
         precedence_rule=state.precedence_rule,
         held_back=None
