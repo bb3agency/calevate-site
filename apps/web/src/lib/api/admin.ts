@@ -143,6 +143,9 @@ export const moveNumberConfirmation = (tenantId: string, numberId: string) =>
 export const TRIAL_LINE_CONFIRMATION = "set_up_trial_line";
 export const callLinesConfirmation = (tenantId: string) => `set_call_lines:${tenantId}`;
 export const llmDefaultConfirmation = (tenantId: string) => `set_llm_default:${tenantId}`;
+/** Mirrors `engine_retirement_routes.retirement_confirmation` (D-1019). */
+export const agentEngineRetirementConfirmation = (tenantId: string) =>
+  `retire_agent_engine_agents:${tenantId}`;
 
 /**
  * A confirmed operator write (D-731): sends `X-Confirm-Action`, and when the API answers

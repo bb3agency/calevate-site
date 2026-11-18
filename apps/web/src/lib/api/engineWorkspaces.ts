@@ -14,6 +14,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 
 import {
   adminSession,
+  agentEngineRetirementConfirmation,
   buyNumberConfirmation,
   confirmedAdminRequest,
   forgetNumberConfirmation,
@@ -38,6 +39,8 @@ export type AdminPurchaseIn = Schemas["AdminPurchaseIn"];
 export type AdminPurchased = Schemas["AdminPurchasedOut"];
 export type AdminReleased = Schemas["AdminReleasedOut"];
 export type AdminMoved = Schemas["AdminMovedOut"];
+export type AgentEngineRetirementRun = Schemas["RetirementRunOut"];
+export type AgentEngineRetirement = Schemas["AgentRetirementOut"];
 
 /**
  * The voice platform's business-details application, for an operator. The statuses are the
@@ -78,6 +81,8 @@ export const WORKSPACE_PATHS = {
     `${BASE}/tenants/${tenantId}/numbers/${numberId}/forget`,
   move: (tenantId: string, numberId: string) =>
     `${BASE}/tenants/${tenantId}/numbers/${numberId}/move`,
+  agentEngineRetirement: (tenantId: string) =>
+    `${BASE}/tenants/${tenantId}/agent-engine-retirement`,
 } as const;
 
 const tenantKey = (tenantId: string) => ["admin", "engine-workspace", tenantId] as const;
@@ -254,5 +259,49 @@ export function useWorkspaceMove(tenantId: string) {
         "Moving this number into the client's workspace.",
       ),
     onSuccess: invalidate,
+  });
+}
+
+/**
+ * What handing this client's agents' own engine agents to their lines and campaigns would
+ * do (D-1019). Changes nothing; the server records it as a tenant read.
+ */
+export function useAgentEngineRetirementPlan(tenantId: string) {
+  return useMutation({
+    retry: false,
+    mutationFn: () =>
+      apiRequest<AgentEngineRetirementRun>(
+        adminSession(),
+        WORKSPACE_PATHS.agentEngineRetirement(tenantId),
+        { method: "POST", body: { dry_run: true } },
+      ),
+  });
+}
+
+/**
+ * The real run, behind step-up. It changes what answers the client's numbers and what its
+ * campaigns dial through, so the agents, lines and campaigns are read again after it.
+ */
+export function useAgentEngineRetirementRun(tenantId: string) {
+  const invalidate = useInvalidateTenant(tenantId);
+  const client = useQueryClient();
+  return useMutation({
+    retry: false,
+    mutationFn: () =>
+      confirmedAdminRequest<AgentEngineRetirementRun>(
+        WORKSPACE_PATHS.agentEngineRetirement(tenantId),
+        {
+          method: "POST",
+          body: { dry_run: false },
+          confirmAction: agentEngineRetirementConfirmation(tenantId),
+        },
+        "Handing this client's agents' setups to their lines and campaigns.",
+      ),
+    onSuccess: () => {
+      invalidate();
+      void client.invalidateQueries({ queryKey: ["admin", "agents"] });
+      void client.invalidateQueries({ queryKey: ["admin", "campaigns"] });
+      void client.invalidateQueries({ queryKey: ["inbound-lines"] });
+    },
   });
 }

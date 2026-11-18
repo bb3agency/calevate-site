@@ -50,6 +50,7 @@ import type { components } from "@/lib/api/schema";
 import { lookup } from "@/lib/lookup";
 import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
+import { AgentSetupHandover } from "./AgentSetupHandover";
 import { firstPeriodPhrase } from "./firstPeriod";
 
 type EngineAgent = components["schemas"]["EngineAgentOut"];
@@ -283,6 +284,8 @@ function WorkspaceBody({
         </div>
         <ProblemNotice error={send.error ?? refresh.error} />
       </div>
+
+      <AgentSetupHandover tenantId={tenantId} canWrite={canWrite} />
 
       <div className="space-y-2">
         <h3 className="text-body font-semibold text-ink">Buying a number</h3>

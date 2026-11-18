@@ -35,10 +35,11 @@ export const inboundLineKeys = {
 const BASE = "/v1/inbound-lines";
 const linePath = (lineId: string) => `${BASE}/${encodeURIComponent(lineId)}`;
 
-export function useInboundLines(session: Session): UseQueryResult<InboundLine[]> {
+export function useInboundLines(session: Session, enabled = true): UseQueryResult<InboundLine[]> {
   return useQuery({
     queryKey: inboundLineKeys.all(session.orgSlug),
     queryFn: async () => (await apiRequest<{ lines: InboundLine[] }>(session, BASE)).lines,
+    enabled,
   });
 }
 
