@@ -56,6 +56,7 @@ from __future__ import annotations
 from collections.abc import Collection, Set
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -80,6 +81,10 @@ KB_DRIFT_STATES: frozenset[str] = frozenset(
 #: console — where a rising `undetermined` reads as a vendor problem rather than as a
 #: fleet of agents answering from unapproved text.
 KB_DRIFT_STATES_OUT_OF_SYNC: frozenset[str] = frozenset({"unaccounted", "missing", "divergent"})
+
+#: `handles_if_no_publish_in_flight`'s answer for a vendor agent nothing of the agent's
+#: names any more: not compared, and not a verdict.
+NOT_HELD: Final = "not_held"
 
 
 def classify_kb_drift(
@@ -172,7 +177,7 @@ def classify_kb_drift(
 
 async def handles_if_no_publish_in_flight(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, engine_agent_ref: str
-) -> frozenset[str] | None:
+) -> frozenset[str] | Literal["not_held"] | None:
     """What we believe is attached to ONE vendor agent object, or None if a publish holds
     the floor right now.
 
@@ -190,9 +195,13 @@ async def handles_if_no_publish_in_flight(
     So an arm's route is compared against the ARM's own recorded copies: since D-806 an arm
     carries the client's knowledge as its own documents (`kb/service.vendor_targets`), each
     claimed with its `variant_id`, and so is a test copy's route against the copy's own
-    (D-964) and an inbound line's against the line's own (D-997). A ref that is none of
-    these is a moved agent's old vendor agent awaiting deletion, of which we record nothing,
-    so its recorded set is empty and anything it lists reads `unaccounted`.
+    (D-964), an inbound line's against the line's own (D-997) and a campaign's against the
+    campaign's (D-1003). A ref that is none of these (`agents.reconciliation.route_holder`
+    says `retiring`) is a vendor agent given back and awaiting deletion — since D-1019 every
+    agent's former ref — and is answered `NOT_HELD`: its copies go with it and we record
+    none, so compared it would read `unaccounted`, a proven divergence and an alarm, about
+    an object nobody answers through. The caller stamps it visited (`record_kb_not_held`)
+    and asks the vendor nothing.
 
     The alternative — filtering arm routes out of `claim_kb_drift_batch` — was rejected
     twice over. `claim_kb_drift_batch` runs untenanted and `agents` is FORCE-RLS'd on
@@ -238,61 +247,29 @@ async def handles_if_no_publish_in_flight(
     and the agent is skipped. `apps/workers/kb_reconciliation.py::_observe_one` is that
     caller and the only one.
     """
+    from apps.api.agents.reconciliation import route_holder
     from apps.api.kb.service import recorded_handles_of_agent, try_lock_tenant_knowledge
 
     if not await try_lock_tenant_knowledge(session, tenant_id=tenant_id):
         return None
     # WHICH vendor object is this route for? Read under the same lock and in the same
     # tenant session as the handles below, so the answer belongs to the same instant.
-    own_ref = (
-        await session.execute(
-            text("SELECT engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"),
-            {"aid": agent_id},
-        )
-    ).scalar()
-    if own_ref == engine_agent_ref:
+    holder = await route_holder(session, agent_id=agent_id, engine_agent_ref=engine_agent_ref)
+    if holder is None or holder.kind == "retiring":
+        return NOT_HELD
+    if holder.kind == "agent":
         return frozenset(await recorded_handles_of_agent(session, agent_id))
-    variant_id = (
-        await session.execute(
-            text(
-                "SELECT v.id FROM prompt_experiment_variants v "
-                "JOIN prompt_experiments e ON e.id = v.experiment_id "
-                "WHERE e.agent_id = :aid AND v.engine_agent_ref = :ref"
-            ),
-            {"aid": agent_id, "ref": engine_agent_ref},
-        )
-    ).scalar()
-    if variant_id is not None:
-        return frozenset(await recorded_handles_of_agent(session, agent_id, UUID(str(variant_id))))
-    copy_ref = (
-        await session.execute(
-            text("SELECT engine_agent_ref FROM agent_test_copies WHERE agent_id = :aid"),
-            {"aid": agent_id},
-        )
-    ).scalar()
-    if copy_ref == engine_agent_ref:
+    if holder.kind == "test_copy":
         return frozenset(await recorded_handles_of_agent(session, agent_id, test_copy=True))
-    line_id = (
-        await session.execute(
-            text("SELECT id FROM inbound_lines WHERE agent_id = :aid AND engine_agent_ref = :ref"),
-            {"aid": agent_id, "ref": engine_agent_ref},
+    return frozenset(
+        await recorded_handles_of_agent(
+            session,
+            agent_id,
+            holder.holder_id if holder.kind == "arm" else None,
+            inbound_line_id=holder.holder_id if holder.kind == "line" else None,
+            campaign_id=holder.holder_id if holder.kind == "campaign" else None,
         )
-    ).scalar()
-    if line_id is not None:
-        return frozenset(
-            await recorded_handles_of_agent(session, agent_id, inbound_line_id=UUID(str(line_id)))
-        )
-    campaign_id = (
-        await session.execute(
-            text("SELECT id FROM campaigns WHERE agent_id = :aid AND engine_agent_ref = :ref"),
-            {"aid": agent_id, "ref": engine_agent_ref},
-        )
-    ).scalar()
-    if campaign_id is not None:
-        return frozenset(
-            await recorded_handles_of_agent(session, agent_id, campaign_id=UUID(str(campaign_id)))
-        )
-    return frozenset()
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,6 +372,24 @@ async def record_kb_drift(
     return bool(rowcount_of(result))
 
 
+async def record_kb_not_held(
+    session: AsyncSession, *, tenant_id: UUID, engine: str, ref: str
+) -> bool:
+    """Stamp a `NOT_HELD` route visited, with no verdict: it goes to the back of the queue
+    instead of heading every batch until its deletion switches it off, and an old verdict
+    about it is cleared rather than left to alarm. It reads as never checked on the summary
+    for those minutes. False if the route vanished under us."""
+    result = await session.execute(
+        text(
+            "UPDATE engine_agent_routes SET kb_drift_state = NULL, kb_drift_detected_at = NULL, "
+            "kb_drift_checked_at = now() "
+            "WHERE engine = :engine AND engine_agent_ref = :ref AND tenant_id = :tenant_id"
+        ),
+        {"engine": engine, "ref": ref, "tenant_id": tenant_id},
+    )
+    return bool(rowcount_of(result))
+
+
 @dataclass(frozen=True, slots=True)
 class KbDriftSummary:
     """How far the platform's published knowledge has drifted from what we approved.
@@ -479,6 +474,7 @@ async def read_kb_drift(session: AsyncSession, *, engine: str) -> KbDriftSummary
 __all__ = [
     "KB_DRIFT_STATES",
     "KB_DRIFT_STATES_OUT_OF_SYNC",
+    "NOT_HELD",
     "KbDriftCandidate",
     "KbDriftSummary",
     "claim_kb_drift_batch",
@@ -486,4 +482,5 @@ __all__ = [
     "handles_if_no_publish_in_flight",
     "read_kb_drift",
     "record_kb_drift",
+    "record_kb_not_held",
 ]

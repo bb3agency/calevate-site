@@ -66,13 +66,14 @@ CAMPAIGN_VERSION_PREFIX: Final = "Campaign: "
 #: script it is: the woven notices (D-971) and a change to what the agent collects.
 _AUTOMATIC_NOTES: Final = (WEAVE_NOTE, "Lead details changed: what the agent collects was updated")
 
-#: Accounts with any engine agent routed, read untenanted (`campaigns` is invisible here).
-#: Not only those with a campaign route: a campaign that held its agent and ended before
-#: D-1003 never gets an engine agent of its own, and its agent, which has a route of its
-#: own, still has to be given its script back.
+#: Accounts that have ever had an engine agent routed, read untenanted (`campaigns` is
+#: invisible here). Not only those with a campaign route: a campaign that held its agent and
+#: ended before D-1003 never gets an engine agent of its own, and its agent still has to be
+#: given its script back. Not only active routes either: an agent whose own engine agent was
+#: retired (D-1019) may leave its account with none active and a held script to give back.
 _TENANTS_SQL: Final = (
     "SELECT DISTINCT tenant_id FROM engine_agent_routes "
-    "WHERE active AND tenant_id IS NOT NULL ORDER BY tenant_id"
+    "WHERE tenant_id IS NOT NULL ORDER BY tenant_id"
 )
 
 #: A campaign's engine agent it no longer needs: archived, ended, or a test holder unused.
@@ -93,10 +94,13 @@ _IDLE_LINE_HOLDERS_SQL: Final = (
 )
 
 #: Agents a campaign put its script on before D-1003, and whether every campaign still going
-#: in that voice dials through its own engine agent now.
+#: in that voice dials through its own engine agent now. An agent that holds no engine agent
+#: of its own (D-1019) has nothing a campaign could still be dialling through, so its script
+#: is given back at once.
 _HELD_AGENTS_SQL: Final = (
     "SELECT c.agent_id, bool_and(c.engine_agent_ref IS NOT NULL OR c.archived_at IS NOT NULL "
-    "OR NOT (c.status = ANY(:holding))) FROM campaigns c "
+    "OR NOT (c.status = ANY(:holding))) OR bool_and(a.engine_agent_ref IS NULL) "
+    "FROM campaigns c JOIN agents a ON a.id = c.agent_id "
     "WHERE c.agent_held_at IS NOT NULL GROUP BY c.agent_id ORDER BY c.agent_id"
 )
 

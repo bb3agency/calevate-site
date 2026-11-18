@@ -25,7 +25,6 @@ from uuid import UUID
 
 from calevate_shared.engine import AgentConfig, EngineAgentRef
 from calevate_shared.engine_scope import is_customer_workspace, scope_of
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemError
@@ -184,9 +183,12 @@ async def check_agent_settings(
 ) -> SettingsCheck | None:
     """Compare one live vendor agent's settings with ours and repair any that moved.
 
-    None when the engine has no such settings, or the agent or the vendor could not be read
+    None when the engine has no such settings, the vendor agent is not one the agent holds
+    (`reconciliation.route_holder`), or the agent or the vendor could not be read
     (not evidence of drift; the next tick asks again)."""
+    from apps.api.agents.business_only import business_row
     from apps.api.agents.handoff import spec_for
+    from apps.api.agents.reconciliation import route_holder
     from apps.api.agents.service import _load_agent, _to_config, campaign_config, line_config
     from apps.api.healer.protection import healer_holds_line
 
@@ -201,43 +203,37 @@ async def check_agent_settings(
                 # a repair here would undo its hold. Its restoring publish rewrites both.
                 return None
             row = await _load_agent(session, tenant_id, agent_id)
-            line_id = (
-                await session.execute(
-                    text(
-                        "SELECT id FROM inbound_lines WHERE agent_id = :aid "
-                        "AND engine_agent_ref = :ref AND archived_at IS NULL"
-                    ),
-                    {"aid": agent_id, "ref": engine_agent_ref},
-                )
-            ).scalar_one_or_none()
-            campaign_id = (
-                None
-                if line_id is not None
-                else (
-                    await session.execute(
-                        text(
-                            "SELECT id FROM campaigns WHERE agent_id = :aid "
-                            "AND engine_agent_ref = :ref AND archived_at IS NULL"
-                        ),
-                        {"aid": agent_id, "ref": engine_agent_ref},
-                    )
-                ).scalar_one_or_none()
+            holder = await route_holder(
+                session, agent_id=agent_id, engine_agent_ref=engine_agent_ref
             )
-            if line_id is not None:
+            if holder is None or holder.kind == "retiring":
+                # Nothing of the agent's names this vendor agent (D-1019): an agent ref or a
+                # holder's given back and awaiting deletion. Repaired from the agent's config
+                # it would be made to speak as something it no longer is.
+                log.info("engine_settings_check_not_held", extra={"agent_id": str(agent_id)})
+                return None
+            if holder.kind == "line" and holder.holder_id is not None:
                 # A line's engine agent (D-997) holds the line's config, not the agent's: a
                 # repair from the agent's would switch its switched-off actions back on.
                 config = await line_config(
-                    session, tenant_id=tenant_id, line_id=UUID(str(line_id)), agent=row
+                    session, tenant_id=tenant_id, line_id=holder.holder_id, agent=row
                 )
-            elif campaign_id is not None:
+            elif holder.kind == "campaign" and holder.holder_id is not None:
                 # A campaign's engine agent (D-1003) holds the campaign's settings over the
                 # agent's defaults: a repair from the agent's would undo them.
                 config = await campaign_config(
-                    session, tenant_id=tenant_id, campaign_id=UUID(str(campaign_id)), agent=row
+                    session, tenant_id=tenant_id, campaign_id=holder.holder_id, agent=row
                 )
             else:
+                # The agent, an arm (only its script differs) or its test copy, which holds
+                # "Just the business" when it was last published as that.
+                held = (
+                    await business_row(session, tenant_id=tenant_id, agent=row)
+                    if holder.business_only
+                    else row
+                )
                 handoff, _duty = await spec_for(session, dict(row))
-                config = _to_config(tenant_id, row, engine=engine, handoff=handoff)
+                config = _to_config(tenant_id, held, engine=engine, handoff=handoff)
             # In a client's workspace one of our clones is spoken under the id that
             # workspace lists for it, as the publish sent it (`shared_clones`). An agent
             # still on a pre-D-797 copy reads as voice drift and is repaired onto it.

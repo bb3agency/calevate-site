@@ -96,6 +96,7 @@ from apps.api.agents.reconciliation import (
     claim_drift_batch,
     record_drift,
     recorded_drift_state,
+    route_holder,
 )
 from apps.api.agents.service import reconcile_inbound_truthful_answer
 from apps.api.core.alerting import alert
@@ -300,7 +301,30 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
     an operator reads as coverage. Neither case writes a row either — stamping
     `not_published` for an agent that no longer exists would put a permanent entry on the
     console that nothing can ever clear.
+
+    A vendor agent nothing of the agent's names any more (`RouteHolder.kind == "retiring"`)
+    is stamped `not_published` without a round trip and nothing below runs on it: compared
+    against the agent it would score a different object, and its actions, settings and the
+    agent's inbound silence are not ours to put back on an object awaiting deletion.
     """
+    async with tenant_session(candidate.tenant_id) as session:
+        holder = await route_holder(
+            session, agent_id=candidate.agent_id, engine_agent_ref=candidate.engine_agent_ref
+        )
+        if holder is not None and holder.kind == "retiring":
+            await record_drift(
+                session,
+                tenant_id=candidate.tenant_id,
+                engine=engine_name,
+                ref=candidate.engine_agent_ref,
+                state="not_published",
+            )
+    if holder is not None and holder.kind == "retiring":
+        log.info(
+            "engine_drift_retiring_ref",
+            extra={"agent_id": str(candidate.agent_id), "engine": engine_name},
+        )
+        return None
     try:
         drift = await engine_drift_for(
             tenant_id=candidate.tenant_id,

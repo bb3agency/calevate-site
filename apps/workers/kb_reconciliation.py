@@ -115,11 +115,13 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.kb.reconciliation import (
     KB_DRIFT_STATES_OUT_OF_SYNC,
+    NOT_HELD,
     KbDriftCandidate,
     claim_kb_drift_batch,
     classify_kb_drift,
     handles_if_no_publish_in_flight,
     record_kb_drift,
+    record_kb_not_held,
 )
 
 log = get_logger(__name__)
@@ -218,7 +220,20 @@ async def _observe_one(engine_name: str, candidate: KbDriftCandidate) -> _Observ
             # on every tick for as long as a client's script test runs.
             engine_agent_ref=candidate.engine_agent_ref,
         )
-    if before is None:
+        if before == NOT_HELD:
+            # Nothing of the agent's names this vendor agent (D-1019): not listed, not
+            # scored, stamped so it does not head every batch until its deletion lands.
+            await record_kb_not_held(
+                session,
+                tenant_id=candidate.tenant_id,
+                engine=engine_name,
+                ref=candidate.engine_agent_ref,
+            )
+            log.info(
+                "kb_drift_sweep_not_held",
+                extra={"agent_id": str(candidate.agent_id), "engine": engine_name},
+            )
+    if not isinstance(before, frozenset):
         return None
 
     try:
@@ -247,7 +262,7 @@ async def _observe_one(engine_name: str, candidate: KbDriftCandidate) -> _Observ
             agent_id=candidate.agent_id,
             engine_agent_ref=candidate.engine_agent_ref,
         )
-    if after is None or after != before:
+    if not isinstance(after, frozenset) or after != before:
         log.info(
             "kb_drift_sweep_skipped_mid_publish",
             extra={"agent_id": str(candidate.agent_id), "engine": engine_name},
