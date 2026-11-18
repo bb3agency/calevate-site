@@ -30,8 +30,10 @@ import {
   type CampaignInsights,
 } from "@/lib/api/campaignWorkspace";
 import { useClientRealm } from "@/lib/api/session";
+import { useTestRingsFrom } from "@/lib/api/trialCalls";
 import { hourWords } from "@/lib/clock";
 
+import { FallbackNote, RingsFromNote } from "../TestCallStatus";
 import { CampaignVoiceSettings } from "./CampaignVoiceSettings";
 import { FoldSection } from "./FoldSection";
 import { SlotsFullProblem, isSlotsFull } from "./SlotHolders";
@@ -39,7 +41,7 @@ import { agentSectionId } from "./StartCampaign";
 import { AgentChoice } from "./NewCampaignSteps";
 import { TestCallList } from "./TestCallList";
 
-type Common = { slug: string; campaignId: string; canWrite: boolean; refusal?: string };
+type Common = { slug: string; campaignId: string; canWrite: boolean; refusal?: string; agentId?: string };
 
 function Card({
   title,
@@ -89,7 +91,7 @@ export function ImproveTab(props: Common) {
   );
 }
 
-function HearItFirst({ slug, campaignId, canWrite, refusal, fromTestLine = false }: Common & { fromTestLine?: boolean }) {
+function HearItFirst({ slug, campaignId, canWrite, refusal, agentId }: Common) {
   const { session } = useClientRealm();
   const call = useCampaignTestCall(session, campaignId);
   useActionFeedback(call, { errorDisplay: "inline" });
@@ -104,7 +106,7 @@ function HearItFirst({ slug, campaignId, canWrite, refusal, fromTestLine = false
       saveNumbers={saveNumbers}
       canWrite={canWrite}
       refusal={refusal}
-      fromTestLine={fromTestLine}
+      ringsFrom={{ agentId, campaignId }}
     />
   );
 }
@@ -113,7 +115,12 @@ function HearItFirst({ slug, campaignId, canWrite, refusal, fromTestLine = false
 type SavedTestNumbers = Pick<UseQueryResult<{ numbers: string[] }>, "data" | "error" | "refetch">;
 
 /** What a test call answers, from a campaign's route or a line's. */
-type TestCallAnswer = { status: "queued" | "blocked"; blocked_reason?: string | null; call_id?: string | null };
+type TestCallAnswer = {
+  status: "queued" | "blocked";
+  blocked_reason?: string | null;
+  call_id?: string | null;
+  shared_fallback?: boolean;
+};
 
 /**
  * THE TEST CALL FORM, shared by a campaign and an inbound line: the saved numbers to pick
@@ -128,7 +135,7 @@ export function TestCallForm({
   saveNumbers,
   canWrite,
   refusal,
-  fromTestLine = false,
+  ringsFrom,
 }: {
   slug: string;
   call: UseMutationResult<TestCallAnswer, Error, { number: string; numberIsMine: boolean }>;
@@ -136,10 +143,11 @@ export function TestCallForm({
   saveNumbers?: UseMutationResult<unknown, Error, string[]>;
   canWrite: boolean;
   refusal?: string;
-  /** The call rings from our shared test number, not the account's own (D-1018). */
-  fromTestLine?: boolean;
+  /** What the call rings through, so the form can say which number it rings from. */
+  ringsFrom?: { agentId?: string; lineId?: string; campaignId?: string };
 }) {
-  const { href } = useClientRealm();
+  const { href, session } = useClientRealm();
+  const from = useTestRingsFrom(session, ringsFrom ?? {});
   // Saving replaces the whole list, so nothing is saved or removed until the list is read:
   // a Save over a pending or failed read would drop every number already saved.
   const loaded = saved.data !== undefined;
@@ -237,7 +245,7 @@ export function TestCallForm({
         </button>
       </div>
       <p className="mt-1 text-meta text-ink-muted">A number you call is saved for next time. Up to 10.</p>
-      {fromTestLine && <p className="mt-1 text-meta text-ink-muted">It rings from our test number.</p>}
+      <RingsFromNote ownNumber={from.data?.own_number} />
       <label className="mt-2 flex w-fit items-center gap-2 text-meta text-ink-muted touch:min-h-11">
         <input
           type="checkbox"
@@ -273,6 +281,7 @@ export function TestCallForm({
           )}
         </p>
       )}
+      {result?.status === "queued" && <FallbackNote shown={result.shared_fallback} />}
       {result?.status === "blocked" && (
         <p role="alert" className="mt-2 text-meta text-warn">
           {result.blocked_reason ?? "The test call could not be placed right now."}
@@ -549,11 +558,11 @@ export function AgentSection({
 }
 
 /**
- * The chosen agent rings the owner's phone with this campaign's script. Before Start (or once
- * stopped) it rings from our test number, so a test never takes one of the account's calling
- * setups (D-1018); a running or paused campaign rings from the account's own number.
+ * The chosen agent rings the owner's phone with this campaign's script, from the campaign's
+ * calling number once the account has paid and holds one, else from our test number
+ * (D-1020); the form says which before the call.
  */
-export function TestCallSection(props: Common & { fromTestLine: boolean }) {
+export function TestCallSection(props: Common) {
   return (
     <FoldSection
       id={CAMPAIGN_TEST_ANCHOR}

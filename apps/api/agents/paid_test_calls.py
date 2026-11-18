@@ -17,7 +17,13 @@ client's own workspace. A paid test call therefore takes one of two lines:
   current config through `publish_agent(onto_test_copy=True)`, so it never lags the agent.
 
 An agent with no engine agent of its own (D-1019: only inbound lines and campaigns hold one)
-always takes the shared trial line, through its test copy holding "Just the business".
+rings through its test copy holding "Just the business".
+
+Once the client holds a number of its own in its workspace (`own_test_workspace`), every test
+call rings from it (D-1020): the test copy is then made in the client's workspace, beside its
+numbers, kept an hour after its last use and given back
+(`service.retire_idle_client_test_copies`); with no free engine agent there, it is made in
+ours and rings from the shared line as before.
 
 Either way the call is marked `calls.paid_test_call`, billed at the normal rates through the
 ordinary post-call metering (the meter debits any call a trial does not cover,
@@ -73,6 +79,80 @@ _AGENT_LINE_SQL: Final = (
 )
 
 
+#: The account's numbers it can call out from, with their vendor handles: what
+#: `service.caller_lines` offers on an engine that rings only its own numbers (`:carrier`).
+_CALLING_NUMBERS_SQL: Final = (
+    "SELECT engine_number_ref FROM phone_numbers WHERE released_at IS NULL "
+    "AND engine_number_ref IS NOT NULL AND direction IN ('outbound', 'both') "
+    "AND (CAST(:carrier AS text) IS NULL OR provider = :carrier)"
+)
+
+
+async def own_test_workspace(session: AsyncSession, *, tenant_id: UUID) -> str | None:
+    """The client's own workspace when this account's test calls ring from its own number
+    (D-1020, founder 18 Nov 2026): it has paid and holds at least one number there it can
+    call out from. None for a free trial or a paid account with no number yet, whose test
+    calls ring from the shared test number. A call's `agent` must answer the phone in the
+    workspace placing it and its `from` must be one of that agent's numbers
+    (`thinnest-findings/mirror/snapshots/2026-10-19/pages/api-reference/calls/
+    place-call.md:544-547,617-620`), so a number in another workspace does not count."""
+    from apps.api.agents.service import outbound_number_provider
+
+    if not await has_paid(session, tenant_id=tenant_id):
+        return None
+    workspace = await resolve_workspace(session, tenant_id)
+    if workspace is None:
+        return None
+    refs = (
+        await session.execute(text(_CALLING_NUMBERS_SQL), {"carrier": outbound_number_provider()})
+    ).scalars()
+    return workspace if any(scope_of(str(ref)) == workspace for ref in refs) else None
+
+
+async def own_caller_number(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
+) -> str | None:
+    """The account's own number a test call would ring from (D-1020), E.164, or None when it
+    rings from the shared test number. A line's test: one of its numbers; a campaign's: its
+    calling number; otherwise the account's first (`service.caller_lines`' order, the agent's
+    own first). For the screen before the call; the dial chooses again with the same order."""
+    from apps.api.agents.service import caller_lines
+
+    workspace = await own_test_workspace(session, tenant_id=tenant_id)
+    if workspace is None:
+        return None
+    lines = [
+        line
+        for line in await caller_lines(session, agent_id=agent_id, workspace=workspace)
+        if line.engine_number_ref and scope_of(line.engine_number_ref) == workspace
+    ]
+    preferred: set[UUID] = set()
+    if line_id is not None:
+        rows = await session.execute(
+            text(
+                "SELECT id FROM phone_numbers WHERE inbound_line_id = :lid AND released_at IS NULL"
+            ),
+            {"lid": line_id},
+        )
+        preferred = {UUID(str(number_id)) for number_id in rows.scalars()}
+    elif campaign_id is not None:
+        chosen = (
+            await session.execute(
+                text("SELECT number_id FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+            )
+        ).scalar_one_or_none()
+        preferred = {UUID(str(chosen))} if chosen is not None else set()
+    first = next((line for line in lines if line.number_id in preferred), None)
+    if first is None and lines:
+        first = lines[0]
+    return first.e164 if first is not None else None
+
+
 def own_number_call_seconds(max_call_duration_s: int | None) -> int:
     """How long a test call from the client's own number may run: the agent's own cap, at
     most `OWN_NUMBER_TEST_MAX_SECONDS`, never below the shared line's."""
@@ -98,6 +178,8 @@ class PaidTestAccess:
     blocker: tuple[str, str] | None
     #: The line the asked-about agent rings from; None without an agent.
     line: PaidLine | None = None
+    #: The client's workspace when its test calls ring from its own number (D-1020).
+    own_workspace: str | None = None
 
 
 def line_of(row: Any, workspace: str | None) -> PaidLine:
@@ -146,6 +228,7 @@ async def read_paid_test_access(
     blocker: tuple[str, str] | None = None
     line: PaidLine | None = None
     call_seconds = settings.trial_call_max_seconds
+    own_workspace = await own_test_workspace(session, tenant_id=tenant_id)
     if agent_id is not None:
         row = (
             await session.execute(text(_AGENT_LINE_SQL), {"tid": tenant_id, "aid": agent_id})
@@ -153,9 +236,13 @@ async def read_paid_test_access(
         # A missing agent is worded by the dial gate; nothing to add here.
         if row is not None:
             line = line_of(row, await resolve_workspace(session, tenant_id))
-            if line == "own_number":
+            if line == "own_number" or own_workspace is not None:
                 call_seconds = own_number_call_seconds(row[4])
-    if line in ("trial_line_own", "trial_line_copy") and not settings.trial_caller_number:
+    if (
+        own_workspace is None
+        and line in ("trial_line_own", "trial_line_copy")
+        and not settings.trial_caller_number
+    ):
         from apps.api.agents.trial_calls import NOT_READY_REASON, NOT_READY_RULE
 
         blocker = (NOT_READY_RULE, NOT_READY_REASON)
@@ -168,14 +255,18 @@ async def read_paid_test_access(
         day_start=since,
         blocker=blocker,
         line=line,
+        own_workspace=own_workspace,
     )
 
 
-#: A test call of this agent on the shared trial line that has not ended. Every call through
-#: the agent's test copy takes that line, so this is the copy's "a call may be on it".
+#: A test call of this agent through its test copy that has not ended: one on the shared
+#: trial line (every call through a developer-workspace copy takes it), or a paying account's
+#: own-number call through a copy in its workspace (D-1020), which names the copy it rang.
 _COPY_CALL_LIVE_SQL: Final = (
-    "SELECT EXISTS (SELECT 1 FROM calls WHERE agent_id = :aid AND trial_call "
-    "AND inbound_line_id IS NULL AND status IN ('queued', 'ringing', 'in_progress') "
+    "SELECT EXISTS (SELECT 1 FROM calls WHERE agent_id = :aid AND inbound_line_id IS NULL "
+    "AND (trial_call OR (paid_test_call AND engine_agent_ref = "
+    "(SELECT engine_agent_ref FROM agent_test_copies WHERE agent_id = :aid))) "
+    "AND status IN ('queued', 'ringing', 'in_progress') "
     "AND created_at > now() - make_interval(secs => :horizon))"
 )
 
@@ -200,15 +291,22 @@ async def copy_call_live(session: AsyncSession, agent_id: UUID) -> bool:
     )
 
 
-async def refresh_test_copy(*, tenant_id: UUID, agent_id: UUID, business: bool = False) -> str:
-    """Republish the agent's current config onto its developer-workspace test copy (made again
-    if it is gone) and mark it used, in its own committed transaction, before the call or chat
-    that goes through it. `business` publishes it as "Just the business"
-    (`agents/business_only`). Returns the copy's handle.
+async def refresh_test_copy(
+    *, tenant_id: UUID, agent_id: UUID, business: bool = False, in_client: bool | None = None
+) -> str:
+    """Republish the agent's current config onto its test copy (made again if it is gone) and
+    mark it used, in its own committed transaction, before the call or chat that goes through
+    it. `business` publishes it as "Just the business" (`agents/business_only`). Returns the
+    copy's handle.
+
+    `in_client` is where the copy must be: True in the client's own workspace, for a test
+    call from the client's own number (D-1020); False in our developer workspace, for one on
+    the shared test line; None wherever it already is (a chat, which places no call), and in
+    ours when there is none.
 
     Refused as `trial_line_busy` while a test call may be on the copy (`copy_call_live`);
     that call would hold the shared line anyway, so the dial behind this could not ring."""
-    from apps.api.agents.service import TRIAL_LINE_BUSY_RULE, publish_agent
+    from apps.api.agents.service import TRIAL_LINE_BUSY_RULE, publish_agent, test_copy_ref
     from apps.api.core.errors import ProblemError
     from apps.api.db.session import tenant_session
 
@@ -219,6 +317,9 @@ async def refresh_test_copy(*, tenant_id: UUID, agent_id: UUID, business: bool =
                 "Another test call is in progress.",
                 remediation="Try again in a minute.",
             )
+        if in_client is None:
+            held = await test_copy_ref(session, agent_id)
+            in_client = held is not None and scope_of(held) is not None
         ref = await publish_agent(
             session,
             tenant_id=tenant_id,
@@ -226,6 +327,7 @@ async def refresh_test_copy(*, tenant_id: UUID, agent_id: UUID, business: bool =
             take_calls=False,
             onto_test_copy=True,
             business_only=business,
+            in_client=in_client,
         )
         await session.execute(
             text(
@@ -278,6 +380,8 @@ __all__ = [
     "business_copy_ref",
     "copy_call_live",
     "line_of",
+    "own_caller_number",
+    "own_test_workspace",
     "paid_daily_cap_reason",
     "read_paid_test_access",
     "refresh_test_copy",

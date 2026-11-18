@@ -67,6 +67,7 @@ function placed(callId: string): TrialCallResult {
     blocked_rule: null,
     call_id: callId,
     caller_number: TRIAL_NUMBER,
+    shared_fallback: false,
   };
 }
 

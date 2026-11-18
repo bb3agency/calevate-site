@@ -8,9 +8,9 @@ concurrency, which is a separate account-wide limit. The cap is the console's
 `thinnest_agents_per_workspace`; `agents/service._allowance_full` decides when it is reached.
 
 What this module adds is WHO holds them, so the refusal can say what to free instead of a
-bare count: each agent, inbound line, campaign or script trial holding one, and any whose
-deletion is owed and has not run yet (the platform still counts those). The list is read from
-the same rows, with the same filter, as `service.engine_agents_in_workspace` counts.
+bare count: each agent, inbound line, campaign, script trial or test call holding one, and
+any whose deletion is owed and has not run yet (the platform still counts those). The list is
+read from the same rows, with the same filter, as `service.engine_agents_in_workspace` counts.
 
 The screen gets the holders as typed problem+json extension members (RFC 9457 §3.2,
 `EngineAgentAllowanceFull`) and the launch checklist as `BlockerOut.holders`. The sentence
@@ -34,7 +34,9 @@ from apps.api.core.errors import ProblemExtension, problem_responses
 #: The refusal's problem code and launch-gate rule.
 ENGINE_AGENT_ALLOWANCE_FULL_RULE: Final = "engine_agent_allowance_full"
 
-SlotHolderKind = Literal["agent", "inbound_line", "campaign", "script_trial"]
+#: `test_call`: an agent's test copy made in the workspace for a test call from the client's
+#: own number (D-1020), given back an hour after its last use.
+SlotHolderKind = Literal["agent", "inbound_line", "campaign", "script_trial", "test_call"]
 
 #: What was being attempted when there was no free setup, so the sentence fits the button
 #: the owner pressed: a test call, Start (or a scheduled start), or putting a line live.
@@ -80,7 +82,9 @@ _HOLDERS_SQL: Final = (
     "l.name, l.engine_agent_ref IS NOT DISTINCT FROM r.engine_agent_ref, "
     "a.name, a.engine_agent_ref IS NOT DISTINCT FROM r.engine_agent_ref, "
     "EXISTS (SELECT 1 FROM prompt_experiment_variants v "
-    "        WHERE v.engine_agent_ref = r.engine_agent_ref) "
+    "        WHERE v.engine_agent_ref = r.engine_agent_ref), "
+    "EXISTS (SELECT 1 FROM agent_test_copies t "
+    "        WHERE t.agent_id = r.agent_id AND t.engine_agent_ref = r.engine_agent_ref) "
     "FROM engine_agent_routes r "
     "LEFT JOIN campaigns c ON c.id = r.campaign_id "
     "LEFT JOIN inbound_lines l ON l.id = r.inbound_line_id "
@@ -108,10 +112,15 @@ async def slot_holders(
         a_name,
         a_holds,
         arm,
+        test_copy,
     ) in rows:
         if scope_of(str(ref)) != workspace:
             continue
-        if campaign_id is not None:
+        if test_copy:
+            holder = SlotHolder(
+                kind="test_call", id=agent_id, name=str(a_name or ""), removing=False
+            )
+        elif campaign_id is not None:
             holder = SlotHolder(
                 kind="campaign", id=campaign_id, name=str(c_name or ""), removing=not c_holds
             )
@@ -142,6 +151,7 @@ _KIND_WORDS: Final[dict[SlotHolderKind, tuple[str, str]]] = {
     "inbound_line": ("inbound line", "inbound lines"),
     "campaign": ("campaign", "campaigns"),
     "script_trial": ("script trial", "script trials"),
+    "test_call": ("test call", "test calls"),
 }
 
 

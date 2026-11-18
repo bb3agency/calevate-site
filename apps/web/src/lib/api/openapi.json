@@ -14946,6 +14946,11 @@
             ],
             "title": "Call Id"
           },
+          "shared_fallback": {
+            "default": false,
+            "title": "Shared Fallback",
+            "type": "boolean"
+          },
           "status": {
             "enum": [
               "queued",
@@ -51798,6 +51803,24 @@
         "title": "RightsRequestOut",
         "type": "object"
       },
+      "RingsFromOut": {
+        "additionalProperties": false,
+        "properties": {
+          "own_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Number"
+          }
+        },
+        "title": "RingsFromOut",
+        "type": "object"
+      },
       "RollbackIn": {
         "additionalProperties": false,
         "properties": {
@@ -54398,7 +54421,8 @@
               "agent",
               "inbound_line",
               "campaign",
-              "script_trial"
+              "script_trial",
+              "test_call"
             ],
             "title": "Kind",
             "type": "string"
@@ -62342,6 +62366,11 @@
               }
             ],
             "title": "Caller Number"
+          },
+          "shared_fallback": {
+            "default": false,
+            "title": "Shared Fallback",
+            "type": "boolean"
           },
           "status": {
             "enum": [
@@ -108166,6 +108195,80 @@
           "billing"
         ],
         "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/trial/rings-from": {
+      "get": {
+        "operationId": "read_rings_from_v1_trial_rings_from_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Campaign Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RingsFromOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Which number a test call of this agent, line or campaign would ring from",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/usage": {

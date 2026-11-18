@@ -346,6 +346,9 @@ export function stubApi(routes: Routes): ApiCall[] {
         // TODAY'S TEST CALLS (D-885), answered "none today" by default: every trial card
         // reads them. A test about the card's calls names the route itself.
         if (scoped === "GET /v1/trial/calls") return jsonResponse([]);
+        // WHERE A TEST CALL RINGS FROM (D-1020), answered "our test number" by default: every
+        // test-call form reads it. A test about the account's own number names the route.
+        if (scoped.startsWith("GET /v1/trial/rings-from?")) return jsonResponse({ own_number: null });
         // THE PROMO CHECK AT PUT-LIVE (D-943), answered "clear" by default: every put-live
         // dialog reads it. A test about the warning names the route itself.
         // And the campaign's call type, answered "not said yet" (rendered as nothing).

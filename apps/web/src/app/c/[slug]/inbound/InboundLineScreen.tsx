@@ -773,7 +773,7 @@ function TestCallSection({
           saved={saved}
           canWrite={canWrite}
           refusal={refusal}
-          fromTestLine={!line.live}
+          ringsFrom={{ agentId: line.agent_id, lineId: line.id }}
         />
       ) : (
         <p className="text-body text-ink-muted">Write the script first, then hear it here.</p>

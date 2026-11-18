@@ -232,7 +232,9 @@ async def test_a_business_call_rings_through_the_copy_on_the_shared_line(
             business=True,
         )
     assert placed.status == "queued", placed
-    assert asked == [{"tenant_id": tenant_id, "agent_id": agent_id, "business": True}]
+    assert asked == [
+        {"tenant_id": tenant_id, "agent_id": agent_id, "business": True, "in_client": False}
+    ]
     assert line.lent_to == ["fakeagent_business_copy"]
 
 
@@ -276,7 +278,6 @@ async def test_the_sweep_keeps_a_business_copy_once_the_client_has_a_number(
 
         monkeypatch.setattr(agents_service, "retire_engine_agent", _retire)
         monkeypatch.setattr(agent_moves, "_OWN_NUMBERS_SQL", "SELECT 'num@org_own'")
-        monkeypatch.setattr(agent_moves, "scope_of", lambda _ref: "org_own")
         await agent_moves._retire_test_copies(session, tenant_id=tenant_id, workspace="org_own")
     assert retired == [kept_for_calls]
 

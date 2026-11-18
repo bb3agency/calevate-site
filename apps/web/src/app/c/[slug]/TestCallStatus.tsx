@@ -16,8 +16,37 @@ import {
 } from "@/components/ui";
 import { callOutcome, outcomeWords } from "@/lib/callReview";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
-import { testCallIsLive, useTestCall, type TestCall } from "@/lib/api/trialCalls";
+import { FALLBACK_TO_TEST_NUMBER, testCallIsLive, useTestCall, type TestCall } from "@/lib/api/trialCalls";
 import { lookup } from "@/lib/lookup";
+
+/**
+ * Where a test call rings from, said before the call (D-1020): the account's own number once
+ * it has paid and holds one, else our test number. Nothing until the server has said.
+ */
+export function RingsFromNote({ ownNumber }: { ownNumber: string | null | undefined }) {
+  if (ownNumber === undefined) return null;
+  return (
+    <p className="mt-1 text-meta text-ink-muted">
+      {ownNumber ? (
+        <>
+          It rings from your number <span className="whitespace-nowrap">{formatPhone(ownNumber)}</span>.
+        </>
+      ) : (
+        "It rings from our test number."
+      )}
+    </p>
+  );
+}
+
+/** Said after a call that rang from our test number because the account's slots were busy. */
+export function FallbackNote({ shown }: { shown: boolean | undefined }) {
+  if (!shown) return null;
+  return (
+    <p role="status" className="mt-1 text-meta text-warn">
+      {FALLBACK_TO_TEST_NUMBER}
+    </p>
+  );
+}
 
 /**
  * WHERE A TEST CALL IS, ON THE CARD IT WAS PLACED FROM (D-885; founder, 25 Oct 2026: "I

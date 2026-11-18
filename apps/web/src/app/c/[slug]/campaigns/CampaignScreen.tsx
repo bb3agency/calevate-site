@@ -330,7 +330,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
           ) : current === "questions" ? (
             <CampaignQuestions slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
           ) : current === "improve" ? (
-            <ImproveTab slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
+            <ImproveTab slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} agentId={data.agent_id} />
           ) : current === "progress" ? (
             launched ? (
               <FoldGroup className="space-y-8" actions={<>{startButton}{campaignActions}</>}>
@@ -394,7 +394,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                 campaignId={campaignId}
                 canWrite={write.allowed}
                 refusal={refusal}
-                fromTestLine={!live}
+                agentId={data.agent_id}
               />
               {/* People to call: an Excel or CSV file, pasted rows, or one name and number at a
                   time, until it stops (founder, 16 Nov 2026: people may join mid-campaign). */}

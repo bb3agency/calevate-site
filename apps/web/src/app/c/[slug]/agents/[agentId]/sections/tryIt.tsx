@@ -19,8 +19,9 @@
  * offer it as a field.
  *
  * With `business` ("Just the business", founder 16 Nov 2026) the call rings the agent with
- * the company training and knowledge and no job's script, always from the shared test number,
- * so "ring your own number" (which reaches a line's script) is not offered.
+ * the company training and knowledge and no job's script, so "ring your own number" (which
+ * reaches a line's script) is not offered. Like every test call it rings from the account's own
+ * number once it has paid and holds one, else from the shared test number (D-1020).
  */
 
 import Link from "next/link";
@@ -31,13 +32,13 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { DefaultCheckbox } from "@/components/callHandlingRows";
 import { Section } from "@/components/console/section";
 import { TryPart } from "@/components/improvement/TryPart";
-import { FIELD_INLINE, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
+import { FIELD_INLINE, ProblemNotice, SECONDARY_BUTTON, Skeleton, formatPhone } from "@/components/ui";
 import { canTestCall, isAnsweringNow } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
-import { usePlaceTrialCall, useTrialPanel } from "@/lib/api/trialCalls";
+import { usePlaceTrialCall, useTestRingsFrom, useTrialPanel } from "@/lib/api/trialCalls";
 
-import { TestCallFollow } from "../../../TestCallStatus";
+import { FallbackNote, TestCallFollow } from "../../../TestCallStatus";
 import { TestCallTranscript } from "../../../TestCallTranscript";
 
 export function TryIt({
@@ -57,8 +58,8 @@ export function TryIt({
   onNumber: (next: string) => void;
   bare?: boolean;
   /**
-   * "Just the business": the agent with no job's script, rung from the shared test number
-   * whatever numbers the account has (`agents/business_only` on the server).
+   * "Just the business": the agent with no job's script, rung like any test call of it
+   * (`agents/business_only` on the server).
    */
   business?: boolean;
 }) {
@@ -181,6 +182,8 @@ function TrialTestCall({
   const { href } = useClientRealm();
   const session = useClientSession();
   const panel = useTrialPanel(session);
+  const ringsFrom = useTestRingsFrom(session, { agentId: agent.id });
+  const ownNumber = ringsFrom.data?.own_number;
   const place = usePlaceTrialCall(session);
   // The outcome is said under the form (calling now, the server's refusal, or the problem).
   const placeFeedback = useActionFeedback(place, { errorDisplay: "inline" });
@@ -261,6 +264,7 @@ function TrialTestCall({
               link={false}
             />
             <TestCallTranscript callId={place.data.call_id} />
+            <FallbackNote shown={place.data.shared_fallback} />
           </>
         ) : null}
         {place.data?.status === "blocked" && (
@@ -276,11 +280,14 @@ function TrialTestCall({
   return (
     <PracticeFrame
       description={
-        paid && business
-          ? `${agent.name} rings you from a test number. Billed like any call.`
-          : paid
-            ? `${agent.name} rings you from your number. Billed like any call.`
-            : `${agent.name} rings you from a shared trial number.`
+        !paid
+          ? `${agent.name} rings you from a shared trial number.`
+          : ownNumber
+            ? `${agent.name} rings you from your number ${formatPhone(ownNumber)}. Billed like any call.`
+            : ownNumber === null
+              ? `${agent.name} rings you from our test number. Billed like any call.`
+              : // Not said until the server has: a failed read claims neither number.
+                `${agent.name} rings your phone. Billed like any call.`
       }
       action={
         paid && !business && panel.data?.needs_number ? (

@@ -36,6 +36,31 @@ export function useTrialPanel(session: Session, enabled = true): UseQueryResult<
   });
 }
 
+export type RingsFrom = Schemas["RingsFromOut"];
+
+/**
+ * Which number a test call would ring from (D-1020): the account's own number once it has paid
+ * and holds one (a line's own, a campaign's calling number, else its first), or null for our
+ * test number.
+ */
+export function useTestRingsFrom(
+  session: Session,
+  of: { agentId?: string; lineId?: string; campaignId?: string },
+): UseQueryResult<RingsFrom> {
+  const params = new URLSearchParams({ agent_id: of.agentId ?? "" });
+  if (of.lineId) params.set("line_id", of.lineId);
+  if (of.campaignId) params.set("campaign_id", of.campaignId);
+  return useQuery({
+    queryKey: ["trial", session.orgSlug, "rings-from", of.agentId ?? null, of.lineId ?? null, of.campaignId ?? null],
+    queryFn: () => apiRequest<RingsFrom>(session, `/v1/trial/rings-from?${params.toString()}`),
+    // Asked only of a known agent; a screen still loading it says nothing yet.
+    enabled: Boolean(of.agentId),
+  });
+}
+
+/** Said after a test call that fell back to our test number (D-1020). */
+export const FALLBACK_TO_TEST_NUMBER = "Rang from our test number: both your calling slots were busy.";
+
 /** One test call as the dashboard card follows it (D-885). */
 export type TestCall = Schemas["TestCallOut"];
 

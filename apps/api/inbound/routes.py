@@ -561,6 +561,7 @@ async def line_test_call(
         blocked_reason=result.blocked_reason,
         blocked_rule=result.blocked_rule,
         call_id=result.call_id,
+        shared_fallback=result.shared_fallback,
     )
 
 

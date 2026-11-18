@@ -3030,6 +3030,7 @@ async def publish_agent(
     onto_test_copy: Literal[True],
     business_only: bool = ...,
     first_publish: bool = ...,
+    in_client: bool = ...,
 ) -> str:
     """Typing only: a test copy is always made, so its handle is always returned."""
 
@@ -3044,6 +3045,7 @@ async def publish_agent(
     onto_test_copy: bool = ...,
     business_only: bool = ...,
     first_publish: bool = ...,
+    in_client: bool = ...,
 ) -> str | None:
     """Typing only: None for an agent published without an engine agent of its own."""
 
@@ -3057,6 +3059,7 @@ async def publish_agent(
     onto_test_copy: bool = False,
     business_only: bool = False,
     first_publish: bool = False,
+    in_client: bool = False,
 ) -> str | None:
     """Create or update the agent on the engine, VERIFY it, then record the mapping.
 
@@ -3080,6 +3083,13 @@ async def publish_agent(
     document, in-call actions and the client's published knowledge as its own claimed copies
     (D-964). A copy holding knowledge no claim names (kept by a move before D-964) is
     replaced by a new one.
+
+    `in_client` (with `onto_test_copy`, D-1020) makes the copy in the client's own workspace
+    instead, for a paying account's test call from its own number: the platform places a call
+    only from a number in the calling agent's workspace. A new copy there takes one of the
+    workspace's few engine agents, so it is refused `engine_agent_allowance_full` when none is
+    free. A copy found in the other workspace than the one asked for is made again in the
+    right one and the old one retired, so one agent never has two.
 
     The routing row is written HERE, in the same transaction as `engine_agent_ref`,
     because the alternative — writing it from a webhook handler on first sight — means
@@ -3224,8 +3234,11 @@ async def publish_agent(
     # A FREE-TRIAL ACCOUNT'S AGENT PLACES TEST CALLS AND ANSWERS NOTHING (D-697): it has no
     # number until it pays, so an answer-only agent is refused with the step that unlocks it.
     trial_account = await restricting_trial(session, tenant_id=tenant_id) is not None
-    # A trial's agent and a paying client's test copy are made in our developer workspace.
-    in_developer = trial_account or onto_test_copy
+    # A trial's agent and a paying client's test copy are made in our developer workspace,
+    # except a copy for a test call from the client's own number (D-1020).
+    if in_client and (not onto_test_copy or trial_account):
+        raise ValueError("in_client is for a paying account's test copy only")
+    in_developer = trial_account or (onto_test_copy and not in_client)
     takes_calls = (take_calls or agent["status"] == "live") and not onto_test_copy
     if trial_account and takes_calls and agent["direction"] == "inbound":
         await refuse_on_trial(session, tenant_id=tenant_id, locked="inbound")
@@ -3298,6 +3311,10 @@ async def publish_agent(
         # (`line_config`, `campaign_config`). An agent with no script of its own is normal now.
         agent = cast(AgentRow, {**dict(agent), "prompt": f"{agent['name']}."})
     config = _to_config(tenant_id, agent, engine=engine, handoff=handoff)
+    if onto_test_copy and in_client:
+        # Beside the agent's own engine agent in one workspace: its own find-by-name tag, or
+        # making the copy would find the agent's and write over it.
+        config = config.model_copy(update={"holder": "test_copy"})
     # The ACTIONS feature: attach this agent's during-call tools to the config the adapter
     # renders, so publish is where a tool change reaches live calls (the "Apply to live
     # calls" action, same mechanism as a voice or cap change). Empty tuple when the master
@@ -3345,10 +3362,18 @@ async def publish_agent(
     if (
         onto_test_copy
         and existing_ref
-        and await _copy_needs_replacing(session, engine, agent_id=agent_id, ref=existing_ref)
+        and (
+            # A client-workspace copy cannot ring from the shared test line, which is ours.
+            (in_developer and scope_of(existing_ref) is not None)
+            or await _copy_needs_replacing(session, engine, agent_id=agent_id, ref=existing_ref)
+        )
     ):
         # Made afresh below; `_record_test_copy` retires the old one.
         existing_ref = None
+    if onto_test_copy and in_client and not existing_ref:
+        await _refuse_if_allowance_full(
+            session, tenant_id=tenant_id, workspace=config.engine_workspace, context="test_call"
+        )
     if holds_none:
         # An agent holding no engine agent of its own (D-1019). `live` is still only written
         # here: what callers reach is its lines' and campaigns' engine agents, each read back
@@ -3395,7 +3420,10 @@ async def publish_agent(
             if not (onto_test_copy and _vendor_says_gone(gone)):
                 raise
             created = True
-            with trial_agent_in_developer_workspace():
+            if in_developer:
+                with trial_agent_in_developer_workspace():
+                    ref = await engine.create_agent(config)
+            else:
                 ref = await engine.create_agent(config)
     elif in_developer:
         with trial_agent_in_developer_workspace():
@@ -4246,6 +4274,7 @@ async def publish_line(
     line_id: UUID,
     test: bool = False,
     adopt_ref: str | None = None,
+    in_client: bool = False,
 ) -> str:
     """Create or update an inbound line's own engine agent (D-997): its agent's config, voice,
     settings, notices and the company training, over the line's script, with the agent's
@@ -4257,10 +4286,14 @@ async def publish_line(
     `test=True` publishes it as a TEST HOLDER, for the owner's test call of a draft line
     (Phase 3b): the same engine agent, but `published_at` is left as it was, so a draft line
     stays a draft and no number is routed to it (`route_line_numbers` routes live lines only).
-    It is made in our developer workspace, where the shared test line rings, on a trial and a
-    paying account alike (D-697, D-1018): the client's own workspace allows only a few engine
-    agents and a test holder there took one. Its first live publish recreates it in the
-    client's workspace (`_moves_workspace`), and the hourly sweep retires it once idle.
+    It is made in our developer workspace, where the shared test line rings (D-697, D-1018),
+    unless `in_client`: a paying account with a number of its own tests from that number
+    (D-1020), so the holder is made in the client's workspace, where the platform places calls
+    from its numbers. There it takes one of the workspace's few engine agents while it exists,
+    so a new one is refused `engine_agent_allowance_full` when none is free, and the caller
+    falls back to the developer workspace. Its first live publish keeps a client-workspace
+    holder in place and recreates a developer one there (`_moves_workspace`); the hourly
+    sweep retires a draft's holder once idle, wherever it is.
 
     The line's numbers are not touched here: `inbound/publish.put_line_live` attaches them
     after this commits, so a number never points at an agent the transaction rolled away.
@@ -4311,7 +4344,7 @@ async def publish_line(
     if test:
         # A test holder rings the owner, so the agreements are asked as for a test copy.
         await assert_agreements_accepted(session, tenant_id=tenant_id)
-    in_developer = test
+    in_developer = test and not in_client
     voice_choice, model_choice = _engine_choice(agent, engine=engine)
     rate_key = await engine_rate_key_for(
         session, engine, voice_id=voice_choice, model_id=model_choice
@@ -4337,7 +4370,10 @@ async def publish_line(
         moved_from, existing_ref = existing_ref, None
     if existing_ref is None and not in_developer:
         await _refuse_if_allowance_full(
-            session, tenant_id=tenant_id, workspace=config.engine_workspace, context="line_live"
+            session,
+            tenant_id=tenant_id,
+            workspace=config.engine_workspace,
+            context="test_call" if test else "line_live",
         )
     if existing_ref:
         await engine.update_agent(existing_ref, config)
@@ -4740,13 +4776,13 @@ async def check_campaign_publishable(
 
 
 def _campaign_test_in_developer(holder: _CampaignHolder) -> bool:
-    """Whether a campaign's test holder is made in our developer workspace (D-1018): always,
-    unless the campaign is dialling or paused, on a trial and a paying account alike. The
-    client's own workspace allows only a few engine agents (`_allowance_full`) and its
-    agents hold them, so a test holder made there refused every test of a draft; ours
-    allows 100 (VENDOR-STATED 23 Oct 2026, replies §28), the call rings from our shared test
-    line as an agent's Try-it test copy does (D-859), and the hourly sweep retires it once
-    idle (`workers/campaign_engine_agents`).
+    """Whether a campaign's test holder is made in our developer workspace (D-1018) when the
+    account does not test from its own number: always, unless the campaign is dialling or
+    paused. The client's own workspace allows only a few engine agents (`_allowance_full`);
+    ours allows 100 (VENDOR-STATED 23 Oct 2026, replies §28), the call rings from our shared
+    test line, and the hourly sweep retires it once idle (`workers/campaign_engine_agents`).
+    A paying account with a number of its own asks for the client's workspace instead
+    (`publish_campaign_agent(in_client=True)`, D-1020).
 
     A running or paused campaign keeps its engine agent in the client's workspace: it is the
     one its calls ring through, and moving it to ours for a test would leave the next dial
@@ -4767,6 +4803,7 @@ async def publish_campaign_agent(
     campaign_id: UUID,
     test: bool = False,
     adopt_ref: str | None = None,
+    in_client: bool = False,
 ) -> str:
     """Create or update a campaign's own engine agent (D-1003): `campaign_config` read back
     like every publish, routed for intake (`engine_agent_routes.campaign_id`), given its
@@ -4778,8 +4815,11 @@ async def publish_campaign_agent(
     same engine agent, published whatever the campaign's state and even during maintenance,
     since it answers no caller. Unless the campaign is running or paused it is made in our
     developer workspace, where the shared trial line rings (D-697, D-1018,
-    `_campaign_test_in_developer`). Its next publish in the client's own workspace recreates
-    it there (`_moves_workspace`), and the old one is retired.
+    `_campaign_test_in_developer`), except with `in_client`: a paying account with a number of
+    its own tests from that number (D-1020), so the holder is made in the client's workspace,
+    refused `engine_agent_allowance_full` when no engine agent is free there, which the caller
+    answers by falling back to ours. A holder in the wrong workspace for this publish is
+    recreated in the right one (`_moves_workspace`), and the old one is retired.
 
     `adopt_ref` is the agent's own engine agent, taken over in place by a running campaign
     that dials through it and holds none of its own (D-1019, `agents/engine_retirement`), as
@@ -4793,7 +4833,7 @@ async def publish_campaign_agent(
     if test:
         # A test holder rings the owner, so the agreements are asked as for a test copy.
         await assert_agreements_accepted(session, tenant_id=tenant_id)
-    in_developer = test and _campaign_test_in_developer(holder)
+    in_developer = test and not in_client and _campaign_test_in_developer(holder)
     voice_choice, model_choice = _engine_choice(agent, engine=engine)
     rate_key = await engine_rate_key_for(
         session, engine, voice_id=voice_choice, model_id=model_choice
@@ -5043,6 +5083,50 @@ async def retire_line_test_holder(
     return ref
 
 
+async def retire_idle_client_test_copies(
+    session: AsyncSession, *, tenant_id: UUID, idle_seconds: float
+) -> int:
+    """Give back every test copy of this account's agents held in its own workspace and
+    unused for `idle_seconds` (D-1020), freeing the engine agent it holds there. The copy row
+    goes in this transaction, under its row lock with the idle test re-asked, so a test call
+    that used it meanwhile keeps it and the next one makes a new copy rather than ringing one
+    owed a deletion; the deletion itself is owed through the outbox, which waits out a call
+    still on it. Returns how many were given back."""
+    from apps.api.kb.service import release_test_copy_claims
+
+    rows = (
+        await session.execute(
+            text(
+                "SELECT agent_id, engine_agent_ref FROM agent_test_copies "
+                "WHERE COALESCE(last_used_at, created_at) < now() - make_interval(secs => :idle) "
+                "ORDER BY agent_id"
+            ),
+            {"idle": idle_seconds},
+        )
+    ).all()
+    retired = 0
+    for agent_id, ref in rows:
+        if scope_of(str(ref)) is None:
+            continue
+        gone = await session.execute(
+            text(
+                "DELETE FROM agent_test_copies WHERE agent_id = :aid AND engine_agent_ref = :ref "
+                "AND COALESCE(last_used_at, created_at) < now() - make_interval(secs => :idle)"
+            ),
+            {"aid": agent_id, "ref": ref, "idle": idle_seconds},
+        )
+        if not rowcount_of(gone):
+            continue
+        await release_test_copy_claims(session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)))
+        await retire_engine_agent(
+            session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
+        )
+        retired += 1
+    if retired:
+        log.info("client_test_copies_retired", extra={"tenant_id": str(tenant_id), "n": retired})
+    return retired
+
+
 #: The numbers an agent can place calls from: every number of its client (founder, 4 Nov
 #: 2026: a client's number serves all its agents), the agent's own first, and, when the
 #: engine presents only numbers it holds (`:carrier` set), held there and set up for
@@ -5125,7 +5209,11 @@ class CallerLine:
 
 
 async def caller_lines(
-    session: AsyncSession, *, agent_id: UUID, dial_ref: str | None = None
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    dial_ref: str | None = None,
+    workspace: str | None = None,
 ) -> list[CallerLine]:
     """Every number this agent can place calls from, its own first, then oldest first.
 
@@ -5134,13 +5222,14 @@ async def caller_lines(
     (`engine_number_other_workspace`), so offering it only turns every dial into a refusal
     (a Calevate-held number recorded for a client before it is moved into the client's own
     workspace is exactly that). `dial_ref` is the engine agent the call rings through when
-    it is not the agent's own (an inbound line's test holder), whose workspace decides."""
+    it is not the agent's own (an inbound line's test holder), whose workspace decides;
+    `workspace` names that workspace outright, for a holder not made yet (D-1020)."""
     carrier = outbound_number_provider()
     rows = (
         await session.execute(text(_AGENT_CALLER_ID_SQL), {"aid": agent_id, "carrier": carrier})
     ).all()
-    agent_scope: str | None = None
-    if carrier is not None:
+    agent_scope: str | None = workspace
+    if carrier is not None and workspace is None:
         agent_ref = (
             dial_ref
             or (
@@ -5279,16 +5368,31 @@ async def _refuse_undeclared_caller(
 
 
 async def _holder_caller(
-    session: AsyncSession, *, agent_id: UUID, ref: str, routed_number_ids: frozenset[UUID]
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    ref: str,
+    routed_number_ids: frozenset[UUID],
+    line_number_ids: frozenset[UUID] = frozenset(),
 ) -> CallerLine | None:
     """The number a call through an inbound line's engine agent rings from, a test call or a
     call-back alike: one the engine already routes to that holder needs no lend; otherwise
-    the client's first number in the holder's workspace is lent to it for the call, as for an
-    agent with no number."""
+    one of the line's own numbers (a draft line's, D-1020), else the client's first number in
+    the holder's workspace, lent to it for the call, as for an agent with no number."""
     lines = await caller_lines(session, agent_id=agent_id, dial_ref=ref)
     routed = [line for line in lines if line.number_id in routed_number_ids]
     if routed:
         return replace(routed[0], own=True)
+    the_lines = [line for line in lines if line.number_id in line_number_ids]
+    first = the_lines[0] if the_lines else lines[0] if lines else None
+    return replace(first, own=False) if first is not None else None
+
+
+async def _copy_caller(session: AsyncSession, *, agent_id: UUID, ref: str) -> CallerLine | None:
+    """The number a test call through the agent's client-workspace test copy rings from
+    (D-1020): the account's first number in the copy's workspace (`caller_lines`' order, the
+    agent's own first), always lent, since the copy answers no number."""
+    lines = await caller_lines(session, agent_id=agent_id, dial_ref=ref)
     return replace(lines[0], own=False) if lines else None
 
 
@@ -5380,6 +5484,18 @@ class LineTestDial:
     #: A draft line's test holder, made in our developer workspace (D-1018): the call rings
     #: from the shared test line, never from the client's numbers.
     developer: bool = False
+    #: A draft line's own numbers, none routed to it yet: its test from the client's
+    #: workspace (D-1020) rings from one of them, lent to the holder for the call.
+    line_number_ids: frozenset[UUID] = frozenset()
+
+
+@dataclass(frozen=True, slots=True)
+class CopyTestDial:
+    """A paying account's test call of an agent through its test copy in the CLIENT's
+    workspace (D-1020), rung from the client's own number lent to the copy for the call.
+    Built only by `agents/trial_calls.place_trial_call`, always with an `OwnerTestDial`."""
+
+    ref: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -5593,8 +5709,13 @@ async def dispatch_call(
     line_test: LineTestDial | None = None,
     campaign: CampaignDial | None = None,
     line: LineDial | None = None,
+    copy_test: CopyTestDial | None = None,
 ) -> str:
     """Place ONE outbound call. The caller has already passed the compliance gate.
+
+    `copy_test` rings through the agent's test copy in the client's workspace (D-1020), from
+    the client's first number there, lent to the copy for the call: a paying account's test
+    call of an agent from its own number. With `owner_test` only.
 
     `line` rings through a live inbound line's engine agent (D-1019): a direct call the
     resolver (`agents/dial_through`) sent through the line. The call row carries the line,
@@ -5700,8 +5821,10 @@ async def dispatch_call(
         raise ValueError("rings_at_any_hour is for a test call only")
     if line_test is not None and trial is None and owner_test is None:
         raise ValueError("line_test is for a test call only")
-    if sum(holder is not None for holder in (campaign, line_test, line)) > 1:
-        raise ValueError("a call rings through one holder: campaign, line_test or line")
+    if copy_test is not None and (owner_test is None or trial is not None):
+        raise ValueError("copy_test is a paying account's own-number test call only")
+    if sum(holder is not None for holder in (campaign, line_test, line, copy_test)) > 1:
+        raise ValueError("a call rings through one holder: campaign, line_test, line or copy")
     await _assert_dialling_tenant_owns_the_session(session, tenant_id=tenant_id)
 
     agent = await _load_agent(session, tenant_id, agent_id)
@@ -5720,6 +5843,8 @@ async def dispatch_call(
         if line_test is not None
         else line.ref
         if line is not None
+        else copy_test.ref
+        if copy_test is not None
         else agent["engine_agent_ref"] or (trial.agent_ref if trial is not None else None)
     )
     if not isinstance(ref, str) or not ref:
@@ -5744,10 +5869,20 @@ async def dispatch_call(
             agent_id=agent_id,
             ref=holder_line.ref,
             routed_number_ids=holder_line.routed_number_ids,
+            line_number_ids=line_test.line_number_ids if line_test is not None else frozenset(),
         )
         if holder_line is not None
+        else await _copy_caller(session, agent_id=agent_id, ref=copy_test.ref)
+        if copy_test is not None
         else await choose_caller_line(session, agent_id=agent_id, number_id=number_id)
     )
+    if copy_test is not None and caller is None:
+        # Checked before the copy was readied (`trial_calls`); a number released in between.
+        raise ProblemError.business_rule(
+            CLIENT_NUMBER_UNAVAILABLE_RULE,
+            "There is no number of yours this test call can ring from right now.",
+            remediation="Try again in a few minutes.",
+        )
     if trial is None and owner_test is None:
         # A test call is asked by the gate itself (`a2p_dial_blocker(trial_call=True)`).
         await _refuse_undeclared_caller(

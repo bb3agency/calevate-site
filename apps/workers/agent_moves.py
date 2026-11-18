@@ -119,6 +119,10 @@ async def _retire_test_copies(session: Any, *, tenant_id: UUID, workspace: str |
     )
     retired = 0
     for agent_id, ref, idle, business_only, holds_own in copies:
+        if scope_of(str(ref)) is not None:
+            # A copy in the client's own workspace is its test calls from its own number
+            # (D-1020), given back after an hour unused by `workers/campaign_engine_agents`.
+            continue
         if idle or (own and holds_own and not business_only):
             await retire_engine_agent(
                 session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)

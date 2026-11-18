@@ -4,7 +4,9 @@
 test calls against the cap, and whether a test call can be placed now and, if not, why.
 `POST /v1/trial/calls` places one test call (`agents/trial_calls.place_trial_call`).
 `GET /v1/trial/calls` lists today's test calls and `GET /v1/trial/calls/{call_id}` follows
-one while it runs (`agents/test_call_reads`, D-885).
+one while it runs (`agents/test_call_reads`, D-885). `GET /v1/trial/rings-from` names the
+account's own number a test call would ring from, for the panels to say before the call
+(D-1020).
 
 No cost and no vendor name. The one number of ours is the shared trial number a placed
 call rings from (D-885: the owner asked where the call came from); the person rung is
@@ -20,6 +22,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.paid_test_calls import own_caller_number
 from apps.api.agents.test_call_reads import TestCallOut, read_test_call, recent_test_calls
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.trial_panel import TrialPanelOut
@@ -62,6 +65,9 @@ class TrialCallOut(Strict):
     #: The shared trial number the call rings from, E.164; null when the account's own line
     #: places it, whose number the engine picks.
     caller_number: str | None = None
+    #: The account tests from its own number, but this call rang from our test number because
+    #: every calling setup of its own was in use (D-1020).
+    shared_fallback: bool = False
 
 
 @router.get(
@@ -73,6 +79,37 @@ class TrialCallOut(Strict):
 async def read_trial_panel(session: Session, principal: TrialReader) -> TrialPanelOut:
     assert principal.tenant_id is not None
     return await build_trial_panel(session, tenant_id=principal.tenant_id)
+
+
+class RingsFromOut(Strict):
+    #: The account's own number a test call would ring from, E.164; null when it rings from
+    #: our test number (a free trial, or a paid account with no number yet, D-1020).
+    own_number: str | None = None
+
+
+@router.get(
+    "/rings-from",
+    response_model=RingsFromOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="Which number a test call of this agent, line or campaign would ring from",
+)
+async def read_rings_from(
+    session: Session,
+    principal: TrialReader,
+    agent_id: UUID,
+    line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
+) -> RingsFromOut:
+    assert principal.tenant_id is not None
+    return RingsFromOut(
+        own_number=await own_caller_number(
+            session,
+            tenant_id=principal.tenant_id,
+            agent_id=agent_id,
+            line_id=line_id,
+            campaign_id=campaign_id,
+        )
+    )
 
 
 @router.post(
@@ -116,6 +153,7 @@ async def create_trial_call(
         blocked_rule=result.blocked_rule,
         call_id=result.call_id,
         caller_number=result.caller_number,
+        shared_fallback=result.shared_fallback,
     )
 
 

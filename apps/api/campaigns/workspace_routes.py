@@ -706,6 +706,9 @@ class CampaignTestCallOut(_Out):
     #: The rule that refused it, so a screen can tell a trial limit from a fault.
     blocked_rule: str | None = None
     call_id: UUID | None = None
+    #: The account tests from its own number, but this call rang from our test number because
+    #: every calling setup of its own was in use (D-1020).
+    shared_fallback: bool = False
 
 
 @router.post(
@@ -763,6 +766,7 @@ async def campaign_test_call(
         blocked_reason=result.blocked_reason,
         blocked_rule=result.blocked_rule,
         call_id=result.call_id,
+        shared_fallback=result.shared_fallback,
     )
 
 

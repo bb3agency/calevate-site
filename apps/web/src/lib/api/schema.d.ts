@@ -14726,6 +14726,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/trial/rings-from": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which number a test call of this agent, line or campaign would ring from */
+        get: operations["read_rings_from_v1_trial_rings_from_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/usage": {
         parameters: {
             query?: never;
@@ -19743,6 +19760,11 @@ export interface components {
             blocked_rule?: string | null;
             /** Call Id */
             call_id?: string | null;
+            /**
+             * Shared Fallback
+             * @default false
+             */
+            shared_fallback: boolean;
             /**
              * Status
              * @enum {string}
@@ -33293,6 +33315,11 @@ export interface components {
             /** Subject Ref */
             subject_ref: string;
         };
+        /** RingsFromOut */
+        RingsFromOut: {
+            /** Own Number */
+            own_number?: string | null;
+        };
         /** RollbackIn */
         RollbackIn: {
             /** Version */
@@ -34373,7 +34400,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "agent" | "inbound_line" | "campaign" | "script_trial";
+            kind: "agent" | "inbound_line" | "campaign" | "script_trial" | "test_call";
             /** Name */
             name: string;
             /** Removing */
@@ -37386,6 +37413,11 @@ export interface components {
             call_id?: string | null;
             /** Caller Number */
             caller_number?: string | null;
+            /**
+             * Shared Fallback
+             * @default false
+             */
+            shared_fallback: boolean;
             /**
              * Status
              * @enum {string}
@@ -66777,6 +66809,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TestCallOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_rings_from_v1_trial_rings_from_get: {
+        parameters: {
+            query: {
+                agent_id: string;
+                line_id?: string | null;
+                campaign_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RingsFromOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
