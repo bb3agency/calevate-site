@@ -437,6 +437,9 @@ TENANT_TABLES = [
     # A moved agent's developer-workspace copy kept for test calls on the shared trial line
     # while its client has no number (D-859, option A). Not append-only: retired with it.
     "agent_test_copies",
+    # What the adoption job did with each agent's own engine agent (D-1019, migration
+    # e4b9c2a7d6f3). Not append-only: a rerun updates the outcome.
+    "agent_engine_retirements",
     "handoff_attempts",
     "kb_retrieval_logs",
     # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue

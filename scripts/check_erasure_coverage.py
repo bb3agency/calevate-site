@@ -491,6 +491,12 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
             "every field — so a caller's deletion request has nothing to match here. The "
             "rows end with the engagement, which `execute_tenant_erasure` covers."
         ),
+        "agent_engine_retirements": (
+            "What the adoption job (D-1019) did with an agent's own engine agent: ids, the "
+            "vendor handle, an outcome from a CHECK and OUR reason code in `reason`. No caller "
+            "is named in any field, so a deletion request has nothing to match here. It ends "
+            "with the engagement, which `execute_tenant_erasure` covers."
+        ),
         "company_training_materials": (
             "What the BUSINESS gave the company training to be written from: a note, a link "
             "or an uploaded document. The owner wrote every field, so a caller's deletion "

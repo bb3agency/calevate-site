@@ -641,6 +641,17 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
             "this only once they confirm. A campaign is refused Start when it is full."
         ),
     ),
+    "agent_engine_retirement_sweep": _m(
+        "voice-engine",
+        "thinnest",
+        "Hand agents' calling setups to their lines and campaigns",
+        "On: every hour, each agent's own setup goes to what uses it, or is removed.",
+        _THINNEST,
+        details=(
+            "Off: it runs only for one client at a time, from that client's voice workspace "
+            "page. Run a dry run there first."
+        ),
+    ),
     "thinnest_developer_workspace_id": _m(
         "voice-engine",
         "thinnest",

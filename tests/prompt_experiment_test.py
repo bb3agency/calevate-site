@@ -16,7 +16,7 @@ What is pinned here, and why each one is worth a test:
 5. **Promotion goes through the existing publish path** — a new `prompt_versions` row
    (copy-forward), the applied pointer moved by `publishing.apply_to_live`, the engine
    holding the promoted script. Not a second way to change what an agent says.
-6. **An experiment can be ENDED**, with or without a winner, and cannot be started twice.
+6. **An experiment can be ENDED**, with or without a winner, and no new one starts (D-1019).
    Ending answers the THREE questions `db/transition.py::transition_status` names, which
    this path used to answer with one 409 apiece: an id naming no test of this agent (or a
    neighbour's, which RLS makes the same thing) is a 404; a repeat of the ending the test
@@ -50,9 +50,10 @@ from contextlib import asynccontextmanager
 import pytest
 from apps.api.agents import experiment_routes, experiments, prompts
 from apps.api.agents import publishing as publishing_service
-from apps.api.agents.service import dispatch_call
+from apps.api.agents.service import ArmToPublish, dispatch_call, publish_variants
 from apps.api.compliance.disclosure import RECORDING_NOTICE_TEMPLATES
 from apps.api.core.errors import ProblemError, install_error_handlers
+from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import FakeEngine
@@ -146,23 +147,93 @@ async def _challenger(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> int:
         )
 
 
+async def start_running_test(
+    tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    *,
+    control_version: int,
+    challenger_version: int,
+    split_bp: int = 5000,
+    control_disclosure: str | None = None,
+    challenger_disclosure: str | None = None,
+) -> uuid.UUID:
+    """A running script test, as one started before D-1019 refused new ones: both arm rows
+    written, then both arms published together (`service.publish_variants`, D-382)."""
+    experiment_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        agent_line = (
+            await session.execute(
+                text("SELECT ai_disclosure_line FROM agents WHERE id = :a"), {"a": agent_id}
+            )
+        ).scalar_one()
+        await session.execute(
+            text(
+                "INSERT INTO prompt_experiments (id, tenant_id, agent_id, name, status, "
+                "conversion_metric, started_at, created_at, updated_at) VALUES (:id, :tid, "
+                ":aid, 'Direct booking greeting', 'running', 'call_outcome_resolved', now(), "
+                "now(), now())"
+            ),
+            {"id": experiment_id, "tid": tenant_id, "aid": agent_id},
+        )
+        arms: list[ArmToPublish] = []
+        for label, version, disclosure, weight in (
+            ("A", control_version, control_disclosure, split_bp),
+            ("B", challenger_version, challenger_disclosure, 10_000 - split_bp),
+        ):
+            pv_id, body = (
+                await session.execute(
+                    text(
+                        "SELECT id, body FROM prompt_versions WHERE agent_id = :a AND version = :v"
+                    ),
+                    {"a": agent_id, "v": version},
+                )
+            ).one()
+            variant_id = uuid7()
+            line = disclosure or str(agent_line)
+            await session.execute(
+                text(
+                    "INSERT INTO prompt_experiment_variants (id, tenant_id, experiment_id, "
+                    "label, prompt_version_id, disclosure_line, weight_bp, created_at, "
+                    "updated_at) VALUES (:id, :tid, :eid, :label, :pv, :disc, :w, now(), now())"
+                ),
+                {
+                    "id": variant_id,
+                    "tid": tenant_id,
+                    "eid": experiment_id,
+                    "label": label,
+                    "pv": pv_id,
+                    "disc": line,
+                    "w": weight,
+                },
+            )
+            arms.append(
+                ArmToPublish(
+                    variant_id=variant_id,
+                    label=label,
+                    body=str(body),
+                    disclosure_line=line,
+                    existing_ref=None,
+                )
+            )
+        await publish_variants(session, tenant_id=tenant_id, agent_id=agent_id, arms=arms)
+    return experiment_id
+
+
 async def _running(
     split_bp: int = 5000, direction: str = "outbound"
 ) -> tuple[uuid.UUID, uuid.UUID, FakeEngine, uuid.UUID]:
     tenant_id, agent_id, engine = await _agent(direction)
     await _challenger(tenant_id, agent_id)
-    started = await experiments.start(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        name="Direct booking greeting",
+    experiment_id = await start_running_test(
+        tenant_id,
+        agent_id,
         control_version=1,
         challenger_version=2,
         split_bp=split_bp,
-        conversion_metric="call_outcome_resolved",
         control_disclosure=DISCLOSURE_A,
         challenger_disclosure=DISCLOSURE_B,
     )
-    return tenant_id, agent_id, engine, started.experiment_id
+    return tenant_id, agent_id, engine, experiment_id
 
 
 async def _dial(tenant_id: uuid.UUID, agent_id: uuid.UUID, phone: str) -> None:
@@ -355,21 +426,28 @@ async def test_the_schema_refuses_an_arm_with_no_disclosure() -> None:
             )
 
 
-async def test_a_blank_disclosure_override_is_refused_with_a_usable_message() -> None:
-    tenant_id, agent_id, _ = await _agent()
+async def test_a_new_per_agent_test_is_refused_and_points_to_the_campaign() -> None:
+    """D-1019 (E1): an agent holds no engine agent of its own, so nothing is published and
+    no row is written; the refusal names the campaign's opening test."""
+    tenant_id, agent_id, engine = await _agent()
     await _challenger(tenant_id, agent_id)
-    with pytest.raises(ProblemError) as caught:
-        await experiments.start(
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            name="Blank disclosure",
-            control_version=1,
-            challenger_version=2,
-            split_bp=5000,
-            conversion_metric="call_outcome_resolved",
-            challenger_disclosure="   ",
+    held_before = set(engine._agents)
+    async with AsyncClient(
+        transport=ASGITransport(app=_conclude_app()), base_url="http://api"
+    ) as client:
+        response = await client.post(
+            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment",
+            headers={"Authorization": f"Bearer {await _admin_token()}"},
+            json={"name": "Direct booking", "control_version": 1, "challenger_version": 2},
         )
-    assert caught.value.code == "variant_disclosure_required"
+    assert response.status_code == 422, response.text
+    body = response.json()
+    assert body["type"].rsplit("/", 1)[-1] == experiments.PER_AGENT_TESTS_RETIRED
+    assert "campaign" in body["remediation"]
+    assert set(engine._agents) == held_before, "a refused test still published an arm"
+    async with tenant_session(tenant_id) as session:
+        rows = (await session.execute(text("SELECT count(*) FROM prompt_experiments"))).scalar()
+    assert rows == 0
 
 
 # --- 4. the attribution arithmetic --------------------------------------------
@@ -765,14 +843,8 @@ async def test_a_stale_conclude_cannot_end_the_test_that_started_after_it() -> N
     )
 
     # v3 is the promotion the first test minted; the second test runs it against v2.
-    second = await experiments.start(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        name="Shorter opener",
-        control_version=3,
-        challenger_version=2,
-        split_bp=5000,
-        conversion_metric="call_outcome_resolved",
+    second_id = await start_running_test(
+        tenant_id, agent_id, control_version=3, challenger_version=2
     )
 
     replay = await experiments.conclude(
@@ -789,14 +861,14 @@ async def test_a_stale_conclude_cannot_end_the_test_that_started_after_it() -> N
     assert caught.value.status == 409
     assert "variant B" in caught.value.detail, "the 409 describes the wrong test's ending"
 
-    assert await _status_of(tenant_id, second.experiment_id) == "running", (
+    assert await _status_of(tenant_id, second_id) == "running", (
         "a conclude for the previous test ended the one that started after it"
     )
     async with tenant_session(tenant_id) as session:
         promoted = (
             await session.execute(
                 text("SELECT promoted_variant_id FROM prompt_experiments WHERE id = :e"),
-                {"e": second.experiment_id},
+                {"e": second_id},
             )
         ).scalar()
         versions = (
@@ -811,7 +883,7 @@ async def test_a_stale_conclude_cannot_end_the_test_that_started_after_it() -> N
                     "ON v.engine_agent_ref = r.engine_agent_ref "
                     "WHERE r.active AND v.experiment_id = :e"
                 ),
-                {"e": second.experiment_id},
+                {"e": second_id},
             )
         ).scalar()
     assert promoted is None, "the stale conclude promoted an arm of the running test"
@@ -819,40 +891,7 @@ async def test_a_stale_conclude_cannot_end_the_test_that_started_after_it() -> N
     assert live_arms == 2, "the stale conclude retired the running test's engine routes"
 
 
-# --- 6. refusals --------------------------------------------------------------
-
-
-async def test_two_experiments_cannot_run_on_one_agent() -> None:
-    tenant_id, agent_id, _, _ = await _running()
-    with pytest.raises(ProblemError) as caught:
-        await experiments.start(
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            name="A second one",
-            control_version=1,
-            challenger_version=2,
-            split_bp=5000,
-            conversion_metric="call_outcome_resolved",
-        )
-    assert caught.value.code == "experiment_already_running"
-
-
-async def test_an_inbound_only_agent_is_refused_rather_than_measured_forever() -> None:
-    """Assignment happens where a call is PLACED. An inbound-only agent would report
-    'not enough data' for ever, which is a broken screen wearing a valid state."""
-    tenant_id, agent_id, _ = await _agent(direction="inbound")
-    await _challenger(tenant_id, agent_id)
-    with pytest.raises(ProblemError) as caught:
-        await experiments.start(
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            name="Receptionist greeting",
-            control_version=1,
-            challenger_version=2,
-            split_bp=5000,
-            conversion_metric="call_outcome_resolved",
-        )
-    assert caught.value.code == "experiment_needs_outbound"
+# --- 6. what a two-way agent measures ---------------------------------------
 
 
 async def test_a_two_way_agent_says_which_half_it_is_measuring() -> None:

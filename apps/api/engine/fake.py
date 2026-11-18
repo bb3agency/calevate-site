@@ -54,7 +54,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     compose_first_utterance,
 )
-from calevate_shared.engine_scope import scoped_handle
+from calevate_shared.engine_scope import scope_of, scoped_handle
 from calevate_shared.events import (
     TERMINAL_STATUSES,
     CallDirection,
@@ -522,6 +522,8 @@ class FakeEngine:
         #: different engine to every caller rather than a differently-labelled one.
         self.capabilities = capabilities
         self._agents: dict[str, AgentConfig] = {}
+        #: `ref → name tag`: the holder each agent answers to (`create_agent`).
+        self._tags: dict[str, str] = {}
         self._calls: dict[str, _StoredCall] = {}
         self._kb: dict[str, list[KBSourceRef]] = {}
         #: Pages this engine refuses as unreadable, the way a fetching engine answers a page
@@ -604,19 +606,43 @@ class FakeEngine:
         self._assert_speech_is_ours(cfg)
         # Scoped like a real adapter's on an engine with customer workspaces (D-693); a
         # config with no workspace (every other engine) keeps the bare id it always had.
-        ref = scoped_handle(
-            self._stable_id(
-                "fakeagent", cfg.tenant_id, cfg.agent_id, *([cfg.holder] if cfg.holder else [])
-            ),
-            cfg.engine_workspace,
-        )
+        # Found by its name tag first, as ThinnestAI's `create_agent` finds one it made
+        # earlier (`thinnest._find_agent`): an agent another holder took over by an update
+        # (D-1019) answers to that holder's tag now, never to the one it was made with.
+        tag = self._name_tag(cfg)
+        for held, held_tag in self._tags.items():
+            if held_tag == tag and held in self._agents and scope_of(held) == cfg.engine_workspace:
+                self._agents[held] = cfg
+                return held
+        parts = [cfg.tenant_id, cfg.agent_id, *([cfg.holder] if cfg.holder else [])]
+        ref = scoped_handle(self._stable_id("fakeagent", *parts), cfg.engine_workspace)
+        suffix = 2
+        while self._tags.get(ref) not in (None, tag):
+            ref = scoped_handle(
+                self._stable_id("fakeagent", *parts, f"#{suffix}"), cfg.engine_workspace
+            )
+            suffix += 1
         self._agents[ref] = cfg
+        self._tags[ref] = tag
         return ref
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
         self._assert_this_engine_hosts_agents()
         self._assert_speech_is_ours(cfg)
         self._agents[ref] = cfg
+        # An update re-sends the name with the holder's tag (`thinnest.vendor_agent_name`),
+        # so the agent is renamed to whoever it now belongs to.
+        self._tags[ref] = self._name_tag(cfg)
+
+    def _name_tag(self, cfg: AgentConfig) -> str:
+        """What `create_agent` finds an agent by: its tenant, agent and holder."""
+        return self._stable_id(
+            "tag", cfg.tenant_id, cfg.agent_id, *([cfg.holder] if cfg.holder else [])
+        )
+
+    def name_tag_of(self, ref: EngineAgentRef) -> str | None:
+        """The tag the agent behind `ref` carries now, for a test."""
+        return self._tags.get(ref)
 
     async def override_call_script(
         self, ref: EngineAgentRef, *, opening_line: str, system_prompt: str
@@ -670,6 +696,7 @@ class FakeEngine:
         postcondition already satisfied, and the conformance suite deletes twice.
         """
         self._agents.pop(ref, None)
+        self._tags.pop(ref, None)
         self._kb.pop(ref, None)
 
     async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:

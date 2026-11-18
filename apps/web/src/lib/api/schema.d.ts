@@ -799,6 +799,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/agent-engine-retirement": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Give this client's agents' own engine agents to their lines and campaigns
+         * @description Per agent still holding an engine agent: the one draft line with numbers, or the one running campaign, that uses it adopts it in place (read back like any publish); one nothing uses is retired; anything else is held with a reason. `dry_run` (the default) changes nothing. A real run needs step-up and is refused while `agents_hold_engine_agent` is on.
+         */
+        post: operations["run_retirement_v1_admin_engine_workspaces_tenants__tenant_id__agent_engine_retirement_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/engine-workspaces/tenants/{tenant_id}/business-details": {
         parameters: {
             query?: never;
@@ -1951,8 +1971,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Start an A/B script test between two existing prompt versions
-         * @description Both arms name versions this agent already has, so no new script is authored here. Each arm is published to the voice platform as its own engine agent carrying its own disclosure line.
+         * Refused since D-1019: script tests run on a campaign's opening test
+         * @description Always 422 `per_agent_experiments_retired`: an agent holds no engine agent of its own, so a new per-agent test has nothing to split its calls beside. A campaign tests a second opening line instead. Tests already running keep their results and conclude.
          */
         post: operations["start_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_post"];
         delete?: never;
@@ -16338,6 +16358,25 @@ export interface components {
             tenant_id: string;
             /** Turns */
             turns: number;
+        };
+        /** AgentRetirementOut */
+        AgentRetirementOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Experiments Concluded */
+            experiments_concluded: string[];
+            /** Holder Id */
+            holder_id: string | null;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "adopted_line" | "adopted_campaign" | "retired" | "held" | "waiting";
+            /** Reason */
+            reason: string | null;
         };
         /**
          * AgentSpendOut
@@ -33076,6 +33115,26 @@ export interface components {
             /** What */
             what: string;
         };
+        /** RetirementIn */
+        RetirementIn: {
+            /**
+             * Dry Run
+             * @default true
+             */
+            dry_run: boolean;
+        };
+        /** RetirementRunOut */
+        RetirementRunOut: {
+            /** Agents */
+            agents: components["schemas"]["AgentRetirementOut"][];
+            /** Dry Run */
+            dry_run: boolean;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
         /**
          * RetryPolicyIn
          * @description How many times to try each person, and how long to wait between tries (D-773).
@@ -41079,6 +41138,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TenantWorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    run_retirement_v1_admin_engine_workspaces_tenants__tenant_id__agent_engine_retirement_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetirementIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RetirementRunOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

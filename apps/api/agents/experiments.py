@@ -1,4 +1,9 @@
-"""A/B greeting/script testing with conversion attribution (ROADMAP M3).
+"""A/B script testing with conversion attribution (ROADMAP M3), closed to new tests.
+
+SINCE D-1019 NO NEW PER-AGENT TEST STARTS (`per_agent_tests_retired`): an agent holds no
+engine agent of its own, and a campaign tests a second opening line instead (D-992). What
+follows describes the tests already running, whose results, assignment and conclude stay
+until the adoption job concludes them (`agents/engine_retirement`).
 
 WHAT THIS ADDS TO A REPO THAT ALREADY HAS PROMPT VERSIONS
 ----------------------------------------------------------
@@ -53,7 +58,7 @@ a DID with an arm, those calls ARE that arm's and are recorded as such.
 
 Consequences, all of them enforced here rather than left to a reader:
 
-* `start` still REFUSES an `inbound`-only agent: none of its calls would be split, so
+* An `inbound`-only agent was refused a test: none of its calls would be split, so
   the screen would say "not enough data" forever.
 * `attributed_directions` is READ FROM THE ASSIGNED CALLS, never asserted. It was the
   literal `("outbound",)` and that was a claim about code, not a measurement; the
@@ -89,14 +94,11 @@ from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import prompts, publishing
 from apps.api.agents.models import (
     CONVERSION_METRICS,
-    SPLIT_MIN_BP,
-    SPLIT_TOTAL_BP,
     VARIANT_LABELS,
 )
 from apps.api.agents.proportions import (
@@ -104,13 +106,11 @@ from apps.api.agents.proportions import (
     newcombe_difference,
     wilson_interval,
 )
-from apps.api.agents.service import ArmToPublish, publish_variants
 from apps.api.agents.t0_block import with_knowledge_of
 from apps.api.billing.display import display_decimal
 from apps.api.compliance.disclosure import bundled_disclosure_line
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.db.transition import transition_status
 
@@ -238,13 +238,6 @@ class ExperimentResults:
 
 
 @dataclass(frozen=True, slots=True)
-class StartResult:
-    experiment_id: UUID
-    variant_ids: tuple[UUID, ...]
-    engine_synced: bool
-
-
-@dataclass(frozen=True, slots=True)
 class ConcludeResult:
     experiment_id: UUID
     promoted_label: str | None
@@ -290,198 +283,24 @@ async def _agent(session: AsyncSession, agent_id: UUID) -> _AgentFacts:
     )
 
 
-async def _version_id(session: AsyncSession, agent_id: UUID, version: int) -> UUID:
-    row = (
-        await session.execute(
-            text("SELECT id FROM prompt_versions WHERE agent_id = :aid AND version = :v"),
-            {"aid": agent_id, "v": version},
-        )
-    ).first()
-    if row is None:
-        raise ProblemError.not_found("Prompt version")
-    return UUID(str(row[0]))
+#: The refusal's code for a new per-agent script test (D-1019).
+PER_AGENT_TESTS_RETIRED = "per_agent_experiments_retired"
 
 
-async def start(
-    *,
-    tenant_id: UUID,
-    agent_id: UUID,
-    name: str,
-    control_version: int,
-    challenger_version: int,
-    split_bp: int,
-    conversion_metric: str,
-    control_disclosure: str | None = None,
-    challenger_disclosure: str | None = None,
-) -> StartResult:
-    """Begin an experiment: two published arms, a split, and a metric.
-
-    Every refusal below exists because the alternative is a control that looks like it
-    is working:
-
-    - **not live / not published** — an arm is an engine agent; there is nothing to
-      publish it beside.
-    - **inbound-only agent** — none of its traffic can be split between the arms, so the
-      screen would read "not enough data" for ever (module docstring).
-    - **the same version twice** — an A/A test measures the noise floor, which is a
-      genuinely useful thing to run, but not through a surface that will report "no
-      difference" as if it were a finding about two scripts.
-    - **an experiment already running** — caught by the partial unique index rather than
-      by a read-then-write, so two operators pressing Start at once produce one
-      experiment and one conflict (BACKEND-PATTERNS §5).
-
-    The engine push happens INSIDE the transaction, after the rows, so a vendor failure
-    rolls the whole experiment back rather than leaving arms our table claims are live.
-    """
-    if conversion_metric not in CONVERSION_METRICS:
-        raise ProblemError.business_rule(
-            "unknown_conversion_metric",
-            f"'{conversion_metric}' is not a conversion metric this platform measures.",
-            remediation=f"Use one of: {', '.join(sorted(CONVERSION_METRICS))}.",
-        )
-    if not SPLIT_MIN_BP <= split_bp <= SPLIT_TOTAL_BP - SPLIT_MIN_BP:
-        raise ProblemError.business_rule(
-            "split_out_of_range",
-            "A traffic split must leave at least 5% of calls to each arm.",
-            remediation=(
-                f"Send a control share between {SPLIT_MIN_BP} and "
-                f"{SPLIT_TOTAL_BP - SPLIT_MIN_BP} basis points."
-            ),
-        )
-    if control_version == challenger_version:
-        raise ProblemError.business_rule(
-            "identical_variants",
-            "Both arms name the same prompt version, so the test cannot measure anything.",
-            remediation="Write a challenger version first, then start the experiment.",
-        )
-
-    async with tenant_session(tenant_id) as session:
-        agent = await _agent(session, agent_id)
-        if agent.status != "live" or not agent.engine_agent_ref:
-            raise ProblemError.business_rule(
-                "agent_not_published",
-                "This agent is not on the voice platform, so an experiment has nothing to run.",
-                remediation="Publish the agent first, then start the experiment.",
-            )
-        if agent.direction == "inbound":
-            raise ProblemError.business_rule(
-                "experiment_needs_outbound",
-                (
-                    "A script test splits traffic between two arms when a call is placed, "
-                    "and this agent only receives calls."
-                ),
-                remediation=(
-                    "An inbound caller reaches the agent's own line, so there is no point "
-                    "at which we could send them to one arm rather than the other — and "
-                    "deciding afterwards would credit a script they never heard. Run the "
-                    "test on an outbound or two-way agent."
-                ),
-            )
-
-        version_ids = {
-            "A": await _version_id(session, agent_id, control_version),
-            "B": await _version_id(session, agent_id, challenger_version),
-        }
-        disclosures = {
-            "A": (control_disclosure or agent.ai_disclosure_line).strip(),
-            "B": (challenger_disclosure or agent.ai_disclosure_line).strip(),
-        }
-        for label, disclosure in disclosures.items():
-            if not disclosure:
-                # Belt to the CHECK's braces: an empty override is a client typing a
-                # space, and it deserves a message rather than an IntegrityError 500.
-                raise ProblemError.business_rule(
-                    "variant_disclosure_required",
-                    f"Variant {label} has no disclosure line.",
-                    remediation=(
-                        "Every variant must state who is calling. Leave it empty to use "
-                        "the agent's own disclosure."
-                    ),
-                )
-        weights = {"A": split_bp, "B": SPLIT_TOTAL_BP - split_bp}
-
-        experiment_id = uuid7()
-        try:
-            await session.execute(
-                text(
-                    "INSERT INTO prompt_experiments (id, tenant_id, agent_id, name, status, "
-                    "conversion_metric, started_at, created_at, updated_at) VALUES (:id, :tid, "
-                    ":aid, :name, 'running', :metric, now(), now(), now())"
-                ),
-                {
-                    "id": experiment_id,
-                    "tid": tenant_id,
-                    "aid": agent_id,
-                    "name": name,
-                    "metric": conversion_metric,
-                },
-            )
-        except IntegrityError as exc:
-            raise ProblemError.conflict(
-                "experiment_already_running",
-                "This agent already has a script test running.",
-                remediation="Conclude the running test before starting another.",
-            ) from exc
-
-        variant_ids: list[UUID] = []
-        # THE ARMS ARE PUBLISHED TOGETHER, AFTER ALL OF THEM ARE WRITTEN (D-382), and that
-        # ordering is the point rather than tidiness. Publishing inside this loop meant
-        # arm A's vendor object was already created and verified when arm B's publish
-        # failed; the transaction then rolled arm A's `engine_agent_ref` and its routing
-        # row away and left the object at the vendor, named by nothing and therefore
-        # invisible to the drift sweep, which claims routes. `publish_variants` reclaims
-        # exactly the objects that call created.
-        arms: list[ArmToPublish] = []
-        for label in VARIANT_LABELS:
-            variant_id = uuid7()
-            variant_ids.append(variant_id)
-            await session.execute(
-                text(
-                    "INSERT INTO prompt_experiment_variants (id, tenant_id, experiment_id, "
-                    "label, prompt_version_id, disclosure_line, weight_bp, created_at, "
-                    "updated_at) VALUES (:id, :tid, :eid, :label, :pv, :disc, :w, now(), now())"
-                ),
-                {
-                    "id": variant_id,
-                    "tid": tenant_id,
-                    "eid": experiment_id,
-                    "label": label,
-                    "pv": version_ids[label],
-                    "disc": disclosures[label],
-                    "w": weights[label],
-                },
-            )
-            body = (
-                await session.execute(
-                    text("SELECT body FROM prompt_versions WHERE id = :id"),
-                    {"id": version_ids[label]},
-                )
-            ).scalar_one()
-            arms.append(
-                ArmToPublish(
-                    variant_id=variant_id,
-                    label=label,
-                    body=str(body),
-                    disclosure_line=disclosures[label],
-                    existing_ref=None,
-                )
-            )
-
-        await publish_variants(session, tenant_id=tenant_id, agent_id=agent_id, arms=arms)
-
-    log.info(
-        "prompt_experiment_started",
-        extra={
-            "agent_id": str(agent_id),
-            "experiment_id": str(experiment_id),
-            "control_version": control_version,
-            "challenger_version": challenger_version,
-            "split_bp": split_bp,
-            "metric": conversion_metric,
-        },
-    )
-    return StartResult(
-        experiment_id=experiment_id, variant_ids=tuple(variant_ids), engine_synced=True
+def per_agent_tests_retired() -> ProblemError:
+    """A new per-agent script test is refused (D-1019, E1). An agent holds no engine agent
+    of its own any more, so there is nothing to split its calls beside, and each arm took one
+    of the client's few calling setups. A campaign tests a second opening line on its own
+    engine agent instead (`campaigns/workspace_routes.save_opening_b`, D-992). Tests already
+    running keep their arms, results and conclude until the adoption job concludes them
+    (`agents/engine_retirement`, E2)."""
+    return ProblemError.business_rule(
+        PER_AGENT_TESTS_RETIRED,
+        "Script tests now run on a campaign, not on an agent.",
+        remediation=(
+            "Open the campaign and use its opening test to try a second opening line "
+            "against the script's own."
+        ),
     )
 
 
@@ -500,7 +319,7 @@ def _counts_sql(conversion_predicate: str) -> str:
 
     The predicate is interpolated, and it is safe BECAUSE it is never a caller's string:
     the only values that reach it are `CONVERSION_METRICS`' own SQL fragments, selected
-    by a key that `start` validates against that same dict before it can be stored.
+    by a key looked up in that same dict, so an unknown one raises before any SQL.
     """
     return (
         "SELECT v.id, v.label, pv.version, v.weight_bp, v.engine_agent_ref, "
@@ -943,7 +762,7 @@ async def conclude(
             ).first()
             if arm is None:
                 # "Script test", not "Variant": the label is already constrained to A/B
-                # above and `start` writes both arms in the same transaction as the
+                # above and a test was written with both arms in one transaction with the
                 # experiment, so the row that is missing here is the EXPERIMENT — or it
                 # is one this caller may not see, which is the same answer (hard rule 1).
                 raise ProblemError.not_found("Script test")
@@ -1095,12 +914,12 @@ __all__ = [
     "INBOUND_ON_AN_ARM_NOTE",
     "METRIC_LABELS",
     "PEEKING_CAVEAT",
+    "PER_AGENT_TESTS_RETIRED",
     "ConcludeResult",
     "ExperimentResults",
-    "StartResult",
     "VariantResult",
     "conclude",
     "judge",
+    "per_agent_tests_retired",
     "results_for",
-    "start",
 ]
