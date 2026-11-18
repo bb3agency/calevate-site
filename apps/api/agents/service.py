@@ -3029,6 +3029,7 @@ async def publish_agent(
     take_calls: bool = ...,
     onto_test_copy: Literal[True],
     business_only: bool = ...,
+    first_publish: bool = ...,
 ) -> str:
     """Typing only: a test copy is always made, so its handle is always returned."""
 
@@ -3042,6 +3043,7 @@ async def publish_agent(
     take_calls: bool = ...,
     onto_test_copy: bool = ...,
     business_only: bool = ...,
+    first_publish: bool = ...,
 ) -> str | None:
     """Typing only: None for an agent published without an engine agent of its own."""
 
@@ -3054,6 +3056,7 @@ async def publish_agent(
     take_calls: bool = True,
     onto_test_copy: bool = False,
     business_only: bool = False,
+    first_publish: bool = False,
 ) -> str | None:
     """Create or update the agent on the engine, VERIFY it, then record the mapping.
 
@@ -3277,6 +3280,23 @@ async def publish_agent(
         from apps.api.agents.business_only import business_row
 
         agent = await business_row(session, tenant_id=tenant_id, agent=agent)
+    # An agent already ready (live or paused) with no engine agent of its own stays without
+    # one (D-1019), whatever `agents_hold_engine_agent` says: a settings save on it republishes
+    # its lines and campaigns, and must not take one of the client's few workspace slots
+    # by creating an engine agent nobody asked for. Only a first publish of a draft creates one
+    # (`first_publish`: a caller that moved the agent out of draft in this transaction says
+    # so), and only while the setting is on.
+    holds_none = (
+        not onto_test_copy
+        and not first_publish
+        and not agent["engine_agent_ref"]
+        and (not get_settings().agents_hold_engine_agent or agent["status"] in ("live", "paused"))
+    )
+    if holds_none and not str(agent.get("prompt") or "").strip():
+        # Nothing of the agent's own is sent anywhere: this config only stamps the voice it
+        # speaks in, and each line and campaign composes its own script over the agent
+        # (`line_config`, `campaign_config`). An agent with no script of its own is normal now.
+        agent = cast(AgentRow, {**dict(agent), "prompt": f"{agent['name']}."})
     config = _to_config(tenant_id, agent, engine=engine, handoff=handoff)
     # The ACTIONS feature: attach this agent's during-call tools to the config the adapter
     # renders, so publish is where a tool change reaches live calls (the "Apply to live
@@ -3329,11 +3349,7 @@ async def publish_agent(
     ):
         # Made afresh below; `_record_test_copy` retires the old one.
         existing_ref = None
-    if (
-        not onto_test_copy
-        and not (isinstance(existing_ref, str) and existing_ref)
-        and not get_settings().agents_hold_engine_agent
-    ):
+    if holds_none:
         # An agent holding no engine agent of its own (D-1019). `live` is still only written
         # here: what callers reach is its lines' and campaigns' engine agents, each read back
         # by its own publish in this same transaction (`_publish_without_engine_agent`), so

@@ -204,10 +204,12 @@ async def test_the_owner_switches_it_over_http_and_the_flip_is_audited() -> None
         read = await http.get(f"/v1/agents/{agent_id}", headers=headers)
     assert flipped.status_code == 200, flipped.text
     body = flipped.json()
+    # A ready agent is synced by its status (D-1019): the save reaches its lines and
+    # campaigns whether or not it holds an engine agent of its own.
     assert (body["agent_id"], body["enabled"], body["engine_synced"]) == (
         str(agent_id),
         True,
-        False,
+        True,
     )
     assert {"nudge_after_seconds", "end_after_silence_seconds"} <= set(
         body["give_callers_time_settings"]

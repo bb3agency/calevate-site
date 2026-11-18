@@ -896,7 +896,13 @@ async def prepare_agent(
             from_statuses=_sources_for("prepare"),
             visible_where=_VISIBLE,
         )
-    await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
+    await publish_agent(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        take_calls=False,
+        first_publish=status == "draft",
+    )
     return LifecycleResult(agent_id=agent_id, status="paused", changed=moved, numbers_released=0)
 
 
