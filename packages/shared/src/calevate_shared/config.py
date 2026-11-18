@@ -625,6 +625,10 @@ class Settings(BaseSettings):
     #: `docs/vendor/thinnest-relationship-2026-10-23.md:136-142`). Campaign Start refuses
     #: plainly at it; an operator raises it when ThinnestAI confirms a raise.
     thinnest_agents_per_workspace: int = Field(default=2, ge=1, le=1000)
+    #: The hourly sweep that gives each agent's own engine agent to the line or campaign that
+    #: uses it, or retires it (D-1019, `agents/engine_retirement`). Off: it runs only when an
+    #: operator runs it for one client from the admin console.
+    agent_engine_retirement_sweep: bool = False
     #: Our OWN (developer) workspace's id, `org_…` like every customer's (`GET /workspace`,
     #: `thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/workspace/
     #: get-workspace.md:327-351`). Never accepted as a client's own workspace: a person-level

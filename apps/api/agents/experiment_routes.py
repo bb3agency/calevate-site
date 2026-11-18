@@ -2,7 +2,7 @@
 
     GET   /v1/agents/{agent_id}/experiment                          the results, and
                                                                     the rules they obey
-    POST  /v1/admin/tenants/{tid}/agents/{aid}/experiment           start
+    POST  /v1/admin/tenants/{tid}/agents/{aid}/experiment           start: refused (D-1019)
     POST  /v1/admin/tenants/{tid}/agents/{aid}/experiment/conclude  stop, and promote
 
 REALMS, AND WHY THE READ IS NOT ADMIN-ONLY
@@ -310,11 +310,12 @@ def _render(state: experiments.ExperimentResults) -> ExperimentOut:
     response_model=StartExperimentOut,
     status_code=201,
     openapi_extra=permission_meta("agents:write"),
-    summary="Start an A/B script test between two existing prompt versions",
+    summary="Refused since D-1019: script tests run on a campaign's opening test",
     description=(
-        "Both arms name versions this agent already has, so no new script is authored "
-        "here. Each arm is published to the voice platform as its own engine agent "
-        "carrying its own disclosure line."
+        "Always 422 `per_agent_experiments_retired`: an agent holds no engine agent of its "
+        "own, so a new per-agent test has nothing to split its calls beside. A campaign "
+        "tests a second opening line instead. Tests already running keep their results "
+        "and conclude."
     ),
     tags=["admin"],
 )
@@ -322,43 +323,10 @@ async def start_experiment(
     tenant_id: UUID,
     agent_id: UUID,
     payload: StartExperimentIn,
-    session: AdminSession,
-    request: Request,
     principal: ExperimentWriter,
 ) -> StartExperimentOut:
-    result = await experiments.start(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        name=payload.name,
-        control_version=payload.control_version,
-        challenger_version=payload.challenger_version,
-        split_bp=payload.split_bp,
-        conversion_metric=payload.conversion_metric,
-        control_disclosure=payload.control_disclosure,
-        challenger_disclosure=payload.challenger_disclosure,
-    )
-    await write_audit(
-        session,
-        action="agent.experiment_started",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="agent",
-        object_id=str(agent_id),
-        ip=client_request_ip(request),
-        # Version NUMBERS and a split. No body, no disclosure text (hard rule 6).
-        summary={
-            "experiment_id": str(result.experiment_id),
-            "control_version": payload.control_version,
-            "challenger_version": payload.challenger_version,
-            "split_bp": payload.split_bp,
-            "metric": payload.conversion_metric,
-        },
-    )
-    return StartExperimentOut(
-        experiment_id=result.experiment_id,
-        variant_ids=list(result.variant_ids),
-        engine_synced=result.engine_synced,
-    )
+    del tenant_id, agent_id, payload, principal
+    raise experiments.per_agent_tests_retired()
 
 
 @router.post(

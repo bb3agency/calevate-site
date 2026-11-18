@@ -38,7 +38,7 @@ from contextlib import contextmanager
 from typing import Any
 
 import pytest
-from apps.api.agents import experiments, prompts, publishing
+from apps.api.agents import prompts, publishing
 from apps.api.agents.service import publish_agent, publish_variant
 from apps.api.agents.verification import judge
 from apps.api.core.errors import ProblemError
@@ -57,6 +57,7 @@ from calevate_shared.engine import (
 )
 from sqlalchemy import text
 from tests.conftest import accept_agreements, create_org_with_receptionist
+from tests.prompt_experiment_test import start_running_test
 
 SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then take the appointment."
 NEXT_SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then quote the new price list."
@@ -1229,7 +1230,7 @@ async def test_a_reclaim_the_vendor_refuses_falls_back_to_the_operator_log(
 async def test_an_arm_created_before_a_siblings_failure_is_reclaimed_too() -> None:
     """Both arms are published in ONE transaction; only one of them can fail.
 
-    `experiments.start` writes both variant rows and publishes both arms inside a single
+    A script test wrote both variant rows and published both arms inside a single
     transaction, and `publish_variant` mints a vendor agent object per arm. When arm B
     failed, `publish_variant` reclaimed its OWN half-created object and re-raised — and
     arm A's object, already created and read back green, stayed at the vendor while the
@@ -1279,7 +1280,7 @@ async def test_an_arm_created_before_a_siblings_failure_is_reclaimed_too() -> No
             notes="challenger",
             created_by=None,
         )
-        # Only outbound agents split traffic into arms (`experiments.start`; inbound is
+        # Only outbound agents split traffic into arms (inbound is
         # answered by the agent's own line, D-60), so the fixture's default direction
         # would refuse this before a single vendor object was created.
         await session.execute(
@@ -1293,14 +1294,11 @@ async def test_an_arm_created_before_a_siblings_failure_is_reclaimed_too() -> No
         engine.creates = 0
         held_before = set(engine._agents)
         with pytest.raises(ProblemError) as exc:
-            await experiments.start(
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                name="Sunday hours",
+            await start_running_test(
+                tenant_id,
+                agent_id,
                 control_version=1,
                 challenger_version=2,
-                split_bp=5000,
-                conversion_metric="call_outcome_resolved",
                 control_disclosure=ARM_DISCLOSURE,
                 challenger_disclosure=ARM_DISCLOSURE,
             )

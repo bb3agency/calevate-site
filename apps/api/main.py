@@ -118,6 +118,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.admin.business_copy_routes import router as business_copy_admin_router
     from apps.api.admin.business_type_routes import router as business_type_router
     from apps.api.admin.closure_routes import router as tenant_closure_router
+    from apps.api.admin.engine_retirement_routes import router as engine_retirement_router
     from apps.api.admin.engine_workspace_routes import router as engine_workspace_router
     from apps.api.admin.health_routes import router as client_health_router
     from apps.api.admin.holds_routes import router as hold_queue_router
@@ -337,6 +338,7 @@ def _mount_routers(application: FastAPI) -> None:
     # under this prefix instead.
     application.include_router(number_supply_router)
     application.include_router(engine_workspace_router)
+    application.include_router(engine_retirement_router)
     # The client health board, for the same reason and with the same hazard in mind: it
     # is a cross-tenant exception report, so it gets its own `/v1/admin/client-health`
     # prefix rather than a segment under `/v1/admin/tenants/{tenant_id}`.

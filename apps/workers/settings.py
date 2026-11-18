@@ -117,6 +117,7 @@ from apps.workers.account_closure import (
 )
 from apps.workers.account_closure import notify_account_closed, sweep_due_erasures
 from apps.workers.action_audit import record_action_invocation
+from apps.workers.agent_engine_retirement import sweep_agent_engine_retirement
 from apps.workers.agent_moves import move_agents_to_workspace, sweep_agent_moves
 from apps.workers.agent_test_cases import run_agent_test_cases
 from apps.workers.agent_test_conversations import (
@@ -1282,6 +1283,18 @@ CRON_JOBS = [
         ),
         minute={49},
         second={40},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-1019. Each agent's own engine agent given to the line or campaign that uses it, or
+    # retired; only while the console's `agent_engine_retirement_sweep` is on (default off).
+    _cron(
+        traced_job(sweep_agent_engine_retirement),
+        walk=bounded(
+            "one directory read, then per account with an engine agent routed at most "
+            "MAX_AGENTS_PER_RUN agents, under its own WalkBudget"
+        ),
+        minute={51},
+        second={25},
         max_tries=WORKER_MAX_TRIES,
     ),
     # D-764. Every client workspace on our model verified on our Google key, repaired when

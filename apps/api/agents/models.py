@@ -2308,3 +2308,34 @@ class InboundLineSource(PKMixin, TimestampMixin, Base):
         ForeignKey("kb_sources.id", ondelete="CASCADE"), nullable=False
     )
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+
+
+#: What the adoption job did with an agent's own engine agent (D-1019).
+RetirementOutcome = Literal["adopted_line", "adopted_campaign", "retired", "held", "waiting"]
+RETIREMENT_OUTCOMES: Final[tuple[RetirementOutcome, ...]] = get_args(RetirementOutcome)
+
+
+class AgentEngineRetirement(PKMixin, TimestampMixin, Base):
+    """One agent's own engine agent, and what `agents/engine_retirement` did with it (D-1019):
+    given to the line or campaign that used it (`holder_id`), retired, or held for a reason
+    an operator reads. Migration `e4b9c2a7d6f3` is the schema of record."""
+
+    __tablename__ = "agent_engine_retirements"
+    __table_args__ = (
+        UniqueConstraint("agent_id", "old_ref", name="uq_agent_engine_retirements_agent_ref"),
+        CheckConstraint(f"outcome IN {RETIREMENT_OUTCOMES!r}", name="outcome_enum"),
+        Index("ix_agent_engine_retirements_tenant", "tenant_id", "outcome"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    old_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    outcome: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The inbound line or campaign that adopted it.
+    holder_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    #: Our code for why it is held or waiting; never vendor text.
+    reason: Mapped[str | None] = mapped_column(Text)

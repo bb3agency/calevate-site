@@ -4685,6 +4685,67 @@
         "title": "AgentReplyTimes",
         "type": "object"
       },
+      "AgentRetirementOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "experiments_concluded": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Experiments Concluded",
+            "type": "array"
+          },
+          "holder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder Id"
+          },
+          "outcome": {
+            "enum": [
+              "adopted_line",
+              "adopted_campaign",
+              "retired",
+              "held",
+              "waiting"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "agent_id",
+          "outcome",
+          "holder_id",
+          "reason",
+          "experiments_concluded"
+        ],
+        "title": "AgentRetirementOut",
+        "type": "object"
+      },
       "AgentSpendOut": {
         "additionalProperties": false,
         "description": "One agent: what the client paid, what we paid, and the difference.",
@@ -51240,6 +51301,46 @@
         "title": "RetentionLineOut",
         "type": "object"
       },
+      "RetirementIn": {
+        "additionalProperties": false,
+        "properties": {
+          "dry_run": {
+            "default": true,
+            "title": "Dry Run",
+            "type": "boolean"
+          }
+        },
+        "title": "RetirementIn",
+        "type": "object"
+      },
+      "RetirementRunOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentRetirementOut"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "dry_run",
+          "agents"
+        ],
+        "title": "RetirementRunOut",
+        "type": "object"
+      },
       "RetryPolicyIn": {
         "additionalProperties": false,
         "description": "How many times to try each person, and how long to wait between tries (D-773).\n\n`gaps_minutes` has one entry per retry (`max_attempts - 1`), each one of\n`service.RETRY_GAP_CHOICES`; the service refuses anything else by name.",
@@ -65970,6 +66071,7 @@
         "type": "object"
       },
       "VoiceNoteOut": {
+        "additionalProperties": false,
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -66005,6 +66107,7 @@
         "type": "object"
       },
       "VoiceNotesOut": {
+        "additionalProperties": false,
         "properties": {
           "items": {
             "items": {
@@ -70893,6 +70996,73 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/agent-engine-retirement": {
+      "post": {
+        "description": "Per agent still holding an engine agent: the one draft line with numbers, or the one running campaign, that uses it adopts it in place (read back like any publish); one nothing uses is retired; anything else is held with a reason. `dry_run` (the default) changes nothing. A real run needs step-up and is refused while `agents_hold_engine_agent` is on.",
+        "operationId": "run_retirement_v1_admin_engine_workspaces_tenants__tenant_id__agent_engine_retirement_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetirementIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetirementRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Give this client's agents' own engine agents to their lines and campaigns",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/engine-workspaces/tenants/{tenant_id}/business-details": {
       "post": {
         "operationId": "send_business_details_v1_admin_engine_workspaces_tenants__tenant_id__business_details_post",
@@ -74375,7 +74545,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment": {
       "post": {
-        "description": "Both arms name versions this agent already has, so no new script is authored here. Each arm is published to the voice platform as its own engine agent carrying its own disclosure line.",
+        "description": "Always 422 `per_agent_experiments_retired`: an agent holds no engine agent of its own, so a new per-agent test has nothing to split its calls beside. A campaign tests a second opening line instead. Tests already running keep their results and conclude.",
         "operationId": "start_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_post",
         "parameters": [
           {
@@ -74427,7 +74597,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Start an A/B script test between two existing prompt versions",
+        "summary": "Refused since D-1019: script tests run on a campaign's opening test",
         "tags": [
           "agents",
           "admin"

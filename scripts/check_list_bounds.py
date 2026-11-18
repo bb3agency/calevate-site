@@ -686,6 +686,15 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/admin/engine-workspaces/tenants/{tenant_id}/offboard": BoundedByConstruction(
         by="the same four-gate `purchase_blockers` list."
     ),
+    "POST /v1/admin/engine-workspaces/tenants/{tenant_id}/agent-engine-retirement": (
+        BoundedByConstruction(
+            by=(
+                "one client's agents holding a ref, read with LIMIT "
+                "`agents/engine_retirement.MAX_AGENTS_PER_RUN`; each agent's concluded tests "
+                "are its running ones, one at most (`prompt_experiments`' partial unique index)."
+            )
+        )
+    ),
     # --- D-692 KYC: `documents` is the CURRENT file per slot, and there are two slots ----
     "POST /v1/compliance/promo-check": _PROMO_FINDINGS,
     "GET /v1/compliance/promo-check/agents/{agent_id}": _PROMO_FINDINGS,

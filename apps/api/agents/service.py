@@ -2689,6 +2689,64 @@ async def retire_engine_agent(
     )
 
 
+#: The agent's own knowledge claims: not an arm's, a test copy's, a line's or a campaign's.
+_OWN_CLAIMS_WHERE: Final = (
+    "agent_id = :aid AND tenant_id = :tid AND variant_id IS NULL AND NOT test_copy "
+    "AND inbound_line_id IS NULL AND campaign_id IS NULL"
+)
+
+
+async def hand_over_engine_agent(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    ref: str,
+    line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
+) -> None:
+    """The agent stops holding `ref` (D-1019), in the caller's transaction, after locking the
+    agent row. Given to a line or a campaign that adopts it, its knowledge copies become that
+    holder's claims, moved BEFORE the holder's publish so its knowledge catch-up finds them
+    rather than attaching every source a second time. Given to nobody, the copies go with
+    the vendor agent and its deletion is owed through the outbox (`retire_engine_agent`);
+    its route stays active until then, so a late result of its last calls still lands."""
+    params = {"aid": agent_id, "tid": tenant_id, "ref": ref}
+    if line_id is not None or campaign_id is not None:
+        await session.execute(
+            text(
+                # `updated_at` left alone: it orders which digest is a source's newest.
+                "UPDATE engine_kb_routes SET inbound_line_id = :lid, campaign_id = :cid "
+                f"WHERE {_OWN_CLAIMS_WHERE}"
+            ),
+            {**params, "lid": line_id, "cid": campaign_id},
+        )
+    else:
+        await session.execute(
+            text(f"DELETE FROM engine_kb_routes WHERE {_OWN_CLAIMS_WHERE}"), params
+        )
+        await retire_engine_agent(session, tenant_id=tenant_id, agent_id=agent_id, ref=ref)
+    await session.execute(
+        text(
+            "UPDATE agents SET engine_agent_ref = NULL, updated_at = now() "
+            "WHERE id = :aid AND engine_agent_ref = :ref"
+        ),
+        params,
+    )
+
+
+def _refuse_adoption(adopt_ref: str, *, held: str | None, config: AgentConfig) -> None:
+    """A holder may adopt the agent's engine agent only while it holds none of its own (or
+    already holds that one), and only in the workspace its config is for: an agent cannot
+    move between workspaces, and recreating it would unbind the numbers it answers."""
+    if held not in (None, adopt_ref) or _moves_workspace(adopt_ref, config):
+        raise ProblemError.conflict(
+            "engine_agent_not_adoptable",
+            "This setup cannot take over its agent's calling setup.",
+            remediation="Nothing was changed. Put it live the usual way instead.",
+        )
+
+
 async def _has_any_number(session: AsyncSession, *, agent_id: UUID) -> bool:
     """Is any number of the client's attached to this agent, in any workspace?"""
     return bool(
@@ -4018,7 +4076,12 @@ async def line_config(
 
 
 async def publish_line(
-    session: AsyncSession, *, tenant_id: UUID, line_id: UUID, test: bool = False
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    line_id: UUID,
+    test: bool = False,
+    adopt_ref: str | None = None,
 ) -> str:
     """Create or update an inbound line's own engine agent (D-997): its agent's config, voice,
     settings, notices and the company training, over the line's script, with the agent's
@@ -4036,7 +4099,13 @@ async def publish_line(
     client's workspace (`_moves_workspace`), and the hourly sweep retires it once idle.
 
     The line's numbers are not touched here: `inbound/publish.put_line_live` attaches them
-    after this commits, so a number never points at an agent the transaction rolled away."""
+    after this commits, so a number never points at an agent the transaction rolled away.
+
+    `adopt_ref` is the agent's own engine agent, taken over in place by a line that holds
+    none (D-1019, `agents/engine_retirement`): updated to the line's config and name tag and
+    read back like any publish, so the numbers it answers stay bound to the same object and
+    callers hear no gap. Never reclaimed on a failure, since it was not made here. A live
+    publish only: a test holder is made in our developer workspace."""
     if not test:
         # A test holder answers no caller, so the maintenance message has nothing to lose.
         await _refuse_during_maintenance(session)
@@ -4093,6 +4162,9 @@ async def publish_line(
         session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config
     )
     existing_ref: str | None = line.engine_agent_ref
+    if adopt_ref is not None:
+        _refuse_adoption(adopt_ref, held=existing_ref, config=config)
+        existing_ref = adopt_ref
     moved_from: str | None = None
     if existing_ref and (
         _moves_workspace(existing_ref, config)
@@ -4530,6 +4602,7 @@ async def publish_campaign_agent(
     tenant_id: UUID,
     campaign_id: UUID,
     test: bool = False,
+    adopt_ref: str | None = None,
 ) -> str:
     """Create or update a campaign's own engine agent (D-1003): `campaign_config` read back
     like every publish, routed for intake (`engine_agent_routes.campaign_id`), given its
@@ -4543,6 +4616,10 @@ async def publish_campaign_agent(
     developer workspace, where the shared trial line rings (D-697, D-1018,
     `_campaign_test_in_developer`). Its next publish in the client's own workspace recreates
     it there (`_moves_workspace`), and the old one is retired.
+
+    `adopt_ref` is the agent's own engine agent, taken over in place by a running campaign
+    that dials through it and holds none of its own (D-1019, `agents/engine_retirement`), as
+    `publish_line` adopts one. A live publish only.
 
     The campaign row is locked first, so two Starts never make two engine agents for it."""
     if not test:
@@ -4567,6 +4644,9 @@ async def publish_campaign_agent(
         session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config
     )
     existing_ref = holder.engine_agent_ref
+    if adopt_ref is not None:
+        _refuse_adoption(adopt_ref, held=existing_ref, config=config)
+        existing_ref = adopt_ref
     moved_from: str | None = None
     if existing_ref and (
         _moves_workspace(existing_ref, config)
