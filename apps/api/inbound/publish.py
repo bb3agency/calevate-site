@@ -46,12 +46,23 @@ async def put_line_live(*, tenant_id: UUID, line_id: UUID) -> str:
     return ref
 
 
-async def line_test_dial(*, tenant_id: UUID, line_id: UUID) -> LineTestDial:
+#: A line's numbers, whether or not anything is routed to them yet.
+_LINE_NUMBERS_SQL: Final = (
+    "SELECT id FROM phone_numbers WHERE inbound_line_id = :lid AND released_at IS NULL"
+)
+
+
+async def line_test_dial(
+    *, tenant_id: UUID, line_id: UUID, in_client: bool = False
+) -> LineTestDial:
     """Get the line's engine agent ready for the owner's test call, in its own committed
     transaction before the dial (`paid_test_calls.refresh_test_copy`'s shape). A live line is
     put live again, so the call hears the script saved now; a draft is published as a test
-    holder (`publish_line(test=True)`) in our developer workspace, which leaves it a draft and
-    its numbers unrouted and rings from the shared test line (D-1018)."""
+    holder (`publish_line(test=True)`), which leaves it a draft and its numbers unrouted: in
+    our developer workspace, ringing from the shared test line (D-1018), or with `in_client`
+    in the client's own, ringing from one of the line's numbers, else the account's first,
+    lent to it for the call (D-1020). A full client workspace is refused there
+    (`engine_agent_allowance_full`), for the caller to fall back on ours."""
     async with tenant_session(tenant_id) as session:
         live = (await lines.read_line(session, line_id)).live
     if live:
@@ -65,9 +76,14 @@ async def line_test_dial(*, tenant_id: UUID, line_id: UUID) -> LineTestDial:
         return LineTestDial(ref=ref, line_id=line_id, routed_number_ids=routed)
     async with tenant_session(tenant_id) as session:
         ref = await agents_service.publish_line(
-            session, tenant_id=tenant_id, line_id=line_id, test=True
+            session, tenant_id=tenant_id, line_id=line_id, test=True, in_client=in_client
         )
-    return LineTestDial(ref=ref, line_id=line_id, developer=True)
+    if not in_client:
+        return LineTestDial(ref=ref, line_id=line_id, developer=True)
+    async with tenant_session(tenant_id) as session:
+        numbers = await session.execute(text(_LINE_NUMBERS_SQL), {"lid": line_id})
+        own = frozenset(UUID(str(number_id)) for number_id in numbers.scalars())
+    return LineTestDial(ref=ref, line_id=line_id, line_number_ids=own)
 
 
 async def route_numbers(*, tenant_id: UUID, line_id: UUID) -> InboundRouting:

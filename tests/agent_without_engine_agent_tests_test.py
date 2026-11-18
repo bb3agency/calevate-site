@@ -1,10 +1,12 @@
 """Test calls, chats and tests of an agent that holds no engine agent of its own (D-1019).
 
 Only an inbound line or a campaign holds an engine agent; the agent itself is tried through its
-developer-workspace test copy holding "Just the business" (`agents/business_only`), on the
-shared test number, on a trial and on a paid account alike. An agent still holding one keeps
-its own path. Driven through `trial_calls.place_trial_call`, `paid_test_calls.line_of`,
-`try_chat.send`, the saved-test worker, the copies sweep and the workspace move.
+test copy holding "Just the business" (`agents/business_only`): in our developer workspace on
+the shared test number for a trial or a paid account with no number of its own, and in the
+client's own workspace from its number once it has one (D-1020), falling back to ours when
+that workspace has no free engine agent. An agent still holding one keeps its own path.
+Driven through `trial_calls.place_trial_call`, `paid_test_calls.line_of`, `try_chat.send`,
+the saved-test worker, the copies sweep and the workspace move.
 """
 
 from __future__ import annotations
@@ -19,9 +21,11 @@ import pytest
 from apps.api.agents import paid_test_calls, trial_calls
 from apps.api.agents import service as agents_service
 from apps.api.agents import test_conversations as tc
+from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
+from apps.api.engine import get_engine
 from apps.api.engine.test_chat import TestChatTurn as ChatTurn
 from apps.api.go_live import moves
 from apps.api.teach import try_chat
@@ -127,14 +131,45 @@ async def _place(tenant_id: UUID, agent_id: UUID, principal: Any) -> trial_calls
         )
 
 
+def _own_number(monkeypatch: pytest.MonkeyPatch, workspace: str | None) -> None:
+    """Whether the paid account holds a number of its own in its workspace (D-1020)."""
+
+    async def _workspace(*_a: Any, **_k: Any) -> str | None:
+        return workspace
+
+    async def _paid_account(*_a: Any, **_k: Any) -> bool:
+        return True
+
+    monkeypatch.setattr(trial_calls, "own_test_workspace", _workspace)
+    if workspace is not None:
+        monkeypatch.setattr(trial_calls, "has_paid", _paid_account)
+        # A test call from the client's own number is offered only on the real engine.
+        monkeypatch.setattr(trial_calls, "TRIAL_CALL_ENGINES", frozenset({get_engine().name}))
+
+
+async def _call_cap(tenant_id: UUID, agent_id: UUID) -> int | None:
+    async with tenant_session(tenant_id) as session:
+        value = (
+            await session.execute(
+                text("SELECT max_call_duration_s FROM agents WHERE id = :a"), {"a": agent_id}
+            )
+        ).scalar()
+    return None if value is None else int(value)
+
+
 @pytest.mark.parametrize(
-    ("paid_line", "holds_own", "through_copy", "dial_ref"),
+    ("paid_line", "has_number", "holds_own", "copy", "dial_ref"),
     [
-        (None, True, False, None),  # trial, its own developer-workspace agent
-        (None, False, True, COPY),  # trial, nothing of its own: the business copy
-        ("trial_line_copy", False, True, COPY),  # paid, nothing of its own
-        ("trial_line_own", True, False, None),  # paid, not moved yet
-        ("own_number", True, False, "own"),  # paid, its own number
+        (None, False, True, None, None),  # trial, its own developer-workspace agent
+        (None, False, False, True, COPY),  # trial, nothing of its own: the business copy
+        ("trial_line_copy", False, False, True, COPY),  # paid, nothing of its own
+        ("trial_line_own", False, True, None, None),  # paid, not moved yet
+        ("own_number", False, True, None, "own"),  # paid, its own number
+        # D-1020: a paid account with a number rings every test from it, through a copy in
+        # its own workspace.
+        ("trial_line_copy", True, False, True, "client_copy"),
+        ("trial_line_own", True, True, False, "client_copy"),
+        ("own_number", True, True, None, "own"),
     ],
 )
 async def test_a_plain_test_call_rings_through_the_business_copy_without_an_engine_agent(
@@ -142,33 +177,115 @@ async def test_a_plain_test_call_rings_through_the_business_copy_without_an_engi
     dials: _Dials,
     monkeypatch: pytest.MonkeyPatch,
     paid_line: str | None,
+    has_number: bool,
     holds_own: bool,
-    through_copy: bool,
+    copy: bool | None,
     dial_ref: str | None,
 ) -> None:
     tenant_id, agent_id, principal = await _account(line)
     if paid_line is not None:
         _paid(monkeypatch, paid_line)
+    _own_number(monkeypatch, "org_mine" if has_number else None)
     if not holds_own:
         await _drop_own_ref(tenant_id, agent_id)
 
     placed = await _place(tenant_id, agent_id, principal)
 
     assert placed.status == "queued", placed
+    assert not placed.shared_fallback
     assert dials.refreshed == (
-        [{"tenant_id": tenant_id, "agent_id": agent_id, "business": True}] if through_copy else []
+        []
+        if copy is None
+        else [
+            {
+                "tenant_id": tenant_id,
+                "agent_id": agent_id,
+                "business": copy,
+                "in_client": has_number,
+            }
+        ]
     )
     [call] = dials.calls
     trial = call["trial"]
-    if dial_ref == "own":
+    if dial_ref in ("own", "client_copy"):
         assert trial is None, "its own number rings: no shared line"
+        held = call["copy_test"]
+        assert (held.ref if held is not None else None) == (
+            COPY if dial_ref == "client_copy" else None
+        )
     else:
         assert trial is not None and trial.from_e164 == get_settings().trial_caller_number
         assert trial.agent_ref == dial_ref
+        assert call["copy_test"] is None
     assert (call["owner_test"] is not None) == (paid_line is not None)
-    if through_copy and paid_line is not None:
-        # The shared line's per-call limit, never the agent's own longer one.
+    if copy is not None and paid_line is not None:
+        # The shared line's per-call limit, never the agent's own longer one; from its own
+        # number the own-number rule (D-904).
+        assert call["owner_test"].max_call_seconds == (
+            paid_test_calls.own_number_call_seconds(await _call_cap(tenant_id, agent_id))
+            if has_number
+            else get_settings().trial_call_max_seconds
+        )
+
+
+async def test_a_full_workspace_rings_the_plain_test_from_the_shared_line_and_says_so(
+    line: Line,  # noqa: F811
+    dials: _Dials,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-1020: no free engine agent in the client's workspace for the copy (our pre-check or
+    the platform's own refusal) falls back to the developer-workspace copy on the shared test
+    number, and the answer carries the flag; with no shared number it is not ready."""
+    tenant_id, agent_id, principal = await _account(line)
+    _paid(monkeypatch, "trial_line_copy")
+    _own_number(monkeypatch, "org_mine")
+    await _drop_own_ref(tenant_id, agent_id)
+    refused_with = iter(["engine_agent_allowance_full", "engine_agent_allowance_used"])
+
+    async def _refresh(**kwargs: Any) -> str:
+        dials.refreshed.append(kwargs)
+        if kwargs["in_client"]:
+            raise ProblemError.business_rule(next(refused_with), "No free calling setup.")
+        return COPY
+
+    monkeypatch.setattr(trial_calls, "refresh_test_copy", _refresh)
+    for _ in range(2):
+        dials.refreshed.clear()
+        dials.calls.clear()
+        placed = await _place(tenant_id, agent_id, principal)
+        assert placed.status == "queued", placed
+        assert placed.shared_fallback
+        assert [r["in_client"] for r in dials.refreshed] == [True, False]
+        [call] = dials.calls
+        assert call["copy_test"] is None
+        assert call["trial"].agent_ref == COPY
+        assert call["trial"].from_e164 == get_settings().trial_caller_number
         assert call["owner_test"].max_call_seconds == get_settings().trial_call_max_seconds
+
+    monkeypatch.setattr(trial_calls, "trial_calling_ready", lambda: False)
+    refused_with = iter(["engine_agent_allowance_full"])
+    blocked = await _place(tenant_id, agent_id, principal)
+    assert (blocked.status, blocked.blocked_rule) == ("blocked", trial_calls.NOT_READY_RULE)
+
+
+async def test_another_refusal_of_the_client_copy_is_not_a_fallback(
+    line: Line,  # noqa: F811
+    dials: _Dials,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, agent_id, principal = await _account(line)
+    _paid(monkeypatch, "trial_line_copy")
+    _own_number(monkeypatch, "org_mine")
+    await _drop_own_ref(tenant_id, agent_id)
+
+    async def _refresh(**_kwargs: Any) -> str:
+        raise ProblemError.business_rule("engine_publish_not_applied", "Not applied.")
+
+    monkeypatch.setattr(trial_calls, "refresh_test_copy", _refresh)
+    with pytest.raises(ProblemError) as refused:
+        await _place(tenant_id, agent_id, principal)
+    assert refused.value.code == "engine_publish_not_applied"
+    assert dials.calls == []
 
 
 async def test_an_account_with_its_agreements_waiting_is_refused_before_the_copy_is_touched(

@@ -1,6 +1,6 @@
 """Campaign engine agents and test holders kept honest, hourly (D-1003, D-1018).
 
-Three jobs, one walk over the accounts that have an engine agent routed:
+Four jobs, one walk over the accounts that have an engine agent routed:
 
 * **Retire what a campaign no longer needs.** Stop, completion, Unschedule and Archive give a
   campaign's engine agent back as they happen (`campaigns/engine_agent.end_campaign_agent`);
@@ -13,9 +13,13 @@ Three jobs, one walk over the accounts that have an engine agent routed:
   now, whose engine agent is minutes old when the campaign turns running.
 * **Retire a draft line's idle test holder.** A draft line's test call is rung through an
   engine agent of its own, made in our developer workspace (D-1018), whose 100 agents every
-  account's test calls share; one unused for `TEST_HOLDER_IDLE` is retired, and the next
-  test call makes it again. One made in the client's own workspace before D-1018 goes the
-  same way, freeing that slot.
+  account's test calls share, or in the client's own when it tests from its own number
+  (D-1020); one unused for `TEST_HOLDER_IDLE` is retired wherever it is, and the next test
+  call makes it again.
+* **Retire an agent's idle client-workspace test copy.** A paying account with a number of
+  its own tests an agent through a test copy in its own workspace (D-1020), which holds one
+  of that workspace's engine agents; one unused for `TEST_HOLDER_IDLE` is given back
+  (`agents/service.retire_idle_client_test_copies`), and the next test call makes it again.
 * **Give an agent its own script back.** Before D-1003, Start put the campaign's script ON
   the agent as a new prompt version noted "Campaign: <name>" and marked the campaign
   `agent_held_at`. Once every campaign going in that agent's voice dials through its own
@@ -44,6 +48,7 @@ from apps.api.agents.prompts import rollback_prompt
 from apps.api.agents.service import (
     CAMPAIGN_HOLDING_STATUSES,
     retire_campaign_agent,
+    retire_idle_client_test_copies,
     retire_line_test_holder,
 )
 from apps.api.compliance.audit import write_audit
@@ -157,6 +162,9 @@ async def _retire_unneeded(session: AsyncSession, *, tenant_id: UUID) -> int:
     for line_id in list(lines):
         if await retire_line_test_holder(session, tenant_id=tenant_id, line_id=UUID(str(line_id))):
             retired += 1
+    retired += await retire_idle_client_test_copies(
+        session, tenant_id=tenant_id, idle_seconds=TEST_HOLDER_IDLE.total_seconds()
+    )
     return retired
 
 

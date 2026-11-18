@@ -56,6 +56,7 @@ const KIND_WORDS: Record<SlotHolder["kind"], string> = {
   inbound_line: "Inbound line",
   campaign: "Campaign",
   script_trial: "Script trial",
+  test_call: "Test call",
 };
 
 function FreesIt({ holder, at }: { holder: SlotHolder; at: (path: string) => string }) {
@@ -63,6 +64,7 @@ function FreesIt({ holder, at }: { holder: SlotHolder; at: (path: string) => str
   if (holder.kind === "inbound_line") return <>Archive the line to free it.</>;
   if (holder.kind === "campaign") return <>Stop the campaign to free it.</>;
   if (holder.kind === "script_trial") return <>Freed when the script trial ends.</>;
+  if (holder.kind === "test_call") return <>Freed an hour after the last test call.</>;
   return (
     <>
       It answers your calls until its{" "}

@@ -9,6 +9,14 @@ import { ApiProblem } from "@/lib/api/client";
 vi.mock("@/lib/api/session", () => ({
   useClientRealm: () => ({ href: (path: string) => path, session: { orgSlug: "rytu-khata" } }),
 }));
+/** What `GET /v1/trial/rings-from` answered; undefined while it has not. */
+const ringsFrom = vi.hoisted(() => ({ ownNumber: undefined as string | null | undefined }));
+vi.mock("@/lib/api/trialCalls", async (original) => ({
+  ...(await original<typeof import("@/lib/api/trialCalls")>()),
+  useTestRingsFrom: () => ({
+    data: ringsFrom.ownNumber === undefined ? undefined : { own_number: ringsFrom.ownNumber },
+  }),
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => "/c/rytu-khata/campaigns/c1",
@@ -27,6 +35,7 @@ const HOLDERS = [
   { kind: "inbound_line", id: "l-front", name: "Front desk", removing: false },
   { kind: "campaign", id: "c-diwali", name: "Diwali reminders", removing: false },
   { kind: "campaign", id: "c-old", name: "Old list", removing: true },
+  { kind: "test_call", id: "a-anjali", name: "Anjali", removing: false },
 ] as const;
 
 function refused(context: "test_call" | "start"): ApiProblem {
@@ -43,10 +52,14 @@ function refused(context: "test_call" | "start"): ApiProblem {
   });
 }
 
-function formWith(error: unknown, fromTestLine = false) {
+function formWith(
+  error: unknown,
+  { ownNumber, data }: { ownNumber?: string | null; data?: { status: "queued"; call_id: string; shared_fallback: boolean } } = {},
+) {
+  ringsFrom.ownNumber = ownNumber;
   const call = {
     error,
-    data: undefined,
+    data,
     isPending: false,
     mutate: vi.fn(),
   } as unknown as UseMutationResult<
@@ -60,7 +73,7 @@ function formWith(error: unknown, fromTestLine = false) {
       call={call}
       saved={{ data: { numbers: [] }, error: null, refetch: vi.fn() } as never}
       canWrite
-      fromTestLine={fromTestLine}
+      ringsFrom={{ agentId: "a-varsha", campaignId: "c1" }}
     />,
   );
 }
@@ -93,6 +106,9 @@ describe("a test call with no free calling setup", () => {
     expect(list.textContent).toContain("Archive the line to free it.");
     expect(list.textContent).toContain("Stop the campaign to free it.");
     expect(list.textContent).toContain("Being removed.");
+    // A test call's own setup in the workspace (D-1020) goes back by itself.
+    expect(hrefs).toContain("/c/rytu-khata/agents/a-anjali");
+    expect(list.textContent).toContain("Freed an hour after the last test call.");
   });
 
   it("offers a real button to ask for a higher limit, naming the account", () => {
@@ -104,8 +120,32 @@ describe("a test call with no free calling setup", () => {
   });
 
   it("says so when the test rings from our test number", () => {
-    formWith(null, true);
+    formWith(null, { ownNumber: null });
     expect(screen.getByText("It rings from our test number.")).toBeTruthy();
+  });
+});
+
+describe("where a test call rings from (D-1020)", () => {
+  it("names the account's own number before the call", () => {
+    formWith(null, { ownNumber: "+919876543210" });
+    const note = screen.getByText(/It rings from your number/);
+    expect(note.textContent).toBe("It rings from your number +91 98765 43210.");
+    expect(screen.queryByText("It rings from our test number.")).toBeNull();
+  });
+
+  it("says nothing about the number until the server has said", () => {
+    formWith(null);
+    expect(screen.queryByText(/It rings from/)).toBeNull();
+  });
+
+  it("says why a call rang from our test number when the slots were busy", () => {
+    formWith(null, { ownNumber: "+919876543210", data: { status: "queued", call_id: "k1", shared_fallback: true } });
+    expect(screen.getByText("Rang from our test number: both your calling slots were busy.")).toBeTruthy();
+  });
+
+  it("says nothing of a fallback when there was none", () => {
+    formWith(null, { ownNumber: "+919876543210", data: { status: "queued", call_id: "k1", shared_fallback: false } });
+    expect(screen.queryByText(/both your calling slots were busy/)).toBeNull();
   });
 });
 
