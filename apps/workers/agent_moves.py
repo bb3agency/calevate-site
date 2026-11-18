@@ -80,11 +80,12 @@ _OWN_NUMBERS_SQL: Final = (
     "SELECT engine_number_ref FROM phone_numbers WHERE released_at IS NULL "
     "AND engine_number_ref IS NOT NULL"
 )
-#: Its test copies, with when each was last of use and whether it holds "Just the business".
+#: Its test copies, with when each was last of use, whether it holds "Just the business", and
+#: whether its agent still holds an engine agent of its own (D-1019).
 _COPIES_SQL: Final = (
-    "SELECT agent_id, engine_agent_ref, COALESCE(last_used_at, created_at) < "
-    "now() - make_interval(days => :days), business_only FROM agent_test_copies "
-    "ORDER BY agent_id"
+    "SELECT c.agent_id, c.engine_agent_ref, COALESCE(c.last_used_at, c.created_at) < "
+    "now() - make_interval(days => :days), c.business_only, a.engine_agent_ref IS NOT NULL "
+    "FROM agent_test_copies c LEFT JOIN agents a ON a.id = c.agent_id ORDER BY c.agent_id"
 )
 
 
@@ -101,8 +102,10 @@ async def _retire_test_copies(session: Any, *, tenant_id: UUID, workspace: str |
     those unused for `paid_test_copy_idle_days`, and once the client has a number of its own
     in its workspace every copy kept for its test calls. A "Just the business" copy
     (`agents/business_only`) is the agent page's chat and test calls whatever numbers the
-    client has, so only idleness retires it. With no `workspace` (an account still on its
-    free trial) only idleness retires any copy. The next use makes a copy again."""
+    client has, so only idleness retires it, and so is the copy of an agent holding no engine
+    agent of its own (D-1019), whose own number never rings for its test calls. With no
+    `workspace` (an account still on its free trial) only idleness retires any copy. The next
+    use makes a copy again."""
     from apps.api.agents.service import retire_engine_agent
 
     copies = (
@@ -115,8 +118,8 @@ async def _retire_test_copies(session: Any, *, tenant_id: UUID, workspace: str |
         for ref in (await session.execute(text(_OWN_NUMBERS_SQL))).scalars()
     )
     retired = 0
-    for agent_id, ref, idle, business_only in copies:
-        if idle or (own and not business_only):
+    for agent_id, ref, idle, business_only, holds_own in copies:
+        if idle or (own and holds_own and not business_only):
             await retire_engine_agent(
                 session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
             )

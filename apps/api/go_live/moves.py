@@ -18,7 +18,8 @@ agent is retried once the cause is lifted.
 WHAT MOVES. Every agent that is live or ready (published and not taking calls) and whose vendor
 agent, or a running experiment arm's, is outside the target workspace. A draft has nothing at
 the voice platform and is created in the client's workspace when first got ready. An archived
-agent is not republished (D-440).
+agent is not republished (D-440). An agent holding no vendor agent of its own (D-1019) has
+nothing to move, and nothing moves once `agents_hold_engine_agent` is off.
 
 STATE IS KEPT. The publish runs with `take_calls=False`: a ready agent stays ready, and a live
 one is republished as live. Nothing is switched on here.
@@ -49,6 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.go_live.models import MoveState
@@ -94,8 +96,21 @@ def left_behind(refs: list[str | None], workspace: str) -> bool:
     return any(ref and scope_of(ref) != workspace for ref in refs)
 
 
+def agents_hold_engine_agent() -> bool:
+    """The platform setting `agents_hold_engine_agent` (D-1019). Once off, a publish creates no
+    engine agent for an agent and recreates none elsewhere, so there is nothing a move could
+    do: an agent's old engine agent is adopted by its line or campaign, or retired, by
+    `agents/engine_retirement`, never moved. Read with a default because the setting is
+    declared by the release that adds it."""
+    return bool(getattr(get_settings(), "agents_hold_engine_agent", True))
+
+
 async def agents_to_move(session: AsyncSession, *, tenant_id: UUID, workspace: str) -> list[UUID]:
-    """The tenant's agents with a vendor agent outside `workspace`, oldest id first."""
+    """The tenant's agents with a vendor agent outside `workspace`, oldest id first. Only an
+    agent still holding a vendor agent of its own is a candidate (`_CANDIDATES_SQL`), and
+    none is while agents hold none (`agents_hold_engine_agent`)."""
+    if not agents_hold_engine_agent():
+        return []
     rows = (await session.execute(text(_CANDIDATES_SQL), {"tid": tenant_id})).all()
     return [
         UUID(str(row[0]))
@@ -272,7 +287,7 @@ async def move_agent(
             found = await _refs_of(session, agent_id)
             if found is None or found[0] not in ("live", "paused"):
                 return "gone"
-            if not left_behind(found[1], workspace):
+            if not left_behind(found[1], workspace) or not agents_hold_engine_agent():
                 return "already"
             # Not taking calls: a ready agent stays ready, a live one is republished live.
             await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
@@ -341,9 +356,13 @@ async def read_move_progress(
         await session.execute(text(_PROGRESS_SQL), {"tid": tenant_id, "ws": workspace or ""})
     ).all()
     listed: list[AgentMoveRow] = []
+    moving = agents_hold_engine_agent()
     for agent_id, name, ref, arms, status in rows:
         refs = [ref, *arms]
         behind = workspace is None or left_behind(refs, workspace)
+        if behind and not moving:
+            # Nothing moves while agents hold no engine agent: not shown as waiting for it.
+            continue
         if not behind and status is None and all(r and scope_of(r) == workspace for r in refs):
             # Made in the client's own workspace: it never had to move.
             continue
@@ -375,6 +394,7 @@ __all__ = [
     "AgentMoveRow",
     "MoveProgress",
     "Outcome",
+    "agents_hold_engine_agent",
     "agents_to_move",
     "left_behind",
     "move_agent",

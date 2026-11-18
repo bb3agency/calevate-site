@@ -16,6 +16,8 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from apps.api.agents.paid_test_calls import agent_test_ref
+from apps.api.agents.test_conversations import testable
 from apps.api.agents.test_window import send_test_message
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -137,14 +139,18 @@ async def run_agent_test_cases(ctx: dict[str, Any], payload: dict[str, Any]) -> 
         agent = (
             await session.execute(
                 text(
-                    "SELECT a.engine_agent_ref, pv.version FROM agents a "
+                    "SELECT a.engine_agent_ref, pv.version, a.status FROM agents a "
                     "LEFT JOIN prompt_versions pv ON pv.id = a.live_prompt_id WHERE a.id = :aid"
                 ),
                 {"aid": agent_id},
             )
         ).first()
         version = int(agent[1]) if agent is not None and agent[1] is not None else None
-        if agent is None or agent[0] is None or not isinstance(engine, RunsTestChat):
+        if (
+            agent is None
+            or not testable(agent[0], agent[2])
+            or not isinstance(engine, RunsTestChat)
+        ):
             # Nothing can run: every queued test is told so at once.
             unavailable = (
                 await session.execute(
@@ -160,6 +166,22 @@ async def run_agent_test_cases(ctx: dict[str, Any], payload: dict[str, Any]) -> 
         cases = (await session.execute(text(_CLAIM_ONE), {"aid": agent_id})).all()
     if not cases:
         return "nothing_queued"
+    try:
+        ref = await agent_test_ref(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            own_ref=None if agent[0] is None else str(agent[0]),
+        )
+    except ProblemError as exc:
+        # The test copy could not be readied (a call on it, the agreements): the claimed test
+        # says so, and the owner runs it again.
+        log.warning(
+            "agent_test_case_copy_refused", extra={"agent_id": str(agent_id), "reason": exc.code}
+        )
+        for case_id, _lines in cases:
+            await _store(tenant_id, case_id, result=None, error=exc.code, version=version)
+        await _queue_next(tenant_id, agent_id)
+        return "copy_refused"
     knowledge_tool = hosted_agent_limits(engine).knowledge_tool
     if payload.get("chained"):
         await _pause()
@@ -168,7 +190,7 @@ async def run_agent_test_cases(ctx: dict[str, Any], payload: dict[str, Any]) -> 
         try:
             turns = await run_case_lines(
                 engine,
-                str(agent[0]),
+                ref,
                 [str(line) for line in lines],
                 agent_id=agent_id,
                 knowledge_tool=knowledge_tool,

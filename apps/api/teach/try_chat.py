@@ -5,7 +5,8 @@ on ThinnestAI `POST /agents/{id}/test-chat`, mirror snapshots/2026-10-08/pages/a
 agents/test-chat.md:328-460): the real prompt, model, knowledge and actions, with anything
 that would contact a person switched off. Founder decision 3: test what is live only, so
 there is no draft copy of the agent to chat with. The agent page's "Just the business" chats
-with the agent's business-only test copy instead (`agents/business_only`, founder 16 Nov 2026).
+with the agent's business-only test copy instead (`agents/business_only`, founder 16 Nov 2026),
+and so does the plain chat of an agent that holds no engine agent of its own (D-1019).
 
 COST. A test-chat reply costs what a website chat reply costs: on an agent answering on our
 own language-model key (`byok: llm` or `llm_voice`) the flat ₹0.02 own-key reply price, plus
@@ -86,14 +87,21 @@ async def send(
         if not ready.available:
             raise ProblemError.business_rule("try_chat_unavailable", ready.reason or CANNOT_CHAT)
         await require_ai_assist(session, tenant_id=tenant_id)
+        if not isinstance(engine, RunsTestChat):
+            raise ProblemError.business_rule("try_chat_unavailable", CANNOT_CHAT)
         own = (
             await session.execute(
                 text("SELECT engine_agent_ref FROM agents WHERE id = :id"), {"id": agent_id}
             )
         ).scalar()
-        if not isinstance(engine, RunsTestChat) or own is None:
-            raise ProblemError.business_rule("try_chat_unavailable", CANNOT_CHAT)
-        ref = str(own)
+        if own is None:
+            # An agent holding no engine agent of its own (D-1019) is heard alone only as
+            # "Just the business"; its lines and campaigns are tried from their own pages.
+            ref, chat_session = await _business_copy(
+                session, tenant_id=tenant_id, agent_id=agent_id, chat_session=chat_session
+            )
+        else:
+            ref = str(own)
     turn = await send_test_message(
         engine,
         agent_id=agent_id,

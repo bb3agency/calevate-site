@@ -16,6 +16,9 @@ client's own workspace. A paid test call therefore takes one of two lines:
   has no number, or made again. Before each such call the copy is republished from the agent's
   current config through `publish_agent(onto_test_copy=True)`, so it never lags the agent.
 
+An agent with no engine agent of its own (D-1019: only inbound lines and campaigns hold one)
+always takes the shared trial line, through its test copy holding "Just the business".
+
 Either way the call is marked `calls.paid_test_call`, billed at the normal rates through the
 ordinary post-call metering (the meter debits any call a trial does not cover,
 `trials.trial_covers`), and passes the same dial gate as every test call (halt, account, agent
@@ -51,7 +54,8 @@ OWN_NUMBER_TEST_MAX_SECONDS: Final = 15 * 60
 
 #: Which line a paid test call rings from: the client's own number, or the shared trial line
 #: through the agent's developer-workspace engine agent (`copy` when that is its test copy,
-#: republished first; `own` when the agent has not moved yet and is itself there).
+#: republished first; `own` when the agent has not moved yet and is itself there). An agent
+#: holding no engine agent (D-1019) is always `copy`.
 PaidLine = Literal["own_number", "trial_line_own", "trial_line_copy"]
 
 PLACED_TODAY_SQL: Final = (
@@ -101,7 +105,10 @@ def line_of(row: Any, workspace: str | None) -> PaidLine:
     from apps.api.agents.service import holds_a_number
 
     status, direction, ref, numbers = row[:4]
-    if not ref or scope_of(str(ref)) is None:
+    if not ref:
+        # Nothing of its own to ring from or to dial through (D-1019): its test copy.
+        return "trial_line_copy"
+    if scope_of(str(ref)) is None:
         return "trial_line_own"
     if (
         workspace is not None
@@ -230,11 +237,45 @@ async def refresh_test_copy(*, tenant_id: UUID, agent_id: UUID, business: bool =
     return ref
 
 
+async def business_copy_ref(*, tenant_id: UUID, agent_id: UUID) -> str:
+    """The agent's test copy holding "Just the business", republished first so it holds the
+    agent as it is now. While a test call may be on a copy that already holds it, that copy is
+    used as it is rather than refused, since republishing would change nothing it says;
+    a copy holding anything else waits for the call (`refresh_test_copy`)."""
+    from apps.api.db.session import tenant_session
+
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT engine_agent_ref, business_only FROM agent_test_copies "
+                    "WHERE agent_id = :aid"
+                ),
+                {"aid": agent_id},
+            )
+        ).first()
+        if row is not None and row.business_only and await copy_call_live(session, agent_id):
+            return str(row.engine_agent_ref)
+    return await refresh_test_copy(tenant_id=tenant_id, agent_id=agent_id, business=True)
+
+
+async def agent_test_ref(*, tenant_id: UUID, agent_id: UUID, own_ref: str | None) -> str:
+    """The engine agent a test chat of this agent talks to: its own while it holds one, else
+    (D-1019, an agent holds none; its lines and campaigns do) its "Just the business" copy,
+    which is the agent with no job's script. Not called inside another session: the
+    republish commits in its own transaction."""
+    if own_ref:
+        return own_ref
+    return await business_copy_ref(tenant_id=tenant_id, agent_id=agent_id)
+
+
 __all__ = [
     "DAILY_CAP_RULE",
     "PLACED_TODAY_SQL",
     "PaidLine",
     "PaidTestAccess",
+    "agent_test_ref",
+    "business_copy_ref",
     "copy_call_live",
     "line_of",
     "paid_daily_cap_reason",

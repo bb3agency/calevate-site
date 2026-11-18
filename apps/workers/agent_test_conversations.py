@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import test_fixes, trial_results
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.mistake_fixes import DRAFT_OPEN_CODE, Holder, read_holder
+from apps.api.agents.paid_test_calls import agent_test_ref
 from apps.api.agents.service import AgentRow, in_call_model
 from apps.api.agents.specimen_scenarios import specimen_scenarios
 from apps.api.agents.test_conversations import (
@@ -85,6 +86,7 @@ from apps.api.agents.test_conversations import (
     standard_scenarios,
     store_improve_stop,
     store_improvement,
+    testable,
     untested_callers,
     waiting_update,
     wants_auto_improvement,
@@ -672,7 +674,7 @@ async def _claim_try(tenant_id: UUID, run_id: UUID, trial: int) -> Any:
                     "AND r.trial_started = :t - 1 AND r.trials_done = :t - 1 AND r.trials >= :t "
                     "AND r.status = CASE WHEN :t = 1 THEN 'queued' ELSE 'running' END "
                     "RETURNING r.agent_id, a.engine_agent_ref, r.improve_round, r.retest_of, "
-                    "r.prompt_version, r.trials, r.practice_callers, r.scenarios"
+                    "r.prompt_version, r.trials, r.practice_callers, r.scenarios, a.status"
                 ),
                 {"id": run_id, "t": trial},
             )
@@ -717,12 +719,19 @@ async def run_agent_test_conversations(
     claimed = await _claim_try(tenant_id, run_id, trial)
     if claimed is None:
         return "not_queued"
-    agent_id, engine_agent_ref, round_no, retest_of, version, trials, practice, stored = claimed
+    (agent_id, own_ref, round_no, retest_of, version, trials, practice, stored, agent_status) = (
+        claimed
+    )
     engine = get_engine()
-    if not isinstance(engine, RunsTestChat) or engine_agent_ref is None:
+    if not isinstance(engine, RunsTestChat) or not testable(own_ref, agent_status):
         await _finish(tenant_id, run_id, status="failed", results=None, failure="unavailable")
         return "failed"
     try:
+        engine_agent_ref = await agent_test_ref(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            own_ref=None if own_ref is None else str(own_ref),
+        )
         async with tenant_session(tenant_id) as session:
             brief = await load_brief(session, agent_id)
             tenant_leg = await account_assist_leg(session)
