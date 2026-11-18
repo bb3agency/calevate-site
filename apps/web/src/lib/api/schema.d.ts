@@ -33299,6 +33299,13 @@ export interface components {
         RingsFromOut: {
             /** Own Number */
             own_number?: string | null;
+            /**
+             * Setups Busy
+             * @default false
+             */
+            setups_busy: boolean;
+            /** Unavailable */
+            unavailable?: string | null;
         };
         /** RollbackIn */
         RollbackIn: {

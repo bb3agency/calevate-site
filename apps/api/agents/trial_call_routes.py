@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.paid_test_calls import own_caller_number
+from apps.api.agents.paid_test_calls import rings_from
 from apps.api.agents.test_call_reads import TestCallOut, read_test_call, recent_test_calls
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.trial_panel import TrialPanelOut
@@ -85,6 +85,11 @@ class RingsFromOut(Strict):
     #: The account's own number a test call would ring from, E.164; null when it rings from
     #: our test number (a free trial, or a paid account with no number yet, D-1020).
     own_number: str | None = None
+    #: It rings from our test number because both of the account's calling setups are in use.
+    setups_busy: bool = False
+    #: Why a test call cannot ring right now (no free calling setup and nothing to fall back
+    #: to), with what the owner can do; null when it can.
+    unavailable: str | None = None
 
 
 @router.get(
@@ -101,14 +106,15 @@ async def read_rings_from(
     campaign_id: UUID | None = None,
 ) -> RingsFromOut:
     assert principal.tenant_id is not None
+    found = await rings_from(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        line_id=line_id,
+        campaign_id=campaign_id,
+    )
     return RingsFromOut(
-        own_number=await own_caller_number(
-            session,
-            tenant_id=principal.tenant_id,
-            agent_id=agent_id,
-            line_id=line_id,
-            campaign_id=campaign_id,
-        )
+        own_number=found.own_number, setups_busy=found.setups_busy, unavailable=found.unavailable
     )
 
 

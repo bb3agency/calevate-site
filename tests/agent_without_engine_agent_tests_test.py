@@ -265,7 +265,8 @@ async def test_a_full_workspace_rings_the_plain_test_from_the_shared_line_and_sa
     monkeypatch.setattr(trial_calls, "trial_calling_ready", lambda: False)
     refused_with = iter(["engine_agent_allowance_full"])
     blocked = await _place(tenant_id, agent_id, principal)
-    assert (blocked.status, blocked.blocked_rule) == ("blocked", trial_calls.NOT_READY_RULE)
+    # No shared number to fall back to: the full workspace's own refusal, not "not ready".
+    assert (blocked.status, blocked.blocked_rule) == ("blocked", "engine_agent_allowance_full")
 
 
 async def test_another_refusal_of_the_client_copy_is_not_a_fallback(

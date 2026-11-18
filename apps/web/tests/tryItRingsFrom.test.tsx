@@ -15,7 +15,12 @@ import { noReply, renderClientPage } from "./harness";
 
 afterEach(cleanup);
 
-const AGENT = agentRow({ id: "agent-out", name: "Varsha", direction: "outbound", published: true });
+const AGENT = agentRow({
+  id: "agent-out",
+  name: "Varsha",
+  direction: "outbound",
+  published: true,
+});
 
 function paidPanel(): TrialPanel {
   return {
@@ -41,10 +46,23 @@ function paidPanel(): TrialPanel {
 
 const RINGS_FROM = "/v1/trial/rings-from?agent_id=agent-out";
 
-async function tryIt(ownNumber: string | null, extra: Record<string, unknown> = {}) {
+async function tryIt(
+  ownNumber: string | null,
+  extra: Record<string, unknown> = {},
+) {
   return renderClientPage(
-    <TryIt agent={AGENT} slug="acme" onTrial={false} number="98765 43210" onNumber={() => {}} />,
-    { "/v1/trial": paidPanel(), [RINGS_FROM]: { own_number: ownNumber }, ...extra },
+    <TryIt
+      agent={AGENT}
+      slug="acme"
+      onTrial={false}
+      number="98765 43210"
+      onNumber={() => {}}
+    />,
+    {
+      "/v1/trial": paidPanel(),
+      [RINGS_FROM]: { own_number: ownNumber },
+      ...extra,
+    },
   );
 }
 
@@ -52,15 +70,46 @@ describe("an agent's test call on a paying account", () => {
   it("names the account's own number when it has one", async () => {
     await tryIt("+919876543210");
     await waitFor(() =>
-      expect(screen.getByText("Varsha rings you from your number +91 98765 43210. Billed like any call.")).toBeTruthy(),
+      expect(
+        screen.getByText(
+          "Varsha rings you from your number +91 98765 43210. Billed like any call.",
+        ),
+      ).toBeTruthy(),
     );
   });
 
   it("says our test number when the account has no number yet", async () => {
     await tryIt(null);
     await waitFor(() =>
-      expect(screen.getByText("Varsha rings you from our test number. Billed like any call.")).toBeTruthy(),
+      expect(
+        screen.getByText(
+          "Varsha rings you from our test number. Billed like any call.",
+        ),
+      ).toBeTruthy(),
     );
+  });
+
+  it("says before the call that it rings from our test number when both setups are in use", async () => {
+    await tryIt(null, {
+      [RINGS_FROM]: { own_number: null, setups_busy: true, unavailable: null },
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "Varsha rings you from our test number: both your calling setups are in use. Billed like any call.",
+        ),
+      ).toBeTruthy(),
+    );
+  });
+
+  it("says why it cannot ring at all, never that its own number will ring", async () => {
+    const why =
+      "Test calls need a free calling setup. Your account can have 2, and both are in use: 2 agents.";
+    await tryIt(null, {
+      [RINGS_FROM]: { own_number: null, setups_busy: false, unavailable: why },
+    });
+    await waitFor(() => expect(screen.getByText(why)).toBeTruthy());
+    expect(screen.queryByText(/rings you from your number/)).toBeNull();
   });
 
   it("says why a call rang from our test number when both slots were busy", async () => {
@@ -94,6 +143,10 @@ describe("an agent's test call on a paying account", () => {
     });
     const ring = await screen.findByRole("button", { name: /Ring my phone/ });
     fireEvent.click(ring);
-    expect(await screen.findByText("Rang from our test number: both your calling slots were busy.")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Rang from our test number: both your calling slots were busy.",
+      ),
+    ).toBeTruthy();
   });
 });

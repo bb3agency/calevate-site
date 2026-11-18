@@ -16,21 +16,45 @@ import {
 } from "@/components/ui";
 import { callOutcome, outcomeWords } from "@/lib/callReview";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
-import { FALLBACK_TO_TEST_NUMBER, testCallIsLive, useTestCall, type TestCall } from "@/lib/api/trialCalls";
+import {
+  FALLBACK_TO_TEST_NUMBER,
+  testCallIsLive,
+  useTestCall,
+  type RingsFrom,
+  type TestCall,
+} from "@/lib/api/trialCalls";
 import { lookup } from "@/lib/lookup";
+
+/** Said before a call that will ring from our test number because both calling setups are in use. */
+export const SETUPS_BUSY_NOTE =
+  "It rings from our test number: both your calling setups are in use.";
 
 /**
  * Where a test call rings from, said before the call (D-1020): the account's own number once
- * it has paid and holds one, else our test number. Nothing until the server has said.
+ * it has paid and holds one, else our test number, or why it cannot ring right now. Nothing
+ * until the server has said.
  */
-export function RingsFromNote({ ownNumber }: { ownNumber: string | null | undefined }) {
-  if (ownNumber === undefined) return null;
+export function RingsFromNote({ from }: { from: RingsFrom | undefined }) {
+  if (from === undefined) return null;
+  if (from.unavailable) {
+    return (
+      <p role="status" className="mt-1 text-meta text-warn">
+        {from.unavailable}
+      </p>
+    );
+  }
   return (
     <p className="mt-1 text-meta text-ink-muted">
-      {ownNumber ? (
+      {from.own_number ? (
         <>
-          It rings from your number <span className="whitespace-nowrap">{formatPhone(ownNumber)}</span>.
+          It rings from your number{" "}
+          <span className="whitespace-nowrap">
+            {formatPhone(from.own_number)}
+          </span>
+          .
         </>
+      ) : from.setups_busy ? (
+        SETUPS_BUSY_NOTE
       ) : (
         "It rings from our test number."
       )}
@@ -108,7 +132,11 @@ export function testCallState(status: string): State {
   const known = lookup(STATES, status);
   if (known) return known;
   const words = status.replace(/_/g, " ");
-  return { label: words.charAt(0).toUpperCase() + words.slice(1), tone: "neutral", sentence: "" };
+  return {
+    label: words.charAt(0).toUpperCase() + words.slice(1),
+    tone: "neutral",
+    sentence: "",
+  };
 }
 
 /** Seconds since `since`, ticking once a second while mounted. */
@@ -121,7 +149,9 @@ function useElapsed(since: string | null | undefined): number | null {
   }, [since]);
   if (!since) return null;
   const start = Date.parse(since);
-  return Number.isFinite(start) ? Math.max(0, Math.floor((now - start) / 1_000)) : null;
+  return Number.isFinite(start)
+    ? Math.max(0, Math.floor((now - start) / 1_000))
+    : null;
 }
 
 function LiveClock({ since }: { since: string }) {
@@ -138,7 +168,15 @@ function LiveClock({ since }: { since: string }) {
  * Where the call rings from, said once it is known, on its own line under the state so each
  * stays one short line; the number never breaks across lines.
  */
-function FromLine({ number, paid, live }: { number: string | null | undefined; paid: boolean; live: boolean }) {
+function FromLine({
+  number,
+  paid,
+  live,
+}: {
+  number: string | null | undefined;
+  paid: boolean;
+  live: boolean;
+}) {
   const verb = live ? "It rings" : "It rang";
   if (number) {
     return (
@@ -148,7 +186,9 @@ function FromLine({ number, paid, live }: { number: string | null | undefined; p
       </span>
     );
   }
-  return paid ? <span className="block text-meta text-ink-muted">{`${verb} from your agent's own number.`}</span> : null;
+  return paid ? (
+    <span className="block text-meta text-ink-muted">{`${verb} from your agent's own number.`}</span>
+  ) : null;
 }
 
 /**
@@ -173,27 +213,40 @@ export function TestCallFollow({
   const { href } = useClientRealm();
   const read = useTestCall(session, callId);
 
-  if (read.isPending) return <Skeleton rows={2} label="Getting your test call" />;
-  if (read.isError) return <ProblemNotice error={read.error} onRetry={() => void read.refetch()} />;
+  if (read.isPending)
+    return <Skeleton rows={2} label="Getting your test call" />;
+  if (read.isError)
+    return (
+      <ProblemNotice error={read.error} onRetry={() => void read.refetch()} />
+    );
 
   const call = read.data;
   const state = testCallState(call.status);
   const live = testCallIsLive(call);
   const outcome = call.status === "completed" ? outcomeWords(call) : null;
   return (
-    <section aria-label={heading} className="space-y-2 border-t border-line pt-4">
+    <section
+      aria-label={heading}
+      className="space-y-2 border-t border-line pt-4"
+    >
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <h3 className="text-body font-semibold text-ink">{heading}</h3>
         <StatusPill tone={state.tone}>{state.label}</StatusPill>
       </div>
       <p role="status" className="text-body text-ink">
         {state.sentence}
-        <FromLine number={call.caller_number ?? callerNumber} paid={paid} live={live} />
+        <FromLine
+          number={call.caller_number ?? callerNumber}
+          paid={paid}
+          live={live}
+        />
       </p>
       <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
         <div className="min-w-0">
           <dt className={FIELD_LABEL}>Agent</dt>
-          <dd className="mt-1 break-words text-ink">{call.agent_name ?? "Your agent"}</dd>
+          <dd className="mt-1 break-words text-ink">
+            {call.agent_name ?? "Your agent"}
+          </dd>
         </div>
         <div>
           <dt className={FIELD_LABEL}>Placed</dt>
@@ -209,7 +262,9 @@ export function TestCallFollow({
         ) : !live ? (
           <div>
             <dt className={FIELD_LABEL}>Length</dt>
-            <dd className="mt-1 font-mono tabular-nums text-ink">{formatDuration(call.duration_s)}</dd>
+            <dd className="mt-1 font-mono tabular-nums text-ink">
+              {formatDuration(call.duration_s)}
+            </dd>
           </div>
         ) : null}
         {outcome ? (
@@ -221,11 +276,15 @@ export function TestCallFollow({
       </dl>
       {call.status === "completed" ? (
         <p className="text-meta text-ink-muted">
-          {call.headline ?? "A short summary appears here once the call has been read."}
+          {call.headline ??
+            "A short summary appears here once the call has been read."}
         </p>
       ) : null}
       {live || !link ? null : (
-        <Link href={href(`/c/${session.orgSlug}/calls/${call.id}`)} className={TEXT_ACTION}>
+        <Link
+          href={href(`/c/${session.orgSlug}/calls/${call.id}`)}
+          className={TEXT_ACTION}
+        >
           Open this call
         </Link>
       )}
@@ -245,13 +304,21 @@ export function EarlierTestCalls({ calls }: { calls: TestCall[] }) {
         {calls.map((call) => (
           <li key={call.id} className="flex items-center gap-x-4 py-2 text-sm">
             <div className="min-w-0 flex-1">
-              <span className="block break-words text-ink">{call.agent_name ?? "Your agent"}</span>
-              <span className="block text-meta text-ink-muted">{formatIST(call.placed_at)}</span>
+              <span className="block break-words text-ink">
+                {call.agent_name ?? "Your agent"}
+              </span>
+              <span className="block text-meta text-ink-muted">
+                {formatIST(call.placed_at)}
+              </span>
             </div>
             <span className="text-right text-ink">
-              {testCallIsLive(call) ? testCallState(call.status).label : callOutcome(call).words}
+              {testCallIsLive(call)
+                ? testCallState(call.status).label
+                : callOutcome(call).words}
             </span>
-            <span className="font-mono tabular-nums text-ink-muted">{formatDuration(call.duration_s)}</span>
+            <span className="font-mono tabular-nums text-ink-muted">
+              {formatDuration(call.duration_s)}
+            </span>
             <Link
               href={href(`/c/${session.orgSlug}/calls/${call.id}`)}
               className={TEXT_ACTION}

@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.74 — 19-Nov-2026
+
+- A test call that needs a calling setup when both are in use, with no test number to fall
+  back to, now says so and names what holds them, instead of "Test calls are not available
+  yet".
+- The test call panel checks for a free setup before saying which number it rings from. When
+  both are in use it says the call rings from our test number, or why it cannot ring right
+  now.
+
 ## 0.4.73 — 18-Nov-2026
 
 - On a paid account with a phone number, every test call now rings from your own number:

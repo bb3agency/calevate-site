@@ -153,6 +153,95 @@ async def own_caller_number(
     return first.e164 if first is not None else None
 
 
+@dataclass(frozen=True, slots=True)
+class RingsFrom:
+    """Where a test call would ring from, said before the call (D-1020)."""
+
+    #: The account's own number, E.164; None when it rings from our test number.
+    own_number: str | None = None
+    #: It would ring from our test number only because the workspace has no free setup.
+    setups_busy: bool = False
+    #: Why it cannot ring at all right now: no free setup and no shared number to fall back to.
+    unavailable: str | None = None
+
+
+async def rings_from(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
+) -> RingsFrom:
+    """`own_caller_number`, checked against the workspace's free setups: a test that must make
+    a new engine agent in a full workspace rings from our test number, or not at all when that
+    is not set (`trial_calls.place_trial_call` decides the same way when the owner presses)."""
+    from apps.api.agents.service import allowance_refusal, test_copy_ref
+    from apps.api.agents.trial_calls import trial_calling_ready
+
+    number = await own_caller_number(
+        session, tenant_id=tenant_id, agent_id=agent_id, line_id=line_id, campaign_id=campaign_id
+    )
+    if number is None:
+        return RingsFrom()
+    workspace = await resolve_workspace(session, tenant_id)
+    if not await _needs_new_setup(
+        session,
+        tenant_id=tenant_id,
+        workspace=workspace,
+        agent_id=agent_id,
+        line_id=line_id,
+        campaign_id=campaign_id,
+        copy_ref=await test_copy_ref(session, agent_id),
+    ):
+        return RingsFrom(own_number=number)
+    refusal = await allowance_refusal(
+        session, tenant_id=tenant_id, workspace=workspace, context="test_call"
+    )
+    if refusal is None:
+        return RingsFrom(own_number=number)
+    if trial_calling_ready():
+        return RingsFrom(setups_busy=True)
+    return RingsFrom(
+        unavailable=" ".join(part for part in (refusal.detail, refusal.remediation) if part)
+    )
+
+
+async def _needs_new_setup(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace: str | None,
+    agent_id: UUID,
+    line_id: UUID | None,
+    campaign_id: UUID | None,
+    copy_ref: str | None,
+) -> bool:
+    """Whether this test has nothing in the client's workspace to ring through yet: a
+    campaign's or line's own engine agent, the agent's own on a number, or a test copy made
+    there for an earlier test."""
+    if campaign_id is not None:
+        ref = (
+            await session.execute(
+                text("SELECT engine_agent_ref FROM campaigns WHERE id = :id"), {"id": campaign_id}
+            )
+        ).scalar_one_or_none()
+        return not (ref and scope_of(str(ref)) == workspace)
+    if line_id is not None:
+        ref = (
+            await session.execute(
+                text("SELECT engine_agent_ref FROM inbound_lines WHERE id = :id"), {"id": line_id}
+            )
+        ).scalar_one_or_none()
+        return not (ref and scope_of(str(ref)) == workspace)
+    row = (
+        await session.execute(text(_AGENT_LINE_SQL), {"tid": tenant_id, "aid": agent_id})
+    ).first()
+    if row is not None and line_of(row, workspace) == "own_number":
+        return False
+    return not (copy_ref and scope_of(copy_ref) == workspace)
+
+
 def own_number_call_seconds(max_call_duration_s: int | None) -> int:
     """How long a test call from the client's own number may run: the agent's own cap, at
     most `OWN_NUMBER_TEST_MAX_SECONDS`, never below the shared line's."""
@@ -376,6 +465,7 @@ __all__ = [
     "PLACED_TODAY_SQL",
     "PaidLine",
     "PaidTestAccess",
+    "RingsFrom",
     "agent_test_ref",
     "business_copy_ref",
     "copy_call_live",
@@ -385,4 +475,5 @@ __all__ = [
     "paid_daily_cap_reason",
     "read_paid_test_access",
     "refresh_test_copy",
+    "rings_from",
 ]

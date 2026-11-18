@@ -51816,6 +51816,22 @@
               }
             ],
             "title": "Own Number"
+          },
+          "setups_busy": {
+            "default": false,
+            "title": "Setups Busy",
+            "type": "boolean"
+          },
+          "unavailable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable"
           }
         },
         "title": "RingsFromOut",

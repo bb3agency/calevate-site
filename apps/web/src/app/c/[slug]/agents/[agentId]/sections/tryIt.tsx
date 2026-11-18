@@ -32,11 +32,21 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { DefaultCheckbox } from "@/components/callHandlingRows";
 import { Section } from "@/components/console/section";
 import { TryPart } from "@/components/improvement/TryPart";
-import { FIELD_INLINE, ProblemNotice, SECONDARY_BUTTON, Skeleton, formatPhone } from "@/components/ui";
+import {
+  FIELD_INLINE,
+  ProblemNotice,
+  SECONDARY_BUTTON,
+  Skeleton,
+  formatPhone,
+} from "@/components/ui";
 import { canTestCall, isAnsweringNow } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
-import { usePlaceTrialCall, useTestRingsFrom, useTrialPanel } from "@/lib/api/trialCalls";
+import {
+  usePlaceTrialCall,
+  useTestRingsFrom,
+  useTrialPanel,
+} from "@/lib/api/trialCalls";
 
 import { FallbackNote, TestCallFollow } from "../../../TestCallStatus";
 import { TestCallTranscript } from "../../../TestCallTranscript";
@@ -70,7 +80,14 @@ export function TryIt({
   let body;
   if (testable && canTestCall(agent)) {
     body = (
-      <TrialTestCall agent={agent} number={number} onNumber={onNumber} paid={paid} slug={slug} business={business} />
+      <TrialTestCall
+        agent={agent}
+        number={number}
+        onNumber={onNumber}
+        paid={paid}
+        slug={slug}
+        business={business}
+      />
     );
   } else if (
     !business &&
@@ -81,7 +98,14 @@ export function TryIt({
   ) {
     body = <RingYourNumber slug={slug} />;
   } else {
-    body = <NoCallYet agent={agent} slug={slug} onTrial={testable} business={business} />;
+    body = (
+      <NoCallYet
+        agent={agent}
+        slug={slug}
+        onTrial={testable}
+        business={business}
+      />
+    );
   }
   return <BareContext.Provider value={bare}>{body}</BareContext.Provider>;
 }
@@ -142,7 +166,12 @@ function PracticeFrame({
   const bare = useContext(BareContext);
   const Frame = bare ? TryPart : Section;
   return (
-    <Frame headingLevel={3} title={bare ? "Call" : "Practice call"} description={description} action={action}>
+    <Frame
+      headingLevel={3}
+      title={bare ? "Call" : "Practice call"}
+      description={description}
+      action={action}
+    >
       {children}
     </Frame>
   );
@@ -154,7 +183,10 @@ function RingYourNumber({ slug }: { slug: string }) {
     <PracticeFrame
       description="Ring your number from any phone. It answers."
       action={
-        <Link href={href(`/c/${slug}/phone-number`)} className={SECONDARY_BUTTON}>
+        <Link
+          href={href(`/c/${slug}/phone-number`)}
+          className={SECONDARY_BUTTON}
+        >
           See your number
         </Link>
       }
@@ -190,14 +222,20 @@ function TrialTestCall({
   const [numberIsMine, setNumberIsMine] = useState(false);
 
   let body;
-  if (panel.isPending) body = <Skeleton rows={1} label="Checking your test calls" />;
-  else if (panel.isError) body = <ProblemNotice error={panel.error} onRetry={() => void panel.refetch()} />;
+  if (panel.isPending)
+    body = <Skeleton rows={1} label="Checking your test calls" />;
+  else if (panel.isError)
+    body = (
+      <ProblemNotice error={panel.error} onRetry={() => void panel.refetch()} />
+    );
   else {
     const trial = panel.data;
     const ready = trial.can_call && number.trim() !== "";
     // A refused call is an answer said below, not a tick on the button.
     const callStatus =
-      placeFeedback.status === "success" && place.data?.status === "blocked" ? "idle" : placeFeedback.status;
+      placeFeedback.status === "success" && place.data?.status === "blocked"
+        ? "idle"
+        : placeFeedback.status;
     body = (
       <form
         className="space-y-3"
@@ -205,13 +243,20 @@ function TrialTestCall({
         onSubmit={(event) => {
           event.preventDefault();
           if (ready && callStatus !== "pending") {
-            placeFeedback.run({ agentId: agent.id, number: number.trim(), numberIsMine, business });
+            placeFeedback.run({
+              agentId: agent.id,
+              number: number.trim(),
+              numberIsMine,
+              business,
+            });
           }
         }}
       >
         <div className="flex flex-wrap items-end gap-3">
           <label className="block min-w-0">
-            <span className="block text-meta text-ink-muted">Your phone number</span>
+            <span className="block text-meta text-ink-muted">
+              Your phone number
+            </span>
             <input
               value={number}
               onChange={(event) => {
@@ -282,16 +327,23 @@ function TrialTestCall({
       description={
         !paid
           ? `${agent.name} rings you from a shared trial number.`
-          : ownNumber
-            ? `${agent.name} rings you from your number ${formatPhone(ownNumber)}. Billed like any call.`
-            : ownNumber === null
-              ? `${agent.name} rings you from our test number. Billed like any call.`
-              : // Not said until the server has: a failed read claims neither number.
-                `${agent.name} rings your phone. Billed like any call.`
+          : ringsFrom.data?.unavailable
+            ? ringsFrom.data.unavailable
+            : ringsFrom.data?.setups_busy
+              ? `${agent.name} rings you from our test number: both your calling setups are in use. Billed like any call.`
+              : ownNumber
+                ? `${agent.name} rings you from your number ${formatPhone(ownNumber)}. Billed like any call.`
+                : ownNumber === null
+                  ? `${agent.name} rings you from our test number. Billed like any call.`
+                  : // Not said until the server has: a failed read claims neither number.
+                    `${agent.name} rings your phone. Billed like any call.`
       }
       action={
         paid && !business && panel.data?.needs_number ? (
-          <Link href={href(`/c/${slug}/phone-number`)} className={SECONDARY_BUTTON}>
+          <Link
+            href={href(`/c/${slug}/phone-number`)}
+            className={SECONDARY_BUTTON}
+          >
             Get a number
           </Link>
         ) : undefined

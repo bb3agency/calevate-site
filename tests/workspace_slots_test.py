@@ -371,9 +371,21 @@ async def test_a_full_workspace_rings_the_draft_from_the_shared_line_and_says_so
     call = await _call(tenant_id, placed.call_id)
     assert call.paid_test_call
 
-    # With no shared number either, the existing not-ready refusal.
+    # Said before the press: a new campaign's test has nothing in the full workspace yet.
+    fresh = await _campaign(tenant_id, agent_id, script=SCRIPT)
+    async with tenant_session(tenant_id) as session:
+        before = await paid_test_calls.rings_from(
+            session, tenant_id=tenant_id, agent_id=agent_id, campaign_id=fresh
+        )
+    assert before == paid_test_calls.RingsFrom(setups_busy=True)
+
+    # With no shared number either, the full workspace's own refusal, naming what holds it;
+    # never "not available yet", which the owner can do nothing about.
     monkeypatch.setattr(trial_calls, "trial_calling_ready", lambda: False)
     async with tenant_session(tenant_id) as session:
+        before = await paid_test_calls.rings_from(
+            session, tenant_id=tenant_id, agent_id=agent_id, campaign_id=fresh
+        )
         refused = await trial_calls.place_trial_call(
             session,
             principal=principal,
@@ -381,9 +393,24 @@ async def test_a_full_workspace_rings_the_draft_from_the_shared_line_and_says_so
             number="98765 43210",
             idempotency_key=str(uuid.uuid4()),
             line_id=None,
-            campaign_id=await _campaign(tenant_id, agent_id, script=SCRIPT),
+            campaign_id=fresh,
         )
-    assert (refused.status, refused.blocked_rule) == ("blocked", trial_calls.NOT_READY_RULE)
+    assert (refused.status, refused.blocked_rule) == ("blocked", ENGINE_AGENT_ALLOWANCE_FULL_RULE)
+    assert refused.blocked_reason is not None
+    assert refused.blocked_reason.startswith("Test calls need a free calling setup.")
+    assert "both are in use" in refused.blocked_reason
+    assert before.own_number is None and before.unavailable == refused.blocked_reason
+
+    # A test with a setup of its own there already still rings from the account's number.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET engine_agent_ref = :r WHERE id = :c"),
+            {"r": f"agent_held@{workspace}", "c": fresh},
+        )
+        held = await paid_test_calls.rings_from(
+            session, tenant_id=tenant_id, agent_id=agent_id, campaign_id=fresh
+        )
+    assert held.own_number is not None and not held.setups_busy and held.unavailable is None
 
 
 async def test_the_number_shown_before_a_test_is_the_one_it_rings_and_never_another_accounts(

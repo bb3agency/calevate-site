@@ -7,7 +7,11 @@
  * status colours stay reserved for status.
  */
 
-import { useQueryClient, type UseMutationResult, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import { X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -15,7 +19,13 @@ import { useEffect, useState } from "react";
 
 import { problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
-import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import {
+  FIELD,
+  PRIMARY_BUTTON_SM,
+  ProblemNotice,
+  SECONDARY_BUTTON_SM,
+  Skeleton,
+} from "@/components/ui";
 import { isAssignable } from "@/lib/agentState";
 import { CAMPAIGN_TEST_ANCHOR } from "@/lib/api/agentJobs";
 import { useAgents } from "@/lib/api/agents";
@@ -41,7 +51,13 @@ import { agentSectionId } from "./StartCampaign";
 import { AgentChoice } from "./NewCampaignSteps";
 import { TestCallList } from "./TestCallList";
 
-type Common = { slug: string; campaignId: string; canWrite: boolean; refusal?: string; agentId?: string };
+type Common = {
+  slug: string;
+  campaignId: string;
+  canWrite: boolean;
+  refusal?: string;
+  agentId?: string;
+};
 
 function Card({
   title,
@@ -78,8 +94,15 @@ function errorText(error: unknown, fallback: string): string {
 export function ImproveTab(props: Common) {
   const { session } = useClientRealm();
   const insights = useCampaignInsights(session, props.campaignId);
-  if (insights.isLoading) return <Skeleton rows={4} label="Reading what the calls teach" />;
-  if (!insights.data) return <ProblemNotice error={insights.error} onRetry={() => insights.refetch()} />;
+  if (insights.isLoading)
+    return <Skeleton rows={4} label="Reading what the calls teach" />;
+  if (!insights.data)
+    return (
+      <ProblemNotice
+        error={insights.error}
+        onRetry={() => insights.refetch()}
+      />
+    );
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <BestTime insights={insights.data} />
@@ -112,7 +135,10 @@ function HearItFirst({ slug, campaignId, canWrite, refusal, agentId }: Common) {
 }
 
 /** The account's saved test numbers as read: a failed read is shown, never taken as none. */
-type SavedTestNumbers = Pick<UseQueryResult<{ numbers: string[] }>, "data" | "error" | "refetch">;
+type SavedTestNumbers = Pick<
+  UseQueryResult<{ numbers: string[] }>,
+  "data" | "error" | "refetch"
+>;
 
 /** What a test call answers, from a campaign's route or a line's. */
 type TestCallAnswer = {
@@ -138,7 +164,11 @@ export function TestCallForm({
   ringsFrom,
 }: {
   slug: string;
-  call: UseMutationResult<TestCallAnswer, Error, { number: string; numberIsMine: boolean }>;
+  call: UseMutationResult<
+    TestCallAnswer,
+    Error,
+    { number: string; numberIsMine: boolean }
+  >;
   saved: SavedTestNumbers;
   saveNumbers?: UseMutationResult<unknown, Error, string[]>;
   canWrite: boolean;
@@ -157,7 +187,9 @@ export function TestCallForm({
   const result = call.data;
   const digits = number.replace(/\D/g, "");
   const typed = digits.length >= 10;
-  const isSaved = numbers.some((n) => n.replace(/\D/g, "").endsWith(digits.slice(-10)) && typed);
+  const isSaved = numbers.some(
+    (n) => n.replace(/\D/g, "").endsWith(digits.slice(-10)) && typed,
+  );
   // The first saved number is ready to call, so a test is one press.
   useEffect(() => {
     if (number === "" && numbers.length > 0) setNumber(numbers[0]);
@@ -168,7 +200,10 @@ export function TestCallForm({
     <div>
       {saved.error != null && !loaded && (
         <div className="mb-3">
-          <ProblemNotice error={saved.error} onRetry={() => void saved.refetch()} />
+          <ProblemNotice
+            error={saved.error}
+            onRetry={() => void saved.refetch()}
+          />
         </div>
       )}
       {numbers.length > 0 && (
@@ -176,12 +211,15 @@ export function TestCallForm({
           <p className="text-meta font-medium text-ink">Saved numbers</p>
           <div className="mt-1.5 flex flex-wrap gap-2">
             {numbers.map((n) => {
-              const chosen = n.replace(/\D/g, "").endsWith(digits.slice(-10)) && typed;
+              const chosen =
+                n.replace(/\D/g, "").endsWith(digits.slice(-10)) && typed;
               return (
                 <span
                   key={n}
                   className={`inline-flex items-center rounded-full border text-meta ${
-                    chosen ? "border-series-6 bg-series-6 text-white" : "border-line bg-surface text-ink"
+                    chosen
+                      ? "border-series-6 bg-series-6 text-white"
+                      : "border-line bg-surface text-ink"
                   }`}
                 >
                   <button
@@ -199,7 +237,9 @@ export function TestCallForm({
                       title="Remove"
                       disabled={!canWrite || !loaded || saveNumbers.isPending}
                       className="inline-flex items-center justify-center rounded-full py-1 pl-1 pr-2.5 opacity-70 hover:opacity-100 touch:min-h-11 touch:min-w-11"
-                      onClick={() => saveNumbers.mutate(numbers.filter((x) => x !== n))}
+                      onClick={() =>
+                        saveNumbers.mutate(numbers.filter((x) => x !== n))
+                      }
                     >
                       <X aria-hidden className="h-3.5 w-3.5" />
                     </button>
@@ -227,8 +267,21 @@ export function TestCallForm({
           <button
             type="button"
             className={SECONDARY_BUTTON_SM}
-            disabled={!canWrite || !loaded || !typed || isSaved || numbers.length >= 10 || saveNumbers.isPending}
-            title={isSaved ? "Already saved" : numbers.length >= 10 ? "Up to 10 saved numbers" : refusal}
+            disabled={
+              !canWrite ||
+              !loaded ||
+              !typed ||
+              isSaved ||
+              numbers.length >= 10 ||
+              saveNumbers.isPending
+            }
+            title={
+              isSaved
+                ? "Already saved"
+                : numbers.length >= 10
+                  ? "Up to 10 saved numbers"
+                  : refusal
+            }
             onClick={() => saveNumbers.mutate([...numbers, number])}
           >
             {isSaved ? "Saved" : saveNumbers.isPending ? "Saving…" : "Save"}
@@ -244,8 +297,10 @@ export function TestCallForm({
           {call.isPending ? "Calling…" : "Call me"}
         </button>
       </div>
-      <p className="mt-1 text-meta text-ink-muted">A number you call is saved for next time. Up to 10.</p>
-      <RingsFromNote ownNumber={from.data?.own_number} />
+      <p className="mt-1 text-meta text-ink-muted">
+        A number you call is saved for next time. Up to 10.
+      </p>
+      <RingsFromNote from={from.data} />
       <label className="mt-2 flex w-fit items-center gap-2 text-meta text-ink-muted touch:min-h-11">
         <input
           type="checkbox"
@@ -281,10 +336,13 @@ export function TestCallForm({
           )}
         </p>
       )}
-      {result?.status === "queued" && <FallbackNote shown={result.shared_fallback} />}
+      {result?.status === "queued" && (
+        <FallbackNote shown={result.shared_fallback} />
+      )}
       {result?.status === "blocked" && (
         <p role="alert" className="mt-2 text-meta text-warn">
-          {result.blocked_reason ?? "The test call could not be placed right now."}
+          {result.blocked_reason ??
+            "The test call could not be placed right now."}
         </p>
       )}
     </div>
@@ -297,7 +355,12 @@ function formatPhone(e164: string): string {
   return m ? `+91 ${m[1]} ${m[2]}` : e164;
 }
 
-function OpeningTest({ campaignId, canWrite, refusal, insights }: Common & { insights?: CampaignInsights }) {
+function OpeningTest({
+  campaignId,
+  canWrite,
+  refusal,
+  insights,
+}: Common & { insights?: CampaignInsights }) {
   const { session } = useClientRealm();
   const fallback = useCampaignInsights(session, campaignId);
   const data = insights ?? fallback.data;
@@ -312,7 +375,9 @@ function OpeningTest({ campaignId, canWrite, refusal, insights }: Common & { ins
       title="Test a second opening line"
       hint="Half hear this opening, half the script's own."
     >
-      <p className="mb-2 text-meta text-ink-muted">The AI and recording notices are still said.</p>
+      <p className="mb-2 text-meta text-ink-muted">
+        The AI and recording notices are still said.
+      </p>
       <label className="sr-only" htmlFor={`${campaignId}-opening-b`}>
         Second opening line
       </label>
@@ -328,7 +393,12 @@ function OpeningTest({ campaignId, canWrite, refusal, insights }: Common & { ins
         <button
           type="button"
           className={PRIMARY_BUTTON_SM}
-          disabled={!canWrite || !text.trim() || text.trim() === (data?.opening_b ?? "") || save.isPending}
+          disabled={
+            !canWrite ||
+            !text.trim() ||
+            text.trim() === (data?.opening_b ?? "") ||
+            save.isPending
+          }
           title={refusal}
           onClick={() => save.mutate(text.trim())}
         >
@@ -368,17 +438,24 @@ function OpeningTest({ campaignId, canWrite, refusal, insights }: Common & { ins
               ].map(({ label, o }) => (
                 <tr key={o.variant}>
                   <td>{label}</td>
-                  <td className="text-right tabular-nums">{o.people.toLocaleString("en-IN")}</td>
-                  <td className="text-right tabular-nums">{o.answered.toLocaleString("en-IN")}</td>
+                  <td className="text-right tabular-nums">
+                    {o.people.toLocaleString("en-IN")}
+                  </td>
+                  <td className="text-right tabular-nums">
+                    {o.answered.toLocaleString("en-IN")}
+                  </td>
                   <td className="text-right tabular-nums">
                     {o.goal_reached.toLocaleString("en-IN")}
-                    {o.goal_rate != null && ` (${Math.round(o.goal_rate * 100)}%)`}
+                    {o.goal_rate != null &&
+                      ` (${Math.round(o.goal_rate * 100)}%)`}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {data?.opening_verdict && <p className="text-meta text-ink-muted">{data.opening_verdict}</p>}
+          {data?.opening_verdict && (
+            <p className="text-meta text-ink-muted">{data.opening_verdict}</p>
+          )}
         </div>
       )}
     </Card>
@@ -402,19 +479,28 @@ function BestTime({ insights }: { insights: CampaignInsights }) {
             <p className="mb-3 text-body text-ink">
               Best:{" "}
               {insights.best_hours
-                .map((h) => `${hourWords(h.hour)} (${Math.round(h.rate * 100)}% answer)`)
+                .map(
+                  (h) =>
+                    `${hourWords(h.hour)} (${Math.round(h.rate * 100)}% answer)`,
+                )
                 .join(", ")}
             </p>
           ) : (
-            <p className="mb-3 text-meta text-ink-muted">Not enough calls in any hour yet to say.</p>
+            <p className="mb-3 text-meta text-ink-muted">
+              Not enough calls in any hour yet to say.
+            </p>
           )}
           {insights.best_hours.length > 0 && (
-            <p className="mb-3 text-meta text-ink-muted">Narrow the calling hours in How it calls.</p>
+            <p className="mb-3 text-meta text-ink-muted">
+              Narrow the calling hours in How it calls.
+            </p>
           )}
           <ul className="space-y-1" aria-label="Calls and answers by hour">
             {insights.hours.map((h) => (
               <li key={h.hour} className="flex items-center gap-2 text-meta">
-                <span className="w-12 shrink-0 text-ink-muted tabular-nums">{hourWords(h.hour)}</span>
+                <span className="w-12 shrink-0 text-ink-muted tabular-nums">
+                  {hourWords(h.hour)}
+                </span>
                 <span className="relative h-3 flex-1 overflow-hidden rounded-sm bg-surface-muted">
                   <span
                     className="absolute inset-y-0 left-0 bg-line"
@@ -458,7 +544,10 @@ function CallUnansweredAgain({ slug, campaignId, canWrite, refusal }: Common) {
         onClick={() =>
           duplicate.mutate(
             { with_unreached: true },
-            { onSuccess: (made) => router.push(href(`/c/${slug}/campaigns/${made.id}`)) },
+            {
+              onSuccess: (made) =>
+                router.push(href(`/c/${slug}/campaigns/${made.id}`)),
+            },
           )
         }
       >
@@ -481,15 +570,22 @@ function WhatsAppFollowUp({ slug }: { slug: string }) {
       hint="Send a WhatsApp message after a call."
       info={
         <>
-          <p>For example the install steps or a link, to the people who asked for it or did not finish.</p>
           <p>
-            Make a follow-up that starts when a call ends, choose this campaign&apos;s agent and the outcomes it is for,
-            then add a WhatsApp step.
+            For example the install steps or a link, to the people who asked for
+            it or did not finish.
+          </p>
+          <p>
+            Make a follow-up that starts when a call ends, choose this
+            campaign&apos;s agent and the outcomes it is for, then add a
+            WhatsApp step.
           </p>
         </>
       }
     >
-      <Link href={href(`/c/${slug}/follow-ups`)} className={`${SECONDARY_BUTTON_SM} inline-flex`}>
+      <Link
+        href={href(`/c/${slug}/follow-ups`)}
+        className={`${SECONDARY_BUTTON_SM} inline-flex`}
+      >
         Set up a follow-up
       </Link>
     </Card>
@@ -508,7 +604,11 @@ export function AgentSection({
   status,
   canWrite,
   refusal,
-}: Omit<Common, "slug"> & { agentId: string; editable: boolean; status?: string | null }) {
+}: Omit<Common, "slug"> & {
+  agentId: string;
+  editable: boolean;
+  status?: string | null;
+}) {
   const { session } = useClientRealm();
   const agents = useAgents(session);
   const update = useUpdateCampaign(session, campaignId);
@@ -520,7 +620,12 @@ export function AgentSection({
     if (id === agentId || !editable || !canWrite) return;
     update.mutate(
       { agent_id: id },
-      { onSuccess: () => void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) }) },
+      {
+        onSuccess: () =>
+          void client.invalidateQueries({
+            queryKey: workspaceKey(session.orgSlug, campaignId),
+          }),
+      },
     );
   };
 
@@ -531,28 +636,39 @@ export function AgentSection({
       tone="agent"
       hint="Who makes these calls, and its settings here."
     >
-    <div className="space-y-4">
-      {!agents.data && !agents.error && <Skeleton rows={2} label="Loading your agents" />}
-      {agents.error != null && <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />}
-      {options.length > 0 && (
-        <AgentChoice
-          onChange={choose}
-          agentOptions={options}
-          selectedAgentId={agentId}
-          selectedAgent={options.find((agent) => agent.id === agentId)}
-          disabled={!canWrite || !editable || update.isPending}
+      <div className="space-y-4">
+        {!agents.data && !agents.error && (
+          <Skeleton rows={2} label="Loading your agents" />
+        )}
+        {agents.error != null && (
+          <ProblemNotice
+            error={agents.error}
+            onRetry={() => agents.refetch()}
+          />
+        )}
+        {options.length > 0 && (
+          <AgentChoice
+            onChange={choose}
+            agentOptions={options}
+            selectedAgentId={agentId}
+            selectedAgent={options.find((agent) => agent.id === agentId)}
+            disabled={!canWrite || !editable || update.isPending}
+          />
+        )}
+        {!editable && (
+          <p className="text-meta text-ink-muted">
+            It is archived. Restore it to change the agent.
+          </p>
+        )}
+        {update.error != null && <ProblemNotice error={update.error} />}
+        <CampaignVoiceSettings
+          campaignId={campaignId}
+          agentId={agentId}
+          status={status}
+          canWrite={canWrite}
+          refusal={refusal}
         />
-      )}
-      {!editable && <p className="text-meta text-ink-muted">It is archived. Restore it to change the agent.</p>}
-      {update.error != null && <ProblemNotice error={update.error} />}
-      <CampaignVoiceSettings
-        campaignId={campaignId}
-        agentId={agentId}
-        status={status}
-        canWrite={canWrite}
-        refusal={refusal}
-      />
-    </div>
+      </div>
     </FoldSection>
   );
 }

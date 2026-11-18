@@ -4699,14 +4699,31 @@ async def _refuse_if_allowance_full(
     context: AllowanceContext,
 ) -> None:
     """Refuse a new engine agent in a full workspace, naming what holds every setup."""
+    refusal = await allowance_refusal(
+        session, tenant_id=tenant_id, workspace=workspace, context=context
+    )
+    if refusal is not None:
+        raise refusal
+
+
+async def allowance_refusal(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    workspace: str | None,
+    context: AllowanceContext,
+) -> ProblemError | None:
+    """The refusal a new engine agent in this workspace would get, naming what holds every
+    setup; None when there is room. Returned rather than raised so a screen can say it before
+    the owner presses anything."""
     limit = await _allowance_full(session, tenant_id=tenant_id, workspace=workspace)
     if limit is None:
-        return
+        return None
     assert workspace is not None  # `_allowance_full` answers None without one
     holders = await slot_holders(
         session, tenant_id=tenant_id, engine=get_engine().name, workspace=workspace
     )
-    raise ProblemError.business_rule(
+    return ProblemError.business_rule(
         ENGINE_AGENT_ALLOWANCE_FULL_RULE,
         allowance_reason(limit, holders, context),
         remediation=ALLOWANCE_FULL_REMEDIATION,
@@ -6998,6 +7015,7 @@ __all__ = [
     "InboundCutover",
     "InboundRouting",
     "agent_outbound_numbers",
+    "allowance_refusal",
     "apply_healer_silence",
     "attach_number_to_agent",
     "carrier_of_provider",
