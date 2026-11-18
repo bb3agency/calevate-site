@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.69 — 18-Nov-2026
+
+- Admin console: a client's Numbers page can dry-run, then run, handing that client's
+  agents' calling setups to the lines and campaigns that use them.
+
 ## 0.4.68 — 18-Nov-2026
 
 - Your agents are now like staff: an agent is its name, voice, languages, actions and
