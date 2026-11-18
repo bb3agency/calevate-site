@@ -11,12 +11,12 @@
  */
 
 import type { CallScript } from "@/lib/api/script";
+import { lookup } from "@/lib/lookup";
 
 import {
   CALL_BACK,
   END,
   HAND_OVER,
-  SPECIAL_TARGETS,
   addSection,
   removeSection,
   sectionsOf,
@@ -36,8 +36,6 @@ export const END_NAMES: Record<string, string> = {
   [HAND_OVER]: "Hand to a person",
   [CALL_BACK]: "Offer a call back",
 };
-
-export const isEnd = (target: string) => (SPECIAL_TARGETS as readonly string[]).includes(target);
 
 /**
  * Each section's step. A section with none (a script drawn before scenarios) is its own
@@ -149,7 +147,8 @@ export function shiftInStep(script: CallScript, id: string, by: -1 | 1): CallScr
 
 /** The condition a way out to `target` says: the target scenario's name, or the end's words. */
 function whenFor(sections: Section[], target: string): string {
-  if (isEnd(target)) return END_WHEN[target];
+  const end = lookup(END_WHEN, target);
+  if (end !== undefined) return end;
   return sections.find((s) => s.id === target)?.name.trim() || "They go on";
 }
 

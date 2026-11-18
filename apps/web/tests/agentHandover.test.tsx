@@ -15,6 +15,7 @@ import {
   agentCallHandling,
   organizationCallHandling,
   teamAlertReads,
+  noVoiceNotes,
 } from "./fixtures/sharedReads";
 
 // The handover panel lives in the workspace's Call handling section (D-657), so every test
@@ -170,6 +171,7 @@ function routes(over: Record<string, unknown> = {}) {
     // The Voice section, at the top of the same Settings tab.
     "/v1/agents/engine-catalogue": { available: true, voices: [], models: [] },
     "/v1/agents/agent-1/voice-tuning": clientVoiceTuning(),
+    ...noVoiceNotes(),
     ...over,
   };
 }

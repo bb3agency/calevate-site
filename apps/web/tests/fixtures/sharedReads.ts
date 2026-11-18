@@ -20,6 +20,7 @@ import type { Spend } from "@/lib/api/spend";
 import type { Wallet } from "@/lib/api/wallet";
 import type { AlertOptIn } from "@/lib/api/whatsappAlerts";
 import type { ClientVoiceTuning } from "@/lib/api/voiceTuning";
+import type { VoiceNotes } from "@/lib/api/voiceNotes";
 import type { TeamAlertRule, TeamContacts } from "@/lib/api/teamAlerts";
 import type { AgentJobs } from "@/lib/api/agentJobs";
 import type { AccountReadiness, AgentReadiness } from "@/lib/api/readiness";
@@ -885,6 +886,13 @@ export const NO_ACCOUNT_READINESS = {
 /** `GET /v1/agents/{id}/jobs`: the Inbound lines and campaigns in its voice, none by default. */
 export function agentJobs(agentId = "agent-1", jobs: AgentJobs["jobs"] = []): AgentJobs {
   return { agent_id: agentId, jobs, total: jobs.length };
+}
+
+/** The Voice section's notes on how the agent should sound, none taught yet. */
+export function noVoiceNotes(agentId = "agent-1") {
+  return {
+    [`/v1/agents/${agentId}/voice-notes`]: { items: [], limit: 20 } satisfies VoiceNotes,
+  };
 }
 
 /** `GET /v1/agents/{id}/readiness` for an agent with one thing left to do. */

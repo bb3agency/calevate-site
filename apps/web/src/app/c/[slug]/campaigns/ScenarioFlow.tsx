@@ -15,7 +15,6 @@
 import {
   ArrowDown,
   ArrowUp,
-  Languages,
   MoreHorizontal,
   Plus,
   Trash2,
@@ -32,6 +31,7 @@ import {
 
 import { FIELD, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { CallScript } from "@/lib/api/script";
+import { lookup } from "@/lib/lookup";
 
 import { HearLine, type FlowAgent } from "./LineCoach";
 
@@ -40,7 +40,6 @@ import {
   END_NAMES,
   addScenario,
   deleteScenario,
-  isEnd,
   moveToStep,
   placed,
   renameScenario,
@@ -414,7 +413,7 @@ function Columns({
 
   return (
     <div
-      className="relative max-h-[78vh] overflow-auto rounded-card border border-line bg-surface-muted"
+      className="relative max-h-[78dvh] overflow-auto rounded-card border border-line bg-surface-muted"
       role="region"
       aria-label="The call flow, step by step"
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a region that scrolls must take focus, or no key can scroll it
@@ -653,9 +652,7 @@ function Stacked({
   editor: React.ReactNode;
 }) {
   const labelOf = (target: string) =>
-    isEnd(target)
-      ? END_NAMES[target]
-      : (items.find((p) => p.section.id === target)?.label ?? "?");
+    lookup(END_NAMES, target) ?? items.find((p) => p.section.id === target)?.label ?? "?";
   return (
     <div className="space-y-5">
       {Array.from({ length: steps }, (_, i) => i + 1).map((step) => (

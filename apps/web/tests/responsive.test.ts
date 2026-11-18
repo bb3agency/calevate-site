@@ -382,6 +382,9 @@ describe("every scroll container can be reached from a keyboard", () => {
       "The flow canvas scrolls in BOTH directions (a plane of positioned sections), which " +
       "`ScrollRegion` does not model — it hardcodes `overflow-x-auto`. It carries " +
       "`role=region` + `aria-label` + `tabIndex={0}` inline, and the assertion checks that.",
+    "app/c/[slug]/campaigns/ScenarioFlow.tsx":
+      "The campaign call flow is the same two-way plane (steps across, scenarios down), so " +
+      "it carries `role=region` + `aria-label` + `tabIndex={0}` inline, as FlowCanvas does.",
   };
 
   it("is a ScrollRegion, or is focusable in its own right", () => {

@@ -22,6 +22,7 @@ import {
   clientVoiceTuning,
   agentJobs,
   agentReadiness,
+  noVoiceNotes,
 } from "./fixtures/sharedReads";
 import { ENGINE_CATALOGUE_PATH } from "@/lib/api/engineCatalogue";
 import { businessProfileFixture } from "./businessProfileFixture";
@@ -516,6 +517,7 @@ function agentRoutes(over: Record<string, unknown> = {}) {
     // The Voice section, at the top of the same Settings tab (D-997).
     "/v1/agents/engine-catalogue": { available: true, voices: [], models: [] },
     "/v1/agents/agent-1/voice-tuning": clientVoiceTuning(),
+    ...noVoiceNotes(),
     ...over,
   };
 }

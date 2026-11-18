@@ -5,9 +5,9 @@
  * settings" (founder, 18 Nov 2026: no agent picker in the flow; prompt to choose one there).
  */
 
-import { UserRound } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { NoticeBox } from "@/components/ui";
 import { useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -28,18 +28,21 @@ export function useFlowAgent(agentId: string, missing: ReactNode): FlowAgent | n
 /** Shown in the scenario editor while the campaign has no agent. */
 export function ChooseAgentPrompt({ campaignId }: { campaignId: string }) {
   return (
-    <p className="flex flex-wrap items-center gap-2 rounded-card border border-warn-line bg-warn-soft px-3 py-2 text-meta text-ink">
-      <UserRound aria-hidden className="h-4 w-4" />
+    <NoticeBox
+      tone="warn"
+      action={
+        <button
+          type="button"
+          className="font-medium text-brand-strong underline"
+          onClick={() =>
+            document.getElementById(agentSectionId(campaignId))?.scrollIntoView({ behavior: "smooth", block: "start" })
+          }
+        >
+          Go to Agent and its settings
+        </button>
+      }
+    >
       Choose this campaign&apos;s agent to hear each line in its voice.
-      <button
-        type="button"
-        className="font-medium text-brand-strong underline"
-        onClick={() =>
-          document.getElementById(agentSectionId(campaignId))?.scrollIntoView({ behavior: "smooth", block: "start" })
-        }
-      >
-        Go to Agent and its settings
-      </button>
-    </p>
+    </NoticeBox>
   );
 }

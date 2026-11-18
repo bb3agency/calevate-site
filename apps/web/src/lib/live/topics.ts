@@ -257,6 +257,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "turn-detection",
     "reply-length",
     "voice-tuning",
+    // What the owner taught an agent about how to sound (`agent_voice_notes`).
+    "voice-notes",
     "llm-defaults",
     "lead-fields",
     "actions",
