@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.72 — 18-Nov-2026
+
+- Saving a setting on an agent that has no script of its own no longer fails with "This
+  agent has nothing to say yet"; the change reaches its lines and campaigns.
+
 ## 0.4.71 — 18-Nov-2026
 
 - Call flow: each agent response, in English and in Telugu, has Hear it in the agent's
