@@ -134,7 +134,7 @@ export function sectionDetail(
   if (section.sounds_like.trim()) detail += ` It sounds like: ${quote(section.sounds_like)}`;
   if (section.procedure?.length) detail += ` ${procedurePointer(section.name ?? "")}`;
   const scripted = Object.values(section.scripts ?? {}).some((t) => t.trim());
-  if (scripted || section.qa?.length || section.coaching?.length) detail += ` ${scenarioPointer(section.name ?? "")}`;
+  if (scripted || section.qa?.length) detail += ` ${scenarioPointer(section.name ?? "")}`;
   return detail;
 }
 

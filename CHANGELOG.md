@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.70 — 18-Nov-2026
+
+- Call flow's scenario editor no longer has its own agent picker and voice settings: it
+  uses the campaign's agent from Set up, and asks you to choose one there (with a link to
+  Agent and its settings) when the campaign has none.
+- Translate with Pip is removed from the Call flow.
+- Each script line now has only Hear it in the agent's voice; the "How should it sound?"
+  notes and "Also teach" under each line are gone, and notes saved there earlier no longer
+  reach the agent.
+
 ## 0.4.69 — 18-Nov-2026
 
 - Admin console: a client's Numbers page can dry-run, then run, handing that client's
