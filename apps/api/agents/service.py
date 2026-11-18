@@ -4010,6 +4010,8 @@ async def line_config(
             "holder": str(line_id),
             "name": f"{agent['name']} · {line.name}",
             "direction": "inbound",
+            # It also places its voice's call-backs and lead calls (D-1019 D2).
+            "places_call_backs": True,
             "action_tools": tuple(tool for tool in tools if tool.name not in off),
         }
     )
@@ -4981,20 +4983,29 @@ async def presented_caller_ids(
     agent_id: UUID,
     number_id: UUID | None = None,
     campaign_ref: str | None = None,
+    through_line: LineDial | None = None,
 ) -> list[str]:
     """The numbers a dial of this agent can present, for the calling-number declaration
-    (D-941): the one `dispatch_call` would choose (`choose_caller_line`, or `_campaign_caller`
-    for a dial through a campaign's engine agent), including a client number lent to an agent
-    with none of its own; or, when it names none and the engine rings from the agent's own
-    line, every number the agent holds. The agent's own numbers alone are the wrong set both
-    ways: they refuse an agent that borrows a declared number, and pass a dial that presents
-    an undeclared one. Empty when no number can be named, which the declaration refuses."""
+    (D-941): the one `dispatch_call` would choose (`choose_caller_line`, `_campaign_caller`
+    for a dial through a campaign's engine agent, `_holder_caller` for one through an inbound
+    line's), including a client number lent to an agent with none of its own; or, when it
+    names none and the engine rings from the agent's own line, every number the agent holds.
+    The agent's own numbers alone are the wrong set both ways: they refuse an agent that
+    borrows a declared number, and pass a dial that presents an undeclared one. Empty when no
+    number can be named, which the declaration refuses."""
     try:
         line = (
             await _campaign_caller(
                 session, agent_id=agent_id, number_id=number_id, ref=campaign_ref
             )
             if campaign_ref is not None
+            else await _holder_caller(
+                session,
+                agent_id=agent_id,
+                ref=through_line.ref,
+                routed_number_ids=through_line.routed_number_ids,
+            )
+            if through_line is not None
             else await choose_caller_line(session, agent_id=agent_id, number_id=number_id)
         )
     except ProblemError:
@@ -5023,14 +5034,15 @@ async def _refuse_undeclared_caller(
         raise ProblemError.business_rule(rule, reason)
 
 
-async def _line_test_caller(
-    session: AsyncSession, *, agent_id: UUID, test: LineTestDial
+async def _holder_caller(
+    session: AsyncSession, *, agent_id: UUID, ref: str, routed_number_ids: frozenset[UUID]
 ) -> CallerLine | None:
-    """The number a line's test call rings from on the client's own line: one the engine
-    already routes to the line's holder needs no lend; otherwise the client's first number in
-    the holder's workspace is lent to it for the call, as for an agent with no number."""
-    lines = await caller_lines(session, agent_id=agent_id, dial_ref=test.ref)
-    routed = [line for line in lines if line.number_id in test.routed_number_ids]
+    """The number a call through an inbound line's engine agent rings from, a test call or a
+    call-back alike: one the engine already routes to that holder needs no lend; otherwise
+    the client's first number in the holder's workspace is lent to it for the call, as for an
+    agent with no number."""
+    lines = await caller_lines(session, agent_id=agent_id, dial_ref=ref)
+    routed = [line for line in lines if line.number_id in routed_number_ids]
     if routed:
         return replace(routed[0], own=True)
     return replace(lines[0], own=False) if lines else None
@@ -5124,6 +5136,21 @@ class LineTestDial:
     #: A draft line's test holder, made in our developer workspace (D-1018): the call rings
     #: from the shared test line, never from the client's numbers.
     developer: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class LineDial:
+    """A call placed through a LIVE inbound line's engine agent (D-1019): a call-back, a call
+    again or a lead call in the line's voice when no campaign holds the lead. The line's
+    engine agent answers its numbers and may also place calls (D2), so the call rings from
+    one of those numbers unlent, or from another client number lent to it for the call. The
+    call row carries the line (`calls.inbound_line_id`), so a call-back of this call finds
+    the same line. Built only by `agents/dial_through.resolve_dial_holder`."""
+
+    ref: str
+    line_id: UUID
+    #: The line's numbers the engine already routes to `ref`: a dial from one needs no lend.
+    routed_number_ids: frozenset[UUID] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -5256,7 +5283,12 @@ def campaign_first_words(agent: AgentRow, opening_line: str, *, call_is_recorded
 
 
 def dial_first_words(
-    agent: AgentRow, *, test_call: bool, call_is_recorded: bool, lead_name: str | None = None
+    agent: AgentRow,
+    *,
+    test_call: bool,
+    call_is_recorded: bool,
+    lead_name: str | None = None,
+    through_line: bool = False,
 ) -> str | None:
     """The first words of a call this agent places, or None for its greeting.
 
@@ -5265,7 +5297,15 @@ def dial_first_words(
     included, with its outbound opening (D-920): its greeting thanks the person for calling,
     which on the founder's call of 28 Oct 2026 it said to the person it had rung. An
     answering agent rings out with the test-call line on a test call only; an outbound
-    agent's greeting is its opening."""
+    agent's greeting is its opening.
+
+    `through_line` is a call placed through an inbound line's engine agent (D-1019). An
+    answering agent placing it opens as a "both" agent does, because its greeting thanks the
+    person for calling; it has no placed-call opening of its own, so the language's line
+    naming the business is said, with the notices joined as on every placed call."""
+    answering_through_line = through_line and agent["direction"] == "inbound"
+    if answering_through_line:
+        agent = cast(AgentRow, {**agent, "direction": "both"})
     if lead_name and lead_name.strip() and not test_call:
         named = lead_first_words(agent, call_is_recorded=call_is_recorded)
         if named is not None:
@@ -5273,7 +5313,7 @@ def dial_first_words(
     if agent["direction"] == "both":
         posture = posture_of(agent)
         body = str(agent.get("prompt") or "")
-        if not outbound_opening_of(body):
+        if not outbound_opening_of(body) and not answering_through_line:
             # The last resort (D-963): the language's line naming only the business. A "both"
             # agent is built with its own placed-call opening, so this is a gap to close.
             log.warning("placed_call_opening_ready_made", extra={"agent_id": str(agent.get("id"))})
@@ -5308,8 +5348,14 @@ async def dispatch_call(
     opening_line: str | None = None,
     line_test: LineTestDial | None = None,
     campaign: CampaignDial | None = None,
+    line: LineDial | None = None,
 ) -> str:
     """Place ONE outbound call. The caller has already passed the compliance gate.
+
+    `line` rings through a live inbound line's engine agent (D-1019): a direct call the
+    resolver (`agents/dial_through`) sent through the line. The call row carries the line,
+    it rings from a number the line answers or one lent to its engine agent, and it takes
+    part in no agent experiment. At most one of `campaign`, `line_test` and `line`.
 
     `campaign` rings through that campaign's own engine agent (D-1003): its script and
     settings in the agent's voice, its first words from its own opening, and no agent
@@ -5410,6 +5456,8 @@ async def dispatch_call(
         raise ValueError("rings_at_any_hour is for a test call only")
     if line_test is not None and trial is None and owner_test is None:
         raise ValueError("line_test is for a test call only")
+    if sum(holder is not None for holder in (campaign, line_test, line)) > 1:
+        raise ValueError("a call rings through one holder: campaign, line_test or line")
     await _assert_dialling_tenant_owns_the_session(session, tenant_id=tenant_id)
 
     agent = await _load_agent(session, tenant_id, agent_id)
@@ -5426,7 +5474,9 @@ async def dispatch_call(
         if campaign is not None
         else line_test.ref
         if line_test is not None
-        else agent["engine_agent_ref"]
+        else line.ref
+        if line is not None
+        else agent["engine_agent_ref"] or (trial.agent_ref if trial is not None else None)
     )
     if not isinstance(ref, str) or not ref:
         raise ProblemError.business_rule(
@@ -5439,35 +5489,49 @@ async def dispatch_call(
     # (D-420). On the caller's session, so it is read under this tenant's RLS and can only
     # ever see this tenant's numbers; and BEFORE the intent row, so a refusal costs one
     # indexed read and leaves no `queued` call behind for a dial that was never placed.
-    line = (
+    holder_line = line_test or line
+    caller = (
         None
         if trial is not None
         else await _campaign_caller(session, agent_id=agent_id, number_id=number_id, ref=ref)
         if campaign is not None
-        else await _line_test_caller(session, agent_id=agent_id, test=line_test)
-        if line_test is not None
+        else await _holder_caller(
+            session,
+            agent_id=agent_id,
+            ref=holder_line.ref,
+            routed_number_ids=holder_line.routed_number_ids,
+        )
+        if holder_line is not None
         else await choose_caller_line(session, agent_id=agent_id, number_id=number_id)
     )
     if trial is None and owner_test is None:
         # A test call is asked by the gate itself (`a2p_dial_blocker(trial_call=True)`).
-        await _refuse_undeclared_caller(session, tenant_id=tenant_id, agent_id=agent_id, line=line)
-    from_e164 = trial.from_e164 if trial is not None else line.e164 if line else None
+        await _refuse_undeclared_caller(
+            session, tenant_id=tenant_id, agent_id=agent_id, line=caller
+        )
+    from_e164 = trial.from_e164 if trial is not None else caller.e164 if caller else None
     # Another agent's number on an engine that rings only from numbers lent to the caller:
     # held for this call and lent to it just before the dial (`_lend_client_number`).
     borrowed = (
-        line
-        if line is not None
-        and not line.own
-        and line.engine_number_ref
+        caller
+        if caller is not None
+        and not caller.own
+        and caller.engine_number_ref
         and outbound_number_provider() is not None
         else None
     )
 
     # The stable unit: the lead when there is one, the destination otherwise. See
-    # `agents/assignment.py` for why it is not the call id.
+    # `agents/assignment.py` for why it is not the call id. An agent's arms are variants of
+    # its own engine agent, so a call through any holder, or of an agent that holds none of
+    # its own (D-1019), takes part in no experiment.
     arm = (
         None
-        if trial is not None or owner_test is not None or campaign is not None
+        if trial is not None
+        or owner_test is not None
+        or campaign is not None
+        or holder_line is not None
+        or not agent["engine_agent_ref"]
         else await assignment.assign(
             session, agent_id=agent_id, unit_key=str(lead_id) if lead_id else phone_e164
         )
@@ -5527,7 +5591,7 @@ async def dispatch_call(
                 "tid": tenant_id,
                 "aid": agent_id,
                 "ref": dial_ref,
-                "line": line_test.line_id if line_test is not None else None,
+                "line": holder_line.line_id if holder_line is not None else None,
                 "ecid": intent_engine_call_id,
                 # Our number when we chose it, so a call still ringing can say where it rings
                 # from (D-885); null leaves it to the engine's report at the end.
@@ -5624,6 +5688,7 @@ async def dispatch_call(
                         test_call=trial is not None or owner_test is not None,
                         call_is_recorded=engine.capabilities.records_audio,
                         lead_name=lead_name or prefill.name,
+                        through_line=line is not None,
                     )
                 ),
                 rings_at_any_hour=rings_at_any_hour,

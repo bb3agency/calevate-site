@@ -59,7 +59,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript, compile_call_script, opening_line_of
@@ -122,6 +122,10 @@ from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.engine.capabilities import engine_capabilities
 from apps.api.legal.service import agreements_blocker
+
+if TYPE_CHECKING:
+    # Type only: `agents.service` reaches this module through the gate's own imports.
+    from apps.api.agents.service import LineDial
 
 log = get_logger(__name__)
 
@@ -633,6 +637,17 @@ def dial_refusal_for_agent_status(
     return ("agent_not_live", "This agent is not live yet.")
 
 
+#: A direct call (call-back, call again, Make a call, a new lead's call, a follow-up) for an
+#: agent that holds no engine agent of its own, with no running campaign holding the person
+#: and no live inbound line in its voice to place it through (D-1019 D1). Only assignments
+#: hold an engine agent, so there is nothing to ring through; the sentence names the fix.
+NO_ASSIGNMENT_RULE: Final = "no_assignment_to_call_through"
+NO_ASSIGNMENT_REASON: Final = (
+    "This agent is not working anywhere that can place this call. Start a campaign or put an "
+    "inbound line live for it, then try again."
+)
+
+
 #: A trial test call from an agent nobody has got ready (D-853).
 AGENT_NOT_READY_RULE: Final = "agent_not_ready"
 AGENT_NOT_READY_REASON: Final = (
@@ -663,6 +678,7 @@ async def truthful_answer_drift_blocker(
     agent_id: UUID,
     campaign_id: UUID | None = None,
     every_holder: bool = False,
+    inbound_line_id: UUID | None = None,
 ) -> tuple[str, str] | None:
     """DETECTION BECAME ENFORCEMENT HERE (D-562). Has the drift sweep PROVEN, recently,
     that this agent is running a prompt with no truthful-answer directive in it?
@@ -726,11 +742,14 @@ async def truthful_answer_drift_blocker(
     stops its own calls, not its voice's other campaigns. Without it the campaigns' routes
     are left out, so a campaign's verdict never stops its agent's own dials; the agent's own
     route, its arms, its lines and its test copy are asked as before. `every_holder` asks
-    all of them, for a test call through a line's holder.
+    all of them, for a test call through a line's holder. `inbound_line_id` asks one live
+    line's engine agent alone, for a call placed through it (D-1019), as `campaign_id` does.
     """
     holder = (
         "AND campaign_id = :cid "
         if campaign_id is not None
+        else "AND inbound_line_id = :lid "
+        if inbound_line_id is not None
         else ""
         if every_holder
         else "AND campaign_id IS NULL "
@@ -749,6 +768,7 @@ async def truthful_answer_drift_blocker(
                 "tid": tenant_id,
                 "aid": agent_id,
                 "cid": campaign_id,
+                "lid": inbound_line_id,
                 "missing": TRUTHFUL_ANSWER_MISSING,
                 "ttl": TRUTHFUL_ANSWER_VERDICT_TTL_S,
             },
@@ -1063,6 +1083,9 @@ async def check_dispatch(
     through_line: bool = False,
     campaign_id: UUID | None = None,
     number_id: UUID | None = None,
+    line: LineDial | None = None,
+    unassigned: bool = False,
+    through_test_copy: bool = False,
 ) -> DispatchDecision:
     """Returns a decision rather than raising, so callers can render *why* a button is
     disabled — SURFACES §2b asks for blocked features to be visibly explained instead
@@ -1098,6 +1121,18 @@ async def check_dispatch(
 
     `number_id` is the number the dial will present when the caller chose one (a campaign's
     calling number), so the declaration is asked of that number rather than of the agent's.
+
+    `line` and `unassigned` are what `agents/dial_through.resolve_dial_holder` found for a
+    direct call (D-1019). `line` is a live inbound line the call is placed through: the line's
+    engine agent may place calls (D2), so an agent that only answers is not refused, the
+    truthful-answer verdict read is that engine agent's, and the declaration is asked of the
+    number that dial presents. `unassigned` is a direct call with nothing to ring through:
+    refused `NO_ASSIGNMENT_RULE`, after the checks on the platform, the account and the
+    agent's own state, so the more serious refusal is the one read.
+
+    `through_test_copy` is a test call rung through the agent's developer-workspace test
+    copy (D-1019): a ready agent holding no engine agent of its own is not refused as not
+    ready, because the engine agent dialled is the copy, published before the dial.
 
     The big red switch is read FRESH, past the process memo and the Redis copy, unless
     `halt_read_by_caller`: a click-to-dial is one read per click, and a halt set in another
@@ -1202,16 +1237,26 @@ async def check_dispatch(
     refusal = (
         None if line_test else dial_refusal_for_agent_status(str(status), trial_call=trial_call)
     )
-    if refusal is None and trial_call and not engine_ref and not line_test:
-        # Ready means published: a test call is placed by the engine's agent, and a `paused`
-        # agent that was never published has none.
+    dialled_ref = line.ref if line is not None else engine_ref
+    if (
+        refusal is None
+        and trial_call
+        and not dialled_ref
+        and not line_test
+        and not through_test_copy
+    ):
+        # Ready means published: a test call is placed by the engine agent it rings, and a
+        # `paused` agent that was never published has none.
         refusal = (AGENT_NOT_READY_RULE, AGENT_NOT_READY_REASON)
     if refusal is not None:
         rule, reason = refusal
         return DispatchDecision(allowed=False, rule=rule, reason=reason)
+    if unassigned:
+        return DispatchDecision(allowed=False, rule=NO_ASSIGNMENT_RULE, reason=NO_ASSIGNMENT_REASON)
     # A test call may come from an agent that only answers calls (D-853): the owner hears
-    # its greeting as the first words. Every other dial refuses it.
-    if direction == "inbound" and not trial_call:
+    # its greeting as the first words. A call placed through a live line is placed by the
+    # line's engine agent, which may place calls (D-1019 D2). Every other dial refuses it.
+    if direction == "inbound" and not trial_call and line is None:
         return DispatchDecision(
             allowed=False,
             rule="agent_inbound_only",
@@ -1230,6 +1275,7 @@ async def check_dispatch(
         agent_id=agent_id,
         campaign_id=campaign_id,
         every_holder=through_line and campaign_id is None,
+        inbound_line_id=line.line_id if line is not None else None,
     )
     if truthful is not None:
         rule, reason = truthful
@@ -1300,6 +1346,7 @@ async def check_dispatch(
             own_number_attested=own_number_attested,
             number_id=number_id,
             campaign_ref=str(campaign_ref) if campaign_ref else None,
+            line=line,
         )
         if undeclared is not None:
             rule, reason = undeclared
@@ -1427,6 +1474,8 @@ __all__ = [
     "INDIA_E164_PREFIX",
     "MAINTENANCE_DRAIN_REASON",
     "MAINTENANCE_DRAIN_RULE",
+    "NO_ASSIGNMENT_REASON",
+    "NO_ASSIGNMENT_RULE",
     "NO_CREDITS_REASON",
     "PERSON_LEVEL_REFUSALS",
     "SELF_SERVE_TIERS",

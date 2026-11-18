@@ -45,7 +45,7 @@ import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 from uuid import UUID
 
 from calevate_shared.extraction import ascii_digits
@@ -56,6 +56,10 @@ from apps.api.billing.plans import IST
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
+
+if TYPE_CHECKING:
+    # Type only: `agents.service` imports this module at import time.
+    from apps.api.agents.service import LineDial
 
 DeclarationState = Literal["notified", "withdrawn"]
 
@@ -320,6 +324,7 @@ async def a2p_dial_blocker(
     own_number_attested: bool,
     number_id: UUID | None = None,
     campaign_ref: str | None = None,
+    line: LineDial | None = None,
 ) -> tuple[str, str] | None:
     """The dial gate's question: may this outbound call ring, under the declaration rule?
 
@@ -333,9 +338,10 @@ async def a2p_dial_blocker(
       refused rather than checked against the agent's numbers it may not use.
     * Every other call is checked against the number the dial would present, chosen as
       `dispatch_call` chooses it: `number_id` is a campaign's chosen number, `campaign_ref`
-      the campaign's engine agent it rings through (D-1003). An agent with no number of its
-      own presents the client number lent to it. `dispatch_call` asks again of the number
-      it actually presents, which a caller here may not know.
+      the campaign's engine agent it rings through (D-1003), `line` the live inbound line's
+      (D-1019). An agent with no number of its own presents the client number lent to it.
+      `dispatch_call` asks again of the number it actually presents, which a caller here
+      may not know.
     """
     if not enforcement_active():
         return None
@@ -350,7 +356,11 @@ async def a2p_dial_blocker(
         session,
         tenant_id=tenant_id,
         caller_ids=await presented_caller_ids(
-            session, agent_id=agent_id, number_id=number_id, campaign_ref=campaign_ref
+            session,
+            agent_id=agent_id,
+            number_id=number_id,
+            campaign_ref=campaign_ref,
+            through_line=line,
         ),
     )
 

@@ -33,6 +33,7 @@ from pydantic import Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.dial_through import dial_through
 from apps.api.callbacks import service as callbacks
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import DispatchDecision, check_dispatch
@@ -210,8 +211,16 @@ async def _gate_new_person(
         return await swipe.standing_refusal(
             session, tenant_id=tenant_id, agent_id=agent_id, phone=phone
         )
+    # A person not on file has no campaign or earlier call: a live line in the agent's voice,
+    # else the agent's own engine agent (D-1019), which is what `place_lead_call` finds too.
+    through = await dial_through(session, agent_id=agent_id)
     decision = await check_dispatch(
-        session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        phone_e164=phone,
+        line=through.line,
+        unassigned=through.unassigned,
     )
     if decision.allowed:
         return None

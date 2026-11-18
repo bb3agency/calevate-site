@@ -109,6 +109,11 @@ BLOCK_REMEDIES: dict[str, str] = {
     "agent_not_live": "Your agent is not published yet.",
     # Refusals of the dial itself, which a new lead now keeps (`ingest.service.ingest_lead`).
     "agent_not_published": "Your agent is not published yet.",
+    # D-1019: the agent works nowhere that can place the call.
+    "no_assignment_to_call_through": (
+        "Your agent is not working anywhere that can place this call. Start a campaign or "
+        "put an inbound line live for it."
+    ),
     "engine_rejected": (
         "The phone system would not place this call, so nobody was rung. Call them yourself, "
         "or ask us to look."

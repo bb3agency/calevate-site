@@ -497,8 +497,18 @@ async def _plan_call_place(
         except ProblemError as bad:
             raise WriteRefusedError(f"{bad.detail} Ask the person for the number again") from bad
         who = (strip_invisible(parsed.name.strip()) if parsed.name else "") or "this number"
+    from apps.api.agents.dial_through import dial_through
+
+    # The assignment the call would go through (D-1019), as `lead_dial.place_lead_call` finds.
+    through = await dial_through(session, agent_id=parsed.agent_id, lead_id=parsed.lead_id)
     decision = await check_dispatch(
-        session, tenant_id=actor.tenant_id, agent_id=parsed.agent_id, phone_e164=phone
+        session,
+        tenant_id=actor.tenant_id,
+        agent_id=parsed.agent_id,
+        phone_e164=phone,
+        campaign_id=through.campaign_id,
+        line=through.line,
+        unassigned=through.unassigned,
     )
     if not decision.allowed:
         raise WriteRefusedError(

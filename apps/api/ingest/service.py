@@ -48,6 +48,7 @@ from calevate_shared.calling_window import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.dial_through import dial_through, holder_resolves_sql
 from apps.api.agents.service import DialUnconfirmedError, dispatch_call
 from apps.api.callbacks.service import RETRY_AFTER, cancel_for_phones
 from apps.api.callbacks.service import book as book_callback
@@ -394,9 +395,11 @@ def submission_is_stale(submitted: datetime | None, *, received_at: float) -> bo
 #: Why an agent calls a new lead, in the order `new_lead_caller` tries them.
 CallerChoice = Literal["follow_up", "source", "account"]
 
+#: An agent a new lead's call can be placed through (D-1019): not deleted, and either holding
+#: its own engine agent or ready with a live inbound line in its voice
+#: (`dial_through.holder_resolves_sql`). A new lead has no campaign yet, so those are the two.
 _PUBLISHED_AGENT: Final = (
-    "deleted_at IS NULL AND archived_at IS NULL AND engine_agent_ref IS NOT NULL "
-    "AND engine_agent_ref <> ''"
+    f"deleted_at IS NULL AND archived_at IS NULL AND {holder_resolves_sql('agents')}"
 )
 
 
@@ -616,10 +619,12 @@ async def ingest_lead(
     # Why "nothing could ever delete": `apps/workers/retention.py::_due_tenants` resolves
     # its worklist from `engine_agent_routes`, the global bridge, because a cross-tenant
     # resolution must not need the admin role (hard rule 1). `publish_agent` writes that
-    # route in the same transaction as `agents.engine_agent_ref`, so the column checked
-    # here and the row the sweep reads are one fact. A tenant that has never published
-    # ANY agent is therefore in no worklist, and a lead it kept ages forever — personal
-    # data outliving its `lead` TTL, which is a DPDP obligation and not a preference.
+    # route in the same transaction as `agents.engine_agent_ref`, and `publish_line` writes
+    # a live line's route in the same transaction as `inbound_lines.engine_agent_ref`, so
+    # the two arms checked here (`_PUBLISHED_AGENT`) and the rows the sweep reads are one
+    # fact. A tenant with neither is therefore in no worklist, and a lead it kept ages
+    # forever — personal data outliving its `lead` TTL, which is a DPDP obligation and not
+    # a preference.
     #
     # Refusing costs the enquiry, and that cost is paid knowingly: the sender gets a 422
     # naming the fix, the client cannot call anybody in this state anyway, and the moment
@@ -795,9 +800,17 @@ async def ingest_lead(
     call_ref = CallbackRef(run.id, call_step.id, 0)
     run_key = follow_up_runner.callback_key(run.id, call_step.id, 0)
 
-    # 3. The compliance gate — the same one every dispatch path calls (hard rule 5).
+    # 3. The compliance gate — the same one every dispatch path calls (hard rule 5), asked of
+    # the assignment the call is placed through (D-1019).
+    through = await dial_through(session, agent_id=agent_id, lead_id=resolved_lead)
     decision = await check_dispatch(
-        session, tenant_id=config.tenant_id, agent_id=agent_id, phone_e164=phone
+        session,
+        tenant_id=config.tenant_id,
+        agent_id=agent_id,
+        phone_e164=phone,
+        campaign_id=through.campaign_id,
+        line=through.line,
+        unassigned=through.unassigned,
     )
     # 3b. The client's own plan (D-716): wait, calling hours and days, after-hours handling.
     # It only ever narrows when a lawful call is placed; the gate above already decided
@@ -873,6 +886,8 @@ async def ingest_lead(
             phone_e164=phone,
             lead_name=name,
             context_note=f"Enquiry via {config.source}",
+            campaign=through.campaign,
+            line=through.line,
         )
     except DialUnconfirmedError as unconfirmed:
         # The run waits on the call row either way. Linked here, in this transaction, and

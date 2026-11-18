@@ -98,10 +98,13 @@ async def _first(session: AsyncSession, sql: str) -> UUID | None:
 
 
 async def _account(session: AsyncSession) -> _Account:
+    from apps.api.agents.dial_through import holder_resolves_sql
+
+    # The oldest calling agent a follow-up's call can be placed through (D-1019).
     agent = await _first(
         session,
         "SELECT id FROM agents WHERE deleted_at IS NULL AND archived_at IS NULL "
-        "AND direction IN ('outbound', 'both') AND engine_agent_ref IS NOT NULL "
+        f"AND direction IN ('outbound', 'both') AND {holder_resolves_sql('agents')} "
         "ORDER BY created_at LIMIT 1",
     )
     raw_outcomes = (
