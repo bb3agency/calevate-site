@@ -64,8 +64,12 @@ const UNREACHABLE = {
     "so we cannot confirm it is running it. Publish again to re-check.",
 };
 
-function pending(verification: Record<string, unknown>) {
+function pending(
+  verification: Record<string, unknown>,
+  holders?: Record<string, unknown> | null,
+) {
   return {
+    ...(holders === undefined ? {} : { holders_verification: holders }),
     agent_id: AGENT,
     agent_status: "live",
     published: true,
@@ -173,6 +177,24 @@ describe("what the agent screen claims about being live", () => {
     // The confirmation TIMESTAMP is the thing that must not appear: a screen that shows
     // "Confirmed 2 minutes ago" over an answer nobody could read is the exact defect.
     expect(screen.queryByText(/Confirmed /)).toBeNull();
+  });
+
+  it("renders the worst verdict over what carries the agent when the server sends one (D-1019)", async () => {
+    // The agent's own verdict says confirmed; one of its lines was not read back. The
+    // line's answer is the one callers depend on, so it is the one shown.
+    await render(CONFIRMED, { [PENDING_PATH]: pending(CONFIRMED, UNREACHABLE) });
+
+    expect(await screen.findByText(UNREACHABLE.headline)).toBeTruthy();
+    expect(screen.queryByText(CONFIRMED.headline)).toBeNull();
+    expect(screen.getByText(/Nothing here is wrong yet — it is unconfirmed/)).toBeTruthy();
+    expect(screen.queryByText(/Confirmed /)).toBeNull();
+  });
+
+  it("falls back to the agent's own verdict when the aggregate is null", async () => {
+    await render(CONFIRMED, { [PENDING_PATH]: pending(CONFIRMED, null) });
+
+    expect(await screen.findByText(CONFIRMED.headline)).toBeTruthy();
+    expect(screen.getByText(/Confirmed /)).toBeTruthy();
   });
 
   it("does not dial the voice platform until someone asks it to", async () => {

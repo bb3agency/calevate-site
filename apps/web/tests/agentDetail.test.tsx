@@ -330,6 +330,8 @@ function routes(over: Record<string, unknown> = {}) {
     ...teamAlertReads(),
     // The Voice section reads how a Studio voice sounds (D-843).
     "/v1/agents/agent-1/voice-tuning": clientVoiceTuning(),
+    // And the notes the owner taught it on how to sound (`agents/voice_notes`).
+    "/v1/agents/agent-1/voice-notes": { items: [], limit: 20 },
     // The header's "spent this month" line (owners hold billing:read).
     [AGENT_SPEND_PATH]: spendThisMonth(),
     // Overview's setup checklist reads the agreements and the script's version.
