@@ -3,6 +3,25 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.68 — 18-Nov-2026
+
+- Your agents are now like staff: an agent is its name, voice, languages, actions and
+  settings, and only its work holds a calling setup — each live Inbound line and each
+  running or paused campaign. Your existing agents keep working exactly as before until we
+  move each one's setup onto the line or campaign that uses it, which keeps your callers on
+  the same setup with no gap.
+- Call-backs, "Call again", "Make a call", new-lead calls and follow-ups ring through the
+  campaign that found the person, or the Inbound line they called. When an agent has no
+  running campaign and no live line, the call is refused with what to do: start a
+  campaign or put a line live.
+- An Inbound line can now call people back.
+- A number on an Inbound line that is not live yet shows "Not answering", with a button to
+  put the line live (or to write its script first). Nothing goes live by itself.
+- Testing, chatting with and running saved tests on an agent works without it holding a
+  calling setup of its own.
+- New script A/B tests on a single agent are retired; test openings on a campaign instead.
+  A test already running can still be ended.
+
 ## 0.4.67 — 18-Nov-2026
 
 - A script you save on a running or paused campaign reaches its very next call; before, it
