@@ -3910,11 +3910,11 @@ async def publish_variant(
 class ArmToPublish:
     """One arm of a script test, as `publish_variants` needs it.
 
-    A record rather than five positional arguments because the two call sites assemble it
-    from different places — `_VARIANT_CONFIG_SQL` on the republish path,
-    `experiments.start`'s own INSERTs on the first publish — and a mis-ordered
+    A record rather than five positional arguments because a mis-ordered
     `(label, body, disclosure)` triple would publish an arm whose AI-disclosure sentence
-    is its script. mypy cannot see that in three `str` positionals; it can here.
+    is its script. mypy cannot see that in three `str` positionals; it can here. Only
+    tests already running are republished (`_VARIANT_CONFIG_SQL`); new per-agent tests
+    are refused (D-1019).
     """
 
     variant_id: UUID

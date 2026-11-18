@@ -287,6 +287,7 @@ async def place_trial_call(
             own_number_attested=own_number_attested,
             through_line=line_id is not None or campaign_id is not None,
             campaign_id=campaign_id,
+            through_test_copy=through_copy,
         )
         access = await read_trial_access(session, tenant_id=tenant_id)
         # After the first payment: the owner's test call from the account's own number (D-859).

@@ -471,21 +471,10 @@ describe("the A/B script test panel", () => {
     ).toBe("30");
   });
 
-  it("offers a test between two existing versions when none is running, and never authors one", async () => {
-    const { container } = await render();
+  it("points a new script test to a campaign instead of offering one on the agent (D-1019)", async () => {
+    await render();
 
-    await screen.findByRole("button", { name: "Start test (50/50)" });
-    expect(container.textContent).toContain("40 completed calls");
-    // The arms are CHOSEN from history — there is no second script editor here, because
-    // `prompt_versions` has exactly one writer.
-    expect(screen.getByLabelText("Control (A)")).toBeTruthy();
-    expect(screen.getByLabelText("Challenger (B)")).toBeTruthy();
-  });
-
-  it("says a test needs two versions rather than offering a dead control", async () => {
-    await render({ [HISTORY_PATH]: [VERSIONS[0]] });
-
-    await screen.findByText(/A test needs two prompt versions/);
+    await screen.findByText("New script tests run on a campaign: use its opening test.");
     expect(screen.queryByRole("button", { name: /Start test/ })).toBeNull();
   });
 

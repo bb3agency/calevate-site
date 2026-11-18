@@ -205,14 +205,6 @@ async def test_an_account_with_its_agreements_waiting_is_refused_before_the_copy
     assert refreshed == [] and line.lent_to == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "D-1019 WP-C: check_dispatch must let a ready agent with no engine agent place its "
-        "test-copy call (compliance/service.py:1205), and dispatch_call must take its ref "
-        "from trial.agent_ref (agents/service.py:5424-5435)"
-    ),
-)
 async def test_from_onboarding_to_the_first_test_call_without_an_engine_agent(
     line: Line,  # noqa: F811
 ) -> None:

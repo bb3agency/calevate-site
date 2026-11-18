@@ -1,14 +1,9 @@
 "use client";
 
-import { useState } from "react";
-
-import { useFormValidation } from "@/components/formValidation";
 import { StatusPill } from "@/components/admin/kit";
-import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import {
-  FIELD,
-  FIELD_INLINE,
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
@@ -17,10 +12,8 @@ import {
   formatIST,
 } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
-import type { PromptVersion } from "@/lib/api/prompts";
 import {
   useConcludeExperiment,
-  useStartExperiment,
   useTenantExperiment,
   type Experiment,
 } from "@/lib/api/publishing";
@@ -58,19 +51,15 @@ export function ExperimentPanel({
   agentId,
   slug,
   write,
-  versions,
 }: {
   tenantId: string;
   agentId: string;
   slug: string;
   write: ReturnType<typeof useAdminAccess>;
-  versions: PromptVersion[] | undefined;
 }) {
   const target = { tenantId, agentId, slug };
   const state = useTenantExperiment(slug, agentId);
-  const start = useStartExperiment(target);
   const conclude = useConcludeExperiment(target);
-  const startFeedback = useActionFeedback(start, { errorDisplay: "inline" });
   const concludeFeedback = useActionFeedback(conclude, { errorDisplay: "inline" });
   // The state belongs on the ending that was pressed, not on all of them.
   const concludeStatus = (promote: string | null) =>
@@ -94,7 +83,6 @@ export function ExperimentPanel({
         {state.error != null && (
           <ProblemNotice error={state.error} onRetry={() => state.refetch()} />
         )}
-        {start.error && <ProblemNotice error={start.error} />}
         {conclude.error && <ProblemNotice error={conclude.error} />}
 
         {state.isLoading && !state.data ? (
@@ -151,13 +139,11 @@ export function ExperimentPanel({
                 </span>
               </div>
             ) : (
-              <StartExperimentForm
-                rules={state.data.rules}
-                versions={versions}
-                write={write}
-                status={startFeedback.status}
-                onStart={(payload) => startFeedback.run(payload)}
-              />
+              // D-1019: an agent has no script of its own, so a new script test runs on a
+              // campaign's opening test; one already running here can still be ended above.
+              <p className="text-meta text-ink-muted">
+                New script tests run on a campaign: use its opening test.
+              </p>
             )}
             {conclude.data && (
               <p className="text-meta text-ink-muted">{concludeMessage(conclude.data)}</p>
@@ -263,165 +249,3 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
   );
 }
 
-/**
- * Start a test between two versions this agent already has.
- *
- * No prompt is authored here: the challenger is written through the New version form
- * below, which is the one place a `prompt_versions` row is born. That keeps this a
- * choice between existing, auditable scripts rather than a second editor.
- */
-function StartExperimentForm({
-  rules,
-  versions,
-  write,
-  status,
-  onStart,
-}: {
-  rules: NonNullable<ReturnType<typeof useTenantExperiment>["data"]>["rules"];
-  versions: PromptVersion[] | undefined;
-  write: ReturnType<typeof useAdminAccess>;
-  status: FeedbackStatus;
-  onStart: (payload: {
-    name: string;
-    control_version: number;
-    challenger_version: number;
-    split_bp: number;
-    conversion_metric: string;
-  }) => void;
-}) {
-  const [name, setName] = useState("");
-  const expValid = useFormValidation();
-  const [control, setControl] = useState<string>("");
-  const [challenger, setChallenger] = useState<string>("");
-  const [metric, setMetric] = useState(rules.default_metric);
-
-  // Two versions are the minimum a test can exist between, and saying so is more use
-  // than a disabled control with no explanation.
-  if (!versions || versions.length < 2) {
-    return (
-      <p className="text-meta text-ink-muted">
-        A test needs two prompt versions. Write a challenger in Script, then start one.
-      </p>
-    );
-  }
-
-  const parsed = { control: Number(control), challenger: Number(challenger) };
-  const ready =
-    Number.isFinite(parsed.control) &&
-    Number.isFinite(parsed.challenger) &&
-    parsed.control !== parsed.challenger &&
-    control !== "" &&
-    challenger !== "";
-
-  return (
-    <form
-      className="max-w-xl space-y-4"
-      noValidate
-      onSubmit={expValid.onSubmit(() => {
-        onStart({
-          name: name.trim(),
-          control_version: parsed.control,
-          challenger_version: parsed.challenger,
-          // 50/50 is the only split this screen offers: a ramp is a real feature of the
-          // API, and an unexplained slider is how somebody ships a 95/5 test that can
-          // never reach the minimum on the small arm.
-          split_bp: rules.split_total_bp / 2,
-          conversion_metric: metric,
-        });
-      })}
-    >
-      <input
-        {...expValid.field("name", "Say what is being tested.")}
-        required
-        minLength={3}
-        value={name}
-        disabled={!write.allowed}
-        onChange={(event) => setName(event.target.value)}
-        maxLength={120}
-        placeholder="What is being tested (e.g. 'direct booking greeting')"
-        className={FIELD}
-      />
-      {expValid.error("name")}
-      <div className="flex flex-wrap gap-2">
-        <VersionSelect
-          label="Control (A)"
-          value={control}
-          onChange={setControl}
-          versions={versions}
-          disabled={!write.allowed}
-        />
-        <VersionSelect
-          label="Challenger (B)"
-          value={challenger}
-          onChange={setChallenger}
-          versions={versions}
-          disabled={!write.allowed}
-        />
-        <label className="flex flex-col gap-1">
-          <span className="text-meta text-ink-muted">Counts as a conversion</span>
-          <select
-            value={metric}
-            disabled={!write.allowed}
-            onChange={(event) => setMetric(event.target.value)}
-            className={FIELD_INLINE}
-          >
-            {rules.metrics.map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-      <ActionButton
-        type="submit"
-        status={status}
-        pendingLabel="Starting…"
-        successLabel="Started"
-        disabled={!ready || !write.allowed}
-      >
-        Start test (50/50)
-      </ActionButton>
-      <p className="text-meta text-ink-muted">
-        Each arm is published to the voice platform with its own disclosure line. Outbound
-        calls only. No comparison is reported until each arm has{" "}
-        {rules.minimum_calls_per_variant} completed calls.
-      </p>
-    </form>
-  );
-}
-
-function VersionSelect({
-  label,
-  value,
-  onChange,
-  versions,
-  disabled,
-}: {
-  label: string;
-  value: string;
-  onChange: (next: string) => void;
-  versions: PromptVersion[];
-  disabled: boolean;
-}) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-meta text-ink-muted">{label}</span>
-      <select
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-        className={FIELD_INLINE}
-        aria-label={label}
-      >
-        <option value="">Choose a version</option>
-        {versions.map((version) => (
-          <option key={version.id} value={version.version}>
-            v{version.version}
-            {version.notes ? ` — ${version.notes}` : ""}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}

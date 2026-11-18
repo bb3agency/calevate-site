@@ -268,7 +268,6 @@ export function AgentPromptScreen({ tenantId, agentId }: { tenantId: string; age
                   agentId={agentId}
                   slug={slug}
                   write={write}
-                  versions={history.data}
                 />
               );
             default:

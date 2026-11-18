@@ -457,8 +457,6 @@ export type ExperimentState = Schemas["ExperimentStateOut"];
 export type Experiment = Schemas["ExperimentOut"];
 export type ExperimentVariant = Schemas["VariantOut"];
 export type ExperimentRules = Schemas["ExperimentRulesOut"];
-export type StartExperimentIn = Schemas["StartExperimentIn"];
-export type StartExperimentOut = Schemas["StartExperimentOut"];
 /**
  * `experiment_id` is REQUIRED on this body, and that is the whole point of the type.
  *
@@ -505,20 +503,6 @@ function useAfterExperiment(target: AgentTarget) {
       client.invalidateQueries({ queryKey: experimentKey(target.slug, target.agentId) }),
       refresh(),
     ]);
-}
-
-export function useStartExperiment(
-  target: AgentTarget,
-): UseMutationResult<StartExperimentOut, Error, StartExperimentIn> {
-  const refresh = useAfterExperiment(target);
-  return useMutation({
-    mutationFn: (payload: StartExperimentIn) =>
-      apiRequest<StartExperimentOut>(adminSession(), agentPath(target, "experiment"), {
-        method: "POST",
-        body: payload,
-      }),
-    onSuccess: refresh,
-  });
 }
 
 /**
