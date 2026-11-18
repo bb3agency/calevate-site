@@ -3311,8 +3311,9 @@ async def publish_agent(
         # (`line_config`, `campaign_config`). An agent with no script of its own is normal now.
         agent = cast(AgentRow, {**dict(agent), "prompt": f"{agent['name']}."})
     config = _to_config(tenant_id, agent, engine=engine, handoff=handoff)
-    if onto_test_copy and in_client:
-        # Beside the agent's own engine agent in one workspace: its own find-by-name tag, or
+    if onto_test_copy:
+        # A test copy can sit in the same workspace as the agent's own engine agent (the
+        # client's, or ours for an agent made before D-693): its own find-by-name tag, or
         # making the copy would find the agent's and write over it.
         config = config.model_copy(update={"holder": "test_copy"})
     # The ACTIONS feature: attach this agent's during-call tools to the config the adapter
