@@ -1335,9 +1335,6 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/agents/{agent_id}/experiment": BoundedByConstruction(
         by="two variants by construction, and `metrics` is the CONVERSION_METRICS constant."
     ),
-    "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment": BoundedByConstruction(
-        by="`variant_ids` is the two arms this call just created."
-    ),
     "POST /v1/campaigns/{campaign_id}/recurrence": BoundedByConstruction(
         by="`days` is ISO weekdays — seven, enforced by the request model."
     ),

@@ -177,6 +177,26 @@ async def _routes(tenant_id: uuid.UUID, source_id: uuid.UUID) -> dict[uuid.UUID,
     return {route.agent_id: route.handle for route in routes if route.variant_id is None}
 
 
+async def _out_of_reach(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:
+    """Make a publish miss the agent, as one that has not caught up would be missed: no
+    engine agent for the fan-out, and not ready, so the T0 refresh does not republish it.
+    A ready agent with no ref is republished (D-1019), and its publish finds its vendor agent
+    by name and converges its knowledge, so a NULL ref alone no longer hides it."""
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = NULL, status = 'draft' WHERE id = :a"),
+            {"a": agent_id},
+        )
+
+
+async def _back_in_reach(tenant_id: uuid.UUID, agent_id: uuid.UUID, ref: str) -> None:
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = :r, status = 'live' WHERE id = :a"),
+            {"r": ref, "a": agent_id},
+        )
+
+
 def _titled(engine: _KbEngine, ref: str) -> list[str]:
     return [s.title for s in engine._kb.get(ref, [])]
 
@@ -323,17 +343,9 @@ async def test_the_sweep_catches_up_an_agent_nobody_republished(
     engine = _FailingEngine()
     tenant_id, agents = await _client_with_agents(engine, extra=1)
     agent_id, ref = agents[1]
-    # Published while the second agent had no vendor agent, so the fan-out skipped it.
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET engine_agent_ref = NULL WHERE id = :a"), {"a": agent_id}
-        )
+    await _out_of_reach(tenant_id, agent_id)
     source_id = await _publish_text(tenant_id, engine, "Prices", PRICES)
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET engine_agent_ref = :r WHERE id = :a"),
-            {"r": ref, "a": agent_id},
-        )
+    await _back_in_reach(tenant_id, agent_id, ref)
     assert agent_id not in await _routes(tenant_id, source_id)
 
     from apps.workers import kb_gloss, kb_ingest
@@ -421,17 +433,10 @@ async def test_a_catch_up_that_fails_is_recorded_and_the_tick_goes_on(
     engine = _FailingEngine()
     tenant_id, agents = await _client_with_agents(engine, extra=1)
     agent_id, ref = agents[1]
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET engine_agent_ref = NULL WHERE id = :a"), {"a": agent_id}
-        )
+    await _out_of_reach(tenant_id, agent_id)
     await _publish_text(tenant_id, engine, "Prices", PRICES)
     await _publish_text(tenant_id, engine, "Hours", "We open at nine and close at seven daily.")
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET engine_agent_ref = :r WHERE id = :a"),
-            {"r": ref, "a": agent_id},
-        )
+    await _back_in_reach(tenant_id, agent_id, ref)
     # "Hours" sorts first and is attached; "Prices" is refused, so "Hours" must come down.
     engine.refuse_title = "Prices"
 

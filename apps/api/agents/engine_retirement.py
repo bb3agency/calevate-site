@@ -158,8 +158,8 @@ def _creation_still_on() -> ProblemError:
         "agents_still_hold_engine_agents",
         "Agents still get a calling setup of their own when they are published.",
         remediation=(
-            "Switch off the platform setting agents_hold_engine_agent first, or run a dry run "
-            "to see what this would do."
+            'Switch off the platform setting "Agents hold an engine agent of their own" '
+            "first, or run a dry run to see what this would do."
         ),
     )
 

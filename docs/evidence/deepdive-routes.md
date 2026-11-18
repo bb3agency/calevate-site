@@ -280,7 +280,6 @@ id is driven at it in `tests/adversarial_pass_test.py`.
 | `POST /v1/admin/qa-samples/{sample_id}/review` | admin:tenants | admin | — | `QaSampleOut` | — |
 | `POST /v1/admin/tenants` | admin:tenants | admin | — | `CreateOrgOut` | — |
 | `POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/apply` | agents:write | admin | — | `ApplyOut` | — |
-| `POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment` | agents:write | admin | by construction | `StartExperimentOut` | — |
 | `POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment/conclude` | agents:write | admin | — | `ConcludeExperimentOut` | — |
 | `POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake` | agents:write | admin | — | `IntakeOut` | — |
 | `POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake/draft` | agents:write | admin | by construction | `IntakeDraftOut` | — |

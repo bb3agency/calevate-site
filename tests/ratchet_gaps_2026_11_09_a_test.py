@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from apps.api.agents.dial_through import DialThrough
 from apps.api.compliance import call_purpose
 from apps.api.compliance import service as compliance_service
 from apps.api.compliance.service import (
@@ -71,10 +72,15 @@ def test_an_emptied_indic_word_list_switches_that_rule_off(
 async def test_call_back_outside_calling_hours_says_when_it_can_ring(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    plan = SimpleNamespace(agent_id=uuid.uuid4(), phone_e164="+919876600001", depth=0)
+    plan = SimpleNamespace(
+        agent_id=uuid.uuid4(), lead_id=uuid.uuid4(), phone_e164="+919876600001", depth=0
+    )
 
     async def planned(_session: object, _call_id: uuid.UUID) -> SimpleNamespace:
         return plan
+
+    async def through_own(*_args: object, **_kwargs: object) -> DialThrough:
+        return DialThrough(own=True)
 
     async def after_hours(*_args: object, **_kwargs: object) -> DispatchDecision:
         return DispatchDecision(allowed=False, rule=CALLING_HOURS_RULE, reason="gate sentence")
@@ -89,6 +95,7 @@ async def test_call_back_outside_calling_hours_says_when_it_can_ring(
 
     monkeypatch.setattr(lead_dial, "datetime", _Night)
     monkeypatch.setattr(lead_dial.service, "plan_callback", planned)
+    monkeypatch.setattr(lead_dial, "dial_through", through_own)
     monkeypatch.setattr(lead_dial, "check_dispatch", after_hours)
 
     out = await lead_dial.call_back_check(

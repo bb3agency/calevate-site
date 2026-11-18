@@ -1,6 +1,6 @@
 """A/B script testing with conversion attribution (ROADMAP M3), closed to new tests.
 
-SINCE D-1019 NO NEW PER-AGENT TEST STARTS (`per_agent_tests_retired`): an agent holds no
+SINCE D-1019 NO NEW PER-AGENT TEST STARTS (no route starts one): an agent holds no
 engine agent of its own, and a campaign tests a second opening line instead (D-992). What
 follows describes the tests already running, whose results, assignment and conclude stay
 until the adoption job concludes them (`agents/engine_retirement`).
@@ -280,27 +280,6 @@ async def _agent(session: AsyncSession, agent_id: UUID) -> _AgentFacts:
         ai_disclosure_line=str(row[3]),
         live_version_id=UUID(str(row[4])) if row[4] is not None else None,
         live_version=int(row[5]) if row[5] is not None else None,
-    )
-
-
-#: The refusal's code for a new per-agent script test (D-1019).
-PER_AGENT_TESTS_RETIRED = "per_agent_experiments_retired"
-
-
-def per_agent_tests_retired() -> ProblemError:
-    """A new per-agent script test is refused (D-1019, E1). An agent holds no engine agent
-    of its own any more, so there is nothing to split its calls beside, and each arm took one
-    of the client's few calling setups. A campaign tests a second opening line on its own
-    engine agent instead (`campaigns/workspace_routes.save_opening_b`, D-992). Tests already
-    running keep their arms, results and conclude until the adoption job concludes them
-    (`agents/engine_retirement`, E2)."""
-    return ProblemError.business_rule(
-        PER_AGENT_TESTS_RETIRED,
-        "Script tests now run on a campaign, not on an agent.",
-        remediation=(
-            "Open the campaign and use its opening test to try a second opening line "
-            "against the script's own."
-        ),
     )
 
 
@@ -914,12 +893,10 @@ __all__ = [
     "INBOUND_ON_AN_ARM_NOTE",
     "METRIC_LABELS",
     "PEEKING_CAVEAT",
-    "PER_AGENT_TESTS_RETIRED",
     "ConcludeResult",
     "ExperimentResults",
     "VariantResult",
     "conclude",
     "judge",
-    "per_agent_tests_retired",
     "results_for",
 ]

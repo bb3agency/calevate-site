@@ -17,7 +17,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from apps.api.agents.paid_test_calls import agent_test_ref
-from apps.api.agents.test_conversations import testable
+from apps.api.agents.test_conversations import can_be_tested
 from apps.api.agents.test_window import send_test_message
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -148,7 +148,7 @@ async def run_agent_test_cases(ctx: dict[str, Any], payload: dict[str, Any]) -> 
         version = int(agent[1]) if agent is not None and agent[1] is not None else None
         if (
             agent is None
-            or not testable(agent[0], agent[2])
+            or not can_be_tested(agent[0], agent[2])
             or not isinstance(engine, RunsTestChat)
         ):
             # Nothing can run: every queued test is told so at once.
