@@ -3,6 +3,19 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.73 — 18-Nov-2026
+
+- On a paid account with a phone number, every test call now rings from your own number:
+  an agent's Try it, and the Test call of an Inbound line or a campaign, live or not. For a
+  line or campaign that is not live yet, a test setup is made for the call and removed
+  about an hour later, so it uses one of your calling slots only for that time. If both
+  your calling slots are busy, the test rings from our test number and the screen says so.
+  Free trials, and paid accounts without a number yet, still ring from our test number.
+- Each test call panel says which number it will ring from.
+- A test copy of an agent can no longer overwrite the agent's own calling setup.
+- The old per-agent "start a script test" option is gone from the admin console; test
+  openings on a campaign instead.
+
 ## 0.4.72 — 18-Nov-2026
 
 - Saving a setting on an agent that has no script of its own no longer fails with "This
