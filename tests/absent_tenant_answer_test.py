@@ -80,11 +80,6 @@ PROMPT_BODY = "[IDENTITY]\nYou are the receptionist for the clinic.\n"
 #: Every value here is valid: a 422 anywhere in this suite means the fixture is stale,
 #: not that the route is safe, and the assertion below says so in those words.
 BODIES: dict[str, dict[str, Any] | None] = {
-    "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment": {
-        "name": "greeting tweak",
-        "control_version": 1,
-        "challenger_version": 2,
-    },
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment/conclude": {
         "experiment_id": str(uuid.uuid4())
     },

@@ -2,8 +2,11 @@
 
     GET   /v1/agents/{agent_id}/experiment                          the results, and
                                                                     the rules they obey
-    POST  /v1/admin/tenants/{tid}/agents/{aid}/experiment           start: refused (D-1019)
     POST  /v1/admin/tenants/{tid}/agents/{aid}/experiment/conclude  stop, and promote
+
+No route starts a test (D-1019): an agent holds no engine agent of its own to split its calls
+beside, and a campaign tests a second opening line instead (D-992). Tests already running
+keep their results and conclude here.
 
 REALMS, AND WHY THE READ IS NOT ADMIN-ONLY
 -------------------------------------------
@@ -15,7 +18,7 @@ experiment, and a GET gated on `agents:write` is invisible in precisely that mom
 times). The admin console reads it through `viewAsSession`, which is the split
 `admin.ts` already uses.
 
-The two mutations are admin-realm with the tenant named in the path, matching
+The conclude mutation is admin-realm with the tenant named in the path, matching
 `prompt_routes.py` and `publishing_routes.py`. The narrow reason, rather than "D-21 says
 so": an arm names a prompt VERSION, and prompt versions are minted by an admin-realm
 route. A client who cannot author a script cannot be given a button that publishes one.
@@ -163,27 +166,6 @@ class ExperimentStateOut(Strict):
     experiment: ExperimentOut | None
 
 
-class StartExperimentIn(Strict):
-    name: str = Field(min_length=3, max_length=120)
-    control_version: int = Field(ge=1)
-    challenger_version: int = Field(ge=1)
-    split_bp: int = Field(
-        default=SPLIT_TOTAL_BP // 2, ge=SPLIT_MIN_BP, le=SPLIT_TOTAL_BP - SPLIT_MIN_BP
-    )
-    conversion_metric: str = Field(default=DEFAULT_CONVERSION_METRIC)
-    # Empty/omitted inherits the agent's disclosure. There is no value of these that
-    # produces an arm without one (hard rule 5) — the column is NOT NULL with a
-    # non-empty CHECK and the service refuses a blank override.
-    control_disclosure: str | None = Field(default=None, max_length=400)
-    challenger_disclosure: str | None = Field(default=None, max_length=400)
-
-
-class StartExperimentOut(Strict):
-    experiment_id: UUID
-    variant_ids: list[UUID]
-    engine_synced: bool
-
-
 class ConcludeExperimentIn(Strict):
     """WHICH test, and how it ends.
 
@@ -306,30 +288,6 @@ def _render(state: experiments.ExperimentResults) -> ExperimentOut:
 
 
 @router.post(
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment",
-    response_model=StartExperimentOut,
-    status_code=201,
-    openapi_extra=permission_meta("agents:write"),
-    summary="Refused since D-1019: script tests run on a campaign's opening test",
-    description=(
-        "Always 422 `per_agent_experiments_retired`: an agent holds no engine agent of its "
-        "own, so a new per-agent test has nothing to split its calls beside. A campaign "
-        "tests a second opening line instead. Tests already running keep their results "
-        "and conclude."
-    ),
-    tags=["admin"],
-)
-async def start_experiment(
-    tenant_id: UUID,
-    agent_id: UUID,
-    payload: StartExperimentIn,
-    principal: ExperimentWriter,
-) -> StartExperimentOut:
-    del tenant_id, agent_id, payload, principal
-    raise experiments.per_agent_tests_retired()
-
-
-@router.post(
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment/conclude",
     response_model=ConcludeExperimentOut,
     openapi_extra=permission_meta("agents:write"),
@@ -400,6 +358,5 @@ __all__ = [
     "ExperimentOut",
     "ExperimentRulesOut",
     "ExperimentStateOut",
-    "StartExperimentIn",
     "router",
 ]

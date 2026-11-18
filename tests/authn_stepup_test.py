@@ -550,7 +550,10 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE saves one list of the words the call checks listen for (G-C2,
     # `ops/call_words_routes.py`, `change_confirmation`, bound to the entry): it reaches every
     # check within a minute, and the do-not-call phrases decide which numbers can be dialled.
-    assert sites == 93, f"found {sites} step-up call sites, expected 93; the census went stale"
+    # ONE MORE runs the adoption job for a client (D-1019,
+    # `admin/engine_retirement_routes.py::run_retirement`, `retirement_confirmation`, bound to
+    # the client; a dry run takes no gate): it changes what answers the client's numbers.
+    assert sites == 94, f"found {sites} step-up call sites, expected 94; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

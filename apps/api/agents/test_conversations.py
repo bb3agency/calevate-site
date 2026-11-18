@@ -1429,7 +1429,7 @@ async def _agent(session: AsyncSession, agent_id: UUID) -> Any:
     return row
 
 
-def testable(engine_agent_ref: object, status: object) -> bool:
+def can_be_tested(engine_agent_ref: object, status: object) -> bool:
     """Can test chats reach this agent? Through its own engine agent while it holds one, and
     once it is got ready without one (D-1019) through its "Just the business" test copy
     (`paid_test_calls.agent_test_ref`). A draft has neither."""
@@ -1446,7 +1446,7 @@ async def readiness(session: AsyncSession, agent_id: UUID) -> TestReadiness:
             reason="Test conversations are not available on this calling system yet.",
             live_version=live_version,
         )
-    if not testable(row.engine_agent_ref, row.status):
+    if not can_be_tested(row.engine_agent_ref, row.status):
         return TestReadiness(
             available=False,
             reason=(
@@ -2185,6 +2185,7 @@ __all__ = [
     "WrongTests",
     "as_verdict",
     "auto_improve_stop",
+    "can_be_tested",
     "clean_turns",
     "compose_set",
     "count_real_calls",
@@ -2217,7 +2218,6 @@ __all__ = [
     "standard_scenarios",
     "store_improve_stop",
     "store_improvement",
-    "testable",
     "untested_callers",
     "waiting_tests",
     "wants_auto_improvement",

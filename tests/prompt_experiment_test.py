@@ -426,30 +426,6 @@ async def test_the_schema_refuses_an_arm_with_no_disclosure() -> None:
             )
 
 
-async def test_a_new_per_agent_test_is_refused_and_points_to_the_campaign() -> None:
-    """D-1019 (E1): an agent holds no engine agent of its own, so nothing is published and
-    no row is written; the refusal names the campaign's opening test."""
-    tenant_id, agent_id, engine = await _agent()
-    await _challenger(tenant_id, agent_id)
-    held_before = set(engine._agents)
-    async with AsyncClient(
-        transport=ASGITransport(app=_conclude_app()), base_url="http://api"
-    ) as client:
-        response = await client.post(
-            f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment",
-            headers={"Authorization": f"Bearer {await _admin_token()}"},
-            json={"name": "Direct booking", "control_version": 1, "challenger_version": 2},
-        )
-    assert response.status_code == 422, response.text
-    body = response.json()
-    assert body["type"].rsplit("/", 1)[-1] == experiments.PER_AGENT_TESTS_RETIRED
-    assert "campaign" in body["remediation"]
-    assert set(engine._agents) == held_before, "a refused test still published an arm"
-    async with tenant_session(tenant_id) as session:
-        rows = (await session.execute(text("SELECT count(*) FROM prompt_experiments"))).scalar()
-    assert rows == 0
-
-
 # --- 4. the attribution arithmetic --------------------------------------------
 
 

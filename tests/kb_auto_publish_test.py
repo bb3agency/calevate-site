@@ -159,8 +159,11 @@ async def test_knowledge_added_before_the_agent_is_published_reaches_it_on_the_s
                 text("SELECT engine_agent_ref FROM agents WHERE id = :a"), {"a": agent_id}
             )
         ).scalar()
+        # Not ready and holding no engine agent, as before a first publish: a ready agent
+        # would be republished by the T0 refresh and receive the knowledge there (D-1019).
         await session.execute(
-            text("UPDATE agents SET engine_agent_ref = NULL WHERE id = :a"), {"a": agent_id}
+            text("UPDATE agents SET engine_agent_ref = NULL, status = 'draft' WHERE id = :a"),
+            {"a": agent_id},
         )
     created = await _member_submission(tenant_id, agent_id, owner)
     assert await _publish(tenant_id, created["id"]) == "published:v1"
@@ -168,7 +171,7 @@ async def test_knowledge_added_before_the_agent_is_published_reaches_it_on_the_s
 
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE agents SET engine_agent_ref = :r WHERE id = :a"),
+            text("UPDATE agents SET engine_agent_ref = :r, status = 'live' WHERE id = :a"),
             {"r": ref, "a": agent_id},
         )
 

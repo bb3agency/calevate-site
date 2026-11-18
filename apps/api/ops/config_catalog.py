@@ -657,11 +657,12 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         "Agents hold an engine agent of their own",
-        "On: publishing an agent makes it its own engine agent. Off: only live inbound lines "
-        "and running campaigns hold one.",
+        "On: each published agent gets its own engine agent. Off: only lines and campaigns "
+        "hold one.",
         _THINNEST,
         details=(
-            "Off frees a workspace slot per agent. An agent that already holds one keeps it "
+            "Off: only live inbound lines and running campaigns hold an engine agent, which "
+            "frees a workspace slot per agent. An agent that already holds one keeps it "
             "until it is handed to its line or campaign."
         ),
     ),

@@ -1961,26 +1961,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Refused since D-1019: script tests run on a campaign's opening test
-         * @description Always 422 `per_agent_experiments_retired`: an agent holds no engine agent of its own, so a new per-agent test has nothing to split its calls beside. A campaign tests a second opening line instead. Tests already running keep their results and conclude.
-         */
-        post: operations["start_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/experiment/conclude": {
         parameters: {
             query?: never;
@@ -34751,41 +34731,6 @@ export interface components {
             /** When */
             when: string;
         };
-        /** StartExperimentIn */
-        StartExperimentIn: {
-            /** Challenger Disclosure */
-            challenger_disclosure?: string | null;
-            /** Challenger Version */
-            challenger_version: number;
-            /** Control Disclosure */
-            control_disclosure?: string | null;
-            /** Control Version */
-            control_version: number;
-            /**
-             * Conversion Metric
-             * @default call_outcome_resolved
-             */
-            conversion_metric: string;
-            /** Name */
-            name: string;
-            /**
-             * Split Bp
-             * @default 5000
-             */
-            split_bp: number;
-        };
-        /** StartExperimentOut */
-        StartExperimentOut: {
-            /** Engine Synced */
-            engine_synced: boolean;
-            /**
-             * Experiment Id
-             * Format: uuid
-             */
-            experiment_id: string;
-            /** Variant Ids */
-            variant_ids: string[];
-        };
         /**
          * StartVerificationIn
          * @description How the business is constituted — the only thing the client tells us.
@@ -43263,42 +43208,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentCallHandlingOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    start_experiment_v1_admin_tenants__tenant_id__agents__agent_id__experiment_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StartExperimentIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["StartExperimentOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

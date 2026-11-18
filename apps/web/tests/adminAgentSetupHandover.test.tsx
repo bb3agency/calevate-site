@@ -168,7 +168,7 @@ describe("Hand agents' setups to their work", () => {
               detail: "Agents still get a calling setup of their own when they are published.",
               kind: "business_rule",
               remediation:
-                "Switch off the platform setting agents_hold_engine_agent first, or run a dry run to see what this would do.",
+                'Switch off the platform setting "Agents hold an engine agent of their own" first, or run a dry run to see what this would do.',
             }),
     });
     fireEvent.click(await screen.findByRole("button", { name: "Dry run" }));
@@ -179,7 +179,7 @@ describe("Hand agents' setups to their work", () => {
     expect(
       await within(dialog).findByText("Agents still get a calling setup of their own when they are published."),
     ).toBeTruthy();
-    expect(within(dialog).getByText(/Switch off the platform setting agents_hold_engine_agent/)).toBeTruthy();
+    expect(within(dialog).getByText(/Switch off the platform setting "Agents hold an engine agent of their own"/)).toBeTruthy();
   });
 
   it("shows a failed dry run and offers nothing to run", async () => {

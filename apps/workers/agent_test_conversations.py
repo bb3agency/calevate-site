@@ -72,6 +72,7 @@ from apps.api.agents.test_conversations import (
     Turn,
     WrongTests,
     auto_improve_stop,
+    can_be_tested,
     compose_set,
     decide,
     failing,
@@ -86,7 +87,6 @@ from apps.api.agents.test_conversations import (
     standard_scenarios,
     store_improve_stop,
     store_improvement,
-    testable,
     untested_callers,
     waiting_update,
     wants_auto_improvement,
@@ -723,7 +723,7 @@ async def run_agent_test_conversations(
         claimed
     )
     engine = get_engine()
-    if not isinstance(engine, RunsTestChat) or not testable(own_ref, agent_status):
+    if not isinstance(engine, RunsTestChat) or not can_be_tested(own_ref, agent_status):
         await _finish(tenant_id, run_id, status="failed", results=None, failure="unavailable")
         return "failed"
     try:
