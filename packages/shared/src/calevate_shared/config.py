@@ -625,6 +625,12 @@ class Settings(BaseSettings):
     #: `docs/vendor/thinnest-relationship-2026-10-23.md:136-142`). Campaign Start refuses
     #: plainly at it; an operator raises it when ThinnestAI confirms a raise.
     thinnest_agents_per_workspace: int = Field(default=2, ge=1, le=1000)
+    #: Whether a publish makes an agent an engine agent of its own (D-1019). Off, an agent is
+    #: an employee and holds no slot: only its live inbound lines and its running or paused
+    #: campaigns hold engine agents, so a publish writes the agent's row and republishes
+    #: those. An agent that already holds one keeps having it updated either way. On by
+    #: default until every client's agents have been handed to their lines and campaigns.
+    agents_hold_engine_agent: bool = True
     #: Our OWN (developer) workspace's id, `org_…` like every customer's (`GET /workspace`,
     #: `thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/workspace/
     #: get-workspace.md:327-351`). Never accepted as a client's own workspace: a person-level

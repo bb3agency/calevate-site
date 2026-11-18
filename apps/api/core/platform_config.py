@@ -700,6 +700,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "thinnest_customer_plan": AppliesRule(LIVE),
     # Counted before each campaign makes its own engine agent (D-1003).
     "thinnest_agents_per_workspace": AppliesRule(LIVE),
+    # Read by every publish (D-1019); an agent already published is not changed by saving it.
+    "agents_hold_engine_agent": AppliesRule(LIVE),
     "thinnest_action_source_ips": AppliesRule(LIVE),
     # Compared on every workspace header and every own-workspace check (D-693).
     "thinnest_developer_workspace_id": AppliesRule(LIVE),

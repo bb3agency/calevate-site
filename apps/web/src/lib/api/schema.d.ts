@@ -30726,6 +30726,7 @@ export interface components {
             /** Has Pending */
             has_pending: boolean;
             held_back?: components["schemas"]["HeldBackOut"] | null;
+            holders_verification: components["schemas"]["VerificationOut"] | null;
             /** Pending */
             pending: components["schemas"]["PendingChangeOut"][];
             /** Precedence Rule */
@@ -39661,7 +39662,7 @@ export interface components {
              */
             agent_id: string;
             /** Engine Agent Ref */
-            engine_agent_ref: string;
+            engine_agent_ref: string | null;
             /** Status */
             status: string;
         };

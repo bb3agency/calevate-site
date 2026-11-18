@@ -199,13 +199,24 @@ async def held_number(e164: str, *, own_workspace: str | None) -> ProvisionedNum
     )
 
 
-async def _is_this_clients_agent(session: AsyncSession, engine_agent_ref: str) -> bool:
-    """Is `engine_agent_ref` one of THIS client's agents? Asked under the tenant's own
-    policy, in the caller's session."""
+#: An engine agent of this client: an agent's own, or one its routes name (an inbound line's,
+#: a campaign's, a test copy's, D-997/D-1003). `engine_agent_routes` carries no tenant policy,
+#: so the tenant is named.
+_CLIENTS_ENGINE_AGENT_SQL: Final = (
+    "SELECT 1 FROM agents WHERE engine_agent_ref = :ref UNION ALL "
+    "SELECT 1 FROM engine_agent_routes WHERE engine_agent_ref = :ref AND tenant_id = :tid "
+    "LIMIT 1"
+)
+
+
+async def _is_this_clients_agent(
+    session: AsyncSession, engine_agent_ref: str, *, tenant_id: UUID
+) -> bool:
+    """Is `engine_agent_ref` one of THIS client's engine agents? Asked in the caller's
+    session, under the tenant's own policy for `agents`."""
     found = (
         await session.execute(
-            text("SELECT 1 FROM agents WHERE engine_agent_ref = :ref LIMIT 1"),
-            {"ref": engine_agent_ref},
+            text(_CLIENTS_ENGINE_AGENT_SQL), {"ref": engine_agent_ref, "tid": tenant_id}
         )
     ).first()
     return found is not None
@@ -224,34 +235,43 @@ def _other_workspace_refusal() -> ProblemError:
     )
 
 
+async def _agent_workspace(session: AsyncSession, *, agent_id: UUID) -> tuple[bool, str | None]:
+    """`(known, workspace)`: where `agent_id`'s numbers are answered. Its own engine agent's
+    workspace while it holds one; otherwise its client's own workspace, where its lines and
+    campaigns live (D-1019). Unknown for an agent that holds none and whose client has no
+    workspace yet: nothing of it answers anywhere, so no number is refused or moved for it."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT engine_agent_ref, tenant_id FROM agents "
+                "WHERE id = :aid AND deleted_at IS NULL"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    if row is None:
+        return False, None
+    if isinstance(row[0], str) and row[0]:
+        return True, scope_of(row[0])
+    workspace = await resolve_workspace(session, UUID(str(row[1])))
+    return workspace is not None, workspace
+
+
 async def assert_same_workspace(
     session: AsyncSession, *, number_ref: str, agent_id: UUID | None
 ) -> None:
-    if agent_id is None:
-        return
-    ref = (
-        await session.execute(
-            text("SELECT engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"),
-            {"aid": agent_id},
-        )
-    ).scalar()
-    if isinstance(ref, str) and ref and scope_of(ref) != scope_of(number_ref):
+    if await _agent_in_other_workspace(session, number_ref=number_ref, agent_id=agent_id):
         raise _other_workspace_refusal()
 
 
 async def _agent_in_other_workspace(
     session: AsyncSession, *, number_ref: str, agent_id: UUID | None
 ) -> bool:
-    """Is `agent_id` published in another workspace than the one holding `number_ref`?"""
+    """Does `agent_id` answer in another workspace than the one holding `number_ref`?"""
     if agent_id is None:
         return False
-    ref = (
-        await session.execute(
-            text("SELECT engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"),
-            {"aid": agent_id},
-        )
-    ).scalar()
-    return isinstance(ref, str) and bool(ref) and scope_of(ref) != scope_of(number_ref)
+    known, workspace = await _agent_workspace(session, agent_id=agent_id)
+    return known and workspace != scope_of(number_ref)
 
 
 async def platform_line_agent() -> str | None:
@@ -389,7 +409,7 @@ async def record_engine_number(
     if (
         not ours_to_replace
         and answering is not None
-        and not await _is_this_clients_agent(session, answering)
+        and not await _is_this_clients_agent(session, answering, tenant_id=tenant_id)
     ):
         raise ProblemError.conflict(
             "engine_number_answered_by_other_client",
@@ -408,7 +428,9 @@ async def record_engine_number(
         else held.calling_agent_ref
         or (await thinnest_numbers().get_number(vendor_ref)).calling_agent
     )
-    if calling is not None and not await _is_this_clients_agent(session, calling):
+    if calling is not None and not await _is_this_clients_agent(
+        session, calling, tenant_id=tenant_id
+    ):
         raise ProblemError.conflict(
             "engine_number_lent_to_other_client",
             "An agent that is not one of this client's calls out on this number on the voice "

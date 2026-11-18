@@ -154,8 +154,9 @@ _CALLABLE_TENANTS_SQL = text(
 )
 
 #: Live agents that can ANSWER a call, as themselves or on a live inbound line (D-997), in
-#: the credit stop's shape (`agents/service._ANSWERING_AGENTS_SQL`): the id, the handle, the
-#: six columns `compose_opening_line` needs, then the silence pair and the direction.
+#: the credit stop's shape (`agents/service._ANSWERING_AGENTS_SQL`): the id, the handle (null
+#: for an agent answering only on its lines, D-1019), the six columns `compose_opening_line`
+#: needs, then the silence pair and the direction.
 #: Outbound-only agents with no live line are excluded: they never receive a call, so
 #: overriding their script would change nothing a caller can hear.
 _ANSWERING_AGENTS_SQL = agents_service.ANSWERING_AGENTS_STATEMENT
