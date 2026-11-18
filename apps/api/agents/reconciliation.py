@@ -55,7 +55,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import get_args
+from typing import Literal, cast, get_args
 from uuid import UUID
 
 from sqlalchemy import text
@@ -139,6 +139,78 @@ def recorded_drift_state(state: str, *, truthful_answer_applied: bool | None) ->
     if state == "not_applied" and truthful_answer_applied is False:
         return TRUTHFUL_ANSWER_MISSING
     return state
+
+
+#: Who a route's vendor agent belongs to (`route_holder`).
+RouteHolderKind = Literal["agent", "arm", "line", "campaign", "test_copy", "retiring"]
+
+
+@dataclass(frozen=True, slots=True)
+class RouteHolder:
+    """What of one agent's names a routed vendor agent.
+
+    `retiring` is a vendor agent nothing of the agent's names any more: an agent ref, a line
+    test holder or an archived line's or campaign's engine agent given back and waiting for
+    its deletion (`workers/engine_workspaces.retire_moved_engine_agent`), which keeps its
+    route active so the results of its last calls still land. Since D-1019 an agent holds
+    no engine agent of its own, so every agent's former ref passes through this state."""
+
+    kind: RouteHolderKind
+    #: The arm's, line's or campaign's id; None for the agent, its test copy and `retiring`.
+    holder_id: UUID | None
+    #: A test copy last published as "Just the business" (`agents/business_only`).
+    business_only: bool = False
+
+
+#: One row while the agent exists, whichever holder names the ref first; `retiring` when
+#: none does. Only a RUNNING experiment's arm counts: a concluded one's engine agent is
+#: being given back, as `publishing._ARM_BY_ENGINE_REF_SQL` reads it.
+_ROUTE_HOLDER_SQL = """
+SELECT h.kind, h.holder_id, h.business_only FROM agents a
+CROSS JOIN LATERAL (
+  SELECT 1 AS ord, 'agent' AS kind, NULL::uuid AS holder_id, false AS business_only
+  WHERE a.engine_agent_ref = :ref
+  UNION ALL
+  SELECT 2, 'arm', v.id, false FROM prompt_experiment_variants v
+  JOIN prompt_experiments e ON e.id = v.experiment_id
+  WHERE e.agent_id = a.id AND e.status = 'running' AND v.engine_agent_ref = :ref
+  UNION ALL
+  SELECT 3, 'line', l.id, false FROM inbound_lines l
+  WHERE l.agent_id = a.id AND l.engine_agent_ref = :ref AND l.archived_at IS NULL
+  UNION ALL
+  SELECT 4, 'campaign', c.id, false FROM campaigns c
+  WHERE c.agent_id = a.id AND c.engine_agent_ref = :ref AND c.archived_at IS NULL
+  UNION ALL
+  SELECT 5, 'test_copy', NULL::uuid, t.business_only FROM agent_test_copies t
+  WHERE t.agent_id = a.id AND t.engine_agent_ref = :ref
+  UNION ALL
+  SELECT 6, 'retiring', NULL::uuid, false
+  ORDER BY 1 LIMIT 1
+) h
+WHERE a.id = :aid AND a.deleted_at IS NULL
+"""
+
+
+async def route_holder(
+    session: AsyncSession, *, agent_id: UUID, engine_agent_ref: str
+) -> RouteHolder | None:
+    """Which of `agent_id`'s holders `engine_agent_ref` is, or None when the agent is deleted.
+
+    The one classification every sweep over `engine_agent_routes` makes before it compares
+    or repairs a vendor agent: compared against the wrong holder's config, a line's engine
+    agent reads as drifted from the agent's and a repair switches its switched-off actions
+    back on; compared against anything, a retiring one costs a round trip and a false alarm
+    (D-1019). Tenant session: every table it reads is FORCE-RLS'd."""
+    row = (
+        await session.execute(text(_ROUTE_HOLDER_SQL), {"aid": agent_id, "ref": engine_agent_ref})
+    ).first()
+    if row is None:
+        return None
+    return RouteHolder(
+        kind=cast(RouteHolderKind, str(row[0])),
+        holder_id=UUID(str(row[1])) if row[1] is not None else None,
+        business_only=bool(row[2]),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -369,8 +441,11 @@ __all__ = [
     "TRUTHFUL_ANSWER_VERDICT_TTL_S",
     "DriftCandidate",
     "EngineDriftSummary",
+    "RouteHolder",
+    "RouteHolderKind",
     "claim_drift_batch",
     "read_engine_drift",
     "record_drift",
     "recorded_drift_state",
+    "route_holder",
 ]

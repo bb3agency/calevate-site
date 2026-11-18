@@ -21,7 +21,8 @@ A ROUTE WHOSE VENDOR AGENT IS GONE. A 404 about a missing endpoint is repaired i
 `ensure_agent_webhook`; a 404 that escapes it is about the AGENT ("The agent is not in this
 workspace", `snapshots/2026-10-15/pages/api-reference/webhooks/create-webhook.md:510-517`).
 The route is switched off only when nothing of ours still names that vendor agent — no
-agent row that is not archived, no experiment arm — because then no call can ever report
+agent row that is not archived, no experiment arm, no line or campaign that is not archived,
+no test copy — because then no call can ever report
 through it and re-asking every twenty minutes only buries the alarm. A route an agent still
 publishes under is never switched off here: a 404 there means the agent we sell is missing
 at the vendor (or was asked for in the wrong workspace), and that needs a person and a
@@ -52,9 +53,13 @@ WEBHOOK_SWEEP_MINUTES: Final = frozenset({1, 21, 41})
 #: Vendor round trips per sweep, at most. Twenty minutes later the rest are reached.
 WEBHOOK_SWEEP_BUDGET: Final = 200
 
-#: Switches a route off when its vendor agent is gone AND nothing of ours names it any more.
-#: Archived agents count as not naming it: their vendor agent is left standing on purpose
-#: (`agents/lifecycle.py`), so if the vendor no longer has it there is nothing to report.
+#: Switches a route off when its vendor agent is gone AND nothing of ours names it any more:
+#: no agent, experiment arm, inbound line, campaign or test copy. Since D-1019 an agent
+#: holds no engine agent of its own, so a line's or a campaign's is the one callers reach,
+#: and a 404 about it needs a person and a republish, not a quiet switch-off. Archived
+#: agents, lines and campaigns count as not naming it: their vendor agent is left standing
+#: or is being given back (`agents/lifecycle.py`, `service.retire_campaign_agent`), so if
+#: the vendor no longer has it there is nothing to report.
 _RETIRE_ORPHANED_ROUTE_SQL = """
 UPDATE engine_agent_routes r SET active = false, updated_at = now()
 WHERE r.engine = :engine AND r.engine_agent_ref = :ref AND r.active
@@ -65,6 +70,17 @@ WHERE r.engine = :engine AND r.engine_agent_ref = :ref AND r.active
   )
   AND NOT EXISTS (
     SELECT 1 FROM prompt_experiment_variants v WHERE v.engine_agent_ref = r.engine_agent_ref
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM inbound_lines l
+    WHERE l.engine_agent_ref = r.engine_agent_ref AND l.archived_at IS NULL
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM campaigns c
+    WHERE c.engine_agent_ref = r.engine_agent_ref AND c.archived_at IS NULL
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM agent_test_copies t WHERE t.engine_agent_ref = r.engine_agent_ref
   )
 """
 
@@ -217,8 +233,8 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
     if unreached:
         absent_note = (
             f" {agent_absent} of them belong to an agent the voice platform says it does not "
-            "have in that workspace while one of our agents still publishes under it: "
-            "republish that agent."
+            "have in that workspace while one of our agents, lines or campaigns still "
+            "publishes under it: republish that agent, line or campaign."
             if agent_absent
             else ""
         )

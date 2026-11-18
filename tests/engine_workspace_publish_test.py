@@ -442,6 +442,11 @@ async def test_the_drift_sweep_moves_an_agent_off_its_old_copy_and_then_holds_st
     await _set_columns(tenant_id, agent_id, voice, "prana-voice")
     workspace = workspace_of(tenant)
     ref = f"ag_1@{workspace}"
+    # The agent holds this vendor agent: a ref nothing of the agent's names is never repaired.
+    async with tenant_session(tenant) as session:
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = :r WHERE id = :a"), {"r": ref, "a": agent}
+        )
     engine = _SettingsEngine()
     engine.held[ref] = "copy-made-before-d797"
     engine.hosted_in[workspace] = [_shared(vendor)]
