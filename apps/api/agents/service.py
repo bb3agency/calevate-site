@@ -3810,11 +3810,6 @@ def _engine_voice_fields(agent: AgentRow, *, engine: VoiceEngine) -> _EngineVoic
     refuses it first (`engine_choice.require_engine_choice`).
     """
     voice, model = _engine_choice(agent, engine=engine)
-    # An agent that chose no model is sent the console's in-call default, so a change of
-    # default reaches each agent at its next publish and never mid-call. Checked when the
-    # setting is written (`engine_choice.assert_in_call_default_usable`), not here: the
-    # per-agent price ground does not apply to a model included in the voice band's minute.
-    model = model or in_call_default_model(engine, voice_id=voice)
     ref = parse_hosted_voice_id(voice)
     states_key = not (byok_in_force(engine) or engine.capabilities.is_ours("tts"))
     own_voice_key = (ref is not None and ref.source == "byok") if states_key else None
@@ -3823,6 +3818,16 @@ def _engine_voice_fields(agent: AgentRow, *, engine: VoiceEngine) -> _EngineVoic
     own_model = (
         own_model_for(agent.get("engine_model_id")) if states_key and own_model_on(engine) else None
     )
+    # An agent on our model is answered by our key's model on calls whatever its `model`
+    # says (`byok` `llm`/`llm_voice`, bring-your-own-keys.md:72-75 in the 2026-10-19 mirror),
+    # so it is not sent the console's in-call default: that default is a vendor model for
+    # agents on the vendor's, and one the vendor later drops would refuse every publish
+    # (`model` "is not one we offer") for a field no call reads. Without our model, an agent
+    # that chose none gets the default, so a change of it reaches each agent at its next
+    # publish and never mid-call; it is checked when the setting is written
+    # (`engine_choice.assert_in_call_default_usable`).
+    if own_model is None:
+        model = model or in_call_default_model(engine, voice_id=voice)
     if ref is None:
         return _EngineVoiceFields(own_voice_key=own_voice_key, model_id=model, own_model=own_model)
     return _EngineVoiceFields(
