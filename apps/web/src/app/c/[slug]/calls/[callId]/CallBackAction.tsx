@@ -9,6 +9,8 @@ import type { useCallbackEligibility, useWriteAccess } from "@/lib/api/hooks";
 
 /** The eligibility rule for "a call back booked on this call is still to come". */
 const ALREADY_BOOKED = "callback_already_booked";
+/** The eligibility rule for "this call's outcome needs no call back". */
+const NOT_NEEDED = "callback_not_needed";
 
 /**
  * THE ONE THING THIS SCREEN OFFERS TO DO, and why it cannot when it cannot.
@@ -29,6 +31,7 @@ export function CallBackAction({
   leadHref,
   leadLabel,
   bookedShown = false,
+  verdictSaysDone = false,
 }: {
   eligibility: ReturnType<typeof useCallbackEligibility>;
   /** Make a call, pre-filled with this call. */
@@ -38,6 +41,8 @@ export function CallBackAction({
   leadLabel: string;
   /** The call's booked call back is on screen beside this action. */
   bookedShown?: boolean;
+  /** The verdict above already says nothing is left for the owner. */
+  verdictSaysDone?: boolean;
 }) {
   const lead = leadHref ? (
     <Link href={leadHref} className={TEXT_ACTION}>
@@ -66,7 +71,11 @@ export function CallBackAction({
   if (!eligibility.data.eligible) {
     // The booked call back is already its own line above, with its time; the refusal saying
     // the same thing again in other words read as a second booking.
-    const repeats = bookedShown && eligibility.data.rule === ALREADY_BOOKED;
+    // Likewise "no call-back is due" under a verdict that already says nothing more was
+    // asked of the owner.
+    const repeats =
+      (bookedShown && eligibility.data.rule === ALREADY_BOOKED) ||
+      (verdictSaysDone && eligibility.data.rule === NOT_NEEDED);
     return (
       <div className="space-y-3">
         {eligibility.data.reason && !repeats && (

@@ -311,6 +311,34 @@ def test_a_call_with_no_moments_column_yet_reads_as_an_empty_list() -> None:
     assert _moments_out([], raw=True) == []
 
 
+def test_a_captured_marker_is_named_as_the_details_list_names_its_field() -> None:
+    """The marker is written from the extraction spec, which carries the platform's name for
+    a core field ("Notes"), while the details list shows the client's ("Extra Details"):
+    the call of 19 Nov 2026 showed both for one field."""
+    stored = [
+        {
+            "at_ms": 2_000,
+            "kind": "field_captured",
+            "label": "Notes captured",
+            "label_redacted": "Notes captured",
+            "source": "derived",
+            "field": "notes",
+        },
+        {
+            "at_ms": 3_000,
+            "kind": "opt_out",
+            "label": "Asked not to be called",
+            "label_redacted": "Asked not to be called",
+            "source": "derived",
+        },
+    ]
+    for raw in (False, True):
+        out = _moments_out(stored, raw=raw, labels={"notes": "Extra Details"})
+        assert [m.label for m in out] == ["Extra Details captured", "Asked not to be called"]
+    # A field the list does not name keeps the label it was stored with.
+    assert _moments_out(stored, raw=False, labels={"other": "X"})[0].label == "Notes captured"
+
+
 def test_the_wire_order_is_time_order_whatever_the_column_holds() -> None:
     """The worker sorts, but the column is JSON a migration or a hand-fix could reorder.
     The screen must not have to."""

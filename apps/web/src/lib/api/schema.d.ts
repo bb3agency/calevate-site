@@ -7355,7 +7355,8 @@ export interface paths {
         /**
          * Test a second opening line against the script's own, or stop the test
          * @description Half the people hear this opening, half the script's own. The agent's notices are
-         *     said beside it whenever it does not say them itself (`agents.service.campaign_first_words`).
+         *     said beside it whenever it does not say them itself (`agents.service.campaign_first_words`),
+         *     and the two together must fit what a call may say first.
          */
         put: operations["save_opening_b_v1_campaigns__campaign_id__opening_b_put"];
         post?: never;
@@ -37364,6 +37365,8 @@ export interface components {
              * @default false
              */
             likely_cut_off: boolean;
+            /** Play From Ms */
+            play_from_ms?: number | null;
             /**
              * Redacted
              * @default true

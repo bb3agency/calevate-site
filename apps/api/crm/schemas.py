@@ -62,7 +62,12 @@ class TranscriptTurnOut(Strict):
     #: the turn was already English or has not been translated (`translation_state`).
     text_en: str | None = None
     lang: str | None = None
+    #: When the line started; NULL when nothing says, as for a caller line the voice
+    #: platform timed only by when they stopped (`crm/turn_times`).
     start_ms: int | None = None
+    #: Where "play from this line" seeks: `start_ms`, or for a line with no start the start
+    #: of the line before it, which comes before its words. NULL when it cannot be played.
+    play_from_ms: int | None = None
     #: `start_ms` is the voice platform's rough position, not a point in the audio
     #: (ENGINE=thinnest). Shown as "~0:21".
     start_approximate: bool = False

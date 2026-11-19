@@ -641,7 +641,7 @@ describe("what the reading says after the call (4 Nov 2026 call review)", () => 
       page,
       routes(
         detail({
-          outcome_tag: "answered",
+          outcome_tag: "hung_up_early",
           callback: null,
           next_step: "Wait for them to message on WhatsApp if they get stuck.",
           next_step_by: "caller",
@@ -652,6 +652,50 @@ describe("what the reading says after the call (4 Nov 2026 call review)", () => 
     expect(screen.getByText("Up to them. Nothing for you to do.")).toBeTruthy();
     expect(screen.queryByText("Needs you")).toBeNull();
     expect(screen.queryByText("Something is left to do. See the next step below.")).toBeNull();
+    // The step and its note are separate words in the text, not "stuck.Up to them".
+    const step = screen.getByText("Next step").nextElementSibling!;
+    expect(step.textContent).toContain("stuck. Up to them.");
+  });
+
+  it("says once that nothing is left for the owner on an answered call (19 Nov 2026 call review)", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          outcome_tag: "answered",
+          callback: null,
+          next_step: "They will get in touch if they need help while using the app.",
+          next_step_by: "caller",
+        }),
+        {
+          "/v1/calls/c1/callback": {
+            eligible: false,
+            reason: "The agent dealt with this call, so no call-back is due.",
+            rule: "callback_not_needed",
+          },
+        },
+      ),
+    );
+    expect(await screen.findByText("The agent handled the call. Nothing more was asked of you.")).toBeTruthy();
+    expect(screen.getByText("They will get in touch if they need help while using the app.")).toBeTruthy();
+    expect(screen.queryByText("Up to them. Nothing for you to do.")).toBeNull();
+    expect(screen.queryByText("The agent dealt with this call, so no call-back is due.")).toBeNull();
+  });
+
+  it("keeps a call-back refusal that says something the verdict does not", async () => {
+    await renderClientPage(
+      page,
+      routes(detail({ outcome_tag: "transferred", callback: null }), {
+        "/v1/calls/c1/callback": {
+          eligible: false,
+          reason: "This call was handed to a person on your team, so no call-back is due.",
+          rule: "callback_not_needed",
+        },
+      }),
+    );
+    expect(
+      await screen.findByText("This call was handed to a person on your team, so no call-back is due."),
+    ).toBeTruthy();
   });
 
   it("puts the owner on a step the business must take", async () => {

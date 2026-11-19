@@ -24,7 +24,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { MomentTag } from "@/components/calls/MomentTag";
 import { momentsByTurn, shownMoments } from "@/lib/callMoments";
-import { callTitle } from "@/lib/callReview";
+import { callTitle, verdictSaysNothingToDo } from "@/lib/callReview";
 import { useBusinessCapabilities } from "@/lib/businessCapabilities";
 
 import { isLive } from "../callColumns";
@@ -434,6 +434,7 @@ export function CallDetailScreen({
                 leadHref={leadHref}
                 leadLabel={leadName ? `Open ${leadName}'s lead` : "Open the lead"}
                 bookedShown={detail.callback != null}
+                verdictSaysDone={verdictSaysNothingToDo(detail)}
               />
             }
           />

@@ -252,6 +252,32 @@ describe("the recording player", () => {
     expect(container.querySelector("audio")?.currentTime).toBe(8);
   });
 
+  it("gives a caller line timed only by when they stopped no time, and plays it from the line before", async () => {
+    // The voice platform writes a caller line down once they have stopped, so its time is
+    // not where their words begin (19 Nov 2026: every agent line showed its caller line's
+    // time). The server sends no start for it and a play-from point before its words.
+    const { container } = await openPlayer(
+      {},
+      detail({
+        transcript: [
+          { idx: 0, speaker: "caller", start_approximate: true, likely_cut_off: false, text: "Hello.", redacted: true, start_ms: null, play_from_ms: 0 },
+          { idx: 1, speaker: "agent", start_approximate: true, likely_cut_off: false, text: "Namaskaram.", redacted: true, start_ms: 5000, play_from_ms: 5000 },
+          { idx: 2, speaker: "caller", start_approximate: true, likely_cut_off: false, text: "Go ahead.", redacted: true, start_ms: null, play_from_ms: 5000 },
+          { idx: 3, speaker: "agent", start_approximate: true, likely_cut_off: false, text: "You registered.", redacted: true, start_ms: 14300, play_from_ms: 14300 },
+        ],
+      }),
+    );
+    expect(screen.getByRole("button", { name: "Play from the start" }).textContent).toBe("Hello.");
+    const caller = screen.getByRole("button", { name: "Play from the line before" });
+    expect(caller.textContent).toBe("Go ahead.");
+    fireEvent.click(caller);
+    expect(container.querySelector("audio")?.currentTime).toBe(5);
+    const agent = screen.getByRole("button", { name: "Play from about 0:14" });
+    expect(agent.textContent).toBe("You registered.~0:14");
+    fireEvent.click(agent);
+    expect(container.querySelector("audio")?.currentTime).toBe(14.3);
+  });
+
   it("shows a line's rough time once and names its control in words", async () => {
     // The bubble used to read "Play from ~0:09~0:09": a screen-reader span and the visible
     // time were both text in the button. Visible: "~0:09" once. Name: "Play from about 0:09".

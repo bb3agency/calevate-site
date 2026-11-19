@@ -180,7 +180,7 @@ function NextSteps({ detail }: { detail: CallDetail }) {
               </ul>
             </>
           ) : null}
-          {goal.reason && <Aside> {goal.reason}</Aside>}
+          {goal.reason && <Aside>{goal.reason}</Aside>}
         </Row>
       )}
       {step && (
@@ -210,6 +210,16 @@ function Row({ term, children }: { term: string; children: ReactNode }) {
   );
 }
 
+/**
+ * A quieter line under a row's main words. The leading space is for the text, not the
+ * look: drawn as a block it starts its own line, but read as text (a screen reader, a copy)
+ * "...the app." and "Up to them." ran together as "app.Up to them".
+ */
 function Aside({ children }: { children: ReactNode }) {
-  return <span className="mt-0.5 block text-meta text-ink-muted [text-wrap:pretty]">{children}</span>;
+  return (
+    <>
+      {" "}
+      <span className="mt-0.5 block text-meta text-ink-muted [text-wrap:pretty]">{children}</span>
+    </>
+  );
 }

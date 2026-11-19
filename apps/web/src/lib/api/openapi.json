@@ -62239,6 +62239,17 @@
             "title": "Likely Cut Off",
             "type": "boolean"
           },
+          "play_from_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Play From Ms"
+          },
           "redacted": {
             "default": true,
             "title": "Redacted",
@@ -89516,7 +89527,7 @@
     },
     "/v1/campaigns/{campaign_id}/opening-b": {
       "put": {
-        "description": "Half the people hear this opening, half the script's own. The agent's notices are\nsaid beside it whenever it does not say them itself (`agents.service.campaign_first_words`).",
+        "description": "Half the people hear this opening, half the script's own. The agent's notices are\nsaid beside it whenever it does not say them itself (`agents.service.campaign_first_words`),\nand the two together must fit what a call may say first.",
         "operationId": "save_opening_b_v1_campaigns__campaign_id__opening_b_put",
         "parameters": [
           {

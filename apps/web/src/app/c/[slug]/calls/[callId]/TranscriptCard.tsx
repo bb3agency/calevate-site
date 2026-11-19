@@ -160,7 +160,7 @@ export function TranscriptCard({
                         agent={agent}
                         first={i === 0}
                         english={showEnglish}
-                        seekable={audioLoaded && turn.start_ms != null}
+                        seekable={audioLoaded && playFrom(turn) != null}
                         active={active === turn.idx}
                         onSeek={onSeek}
                         marker={marker?.(turn)}
@@ -342,6 +342,21 @@ function AgentMark({ name }: { name: string | null | undefined }) {
   );
 }
 
+/**
+ * Where pressing the line plays from. A caller line the platform timed only by when they
+ * stopped has no start, so it plays from the line before it, which comes before its words
+ * (`crm/turn_times`); a response from before `play_from_ms` existed seeks to the start.
+ */
+function playFrom(turn: Turn): number | null {
+  return turn.play_from_ms ?? turn.start_ms ?? null;
+}
+
+/** The control's name: the line's own time, or what it plays from when it has none. */
+function playLabel(turn: Turn, from: number): string {
+  if (turn.start_ms != null) return `Play from ${spokenClock(turn.start_ms, turn.start_approximate)}`;
+  return from === 0 ? "Play from the start" : "Play from the line before";
+}
+
 /** `~0:21` when the platform's time for the line is approximate, `0:21` when exact. */
 function lineClock(turn: Turn): string {
   if (turn.start_ms == null) return "";
@@ -350,7 +365,8 @@ function lineClock(turn: Turn): string {
 
 /**
  * One line. A bubble is a button only when it can do something — the audio is loaded AND
- * the line carries a time; otherwise it is text, never a control that silently does nothing.
+ * the line has somewhere to play from; otherwise it is text, never a control that silently
+ * does nothing.
  */
 function Bubble({
   turn,
@@ -372,6 +388,7 @@ function Bubble({
   marker?: ReactNode;
 }) {
   const clock = lineClock(turn);
+  const from = playFrom(turn);
   const wordsId = useId();
   const translated = english && Boolean(turn.text_en);
   const words = translated ? turn.text_en : turn.text;
@@ -397,12 +414,12 @@ function Bubble({
   );
   return (
     <div className={`flex max-w-full flex-col gap-1 ${agent ? "items-start" : "items-end"}`}>
-      {seekable && turn.start_ms != null ? (
+      {seekable && from != null ? (
         <button
           type="button"
           data-turn={turn.idx}
-          onClick={() => onSeek(turn.start_ms ?? 0)}
-          aria-label={`Play from ${spokenClock(turn.start_ms, turn.start_approximate)}`}
+          onClick={() => onSeek(from)}
+          aria-label={playLabel(turn, from)}
           aria-describedby={wordsId}
           aria-current={active ? "true" : undefined}
           className={`${shape} scroll-mt-48 ${agent ? "hover:bg-ink/[0.07] dark:hover:bg-white/[0.1]" : "hover:bg-brand-soft/70 dark:hover:bg-brand/30"} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}

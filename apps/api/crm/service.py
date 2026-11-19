@@ -13,7 +13,7 @@ import asyncio
 import csv
 import io
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Literal, NamedTuple, get_args
@@ -34,7 +34,7 @@ from calevate_shared.extraction import (
     next_step_owner,
     owner_step,
 )
-from calevate_shared.lead_fields import with_core
+from calevate_shared.lead_fields import core_fields, with_core
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -91,7 +91,7 @@ from apps.api.crm.schemas import (
     TurnTimingOut,
     insights_out,
 )
-from apps.api.crm.turn_times import TimedLine, agent_line_starts
+from apps.api.crm.turn_times import TimedLine, line_times
 from apps.api.db.base import uuid7
 from apps.api.db.like import contains_pattern, phone_suffix_pattern
 from apps.api.db.result import rowcount_of
@@ -641,14 +641,19 @@ async def get_call(
             {"cid": call_id},
         )
     ).all()
-    # An agent line's stored time is when it was written down, with the caller line it
-    # answers; the timeline says when it was heard (D-912).
-    moved = agent_line_starts(
-        [TimedLine(t[0], t[1], t[4]) for t in turns], _stored_timeline(row[41])
+    # A vendor-timed caller line's stored time is when they stopped, not when they began;
+    # the timeline says when each answer was heard (`turn_times`).
+    times = line_times(
+        [TimedLine(t[0], t[1], t[4], approximate=bool(t[6])) for t in turns],
+        _stored_timeline(row[41]),
     )
-    starts = {t[0]: moved.get(t[0], t[4]) for t in turns}
-    # From the raw text's length, so the raw and the redacted view flag the same turns.
-    unheard = likely_cut_off_rows((t[0], t[1], int(t[7] or 0), starts[t[0]]) for t in turns)
+    # From the raw text's length, so the raw and the redacted view flag the same turns. An
+    # agent line is measured from where it was heard to when the caller's next line was
+    # written, the same gap the post-call reading measures.
+    unheard = likely_cut_off_rows(
+        (t[0], t[1], int(t[7] or 0), times[t[0]].start_ms if t[1] == "agent" else t[4])
+        for t in turns
+    )
     extraction = (
         await session.execute(
             text(
@@ -747,10 +752,11 @@ async def get_call(
                 speaker=t[1],
                 text=t[2],
                 lang=t[3],
-                start_ms=starts[t[0]],
+                start_ms=times[t[0]].start_ms,
+                play_from_ms=times[t[0]].play_from_ms,
                 # Translated from the redacted text, so it is the same on both views.
                 text_en=t[5],
-                start_approximate=bool(t[6]) or t[0] in moved,
+                start_approximate=bool(t[6]),
                 likely_cut_off=t[0] in unheard,
                 redacted=not raw,
             )
@@ -784,6 +790,10 @@ async def get_call(
                 caller_turns={t[0] for t in turns if t[1] == "caller"},
             ),
             raw=raw,
+            # The core fields only: a business field's marker already carries the label its
+            # spec gave it, where the list may fall back to the key for a field no longer
+            # in any version.
+            labels={field.key: field.label for field in captured if field.core},
         ),
         # Per-field "confirm before acting" advisories (P4). NOT on the redaction switch:
         # the reasons are PII-free by construction (the flagged value lives in `extraction`
@@ -803,7 +813,21 @@ def _call_language(turns: Sequence[Any], *, agent_language: str | None) -> str:
     )
 
 
-def _moments_out(stored: Any, *, raw: bool) -> list[CallMomentOut]:
+def _field_moment_label(item: dict[str, Any], labels: Mapping[str, str]) -> str | None:
+    """A "<field> captured" marker named by the field's label as the screen lists it, or
+    None to keep the stored one. The marker is written from the extraction spec, which
+    carries the platform's names for the core fields, while the details list shows the
+    client's own ("Notes captured" beside "Extra Details"); naming it here also corrects
+    markers already stored. The label is the client's, never a value (hard rule 6)."""
+    if item.get("kind") != "field_captured":
+        return None
+    name = " ".join((labels.get(str(item.get("field") or "")) or "").split())
+    return f"{name} captured" if name else None
+
+
+def _moments_out(
+    stored: Any, *, raw: bool, labels: Mapping[str, str] | None = None
+) -> list[CallMomentOut]:
     """The stored markers, on the SAME redaction switch as the transcript above.
 
     `raw=False` takes `label_redacted`, `raw=True` takes `label`. A marker's label can
@@ -826,6 +850,8 @@ def _moments_out(stored: Any, *, raw: bool) -> list[CallMomentOut]:
         if not isinstance(item, dict):
             continue
         label = _label_for(item, raw=raw)
+        if label is not None and labels:
+            label = _field_moment_label(item, labels) or label
         if label is None or not label.strip():
             continue
         label = " ".join(label.split())
@@ -881,9 +907,14 @@ async def _call_moments(
             {"ids": list(call_ids)},
         )
     ).all()
+    # The core fields' names as the account's details lists show them; a business field's
+    # marker already carries its own label.
+    labels = {field.key: field.label for field in core_fields(await core_labels(session))}
     return {
         row[0]: _moments_out(
-            field_backed(row[1], captured=(row[2] or {}).keys(), caller_turns=None), raw=False
+            field_backed(row[1], captured=(row[2] or {}).keys(), caller_turns=None),
+            raw=False,
+            labels=labels,
         )
         for row in rows
     }

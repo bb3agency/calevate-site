@@ -164,15 +164,30 @@ function businessActs(by: CallDetail["next_step_by"] | undefined): boolean {
  * it needs no "You:" in front (6 Nov 2026 call review: "You: The business needs to ..."
  * read machine-written). One that waits on the caller says so, because "Wait for the caller
  * to message you" under "Needs you" read as a job for the owner (4 Nov 2026 call review).
- * A step for nobody is not shown: there is nothing to do.
+ * A step for nobody is not shown: there is nothing to do. Under "Answered" the note is
+ * dropped, because the verdict above already says nothing more was asked of the owner
+ * (19 Nov 2026 call review: the page said it three times).
  */
 export function nextStepLine(
-  call: Pick<CallDetail, "next_step_by"> & { next_step?: string | null },
+  call: Pick<CallDetail, "next_step_by"> & {
+    next_step?: string | null;
+    outcome_tag?: CallDetail["outcome_tag"];
+  },
 ): { text: string; note: string | null } | null {
   const text = call.next_step?.trim();
   if (!text || call.next_step_by === "nobody") return null;
-  if (call.next_step_by === "caller") return { text, note: "Up to them. Nothing for you to do." };
+  if (call.next_step_by === "caller" && !verdictSaysNothingToDo(call)) {
+    return { text, note: "Up to them. Nothing for you to do." };
+  }
   return { text, note: null };
+}
+
+/**
+ * Does the verdict's reason already tell the owner nothing is left for them? Then a line
+ * saying it again in other words (the next step's note, "no call-back is due") is dropped.
+ */
+export function verdictSaysNothingToDo(call: { outcome_tag?: CallDetail["outcome_tag"] }): boolean {
+  return call.outcome_tag === "answered";
 }
 
 type Goal = NonNullable<CallDetail["goal"]>;
