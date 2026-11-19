@@ -2785,12 +2785,22 @@ def _without_call(buckets: dict[str, Decimal], key: str, seconds: Decimal) -> di
 
 @dataclass(frozen=True, slots=True)
 class CountingWindow:
-    """Which rows of a month a client is charged for (D-536): read by `usage_summary`, which
-    prices the panel and the invoice, and by `month_increment`, which charges the live
-    counter the same overage, so the two cannot price one month over different rows."""
+    """Which rows of a month a client is charged for (D-536, D-1023): read by
+    `usage_summary`, which prices the panel and the invoice, and by `month_increment`,
+    which charges the live counter the same overage, so the two cannot price one month over
+    different rows.
 
-    #: Where the current counting period begins (`trials.counter_epoch`); None for an
-    #: account that never had a trial, whose window is the plain IST month.
+    Two shapes. While a trial runs, the open month is the trial's own view: from its start,
+    every row, charged nothing. Every other period is the WHOLE IST month less the rows a
+    trial covered — never floored at a trial boundary, because a client given a trial
+    mid-month (D-697's billing gift to an account that has paid) still owes the paid calls
+    placed before it, and the invoice D-536 says is not floored is built on this window.
+    The trial's minutes leave the figures when it ends, which is what "the numbers should
+    start from 0 again" asks of an account with nothing paid before its trial.
+    """
+
+    #: The floor of the trial view (`trials.counter_epoch`, the running trial's start);
+    #: None for every other period, whose floor is the month's own start.
     epoch: datetime | None
     trial: TrialState | None
     trial_active: bool
@@ -2810,16 +2820,15 @@ async def counting_window(
 ) -> CountingWindow:
     """The window `period` is charged over, judged at `at` with `today` the open month
     (both passed so a caller reading the clock once keeps one reading)."""
-    epoch = await counter_epoch(session, tenant_id=tenant_id)
     trial = await read_trial(session, tenant_id=tenant_id)
     trial_active = trial is not None and trial.is_active(at=at)
     period_on_us = trial_active and period == today
     return CountingWindow(
-        epoch=epoch,
+        epoch=await counter_epoch(session, tenant_id=tenant_id) if period_on_us else None,
         trial=trial,
         trial_active=trial_active,
         period_on_us=period_on_us,
-        paid_only=epoch is not None and not period_on_us,
+        paid_only=trial is not None and not period_on_us,
     )
 
 
@@ -2859,7 +2868,7 @@ async def _call_in_period(
 ) -> bool:
     """Does the period `window` counts hold this call's rows? The same predicates
     `rung_seconds` reads the period with, asked of one call."""
-    if window.epoch is None:
+    if window.epoch is None and not window.paid_only:
         # The plain IST month, and the meter only prices a call against its own month.
         return True
     found = await session.execute(
@@ -3036,33 +3045,34 @@ async def _month_call_count(
     return int(row[0] or 0) if row else 0
 
 
-async def usage_summary(
-    session: AsyncSession, *, tenant_id: UUID, month: str | None = None
-) -> dict[str, Any]:
-    """What the client used this billing month, in their terms.
+@dataclass(frozen=True, slots=True)
+class _PricedPeriod:
+    """One month's counting period, read and priced: what `usage_summary` publishes and
+    what `period_billed_inr` re-derives the live rupee counter from, so the two cannot
+    price one period two ways."""
 
-    Minutes come from `telephony_s`, which is the unit we bill on; the other unit types
-    are inputs to OUR cost and are deliberately not shown as separate line items,
-    because a client cannot act on "llm_tok_out" and does not buy tokens from us.
-    """
-    # WHICH MONTH IS "NOW", read ONCE and then handed to everything that needs it.
-    #
-    # Three places below ask whether the month on screen is the open one — the default
-    # for `period`, the staleness test on `spend_state`, and `_spend_used`'s choice
-    # between the live counter and the ledger — and each used to take its own reading of
-    # the clock. Across 00:00:00 IST on the 1st those readings straddle the roll: the
-    # counter row is judged stale against September while `_spend_used` still believes
-    # August is open, so it reports the (now zeroed) live counter and August's statement
-    # shows ₹0.00 spent beside minutes read correctly from the ledger. The window is one
-    # instant a month and the answer is wrong by the whole month, which is the trade
-    # that makes a single reading worth passing around.
-    today = current_billing_month()
-    period = month or today
-    # ONE reading of the clock for the whole function, for `today`'s own reason: the trial
-    # arm below asks whether this account is inside a funded period and how many days are
-    # left, and two readings taken a query apart can straddle the end instant and publish
-    # "active, 0 days left" beside charges that were computed as if it had ended.
-    at = datetime.now(UTC)
+    priced_at: datetime
+    list_rate: Decimal
+    window: CountingWindow
+    lot_charges: LotCharges
+    totals: MonthTotals
+    calls: int
+    #: The plan row in effect at `priced_at`, None when there is none.
+    plan: Any
+    included: int
+    overage_rate: Decimal
+    value_rate: Decimal | None
+    priced: PricedOverage
+    surcharge_rate: Decimal | None
+    surcharge: PricedLlmSurcharge
+
+
+async def _price_period(
+    session: AsyncSession, *, tenant_id: UUID, period: str, today: str, at: datetime
+) -> _PricedPeriod:
+    """`period` read over its counting window and priced at its own plan terms, judged at
+    `at` with `today` the open month (both passed so a caller reading the clock once
+    keeps one reading)."""
     # WHICH INSTANT THIS MONTH IS PRICED AT, resolved (and the month validated) BEFORE
     # any query runs — a month we cannot parse is a month we cannot pick a plan for, and
     # a 422 up front beats a ₹0.00 statement for `?month=july`.
@@ -3092,24 +3102,20 @@ async def usage_summary(
     # `_tier_totals`' second return is `unit_cost_paid` — our supplier cost, which
     # `_spend_used` used to publish for a closed month (P1.3). `tier_usage` still reads
     # both for the ADMIN margin panel, which is what that number is for.
-    # WHERE THIS CLIENT'S COUNTING PERIOD BEGINS (D-536). None for every account that has
-    # never been given a trial, which is the plain IST billing month this panel has always
-    # shown. For an account on one — or one that just came off one — it is the trial
-    # boundary, and every figure below is counted from there: "when the trial is lifted or
-    # over or stopped the numbers should start from 0 again". Nothing is deleted to make
-    # that true; the WINDOW moves, and `usage_events` keeps every row (hard rule 4).
+    # WHICH ROWS THIS PERIOD COUNTS (`counting_window`, D-536, D-1023): the running trial's
+    # own view while one runs in the open month, otherwise the whole month less the rows a
+    # trial covered. Nothing is deleted to make either true; the WINDOW is chosen, and
+    # `usage_events` keeps every row (hard rule 4).
     window = await counting_window(session, tenant_id=tenant_id, period=period, today=today, at=at)
-    epoch, trial, trial_active = window.epoch, window.trial, window.trial_active
-    period_on_us, paid_only = window.period_on_us, window.paid_only
+    epoch, paid_only = window.epoch, window.paid_only
     # WHICH VOICE SPOKE THIS MONTH'S MINUTES, AND WHAT THE WALLET WAS ACTUALLY CHARGED
-    # (D-547) — out of the ledger's own lot splits, over the same window as the minutes.
+    # (D-547) — out of the ledger's own lot splits, over the same window as the minutes. A
+    # call a trial covered took no debit, so it has no split to exclude.
     lot_charges = await voice_tier_usage(session, tenant_id=tenant_id, month=period, since=epoch)
-    voices = lot_charges.by_voice
     totals = await _tier_totals(
         session, tenant_id=tenant_id, month=period, since=epoch, paid_only=paid_only
     )
     tier_minutes = totals.by_rung
-    minutes = sum(tier_minutes.values(), _ZERO_PAISE)
     calls = await _month_call_count(
         session, tenant_id=tenant_id, month=period, since=epoch, paid_only=paid_only
     )
@@ -3163,10 +3169,6 @@ async def usage_summary(
         rate=overage_rate,
         rate_value=value_rate,
     )
-    overage_min = priced.overage_min
-    overage_premium = priced.premium_min
-    overage_value = priced.value_min
-    overage_cost = priced.total_inr
 
     # THE MODEL SURCHARGE (D-455), priced off the SAME read and the SAME plan row.
     #
@@ -3178,6 +3180,85 @@ async def usage_summary(
     # must be able to see which of the two moved.
     surcharge_rate = Decimal(str(plan[6])) if plan and plan[6] is not None else None
     surcharge = priced_llm_surcharge(minutes_by_model=totals.by_llm_model, surcharge=surcharge_rate)
+
+    return _PricedPeriod(
+        priced_at=priced_at,
+        list_rate=list_rate,
+        window=window,
+        lot_charges=lot_charges,
+        totals=totals,
+        calls=calls,
+        plan=plan,
+        included=included,
+        overage_rate=overage_rate,
+        value_rate=value_rate,
+        priced=priced,
+        surcharge_rate=surcharge_rate,
+        surcharge=surcharge,
+    )
+
+
+async def period_billed_inr(session: AsyncSession, *, tenant_id: UUID, month: str) -> Decimal:
+    """What the client owes for `month`'s counting period's calling, as of now: the figure
+    `spend_state.billed_inr` must hold, for the writers that re-derive the counter. The
+    same `calling_revenue_inr` over the same window the meter charges each call into, so
+    a re-derived counter equals the sum of the meter's increments. A period on us owes
+    nothing."""
+    today = current_billing_month()
+    p = await _price_period(
+        session, tenant_id=tenant_id, period=month, today=today, at=datetime.now(UTC)
+    )
+    if p.window.period_on_us:
+        return _ZERO_PAISE
+    return calling_revenue_inr(
+        plan_tier=await plan_tier_of(session, tenant_id),
+        prepaid_charged_inr=p.lot_charges.total_inr,
+        overage_cost_inr=p.priced.total_inr,
+        llm_surcharge_inr=p.surcharge.total_inr,
+    )
+
+
+async def usage_summary(
+    session: AsyncSession, *, tenant_id: UUID, month: str | None = None
+) -> dict[str, Any]:
+    """What the client used this billing month, in their terms.
+
+    Minutes come from `telephony_s`, which is the unit we bill on; the other unit types
+    are inputs to OUR cost and are deliberately not shown as separate line items,
+    because a client cannot act on "llm_tok_out" and does not buy tokens from us.
+    """
+    # WHICH MONTH IS "NOW", read ONCE and then handed to everything that needs it.
+    #
+    # Three places below ask whether the month on screen is the open one — the default
+    # for `period`, the staleness test on `spend_state`, and `_spend_used`'s choice
+    # between the live counter and the ledger — and each used to take its own reading of
+    # the clock. Across 00:00:00 IST on the 1st those readings straddle the roll: the
+    # counter row is judged stale against September while `_spend_used` still believes
+    # August is open, so it reports the (now zeroed) live counter and August's statement
+    # shows ₹0.00 spent beside minutes read correctly from the ledger. The window is one
+    # instant a month and the answer is wrong by the whole month, which is the trade
+    # that makes a single reading worth passing around.
+    today = current_billing_month()
+    period = month or today
+    # ONE reading of the clock for the whole function, for `today`'s own reason: the trial
+    # arm below asks whether this account is inside a funded period and how many days are
+    # left, and two readings taken a query apart can straddle the end instant and publish
+    # "active, 0 days left" beside charges that were computed as if it had ended.
+    at = datetime.now(UTC)
+    p = await _price_period(session, tenant_id=tenant_id, period=period, today=today, at=at)
+    list_rate, window, lot_charges, totals = p.list_rate, p.window, p.lot_charges, p.totals
+    trial, trial_active = window.trial, window.trial_active
+    period_on_us = window.period_on_us
+    voices = lot_charges.by_voice
+    tier_minutes = totals.by_rung
+    minutes = sum(tier_minutes.values(), _ZERO_PAISE)
+    calls, plan, included = p.calls, p.plan, p.included
+    overage_rate, value_rate, priced = p.overage_rate, p.value_rate, p.priced
+    overage_min = priced.overage_min
+    overage_premium = priced.premium_min
+    overage_value = priced.value_min
+    overage_cost = priced.total_inr
+    surcharge_rate, surcharge = p.surcharge_rate, p.surcharge
 
     # THE LIVE COUNTERS, through the one month-aware reader (`billing/caps.py`) that the
     # compliance gate, the admin directory and the health panel already read. The month
@@ -3271,9 +3352,10 @@ async def usage_summary(
     # would this have cost" is the counterfactual (`absorbed_calling_inr`); every other
     # period is what the ledger charged (`calling_revenue_inr`, out of the lot splits).
     # The two are never both published: `month_charges_inr` below is ₹0.00 during a trial
-    # and `trial_absorbed_inr` is ₹0.00 outside one. `counter_epoch` is what makes the
-    # choice total rather than a per-call question — the window starts at the trial's start
-    # while it runs and at its END once it is over, so every row inside it is on one side.
+    # and `trial_absorbed_inr` is ₹0.00 outside one. `counting_window` is what makes the
+    # choice total rather than a per-call question — the trial view starts at the trial's
+    # start, and every other period excludes the rows a trial covered, so every row inside
+    # a window is on one side.
     calling = (
         absorbed_calling_inr(
             plan_tier=tier,

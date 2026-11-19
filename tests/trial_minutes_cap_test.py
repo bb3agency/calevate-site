@@ -10,16 +10,98 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from apps.api.billing.invoice import build_invoice
+from apps.api.billing.plans import ist_billing_month
 from apps.api.billing.service import usage_summary
-from apps.api.billing.trials import TRIAL_CONVERTED, end_trial, start_trial
+from apps.api.billing.trials import TRIAL_CONVERTED, TRIAL_STOPPED, end_trial, start_trial
 from apps.api.db.session import tenant_session
 from apps.workers import trials as trial_sweep
 from apps.workers.pipeline import _meter
 from sqlalchemy import text
-from tests.spend_caps_test import _call_row, _plan, _snapshot, _spend_state
+from tests.conftest import mark_paid_for_tests
+from tests.spend_caps_test import _OVERAGE_RATE, _call_row, _plan, _snapshot, _spend_state
 from tests.spend_caps_test import _tenant as _cap_tenant
 
 pytestmark = [pytest.mark.rls]
+
+
+async def _metered(
+    tenant_id: UUID, agent_id: UUID, *, seconds: int, started: datetime, ended: datetime
+) -> UUID:
+    call_id = await _call_row(tenant_id, agent_id)
+    snapshot = _snapshot(seconds=seconds, spend="0.5000", ended=ended).model_copy(
+        update={"started_at": started}
+    )
+    await _meter(tenant_id, call_id, snapshot)
+    return call_id
+
+
+async def test_a_gift_trial_mid_month_leaves_the_paid_calls_on_the_invoice() -> None:
+    """A paying account given a trial mid-month (D-697's billing gift): the month's invoice
+    and panel bill the paid calls before and after the trial and only those, and the live
+    rupee counter agrees with them (D-1023)."""
+    tenant_id, agent_id, _ = await _cap_tenant("giftinvoice")
+    await _plan(tenant_id, included_min=0)
+    await mark_paid_for_tests(tenant_id)
+    now = datetime.now(UTC)
+    m = timedelta(minutes=1)
+    await _metered(tenant_id, agent_id, seconds=120, started=now - 60 * m, ended=now - 58 * m)
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=1, actor_user_id=None, at=now - 40 * m)
+    await _metered(tenant_id, agent_id, seconds=300, started=now - 35 * m, ended=now - 30 * m)
+    async with tenant_session(tenant_id) as session:
+        await end_trial(
+            session,
+            tenant_id=tenant_id,
+            outcome=TRIAL_STOPPED,
+            reason="Gift over.",
+            at=now - 20 * m,
+        )
+    await _metered(tenant_id, agent_id, seconds=180, started=now - 5 * m, ended=now)
+
+    async with tenant_session(tenant_id) as session:
+        usage = await usage_summary(session, tenant_id=tenant_id)
+        invoice = await build_invoice(session, tenant_id=tenant_id, month=ist_billing_month(now))
+    assert usage["minutes_used"] == Decimal("5.00"), "two paid calls, the trial call excluded"
+    assert usage["calls"] == 2
+    assert invoice["usage"]["minutes_used"] == usage["minutes_used"]
+    assert invoice["usage"]["calls"] == usage["calls"]
+    assert usage["overage_cost_inr"] == Decimal("5.00") * _OVERAGE_RATE
+    _month, minutes, _spend, _capped, billed = await _spend_state(tenant_id)
+    assert minutes == usage["minutes_used"]
+    assert billed == usage["overage_cost_inr"] + usage["llm_surcharge_inr"]
+
+
+async def test_the_sweep_keeps_paid_calls_after_the_end_date_in_the_rupee_ceiling() -> None:
+    """A paid call between a trial's end date and the expiry sweep stays in `billed_inr`
+    when the sweep records the end, and a cap flag the counters no longer justify is
+    cleared there (D-1023)."""
+    tenant_id, agent_id, _ = await _cap_tenant("sweepbilled")
+    await _plan(tenant_id, included_min=0, cap_min=100)
+    now = datetime.now(UTC)
+    m = timedelta(minutes=1)
+    async with tenant_session(tenant_id) as session:
+        await start_trial(
+            session, tenant_id=tenant_id, days=1, actor_user_id=None, at=now - 180 * m
+        )
+        await session.execute(
+            text("UPDATE tenant_trials SET ends_at = :e WHERE tenant_id = :t"),
+            {"e": now - 30 * m, "t": tenant_id},
+        )
+    await _metered(tenant_id, agent_id, seconds=600, started=now - 120 * m, ended=now - 110 * m)
+    await _metered(tenant_id, agent_id, seconds=120, started=now - 10 * m, ended=now)
+    # A row left over-counted and capped by trial minutes before the meter read the period.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE spend_state SET minutes_used = 250, capped = true WHERE tenant_id = :t"),
+            {"t": tenant_id},
+        )
+
+    assert await trial_sweep._close_if_expired(tenant_id, now=datetime.now(UTC))
+    _month, minutes, _spend, capped, billed = await _spend_state(tenant_id)
+    assert minutes == Decimal("2.00")
+    assert billed == Decimal("2.00") * _OVERAGE_RATE, "the paid call after the end date"
+    assert capped is False, "2 of 100 minutes does not justify the flag"
 
 
 async def _panel(tenant_id: UUID) -> dict[str, Any]:

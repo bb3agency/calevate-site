@@ -451,6 +451,10 @@ async def counter_epoch(session: AsyncSession, *, tenant_id: UUID) -> datetime |
     callers already have a month window and this is a FLOOR applied on top of it. Answering
     with the month start would work today and would be a second, duplicate definition of the
     month boundary the moment either moved.
+
+    `service.counting_window` floors only the running trial's view with it (D-1023): a
+    period after a trial is the whole IST month less the rows a trial covered, so paid
+    calls placed before a trial given to a paying account stay on that month's bill.
     """
     trial = await read_trial(session, tenant_id=tenant_id)
     if trial is None:
@@ -606,6 +610,9 @@ async def start_trial(
         )
     ).first()
     assert row is not None  # RETURNING on a single-row INSERT
+    # The trial's start is a period boundary like its end (D-1023): the live counters move
+    # to the trial view the panel now shows.
+    await reset_client_counters(session, tenant_id=tenant_id)
     # THE RESCUE EDGE (D-577). Opening a trial is one of the three ways an account stops
     # being exhausted, and it was the only one that told nobody.
     #
@@ -848,30 +855,36 @@ async def reset_client_counters(session: AsyncSession, *, tenant_id: UUID) -> No
     counts over (`counter_epoch`), not the rows. The DB triggers would refuse anyway, which
     is the point of hard rule 4 — this function could not do the wrong thing if it tried.
 
-    `capped` is re-derived from the zeroed counters through `caps.recompute_capped` rather
-    than cleared: a flag left set would refuse calls on a ceiling nothing has reached, and
-    a flag cleared outright would disarm a ceiling of ZERO, which zero counters have
-    already reached — the client's own stop button. The spend-state lock is taken first,
-    as every writer of the flag takes it.
+    The two counters the ceilings are judged on are not zeroed but SET to the new period's
+    figures (D-1023): `minutes_used` to `service.period_minutes` and `billed_inr` to
+    `service.period_billed_inr`, the same window and the same pricing the meter charges
+    each call into. So the caller must have written the trial row first. The expiry sweep
+    dates a trial's end to its end date, and paid calls placed between that instant and
+    the sweep are in the new period; zeroing them would let either ceiling be passed.
+    `spend_used` is OUR cost and no ceiling reads it, so it restarts at zero as before.
 
-    The minutes are not zeroed but SET to the new period's figure (`service.period_minutes`,
-    D-1023), so the caller must have written the trial row first. The expiry sweep dates a
-    trial's end to its end date, and paid calls placed between that instant and the sweep
-    are in the new period; zeroing them would let the minute ceiling be passed.
+    `capped` is then re-derived from those counters through `caps.recompute_capped` rather
+    than cleared or carried: a flag left set would refuse calls on a ceiling the corrected
+    counters have not reached, and a flag cleared outright would disarm a ceiling of ZERO,
+    which zero counters have already reached — the client's own stop button. The
+    spend-state lock is taken first, as every writer of the flag takes it.
     """
     # Imported here: `billing/service.py` imports this module.
-    from apps.api.billing.service import current_billing_month, period_minutes
+    from apps.api.billing.service import current_billing_month, period_billed_inr, period_minutes
 
     await lock_tenant_spend_state(session, tenant_id)
     month = current_billing_month()
     minutes = await period_minutes(session, tenant_id=tenant_id, month=month)
+    billed = await period_billed_inr(session, tenant_id=tenant_id, month=month)
+    # A row stamped with another month is left at zeros: the meter rolls it on its next call.
     await session.execute(
         text(
-            "UPDATE spend_state SET minutes_used = "
-            "CASE WHEN month = :month THEN CAST(:minutes AS numeric) ELSE 0 END, "
-            "spend_used = 0, billed_inr = 0, capped = false WHERE tenant_id = :tid"
+            "UPDATE spend_state SET "
+            "minutes_used = CASE WHEN month = :month THEN CAST(:minutes AS numeric) ELSE 0 END, "
+            "billed_inr = CASE WHEN month = :month THEN CAST(:billed AS numeric) ELSE 0 END, "
+            "spend_used = 0, capped = false WHERE tenant_id = :tid"
         ),
-        {"tid": tenant_id, "month": month, "minutes": minutes},
+        {"tid": tenant_id, "month": month, "minutes": minutes, "billed": billed},
     )
     await recompute_capped(session, tenant_id=tenant_id)
 
