@@ -176,15 +176,27 @@ def allowance_reason(limit: int, holders: list[SlotHolder], context: AllowanceCo
     )
 
 
-#: What the owner can do about it, said with every form of the refusal.
-ALLOWANCE_FULL_REMEDIATION: Final = (
-    "Archive an inbound line you no longer use, or stop a campaign, to free one. To have "
-    "more, ask us to raise your limit."
-)
+def allowance_remediation(holders: list[SlotHolder]) -> str:
+    """What the owner can do about it, said with every form of the refusal. Only the steps
+    that would free one of THESE setups: an agent's own setup, a script trial's and a test
+    call's are not the owner's to free (archiving an agent keeps its engine agent), so a
+    workspace full of those is ours to clear."""
+    kinds = {h.kind for h in holders if not h.removing}
+    steps = [
+        step
+        for kind, step in (
+            ("inbound_line", "archive an inbound line you no longer use"),
+            ("campaign", "stop a campaign"),
+        )
+        if kind in kinds
+    ]
+    if not steps:
+        return "Ask us to free one or to raise your limit."
+    first = " or ".join(steps)
+    return f"{first[0].upper()}{first[1:]} to free one. To have more, ask us to raise your limit."
 
 
 __all__ = [
-    "ALLOWANCE_FULL_REMEDIATION",
     "ENGINE_AGENT_ALLOWANCE_FULL_RULE",
     "SLOTS_FULL_RESPONSES",
     "AllowanceContext",
@@ -192,5 +204,6 @@ __all__ = [
     "SlotHolder",
     "SlotHolderKind",
     "allowance_reason",
+    "allowance_remediation",
     "slot_holders",
 ]

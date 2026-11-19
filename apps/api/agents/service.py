@@ -195,12 +195,12 @@ from apps.api.agents.voice_stamp import stamp_of
 from apps.api.agents.voice_tuning import TUNING_COLUMNS, config_speaking_speed, config_tuning
 from apps.api.agents.voices import get_voice, speech_for_voice_id, voice_id_of
 from apps.api.agents.workspace_slots import (
-    ALLOWANCE_FULL_REMEDIATION,
     ENGINE_AGENT_ALLOWANCE_FULL_RULE,
     AllowanceContext,
     EngineAgentAllowanceFull,
     SlotHolder,
     allowance_reason,
+    allowance_remediation,
     slot_holders,
 )
 from apps.api.agents.write_guard import archived_refusal, assert_agent_writable
@@ -4717,7 +4717,7 @@ async def allowance_refusal(
     return ProblemError.business_rule(
         ENGINE_AGENT_ALLOWANCE_FULL_RULE,
         allowance_reason(limit, holders, context),
-        remediation=ALLOWANCE_FULL_REMEDIATION,
+        remediation=allowance_remediation(holders),
         extensions=EngineAgentAllowanceFull(context=context, limit=limit, holders=holders),
     )
 
@@ -4747,7 +4747,7 @@ async def engine_agent_allowance_blocker(
     )
     return (
         ENGINE_AGENT_ALLOWANCE_FULL_RULE,
-        f"{allowance_reason(limit, holders, 'start')} {ALLOWANCE_FULL_REMEDIATION}",
+        f"{allowance_reason(limit, holders, 'start')} {allowance_remediation(holders)}",
         tuple(holders),
     )
 

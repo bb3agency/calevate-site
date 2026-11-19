@@ -31,6 +31,8 @@ from apps.api.agents import service as agents_service
 from apps.api.agents.workspace_slots import (
     ENGINE_AGENT_ALLOWANCE_FULL_RULE,
     EngineAgentAllowanceFull,
+    SlotHolder,
+    allowance_remediation,
     slot_holders,
 )
 from apps.api.campaigns import engine_agent
@@ -780,3 +782,29 @@ def test_the_refusal_is_published_for_the_typed_client() -> None:
         assert {"$ref": "#/components/schemas/EngineAgentAllowanceFull"} in refs, path
     blocker = schemas["BlockerOut"]["properties"]["holders"]
     assert json.dumps(blocker).count("SlotHolder") >= 1
+
+
+def _holder(kind: Any, *, removing: bool = False) -> SlotHolder:
+    return SlotHolder(kind=kind, id=uuid.uuid4(), name="x", removing=removing)
+
+
+def test_remediation_names_only_what_the_owner_can_free() -> None:
+    both = allowance_remediation([_holder("inbound_line"), _holder("campaign")])
+    assert both == (
+        "Archive an inbound line you no longer use or stop a campaign to free one. "
+        "To have more, ask us to raise your limit."
+    )
+    assert allowance_remediation([_holder("campaign"), _holder("agent")]).startswith(
+        "Stop a campaign to free one."
+    )
+
+
+def test_remediation_for_setups_the_owner_cannot_free_asks_us() -> None:
+    # Two agents still holding setups of their own: archiving a line or stopping a
+    # campaign frees nothing, so the owner is not told to.
+    agents = [_holder("agent"), _holder("agent")]
+    assert allowance_remediation(agents) == "Ask us to free one or to raise your limit."
+    # A line already being removed is not one the owner can archive again.
+    assert allowance_remediation(
+        [_holder("inbound_line", removing=True), _holder("test_call")]
+    ) == ("Ask us to free one or to raise your limit.")
