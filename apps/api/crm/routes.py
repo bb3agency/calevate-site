@@ -43,6 +43,7 @@ from apps.api.crm.captured import (
     lead_holder_fields,
     lead_unlisted,
     with_known_name,
+    with_list_columns,
 )
 from apps.api.crm.lead_dial import call_back_check, place_call_back, place_lead_call
 from apps.api.crm.lens import LEAD_ROW_FILTER_FIELDS, LeadRowFilters
@@ -1512,8 +1513,11 @@ async def get_lead_captured(
         holder=await lead_holder_fields(session, lead_id),
     )
     # The lead's own name fills an empty name field, as on the call screen (L3-10): "Name:
-    # Not said" on a lead called Anitha Reddy reads as a gap that is not there.
-    return CapturedFieldsOut(fields=with_known_name(fields, list_name=None, lead_name=lead.name))
+    # Not said" on a lead called Anitha Reddy reads as a gap that is not there. Then the
+    # list row's columns, so a detail the call page fills from the list is filled here too.
+    fields = with_known_name(fields, list_name=None, lead_name=lead.name)
+    columns = await service.lead_list_columns(session, lead_id)
+    return CapturedFieldsOut(fields=with_list_columns(fields, columns=columns))
 
 
 @router.patch(

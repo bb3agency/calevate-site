@@ -13,7 +13,7 @@ import asyncio
 import csv
 import io
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Literal, NamedTuple, get_args
@@ -21,7 +21,7 @@ from uuid import UUID
 
 from calevate_shared.calling_window import CALLING_HOURS_RULE, IST
 from calevate_shared.cut_off import likely_cut_off_rows
-from calevate_shared.events import CallStatus, CallTimeline
+from calevate_shared.events import CallStatus
 from calevate_shared.extraction import (
     DEFAULT_EXTRACTION_LANGUAGE,
     MOMENT_KINDS,
@@ -92,7 +92,7 @@ from apps.api.crm.schemas import (
     TurnTimingOut,
     insights_out,
 )
-from apps.api.crm.turn_times import TimedLine, line_times
+from apps.api.crm.turn_times import LineTime, TimedLine, line_times, stored_timeline
 from apps.api.db.base import uuid7
 from apps.api.db.like import contains_pattern, phone_suffix_pattern
 from apps.api.db.result import rowcount_of
@@ -569,20 +569,9 @@ NOT_PLACED_WORDS: Final[dict[str, str]] = {
 }
 
 
-def _stored_timeline(value: object) -> CallTimeline | None:
-    """A stored `calls.engine_timeline`; None when none was stored or the record is not one
-    this code reads."""
-    if not isinstance(value, dict):
-        return None
-    try:
-        return CallTimeline.model_validate(value)
-    except ValidationError:
-        return None
-
-
 def _timeline_out(value: object) -> list[TurnTimingOut] | None:
     """A stored `calls.engine_timeline` for the operator's view."""
-    timeline = _stored_timeline(value)
+    timeline = stored_timeline(value)
     if timeline is None:
         return None
     turns = timeline.turns
@@ -650,17 +639,14 @@ async def get_call(
     ).all()
     # A vendor-timed caller line's stored time is when they stopped, not when they began;
     # the timeline says when each answer was heard (`turn_times`).
-    times = line_times(
-        [TimedLine(t[0], t[1], t[4], approximate=bool(t[6])) for t in turns],
-        _stored_timeline(row[41]),
-    )
-    # From the raw text's length, so the raw and the redacted view flag the same turns. An
-    # agent line is measured from where it was heard to when the caller's next line was
-    # written, the same gap the post-call reading measures.
-    unheard = likely_cut_off_rows(
-        (t[0], t[1], int(t[7] or 0), times[t[0]].start_ms if t[1] == "agent" else t[4])
-        for t in turns
-    )
+    lines = [TimedLine(t[0], t[1], t[4], approximate=bool(t[6])) for t in turns]
+    times = line_times(lines, stored_timeline(row[41]))
+    # From the raw text's length, so the raw and the redacted view flag the same turns. On
+    # the stored written times, not the timeline-placed starts: the post-call reading
+    # (`pipeline.extractor_transcript`, key moments, `call_mistakes`) decides which lines
+    # went unheard before the timeline arrives, so measuring the page from the placed start
+    # would flag lines the summary and the details treated as heard, and the reverse.
+    unheard = likely_cut_off_rows((t[0], t[1], int(t[7] or 0), t[4]) for t in turns)
     extraction = (
         await session.execute(
             text(
@@ -793,19 +779,16 @@ async def get_call(
         interest_moments_label=interest_moments_label(
             sells=(await capabilities_for(session, row[51])).sells.applies
         ),
-        moments=_moments_out(
-            field_backed(
-                extraction[2] if extraction else None,
-                captured=extraction_data.keys(),
-                caller_turns={t[0] for t in turns if t[1] == "caller"},
-            ),
+        moments=_key_moments(
+            extraction[2] if extraction else None,
+            captured=extraction_data.keys(),
+            lines=lines,
+            times=times,
             raw=raw,
             # The core fields only: a business field's marker already carries the label its
             # spec gave it, where the list may fall back to the key for a field no longer
             # in any version.
             labels={field.key: field.label for field in captured if field.core},
-            # A marker plays from its line, timed the way the transcript above times it.
-            play_from={idx: t.play_from_ms for idx, t in times.items()},
         ),
         # Per-field "confirm before acting" advisories (P4). NOT on the redaction switch:
         # the reasons are PII-free by construction (the flagged value lives in `extraction`
@@ -917,26 +900,63 @@ async def _call_moments(
     """
     if not call_ids:
         return {}
-    rows = (
-        await session.execute(
-            text(
-                "SELECT call_id, moments, data FROM call_extractions "
-                "WHERE call_id = ANY(:ids) AND moments IS NOT NULL"
-            ),
-            {"ids": list(call_ids)},
-        )
-    ).all()
+    rows = (await session.execute(text(_LEAD_CALL_MOMENTS_SQL), {"ids": list(call_ids)})).all()
     # The core fields' names as the account's details lists show them; a business field's
     # marker already carries its own label.
     labels = {field.key: field.label for field in core_fields(await core_labels(session))}
-    return {
-        row[0]: _moments_out(
-            field_backed(row[1], captured=(row[2] or {}).keys(), caller_turns=None),
+    out: dict[UUID, list[CallMomentOut]] = {}
+    for row in rows:
+        lines = [
+            TimedLine(int(t["idx"]), str(t["speaker"]), t["start_ms"], bool(t["approximate"]))
+            for t in row[3] or []
+        ]
+        out[row[0]] = _key_moments(
+            row[1],
+            captured=(row[2] or {}).keys(),
+            lines=lines,
+            times=line_times(lines, stored_timeline(row[4])),
             raw=False,
             labels=labels,
         )
-        for row in rows
-    }
+    return out
+
+
+#: Each call's latest reading (the one the call page shows), when it has markers, with the
+#: call's lines (no text) and its timeline, so the lead page times and filters a marker
+#: exactly as the call page does.
+_LEAD_CALL_MOMENTS_SQL = (
+    "SELECT r.call_id, r.moments, r.data, "
+    "(SELECT jsonb_agg(jsonb_build_object('idx', t.idx, 'speaker', t.speaker, "
+    "'start_ms', t.start_ms, 'approximate', t.start_approximate) ORDER BY t.idx) "
+    "FROM transcript_turns t WHERE t.call_id = r.call_id), c.engine_timeline "
+    "FROM (SELECT DISTINCT ON (call_id) call_id, moments, data FROM call_extractions "
+    "WHERE call_id = ANY(:ids) ORDER BY call_id, created_at DESC) r "
+    "JOIN calls c ON c.id = r.call_id WHERE r.moments IS NOT NULL"
+)
+
+
+def _key_moments(
+    stored: Any,
+    *,
+    captured: Collection[str],
+    lines: Sequence[TimedLine],
+    times: Mapping[int, LineTime],
+    raw: bool,
+    labels: Mapping[str, str],
+) -> list[CallMomentOut]:
+    """A call's key moments as the call page and the lead page both show them: a captured
+    marker only where the reading backs it on a caller line, each timed from where its line
+    plays (`turn_times`)."""
+    return _moments_out(
+        field_backed(
+            stored,
+            captured=captured,
+            caller_turns={line.idx for line in lines if line.speaker == "caller"},
+        ),
+        raw=raw,
+        labels=labels,
+        play_from={idx: t.play_from_ms for idx, t in times.items()},
+    )
 
 
 def _label_for(item: dict[str, Any], *, raw: bool) -> str | None:
@@ -1700,6 +1720,22 @@ async def lead_agent_id(session: AsyncSession, lead_id: UUID) -> UUID | None:
         )
     ).scalar()
     return UUID(str(value)) if value is not None else None
+
+
+async def lead_list_columns(session: AsyncSession, lead_id: UUID) -> dict[str, Any] | None:
+    """The campaign list row's own columns from the lead's latest call that dialled one, so
+    the lead page fills a detail from the list as that call's page does."""
+    value = (
+        await session.execute(
+            text(
+                f"SELECT s.list_columns FROM (SELECT {_LIST_COLUMNS_COLUMN}, c.created_at "
+                "FROM calls c WHERE c.lead_id = :lid AND c.campaign_id IS NOT NULL) s "
+                "WHERE s.list_columns IS NOT NULL ORDER BY s.created_at DESC LIMIT 1"
+            ),
+            {"lid": lead_id},
+        )
+    ).scalar()
+    return value if isinstance(value, dict) else None
 
 
 async def lead_phone(session: AsyncSession, lead_id: UUID) -> tuple[str, str | None]:

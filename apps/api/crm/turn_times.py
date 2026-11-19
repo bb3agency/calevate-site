@@ -41,6 +41,18 @@ from dataclasses import dataclass
 from itertools import pairwise
 
 from calevate_shared.events import CallTimeline, TurnTiming
+from pydantic import ValidationError
+
+
+def stored_timeline(value: object) -> CallTimeline | None:
+    """A stored `calls.engine_timeline`; None when none was stored or the record is not one
+    this code reads."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        return CallTimeline.model_validate(value)
+    except ValidationError:
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,4 +137,4 @@ def _heard_ms(row: TurnTiming) -> int | None:
     return row.caller_stopped_at_ms + delay
 
 
-__all__ = ["LineTime", "TimedLine", "line_times"]
+__all__ = ["LineTime", "TimedLine", "line_times", "stored_timeline"]

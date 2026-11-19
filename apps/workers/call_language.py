@@ -381,6 +381,17 @@ def romanised_local(summary_local: str, *, language: str) -> bool:
     )
 
 
+def caller_english(turns: Sequence[tuple[str, str, str | None]], *, language: str) -> str:
+    """The caller's lines in English, from `(speaker, text, text_en)`, to check a summary's
+    claim about them against their own words: a line's English when it has one, else the
+    line itself when it is English. Empty before the pass on a call in another language."""
+    return " ".join(
+        english or (body if is_english(language) and not has_indic_script(body) else "")
+        for speaker, body, english in turns
+        if speaker == "caller"
+    )
+
+
 def headline_from_summary(summary: str) -> str | None:
     """The headline drawn from an English summary when the model wrote none: its first
     sentence, redacted, clipped to one line."""
@@ -401,6 +412,7 @@ __all__ = [
     "TURNS_PER_REQUEST",
     "LanguagePass",
     "call_language",
+    "caller_english",
     "differs",
     "english_lines",
     "has_indic_script",

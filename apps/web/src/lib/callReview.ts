@@ -529,17 +529,63 @@ export function groupTurns(turns: readonly Turn[]): TurnGroup[] {
 }
 
 /**
+ * Characters of speech a second, the server's own estimate for how long a line takes to say
+ * (`calevate_shared.cut_off.AGENT_CHARS_PER_SECOND`, an ESTIMATE).
+ */
+const SPEECH_CHARS_PER_SECOND = 20;
+
+/** A line pressed to play it: shown as the active line while playback is inside it. */
+export interface PressedLine {
+  idx: number;
+  fromMs: number;
+}
+
+/**
+ * Where each line counts as being spoken from, by position in `turns`. A line with a start
+ * starts there. A caller line the platform timed only by when they stopped has none
+ * (`crm/turn_times`), so its window opens once the line before it has had time to be said,
+ * at most halfway to the next line that has a start: a guess used only for the highlight,
+ * never shown as a time.
+ */
+function lineFroms(turns: readonly Turn[]): (number | null)[] {
+  return turns.map((turn, i) => {
+    if (turn.start_ms != null) return turn.start_ms;
+    const from = turn.play_from_ms;
+    if (from == null) return null;
+    const before = turns[i - 1];
+    const said = before ? from + (before.text.length * 1000) / SPEECH_CHARS_PER_SECOND : from;
+    const next = turns.slice(i + 1).find((t) => t.start_ms != null)?.start_ms;
+    return next == null ? said : Math.min(said, from + (next - from) / 2);
+  });
+}
+
+/**
  * The turn being spoken at `playheadMs`: the last turn that has started. The NEXT turn's
  * start bounds it rather than this turn's own end, which is nullable on its own and would
  * leave gaps unhighlighted between turns that are adjacent. `null` before the first turn
  * or when no turn carries a time.
+ *
+ * `pressed` is the line the person pressed to play. A line with no start plays from the
+ * line before it, so without this the line before would light up instead of the one
+ * pressed; it stays active until playback reaches the next line's window or goes back
+ * before where it started.
  */
-export function activeTurnIdx(turns: readonly Turn[], playheadMs: number | null): number | null {
+export function activeTurnIdx(
+  turns: readonly Turn[],
+  playheadMs: number | null,
+  pressed: PressedLine | null = null,
+): number | null {
   if (playheadMs === null) return null;
+  const froms = lineFroms(turns);
+  if (pressed && playheadMs >= pressed.fromMs) {
+    const at = turns.findIndex((t) => t.idx === pressed.idx);
+    const nextFrom = froms.slice(at + 1).find((f) => f != null);
+    if (at >= 0 && (nextFrom == null || playheadMs < nextFrom)) return pressed.idx;
+  }
   let active: number | null = null;
-  for (const turn of turns) {
-    const at = turn.start_ms;
-    if (at === null || at === undefined) continue;
+  for (const [i, turn] of turns.entries()) {
+    const at = froms[i];
+    if (at == null) continue;
     if (at <= playheadMs) active = turn.idx;
     else break;
   }

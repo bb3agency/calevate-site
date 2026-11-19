@@ -38,6 +38,7 @@ from calevate_shared.extraction import GoalVerdict, NextStepBy, OutcomeTag
 from pydantic import (
     ConfigDict,
     Field,
+    PrivateAttr,
     StringConstraints,
     ValidationError,
     field_validator,
@@ -278,6 +279,9 @@ class CapturedFieldOut(Strict):
     #: the field, `crm/captured.with_list_columns`) or `lead` (the lead's name on file,
     #: `crm/captured.with_known_name`).
     source: Literal["call", "list", "lead"] = "call"
+    #: A choice detail's choices, for filling it from a list cell (`with_list_columns`).
+    #: Private, so never sent: the screen shows the value, not the field's definition.
+    _choices: tuple[str, ...] = PrivateAttr(default=())
 
 
 class CapturedFieldsOut(Strict):

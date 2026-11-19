@@ -215,6 +215,27 @@ async def test_recording_and_redacted_transcript(_presign: list[int]) -> None:
     assert await _audit_rows(call_id, service.RAW_TRANSCRIPT_INCLUDED_ACTION) == 0
 
 
+async def test_a_vendor_timed_caller_line_is_sent_with_no_start(_presign: list[int]) -> None:
+    """The caller's line is written down once they stopped, so its stored time is not where
+    it began: the webhook sends it as the call page shows it, with no start and the point to
+    play it from (`crm.turn_times`)."""
+    tenant_id, _, _ = await _make_tenant()
+    await _endpoint(tenant_id, include_transcript=True)
+    call_id = await _completed_call(tenant_id, recording_key=RECORDING_KEY)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE transcript_turns SET start_approximate = true WHERE call_id = :c"),
+            {"c": call_id},
+        )
+
+    (data,) = await _fan_out(tenant_id, call_id)
+
+    assert [
+        (t["speaker"], t["start_ms"], t["play_from_ms"], t["start_approximate"])
+        for t in data["transcript"]
+    ] == [("agent", 0, 0, True), ("caller", None, 0, True)]
+
+
 # --- 3. raw transcript is carried AND audited ---------------------------------
 
 

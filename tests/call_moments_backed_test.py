@@ -213,6 +213,4 @@ async def test_a_row_stored_before_the_rule_no_longer_shows_on_either_page() -> 
         detail = await get_call(session, call_id, raw=False)
         lead_page = await _call_moments(session, {call_id})
     assert [m.turn_idx for m in detail.moments] == [4]
-    assert sorted(m.turn_idx or 0 for m in lead_page[call_id]) == [3, 4], (
-        "the lead page has no turns, so it checks the field only"
-    )
+    assert lead_page[call_id] == detail.moments, "the lead page checks the line as well"

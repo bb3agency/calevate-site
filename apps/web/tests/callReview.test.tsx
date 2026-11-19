@@ -5,6 +5,7 @@ import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
 import {
   OUTCOME_KIND_WORDS,
   type OutcomeKind,
+  activeTurnIdx,
   callOutcome,
   callbackLine,
   callbackWhen,
@@ -952,5 +953,48 @@ describe("key moments (6 Nov 2026 call review)", () => {
     await renderClientPage(page, routes(detail({ moments: [blank, blank, blank] })));
     await screen.findByRole("heading", { name: "Conversation" });
     expect(screen.queryByRole("heading", { name: "Key moments" })).toBeNull();
+  });
+});
+
+describe("the line lit while the recording plays (19 Nov 2026 call page)", () => {
+  // A caller line the platform timed only by when they stopped has no start and plays
+  // from the line before it (`crm/turn_times`).
+  const line = (idx: number, speaker: "agent" | "caller", text: string, start: number | null, from: number | null) => ({
+    idx,
+    speaker,
+    text,
+    text_en: null,
+    lang: "en",
+    redacted: true,
+    start_ms: start,
+    play_from_ms: from,
+    start_approximate: true,
+    likely_cut_off: false,
+  });
+  // The agent line is 40 characters, about 2 s to say; the next placed line is at 20 s.
+  const turns = [
+    line(0, "agent", "Hello, I am calling about the app today.", 1000, 1000),
+    line(1, "caller", "Go ahead.", null, 1000),
+    line(2, "agent", "Are you using it?", 20_000, 20_000),
+  ];
+
+  it("lights the caller's line once the line before it has been said", () => {
+    expect(activeTurnIdx(turns, 1500)).toBe(0);
+    expect(activeTurnIdx(turns, 4000)).toBe(1);
+    expect(activeTurnIdx(turns, 21_000)).toBe(2);
+  });
+
+  it("lights the line pressed, not the line it plays from", () => {
+    const pressed = { idx: 1, fromMs: 1000 };
+    expect(activeTurnIdx(turns, 1000, pressed)).toBe(1);
+    expect(activeTurnIdx(turns, 1500, pressed)).toBe(1);
+    expect(activeTurnIdx(turns, 20_500, pressed)).toBe(2);
+    expect(activeTurnIdx(turns, 500, pressed)).toBeNull();
+  });
+
+  it("never opens a caller line's window past halfway to the next placed line", () => {
+    const long = [line(0, "agent", "x".repeat(400), 0, 0), line(1, "caller", "Yes.", null, 0), line(2, "agent", "Good.", 4000, 4000)];
+    expect(activeTurnIdx(long, 1500)).toBe(0);
+    expect(activeTurnIdx(long, 2500)).toBe(1);
   });
 });

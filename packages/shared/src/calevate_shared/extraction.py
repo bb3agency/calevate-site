@@ -1103,12 +1103,91 @@ def asserts_feeling(text: str) -> bool:
     return _FEELING_RE.search(text) is not None
 
 
-def without_feelings(text: str) -> str:
-    """`text` without its sentences that say how someone felt; `text` itself when every
-    sentence does, because a summary is still the call's only account of it."""
-    kept = [s.strip() for s in _SENTENCE_RE.findall(text) if s.strip()]
-    plain = [s for s in kept if not asserts_feeling(s)]
-    return " ".join(plain) if plain else text
+#: "<someone> was upset that <a fact>": the feeling wraps the fact, so it is restated as said.
+_FELT_REASON_RE: Final = re.compile(
+    r"\b(?:is|was|were|are|seems|seemed|feels|felt|appears|appeared|became|got|remained)\s+"
+    r"(?:(?:very|quite|really|extremely|clearly|visibly|rather|somewhat|a\s+bit|a\s+little)\s+)?"
+    rf"(?:{_FEELING_RE.pattern})\s+(?P<link>that|because|since|about|over|regarding)\s+",
+    re.IGNORECASE,
+)
+#: The verb a feeling is stated with, so its subject can be carried onto what is kept.
+_FELT_RE: Final = re.compile(
+    r"\b(?:is|was|were|are|seems|seemed|feels|felt|appears|appeared|became|got|remained)\s+"
+    r"(?:(?:very|quite|really|extremely|clearly|visibly|rather|somewhat|a\s+bit|a\s+little)\s+)?"
+    rf"(?:{_FEELING_RE.pattern})",
+    re.IGNORECASE,
+)
+#: Where one clause ends and the next begins. "and" before a determiner usually joins two
+#: things one verb governs ("happy with the price and the timing"), so it does not split.
+_CLAUSE_SPLIT_RE: Final = re.compile(
+    r"\s*(?:,\s*(?:and|but|so)?|;|\s+(?:but|so)\s+|"
+    r"\s+and\s+(?!(?:the|a|an|their|his|her|its|my|your|our)\b))\s*",
+    re.IGNORECASE,
+)
+#: A clause that already names who did it, so no subject is carried onto it.
+_HAS_SUBJECT_RE: Final = re.compile(
+    r"(?i:the|a|an|they|he|she|it|we|i|this|that|their|his|her)\b|[A-Z]"
+)
+
+
+def without_feelings(text: str, *, said: str = "") -> str:
+    """`text` without what it says about how someone felt, keeping every fact and request
+    beside it; `text` itself when nothing would be left, because a summary is still the
+    call's only account of it.
+
+    A feeling the caller's own words name (`said`, their lines in English) is theirs, not a
+    guess, and stays. Otherwise "The caller was upset that the delivery is late and wants a
+    refund." becomes "The caller said the delivery is late and wants a refund.", and a
+    feeling clause beside other clauses goes on its own ("The caller was frustrated but
+    agreed to a call back." keeps "The caller agreed to a call back."). Only a sentence that
+    is nothing but a feeling or a verdict on the call is dropped whole."""
+    heard = {word.lower() for word in re.findall(r"[A-Za-z]+", said)}
+    kept: list[str] = []
+    for sentence in (s.strip() for s in _SENTENCE_RE.findall(text)):
+        if not sentence:
+            continue
+        words = {m.group(0).lower() for m in _FEELING_RE.finditer(sentence)}
+        if not words or any(w in heard for w in words):
+            kept.append(sentence)
+            continue
+        restated = _without_feeling_clause(sentence)
+        if restated:
+            kept.append(restated)
+    return " ".join(kept) if kept else text
+
+
+def _restated_reason(match: re.Match[str]) -> str:
+    """A feeling with a reason, restated: "was upset that X" as "said X", "was upset about
+    X" as "spoke about X"."""
+    return "said " if match["link"].lower() in ("that", "because", "since") else "spoke about "
+
+
+def _without_feeling_clause(sentence: str) -> str:
+    """One sentence with its unbacked feeling taken out, or "" when nothing else is in it."""
+    sentence = _FELT_REASON_RE.sub(_restated_reason, sentence)
+    if not asserts_feeling(sentence):
+        return sentence
+    end = re.search(r"[.!?]+$", sentence)
+    stop = end.group(0) if end else "."
+    body = sentence[: end.start()] if end else sentence
+    # A one-word clause ("Overall,") says nothing on its own.
+    clauses = [c.strip() for c in _CLAUSE_SPLIT_RE.split(body) if len(c.split()) > 1]
+    subject = ""
+    rest: list[str] = []
+    for clause in clauses:
+        if not asserts_feeling(clause):
+            rest.append(clause)
+            continue
+        felt = _FELT_RE.search(clause)
+        if not rest and not subject and felt is not None:
+            subject = clause[: felt.start()].strip()
+    if not rest:
+        return ""
+    first = rest[0]
+    if subject and not _HAS_SUBJECT_RE.match(first):
+        first = f"{subject} {first}"
+    rest[0] = first[:1].upper() + first[1:]
+    return " and ".join(rest) + stop
 
 
 def owner_step(text: str) -> str:

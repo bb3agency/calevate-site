@@ -259,7 +259,7 @@ def test_an_empty_detail_a_list_column_names_is_filled_from_the_list() -> None:
     )
     assert (filled[0].value, filled[0].source) == ("Kondapur", "list")
     assert (filled[1].value, filled[1].source) == ("said on the call", "call"), "call wins"
-    assert filled[2].value is None, "only a text detail takes a list cell as it is"
+    assert (filled[2].value, filled[2].source) == (3, "list"), "a number cell, as a number"
     assert filled[3].value is None, "a blank cell fills nothing"
     assert with_list_columns(fields, columns=None) == fields
 

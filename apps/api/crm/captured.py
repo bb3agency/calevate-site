@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Final, Literal
 from uuid import UUID
 
@@ -146,14 +147,17 @@ async def captured_fields(
     for field in with_core(capturing, await core_labels(session)):
         listed.add(field.key)
         out.append(
-            CapturedFieldOut(
-                key=field.key,
-                label=field.label,
-                type=field.type,
-                core=field.key in CORE_KEYS,
-                current=field.key in CORE_KEYS or field.key in newest_keys,
-                value=data.get(field.key),
-                unlisted=_said(field, data, unlisted),
+            _with_choices(
+                CapturedFieldOut(
+                    key=field.key,
+                    label=field.label,
+                    type=field.type,
+                    core=field.key in CORE_KEYS,
+                    current=field.key in CORE_KEYS or field.key in newest_keys,
+                    value=data.get(field.key),
+                    unlisted=_said(field, data, unlisted),
+                ),
+                field,
             )
         )
     known: dict[str, ExtractionField] = {}
@@ -174,15 +178,24 @@ async def captured_fields(
             continue
         earlier = known.get(key)
         out.append(
-            CapturedFieldOut(
-                key=key,
-                label=earlier.label if earlier else _humanised(key),
-                type=earlier.type if earlier else "text",
-                core=False,
-                current=key in newest_keys,
-                value=value,
+            _with_choices(
+                CapturedFieldOut(
+                    key=key,
+                    label=earlier.label if earlier else _humanised(key),
+                    type=earlier.type if earlier else "text",
+                    core=False,
+                    current=key in newest_keys,
+                    value=value,
+                ),
+                earlier,
             )
         )
+    return out
+
+
+def _with_choices(out: CapturedFieldOut, field: ExtractionField | None) -> CapturedFieldOut:
+    if field is not None and field.type == "enum":
+        out._choices = tuple(field.enum_values or ())
     return out
 
 
@@ -233,11 +246,13 @@ def _header_key(header: str) -> str:
 def with_list_columns(
     fields: list[CapturedFieldOut], *, columns: dict[str, Any] | None
 ) -> list[CapturedFieldOut]:
-    """`fields` with an empty text field filled from the campaign list row this call dialled
+    """`fields` with an empty field filled from the campaign list row this call dialled
     (`campaign_contacts.custom`, D-905), marked `list`. A column matches a field whose key or
     label it spells, folded as `call_variable_key` folds a header ("Village Name" is
     `village_name`). The list already gave the agent that value (D-905's THIS CALL), so the
-    call not saying it again is not a gap. A value the call captured is never replaced."""
+    call not saying it again is not a gap. A value the call captured is never replaced, and a
+    cell that does not read cleanly as the field's type (`_list_value`) fills nothing: a
+    number field showing "about ten" would claim a value no reading produced."""
     if not columns:
         return fields
     by_key: dict[str, str] = {}
@@ -251,10 +266,53 @@ def with_list_columns(
     out: list[CapturedFieldOut] = []
     for field in fields:
         known = by_key.get(_header_key(field.key)) or by_key.get(_header_key(field.label))
-        if known and field.type == "text" and field.value is None and field.unlisted is None:
-            field = field.model_copy(update={"value": known, "source": "list"})
+        if known and field.value is None and field.unlisted is None:
+            value = _list_value(field, known)
+            if value is not None:
+                field = field.model_copy(update={"value": value, "source": "list"})
         out.append(field)
     return out
+
+
+_LIST_NUMBER_RE: Final = re.compile(r"[0-9]+(?:\.[0-9]+)?")
+_LIST_YES_NO: Final[dict[str, bool]] = {
+    "yes": True,
+    "true": True,
+    "1": True,
+    "no": False,
+    "false": False,
+    "0": False,
+}
+_LIST_ISO_DATE_RE: Final = re.compile(r"([0-9]{4})-([0-9]{2})-([0-9]{2})")
+_LIST_DMY_DATE_RE: Final = re.compile(r"([0-9]{1,2})/([0-9]{1,2})/([0-9]{4})")
+
+
+def _list_value(field: CapturedFieldOut, cell: str) -> Any:
+    """A list cell as a value of the field's type, in the shape a reading stores it, or None
+    when it does not read cleanly as one. Stricter than `coerce_value`, which reads a model's
+    answer ("about 5000 rupees" is 5000): a list cell is the business's own data, so only a
+    value with one plain reading is taken. Dates are ISO or DD/MM/YYYY, the day-first order
+    Indian lists use."""
+    if field.type == "text":
+        return cell
+    if field.type == "number":
+        if not _LIST_NUMBER_RE.fullmatch(cell):
+            return None
+        return float(cell) if "." in cell else int(cell)
+    if field.type == "bool":
+        return _LIST_YES_NO.get(cell.lower())
+    if field.type == "enum":
+        return next((c for c in field._choices if c.strip().lower() == cell.lower()), None)
+    iso = _LIST_ISO_DATE_RE.fullmatch(cell)
+    dmy = _LIST_DMY_DATE_RE.fullmatch(cell)
+    try:
+        if iso:
+            return date(int(iso[1]), int(iso[2]), int(iso[3])).isoformat()
+        if dmy:
+            return date(int(dmy[3]), int(dmy[2]), int(dmy[1])).isoformat()
+    except ValueError:
+        return None
+    return None
 
 
 #: Why a captured detail is unclear, in the owner's words, from the validator's message.

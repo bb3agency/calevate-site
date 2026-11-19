@@ -1,7 +1,7 @@
 "use client";
 
 import { Languages } from "lucide-react";
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { Section } from "@/components/console/section";
 import { SegmentedControl } from "@/components/interior/segmented-control";
@@ -11,7 +11,7 @@ import { formatClock } from "@/components/callAudioPlayer";
 import type { CallDetail } from "@/lib/api/client";
 import type { WriteAccess } from "@/lib/api/hooks";
 import { spokenClock } from "@/lib/callMoments";
-import { activeTurnIdx, groupTurns, isEnglishCall, langAttr, languageName } from "@/lib/callReview";
+import { activeTurnIdx, groupTurns, isEnglishCall, langAttr, languageName, type PressedLine } from "@/lib/callReview";
 import { lookup } from "@/lib/lookup";
 
 import type { CallView } from "./callEnglish";
@@ -88,7 +88,13 @@ export function TranscriptCard({
   marker?: (turn: Turn) => ReactNode;
   className?: string;
 }) {
-  const active = activeTurnIdx(turns, playhead === null ? null : playhead * 1000);
+  // The line last pressed, so a line that plays from the one before it is the one lit.
+  const [pressed, setPressed] = useState<PressedLine | null>(null);
+  const active = activeTurnIdx(turns, playhead === null ? null : playhead * 1000, pressed);
+  const seekLine = (idx: number, ms: number) => {
+    setPressed({ idx, fromMs: ms });
+    onSeek(ms);
+  };
   const listRef = useFollowAlong(active);
   const englishCall = isEnglishCall(detail.language);
   const showEnglish = view === "english" && !englishCall;
@@ -162,7 +168,7 @@ export function TranscriptCard({
                         english={showEnglish}
                         seekable={audioLoaded && playFrom(turn) != null}
                         active={active === turn.idx}
-                        onSeek={onSeek}
+                        onSeek={(ms) => seekLine(turn.idx, ms)}
                         marker={marker?.(turn)}
                       />
                     ))}

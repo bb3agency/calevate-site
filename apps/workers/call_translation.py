@@ -41,7 +41,11 @@ from uuid import UUID
 from arq import Retry
 from calevate_shared.backoff import ladder_delay_s
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
-from calevate_shared.extraction import DEFAULT_EXTRACTION_LANGUAGE, spell_business_name
+from calevate_shared.extraction import (
+    DEFAULT_EXTRACTION_LANGUAGE,
+    spell_business_name,
+    without_feelings,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,7 +65,7 @@ from apps.api.db.session import admin_session, tenant_session
 from apps.api.integrations import service as integrations
 from apps.api.tenancy.business_profile import BUSINESS_LANGUAGE_SQL
 from apps.workers import call_language
-from apps.workers.chat import TokenUsage
+from apps.workers.chat import TokenUsage, sum_usage
 from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.redaction import redact
 
@@ -220,13 +224,20 @@ def _settle_row(
     new_english: str,
     new_local: str,
     gave_up: bool,
+    restated_local: str | None = None,
 ) -> _Written:
     """The call row after the pass, from the row as it stands NOW (locked), not as it was
-    read before the round trip: a summary a pipeline re-drive wrote meanwhile is kept."""
+    read before the round trip: a summary a pipeline re-drive wrote meanwhile is kept.
+    `restated_local` is the call-language summary the pass wrote again from cleaned English
+    (`translate_call`), replaced only while the row still holds it."""
     summary, local, local_language, headline = current[0], current[1], current[2], current[3]
     # The romanised placeholder is ours to replace; a summary in the language's own script
-    # somebody else wrote is not.
-    replaceable = local is None or (bool(romanised) and local == romanised)
+    # somebody else wrote is not, unless it is the one this pass restated.
+    replaceable = (
+        local is None
+        or (bool(romanised) and local == romanised)
+        or (restated_local is not None and local == restated_local)
+    )
     if new_local and replaceable:
         local, local_language = new_local, language
     filled = False
@@ -298,7 +309,8 @@ async def translate_call(
         turn_rows = (
             await session.execute(
                 text(
-                    "SELECT idx, COALESCE(text_redacted, ''), text_en FROM transcript_turns "
+                    "SELECT idx, COALESCE(text_redacted, ''), text_en, speaker "
+                    "FROM transcript_turns "
                     "WHERE call_id = :cid AND tenant_id = :tid ORDER BY idx"
                 ),
                 {"cid": call_id, "tid": tenant_id},
@@ -327,6 +339,8 @@ async def translate_call(
 
     turns_en: dict[int, str] = {}
     new_local = new_english = ""
+    # The call-language summary a restatement replaces (`_settle_row`), when there was one.
+    restated_local: str | None = None
     usage: TokenUsage | None = None
     incomplete = False
     if not (pending or want_local or want_english):
@@ -349,12 +363,33 @@ async def translate_call(
         usage = done.usage
         turns_en = call_language.english_lines(pending, done)
         new_local = done.summary_local if want_local else ""
-        # The business's own spelling, as `pipeline._record_reading` restores it.
-        new_english = (
-            spell_business_name(done.summary_en, str(row[3]) if row[3] else None)
-            if want_english
-            else ""
+        new_english = done.summary_en if want_english else ""
+        # The same feeling check `pipeline._settle_summaries` makes on the English it keeps.
+        cleaned = without_feelings(
+            new_english,
+            said=call_language.caller_english(
+                [(str(t[3]), str(t[1]), turns_en.get(int(t[0]), t[2])) for t in turn_rows],
+                language=language,
+            ),
         )
+        if cleaned != new_english:
+            new_english = cleaned
+            # The call-language summary came from the same source that carried the claim and
+            # no check of ours reads it, so it is written again from the cleaned English.
+            again = await call_language.run_language_pass(
+                api_key=api_key,
+                language=language,
+                turns=[],
+                summary_en=cleaned,
+                summary_local="",
+            )
+            if again.usage is not None or not again.failed:
+                # A pass that failed before answering was not billed (`sum_usage`).
+                usage = sum_usage([usage, again.usage])
+            if again.summary_local:
+                new_local, restated_local = again.summary_local, local or None
+        # The business's own spelling, as `pipeline._record_reading` restores it.
+        new_english = spell_business_name(new_english, str(row[3]) if row[3] else None)
         incomplete = done.failed and bool(
             pending or (want_english and not new_english) or (want_local and not new_local)
         )
@@ -383,6 +418,7 @@ async def translate_call(
             new_english=new_english,
             new_local=new_local,
             gave_up=incomplete and final,
+            restated_local=restated_local,
         )
         await session.execute(
             text(

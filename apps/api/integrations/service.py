@@ -99,6 +99,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger, redact_mapping
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.spreadsheet_safety import disarm_for_sheets
+from apps.api.crm.turn_times import TimedLine, line_times, stored_timeline
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.integrations import leadsquared
@@ -1532,18 +1533,41 @@ async def _transcript_turns(
     `ORDER BY idx`) so the webhook and the dashboard cannot disagree about what a turn
     says. `text` is the raw column, `text_redacted` the masked one — the single switch
     hard rule 5 is built around.
+
+    Each line is timed as the call page times it (`crm.turn_times`): a caller line the
+    platform timed only by when it was written down has no start (`start_ms` null), and
+    `play_from_ms` is where its recording should be played from.
     """
     column = "text" if raw else "text_redacted"
     rows = (
         await session.execute(
             text(
-                f"SELECT speaker, COALESCE({column}, ''), lang, start_ms "
-                "FROM transcript_turns WHERE call_id = :cid ORDER BY idx"
+                f"SELECT idx, speaker, COALESCE({column}, ''), lang, start_ms, "
+                "start_approximate FROM transcript_turns WHERE call_id = :cid ORDER BY idx"
             ),
             {"cid": call_id},
         )
     ).all()
-    return [{"speaker": r[0], "text": r[1], "lang": r[2], "start_ms": r[3]} for r in rows]
+    timeline = (
+        await session.execute(
+            text("SELECT engine_timeline FROM calls WHERE id = :cid"), {"cid": call_id}
+        )
+    ).scalar()
+    times = line_times(
+        [TimedLine(r[0], r[1], r[4], approximate=bool(r[5])) for r in rows],
+        stored_timeline(timeline),
+    )
+    return [
+        {
+            "speaker": r[1],
+            "text": r[2],
+            "lang": r[3],
+            "start_ms": times[r[0]].start_ms,
+            "play_from_ms": times[r[0]].play_from_ms,
+            "start_approximate": bool(r[5]),
+        }
+        for r in rows
+    ]
 
 
 async def _recording_url(session: AsyncSession, call_id: UUID) -> str | None:

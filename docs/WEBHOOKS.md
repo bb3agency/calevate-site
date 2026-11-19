@@ -87,8 +87,15 @@ opt-ins** add more to `call.completed`, and only to the endpoint that asked (§1
   under retention), the field is **omitted**, not sent as `null`.
 - `transcript` — present only if the endpoint opted into `include_transcript`. The
   **redacted** transcript: a JSON array of turns, each `{ "speaker", "text", "lang",
-  "start_ms" }`, in call order, with personal details (numbers, IDs, OTPs) masked — the
-  same text a dashboard reader with `calls:read` sees.
+  "start_ms", "play_from_ms", "start_approximate" }`, in call order, with personal details
+  (numbers, IDs, OTPs) masked — the same text a dashboard reader with `calls:read` sees.
+  Times are milliseconds from when the call was answered, as the dashboard shows them.
+  **`start_ms` may be `null`**: the voice platform records a caller's line only once the
+  caller has finished, so nothing says where that line began, and we do not guess.
+  `play_from_ms` is where to play the recording from to hear the line (for a line with no
+  start, the start of the line before it); it is `null` only when the line has no time at
+  all. `start_approximate` is `true` when the time is the platform's estimate rather than a
+  point measured in the audio.
 - `raw_transcript` — present only if the endpoint opted into `include_raw_transcript`. The
   **unredacted** transcript, same array shape as `transcript`. This is your customer's
   personal data in the clear, so it is gated harder — see §1.7.

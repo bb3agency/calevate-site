@@ -3050,6 +3050,7 @@ def _settle_summaries(
     model_summary: str,
     stored_local: str,
     language: str,
+    caller_said: str = "",
 ) -> tuple[str, str, str | None, str]:
     """`(english, local, source, romanised)` before any translation.
 
@@ -3072,7 +3073,12 @@ def _settle_summaries(
     The same holds for an engine summary that says how the caller felt or that the call
     ended well ("The call ended with the customer satisfied." over a call cut off mid-
     sentence, 19 Nov 2026 call review): ours, which is told to state only what was said,
-    takes its place; with none, the engine's stands without those sentences.
+    takes its place; with none, the engine's stands with the feeling taken out and every
+    fact beside it kept (`without_feelings`). Whatever English is kept gets the same check,
+    ours included, unless the caller's own words (`caller_said`) name the feeling. When that
+    check changes the English and the call-language summary beside it is the engine's own,
+    which no check of ours can read, that one is not kept: the language pass writes it again
+    from the cleaned English, so the claim cannot survive in the other language.
     """
     english, local, source = "", stored_local, None
     romanised: tuple[str, str] | None = None
@@ -3088,12 +3094,17 @@ def _settle_summaries(
     elif engine_summary and call_language.reads_as_romanised(engine_summary):
         romanised = (engine_summary, "engine")
     elif engine_summary and not (engine_guesses and neutral_model):
-        english, source = without_feelings(engine_summary), "engine"
+        english, source = engine_summary, "engine"
     if not english and model_summary:
         if not call_language.reads_as_romanised(model_summary):
             english, source = model_summary, "extraction"
         elif romanised is None:
             romanised = (model_summary, "extraction")
+    cleaned = without_feelings(english, said=caller_said)
+    if cleaned != english:
+        english = cleaned
+        if local and local == engine_summary:
+            local = stored_local if stored_local != engine_summary else ""
     if call_language.is_english(language):
         # An English call has nothing to translate into; the words are the only summary.
         if not english and romanised is not None:
@@ -3157,7 +3168,8 @@ async def _record_reading(
         turns = (
             await session.execute(
                 text(
-                    "SELECT idx, COALESCE(text_redacted, ''), text_en FROM transcript_turns "
+                    "SELECT idx, COALESCE(text_redacted, ''), text_en, speaker "
+                    "FROM transcript_turns "
                     "WHERE call_id = :cid AND tenant_id = :tid ORDER BY idx"
                 ),
                 {"cid": call_id, "tid": tenant_id},
@@ -3174,6 +3186,9 @@ async def _record_reading(
         model_summary=extraction.summary.strip() if extraction is not None and answered else "",
         stored_local=str(row[1] or ""),
         language=language,
+        caller_said=call_language.caller_english(
+            [(str(t[3]), str(t[1]), t[2]) for t in turns], language=language
+        ),
     )
 
     stored_english = str(row[3] or "")
@@ -3199,7 +3214,7 @@ async def _record_reading(
         []
         if translation_state == "ready"
         else call_language.untranslated_turns(
-            [(int(idx), body, english_text) for idx, body, english_text in turns],
+            [(int(idx), body, english_text) for idx, body, english_text, _speaker in turns],
             language=language,
         )
     )
