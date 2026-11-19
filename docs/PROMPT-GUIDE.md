@@ -251,6 +251,15 @@ SPEAK: '"Anything else?" only once a topic is done, never twice running; mid-tas
 next step or a check on it.' New SOUND check `offered_more_too_soon` (asked in two of three
 replies), also counted on real calls.
 
+**What the 19 Nov call showed (D-1022).** A placed Rytu Khata call: "OK, no problem." and
+nothing more, the earlier question said again after "I'm not using it", "anything else?" three
+replies running and a recap begun after "that's all". HOW TO SPEAK now says "Never a reaction
+alone: add a question or next step, unless closing.", "Adapt to the answer." and '"Anything
+else?" once, when the task is done; "that is all"? Close.' (replacing D-959's "only once a topic
+is done, never twice running"); `NAME_RULE` never asks a name THIS CALL has or invents one. New
+SOUND check `stalled`, counted on real calls; `offered_more_too_soon` also fires after the caller
+signs off.
+
 **Two opening lines (D-920).** An agent that both answers and places calls (`both`) has two
 openings: its greeting for calls it answers and `CallScript.outbound_opening_line`, compiled
 under `[OPENING ON CALLS YOU PLACE]` and read back by `call_script.outbound_opening_of`. Every

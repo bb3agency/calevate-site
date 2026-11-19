@@ -176,7 +176,7 @@ def test_the_refusal_asks_for_an_opening_line_not_for_a_notice() -> None:
 
 
 def test_the_length_ceiling_counts_the_notices_and_the_opening_line_together() -> None:
-    opening = "a" * (200 - len(NOTICES))  # with the joining space, one over
+    opening = "a" * (199 - len(NOTICES)) + "?"  # with the joining space, one over
     with pytest.raises(ProblemError) as caught:
         refuse_over_engine_limits(_thinnest(), _config(opening=opening, direction="inbound"))
     assert caught.value.code == OPENING_TOO_LONG

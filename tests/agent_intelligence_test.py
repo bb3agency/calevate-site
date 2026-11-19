@@ -296,7 +296,9 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # The founder's Rytu Khata calls of 9 Nov 2026: a suffix joins as the language's print
     # does, a step that says to greet or introduce is told that is done, and a reaction is
     # never the same twice in a call (8,249 before, 8,345 after).
-    assert len(prompt) <= 8_350
+    # D-1022, the Rytu Khata call of 19 Nov 2026: no turn is a reaction alone, the plan moves
+    # with an answer, "anything else?" once, a known name never asked (8,454 after).
+    assert len(prompt) <= 8_460
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

@@ -5,6 +5,7 @@
     "turn_checks.question_words": "Telugu and Hindi question words with an ending joined on, as callers say them (the Telugu for 'how much for', 'to where', 'from when', 'by when'). Only whole bare question words are heard as a question today, so such a question without a '?' is missed (5 Nov 2026, L5-05). Add each form to this list.",
     "detection.dont_know": "'I don't know', 'I can't say', 'no idea' in Telugu letters and in Hindi letters. Only the romanised forms are listed, so an agent turn written in Telugu letters saying it does not know is not seen.",
     "detection.later_by_a_person": "'the team will call you', 'we will call you later', 'someone will get back to you' in Telugu letters and in Hindi letters (only two romanised Telugu forms are listed).",
+    "turn_checks._ASKS_TO_WAIT": "'wait', 'one minute', 'hold on' in Telugu letters and in Hindi letters (only English is listed), so a 'Sure.' to a Telugu 'one minute' followed by a question is noted as a stalled reply.",
     "detection.stalls": "'let me check and tell you', 'I will find out and tell you' in Telugu letters and in Hindi letters (only two romanised Telugu forms are listed).",
     "detection.topic.*": "Each topic's trigger words in Telugu letters and Hindi letters (only English and a few romanised words are listed), so a question asked in Telugu letters falls to the caller's-own-words label instead of the topic."
   },
@@ -178,6 +179,7 @@
     "turn_checks._SLOWER": "slow(?:ly|er)?|నెమ్మదిగా|మెల్లగా|నిదానంగా|స్లోగా|धीरे",
     "turn_checks._ASKS_REPEAT": "మళ్ళా|మళ్ళీ|మళ్లీ|మరలా|ఇంకోసారి|फिर से|दोबारा|एक बार और",
     "turn_checks._CALLER_SIGNS_OFF": "\\bnothing (?:else|more)\\b|\\bthat'?s (?:all|it)\\b|\\bbye\\b|\\b(?:i'?ll|i will|we'?ll|will) (?:call|ring|phone|contact) (?:you )?(?:back )?(?:later|again|tomorrow|another time|when)|\\b(?:call|talk|speak) (?:to you |you )?later\\b|బై|అంతే|बस इतना|बाय",
+    "turn_checks._ASKS_TO_WAIT": "\\bwait\\b|\\bhold on\\b|\\b(?:one|a|just a|give me a) (?:minute|moment|second|sec)\\b",
     "turn_checks._ASKS_IF_NOW_SUITS": "good time|(?:is|if) (?:now|this) (?:a good time|ok|okay|fine)|can (?:you|we) talk|free to talk|(?:got|have) a (?:minute|moment)|మాట్లాడొచ్చా|మాట్లాడవచ్చా|మాట్లాడగలరా|మాట్లాడటం కుదురుతుందా|మాట్లాడడం కుదురుతుందా|మాట్లాడటానికి (?:సమయం|టైమ్|వీలు)|ఇప్పుడు కుదురుతుందా|ఫ్రీగా ఉన్నారా|बात कर सकते|बात कर सकती|अभी बात|बात करने का (?:समय|टाइम)|सही समय",
     "turn_checks._SALUTATION": "^\\W*(?:namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)|నమస్కారం|నమస్కారాలు|నమస్తే|नमस्ते|नमस्कार)(?=[\\s,.!?।]|$)",
     "turn_checks._NUMBER_VALUES.1": [

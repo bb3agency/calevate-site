@@ -40,10 +40,10 @@ from calevate_shared.engine import CALL_INSTRUCTIONS, AgentConfig, compose_engin
 OWNER_RESERVE = MAX_PINNED_CHARS + 7_000
 
 #: Characters the long script below must still leave free: room for its pinned facts to grow
-#: to their ceiling and 5,979 more of the owner's text (6,000 until D-979, 10 Nov 2026: the
+#: to their ceiling and 5,865 more of the owner's text (6,000 until D-979, 10 Nov 2026: the
 #: founder's "said so on this call or THIS CALL says so" is 21 characters longer on a placed
-#: call).
-LONG_MARGIN = MAX_PINNED_CHARS + 5_979
+#: call; 5,979 until D-1022, 19 Nov 2026, whose conversation rules are 114).
+LONG_MARGIN = MAX_PINNED_CHARS + 5_865
 
 COLLECT = [
     CollectField(label="Name", required=True),
@@ -150,10 +150,11 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 
 
 #: Characters a guided call (the long script plus step-by-step lists of the size a phone
-#: walk-through takes) must still leave: pinned facts at their ceiling and 2,379 more (2,500
+#: walk-through takes) must still leave: pinned facts at their ceiling and 2,265 more (2,500
 #: until F-5, 5 Nov 2026, whose written-form rule is 75 characters of new HOW TO SPEAK text;
-#: 2,400 until D-979, 10 Nov 2026, whose placed-call wording is 21 characters longer).
-GUIDED_MARGIN = MAX_PINNED_CHARS + 2_379
+#: 2,400 until D-979, 10 Nov 2026, whose placed-call wording is 21 characters longer; 2,379
+#: until D-1022, 19 Nov 2026, whose conversation rules are 114).
+GUIDED_MARGIN = MAX_PINNED_CHARS + 2_265
 
 
 def _guided(job: str) -> CallScript:
@@ -275,8 +276,12 @@ def test_an_inbound_lines_engine_agent_that_places_calls_fits_the_same_margins()
 #: there, read as "not twice in a row"; "in a call" (+10) closes it. Our call rules replace
 #: the engine's default ones on that account (`thinnest_call_instructions` on since 21 Oct
 #: 2026), so the repetition was ours to fix.
-PER_CALL_MAX = 7_719
-PER_CALL_ONE_LANGUAGE_MAX = 6_844
+#: D-1022 (founder's Rytu Khata campaign call of 19 Nov 2026) RAISED both by 114 (7,833/6,958):
+#: no sentence said what a turn ends on ("OK, no problem." and silence), that the plan moves
+#: with an answer, that "anything else?" is asked once and "that is all" closes, or that a name
+#: the call already has is never asked or made up.
+PER_CALL_MAX = 7_833
+PER_CALL_ONE_LANGUAGE_MAX = 6_958
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

@@ -72,9 +72,11 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: does or it is why we call, and says what was talked about, not what is true now; a reply
 #: opens with a full stop; the language guides carry no brackets; two full sentences in
 #: another language switch it, a few words never do.
+#: D-1022 (19 Nov 2026): never a reaction alone, adapt to the answer, "anything else?" once and
+#: "that is all" closes, a name THIS CALL has is never asked or invented.
 PINNED = (
-    "be84caac802f0a26b62a5716462e43b79f6f3eccbcf0ccce194d302a486f0468",
-    "6f1c81866edb4dfb89fd31d5674bd262f2bdb3ce01855d0df6d51f4fa19b2eae",
+    "61fa47bb24768d47b8b3524ee7b3b0ebd886aa65f3b301c554c81eb2a0b97b37",
+    "5e60702f7dffe08e9e8e301b0cff7532d1fe3f055295e09cf5eceed368397183",
 )
 
 

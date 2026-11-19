@@ -164,6 +164,20 @@ _CASES: list[tuple[str, CallScript, str, CallScript]] = [
         "opening_line",
         _script(_stage("s1", "Which area do you live in?")),
     ),
+    (
+        "stalled",
+        _script(
+            _stage("s1", "Which area?"),
+            _stage("s2", "OK, no problem."),
+            _stage("s3", "Thank you."),
+        ),
+        "stages.1.sounds_like",
+        _script(
+            _stage("s1", "Which area?"),
+            _stage("s2", "OK, which day suits you?"),
+            _stage("s3", "Thank you."),
+        ),
+    ),
 ]
 
 

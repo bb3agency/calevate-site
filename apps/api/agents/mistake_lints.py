@@ -285,6 +285,17 @@ def _offered_more_too_soon(script: CallScript, _context: LintContext) -> list[st
     return found
 
 
+def _stalled(script: CallScript, _context: LintContext) -> list[str]:
+    """A step whose line is a reaction and nothing more (`turn_checks.only_reaction`): the
+    model copies it as the whole turn and the caller is left to ask what comes next. A step
+    the call goes nowhere from is a close, where a short thank-you is the turn."""
+    return [
+        f"{path}: is only a reaction; end it on the question or next step it leads to."
+        for i, (path, text) in _step_lines(script).items()
+        if turn_checks.only_reaction(_heard(text)) and _following(script, i)
+    ]
+
+
 def _delegate(lint: Callable[[CallScript], list[str]]) -> _Check:
     def check(script: CallScript, _context: LintContext) -> list[str]:
         return lint(script)
@@ -308,6 +319,7 @@ _CHECKS: Final[dict[str, _Check]] = {
     "third_person": _third_person,
     "offered_more_too_soon": _offered_more_too_soon,
     "false_history": _false_history,
+    "stalled": _stalled,
 }
 
 #: The mistake kinds a script check can trace to the agent's own script.

@@ -106,7 +106,7 @@ def test_a_one_sentence_opening_keeps_its_question() -> None:
 
 def test_the_name_is_asked_for_a_booking_call_back_hand_over_or_at_the_close() -> None:
     assert "first answer" not in NAME_RULE
-    assert "to book, call back or hand over, or at the close" in NAME_RULE
+    assert "to book, call back, hand over or close" in NAME_RULE
 
 
 # --- 6. not knowing an answer is not doubt about going ahead ------------------------------

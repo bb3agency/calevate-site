@@ -112,7 +112,13 @@ LESSONS: Final[dict[str, Lesson]] = {
     "offered_more_too_soon": Lesson(
         "Kept asking “anything else?” before the caller was done",
         "Ask once a topic is finished; while helping step by step, give the next step.",
-        'HOW TO SPEAK: "Mid-task ... \\"Anything else?\\" only once a topic is done"',
+        'HOW TO SPEAK: "\\"Anything else?\\" once, when the task is done; \\"that is all\\"? '
+        'Close."',
+    ),
+    "stalled": Lesson(
+        "Stopped after a few words and left the caller to lead",
+        "End each turn on a question or the next step, unless the call is closing.",
+        'HOW TO SPEAK: "Never a reaction alone: add a question or next step, unless closing"',
     ),
     # The founder's Rytu Khata call of 9 Nov 2026 (20:32): replies opening with the same
     # words and turns of four sentences, neither of which the call page named. English

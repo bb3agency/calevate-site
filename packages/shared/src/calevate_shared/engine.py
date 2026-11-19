@@ -13,6 +13,7 @@ or omits it — it never leaks its own shape upward.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -3034,6 +3035,22 @@ _REGISTER_BULLET: Final = (
 #: default ones on
 #: that account, so nothing of the engine's asked for an acknowledgement; "never the same way
 #: twice" was read as "not twice in a row", which "in a call" closes.
+#: D-1022, from the founder's Rytu Khata campaign call of 19 Nov 2026 (rules for every agent,
+#: none about one business):
+#: - "OK, no problem." and nothing more, so the caller had to ask what the call was for. Our
+#:   call rules dropped the engine's "never reply with only an acknowledgement" (D-856), and
+#:   nothing said what a turn ends on; "a reaction alone" is the fault, so answering "who is
+#:   this?" and waiting (START OF THE CALL) is not one.
+#: - Told "I'm not using it, I don't remember registering", the agent said its earlier line
+#:   again. "Never repeat a sentence" said what not to do, not that the plan moves with the
+#:   answer.
+#: - "Anything else?" three replies running, and after "that's all" it started a recap instead
+#:   of the close. "Once a topic is done, never twice running" let a long helpline call ask it
+#:   at every topic; the founder's rule is once, when the task is done.
+#: - Already covered and not reworded: one step a turn (D-969) and no two replies opened alike
+#:   (9 Nov). The punctuation bullet already says what Cartesia asks of LLM text: natural
+#:   punctuation for pauses and every sentence ended with ".", "?" or "!" (docs.cartesia.ai/
+#:   build-with-cartesia/sonic-3/prompting-tips, read 19 Nov 2026).
 _WRITTEN_FORM_BULLET: Final = f"- {WRITTEN_FORM_RULE}\n"
 #: The agent's default call language (`AgentConfig.language_primary`).
 DEFAULT_PRIMARY_LANGUAGE: Final = "te-IN"
@@ -3047,13 +3064,14 @@ _DEFAULT_AMOUNTS: Final = amounts_rule(DEFAULT_PRIMARY_LANGUAGE) or _NEUTRAL_AMO
 
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
-    "- Open with a few words and a full stop; one or two short sentences, then wait.\n"
+    "- Open with a few words and a full stop; one or two short sentences, then wait. Never a "
+    "reaction alone: add a question or next step, unless closing.\n"
     '- Asked something? Lead with the answer to it, never your last point again or "do you '
     'want to know". Told something? '
     "React only if it fits what they said, never the same way twice in a call, often not.\n"
     '- One question a turn, on one thing, last; choices for times ("morning or evening?"), '
     "never for counts or amounts, not even as examples. Never re-ask what they said or repeat a "
-    "sentence.\n"
+    "sentence. Adapt to the answer.\n"
     "- Say only your own part, never the caller's. Half an answer? Offer your reading as a "
     "question with a way out; never finish it for them.\n"
     "- Hesitant to go ahead or not interested? Offer once, then close politely. Unsure of an "
@@ -3079,7 +3097,7 @@ VOICE_STYLE_GUIDANCE: Final = (
     "- Never narrate a search or a wait.\n"
     '- Explaining steps? One a turn, wait until done, never "understood?"; "OK" after one: '
     "the next. "
-    '"Anything else?" only once a topic is done, never twice running.\n'
+    '"Anything else?" once, when the task is done; "that is all"? Close.\n'
     "- Close: what happens next in one line, no recap, then one goodbye, nothing more. End "
     "only then or when asked, never while they talk."
 )
@@ -3375,8 +3393,14 @@ CALL_NUMBER_RULE: Final = (
 #: knowledge held; "early" had put the name ahead of the help. "To book, call back or hand
 #: over, or at the close" (D-965): "after your first answer" still asked every caller's name
 #: mid-help when nothing would be done with it.
+#: "Never ask a name THIS CALL has, or invent one" (D-1022): on a placed call the name comes
+#: from the contact list (`CallContext.lead_name`, sent as the `lead_name` variable by
+#: `engine/thinnest._dial_variables`), and nothing said the agent may not ask for it or make
+#: one up when the list had none. The timing stays D-965's, not "early": early asked the name
+#: ahead of the help.
 NAME_RULE: Final = (
-    "- No name in THIS CALL? Ask once, to book, call back or hand over, or at the close."
+    "- Never ask a name THIS CALL has, or invent one. None? Ask once: to book, call back, "
+    "hand over or close."
 )
 
 #: "Call me later" gets a day and time and a booked call back (D-969). On the Rytu Khata call
@@ -4533,14 +4557,28 @@ def join_first_words(
         # is an AI was not split from `ai_notice` and is kept whole.
         if recording and not says_ai(recording) and said.says_recorded_in(opening):
             recording = ""
-        rest = " ".join(part for part in (lead, recording) if part)
+        rest = _spoken_join(lead, recording)
     salutation = introduction_salutation(language)
     introduced = introduces_itself(ai_notice=lead, language=language) and rest.startswith(lead)
     if salutation is None or not introduced:
-        return " ".join(part for part in (opening.strip(), rest) if part)
-    others = rest.removeprefix(lead).strip()
+        return _spoken_join(opening.strip(), rest)
+    others = rest.removeprefix(lead).strip().removeprefix(".").strip()
     line = _without_introduction(without_greeting(opening), names)
-    return " ".join(part for part in (salutation, lead, line, others) if part)
+    return " ".join(part for part in (salutation, _spoken_join(lead, line, others)) if part)
+
+
+def _spoken_join(*parts: str) -> str:
+    """`parts` said as one turn: each but the last closed with a full stop when it ends on no
+    mark at all (D-1022). The engine voices a turn a sentence at a time and the voice pauses
+    only at a mark (docs.cartesia.ai/build-with-cartesia/sonic-3/prompting-tips, read 19 Nov
+    2026: "End each transcript with terminal punctuation"), so an owner's opening typed
+    without one would run into the notice after it as one breath. A part ending on any mark
+    is left as written."""
+    kept = [part.strip() for part in parts if part.strip()]
+    closed = [
+        part if unicodedata.category(part[-1]).startswith("P") else f"{part}." for part in kept[:-1]
+    ]
+    return " ".join([*closed, *kept[-1:]])
 
 
 #: What may stand between the words of a name as an opening line spells it: "Sri-Estates",

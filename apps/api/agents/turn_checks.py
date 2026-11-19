@@ -110,6 +110,9 @@ Kind = Literal[
     # The Rytu Khata call of 9 Nov 2026: "you already use the app, right? what for?", a step's
     # line, said to a caller who had only registered (`script_lint.order_problems`).
     "presumed_state",
+    # D-1022 (the Rytu Khata campaign call of 19 Nov 2026): "OK, no problem." and nothing
+    # more, so the caller had to ask what came next.
+    "stalled",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -153,6 +156,9 @@ SOUND_KINDS: Final = frozenset(
         # HOW TO SPEAK decides it (D-959); a note, because a caller who keeps asking new
         # things can fairly be offered more twice in three turns.
         "offered_more_too_soon",
+        # HOW TO SPEAK decides it (D-1022); a note, because "Sure." to "one minute" is right
+        # and only the English way of asking to wait is listed.
+        "stalled",
     }
 )
 #: What breaks the caller's task whatever the words: the caller's part said for them, a
@@ -1018,6 +1024,37 @@ def offers_more(reply: str) -> bool:
 
 _GOODBYE: Final = _LivePattern(lambda: _say("turn_checks._GOODBYE"), re.IGNORECASE)
 
+#: The most words a reply may hold and still be a reaction and nothing more ("OK, no problem.").
+REACTION_MAX_WORDS: Final = NUDGE_MAX_WORDS
+#: A caller asking the agent to wait, after which a bare "Sure." is the right turn.
+_ASKS_TO_WAIT: Final = _LivePattern(lambda: _say("turn_checks._ASKS_TO_WAIT"), re.IGNORECASE)
+
+
+def only_reaction(reply: str) -> bool:
+    """A reply of a few words that asks nothing, says no goodbye and reads no number: a
+    reaction that stops the turn (D-1022)."""
+    words = _words(reply)
+    return (
+        0 < len(words) <= REACTION_MAX_WORDS
+        and not any(is_question(s) or _reads_as_question(s) for s in sentences(reply))
+        and not _GOODBYE.search(reply)
+        and not _digit_count(reply)
+    )
+
+
+def stalled(said: str, reply: str, said_next: str) -> bool:
+    """The reply only reacted to a caller line that asked nothing, and the caller's next line
+    had to ask what comes next. A caller who asked to wait or broke off is answered rightly by a
+    few words, and a reply the caller did not follow with a question left them nothing to ask."""
+    return (
+        only_reaction(reply)
+        and bool(said.strip())
+        and not asks_question(said)
+        and not broke_off(said)
+        and not _ASKS_TO_WAIT.search(said)
+        and asks_question(said_next)
+    )
+
 
 def says_goodbye(text: str) -> bool:
     """Whether a line says goodbye."""
@@ -1696,6 +1733,28 @@ def conversation_problems(
                     "caller is in the middle of something, it ends on the next step.",
                 ),
             )
+        # D-1022: "that's all" is the cue to close, so offering more after it is the same
+        # fault, which the window above cannot see (a done-with-topic line is not counted).
+        if offers_more(reply) and caller_signs_off(said):
+            found.setdefault(
+                "offered_more_too_soon",
+                TurnProblem(
+                    "offered_more_too_soon",
+                    f"The caller said {_quoted(said)} and it asked whether they needed anything "
+                    "else. When the caller says that is all, it closes.",
+                ),
+            )
+        said_next = exchanges[position + 1].said if position + 1 < len(exchanges) else ""
+        if stalled(said, reply, said_next):
+            found.setdefault(
+                "stalled",
+                TurnProblem(
+                    "stalled",
+                    f"After the caller said {_quoted(said)} it said only {_quoted(reply)}, and "
+                    "the caller had to ask what came next. A turn ends on a question or the next "
+                    "step unless the call is closing.",
+                ),
+            )
         # An answer that names none of the numbers offered ("టీవీహెచ్కే" to "two or three
         # BHK?") taken as one of them.
         picked = (
@@ -1951,10 +2010,12 @@ __all__ = [
     "greeted_midway",
     "is_question",
     "offers_more",
+    "only_reaction",
     "opened_again",
     "same_reply",
     "says_goodbye",
     "sentences",
+    "stalled",
     "turn_problems",
     "word_checks_note",
     "wrong_weekday",
