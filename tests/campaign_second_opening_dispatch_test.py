@@ -9,6 +9,7 @@ to it (`agents.service.campaign_first_words`).
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -148,3 +149,59 @@ async def test_a_recheck_that_raises_after_the_dial_is_alarmed_not_raised(
     )
 
     assert alarms == [(call_id, "stop_recheck", "RuntimeError")]
+
+
+async def test_a_second_opening_too_long_with_its_notices_is_refused_when_saved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Over the call's first-words ceiling the engine would speak the greeting instead, while
+    the person is counted as hearing the second opening; so it is refused, naming the limit."""
+    from apps.api.agents.engine_limits import OPENING_TOO_LONG
+    from apps.api.campaigns.workspace_routes import OpeningBIn, save_opening_b
+    from apps.api.core.errors import ProblemError
+
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
+    campaign_id = await _launched_campaign(
+        tenant_id, agent_id, number_id, template_id, name="Long opening", phones=("9876690051",)
+    )
+    engine = FakeEngine()
+    async with tenant_session(tenant_id) as session:
+        speaker = await agents_service.campaign_agent_row(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+    limit = len(
+        agents_service.campaign_first_words(
+            speaker, SECOND_OPENING, call_is_recorded=engine.capabilities.records_audio
+        )
+    )
+    monkeypatch.setattr(agents_service, "get_engine", lambda: engine)
+    monkeypatch.setattr(
+        agents_service, "hosted_agent_limits", lambda _e: SimpleNamespace(call_opening_chars=limit)
+    )
+    principal = SimpleNamespace(tenant_id=tenant_id)
+
+    async with tenant_session(tenant_id) as session:
+        await save_opening_b(
+            campaign_id,
+            OpeningBIn(opening_b=SECOND_OPENING),
+            session,
+            principal,  # type: ignore[arg-type]
+        )
+    with pytest.raises(ProblemError) as refused:
+        async with tenant_session(tenant_id) as session:
+            await save_opening_b(
+                campaign_id,
+                OpeningBIn(opening_b=f"{SECOND_OPENING} And one thing more."),
+                session,
+                principal,  # type: ignore[arg-type]
+            )
+    assert refused.value.code == OPENING_TOO_LONG
+    assert f"at most {limit:,}" in refused.value.detail
+    async with tenant_session(tenant_id) as session:
+        kept = (
+            await session.execute(
+                text("SELECT opening_b FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar_one()
+    assert kept == SECOND_OPENING, "the refused opening was not saved"

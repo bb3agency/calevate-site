@@ -496,4 +496,4 @@ async def test_a_paid_test_call_past_the_daily_cap_is_refused_under_the_lock() -
             tenant_id=uuid.uuid4(),
             test=test,
         )
-    assert refused.value.code == trial_calls.DAILY_CAP_RULE
+    assert refused.value.code == agents_service.PAID_TEST_DAILY_CAP_RULE

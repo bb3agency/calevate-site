@@ -46,7 +46,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.paid_test_calls import (
-    DAILY_CAP_RULE,
     own_number_call_seconds,
     own_test_workspace,
     read_paid_test_access,
@@ -56,7 +55,7 @@ from apps.api.agents.workspace_slots import ENGINE_AGENT_ALLOWANCE_FULL_RULE
 from apps.api.billing.first_payment import has_paid
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
-from apps.api.compliance.trial_access import TRIAL_STUDIO_MINUTES_USED_RULE, read_trial_access
+from apps.api.compliance.trial_access import read_trial_access
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
@@ -85,18 +84,6 @@ TRIAL_CALL_ENGINES: Final = frozenset({"thinnest"})
 NOT_READY_RULE: Final = "trial_calling_not_ready"
 NOT_READY_REASON: Final = "Test calls are not available yet. Please try again later."
 
-#: Refusals raised before anything rang, after which the client's retry must be allowed.
-#: `client_number_unavailable` is `service.CLIENT_NUMBER_UNAVAILABLE_RULE`: no number of the
-#: client's could be lent to the test copy, and the dial was closed unplaced or never begun.
-_NOT_PLACED: Final = frozenset(
-    {
-        "trial_line_busy",
-        "trial_line_unavailable",
-        "client_number_unavailable",
-        TRIAL_STUDIO_MINUTES_USED_RULE,
-        DAILY_CAP_RULE,
-    }
-)
 
 #: A test holder could not be made in the client's own workspace for want of a free engine
 #: agent: our pre-check, or the platform's own refusal, which the adapter raises as
@@ -546,9 +533,7 @@ async def place_trial_call(
             remediation="Wait a minute and check your calls before trying again.",
         ) from unconfirmed
     except Exception as refused:
-        if dial_was_not_placed(refused) or (
-            isinstance(refused, ProblemError) and refused.code in _NOT_PLACED
-        ):
+        if dial_was_not_placed(refused):
             await release()
         if isinstance(refused, EngineRejectedError) and refused.setup_refused:
             # Our set-up at the voice platform, which the client cannot fix and the

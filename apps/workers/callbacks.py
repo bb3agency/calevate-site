@@ -218,6 +218,7 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                     # Read fresh three lines up, once per call-back.
                     halt_read_by_caller=True,
                     campaign_id=via.campaign_id,
+                    number_id=via.number_id,
                     line=via.line,
                     unassigned=via.unassigned,
                 )
@@ -297,6 +298,7 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                     ),
                     contact_details=origin.details,
                     campaign=via.campaign,
+                    number_id=via.number_id,
                     line=via.line,
                 )
             except callbacks.CallbackNoLongerClaimedError:

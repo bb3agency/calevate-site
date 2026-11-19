@@ -140,7 +140,32 @@ async def test_a_number_that_cannot_be_lent_closes_the_dial_unplaced(
     with pytest.raises(ProblemError) as raised:
         await _dial(tenant_id, agent_id, phone)
     assert raised.value.code == agents_service.CLIENT_NUMBER_UNAVAILABLE_RULE
+    # Every caller reads it as not placed: a lead's call-back is booked, the button's
+    # idempotency claim is released, and the test-call cap does not count it.
+    assert agents_service.dial_was_not_placed(raised.value)
     assert await _calls(tenant_id, phone) == [("failed", borrowed_line.e164)]
+    async with tenant_session(tenant_id) as session:
+        reason = (
+            await session.execute(
+                text("SELECT not_placed_reason FROM calls WHERE to_e164 = :p"), {"p": phone}
+            )
+        ).scalar_one()
+    assert reason == "refused"
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        agents_service.CLIENT_NUMBER_UNAVAILABLE_RULE,
+        agents_service.TRIAL_LINE_UNAVAILABLE_RULE,
+        agents_service.TRIAL_LINE_BUSY_RULE,
+        agents_service.PAID_TEST_DAILY_CAP_RULE,
+        agents_service.TRIAL_STUDIO_MINUTES_USED_RULE,
+    ],
+)
+def test_a_refusal_raised_before_the_dial_reads_as_not_placed(code: str) -> None:
+    refused = ProblemError.business_rule(code, "Not now.", remediation="Try again.")
+    assert agents_service.dial_was_not_placed(refused)
 
 
 # --- dispatcher._bulk_jobs_held ----------------------------------------------------------

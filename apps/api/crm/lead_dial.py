@@ -134,6 +134,7 @@ async def place_lead_call(
             agent_id=agent_id,
             phone_e164=phone,
             campaign_id=through.campaign_id,
+            number_id=through.number_id,
             line=through.line,
             unassigned=through.unassigned,
         )
@@ -186,6 +187,7 @@ async def place_lead_call(
             contact_details=contact,
             on_reserved=reserved,
             campaign=through.campaign,
+            number_id=through.number_id,
             line=through.line,
         )
     except DialUnconfirmedError as unconfirmed:
@@ -262,6 +264,7 @@ async def call_back_check(
         agent_id=plan.agent_id,
         phone_e164=plan.phone_e164,
         campaign_id=through.campaign_id,
+        number_id=through.number_id,
         line=through.line,
         unassigned=through.unassigned,
     )
@@ -341,6 +344,7 @@ async def place_call_back(
             agent_id=plan.agent_id,
             phone_e164=plan.phone_e164,
             campaign_id=through.campaign_id,
+            number_id=through.number_id,
             line=through.line,
             unassigned=through.unassigned,
         )
@@ -376,6 +380,7 @@ async def place_call_back(
             context_note=plan.context_note,
             on_reserved=reserved,
             campaign=through.campaign,
+            number_id=through.number_id,
             line=through.line,
         )
     except DialUnconfirmedError as unconfirmed:

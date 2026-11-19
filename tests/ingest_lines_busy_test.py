@@ -11,6 +11,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from apps.api.agents.service import CLIENT_NUMBER_UNAVAILABLE_RULE
+from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from apps.api.engine.dial_lines import lines_busy
 from apps.api.engine.vendor_http import number_daily_limit_error
@@ -28,9 +30,22 @@ def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: fixed)
 
 
+def _number_not_lent() -> ProblemError:
+    """What `dispatch_call` raises when the client's number could not be lent to the agent."""
+    return ProblemError.business_rule(
+        CLIENT_NUMBER_UNAVAILABLE_RULE,
+        "The calling number could not be made ready for this agent just now.",
+        remediation="Try again in a few minutes.",
+    )
+
+
 @pytest.mark.parametrize(
     ("refusal", "phone"),
-    [(lines_busy, "9876507701"), (number_daily_limit_error, "9876507702")],
+    [
+        (lines_busy, "9876507701"),
+        (number_daily_limit_error, "9876507702"),
+        (_number_not_lent, "9876507706"),
+    ],
 )
 async def test_a_busy_account_books_the_call_back_and_keeps_the_lead(
     monkeypatch: pytest.MonkeyPatch, refusal: Any, phone: str
@@ -98,7 +113,6 @@ async def test_a_dial_the_platform_refuses_keeps_the_lead(
     """A dial the voice platform refused outright (its balance spent, the agent's setup
     refused) rang nobody. It used to re-raise and roll back the lead this delivery wrote;
     the push and Meta receivers then acked the refusal, so the enquiry was lost for good."""
-    from apps.api.core.errors import ProblemError
 
     async def _refuse(*_args: object, **_kwargs: object) -> str:
         raise ProblemError(

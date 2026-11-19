@@ -44,7 +44,11 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import FakeEngine
-from apps.api.engine.vendor_http import EngineRejectedError, lines_busy_error
+from apps.api.engine.vendor_http import (
+    EngineRateLimitedError,
+    EngineRejectedError,
+    lines_busy_error,
+)
 from apps.api.tenancy.models import CALL_LINES_MAX
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import ACTIVE_STATUSES, TenantWork
@@ -1357,3 +1361,107 @@ async def test_lines_full_waits_a_minute_spends_no_attempt_and_reports_no_failed
     assert all(wait <= timedelta(minutes=1) for wait in waits), waits
     assert reasons == ["lines_full"], "only the one dial reached the platform"
     assert reported.items == [], "a dial refused for lines is not a failed call"
+
+
+# ------------------------- a hold-off on one workspace or one number (dial_lines.DialOrigin)
+
+
+async def test_a_campaign_whose_own_origin_is_held_off_claims_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hold on this campaign's workspace or calling number refuses every dial it would
+    claim, so nothing is claimed; the account-wide hold is not what holds it."""
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
+    campaign_id = await _launched_campaign(
+        tenant_id, agent_id, number_id, template_id, name="Number held", phones=("9876690031",)
+    )
+    asked: list[Any] = []
+
+    async def _held(_session: Any, *, agent_id: uuid.UUID, number_id: Any, via: Any) -> float:
+        asked.append(number_id)
+        return 600.0
+
+    monkeypatch.setattr(campaign_dispatch, "campaign_dial_backoff_s", _held)
+
+    result = await campaign_dispatch._dispatch_for_campaign(
+        tenant_id, campaign_id, 3, campaigns.DEFAULT_RETRY_POLICY
+    )
+
+    assert result == {"dialled": 0, "blocked": 0, "exhausted": 0}, result
+    assert asked == [number_id], "asked of the number the campaign calls from"
+    assert await _calls_placed(tenant_id) == 0
+    assert await _contacts(tenant_id, campaign_id) == [("pending", 0)]
+
+
+class _ThrottledEngine(FakeEngine):
+    """The voice platform answering every dial with its throttle."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.asked = 0
+
+    async def start_outbound_call(self, ref: str, to: str, ctx: CallContext) -> str:
+        self.asked += 1
+        raise EngineRateLimitedError(retry_after_s=120)
+
+
+async def test_a_throttled_dial_waits_out_the_hold_and_the_batch_behind_it_does_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The contact refused for the throttle, and every contact claimed behind it, waits as
+    long as the hold says rather than thirty minutes, with no attempt spent and no second
+    request sent into the same refusal."""
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
+    campaign_id = await _launched_campaign(
+        tenant_id,
+        agent_id,
+        number_id,
+        template_id,
+        name="Throttled",
+        phones=("9876690021", "9876690022", "9876690023"),
+    )
+    engine = _ThrottledEngine()
+    monkeypatch.setattr("apps.api.agents.service.get_engine", lambda: engine)
+    reads: list[int] = []
+
+    async def _hold(_session: Any, **_kwargs: Any) -> float:
+        # Nothing holds the campaign before its claim; the refused dial started a hold.
+        reads.append(1)
+        return 0.0 if len(reads) == 1 else 120.0
+
+    monkeypatch.setattr(campaign_dispatch, "campaign_dial_backoff_s", _hold)
+
+    result = await campaign_dispatch._dispatch_for_campaign(
+        tenant_id, campaign_id, 3, campaigns.DEFAULT_RETRY_POLICY
+    )
+
+    assert result == {"dialled": 0, "blocked": 3, "exhausted": 0}, result
+    assert engine.asked == 1
+    assert await _contacts(tenant_id, campaign_id) == [("pending", 0)] * 3
+    async with tenant_session(tenant_id) as session:
+        waits = (
+            (
+                await session.execute(
+                    text(
+                        "SELECT next_attempt_at - now() FROM campaign_contacts "
+                        "WHERE campaign_id = :c"
+                    ),
+                    {"c": campaign_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        reasons = (
+            (
+                await session.execute(
+                    text("SELECT not_placed_reason FROM calls WHERE status = 'failed'")
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert all(timedelta(seconds=100) < wait <= timedelta(seconds=120) for wait in waits), waits
+    assert reasons == ["refused"], "the one dial is closed as not placed, with a reason"

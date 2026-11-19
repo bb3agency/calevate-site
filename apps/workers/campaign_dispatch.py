@@ -92,11 +92,13 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.dial_through import campaign_holder
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.agents.service import (
     UNCONFIRMED_ENGINE_CALL_PREFIX,
     CampaignDial,
     DialUnconfirmedError,
+    campaign_dial_backoff_s,
     dial_was_not_placed,
     dispatch_call,
 )
@@ -142,11 +144,19 @@ from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis, release_lease
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.engine.dial_lines import dial_backoff_remaining_s, outbound_line_pool
+from apps.api.engine.dial_lines import (
+    ENGINE_BACKOFF_DEFAULT_S,
+    dial_backoff_remaining_s,
+    outbound_line_pool,
+)
 
 # OUR normalized engine error, not a vendor payload shape — hard rule 2 bounds what
 # may cross this line and an HTTP status is on the safe side of it.
-from apps.api.engine.vendor_http import LINES_BUSY_CODE, EngineRejectedError
+from apps.api.engine.vendor_http import (
+    LINES_BUSY_CODE,
+    NUMBER_DAILY_LIMIT_CODE,
+    EngineRejectedError,
+)
 from apps.api.integrations import service as integrations
 from apps.api.tenancy.call_lines import CALL_LINES_BUSY_RULE, read_call_lines
 
@@ -566,10 +576,11 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
     # is what makes it hold for dials this tick does not make.
     global_budget = max(0, pool - total_active)
     # An engine that answered a dial with `429` for its own call ceiling is held off for the
-    # vendor's `Retry-After` (`dial_lines.start_dial_backoff`). Claiming contacts into
-    # that window would only refund each one to a thirty-minute wait, so the tick spends
-    # nothing; the call-back pass below still runs at zero budget to settle what finished.
-    # Always 0.0 on an engine without its own ceiling.
+    # vendor's `Retry-After` (`dial_lines.start_dial_backoff`). Only the ACCOUNT-wide hold
+    # stops the whole tick here; the call-back pass below still runs at zero budget to settle
+    # what finished. A hold scoped to one client's workspace or one calling number is asked
+    # per campaign before its claim (`_dispatch_for_campaign`), since it holds no other
+    # client's dials. Always 0.0 on an engine without its own ceiling.
     if global_budget and await dial_backoff_remaining_s() > 0:
         global_budget = 0
 
@@ -959,6 +970,36 @@ async def _dispatch_for_campaign(
         if await check_complaint_spike(session, tenant_id=tenant_id, campaign_id=campaign_id):
             return {"dialled": 0, "blocked": 0, "exhausted": 0}
 
+        # The number the campaign chose to call from rides every dial, so the caller id is
+        # the campaign's choice and not whichever of the agent's numbers the engine picks.
+        # Its purpose and goal ride every dial too, as the call's reason, so the agent knows
+        # why it rings and what to aim for.
+        agent_id, number_id, purpose, goal, opening_b = (
+            await session.execute(
+                text(
+                    "SELECT agent_id, number_id, purpose, goal, opening_b FROM campaigns "
+                    "WHERE id = :cid"
+                ),
+                {"cid": campaign_id},
+            )
+        ).first() or (None, None, None, None, None)
+        reason = campaign_call_reason(purpose, goal)
+
+        # The voice platform's hold-off on this campaign's own workspace or calling number
+        # (the account-wide one is asked once per tick). Every contact claimed into it would
+        # be refused by `dispatch_call`, so nothing is claimed. Read through the campaign's
+        # engine agent as it stands. One not made yet (`dial_for` makes it after the claim) is
+        # read through its agent's, and should the two sit in different workspaces, the
+        # per-contact settle below still waits out the hold the first dial meets.
+        if agent_id is not None:
+            agent_uuid = UUID(str(agent_id))
+            holder = await campaign_holder(session, agent_id=agent_uuid, campaign_id=campaign_id)
+            if await campaign_dial_backoff_s(
+                session, agent_id=agent_uuid, number_id=number_id, via=holder
+            ):
+                log.info("campaign_dispatch_held_off", extra={"campaign_id": str(campaign_id)})
+                return {"dialled": 0, "blocked": 0, "exhausted": 0}
+
         # CAS claim: pending → dialing, oldest first, due-for-retry respected.
         #
         # MATERIALIZED and `ORDER BY created_at, id` are both load-bearing, and the
@@ -1004,21 +1045,6 @@ async def _dispatch_for_campaign(
                 {"cid": campaign_id, "n": slots},
             )
         ).all()
-
-        # The number the campaign chose to call from rides every dial, so the caller id is
-        # the campaign's choice and not whichever of the agent's numbers the engine picks.
-        # Its purpose and goal ride every dial too, as the call's reason, so the agent knows
-        # why it rings and what to aim for.
-        agent_id, number_id, purpose, goal, opening_b = (
-            await session.execute(
-                text(
-                    "SELECT agent_id, number_id, purpose, goal, opening_b FROM campaigns "
-                    "WHERE id = :cid"
-                ),
-                {"cid": campaign_id},
-            )
-        ).first() or (None, None, None, None, None)
-        reason = campaign_call_reason(purpose, goal)
     # The claim is COMMITTED here — see this function's docstring. Everything below
     # runs in its own short transaction, so losing one loses at most one dial's
     # bookkeeping and never un-rings a phone.
@@ -1031,9 +1057,18 @@ async def _dispatch_for_campaign(
     # Set once the account's lines refuse a dial: every contact claimed behind it would be
     # refused the same way, so they wait for a line instead of each spending a request.
     lines_full = False
+    # Set once the voice platform's hold-off refuses a dial: the rule and the hold's length,
+    # which every contact behind it waits out the same way.
+    held: tuple[str, float] | None = None
     for contact_id, phone, name, custom, attempts, prior_at, prior_call in claimed:
         prior = PriorTry(prior_at, prior_call)
         async with tenant_session(tenant_id) as session:
+            if held is not None:
+                await _refuse_contact(
+                    session, contact_id, rule=held[0], prior=prior, wait_s=held[1]
+                )
+                blocked += 1
+                continue
             if unavailable is not None or lines_full:
                 await _refuse_contact(
                     session, contact_id, rule=unavailable or LINES_BUSY_CODE, prior=prior
@@ -1166,8 +1201,25 @@ async def _dispatch_for_campaign(
                     # pacing or lines, its balance or credentials, a missing configuration.
                     # The attempt is refunded; spending a rung on it would exhaust a
                     # reachable lead on refusals that were about us.
-                    await _refuse_contact(session, contact_id, rule=_refusal_rule(exc), prior=prior)
-                    lines_full = lines_full or _refusal_rule(exc) == LINES_BUSY_CODE
+                    rule = _refusal_rule(exc)
+                    if rule in _HOLD_RULES:
+                        # `dispatch_call` has started (or met) the hold for this dial's
+                        # origin; its length is how long this contact and the rest wait.
+                        wait = await campaign_dial_backoff_s(
+                            session,
+                            agent_id=UUID(str(agent_id)),
+                            number_id=number_id,
+                            via=via,
+                        )
+                        held = (rule, wait or ENGINE_BACKOFF_DEFAULT_S)
+                    await _refuse_contact(
+                        session,
+                        contact_id,
+                        rule=rule,
+                        prior=prior,
+                        wait_s=held[1] if held is not None else None,
+                    )
+                    lines_full = lines_full or rule == LINES_BUSY_CODE
                     blocked += 1
                     log.warning(
                         "campaign_dial_refused",
@@ -1505,6 +1557,14 @@ _SETTLE_LINE_WAIT = (
     "status = 'pending', next_attempt_at = now() + interval '1 minute', attempts = attempts - 1"
 )
 _LINE_LIMIT_RULES: Final = frozenset({LINES_BUSY_CODE, CALL_LINES_BUSY_RULE})
+#: The voice platform's throttle and a calling number's daily cap: each holds dials for as
+#: long as the vendor said (`dial_lines.start_dial_backoff`), so the contact waits exactly
+#: that long, attempt refunded, rather than the thirty minutes a halt is given.
+_HOLD_RULES: Final = frozenset({"engine_rate_limited", NUMBER_DAILY_LIMIT_CODE})
+_SETTLE_HOLD_WAIT = (
+    "status = 'pending', next_attempt_at = now() + make_interval(secs => :wait), "
+    "attempts = attempts - 1"
+)
 #: A refusal about the person before anything rang: terminal like `_SETTLE_PERSON_REFUSED`,
 #: with the claim's attempt handed back, because nobody was called. The recall path keeps
 #: the attempt: its dial had already left for the voice platform.
@@ -1550,7 +1610,9 @@ async def settle_recalled_contact(
     return None if row is None else str(row[0])
 
 
-async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str, prior: PriorTry) -> None:
+async def _refuse_contact(
+    session: Any, contact_id: UUID, *, rule: str, prior: PriorTry, wait_s: float | None = None
+) -> None:
     """Settle one claimed contact the gate would not let us dial.
 
     TERMINAL or BACK ON THE LADDER, and the difference is `PERSON_LEVEL_REFUSALS` —
@@ -1580,6 +1642,11 @@ async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str, prior: P
     is measured over, because the link points at a call the voice platform refused.
     """
     record_compliance_block(rule=rule)
+    params: dict[str, Any] = {
+        "id": contact_id,
+        "prior_at": prior.attempt_at,
+        "prior_call": prior.call_id,
+    }
     # The voice platform's own opt-out or do-not-call list (`platform_dnc.
     # ENGINE_PERSON_REFUSALS`) is a fact about the person too; it is the vendor's refusal and
     # not the gate's, so it is not a member of the gate's set.
@@ -1587,6 +1654,9 @@ async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str, prior: P
         settle = _SETTLE_PERSON_REFUSED_UNDIALLED
     elif rule in _LINE_LIMIT_RULES:
         settle = _SETTLE_LINE_WAIT
+    elif rule in _HOLD_RULES and wait_s is not None:
+        settle = _SETTLE_HOLD_WAIT
+        params["wait"] = wait_s
     else:
         settle = _SETTLE_REFUNDED
     await session.execute(
@@ -1595,7 +1665,7 @@ async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str, prior: P
             "last_call_id = :prior_call, updated_at = now() "
             f"WHERE id = :id AND {_STILL_CLAIMED}"
         ),
-        {"id": contact_id, "prior_at": prior.attempt_at, "prior_call": prior.call_id},
+        params,
     )
 
 

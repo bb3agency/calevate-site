@@ -113,6 +113,25 @@ async def test_a_campaign_that_produced_the_call_is_rung_first() -> None:
     assert found.campaign_id == campaign_id and found.line is None
 
 
+async def test_a_call_through_a_campaign_carries_the_number_the_campaign_calls_from() -> None:
+    """A call-back or a person's call through a campaign presents the campaign's caller id."""
+    _fresh_engine()
+    tenant_id, agent_id = await _live_agent()
+    number_id = await _number(tenant_id, agent_id, ref=f"num_{uuid.uuid4().hex[:10]}")
+    campaign_id = await _campaign(tenant_id, agent_id, status="running")
+    await engine_agent.put_campaign_live(tenant_id=tenant_id, campaign_id=campaign_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET number_id = :n WHERE id = :c"),
+            {"n": number_id, "c": campaign_id},
+        )
+
+    found = await _through(tenant_id, agent_id, campaign_id=campaign_id)
+
+    assert found.campaign is not None and found.campaign.number_id == number_id
+    assert found.number_id == number_id
+
+
 async def test_a_campaign_that_holds_no_engine_agent_is_passed_over() -> None:
     _fresh_engine()
     tenant_id, agent_id = await _live_agent()

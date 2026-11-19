@@ -26,7 +26,11 @@ from apps.api.agents import script_proposals
 from apps.api.agents.call_handling import read_agent_call_handling
 from apps.api.agents.extraction_routes import MAX_EXTRACTION_FIELDS
 from apps.api.agents.languages import LANGUAGE_LABELS, client_language_tags
-from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES, effective_call_cap
+from apps.api.agents.service import (
+    CAMPAIGN_HOLDING_STATUSES,
+    effective_call_cap,
+    refuse_campaign_opening_over_limit,
+)
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.voice_tuning import read_voice_tuning
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
@@ -611,10 +615,12 @@ class OpeningBIn(BaseModel):
     summary="Test a second opening line against the script's own, or stop the test",
 )
 async def save_opening_b(
-    campaign_id: UUID, payload: OpeningBIn, session: Session, _: Dispatcher
+    campaign_id: UUID, payload: OpeningBIn, session: Session, principal: Dispatcher
 ) -> None:
     """Half the people hear this opening, half the script's own. The agent's notices are
-    said beside it whenever it does not say them itself (`agents.service.campaign_first_words`)."""
+    said beside it whenever it does not say them itself (`agents.service.campaign_first_words`),
+    and the two together must fit what a call may say first."""
+    assert principal.tenant_id is not None
     await workspace.read_workspace(session, campaign_id)
     line = " ".join((payload.opening_b or "").split())
     if line and _FORMATTING.search(line):
@@ -623,6 +629,10 @@ async def save_opening_b(
             code="opening_b_formatting",
             title="Use plain words in the opening",
             detail="Write the opening as plain spoken words, without symbols.",
+        )
+    if line:
+        await refuse_campaign_opening_over_limit(
+            session, tenant_id=principal.tenant_id, campaign_id=campaign_id, opening_line=line
         )
     await session.execute(
         text("UPDATE campaigns SET opening_b = :o, updated_at = now() WHERE id = :cid"),

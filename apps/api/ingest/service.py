@@ -49,7 +49,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.dial_through import dial_through, holder_resolves_sql
-from apps.api.agents.service import DialUnconfirmedError, dispatch_call
+from apps.api.agents.service import (
+    CLIENT_NUMBER_UNAVAILABLE_RULE,
+    DialUnconfirmedError,
+    dispatch_call,
+)
 from apps.api.callbacks.service import RETRY_AFTER, cancel_for_phones
 from apps.api.callbacks.service import book as book_callback
 from apps.api.compliance import service as compliance_service
@@ -85,8 +89,11 @@ log = get_logger(__name__)
 
 #: The dial refusals that say the calling account or number had no line, slot or daily
 #: allowance free, not that this lead may not be called: the call is booked as a call-back
-#: instead of being lost.
-LINE_REFUSALS: frozenset[str] = frozenset({LINES_BUSY_RULE, NUMBER_DAILY_LIMIT_CODE})
+#: instead of being lost. A number that could not be lent to the agent about to dial is the
+#: same kind of moment: the vendor's re-point failed, nothing was sent, and it clears.
+LINE_REFUSALS: frozenset[str] = frozenset(
+    {LINES_BUSY_RULE, NUMBER_DAILY_LIMIT_CODE, CLIENT_NUMBER_UNAVAILABLE_RULE}
+)
 
 #: Gate refusals about the CLOCK or the whole PLATFORM, never about this person: outside
 #: 09:00-21:00 IST, a maintenance drain, the platform halt. The call is booked as a
@@ -809,6 +816,7 @@ async def ingest_lead(
         agent_id=agent_id,
         phone_e164=phone,
         campaign_id=through.campaign_id,
+        number_id=through.number_id,
         line=through.line,
         unassigned=through.unassigned,
     )
@@ -887,6 +895,7 @@ async def ingest_lead(
             lead_name=name,
             context_note=f"Enquiry via {config.source}",
             campaign=through.campaign,
+            number_id=through.number_id,
             line=through.line,
         )
     except DialUnconfirmedError as unconfirmed:

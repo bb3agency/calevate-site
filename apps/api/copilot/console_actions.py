@@ -507,6 +507,7 @@ async def _plan_call_place(
         agent_id=parsed.agent_id,
         phone_e164=phone,
         campaign_id=through.campaign_id,
+        number_id=through.number_id,
         line=through.line,
         unassigned=through.unassigned,
     )

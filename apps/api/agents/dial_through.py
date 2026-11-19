@@ -85,7 +85,7 @@ _LEAD_ORIGIN_SQL: Final = (
     "ORDER BY created_at DESC, id DESC LIMIT 1"
 )
 _CAMPAIGN_HOLDER_SQL: Final = (
-    "SELECT engine_agent_ref FROM campaigns WHERE id = :cid AND agent_id = :aid "
+    "SELECT engine_agent_ref, number_id FROM campaigns WHERE id = :cid AND agent_id = :aid "
     "AND archived_at IS NULL AND status = ANY(:holding) "
     "AND engine_agent_ref IS NOT NULL AND engine_agent_ref <> ''"
 )
@@ -123,6 +123,11 @@ class DialThrough:
         return self.holder.campaign_id if isinstance(self.holder, CampaignDial) else None
 
     @property
+    def number_id(self) -> UUID | None:
+        """The number a campaign holder calls from, for the gate and the dial alike."""
+        return self.holder.number_id if isinstance(self.holder, CampaignDial) else None
+
+    @property
     def line(self) -> LineDial | None:
         return self.holder if isinstance(self.holder, LineDial) else None
 
@@ -131,16 +136,25 @@ class DialThrough:
         return self.holder is None and not self.own
 
 
-async def _campaign_dial(
+async def campaign_holder(
     session: AsyncSession, *, agent_id: UUID, campaign_id: UUID
 ) -> CampaignDial | None:
-    ref = (
+    """The campaign's own engine agent while it holds one, with the number it calls from;
+    None otherwise. Reads only: it never makes the engine agent (`campaigns.engine_agent`
+    `.dial_for` does)."""
+    row = (
         await session.execute(
             text(_CAMPAIGN_HOLDER_SQL),
             {"cid": campaign_id, "aid": agent_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
         )
-    ).scalar_one_or_none()
-    return CampaignDial(ref=str(ref), campaign_id=campaign_id) if ref else None
+    ).first()
+    if row is None:
+        return None
+    return CampaignDial(
+        ref=str(row[0]),
+        campaign_id=campaign_id,
+        number_id=UUID(str(row[1])) if row[1] is not None else None,
+    )
 
 
 async def _line_dial(
@@ -188,7 +202,7 @@ async def dial_through(
         origin_line = UUID(str(origin[1])) if origin[1] else None
 
     if campaign_id is not None:
-        campaign = await _campaign_dial(session, agent_id=agent_id, campaign_id=campaign_id)
+        campaign = await campaign_holder(session, agent_id=agent_id, campaign_id=campaign_id)
         if campaign is not None:
             return DialThrough(holder=campaign)
     if origin_line is not None:
@@ -242,6 +256,7 @@ async def resolve_dial_holder(
 __all__ = [
     "NO_ASSIGNMENT_REMEDIATION",
     "DialThrough",
+    "campaign_holder",
     "dial_through",
     "holder_resolves_sql",
     "live_line_sql",

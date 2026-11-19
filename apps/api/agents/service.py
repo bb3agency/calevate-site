@@ -132,6 +132,7 @@ from calevate_shared.engine import (
     truthful_answer_directive,
 )
 from calevate_shared.engine_scope import is_customer_workspace, scope_of
+from calevate_shared.events import NotPlacedReason
 from calevate_shared.spoken_style import thinking_lines, trial_call_opening
 from pydantic import ValidationError
 from sqlalchemy import text
@@ -164,7 +165,11 @@ from apps.api.agents.engine_choice import (
     in_call_default_model,
 )
 from apps.api.agents.engine_facts import sync_business_facts
-from apps.api.agents.engine_limits import refuse_over_engine_limits, refuse_unpriced_engine
+from apps.api.agents.engine_limits import (
+    OPENING_TOO_LONG,
+    refuse_over_engine_limits,
+    refuse_unpriced_engine,
+)
 from apps.api.agents.hosted_voices import parse_hosted_voice_id
 from apps.api.agents.languages import published_extra_languages, refuse_unoffered_language
 from apps.api.agents.models import (
@@ -187,6 +192,7 @@ from apps.api.agents.own_model import (
     refuse_unofferable_own_model,
     require_developer_own_model,
 )
+from apps.api.agents.paid_test_calls import DAILY_CAP_RULE as PAID_TEST_DAILY_CAP_RULE
 from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.api.agents.reply_length import resolve_max_reply_tokens
 from apps.api.agents.t0_block import block_of, with_knowledge_of, without_block
@@ -225,6 +231,7 @@ from apps.api.compliance.dnc_recall import RECALL_CAUSE_CONSENT, enqueue_dnc_rec
 from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_dnc_refusal
 from apps.api.compliance.trial_access import (
     TRIAL_MIN_CALL_SECONDS,
+    TRIAL_STUDIO_MINUTES_USED_RULE,
     refuse_on_trial,
     refuse_trial_numbers,
     refuse_trial_studio_over_cap,
@@ -249,6 +256,7 @@ from apps.api.engine.dial_lines import (
     TRIAL_LINE_KEY,
     DialOrigin,
     dial_backoff_refusal,
+    dial_backoff_remaining_s,
     engine_concurrency_cap,
     lines_busy,
     outbound_line_pool,
@@ -309,6 +317,13 @@ UNCONFIRMED_ENGINE_CALL_PREFIX = "local:"
 #: between the tick's `dispatch_blockers` and the dial (`resolve_caller_id`).
 CAMPAIGN_NUMBER_UNAVAILABLE_CODE: Final = "campaign_number_unavailable"
 
+#: Another test call holds the shared trial number (`_hold_trial_line`).
+TRIAL_LINE_BUSY_RULE: Final = "trial_line_busy"
+#: The shared trial number could not be lent to the agent about to dial (`_lend_trial_line`).
+TRIAL_LINE_UNAVAILABLE_RULE: Final = "trial_line_unavailable"
+#: The client's number could not be lent to the agent about to dial (`_lend_client_number`).
+CLIENT_NUMBER_UNAVAILABLE_RULE: Final = "client_number_unavailable"
+
 #: Engine failures that mean **no line was seized** — the dial can be retried, and the
 #: contact keeps its place on the ladder.
 #:
@@ -367,6 +382,15 @@ DIAL_NOT_PLACED_CODES = frozenset(
         # The same refusal when only the voice platform's shared list blocks the person
         # (D-691, `compliance/platform_dnc.py`).
         PLATFORM_DNC_BLOCK_CODE,
+        # A borrowed number could not be pointed at the agent about to dial (a vendor
+        # throttle, 5xx or refusal on the re-point): the intent row is closed `failed` and no
+        # `POST /calls` is sent, so a retry in a few minutes is safe.
+        CLIENT_NUMBER_UNAVAILABLE_RULE,
+        TRIAL_LINE_UNAVAILABLE_RULE,
+        # Test-call holds refused inside the intent transaction, which rolls back.
+        TRIAL_LINE_BUSY_RULE,
+        PAID_TEST_DAILY_CAP_RULE,
+        TRIAL_STUDIO_MINUTES_USED_RULE,
     }
 )
 
@@ -4542,6 +4566,11 @@ class CampaignDial:
     #: Made in our developer workspace for a test call on the shared trial line (D-697,
     #: D-859); False for one in the client's own workspace, rung from the client's number.
     developer: bool = False
+    #: The number the campaign chose to call from (`campaigns.number_id`), carried by
+    #: `dial_through` so a call-back or a person's call through the campaign presents the same
+    #: caller id as its own calls. None for a campaign that chose none, and where the caller
+    #: already passes the number itself (the campaign dispatcher).
+    number_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -5443,6 +5472,48 @@ async def _campaign_caller(
     return replace(first, own=False) if first is not None else None
 
 
+def _dial_origin(dial_ref: str, caller: CallerLine | None, *, trial: bool) -> DialOrigin:
+    """Where a dial through `dial_ref` from `caller` is placed, as the hold-offs scope it."""
+    return DialOrigin(
+        workspace=scope_of(dial_ref),
+        number_key=(
+            str(caller.number_id) if caller is not None else TRIAL_LINE_KEY if trial else None
+        ),
+    )
+
+
+async def campaign_dial_backoff_s(
+    session: AsyncSession, *, agent_id: UUID, number_id: UUID | None, via: CampaignDial | None
+) -> float:
+    """Seconds left on the voice platform's hold-off that a campaign's next dial would be
+    refused under, for the origin `dispatch_call` derives (its workspace or its number, not
+    only the account); 0.0 when none holds it or the engine has no ceiling of its own.
+
+    `via` is the campaign's own engine agent, or None for a campaign dialling through its
+    agent's. A number the dial would refuse anyway (`CAMPAIGN_NUMBER_UNAVAILABLE_CODE`) reads
+    as no hold here: the dial refuses it under that rule, which says what to fix."""
+    if engine_concurrency_cap() is None:
+        return 0.0
+    try:
+        if via is not None:
+            ref: str | None = via.ref
+            caller = await _campaign_caller(
+                session, agent_id=agent_id, number_id=number_id, ref=via.ref
+            )
+        else:
+            ref = (
+                await session.execute(
+                    text("SELECT engine_agent_ref FROM agents WHERE id = :aid"), {"aid": agent_id}
+                )
+            ).scalar_one_or_none()
+            caller = await choose_caller_line(session, agent_id=agent_id, number_id=number_id)
+    except ProblemError:
+        return 0.0
+    if not ref:
+        return 0.0
+    return await dial_backoff_remaining_s(_dial_origin(ref, caller, trial=False))
+
+
 async def _assert_dialling_tenant_owns_the_session(
     session: AsyncSession, *, tenant_id: UUID
 ) -> None:
@@ -5562,11 +5633,7 @@ async def _hold_paid_test_slot(
 ) -> None:
     """Refuse the test call once today's cap is reached, counted with this call's own row in
     the intent transaction under a per-tenant lock, so two at once cannot both pass."""
-    from apps.api.agents.paid_test_calls import (
-        DAILY_CAP_RULE,
-        PLACED_TODAY_SQL,
-        paid_daily_cap_reason,
-    )
+    from apps.api.agents.paid_test_calls import PLACED_TODAY_SQL, paid_daily_cap_reason
 
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
@@ -5581,7 +5648,7 @@ async def _hold_paid_test_slot(
     )
     if placed > test.daily_cap:
         raise ProblemError.conflict(
-            DAILY_CAP_RULE,
+            PAID_TEST_DAILY_CAP_RULE,
             paid_daily_cap_reason(test.daily_cap),
             remediation="You can place more tomorrow.",
         )
@@ -5660,6 +5727,39 @@ def campaign_first_words(agent: AgentRow, opening_line: str, *, call_is_recorded
         ai_notice=spoken_ai_notice(posture),
         language=str(agent["language_primary"]),
         names=tuple(n for n in (str(agent.get("business_name") or ""), str(agent["name"])) if n),
+    )
+
+
+async def refuse_campaign_opening_over_limit(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID, opening_line: str
+) -> None:
+    """Refuse a campaign opening whose first words, composed exactly as the dial composes them
+    (`campaign_first_words` over `campaign_agent_row`), would not fit the engine's per-call
+    ceiling. Over it, the adapter speaks the agent's own greeting instead
+    (`ThinnestEngine.start_outbound_call`), so half a test would hear an opening it does not
+    record; refused at save time instead."""
+    engine = get_engine()
+    limit = hosted_agent_limits(engine).call_opening_chars
+    if limit is None:
+        return
+    speaker = await campaign_agent_row(session, tenant_id=tenant_id, campaign_id=campaign_id)
+    length = len(
+        campaign_first_words(
+            speaker, opening_line, call_is_recorded=engine.capabilities.records_audio
+        )
+    )
+    if length <= limit:
+        return
+    raise ProblemError(
+        kind="business_rule",
+        code=OPENING_TOO_LONG,
+        title="This opening line is too long",
+        detail=(
+            f"With the notices said with it, what the agent says first would be "
+            f"{length:,} characters, and at most {limit:,} can be spoken there. Nothing was "
+            "saved."
+        ),
+        remediation=f"Shorten it by at least {length - limit:,} characters.",
     )
 
 
@@ -5955,16 +6055,7 @@ async def dispatch_call(
     # so nothing is left `queued` for a dial that was never placed. The hold-off is scoped
     # to what the 429 named, so one client's exhausted number holds no other dial.
     engine_capped = engine_concurrency_cap() is not None
-    origin = DialOrigin(
-        workspace=scope_of(dial_ref),
-        number_key=(
-            str(caller.number_id)
-            if caller is not None
-            else TRIAL_LINE_KEY
-            if trial is not None
-            else None
-        ),
-    )
+    origin = _dial_origin(dial_ref, caller, trial=trial is not None)
     if engine_capped and (held := await dial_backoff_refusal(origin)) is not None:
         raise held
 
@@ -6293,8 +6384,6 @@ async def _hold_engine_line(session: AsyncSession) -> None:
 #: Serialises every free-trial test call's "is the shared number free?" count with its
 #: intent row (D-697). Its own key: a trial dial must not queue behind every client's dials.
 TRIAL_LINE_LOCK_KEY: Final = 0x5452_4941_4C4C_494E
-TRIAL_LINE_BUSY_RULE: Final = "trial_line_busy"
-TRIAL_LINE_UNAVAILABLE_RULE: Final = "trial_line_unavailable"
 
 
 async def _hold_trial_line(session: AsyncSession) -> None:
@@ -6343,9 +6432,6 @@ async def _lend_trial_line(tenant_id: UUID, *, call_id: UUID, agent_ref: str) ->
         remediation="Try again in a few minutes.",
     )
 
-
-#: The rule a dial is closed under when the client's number could not be lent to its agent.
-CLIENT_NUMBER_UNAVAILABLE_RULE: Final = "client_number_unavailable"
 
 #: Another engine agent's live dial from this number. Keyed on the engine agent the dial rang
 #: through (`calls.engine_agent_ref`, D-1003): two campaigns in one voice are two callers on
@@ -6458,8 +6544,10 @@ async def _close_unplaced_dial(
     a question an operator asks about one call id.
     """
     # Every line in use is the account's capacity, not this call's fault: marked so the
-    # attention list does not report it as a failed call and the call page says why.
-    reason = "lines_full" if code == LINES_BUSY_CODE else None
+    # attention list does not report it as a failed call and the call page says why. Every
+    # other close is marked too, because the daily test-call caps count only calls with no
+    # reason: a dial that rang nobody must not spend one.
+    reason: NotPlacedReason = "lines_full" if code == LINES_BUSY_CODE else "refused"
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
@@ -7007,6 +7095,7 @@ async def attach_number_to_agent(
 __all__ = [
     "CAMPAIGN_NUMBER_UNAVAILABLE_CODE",
     "CARRIER_SPELLINGS",
+    "CLIENT_NUMBER_UNAVAILABLE_RULE",
     "CREDIT_STOP_MESSAGE",
     "DIAL_NOT_PLACED_CODES",
     "HEALER_FORWARD_LINE",
@@ -7032,6 +7121,7 @@ __all__ = [
     "allowance_refusal",
     "apply_healer_silence",
     "attach_number_to_agent",
+    "campaign_dial_backoff_s",
     "carrier_of_provider",
     "credit_stop_greeting",
     "credit_stop_prompt",
@@ -7053,6 +7143,7 @@ __all__ = [
     "publish_variants",
     "reconcile_inbound_answering",
     "reconcile_inbound_truthful_answer",
+    "refuse_campaign_opening_over_limit",
     "republish_lines",
     "republish_running_variants",
     "resolve_caller_id",
