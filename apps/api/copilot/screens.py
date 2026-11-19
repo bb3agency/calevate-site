@@ -457,6 +457,14 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("backup number", "forward calls", "fallback phone", "line down", "outage"),
     ),
     Screen(
+        route="/c/{slug}/settings/call-notices",
+        name="Call notices",
+        group=SETTINGS_GROUP,
+        summary="Whether every call says it is an AI and that it is recorded, one switch "
+        "each for the whole account.",
+        aliases=("ai notice", "recording notice", "disclosure", "call recording notice"),
+    ),
+    Screen(
         route="/c/{slug}/settings/models",
         name="AI model",
         group=SETTINGS_GROUP,

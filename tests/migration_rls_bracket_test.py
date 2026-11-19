@@ -459,7 +459,7 @@ def test_an_unbracketed_write_of_organizations_reading_agents_fails() -> None:
 def test_a_read_of_a_table_this_migration_did_not_create_counts() -> None:
     """FAILS IF: the read side is cleared again for a table forced by an earlier migration."""
     source = (
-        "SQL = \"INSERT INTO outbox_messages (id, job) SELECT gen_random_uuid(), 'x' "
+        "SQL = \"INSERT INTO campaign_digest (id, job) SELECT gen_random_uuid(), 'x' "
         'FROM campaigns c WHERE c.archived_at IS NULL"\n'
     )
     assert _unbracketed(source) == {"campaigns"}

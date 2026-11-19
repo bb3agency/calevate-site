@@ -5,7 +5,7 @@
     "turn_checks.question_words": "Telugu and Hindi question words with an ending joined on, as callers say them (the Telugu for 'how much for', 'to where', 'from when', 'by when'). Only whole bare question words are heard as a question today, so such a question without a '?' is missed (5 Nov 2026, L5-05). Add each form to this list.",
     "detection.dont_know": "'I don't know', 'I can't say', 'no idea' in Telugu letters and in Hindi letters. Only the romanised forms are listed, so an agent turn written in Telugu letters saying it does not know is not seen.",
     "detection.later_by_a_person": "'the team will call you', 'we will call you later', 'someone will get back to you' in Telugu letters and in Hindi letters (only two romanised Telugu forms are listed).",
-    "turn_checks.stall_words": "For each language, the words of a reply that only acknowledges ('ok', 'sure', 'no problem', 'fine', 'thank you', 'got it', 'sir'/'madam' and the polite 'andi'/'garu' or 'ji' a reply adds) under acknowledgements, and a caller asking to wait ('wait', 'one minute', 'hold on', 'let me check') under waits, in Telugu letters and in Hindi letters. Until a language has both, a reply that only reacts is not noted as a stall on its calls; a script step line made only of a language's listed acknowledgements is flagged as only a reaction once they are listed. Also asked for: whole-word forms of the sign-offs in turn_checks._CALLER_SIGNS_OFF with an ending joined on ('that is all' + the polite ending), which are now heard only as whole words.",
+    "turn_checks.stall_words": "For each language, the words of a reply that only acknowledges ('ok', 'sure', 'no problem', 'fine', 'thank you', 'got it', 'sir'/'madam' and the polite 'andi'/'garu' or 'ji' a reply adds) under acknowledgements, and a caller asking to wait ('wait', 'one minute', 'hold on', 'let me check') under waits, in Hindi letters (Telugu is listed). Until Hindi has both, a reply that only reacts is not noted as a stall on Hindi calls. Also asked for: the Hindi sign-offs in turn_checks._CALLER_SIGNS_OFF with an ending joined on ('that is all' + 'ji'), which are heard only as whole words.",
     "detection.stalls": "'let me check and tell you', 'I will find out and tell you' in Telugu letters and in Hindi letters (only two romanised Telugu forms are listed).",
     "detection.topic.*": "Each topic's trigger words in Telugu letters and Hindi letters (only English and a few romanised words are listed), so a question asked in Telugu letters falls to the caller's-own-words label instead of the topic."
   },
@@ -178,11 +178,31 @@
     "turn_checks._CALLER_CLOSES": "\\bbye\\b|thank|that'?s all|nothing|\\bno\\b|not interested|\\bok(?:ay)?\\b|బై|థాంక్స్|థ్యాంక్స్|ధన్యవాద|లేదు|వద్దు|అంతే|సరే|नहीं|बस|धन्यवाद|शुक्रिया|ठीक है|बाय",
     "turn_checks._SLOWER": "slow(?:ly|er)?|నెమ్మదిగా|మెల్లగా|నిదానంగా|స్లోగా|धीरे",
     "turn_checks._ASKS_REPEAT": "మళ్ళా|మళ్ళీ|మళ్లీ|మరలా|ఇంకోసారి|फिर से|दोबारा|एक बार और",
-    "turn_checks._CALLER_SIGNS_OFF": "\\bnothing (?:else|more)\\b|\\bthat'?s (?:all|it)\\b|\\bbye\\b|\\b(?:i'?ll|i will|we'?ll|will) (?:call|ring|phone|contact) (?:you )?(?:back )?(?:later|again|tomorrow|another time|when)|\\b(?:call|talk|speak) (?:to you |you )?later\\b|బై|అంతే|बस इतना|बाय",
+    "turn_checks._CALLER_SIGNS_OFF": "\\bnothing (?:else|more)\\b|\\bthat'?s (?:all|it)\\b|\\bbye\\b|\\b(?:i'?ll|i will|we'?ll|will) (?:call|ring|phone|contact) (?:you )?(?:back )?(?:later|again|tomorrow|another time|when)|\\b(?:call|talk|speak) (?:to you |you )?later\\b|బై|అంతే|అంతేనండి|ఇంకేమీ\\s+లేదు|ఇంకేం\\s+లేదు|ఇంకేమీ\\s+లేదండి|ఇంకేం\\s+లేదండి|తర్వాత\\s+(?:కాల్\\s+చేస్తాను|మాట్లాడతాను)|మళ్ళీ\\s+కాల్\\s+చేస్తాను|(?:ఇక|ఇంక)\\s+చాలు(?:అండి)?|^\\W*(?:చాలు|చాలండి|చాలు\\s+అండి)\\W*$|ఇంకేం\\s+వద్దు|ఇంకేమీ\\s+వద్దు|ఇంకేం\\s+వద్దండి|ఇంకేమీ\\s+వద్దండి|बस इतना|बाय",
     "turn_checks.stall_words": {
       "te": {
-        "acknowledgements": [],
-        "waits": []
+        "acknowledgements": [
+          "సరే", "సరేనండి", "సరే అండి", "సరి", "ఓకే", "ఓకేనండి", "ఓకే అండి",
+          "అలాగే", "అలాగేనండి", "అలాగే అండి", "అలాగా", "ఓ అలాగా",
+          "మంచిది", "మంచిదండి", "మంచిది అండి", "చాలా మంచిది", "చాలా మంచిదండి",
+          "బాగుంది", "చాలా బాగుంది",
+          "పర్వాలేదు", "పర్వాలేదండి", "పర్లేదు", "పర్లేదండి", "ఫరవాలేదు", "ఫర్వాలేదు",
+          "తప్పకుండా", "తప్పకుండానండి", "ఖచ్చితంగా",
+          "అర్థమైంది", "అర్థమైందండి", "అర్ధమైంది", "అర్ధమైందండి",
+          "అవును", "అవునండి", "నిజమే", "కరెక్ట్",
+          "ధన్యవాదాలు", "ధన్యవాదాలండి", "థాంక్యూ", "థాంక్యూ అండి", "థాంక్స్", "చాలా థాంక్స్",
+          "సార్", "మేడమ్", "మేడం", "అండి", "గారు", "హా", "ఆ", "ఓ", "హ్మ్",
+          "sare", "sarenandi", "alage", "alagenandi", "manchidi", "manchidandi",
+          "parledu", "parvaledu", "thappakunda", "artham aindi", "avunu", "avunandi",
+          "dhanyavadalu", "andi", "garu"
+        ],
+        "waits": [
+          "ఒక్క నిమిషం", "ఒక నిమిషం", "ఒక్క నిమిషమండి", "ఒక్క సెకను", "ఒక్క సెకన్",
+          "ఒక్క క్షణం", "ఆగండి", "కొంచెం ఆగండి", "కొంచెం ఉండండి", "ఉండండి చూస్తాను",
+          "ఉండండి చెప్తాను", "ఉండండి చూసి చెప్తాను", "లైన్లో ఉండండి", "లైన్‌లో ఉండండి",
+          "హోల్డ్ చేయండి", "వెయిట్ చేయండి", "చూసి చెప్తాను", "చూసి చెబుతాను",
+          "చెక్ చేసి చెప్తాను", "okka nimisham", "oka nimisham", "aagandi", "agandi"
+        ]
       },
       "hi": {
         "acknowledgements": [],

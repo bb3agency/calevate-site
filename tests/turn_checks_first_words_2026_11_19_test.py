@@ -86,7 +86,34 @@ def test_a_bare_reaction_to_a_statement_is_still_stalled_in_english() -> None:
     assert turn_checks.stalled(said, "OK, no problem.", "So what is it?")
 
 
-@pytest.mark.parametrize("language", ["te-IN", "hi-IN", "ta-IN"])
+@pytest.mark.usefixtures("_file_alone")
+def test_a_bare_telugu_reaction_is_stalled_and_one_after_a_wait_is_not() -> None:
+    """FAILS IF: the shipped Telugu words stop hearing "సరేనండి, పర్వాలేదు." as only a
+    reaction, or hear one that carries something, or miss a caller asking to wait."""
+    assert turn_checks.hears_stalls("te-IN")
+    said = "నేను ఇంకా వాడలేదు."
+    assert turn_checks.only_reaction("సరేనండి, పర్వాలేదు.")
+    assert turn_checks.only_reaction("మంచిదండి.")
+    assert not turn_checks.only_reaction("సరేనండి, మీ పిన్‌కోడ్ చెప్పండి.")
+    assert turn_checks.stalled(said, "సరేనండి.", "ఇప్పుడు ఏం చేయాలి?", language="te-IN")
+    wait = "ఒక్క నిమిషం ఆగండి, చూసి చెప్తాను."
+    assert turn_checks._ASKS_TO_WAIT.search(wait)
+    assert not turn_checks.stalled(wait, "సరేనండి.", "ఇప్పుడు ఏం చేయాలి?", language="te-IN")
+
+
+@pytest.mark.usefixtures("_file_alone")
+def test_telugu_enough_and_stay_are_heard_only_in_their_narrow_forms() -> None:
+    """FAILS IF: "చాలు" ending an order reads as a goodbye, or "ఉండండి" meaning "be" reads
+    as a caller asking to wait."""
+    assert turn_checks.caller_signs_off("చాలండి.")
+    assert turn_checks.caller_signs_off("సరే, ఇక చాలు.")
+    assert turn_checks.caller_signs_off("ఇంకేం వద్దండి.")
+    assert not turn_checks.caller_signs_off("రెండు కిలోలు చాలు.")
+    assert turn_checks._ASKS_TO_WAIT.search("కొంచెం ఉండండి, చూస్తాను.")
+    assert not turn_checks._ASKS_TO_WAIT.search("జాగ్రత్తగా ఉండండి.")
+
+
+@pytest.mark.parametrize("language", ["hi-IN", "ta-IN"])
 def test_no_stall_is_noted_in_a_language_without_its_words(language: str) -> None:
     said = "I have not used it at all so far."
     assert not turn_checks.hears_stalls(language)
@@ -155,8 +182,12 @@ def test_a_request_step_is_not_flagged_as_only_a_reaction() -> None:
 
 def _indic_sign_offs() -> tuple[str, str]:
     """The Telugu 'bye' and 'that is all' the file lists, read from it."""
-    alternatives = call_words.say("turn_checks._CALLER_SIGNS_OFF").split("|")
-    bye, ante = alternatives[-4], alternatives[-3]
+    plain = [
+        word
+        for word in call_words.say("turn_checks._CALLER_SIGNS_OFF").split("|")
+        if not word.isascii() and not set(word) & set("\\()?^$*+ ")
+    ]
+    bye, ante = plain[0], plain[1]
     assert not bye.isascii() and not ante.isascii()
     return bye, ante
 

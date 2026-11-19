@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.81 — 19-Nov-2026
+
+- Telugu calls are checked for a reply that only reacts ("సరేనండి." and nothing else) when
+  the caller needed more, and a Telugu script step made only of a reaction is flagged.
+- A caller saying "ఒక్క నిమిషం", "కొంచెం ఉండండి" or "ఇక చాలు" is understood as asking
+  to wait or finishing.
+- Pip can take you to Settings › Call notices.
+
 ## 0.4.80 — 19-Nov-2026
 
 - Campaigns created before 16 Nov get the files and notes they were written from back, as
