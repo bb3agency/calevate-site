@@ -11,7 +11,7 @@ import {
   type WorkspacesSummary,
 } from "@/lib/api/engineWorkspaces";
 
-import { callLinesRoute } from "./fixtures/sharedReads";
+import { agentAllowanceRoute, callLinesRoute } from "./fixtures/sharedReads";
 import { problem, renderAdminPage, type ApiCall, type Routes } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
@@ -69,6 +69,7 @@ function routes(own: TenantWorkspace, extra: Routes = {}): Routes {
   return {
     [ADMIN_ME_PATH]: SUPERADMIN,
     ...callLinesRoute(TENANT),
+    ...agentAllowanceRoute(TENANT),
     // The numbers screen also shows the client's forwarded numbers (D-746): none here.
     [`/v1/admin/forwarding/tenants/${TENANT}?limit=5`]: {
       lines: [],

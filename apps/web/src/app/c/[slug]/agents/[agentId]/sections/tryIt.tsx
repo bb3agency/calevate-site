@@ -330,7 +330,7 @@ function TrialTestCall({
           : ringsFrom.data?.unavailable
             ? ringsFrom.data.unavailable
             : ringsFrom.data?.setups_busy
-              ? `${agent.name} rings you from our test number: all your calling setups are in use. Billed like any call.`
+              ? `${agent.name} rings from our test number. Your setups are all in use.`
               : ownNumber
                 ? `${agent.name} rings you from your number ${formatPhone(ownNumber)}. Billed like any call.`
                 : ownNumber === null

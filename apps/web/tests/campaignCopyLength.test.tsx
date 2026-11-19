@@ -41,7 +41,11 @@ import { SHORT_LINE } from "./shortCopy";
  */
 const MAX = SHORT_LINE;
 
-const tooLong = (lines: string[]) => lines.filter((line) => line.length > MAX);
+/** A statement the person ticks to attest is kept word for word, never shortened to fit. */
+const ATTESTATIONS = new Set(["This number is my own. Test calls to it can ring at any hour."]);
+
+const tooLong = (lines: string[]) =>
+  lines.filter((line) => line.length > MAX && !ATTESTATIONS.has(line));
 
 describe("the campaign copy tables", () => {
   it("say each blocker in one short line, with the long reason behind Why?", () => {

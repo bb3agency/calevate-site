@@ -181,7 +181,7 @@ describe("where a test call rings from (D-1020)", () => {
     formWith(null, { ownNumber: null, rest: { setups_busy: true } });
     expect(
       screen.getByText(
-        "It rings from our test number: all your calling setups are in use.",
+        "From our test number: your calling setups are all in use.",
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/It rings from your number/)).toBeNull();

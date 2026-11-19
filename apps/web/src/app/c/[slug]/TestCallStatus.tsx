@@ -27,7 +27,7 @@ import { lookup } from "@/lib/lookup";
 
 /** Said before a call that will ring from our test number because every calling setup is in use. */
 export const SETUPS_BUSY_NOTE =
-  "It rings from our test number: all your calling setups are in use.";
+  "From our test number: your calling setups are all in use.";
 
 /**
  * Where a test call rings from, said before the call (D-1020): the account's own number once
