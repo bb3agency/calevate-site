@@ -3,6 +3,23 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.77 — 19-Nov-2026
+
+- "This number is mine" on a campaign's or Inbound line's test call now starts unticked and
+  says what it does: a test call to a number you vouch for may ring at any hour.
+- Start explains a full set of calling setups with what holds each one. A test call's setup
+  no longer blocks Start or putting a line live: it is handed back first.
+- A test call's setup is handed back on time; before, a draft line's could stay for good.
+- Getting a new agent ready no longer uses one of your calling setups.
+- A new lead's first call, or Call back, that could not start for a moment is booked again
+  instead of being dropped; a call that never rang no longer counts against today's test
+  calls.
+- Call-backs from a campaign ring from that campaign's number.
+- A second opening too long to be spoken in full is refused when you save it.
+- Deleting a test call says so once.
+- For invoiced accounts, minutes on a free trial no longer use up the plan's included
+  minutes when the spend limit is worked out.
+
 ## 0.4.76 — 19-Nov-2026
 
 - Example text on the campaign, opening-line, scenario and voice-notes screens no longer
