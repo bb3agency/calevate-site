@@ -59,6 +59,7 @@ import json
 import random
 import re
 from collections.abc import Callable
+from enum import StrEnum
 from typing import Any, Final
 
 import httpx
@@ -183,22 +184,63 @@ _THINNEST_LINE_LIMIT_CODES: Final = frozenset(
     {THINNEST_CONCURRENT_CALLS, THINNEST_NUMBER_DAILY_LIMIT}
 )
 
+#: The one per-minute limit the vendor documents as counted per workspace: "ordinary API
+#: requests for this workspace" (snapshots/2026-10-29/pages/api-reference/errors.md:100).
+#: `rate_limit_family` is "across all of a developer's customers" (:101), and
+#: `rate_limit_calls`, `concurrent_calls` and `rate_limited` state no scope (:102, :106,
+#: :108), so those are held account-wide rather than guessed narrower.
+THINNEST_WORKSPACE_RATE_LIMIT: Final = "rate_limit_resources"
+
+
+class ThrottleScope(StrEnum):
+    """What a throttled request's refusal covers, and so what its dial hold-off holds."""
+
+    #: Every dial on the engine account.
+    ACCOUNT = "account"
+    #: Dials placed in the one engine workspace the refused request was sent to.
+    WORKSPACE = "workspace"
+    #: Dials that ring from the one `from` number the refused request named.
+    NUMBER = "number"
+
+
+def _throttle_scope(vendor_code: str | None) -> ThrottleScope:
+    return (
+        ThrottleScope.WORKSPACE
+        if vendor_code == THINNEST_WORKSPACE_RATE_LIMIT
+        else ThrottleScope.ACCOUNT
+    )
+
+
 #: The code a dial is refused under when the number it would ring from has placed its calls
 #: for today at the voice platform. Nothing rang; another number, or tomorrow, will work.
 NUMBER_DAILY_LIMIT_CODE: Final = "engine_number_daily_limit"
 
 
-def number_daily_limit_error() -> ProblemError:
+class EngineNumberDailyLimitError(ProblemError):
+    """`engine_number_daily_limit`, carrying the vendor's `Retry-After` when it sent one.
+
+    `scope` is always `NUMBER`: the vendor's `number_daily_limit` is "a chosen `from` number
+    has placed its calls for today" (snapshots/2026-10-29/pages/api-reference/calls/
+    place-call.md:674-679, errors.md:107), so the dial gate holds only that number.
+    """
+
+    def __init__(self, *, retry_after_s: float | None = None) -> None:
+        super().__init__(
+            kind="transient",
+            code=NUMBER_DAILY_LIMIT_CODE,
+            title="This number has placed its calls for today",
+            detail="The number this call would ring from has placed as many calls as the "
+            "voice platform allows it in a day, so the call was not placed.",
+            remediation="Try again tomorrow, or give the agent another number to call from.",
+            failure_stage="CORE_LOGIC",
+        )
+        self.retry_after_s = retry_after_s
+        self.scope = ThrottleScope.NUMBER
+
+
+def number_daily_limit_error(retry_after_s: float | None = None) -> EngineNumberDailyLimitError:
     """`engine_number_daily_limit`: the calling number's daily allowance is used up."""
-    return ProblemError(
-        kind="transient",
-        code=NUMBER_DAILY_LIMIT_CODE,
-        title="This number has placed its calls for today",
-        detail="The number this call would ring from has placed as many calls as the voice "
-        "platform allows it in a day, so the call was not placed.",
-        remediation="Try again tomorrow, or give the agent another number to call from.",
-        failure_stage="CORE_LOGIC",
-    )
+    return EngineNumberDailyLimitError(retry_after_s=retry_after_s)
 
 
 #: One `engine_number_daily_limit` alarm per calling number per window. A campaign keeps
@@ -449,10 +491,15 @@ class EngineRateLimitedError(ProblemError):
     `retry_after_s` is opt-in, for the dial gate's engine back-off
     (`engine/dial_lines.start_dial_backoff`): a dial refused for the workspace's call
     ceiling should hold the next dial off for as long as the vendor asked, not re-ask it
-    for every contact the same tick claimed.
+    for every contact the same tick claimed. `scope` is how far that hold-off reaches.
     """
 
-    def __init__(self, *, retry_after_s: float | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        retry_after_s: float | None = None,
+        scope: ThrottleScope = ThrottleScope.ACCOUNT,
+    ) -> None:
         super().__init__(
             kind="transient",
             code="engine_rate_limited",
@@ -462,6 +509,7 @@ class EngineRateLimitedError(ProblemError):
             failure_stage="CORE_LOGIC",
         )
         self.retry_after_s = retry_after_s
+        self.scope = scope
 
 
 def _error_envelope(response: httpx.Response) -> dict[str, Any] | None:
@@ -830,7 +878,7 @@ async def _vendor_response(
         if limit_type == THINNEST_NUMBER_DAILY_LIMIT:
             log.warning("engine_number_daily_limit", extra={"engine": engine, "route": route})
             await _alert_number_daily_limit(engine=engine, number_ref=_calling_number_ref(kwargs))
-            raise number_daily_limit_error()
+            raise number_daily_limit_error(_retry_after_seconds(response))
         if is_line_limit(limit_type):
             log.warning("carrier_lines_busy", extra={"engine": engine, "route": route})
             raise lines_busy_error()
@@ -849,7 +897,8 @@ async def _vendor_response(
         raise EngineRateLimitedError(
             retry_after_s=(
                 header_after if header_after is not None else _throttle_details(response)[1]
-            )
+            ),
+            scope=_throttle_scope(_vendor_error_name(_error_envelope(response))),
         )
     if 300 <= response.status_code < 400:
         # **A REDIRECT IS NOT AN ANSWER, AND UNTIL THIS RUNG EXISTED IT WAS A SUCCESS.**
@@ -1114,8 +1163,10 @@ __all__ = [
     "THROTTLE_MAX_SLEEP_S",
     "THROTTLE_STATUS",
     "VENDOR_RESPONSE_MAX_BYTES",
+    "EngineNumberDailyLimitError",
     "EngineRateLimitedError",
     "EngineRejectedError",
+    "ThrottleScope",
     "assert_safe_vendor_path",
     "lines_busy_error",
     "number_daily_limit_error",

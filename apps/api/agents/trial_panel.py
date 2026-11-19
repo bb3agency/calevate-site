@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.paid_test_calls import OWN_NUMBER_TEST_MAX_SECONDS, read_paid_test_access
+from apps.api.agents.paid_test_calls import read_paid_test_access
 from apps.api.agents.trial_calls import NOT_READY_REASON, TRIAL_CALL_ENGINES, trial_calling_ready
 from apps.api.compliance.outbound_pledge import pledge_blocker
 from apps.api.compliance.trial_access import TRIAL_REFUSALS, read_trial_access
@@ -134,7 +134,7 @@ async def _paid_panel(session: AsyncSession, *, tenant_id: UUID, at: datetime) -
         calls_today=paid.calls_today,
         daily_cap=paid.daily_cap,
         max_call_seconds=paid.max_call_seconds,
-        own_number_max_call_seconds=OWN_NUMBER_TEST_MAX_SECONDS,
+        own_number_max_call_seconds=get_settings().own_number_test_max_seconds,
         shared_line=shared,
         needs_number=needs_number,
         pledge_accepted=unpledged is None,

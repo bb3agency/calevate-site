@@ -7,7 +7,8 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from apps.api.agents.paid_test_calls import OWN_NUMBER_TEST_MAX_SECONDS, own_number_call_seconds
+import pytest
+from apps.api.agents.paid_test_calls import own_number_call_seconds
 from apps.api.core.settings import get_settings
 from apps.api.teach.models import MAX_CASE_LINES
 from apps.workers import agent_test_cases
@@ -15,11 +16,20 @@ from apps.workers import agent_test_cases
 
 def test_an_own_number_test_call_follows_the_agents_cap_up_to_fifteen_minutes() -> None:
     shared = get_settings().trial_call_max_seconds
-    assert OWN_NUMBER_TEST_MAX_SECONDS == 900
+    assert get_settings().own_number_test_max_seconds == 900
     assert own_number_call_seconds(600) == 600
     assert own_number_call_seconds(1200) == 900
     assert own_number_call_seconds(60) == shared, "never shorter than the shared line's"
     assert own_number_call_seconds(None) >= shared
+
+
+def test_the_own_number_ceiling_is_the_console_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "own_number_test_max_seconds", 600)
+    assert own_number_call_seconds(1200) == 600
+    # Never below the shared line's, even when the ceiling is set under it.
+    monkeypatch.setattr(settings, "own_number_test_max_seconds", 60)
+    assert own_number_call_seconds(1200) == settings.trial_call_max_seconds
 
 
 def test_a_saved_test_holds_twenty_lines() -> None:

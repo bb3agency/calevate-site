@@ -28,6 +28,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import dial_lines, reset_engine_cache, vendor_http
+from apps.api.engine.dial_lines import DialOrigin
 from apps.api.engine.fake import FakeEngine
 from apps.api.engine.recording_source import RecordingFetchRules
 from apps.api.engine.thinnest import BASE_URL, PAUSED_LINE_MESSAGE, ThinnestEngine
@@ -35,6 +36,7 @@ from apps.api.engine.vendor_http import (
     RECIPIENT_OPTED_OUT_CODE,
     EngineRateLimitedError,
     EngineRejectedError,
+    ThrottleScope,
     vendor_request,
 )
 from apps.workers import engine_charges, storage
@@ -266,23 +268,32 @@ async def test_a_dial_is_refused_once_the_outbound_lines_are_held(
 # --- the same two limits, through `dispatch_call` -------------------------------------
 
 
+#: One `start_dial_backoff` call: the vendor's `Retry-After`, the scope and the dial's origin.
+_Started = tuple[float | None, ThrottleScope, DialOrigin | None]
+
+
 @pytest.fixture
-def engine_capped(monkeypatch: pytest.MonkeyPatch) -> list[float | None]:
+def engine_capped(monkeypatch: pytest.MonkeyPatch) -> list[_Started]:
     """`dispatch_call` on an engine that dials on its own account with a call ceiling, a
     cap of five. Returns the hold-offs `start_dial_backoff` was asked
     for; the hold-off and the pool are set per test."""
     reset_engine_cache()
-    started: list[float | None] = []
+    started: list[_Started] = []
 
-    async def _start(retry_after_s: float | None) -> float:
-        started.append(retry_after_s)
+    async def _start(
+        retry_after_s: float | None,
+        *,
+        scope: ThrottleScope = ThrottleScope.ACCOUNT,
+        origin: DialOrigin | None = None,
+    ) -> float:
+        started.append((retry_after_s, scope, origin))
         return float(retry_after_s or 0)
 
-    async def _clear() -> float:
-        return 0.0
+    async def _clear(_origin: DialOrigin) -> ProblemError | None:
+        return None
 
     monkeypatch.setattr(agents_service, "engine_concurrency_cap", lambda: 5)
-    monkeypatch.setattr(agents_service, "dial_backoff_remaining_s", _clear)
+    monkeypatch.setattr(agents_service, "dial_backoff_refusal", _clear)
     monkeypatch.setattr(agents_service, "start_dial_backoff", _start)
     monkeypatch.setattr(agents_service, "outbound_line_pool", lambda: 10**6)
     return started
@@ -308,14 +319,14 @@ def _phone() -> str:
 
 
 async def test_a_dial_inside_the_hold_off_is_refused_before_its_row_exists(
-    engine_capped: list[float | None], monkeypatch: pytest.MonkeyPatch
+    engine_capped: list[_Started], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     tenant_id, agent_id = await _dialable_tenant()
 
-    async def _held() -> float:
-        return 30.0
+    async def _held(_origin: DialOrigin) -> ProblemError | None:
+        return dial_lines.engine_backoff_refusal()
 
-    monkeypatch.setattr(agents_service, "dial_backoff_remaining_s", _held)
+    monkeypatch.setattr(agents_service, "dial_backoff_refusal", _held)
     phone = _phone()
     with pytest.raises(ProblemError) as raised:
         await _dial(tenant_id, agent_id, phone)
@@ -325,7 +336,7 @@ async def test_a_dial_inside_the_hold_off_is_refused_before_its_row_exists(
 
 
 async def test_a_full_engine_pool_refuses_the_dial_before_its_row_exists(
-    engine_capped: list[float | None], monkeypatch: pytest.MonkeyPatch
+    engine_capped: list[_Started], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     tenant_id, agent_id = await _dialable_tenant()
     monkeypatch.setattr(agents_service, "outbound_line_pool", lambda: 0)
@@ -337,7 +348,7 @@ async def test_a_full_engine_pool_refuses_the_dial_before_its_row_exists(
 
 
 async def test_the_vendors_429_starts_the_hold_off_and_closes_the_row(
-    engine_capped: list[float | None], monkeypatch: pytest.MonkeyPatch
+    engine_capped: list[_Started], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     tenant_id, agent_id = await _dialable_tenant()
 
@@ -348,13 +359,13 @@ async def test_the_vendors_429_starts_the_hold_off_and_closes_the_row(
     phone = _phone()
     with pytest.raises(EngineRateLimitedError):
         await _dial(tenant_id, agent_id, phone)
-    assert engine_capped == [120]
+    assert [(retry, scope) for retry, scope, _ in engine_capped] == [(120, ThrottleScope.ACCOUNT)]
     # Nothing rang, so the intent row is closed rather than left holding a line.
     assert await _call_statuses(tenant_id, phone) == ["failed"]
 
 
 async def test_a_capped_engine_that_dials_holds_a_line_for_the_call(
-    engine_capped: list[float | None], _settle_rows: None
+    engine_capped: list[_Started], _settle_rows: None
 ) -> None:
     tenant_id, agent_id = await _dialable_tenant()
     _TENANTS.append(tenant_id)
@@ -362,6 +373,59 @@ async def test_a_capped_engine_that_dials_holds_a_line_for_the_call(
     assert await _dial(tenant_id, agent_id, phone)
     assert await _call_statuses(tenant_id, phone) == ["queued"]
     assert engine_capped == []
+
+
+async def _bound_number_id(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
+    async with tenant_session(tenant_id) as session:
+        return str(
+            (
+                await session.execute(
+                    text("SELECT id FROM phone_numbers WHERE agent_id = :aid"), {"aid": agent_id}
+                )
+            ).scalar_one()
+        )
+
+
+async def test_a_numbers_daily_cap_holds_only_dials_from_that_number(
+    engine_capped: list[_Started], monkeypatch: pytest.MonkeyPatch, _settle_rows: None
+) -> None:
+    """Client A's number places its calls for the day; client B's dial goes out, and A's next
+    dial from that number is refused before its row exists."""
+    fake = _FakeRedis()
+    monkeypatch.setattr(dial_lines, "get_redis", lambda: fake)
+    monkeypatch.setattr(dial_lines, "engine_concurrency_cap", lambda: 5)
+    monkeypatch.setattr(agents_service, "dial_backoff_refusal", dial_lines.dial_backoff_refusal)
+    monkeypatch.setattr(agents_service, "start_dial_backoff", dial_lines.start_dial_backoff)
+    tenant_a, agent_a = await _dialable_tenant()
+    tenant_b, agent_b = await _dialable_tenant()
+    _TENANTS.append(tenant_b)
+    real_start = FakeEngine.start_outbound_call
+    capped: list[str] = []
+
+    async def _a_capped(self: FakeEngine, ref: str, to: str, ctx: CallContext) -> str:
+        if not capped:
+            capped.append(ref)
+            raise vendor_http.number_daily_limit_error()
+        return await real_start(self, ref, to, ctx)
+
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", _a_capped)
+    first = _phone()
+    with pytest.raises(ProblemError) as refused:
+        await _dial(tenant_a, agent_a, first)
+    assert refused.value.code == vendor_http.NUMBER_DAILY_LIMIT_CODE
+    number_a = await _bound_number_id(tenant_a, agent_a)
+    assert list(fake.ttl_ms) == [f"{dial_lines.ENGINE_BACKOFF_KEY_PREFIX}:fake:number:{number_a}"]
+
+    other_client = _phone()
+    assert await _dial(tenant_b, agent_b, other_client)
+    assert await _call_statuses(tenant_b, other_client) == ["queued"]
+
+    again = _phone()
+    with pytest.raises(ProblemError) as held:
+        await _dial(tenant_a, agent_a, again)
+    assert held.value.code == vendor_http.NUMBER_DAILY_LIMIT_CODE
+    assert dial_was_not_placed(held.value) is True
+    assert await _call_statuses(tenant_a, again) == []
 
 
 # --- what `POST /calls` refuses ------------------------------------------------------

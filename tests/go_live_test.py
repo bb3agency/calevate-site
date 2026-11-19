@@ -746,7 +746,7 @@ async def test_paid_test_calls_stop_at_the_daily_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id, agent_id, _voice = await _paid_client(hosted_rows)
-    monkeypatch.setattr(get_settings(), "trial_daily_call_cap", 1)
+    monkeypatch.setattr(get_settings(), "paid_test_daily_call_cap", 1)
     engine = HostingEngine()
     with _dialling(engine):
         async with tenant_session(tenant_id) as session:

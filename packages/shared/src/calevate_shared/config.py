@@ -682,6 +682,14 @@ class Settings(BaseSettings):
     #: the hourly sweep retires it (D-859, option A); the next test call recreates it. Each
     #: copy holds one of the developer workspace's agent slots.
     paid_test_copy_idle_days: int = Field(default=14, ge=1, le=365)
+    #: How many test calls one paying account may place per IST day (D-859), counted apart
+    #: from the free trial's `trial_daily_call_cap`, whose default it shares.
+    paid_test_daily_call_cap: int = Field(default=10, ge=1, le=100)
+    #: The longest a paying account's test call from its own number may run, whatever the
+    #: agent's own longest-call setting (D-904); never below `trial_call_max_seconds`. Within
+    #: the per-call `maxCallSeconds` bound of 60..1200 (`thinnest-findings/mirror/snapshots/
+    #: 2026-10-08/pages/api-reference/calls/place-call.md:1122-1126`).
+    own_number_test_max_seconds: int = Field(default=900, ge=60, le=1200)
     #: The staged agent languages clients may choose (D-855), comma-separated BCP-47 tags
     #: from `calevate_shared.languages.STAGED_LANGUAGE_IDS`. Empty, the default, offers
     #: Telugu, Hindi and English only. A write naming a language whose readiness record is

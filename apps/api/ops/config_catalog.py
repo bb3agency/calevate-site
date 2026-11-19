@@ -545,6 +545,26 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
             " test call makes the copy again."
         ),
     ),
+    "paid_test_daily_call_cap": _m(
+        "calling-limits",
+        "trial",
+        "Test calls per paying account per day",
+        "How many test calls one paying account may place in an IST day.",
+        _THINNEST,
+        details="Paid test calls are billed like any call. The free trial has its own limit.",
+    ),
+    "own_number_test_max_seconds": _m(
+        "calling-limits",
+        "trial",
+        "Longest paid test call from the client's own number",
+        "A paying client's test call from its own number ends after this long, 1 to 20 minutes.",
+        _THINNEST,
+        details=(
+            "The agent's own longest-call setting applies when it is shorter. Never shorter "
+            "than the longest trial test call. Test calls on the shared trial line keep that "
+            "limit."
+        ),
+    ),
     "staged_agent_languages_enabled": _m(
         "speech",
         "languages",
@@ -1842,6 +1862,8 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "healer_publish_watch_drop_points": ControlHint(unit="points"),
     "healer_summary_hours": ControlHint(unit="hours"),
     "paid_test_copy_idle_days": ControlHint(unit="days"),
+    "paid_test_daily_call_cap": ControlHint(unit="calls a day"),
+    "own_number_test_max_seconds": ControlHint(kind="duration", unit="seconds"),
     "forwarding_test_daily_cap": ControlHint(unit="tests a day"),
     "whatsapp_message_inr": ControlHint(unit="rupees"),
     "thinnest_max_concurrent_calls": ControlHint(unit="calls at once"),

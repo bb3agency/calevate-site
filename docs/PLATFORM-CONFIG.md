@@ -232,8 +232,10 @@ account may use on test calls before a Studio test call is refused; Clear test c
 D-859 adds `paid_test_copy_idle_days` (default 14, 1..365, live): how long a paying client's
 developer-workspace test copy of an agent (used for its test calls on the shared trial line
 before it has a number, founder option A) may sit unused before the hourly sweep retires it;
-the next test call makes it again. A paying client's test calls are capped by the same
-`trial_daily_call_cap` and `trial_call_max_seconds`.
+the next test call makes it again. A paying client's test calls are capped per IST day by
+`paid_test_daily_call_cap` (default 10, 1..100, live); one from its own number runs at most
+`own_number_test_max_seconds` (default 900, 60..1200, live, never below
+`trial_call_max_seconds`), and one on the shared trial line keeps `trial_call_max_seconds`.
 D-855 adds two settings under Speech, Agent languages, both live. `staged_agent_languages_enabled`
 (comma-separated tags from `ta-IN`, `kn-IN`, `ml-IN`, `mr-IN`; default empty; high risk) names
 the held-back languages every client may give an agent. A write naming a language whose

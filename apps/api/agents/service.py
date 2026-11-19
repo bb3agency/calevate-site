@@ -245,8 +245,9 @@ from apps.api.engine.dial_lines import (
     CARRIER_LINES_LOCK_KEY,
     ENGINE_LINE_HORIZON,
     LINES_BUSY_RULE,
-    dial_backoff_remaining_s,
-    engine_backoff_refusal,
+    TRIAL_LINE_KEY,
+    DialOrigin,
+    dial_backoff_refusal,
     engine_concurrency_cap,
     lines_busy,
     outbound_line_pool,
@@ -261,6 +262,7 @@ from apps.api.engine.vendor_http import (
     LINES_BUSY_CODE,
     NUMBER_DAILY_LIMIT_CODE,
     RECIPIENT_OPTED_OUT_CODE,
+    EngineNumberDailyLimitError,
     EngineRateLimitedError,
     EngineRejectedError,
 )
@@ -5945,10 +5947,21 @@ async def dispatch_call(
 
     # THE ENGINE ACCOUNT'S TWO LIMITS (ThinnestAI): the vendor's hold-off after a 429, then
     # its call ceiling under the line lock. Both are refused before the intent row exists,
-    # so nothing is left `queued` for a dial that was never placed.
+    # so nothing is left `queued` for a dial that was never placed. The hold-off is scoped
+    # to what the 429 named, so one client's exhausted number holds no other dial.
     engine_capped = engine_concurrency_cap() is not None
-    if engine_capped and await dial_backoff_remaining_s() > 0:
-        raise engine_backoff_refusal()
+    origin = DialOrigin(
+        workspace=scope_of(dial_ref),
+        number_key=(
+            str(caller.number_id)
+            if caller is not None
+            else TRIAL_LINE_KEY
+            if trial is not None
+            else None
+        ),
+    )
+    if engine_capped and (held := await dial_backoff_refusal(origin)) is not None:
+        raise held
 
     call_id = uuid7()
     intent_engine_call_id = unconfirmed_engine_call_id(call_id)
@@ -6108,8 +6121,8 @@ async def dispatch_call(
             )
             raise platform_block from exc
         code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
-        if engine_capped and isinstance(exc, EngineRateLimitedError):
-            await start_dial_backoff(exc.retry_after_s)
+        if engine_capped and isinstance(exc, EngineRateLimitedError | EngineNumberDailyLimitError):
+            await start_dial_backoff(exc.retry_after_s, scope=exc.scope, origin=origin)
         if dial_was_not_placed(exc):
             await _close_unplaced_dial(
                 tenant_id,
