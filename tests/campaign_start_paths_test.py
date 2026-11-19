@@ -429,3 +429,63 @@ async def test_an_edit_puts_nothing_live_for_a_campaign_no_longer_holding_one() 
             )
             is None
         )
+
+
+# --- 6. a campaign's test holder the platform no longer has ----------------------------------
+
+
+async def test_a_campaigns_test_holder_gone_at_the_platform_is_made_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = _fresh_engine()
+    tenant_id, agent_id = await _live_agent()
+    campaign_id = await _campaign(tenant_id, agent_id)
+    # A holder the platform no longer has (the fake would find its own again by name tag).
+    gone = f"gone_{uuid.uuid4().hex[:8]}"
+    await _exec(
+        tenant_id,
+        "UPDATE campaigns SET engine_agent_ref = :r, engine_agent_at = now() WHERE id = :c",
+        r=gone,
+        c=campaign_id,
+    )
+    await _exec(
+        tenant_id,
+        "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
+        "campaign_id, active, created_at, updated_at) VALUES ('fake', :r, :t, :a, :c, true, "
+        "now(), now())",
+        r=gone,
+        t=tenant_id,
+        a=agent_id,
+        c=campaign_id,
+    )
+    real_update = engine.update_agent
+
+    async def update(ref: str, cfg: Any) -> None:
+        if ref == gone:
+            raise ProblemError.not_found("Agent")
+        await real_update(ref, cfg)
+
+    monkeypatch.setattr(engine, "update_agent", update)
+    async with tenant_session(tenant_id) as session:
+        ref = await agents_service.publish_campaign_agent(
+            session, tenant_id=tenant_id, campaign_id=campaign_id, test=True
+        )
+    assert ref is not None and ref != gone and ref in engine._agents
+    assert await _held(tenant_id, campaign_id) == ("draft", ref)
+    assert not await _scalar(
+        tenant_id, "SELECT active FROM engine_agent_routes WHERE engine_agent_ref = :r", r=gone
+    )
+
+    # A running campaign dials through its engine agent: losing that one is the failure.
+    await _exec(tenant_id, "UPDATE campaigns SET status = 'running' WHERE id = :c", c=campaign_id)
+
+    async def update_live(_ref: str, _cfg: Any) -> None:
+        raise ProblemError.not_found("Agent")
+
+    monkeypatch.setattr(engine, "update_agent", update_live)
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as refused:
+            await agents_service.publish_campaign_agent(
+                session, tenant_id=tenant_id, campaign_id=campaign_id
+            )
+    assert refused.value.kind == "not_found"

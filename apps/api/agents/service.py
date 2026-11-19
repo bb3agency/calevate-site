@@ -4849,7 +4849,7 @@ async def _refuse_if_allowance_full(
         refusal is not None
         and context != "test_call"
         and workspace is not None
-        and await give_back_idle_test_holders(tenant_id=tenant_id, workspace=workspace)
+        and await give_back_idle_test_holders(session, tenant_id=tenant_id, workspace=workspace)
     ):
         refusal = await allowance_refusal(
             session, tenant_id=tenant_id, workspace=workspace, context=context
@@ -5060,7 +5060,39 @@ async def publish_campaign_agent(
             context="test_call" if test else "start",
         )
     if existing_ref:
-        await engine.update_agent(existing_ref, config)
+        try:
+            await engine.update_agent(existing_ref, config)
+        except Exception as gone:
+            # A test holder of a campaign not started that the platform no longer has (given
+            # back for another Start, or by hand) is made again, as `publish_line` does for
+            # a draft's; a running or paused campaign dials through its engine agent, so
+            # losing that one is the publish's failure.
+            if not (
+                adopt_ref is None
+                and holder.status not in CAMPAIGN_HOLDING_STATUSES
+                and _vendor_says_gone(gone)
+            ):
+                raise
+            log.warning("campaign_test_holder_gone", extra={"campaign_id": str(campaign_id)})
+            await session.execute(
+                text(
+                    "UPDATE engine_agent_routes SET active = false, updated_at = now() "
+                    "WHERE engine = :engine AND engine_agent_ref = :ref"
+                ),
+                {"engine": engine.name, "ref": existing_ref},
+            )
+            await session.execute(
+                text("DELETE FROM engine_kb_routes WHERE campaign_id = :cid AND tenant_id = :tid"),
+                {"cid": campaign_id, "tid": tenant_id},
+            )
+            existing_ref = None
+            await _refuse_if_allowance_full(
+                session,
+                tenant_id=tenant_id,
+                workspace=config.engine_workspace,
+                context="test_call" if test else "start",
+            )
+    if existing_ref:
         ref = existing_ref
     elif in_developer:
         with trial_agent_in_developer_workspace():
@@ -5449,7 +5481,9 @@ async def idle_test_holders_in(session: AsyncSession, *, workspace: str) -> int:
     return count
 
 
-async def give_back_idle_test_holders(*, tenant_id: UUID, workspace: str) -> int:
+async def give_back_idle_test_holders(
+    session: AsyncSession, *, tenant_id: UUID, workspace: str
+) -> int:
     """Free the calling setups a Start or a line put live needs (D-1020): every test holder
     of a draft line or a campaign not started, and every agent test copy, held in this
     client's `workspace`, not published for `TEST_HOLDER_GRACE` and with no call on it. Each
@@ -5457,68 +5491,71 @@ async def give_back_idle_test_holders(*, tenant_id: UUID, workspace: str) -> int
     leave it: a test holder costs nothing to make again on the next test call, and a Start
     refused for one is a campaign that does not dial.
 
-    In its own committed transaction, before the caller recounts: the caller holds the
-    tenant's knowledge lock and its own row, and the count it makes next must see these
-    gone. Rows locked by anyone are skipped, its caller's own included. Returns how many."""
+    In the caller's transaction, under the tenant knowledge lock and the row its publish
+    holds, so the recount that follows sees these gone and no other publish can count the
+    same freed setup. A transaction of its own would hold a third pooled connection under a
+    request's and the publish's (`scripts/check_session_nesting`). Rows another transaction
+    holds are skipped; the caller's own row never matches, since a publish asks for room only
+    when it holds no engine agent in this workspace.
+
+    The platform deletes are not undone if the caller's publish then fails and rolls the
+    detaches back: the rows name vendor agents that are gone, which every holder survives.
+    A draft line's or a campaign's test publish makes its holder again
+    (`_vendor_says_gone`), a test copy is replaced, and the next give-back or the hourly
+    sweep detaches them again (a delete of an absent agent succeeds). Returns how many."""
     from apps.api.agents.paid_test_calls import copy_call_live
     from apps.api.kb.service import release_test_copy_claims
 
     engine = get_engine()
     params = _idle_holder_params(workspace)
     given = 0
-    async with tenant_session(tenant_id) as session:
-        for line_id, agent_id, ref in (
-            await session.execute(text(_IDLE_LINE_HOLDERS_IN_SQL + _SKIP_LOCKED), params)
-        ).all():
-            if scope_of(str(ref)) != workspace or await _holder_call_live(session, str(ref)):
-                continue
-            await _detach_line_holder(session, tenant_id=tenant_id, line_id=UUID(str(line_id)))
-            if not await _delete_holder_now(
-                session, engine, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
-            ):
-                await _owe_holder_deletion(
-                    session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
-                )
-            given += 1
-        for campaign_id, agent_id, ref in (
-            await session.execute(text(_IDLE_CAMPAIGN_HOLDERS_IN_SQL + _SKIP_LOCKED), params)
-        ).all():
-            if scope_of(str(ref)) != workspace or await _holder_call_live(session, str(ref)):
-                continue
-            await _detach_campaign_agent(
-                session, tenant_id=tenant_id, campaign_id=UUID(str(campaign_id)), ref=str(ref)
+    for line_id, agent_id, ref in (
+        await session.execute(text(_IDLE_LINE_HOLDERS_IN_SQL + _SKIP_LOCKED), params)
+    ).all():
+        if scope_of(str(ref)) != workspace or await _holder_call_live(session, str(ref)):
+            continue
+        await _detach_line_holder(session, tenant_id=tenant_id, line_id=UUID(str(line_id)))
+        if not await _delete_holder_now(
+            session, engine, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
+        ):
+            await _owe_holder_deletion(
+                session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
             )
-            if not await _delete_holder_now(
-                session, engine, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
-            ):
-                await _owe_holder_deletion(
-                    session,
-                    tenant_id=tenant_id,
-                    agent_id=UUID(str(agent_id)),
-                    ref=str(ref),
-                    campaign_id=UUID(str(campaign_id)),
-                )
-            given += 1
-        copies = await session.execute(text(_IDLE_TEST_COPIES_IN_SQL + _SKIP_LOCKED), params)
-        for agent_id, ref in copies.all():
-            agent = UUID(str(agent_id))
-            if scope_of(str(ref)) != workspace or await copy_call_live(session, agent):
-                continue
-            await session.execute(
-                text(
-                    "DELETE FROM agent_test_copies "
-                    "WHERE agent_id = :aid AND engine_agent_ref = :ref"
-                ),
-                {"aid": agent, "ref": ref},
+        given += 1
+    for campaign_id, agent_id, ref in (
+        await session.execute(text(_IDLE_CAMPAIGN_HOLDERS_IN_SQL + _SKIP_LOCKED), params)
+    ).all():
+        if scope_of(str(ref)) != workspace or await _holder_call_live(session, str(ref)):
+            continue
+        await _detach_campaign_agent(
+            session, tenant_id=tenant_id, campaign_id=UUID(str(campaign_id)), ref=str(ref)
+        )
+        if not await _delete_holder_now(
+            session, engine, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
+        ):
+            await _owe_holder_deletion(
+                session,
+                tenant_id=tenant_id,
+                agent_id=UUID(str(agent_id)),
+                ref=str(ref),
+                campaign_id=UUID(str(campaign_id)),
             )
-            await release_test_copy_claims(session, tenant_id=tenant_id, agent_id=agent)
-            if not await _delete_holder_now(
-                session, engine, tenant_id=tenant_id, agent_id=agent, ref=str(ref)
-            ):
-                await _owe_holder_deletion(
-                    session, tenant_id=tenant_id, agent_id=agent, ref=str(ref)
-                )
-            given += 1
+        given += 1
+    copies = await session.execute(text(_IDLE_TEST_COPIES_IN_SQL + _SKIP_LOCKED), params)
+    for agent_id, ref in copies.all():
+        agent = UUID(str(agent_id))
+        if scope_of(str(ref)) != workspace or await copy_call_live(session, agent):
+            continue
+        await session.execute(
+            text("DELETE FROM agent_test_copies WHERE agent_id = :aid AND engine_agent_ref = :ref"),
+            {"aid": agent, "ref": ref},
+        )
+        await release_test_copy_claims(session, tenant_id=tenant_id, agent_id=agent)
+        if not await _delete_holder_now(
+            session, engine, tenant_id=tenant_id, agent_id=agent, ref=str(ref)
+        ):
+            await _owe_holder_deletion(session, tenant_id=tenant_id, agent_id=agent, ref=str(ref))
+        given += 1
     if given:
         log.info("idle_test_holders_given_back", extra={"tenant_id": str(tenant_id), "n": given})
     return given
