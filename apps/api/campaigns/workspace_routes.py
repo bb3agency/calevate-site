@@ -201,24 +201,32 @@ async def save_main_task(
 async def restore_script_before_pip(
     campaign_id: UUID, session: Session, request: Request, principal: Dispatcher
 ) -> WorkspaceOut:
+    # Committed on its own, then put live as `save_script` does: a running or paused campaign
+    # would otherwise keep Pip's version on its calls until it was stopped.
     assert principal.tenant_id is not None
-    await workspace.restore_before_pip(session, campaign_id)
-    await write_audit(
-        session,
-        action="campaign.script_restored_before_pip",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="campaign",
-        object_id=str(campaign_id),
-        ip=client_request_ip(request),
-        summary={},
-    )
+    async with tenant_session(principal.tenant_id) as own:
+        await workspace.restore_before_pip(own, campaign_id)
+        await write_audit(
+            own,
+            action="campaign.script_restored_before_pip",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+            summary={},
+        )
+    if await _holds_engine_agent(session, campaign_id):
+        await _put_live_after_save(principal.tenant_id, campaign_id)
     return await _workspace_out(session, campaign_id)
 
 
 class ScriptIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     script: CallScript
+    #: The Pip draft this save keeps, settled in the same transaction, so a save whose
+    #: put-live is refused does not leave the draft standing over the kept script.
+    proposal_id: UUID | None = None
 
 
 async def _holds_engine_agent(session: AsyncSession, campaign_id: UUID) -> bool:
@@ -269,6 +277,10 @@ async def save_script(
     assert principal.tenant_id is not None
     async with tenant_session(principal.tenant_id) as own:
         await workspace.save_script(own, campaign_id, payload.script)
+        if payload.proposal_id is not None and not await workspace.clear_proposal(
+            own, campaign_id, payload.proposal_id
+        ):
+            raise ProblemError.not_found("Draft")
         await write_audit(
             own,
             action="campaign.script_saved",
@@ -277,7 +289,7 @@ async def save_script(
             object_type="campaign",
             object_id=str(campaign_id),
             ip=client_request_ip(request),
-            summary={},
+            summary={"from_draft": payload.proposal_id is not None},
         )
     if await _holds_engine_agent(session, campaign_id):
         await _put_live_after_save(principal.tenant_id, campaign_id)

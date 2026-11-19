@@ -15,6 +15,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { SECONDARY_BUTTON_SM } from "@/components/ui";
+import type { WriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useClientVoiceTuning, useHearLine } from "@/lib/api/voiceTuning";
 
@@ -27,12 +28,19 @@ export type FlowAgent = {
   missing: ReactNode;
 };
 
-export function HearLine({ agent, language, line }: { agent: FlowAgent | null; language: string; line: string }) {
+type HearProps = {
+  language: string;
+  line: string;
+  /** The sample route is the owner's (`org:manage`); anyone else sees why it is closed. */
+  access: WriteAccess;
+};
+
+export function HearLine({ agent, ...rest }: HearProps & { agent: FlowAgent | null }) {
   if (!agent?.id) return null;
-  return <Hear agent={agent} language={language} line={line} />;
+  return <Hear agent={agent} {...rest} />;
 }
 
-function Hear({ agent, language, line }: { agent: FlowAgent; language: string; line: string }) {
+function Hear({ agent, language, line, access }: HearProps & { agent: FlowAgent }) {
   const { session } = useClientRealm();
   const tuning = useClientVoiceTuning(session, agent.id, agent.voiceId);
   const hear = useHearLine(session, agent.id, agent.voiceId);
@@ -58,8 +66,14 @@ function Hear({ agent, language, line }: { agent: FlowAgent; language: string; l
       <button
         type="button"
         className={SECONDARY_BUTTON_SM}
-        disabled={!line.trim() || hear.isPending || left === 0}
-        title={left === 0 ? "No samples left today." : "Speaks the start of this line in the agent's voice."}
+        disabled={!access.allowed || !line.trim() || hear.isPending || left === 0}
+        title={
+          !access.allowed
+            ? (access.reason ?? undefined)
+            : left === 0
+              ? "No samples left today."
+              : "Speaks the start of this line in the agent's voice."
+        }
         onClick={() =>
           hear.mutate(
             { text: line, language },

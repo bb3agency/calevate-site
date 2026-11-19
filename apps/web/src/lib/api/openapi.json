@@ -53208,6 +53208,18 @@
       "ScriptIn": {
         "additionalProperties": false,
         "properties": {
+          "proposal_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Id"
+          },
           "script": {
             "$ref": "#/components/schemas/CallScript"
           }

@@ -65,6 +65,11 @@ function useWorkspaceMutation<TIn>(
         void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) });
       }
     },
+    // A refusal can still have stored something ("Saved, but not on its calls yet"), so the
+    // page reads the workspace again rather than keep showing what it had before.
+    onError: () => {
+      void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) });
+    },
   });
 }
 
@@ -77,11 +82,14 @@ export function useSaveMainTask(session: Session, campaignId: string) {
   );
 }
 
+/** A script to save; `proposalId` names the Pip draft it keeps, settled by the same save. */
+export type CampaignScriptSave = { script: CallScript; proposalId?: string };
+
 export function useSaveCampaignScript(session: Session, campaignId: string) {
-  return useWorkspaceMutation(session, campaignId, (script: CallScript) =>
+  return useWorkspaceMutation(session, campaignId, ({ script, proposalId }: CampaignScriptSave) =>
     apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/script`, {
       method: "PUT",
-      body: { script },
+      body: proposalId ? { script, proposal_id: proposalId } : { script },
     }),
   );
 }

@@ -9,12 +9,17 @@
 4. A "What it notes" save the platform refused to put live is kept, and pressing Save again
    puts it live: the list the editor still shows is already stored, so the retry is neither a
    conflict nor a no-op that skips the publish.
+5. Putting back the script from before Pip's draft reaches a running campaign's calls the
+   same way, and a refused put-live keeps the restore.
+6. Keeping Pip's draft settles it in the save's own transaction, so a refused put-live does
+   not leave it standing; a draft the campaign does not hold refuses the whole save.
 
 SHARED DATABASE DISCIPLINE: every organisation is minted here; the engine is the fake.
 """
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from uuid import UUID
 
@@ -23,6 +28,7 @@ from apps.api.campaigns import notes, workspace_routes
 from apps.api.campaigns.workspace_routes import router as workspace_router
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
+from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers.campaign_dispatch import _settle_finished_campaign
 from calevate_shared.call_script import CallScript
@@ -176,3 +182,122 @@ async def test_saving_what_it_notes_again_puts_a_refused_save_live(
     assert code == 200, again
     assert len(tries) == 2, "Save again did not put the kept list on the campaign's calls"
     assert [f["key"] for f in again["fields"]] == ["visit_day"]
+
+
+async def _post(token: str, path: str) -> tuple[int, dict[str, Any]]:
+    async with _client(_app()) as http:
+        response = await http.post(path, headers={"Authorization": f"Bearer {token}"})
+    return response.status_code, response.json()
+
+
+async def _hold_before_pip(tenant_id: UUID, campaign_id: UUID, script: CallScript) -> None:
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE campaigns SET script_before_pip = CAST(:s AS jsonb), "
+                "script_before_pip_at = now() WHERE id = :c"
+            ),
+            {"s": script.model_dump_json(), "c": campaign_id},
+        )
+
+
+async def _draft(tenant_id: UUID, campaign_id: UUID) -> UUID:
+    draft_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET script_proposal = CAST(:p AS jsonb) WHERE id = :c"),
+            {"p": json.dumps({"id": str(draft_id), "status": "ready"}), "c": campaign_id},
+        )
+    return draft_id
+
+
+async def _stored(tenant_id: UUID, campaign_id: UUID) -> tuple[Any, Any]:
+    async with tenant_session(tenant_id) as session:
+        script, proposal = (
+            await session.execute(
+                text("SELECT script, script_proposal FROM campaigns WHERE id = :c"),
+                {"c": campaign_id},
+            )
+        ).one()
+    return script, proposal
+
+
+async def _platform_refuses(*, tenant_id: UUID, campaign_id: UUID) -> str | None:
+    raise ProblemError.business_rule("engine_unavailable", "The calling platform did not answer.")
+
+
+async def test_putting_back_the_script_before_pip_reaches_a_running_campaigns_calls() -> None:
+    engine = _fresh_engine()
+    tenant_id, agent_id, token = await _live_agent_and_token()
+    campaign_id = await _campaign(tenant_id, agent_id, status="running")
+    ref = await _publish(tenant_id, campaign_id)
+    await _hold_before_pip(tenant_id, campaign_id, NEW)
+    assert "Sunday camp" not in engine._agents[ref].system_prompt
+
+    code, body = await _post(token, f"/v1/campaigns/{campaign_id}/script/restore-before-pip")
+
+    assert code == 200, body
+    assert "Sunday camp" in engine._agents[ref].system_prompt, (
+        "the running campaign kept calling with Pip's script after the owner put theirs back"
+    )
+
+
+async def test_a_restore_whose_put_live_is_refused_is_kept(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fresh_engine()
+    tenant_id, agent_id, token = await _live_agent_and_token()
+    campaign_id = await _campaign(tenant_id, agent_id, status="paused")
+    await _publish(tenant_id, campaign_id)
+    await _hold_before_pip(tenant_id, campaign_id, NEW)
+    monkeypatch.setattr(workspace_routes, "put_campaign_live", _platform_refuses)
+
+    code, refused = await _post(token, f"/v1/campaigns/{campaign_id}/script/restore-before-pip")
+
+    assert code != 200 and refused["title"] == "Saved, but not on its calls yet", refused
+    script, _ = await _stored(tenant_id, campaign_id)
+    assert script["opening_line"] == NEW.opening_line, "the refused put-live undid the restore"
+
+
+async def test_keeping_pips_draft_settles_it_even_when_its_put_live_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fresh_engine()
+    tenant_id, agent_id, token = await _live_agent_and_token()
+    campaign_id = await _campaign(tenant_id, agent_id, status="running")
+    await _publish(tenant_id, campaign_id)
+    draft_id = await _draft(tenant_id, campaign_id)
+    monkeypatch.setattr(workspace_routes, "put_campaign_live", _platform_refuses)
+
+    code, refused = await _put(
+        token,
+        f"/v1/campaigns/{campaign_id}/script",
+        {"script": NEW.model_dump(mode="json"), "proposal_id": str(draft_id)},
+    )
+
+    assert code != 200 and refused["title"] == "Saved, but not on its calls yet", refused
+    script, proposal = await _stored(tenant_id, campaign_id)
+    assert script["opening_line"] == NEW.opening_line
+    assert proposal is None, "the kept draft stood over the saved script after a refused put-live"
+
+
+async def test_a_save_naming_a_draft_this_campaign_does_not_hold_is_refused_whole() -> None:
+    _fresh_engine()
+    tenant_id, agent_id, token = await _live_agent_and_token()
+    campaign_id = await _campaign(tenant_id, agent_id)
+    draft_id = await _draft(tenant_id, campaign_id)
+    other = await _campaign(tenant_id, agent_id)
+    elsewhere = await _draft(tenant_id, other)
+
+    code, body = await _put(
+        token,
+        f"/v1/campaigns/{campaign_id}/script",
+        {"script": NEW.model_dump(mode="json"), "proposal_id": str(elsewhere)},
+    )
+
+    assert code == 404, body
+    script, proposal = await _stored(tenant_id, campaign_id)
+    assert script["opening_line"] != NEW.opening_line, "the refused save still stored its script"
+    assert proposal["id"] == str(draft_id)
+    _, untouched = await _stored(tenant_id, other)
+    assert untouched["id"] == str(elsewhere), "a save settled another campaign's draft"

@@ -30,6 +30,7 @@ import {
 } from "react";
 
 import { FIELD, SECONDARY_BUTTON_SM } from "@/components/ui";
+import type { WriteAccess } from "@/lib/api/hooks";
 import type { CallScript } from "@/lib/api/script";
 import { lookup } from "@/lib/lookup";
 
@@ -103,9 +104,12 @@ export function ScenarioFlow({
   onSelect,
   onChange,
   agent,
+  hear,
 }: {
   /** The campaign's agent, whose voice "Hear it" speaks in; null while none is chosen. */
   agent: FlowAgent | null;
+  /** Whether this person may hear a line ("Hear it" is the owner's, `org:manage`). */
+  hear: WriteAccess;
   script: CallScript;
   limits: Limits;
   issues: Issue[];
@@ -150,6 +154,7 @@ export function ScenarioFlow({
       languages={languages}
       readOnly={readOnly}
       agent={agent}
+      hear={hear}
       wide={wide}
       onChange={onChange}
       onDelete={() => remove(chosen.section.id)}
@@ -746,11 +751,13 @@ function ScenarioEditor({
   languages,
   readOnly,
   agent,
+  hear,
   wide,
   onChange,
   onDelete,
 }: {
   agent: FlowAgent | null;
+  hear: WriteAccess;
   /** Under the picture at full width: three columns. */
   wide: boolean;
   item: Placed;
@@ -815,6 +822,7 @@ function ScenarioEditor({
       />
       <HearLine
         agent={agent}
+        access={hear}
         language={tag}
         line={scripts[tag] ?? (tag === main ? legacy : "")}
       />
@@ -1035,6 +1043,7 @@ function ScenarioEditor({
                         </label>
                         <HearLine
                           agent={agent}
+                          access={hear}
                           language={english}
                           line={row.answer}
                         />
@@ -1055,6 +1064,7 @@ function ScenarioEditor({
                           </label>
                           <HearLine
                             agent={agent}
+                            access={hear}
                             language={local}
                             line={held.answer}
                           />

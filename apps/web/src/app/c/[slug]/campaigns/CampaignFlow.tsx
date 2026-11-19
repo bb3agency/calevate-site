@@ -36,6 +36,7 @@ import { useFocusTrap } from "@/lib/focusTrap";
 import { keepInView } from "@/lib/keepInView";
 import type { CallScript } from "@/lib/api/script";
 import { useScript } from "@/lib/api/script";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
 import {
@@ -91,6 +92,8 @@ export function CampaignFlow({
 }) {
   const { session } = useClientRealm();
   const context = useScript(session, agentId).data?.context ?? null;
+  // Hearing a line spends one of the account's samples, which the route keeps for the owner.
+  const hear = useWriteAccess(session, "org:manage", "hear a line in the agent's voice");
   const limits = limitsFrom(context);
   const desktop = useMedia(DESKTOP);
   const [draft, setDraft] = useState<CallScript>(script);
@@ -255,6 +258,7 @@ export function CampaignFlow({
   const body = () => (
     <ScenarioFlow
       agent={flowAgent}
+      hear={hear}
       script={draft}
       limits={limits}
       issues={issues}

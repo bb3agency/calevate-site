@@ -360,11 +360,12 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
 
   const keep = async (next: CallScript) => {
     try {
-      await save.mutateAsync(next);
-      if (proposal) await clear.mutateAsync(proposal.id);
+      // The draft is settled by the save itself, so a save whose put-live is refused does not
+      // leave it standing over the script it kept.
+      await save.mutateAsync(proposal ? { script: next, proposalId: proposal.id } : { script: next });
       closeEditor();
     } catch {
-      // A refused save is `save.error`, rendered above; a refused clear is toasted.
+      // A refused save is `save.error`, rendered above.
     }
   };
 
@@ -475,7 +476,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                 refusal={refusal}
                 saving={save.isPending}
                 onSave={async (next) => {
-                  await save.mutateAsync(next);
+                  await save.mutateAsync({ script: next });
                 }}
                 mapping={ask.isPending}
                 beforePipAt={space.script_before_pip_at ?? null}

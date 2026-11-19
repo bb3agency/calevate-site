@@ -48,6 +48,8 @@ const routes = (extra: Routes = {}): Routes => ({
   "/v1/kb/uploads": [],
   // The call flow's voice bar lists the account's agents.
   "/v1/agents": [],
+  // Who may hear a line in the agent's voice: not what these tests are about.
+  "/v1/me": noReply(),
   ...extra,
 });
 
@@ -100,6 +102,39 @@ describe("Pip writing a campaign's script", () => {
     fireEvent.click(why);
     expect(why.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Says who calls and why, then asks to talk, as your main task asks.")).toBeTruthy();
+  });
+
+  it("keeps Pip's draft in the one save, which settles the draft too", async () => {
+    const draft = ready();
+    const rendered = await render({
+      [`${base}/workspace`]: workspaceFixture({ source_ids: [SOURCE_ID], proposal: draft }),
+      [`PUT ${base}/script`]: workspaceFixture({ source_ids: [SOURCE_ID], script: SCRIPT }),
+      [`/v1/agents/${FIXTURE_AGENT_ID}/script`]: noReply(),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /to my draft/ }));
+    await waitFor(() => expect(rendered.calls.some((c) => c.method === "PUT")).toBe(true));
+    const saved = rendered.calls.filter((c) => c.method === "PUT" && c.path === `${base}/script`);
+    expect(saved).toHaveLength(1);
+    expect(JSON.parse(saved[0]?.body ?? "null")).toMatchObject({ proposal_id: draft.id });
+    expect(rendered.calls.some((c) => c.method === "DELETE")).toBe(false);
+  });
+
+  it("reads the workspace again when a save is refused after it was stored", async () => {
+    const rendered = await render({
+      [`${base}/workspace`]: workspaceFixture({ source_ids: [SOURCE_ID], proposal: ready() }),
+      [`PUT ${base}/script`]: problem(503, {
+        type: "https://calevate.tech/problems/engine_unavailable",
+        title: "Saved, but not on its calls yet",
+        status: 503,
+        detail: "The calling platform did not answer.",
+      }),
+      [`/v1/agents/${FIXTURE_AGENT_ID}/script`]: noReply(),
+    });
+    const reads = () => rendered.calls.filter((c) => c.method === "GET" && c.path === `${base}/workspace`).length;
+    fireEvent.click(await screen.findByRole("button", { name: /to my draft/ }));
+    const before = reads();
+    expect(await screen.findByText("Saved, but not on its calls yet")).toBeTruthy();
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
   });
 
   it("rewrites one part of a kept script with the owner's own instruction", async () => {

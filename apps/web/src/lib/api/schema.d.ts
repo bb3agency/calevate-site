@@ -33909,6 +33909,8 @@ export interface components {
         };
         /** ScriptIn */
         ScriptIn: {
+            /** Proposal Id */
+            proposal_id?: string | null;
             script: components["schemas"]["CallScript"];
         };
         /**
