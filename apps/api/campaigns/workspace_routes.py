@@ -249,7 +249,7 @@ async def _put_live_after_save(tenant_id: UUID, campaign_id: UUID) -> None:
     """Put a committed edit on the campaign's engine agent. A refusal says the edit is kept,
     so the owner saves again rather than typing it again (`inbound/routes`' same step)."""
     try:
-        await put_campaign_live(tenant_id=tenant_id, campaign_id=campaign_id)
+        await put_campaign_live(tenant_id=tenant_id, campaign_id=campaign_id, require_holding=True)
     except ProblemError as exc:
         exc.title = "Saved, but not on its calls yet"
         exc.remediation = (

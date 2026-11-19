@@ -294,7 +294,9 @@ async def _put_holder_live(tenant_id: UUID, kind: HolderKind, holder_id: UUID) -
         if kind == "line":
             await put_line_live(tenant_id=tenant_id, line_id=holder_id)
         else:
-            await put_campaign_live(tenant_id=tenant_id, campaign_id=holder_id)
+            await put_campaign_live(
+                tenant_id=tenant_id, campaign_id=holder_id, require_holding=True
+            )
     except ProblemError as refused:
         log.warning(
             "holder_opening_notices_not_live",

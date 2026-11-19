@@ -234,6 +234,7 @@ from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_d
 from apps.api.compliance.trial_access import (
     TRIAL_MIN_CALL_SECONDS,
     TRIAL_STUDIO_MINUTES_USED_RULE,
+    live_test_call_horizon,
     refuse_on_trial,
     refuse_trial_numbers,
     refuse_trial_studio_over_cap,
@@ -285,6 +286,7 @@ from apps.api.ops.maintenance import read_open_window
 from apps.api.ops.service import read_halt_state
 from apps.api.reliability.engine_actions import (
     ACTION_ENGINES,
+    call_connected_on,
     ensure_agent_actions,
     retire_agent_actions,
 )
@@ -4607,7 +4609,8 @@ TEST_HOLDER_GRACE: Final = timedelta(minutes=2)
 
 #: A call on this engine agent that may still be connected: our own row, which a test dial
 #: writes before it rings, so a call still ringing counts (the vendor's connected list would
-#: miss it). Bounded like `paid_test_calls.copy_call_live`, so a lost result cannot pin it.
+#: miss it). Bounded by the longest test call allowed (`live_test_call_horizon`, an own-number
+#: test runs longer than one on the shared line), so a lost result cannot pin it.
 _HOLDER_CALL_LIVE_SQL: Final = (
     "SELECT EXISTS (SELECT 1 FROM calls WHERE engine_agent_ref = :ref "
     "AND status IN ('queued', 'ringing', 'in_progress') "
@@ -4932,7 +4935,8 @@ async def publish_campaign_agent(
     test: bool = False,
     adopt_ref: str | None = None,
     in_client: bool = False,
-) -> str:
+    require_holding: bool = False,
+) -> str | None:
     """Create or update a campaign's own engine agent (D-1003): `campaign_config` read back
     like every publish, routed for intake (`engine_agent_routes.campaign_id`), given its
     results webhook, the client's knowledge and the in-call actions. A vendor agent this
@@ -4953,6 +4957,11 @@ async def publish_campaign_agent(
     that dials through it and holds none of its own (D-1019, `agents/engine_retirement`), as
     `publish_line` adopts one. A live publish only.
 
+    `require_holding` is for a caller that read the campaign as holding an engine agent while
+    it runs or is paused (an edit, a re-woven opening): asked again under the row lock, and
+    None with nothing published when it no longer does, so a campaign stopped or whose
+    engine agent was given back in between is not handed a new one.
+
     The tenant's knowledge lock is taken first and then the campaign row, as `publish_line`
     takes them: the row lock keeps two Starts of one campaign from making two engine agents,
     and the tenant lock keeps a Start, another campaign's and a line put live from each
@@ -4964,6 +4973,13 @@ async def publish_campaign_agent(
 
     await lock_tenant_knowledge(session, tenant_id=tenant_id)
     holder = await _campaign_holder(session, campaign_id, lock=True)
+    if require_holding and (
+        holder.archived
+        or holder.engine_agent_ref is None
+        or holder.status not in CAMPAIGN_HOLDING_STATUSES
+    ):
+        log.info("campaign_engine_agent_no_longer_held", extra={"campaign_id": str(campaign_id)})
+        return None
     agent, engine, config = await _campaign_publishable(session, tenant_id=tenant_id, holder=holder)
     if test:
         # A test holder rings the owner, so the agreements are asked as for a test copy.
@@ -5145,10 +5161,11 @@ async def _owe_holder_deletion(
     ref: str,
     campaign_id: UUID | None = None,
 ) -> None:
-    """Owe the deletion of a campaign's or a draft line's engine agent through the outbox,
-    which waits out a call still on it. Not `retire_engine_agent`'s once-per-ref key: a holder
-    made again finds the same vendor agent by its name tag, and giving it back a second time
-    must queue a second deletion; the job leaves alone one that is held again by then."""
+    """Owe the deletion of a campaign's, a draft line's or a client-workspace test copy's
+    engine agent through the outbox, which waits out a call still on it. Not
+    `retire_engine_agent`'s once-per-ref key: a holder made again finds the same vendor agent
+    by its name tag, and giving it back a second time must queue a second deletion; the job
+    leaves alone one that is held again by then."""
     from apps.api.reliability.service import enqueue_outbox
 
     payload = {"tenant_id": str(tenant_id), "agent_id": str(agent_id), "old_ref": ref}
@@ -5280,7 +5297,7 @@ async def _holder_call_live(session: AsyncSession, ref: str) -> bool:
         (
             await session.execute(
                 text(_HOLDER_CALL_LIVE_SQL),
-                {"ref": ref, "horizon": trial_line_horizon().total_seconds()},
+                {"ref": ref, "horizon": live_test_call_horizon().total_seconds()},
             )
         ).scalar()
     )
@@ -5291,14 +5308,25 @@ async def _delete_holder_now(
 ) -> bool:
     """What `workers/engine_workspaces.retire_moved_engine_agent` does, now rather than after
     commit, so the platform stops counting the engine agent before a new one is made in its
-    place. False when the platform would not delete it; the caller then owes the deletion
-    through the outbox, and the slot frees when that runs."""
+    place. False when a call is connected on it or the platform would not delete it; the
+    caller then owes the deletion through the outbox, which waits the call out, and the slot
+    frees when that runs.
+
+    The vendor agent is deleted before its webhook and in-call actions are retired, not
+    after: a delete refused for a call that connected since the check leaves that call its
+    results webhook and its actions, which the call still needs."""
     from apps.api.reliability.engine_webhooks import retire_agent_webhook
 
     try:
+        if await call_connected_on(engine=engine.name, engine_agent_ref=ref):
+            log.info(
+                "test_holder_give_back_waits_for_call",
+                extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id)},
+            )
+            return False
+        await engine.delete_agent(ref)
         await retire_in_call_actions(agent_id=agent_id, ref=ref)
         await retire_agent_webhook(session, engine=engine.name, engine_agent_ref=ref)
-        await engine.delete_agent(ref)
     except Exception as exc:
         log.warning(
             "test_holder_give_back_deferred",
@@ -5435,7 +5463,7 @@ async def give_back_idle_test_holders(*, tenant_id: UUID, workspace: str) -> int
             if not await _delete_holder_now(
                 session, engine, tenant_id=tenant_id, agent_id=agent, ref=str(ref)
             ):
-                await retire_engine_agent(
+                await _owe_holder_deletion(
                     session, tenant_id=tenant_id, agent_id=agent, ref=str(ref)
                 )
             given += 1
@@ -5469,6 +5497,18 @@ async def retire_idle_client_test_copies(
     for agent_id, ref in rows:
         if scope_of(str(ref)) is None:
             continue
+        # `refresh_test_copy` republishes the copy under the agent row lock
+        # (`publish_agent`) and stamps `last_used_at` only after the platform round trip, so
+        # a copy whose agent row is held is being readied for a test call: skipped, never
+        # waited on, as `give_back_idle_test_holders` skips a row someone holds.
+        in_use = (
+            await session.execute(
+                text("SELECT 1 FROM agents WHERE id = :aid FOR UPDATE SKIP LOCKED"),
+                {"aid": agent_id},
+            )
+        ).first() is None
+        if in_use:
+            continue
         gone = await session.execute(
             text(
                 "DELETE FROM agent_test_copies WHERE agent_id = :aid AND engine_agent_ref = :ref "
@@ -5479,7 +5519,7 @@ async def retire_idle_client_test_copies(
         if not rowcount_of(gone):
             continue
         await release_test_copy_claims(session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)))
-        await retire_engine_agent(
+        await _owe_holder_deletion(
             session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
         )
         retired += 1

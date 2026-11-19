@@ -1125,21 +1125,10 @@ async def _campaign_exists(session: AsyncSession, campaign_id: UUID) -> None:
 async def _put_campaign_script_live(
     session: AsyncSession, principal: Principal, campaign_id: UUID
 ) -> None:
-    """Start's first step: the campaign's own engine agent is made or brought up to date and
-    read back before it can dial (D-1003): the campaign says what its calls say, in its agent's
-    voice, and the agent's own script is untouched.
-
-    Nothing is made while the launch gate would refuse, so a refused Start leaves no engine
-    agent holding the workspace's allowance; the gate's own refusal follows."""
+    """Start's first step (D-1003), the one every start shares: `service.put_live_for_start`."""
     assert principal.tenant_id is not None
     await _campaign_exists(session, campaign_id)
-    if await service.launch_blockers(
-        session, tenant_id=principal.tenant_id, campaign_id=campaign_id
-    ):
-        return
-    await campaign_engine_agent.put_campaign_live(
-        tenant_id=principal.tenant_id, campaign_id=campaign_id
-    )
+    await service.put_live_for_start(tenant_id=principal.tenant_id, campaign_id=campaign_id)
 
 
 @router.post(

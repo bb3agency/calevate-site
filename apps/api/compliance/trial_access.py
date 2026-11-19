@@ -362,6 +362,17 @@ def trial_line_horizon() -> timedelta:
     return timedelta(seconds=get_settings().trial_call_max_seconds) + TRIAL_LINE_MARGIN
 
 
+def live_test_call_horizon() -> timedelta:
+    """How long a placed test call of any kind may still be on the engine agent it rang: the
+    longest a test call may run plus `TRIAL_LINE_MARGIN`. One from a paying client's own
+    number runs up to `own_number_test_max_seconds` (D-1020, `paid_test_calls.
+    own_number_call_seconds`), longer than the shared line's `trial_call_max_seconds`, so a
+    bound on the shared line's alone would call such a call over while it still talks."""
+    settings = get_settings()
+    longest = max(settings.trial_call_max_seconds, settings.own_number_test_max_seconds)
+    return timedelta(seconds=longest) + TRIAL_LINE_MARGIN
+
+
 __all__ = [
     "ADD_CREDIT_STEP",
     "NOT_ON_TRIAL_REASON",
@@ -383,6 +394,7 @@ __all__ = [
     "TrialLocked",
     "daily_cap_reason",
     "ist_day_start",
+    "live_test_call_horizon",
     "read_trial_access",
     "refuse_on_trial",
     "refuse_trial_numbers",

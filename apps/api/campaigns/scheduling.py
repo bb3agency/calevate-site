@@ -159,8 +159,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.workspace_slots import ENGINE_AGENT_ALLOWANCE_FULL_RULE, SLOTS_FULL_CODES
-from apps.api.campaigns.engine_agent import end_campaign_agent, put_campaign_live
-from apps.api.campaigns.service import launch_blockers, launch_campaign
+from apps.api.campaigns.engine_agent import end_campaign_agent
+from apps.api.campaigns.service import START_NOT_READY_RULE, launch_campaign, put_live_for_start
 from apps.api.compliance.service import DEFAULT_WINDOW
 from apps.api.core.alerting import alert, record_compliance_block
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
@@ -209,13 +209,6 @@ RECURRENCE_CATCHUP = timedelta(hours=1)
 # (decision 6). Each try can make and reclaim a vendor agent, so it is not retried every
 # 30-second tick; five minutes keeps a refusal that clears quickly from costing the start.
 PUT_LIVE_RETRY: Final = timedelta(minutes=5)
-
-# The rule a start is recorded blocked under when its engine agent could not be made for
-# a reason other than the workspace's allowance: the platform refused it, maintenance, a
-# read-back that did not hold, our own account's plan being full. Those are ours to fix.
-# The client workspace's allowance keeps the gate's rule, so the owner reads the same
-# words the launch gate uses and knows the fix is theirs.
-START_NOT_READY_RULE: Final = "campaign_not_ready_to_call"
 
 # ISO weekday numbers, Monday = 1, as `datetime.isoweekday()` returns them. The wire
 # model, the rule and the UI all speak this one vocabulary — a second numbering (0-based,
@@ -910,6 +903,10 @@ async def claim_slot_at_start(*, tenant_id: UUID, due: DueSchedule, now: datetim
     - `claimed`: the engine agent is made; give it back if the start does not fire;
     - `blocked`: the platform refused it, or refused it under `PUT_LIVE_RETRY` ago. The
       refusal is on the schedule, so the campaign's band says it, and the start is not run.
+
+    The gate and the publish are `put_live_for_start`, the step every start shares. The
+    retry wait is asked before it, so a refusal inside `PUT_LIVE_RETRY` is not tried again
+    even when the gate would now refuse; the gate's refusal is recorded once the wait ends.
     """
     async with tenant_session(tenant_id) as session:
         row = (
@@ -923,8 +920,6 @@ async def claim_slot_at_start(*, tenant_id: UUID, due: DueSchedule, now: datetim
         ).first()
         window = GRACE if due.recurrence is None else RECURRENCE_CATCHUP
         if row is None or now > due.start_at + window:
-            return "none"
-        if await launch_blockers(session, tenant_id=tenant_id, campaign_id=due.campaign_id):
             return "none"
         stored = row[0] if isinstance(row[0], dict) else {}
         tried = stored.get("last_put_live")
@@ -940,7 +935,7 @@ async def claim_slot_at_start(*, tenant_id: UUID, due: DueSchedule, now: datetim
         if tried_at is not None and now < tried_at + PUT_LIVE_RETRY:
             return "blocked"
     try:
-        ref = await put_campaign_live(tenant_id=tenant_id, campaign_id=due.campaign_id)
+        ref = await put_live_for_start(tenant_id=tenant_id, campaign_id=due.campaign_id)
     except Exception as exc:
         code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
         # The platform's own full-workspace refusal is the same rule as our count's: the

@@ -367,14 +367,16 @@ async def copy_call_live(session: AsyncSession, agent_id: UUID) -> bool:
     re-publishing a vendor agent does to a call in progress is not documented (OPERATIONS
     T-28), so the copy is never re-published under a live call: the business chat and call
     and a campaign's test call take turns on it, as they already do on the one trial line.
-    Reads `calls` rather than the vendor's connected list, which misses a call still ringing."""
-    from apps.api.compliance.trial_access import trial_line_horizon
+    Reads `calls` rather than the vendor's connected list, which misses a call still ringing,
+    bounded by the longest test call allowed (`live_test_call_horizon`) so a lost end of call
+    cannot pin the copy for ever."""
+    from apps.api.compliance.trial_access import live_test_call_horizon
 
     return bool(
         (
             await session.execute(
                 text(_COPY_CALL_LIVE_SQL),
-                {"aid": agent_id, "horizon": trial_line_horizon().total_seconds()},
+                {"aid": agent_id, "horizon": live_test_call_horizon().total_seconds()},
             )
         ).scalar()
     )

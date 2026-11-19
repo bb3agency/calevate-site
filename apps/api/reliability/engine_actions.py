@@ -669,6 +669,16 @@ async def retire_agent_actions(
     return removed
 
 
+async def call_connected_on(
+    *, engine: str, engine_agent_ref: str, client: ThinnestActions | None = None
+) -> bool:
+    """Does the platform report a call connected on this engine agent now? False on an engine
+    with no such API, where our own call rows are the only answer."""
+    if engine not in ACTION_ENGINES:
+        return False
+    return await (client or thinnest_actions()).has_live_call(engine_agent_ref)
+
+
 #: The probe the drift check sends through the vendor's `test` endpoint: the call-back
 #: cancel action, which every agent holds. A test has no conversation, so the platform sends
 #: no call id (agent/custom-api.md:111-114) and the action finds no call and writes nothing:
@@ -745,6 +755,7 @@ __all__ = [
     "ActionsDrift",
     "ActionsReconciliation",
     "action_secret_context",
+    "call_connected_on",
     "check_agent_actions",
     "client_action_url",
     "client_definitions",

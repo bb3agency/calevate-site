@@ -22,7 +22,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.agents import service as agents_service
-from apps.api.campaigns import scheduling, service
+from apps.api.campaigns import engine_agent, scheduling, service
 from apps.api.campaigns.routes import router as campaigns_router
 from apps.api.campaigns.scheduling import (
     PUT_LIVE_RETRY,
@@ -196,7 +196,7 @@ async def test_a_refusal_at_start_is_settled_and_the_owner_is_told(
             detail="read-back differed",
         )
 
-    monkeypatch.setattr(scheduling, "put_campaign_live", refused)
+    monkeypatch.setattr(engine_agent, "put_campaign_live", refused)
 
     assert await campaign_dispatch._fire_due_schedules(tenant_id) == 0
     status, ref, schedule = await _held(tenant_id, campaign_id)
@@ -242,7 +242,7 @@ async def test_a_full_workspace_at_start_is_named_as_the_allowance(
             "Starting needs a free calling setup. Your account can have 2, and both are in use.",
         )
 
-    monkeypatch.setattr(scheduling, "put_campaign_live", full)
+    monkeypatch.setattr(engine_agent, "put_campaign_live", full)
     monkeypatch.setattr(scheduling, "alert", lambda _kind, event, **_k: alarms.append(event))
 
     assert await campaign_dispatch._fire_due_schedules(tenant_id) == 0

@@ -774,7 +774,10 @@ async def _plan_campaign_launch(
 async def _execute_campaign_launch(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`campaigns_service.launch_campaign` — the function `POST /{id}/launch` calls.
+    """What `POST /{id}/launch` does: `campaigns_service.put_live_for_start`, then
+    `campaigns_service.launch_campaign`. The first publishes the campaign's own engine agent
+    when the gate passes, so the campaign dials through one published for its calls rather
+    than a test holder it was left with.
 
     HARD RULE 5, STRUCTURALLY. The compliance gate is INSIDE that function, after it takes
     the agent-row lock and before the CAS to `running`, and it re-runs from scratch: the
@@ -784,6 +787,9 @@ async def _execute_campaign_launch(
     with the blockers named, exactly as it would be for the button.
     """
     parsed = parse_args(_CampaignLaunchArgs, args)
+    await campaigns_service.put_live_for_start(
+        tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id
+    )
     result = await campaigns_service.launch_campaign(
         session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id
     )

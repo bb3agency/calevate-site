@@ -45,7 +45,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared.engine_scope import scope_of
@@ -70,6 +70,7 @@ from apps.api.billing.platform_fee import (
     PLATFORM_FEE_RULE,
     platform_fee_paused,
 )
+from apps.api.campaigns import engine_agent as campaign_engine_agent
 from apps.api.campaigns.models import (
     CAMPAIGN_STATUSES,
     CONSENT_SOURCES,
@@ -108,13 +109,13 @@ from apps.api.db.base import uuid7
 from apps.api.db.like import contains_pattern
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
-from apps.api.db.session import session_tenant
+from apps.api.db.session import session_tenant, tenant_session
 from apps.api.db.transition import transition_status
 from apps.api.engine.dial_lines import outbound_line_pool
 from apps.api.ingest.service import normalize_phone
 from apps.api.legal.service import agreements_blocker
 from apps.api.tenancy.call_lines import read_call_lines
-from apps.api.tenancy.engine_workspace import resolve_workspace
+from apps.api.tenancy.engine_workspace import engine_has_workspaces, resolve_workspace
 
 log = get_logger(__name__)
 
@@ -229,6 +230,14 @@ NUMBER_NOT_MOVED_REASON = (
     "This number is still being moved into your account, so your agent can't call from it "
     "yet. Calevate moves it; nothing to do on your side."
 )
+
+#: A start whose campaign has no engine agent published for its calls: the platform refused
+#: it, maintenance, a read-back that did not hold, our own account's plan being full. Those
+#: are ours to fix. The client workspace's allowance keeps the gate's own rule
+#: (`engine_agent_allowance_full`), so the owner reads the launch gate's words and knows that
+#: fix is theirs. Also the rule `scheduling.claim_slot_at_start` records a refused start under.
+START_NOT_READY_RULE: Final = "campaign_not_ready_to_call"
+START_NOT_READY_REASON: Final = "Couldn't get ready to call. Press Start again."
 
 
 @dataclass(frozen=True, slots=True)
@@ -1360,12 +1369,14 @@ async def launch_blockers(
             blockers.append(LaunchBlocker(*drifted))
             break
     # Room in the client's workspace for the campaign's own engine agent, when it has none
-    # yet (D-1003): Start refuses the same way, with the same words.
-    full = await engine_agent_allowance_blocker(
-        session, tenant_id=tenant_id, campaign_id=campaign_id
-    )
-    if full is not None:
-        blockers.append(LaunchBlocker(*full))
+    # yet (D-1003): Start refuses the same way, with the same words. Asked only of a campaign
+    # Start would make one for: one that dials through its agent's own takes no setup.
+    if await campaign_engine_agent.needs_its_own(session, campaign_id):
+        full = await engine_agent_allowance_blocker(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+        if full is not None:
+            blockers.append(LaunchBlocker(*full))
 
     # On what consent (SEC-COMP §3, fourth bullet). WHO may dial is KYC and the pledge,
     # below (D-692).
@@ -1471,6 +1482,54 @@ async def _why_not_launchable(session: AsyncSession, campaign_id: UUID) -> Probl
     return InvalidStatusTransitionError("campaign", str(status), "running")
 
 
+async def put_live_for_start(*, tenant_id: UUID, campaign_id: UUID) -> str | None:
+    """Every start's first step, before `launch_campaign`: Start, a scheduled start as it
+    fires (`scheduling.claim_slot_at_start`) and Pip's launch all come through here, so each
+    asks the same gate and makes the same publish. When the gate passes, the campaign's own
+    engine agent is made or brought up to date and read back
+    (`engine_agent.put_campaign_live`), in its own committed transaction, so the first dial
+    rings what the campaign says now.
+
+    That publish is also what takes a campaign off a test holder: one held in our developer
+    workspace for the shared test line is recreated in the client's, and one made in the
+    client's for an own-number test (D-1020) is republished as the campaign's live engine
+    agent. `launch_campaign` refuses a campaign still holding one outside the client's
+    workspace (`_start_not_ready`).
+
+    Nothing is made while the gate would refuse, so a refused start leaves no engine agent
+    holding the workspace's allowance; `launch_campaign`'s own gate then names the refusal.
+    Returns the engine agent's handle, or None when the gate refuses or the campaign dials
+    through its agent's own engine agent."""
+    async with tenant_session(tenant_id) as session:
+        if await launch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id):
+            return None
+    return await campaign_engine_agent.put_campaign_live(
+        tenant_id=tenant_id, campaign_id=campaign_id
+    )
+
+
+async def _start_not_ready(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
+) -> LaunchBlocker | None:
+    """A campaign about to go `running` still holding an engine agent outside its client's
+    workspace: a test holder made in ours for the shared test line, which its start did not
+    replace (`put_live_for_start` was refused, or not called). `dial_for` rings whatever a
+    running campaign holds, so starting it would call its contacts from our test setup."""
+    if not engine_has_workspaces():
+        return None
+    ref = (
+        await session.execute(
+            text("SELECT engine_agent_ref FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+        )
+    ).scalar_one_or_none()
+    if not ref:
+        return None
+    workspace = await resolve_workspace(session, tenant_id)
+    if workspace is None or scope_of(str(ref)) == workspace:
+        return None
+    return LaunchBlocker(START_NOT_READY_RULE, START_NOT_READY_REASON)
+
+
 async def launch_campaign(
     session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
 ) -> dict[str, Any]:
@@ -1516,6 +1575,12 @@ async def launch_campaign(
         text("SELECT 1 FROM campaigns WHERE id = :cid FOR UPDATE"), {"cid": campaign_id}
     )
     blockers = await launch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id)
+    if not blockers:
+        # Asked under the row lock above, after the gate: a gate refusal is the owner's
+        # list to fix, and this one only means the start's publish did not happen.
+        unready = await _start_not_ready(session, tenant_id=tenant_id, campaign_id=campaign_id)
+        if unready is not None:
+            blockers.append(unready)
     if blockers:
         raise ProblemError(
             kind="business_rule",
@@ -2170,6 +2235,8 @@ __all__ = [
     "PAUSE_REASON_SQL",
     "PURCHASED_LIST_REASON",
     "RETRY_GAP_CHOICES",
+    "START_NOT_READY_REASON",
+    "START_NOT_READY_RULE",
     "TRANSACTIONAL_CAMPAIGN_REASON",
     "LaunchBlocker",
     "account_outbound_blockers",
@@ -2192,6 +2259,7 @@ __all__ = [
     "not_calling_reasons",
     "number_dial_refusal",
     "pause_campaigns_for_maintenance",
+    "put_live_for_start",
     "record_dlt_registration",
     "register_dlt_template",
     "resume_campaigns_after_maintenance",

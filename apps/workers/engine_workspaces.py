@@ -732,17 +732,21 @@ async def offboard_engine_workspace(ctx: dict[str, Any], payload: dict[str, Any]
 
 #: Something still naming the vendor agent this job was told to delete: a publish after the
 #: retirement made a holder again and the platform's `create_agent` found this same agent
-#: by its name tag (D-1003, D-1018). A line or campaign not archived, or an agent, never a
-#: test copy: the copy paths owe this job with the copy row still in place, and the job
-#: deletes that row itself below. An agent only in a client's own workspace: closing an
-#: account owes every developer-workspace agent it still names
-#: (`service.retire_developer_workspace_agents`).
+#: by its name tag (D-1003, D-1018). A line or campaign not archived; and, only in a client's
+#: own workspace, an agent or a test copy. Every path giving back a copy there removes the
+#: copy row before owing this job (the idle sweep, a Start's give-back, a document a copy
+#: would not let go of), so a row naming it is a test call that made it again. In our
+#: developer workspace neither counts: closing an account owes every agent it still names
+#: there (`service.retire_developer_workspace_agents`), and the copy sweep
+#: (`workers/agent_moves`) owes a copy with its row still in place, which the job deletes
+#: itself below.
 _HELD_AGAIN_SQL: Final = (
     "SELECT EXISTS (SELECT 1 FROM inbound_lines WHERE engine_agent_ref = :ref "
     "AND archived_at IS NULL) "
     "OR EXISTS (SELECT 1 FROM campaigns WHERE engine_agent_ref = :ref AND archived_at IS NULL) "
-    "OR (CAST(:scoped AS boolean) AND EXISTS (SELECT 1 FROM agents "
-    "WHERE engine_agent_ref = :ref AND deleted_at IS NULL))"
+    "OR (CAST(:scoped AS boolean) AND (EXISTS (SELECT 1 FROM agents "
+    "WHERE engine_agent_ref = :ref AND deleted_at IS NULL) "
+    "OR EXISTS (SELECT 1 FROM agent_test_copies WHERE engine_agent_ref = :ref)))"
 )
 
 

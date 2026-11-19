@@ -83,20 +83,29 @@ async def needs_its_own(session: AsyncSession, campaign_id: UUID) -> bool:
     )
 
 
-async def put_campaign_live(*, tenant_id: UUID, campaign_id: UUID) -> str | None:
-    """Start's first step, and a scheduled start's: the campaign's own engine agent is created or
-    brought up to date and read back, in its own committed transaction, so the dial that
-    follows rings what the campaign says now. A free-trial account is refused with the step
-    that opens campaigns, before anything reaches the calling platform. None for a campaign
-    that says what its agent says (`speaks_its_own`), holds no engine agent yet and whose
-    agent still holds its own (`needs_its_own`), which it dials through until R3 of D-1019."""
+async def put_campaign_live(
+    *, tenant_id: UUID, campaign_id: UUID, require_holding: bool = False
+) -> str | None:
+    """Every start's publish (`campaigns/service.put_live_for_start`), and an edit's: the
+    campaign's own engine agent is created or brought up to date and read back, in its own
+    committed transaction, so the dial that follows rings what the campaign says now. A
+    free-trial account is refused with the step that opens campaigns, before anything reaches
+    the calling platform. None for a campaign that says what its agent says (`speaks_its_own`),
+    holds no engine agent yet and whose agent still holds its own (`needs_its_own`), which it
+    dials through until R3 of D-1019.
+
+    `require_holding`: only bring an engine agent the campaign holds while it runs or is
+    paused up to date (an edit, a re-woven opening), re-asked under the publish's row lock;
+    None, with nothing made, for one stopped or given back meanwhile."""
     async with tenant_session(tenant_id) as session:
         await refuse_on_trial(session, tenant_id=tenant_id, locked="campaigns")
         if not await needs_its_own(session, campaign_id):
             return None
         ref = await agents_service.publish_campaign_agent(
-            session, tenant_id=tenant_id, campaign_id=campaign_id
+            session, tenant_id=tenant_id, campaign_id=campaign_id, require_holding=require_holding
         )
+        if ref is None:
+            return None
         # The agent's script version a campaign put live (before D-1003) no longer
         # describes anything: the agent's own script is untouched.
         await session.execute(
@@ -138,6 +147,7 @@ async def campaign_test_dial(
         ref = await agents_service.publish_campaign_agent(
             session, tenant_id=tenant_id, campaign_id=campaign_id, test=True, in_client=in_client
         )
+        assert ref is not None  # None only under `require_holding`
         # Read under the campaign row lock the publish took, so it is the publish's answer.
         in_developer = not in_client and await agents_service.campaign_test_in_developer(
             session, campaign_id=campaign_id

@@ -160,13 +160,17 @@ async def test_saving_what_it_notes_again_puts_a_refused_save_live(
     real = workspace_routes.put_campaign_live
     tries: list[UUID] = []
 
-    async def platform_refuses_once(*, tenant_id: UUID, campaign_id: UUID) -> str | None:
+    async def platform_refuses_once(
+        *, tenant_id: UUID, campaign_id: UUID, require_holding: bool = False
+    ) -> str | None:
         tries.append(campaign_id)
         if len(tries) == 1:
             raise ProblemError.business_rule(
                 "engine_unavailable", "The calling platform did not answer."
             )
-        return await real(tenant_id=tenant_id, campaign_id=campaign_id)
+        return await real(
+            tenant_id=tenant_id, campaign_id=campaign_id, require_holding=require_holding
+        )
 
     monkeypatch.setattr(workspace_routes, "put_campaign_live", platform_refuses_once)
     field = ExtractionField(key="visit_day", label="Visit day", type="text")

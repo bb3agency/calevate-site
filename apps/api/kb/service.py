@@ -2993,6 +2993,15 @@ async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: 
                 source_id=source_id,
                 exc=exc,
             )
+            # The copy row goes first: the deletion job leaves alone a client-workspace copy
+            # a row still names, which would keep this one, and its document, for ever.
+            await session.execute(
+                text(
+                    "DELETE FROM agent_test_copies "
+                    "WHERE agent_id = :aid AND engine_agent_ref = :ref"
+                ),
+                {"aid": route.agent_id, "ref": ref},
+            )
             await retire_engine_agent(
                 session, tenant_id=tenant_id, agent_id=route.agent_id, ref=ref
             )
