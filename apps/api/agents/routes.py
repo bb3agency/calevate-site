@@ -83,16 +83,18 @@ from apps.api.agents.models import (
     AgentStatus,
 )
 from apps.api.agents.publishing import (
+    ACCOUNT_NOTICE_RESPONSES,
     audit_action_for,
+    set_account_notices,
     set_caller_has_screen,
     set_caller_memory,
-    set_disclosure_posture,
 )
 from apps.api.agents.schemas import AgentOut
 from apps.api.agents.service import publish_agent
 from apps.api.agents.starter_plans import stored_plans
 from apps.api.agents.starters import StarterJob
 from apps.api.compliance.audit import write_audit
+from apps.api.compliance.call_notices import read_account_notices
 from apps.api.compliance.caller_memory import CALLER_MEMORY_ATTESTATION, CALLER_MEMORY_ATTESTATIONS
 from apps.api.compliance.disclosure import truthful_answer_promise
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
@@ -1064,7 +1066,7 @@ async def publish(
 
 
 class DisclosureIn(BaseModel):
-    """Which notices this agent volunteers. `null` on a field leaves it alone.
+    """Which of the account's two call notices are on. `null` on a field leaves it alone.
 
     Two nullable booleans rather than two endpoints: the pair is one posture, a screen
     with two switches sends whichever one moved, and a PATCH that could only send both
@@ -1088,115 +1090,102 @@ class DisclosureIn(BaseModel):
 class DisclosureOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    agent_id: UUID
     ai_disclosure_enabled: bool
     recording_notice_enabled: bool
-    #: The notices now said before the agent's opening line. Empty = the agent volunteers
-    #: neither and opens on its opening line, which these switches never change (D-708).
-    opening_line: str
-    #: Did the voice platform get the change? False on an agent that is not live yet —
-    #: there is nothing on the platform to update, and the first publish carries it.
-    engine_synced: bool
-    #: The one behaviour these switches do not reach, in the words the API owns. Composed
-    #: from the engine's recording fact at the one construction site below.
+    #: Whether the platform records call audio. Where it does not, the recording notice is
+    #: not spoken whatever its switch says: announcing a recording nobody makes is false.
+    calls_recorded: bool
+    #: The one behaviour these switches do not reach, in the words the API owns.
     truthful_answer_rule: str
 
 
+_NOTICES_DESCRIPTION = (
+    "One AI-notice switch and one recording-notice switch for the whole account (D-1021): "
+    "every call, inbound and outbound, on every agent, Inbound line and campaign, follows "
+    "them. Two switches, because the two notices are separate obligations under separate "
+    "regimes (D-163). A notice switched on is said in the opening of each call, in that "
+    "opening's own words, so an answered call and a placed call each say it their own way.\n\n"
+    "It does not change what the agent says when a caller ASKS. Asked whether they are "
+    "speaking to a human, the agent says it is an AI assistant; asked whether the call is "
+    "recorded, it answers according to whether the voice platform records audio. That is "
+    "composed server-side, appended to every agent's instructions and verified against the "
+    "voice platform on every publish; no script and no switch can withdraw it. "
+    "`truthful_answer_rule` states the answer in force.\n\n"
+    "Switching the recording notice off does not stop a recording being made and does not "
+    "discharge the client's own notice obligation under the DPDP Act. Every flip is written "
+    "to the audit log, and reaches every live agent, line and campaign from its next call."
+)
+
+
+def _disclosure_out(*, ai: bool, recording: bool) -> DisclosureOut:
+    recorded = engine_capabilities().records_audio
+    return DisclosureOut(
+        ai_disclosure_enabled=ai,
+        recording_notice_enabled=recording,
+        calls_recorded=recorded,
+        truthful_answer_rule=truthful_answer_promise(call_is_recorded=recorded),
+    )
+
+
+@router.get(
+    "/v1/organization/call-notices",
+    response_model=DisclosureOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="This account's AI notice and recording notice (D-1021)",
+    description=_NOTICES_DESCRIPTION,
+)
+async def get_call_notices(
+    session: Session, principal: Principal = Depends(requires("org:read"))
+) -> DisclosureOut:
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    notices = await read_account_notices(session, tenant_id=principal.tenant_id)
+    return _disclosure_out(ai=notices.ai, recording=notices.recording)
+
+
 @router.patch(
-    "/v1/agents/{agent_id}/disclosure",
+    "/v1/organization/call-notices",
     response_model=DisclosureOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Switch the AI disclosure and the recording notice on or off (D-163)",
-    description=(
-        "Each opening notice is separately controllable, per agent, on inbound and "
-        "outbound agents alike. A notice switched off means the agent does not VOLUNTEER "
-        "that fact at the start of the call. Neither switch changes the agent's opening "
-        "line, which is part of its script: a notice switched on is said right after it, and "
-        "with both off the opening line is the first thing callers hear.\n\n"
-        "It does not change what the agent says when a caller ASKS. Asked whether they "
-        "are speaking to a human, the agent says it is an AI assistant. Asked whether "
-        "the call is recorded, it answers according to whether the voice platform records "
-        "audio: where it does, it says yes; where it does not (the platform's own voice "
-        "runtime today), it says the audio is not recorded and that a written transcript "
-        "is kept. That is composed server-side, appended to every agent's instructions "
-        "after the script, and verified against the voice platform on every publish — no "
-        "script can withdraw it. `truthful_answer_rule` in the response states the answer "
-        "in force.\n\n"
-        "The recording notice is spoken only where audio is recorded; the switch is kept "
-        "so it applies wherever it is. Switching it off does not stop a recording being "
-        "made, and does not discharge the client's own notice obligation under the DPDP "
-        "Act; it moves where that notice is given. Every flip is written to the audit "
-        "log.\n\n"
-        "Applies immediately: a live agent is re-published to the voice platform in the "
-        "same transaction, so the screen never claims a posture the platform is not "
-        "running."
-    ),
+    responses=ACCOUNT_NOTICE_RESPONSES,
+    summary="Switch this account's AI notice or recording notice on or off (D-1021)",
+    description=_NOTICES_DESCRIPTION,
 )
-async def set_disclosure(
-    agent_id: UUID,
+async def set_call_notices(
     payload: DisclosureIn,
     session: Session,
     request: Request,
     principal: Principal = Depends(requires("org:manage")),
 ) -> DisclosureOut:
-    """`org:manage`, which is the CLIENT OWNER's permission — and that is the decision.
+    """`org:manage`, the CLIENT OWNER's permission, as the per-agent switches were (D-163):
+    the client is the Principal Entity and the notice posture is their legal exposure.
 
-    The client is the Principal Entity: the calls are made under their identity and their
-    DLT templates, and the disclosure posture is their legal exposure to carry (D-163
-    records the regulatory position and the risk the founder accepted). So the switch
-    belongs to the person who answers for it. `agents:write` would have been the
-    neighbouring choice and is wrong here: it is admin-only, so we would be deciding a
-    client's compliance posture for them and being unable to show them the switch.
-
-    An admin-realm token without `X-Impersonate-Org` is refused by the client verifier,
-    so nobody flips these from the operator console. ⚠ **AN OPERATOR IN A VIEW-AS SESSION
-    CAN FLIP THEM (D-587)**, and this paragraph used to say the opposite. The
-    accountability the decision rests on is unchanged and is now carried by the row rather
-    than by the refusal: every flip writes an `audit_log` entry whose ACTION names the
-    toggle and the direction, and an operator's flip additionally carries their
-    `admin_users.id` and the view-as grant — so "who turned this off" is never answered
-    with the client's name for an act that was ours.
-
-    THE AUDIT ROW NAMES THE TOGGLE AND THE VALUE IN ITS `action`, not in a summary:
-    `write_audit` does not persist summaries (BACKEND-PATTERNS §7 — they go to the log
-    stream), and "who switched the AI disclosure off, and when" has to survive in the
-    hash-chained ledger to be worth anything. One row per toggle that actually moved.
-
-    `write_audit` runs AFTER `set_disclosure_posture`, which reaches the voice platform,
-    for `publish`'s reason above: a slow vendor call must not hold the audit row's
-    transaction open, and the entry should describe what actually happened.
+    An operator in a view-as session can flip them (D-587); every flip writes an `audit_log`
+    entry whose ACTION names the switch and the direction (`write_audit` does not persist
+    summaries, so the ledger needs it in the action), and an operator's carries their
+    `admin_users.id` and the view-as grant. One row per switch that actually moved, written
+    after the setter has committed, so the entry describes what happened.
     """
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
-    result = await set_disclosure_posture(
+    result = await set_account_notices(
         tenant_id=principal.tenant_id,
-        agent_id=agent_id,
         ai_disclosure_enabled=payload.ai_disclosure_enabled,
         recording_notice_enabled=payload.recording_notice_enabled,
+        requested_by=principal.user_id,
     )
     for field in result.changed:
         await write_audit(
             session,
-            # `field` IS the column name and IS the attribute name on the result — one
-            # spelling, so a third toggle needs no edit here.
             action=audit_action_for(field, enabled=bool(getattr(result, field))),
             actor=principal,
             tenant_id=principal.tenant_id,
-            object_type="agent",
-            object_id=str(agent_id),
-            # The CALLER's address, never the socket peer — behind nginx that is our own
-            # edge (`core/auth.client_request_ip`, `scripts/check_audit_ip.py`).
+            object_type="organization",
+            object_id=str(principal.tenant_id),
+            # The CALLER's address, never the socket peer (`core/auth.client_request_ip`).
             ip=client_request_ip(request),
-            summary={"engine_synced": result.engine_synced},
+            summary={"live_apply_run_id": str(result.live_apply_run_id)},
         )
-    return DisclosureOut(
-        agent_id=result.agent_id,
-        ai_disclosure_enabled=result.ai_disclosure_enabled,
-        recording_notice_enabled=result.recording_notice_enabled,
-        opening_line=result.opening_line,
-        engine_synced=result.engine_synced,
-        truthful_answer_rule=truthful_answer_promise(
-            call_is_recorded=engine_capabilities().records_audio
-        ),
+    return _disclosure_out(
+        ai=result.ai_disclosure_enabled, recording=result.recording_notice_enabled
     )
 
 

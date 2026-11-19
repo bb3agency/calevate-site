@@ -1401,13 +1401,13 @@ SCHEMA_INVARIANTS: tuple[SchemaInvariant, ...] = (
         ),
     ),
     SchemaInvariant(
-        key="agents notice toggles NOT NULL",
+        key="account notice switches NOT NULL",
         holds=lambda facts: (
-            _not_null(facts, "agents", "ai_disclosure_enabled")
-            and _not_null(facts, "agents", "recording_notice_enabled")
+            _not_null(facts, "organizations", "notice_ai_enabled")
+            and _not_null(facts, "organizations", "notice_recording_enabled")
         ),
         failure=(
-            "a disclosure toggle on `agents` is nullable. NULL is a third state for a "
+            "a notice switch on `organizations` is nullable. NULL is a third state for a "
             "two-state compliance posture, and every reader would have to invent which "
             "way it falls — `compose_opening_line` treats it as OFF, which is the one "
             "reading an omission must never silently produce (D-163)"

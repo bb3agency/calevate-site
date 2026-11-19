@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from apps.api.agents import script_builder
 from apps.api.agents.opening_notices import WEAVE_JOB, weave_state
-from apps.api.agents.publishing import set_disclosure_posture
+from apps.api.agents.publishing import set_account_notices
 from apps.api.agents.roster import agent_by_id
 from apps.api.agents.verification import judge
 from apps.api.compliance import service as compliance_service
@@ -323,11 +323,15 @@ async def _agent(opening: str, words: str = "") -> tuple[uuid.UUID, uuid.UUID]:
             created_by=None,
         )
         await session.execute(
-            text(
-                "UPDATE agents SET ai_disclosure_line = :ai, ai_disclosure_enabled = false, "
-                "recording_notice_enabled = false WHERE id = :aid"
-            ),
+            text("UPDATE agents SET ai_disclosure_line = :ai WHERE id = :aid"),
             {"aid": agent_id, "ai": AI},
+        )
+        await session.execute(
+            text(
+                "UPDATE organizations SET notice_ai_enabled = false, "
+                "notice_recording_enabled = false WHERE id = :t"
+            ),
+            {"t": tenant_id},
         )
     return tenant_id, agent_id
 
@@ -378,9 +382,8 @@ async def test_switching_on_speaks_the_sentence_until_pip_weaves_it_into_the_ope
 ) -> None:
     with _on_thinnest():
         tenant_id, agent_id = await _agent(PLAIN)
-        await set_disclosure_posture(
+        await set_account_notices(
             tenant_id=tenant_id,
-            agent_id=agent_id,
             ai_disclosure_enabled=True,
             recording_notice_enabled=None,
         )
@@ -405,9 +408,8 @@ async def test_an_opening_the_owner_saves_while_pip_writes_is_not_overwritten(
     owners = "Hello from Raghava Organics, the evening order desk."
     with _on_thinnest():
         tenant_id, agent_id = await _agent(PLAIN)
-        await set_disclosure_posture(
+        await set_account_notices(
             tenant_id=tenant_id,
-            agent_id=agent_id,
             ai_disclosure_enabled=True,
             recording_notice_enabled=None,
         )
@@ -450,9 +452,8 @@ async def test_the_owner_sees_what_changed_and_can_put_their_line_back(
     Undo; the line put back is not rewritten again and keeps the stored sentence."""
     with _on_thinnest():
         tenant_id, agent_id = await _agent(PLAIN)
-        await set_disclosure_posture(
+        await set_account_notices(
             tenant_id=tenant_id,
-            agent_id=agent_id,
             ai_disclosure_enabled=True,
             recording_notice_enabled=None,
         )
@@ -483,13 +484,12 @@ async def test_switching_off_has_pip_take_the_notice_out(monkeypatch: pytest.Mon
         tenant_id, agent_id = await _agent(WOVEN, WOVEN_AI_WORDS)
         async with tenant_session(tenant_id) as session:
             await session.execute(
-                text("UPDATE agents SET ai_disclosure_enabled = true WHERE id = :aid"),
-                {"aid": agent_id},
+                text("UPDATE organizations SET notice_ai_enabled = true WHERE id = :t"),
+                {"t": tenant_id},
             )
         assert await _first_words(tenant_id, agent_id) == WOVEN
-        await set_disclosure_posture(
+        await set_account_notices(
             tenant_id=tenant_id,
-            agent_id=agent_id,
             ai_disclosure_enabled=False,
             recording_notice_enabled=None,
         )

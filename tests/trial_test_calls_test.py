@@ -1002,7 +1002,8 @@ async def test_an_answer_only_agent_opens_its_test_call_saying_who_is_calling_an
     await _ready(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE agents SET ai_disclosure_enabled = true WHERE id = :a"), {"a": agent_id}
+            text("UPDATE organizations SET notice_ai_enabled = true WHERE id = :t"),
+            {"t": tenant_id},
         )
         ai_line = (
             await session.execute(
@@ -1013,7 +1014,8 @@ async def test_an_answer_only_agent_opens_its_test_call_saying_who_is_calling_an
     assert ctx.opening == (f"నమస్కారం అండి, {ai_line.strip()} ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?")
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE agents SET ai_disclosure_enabled = false WHERE id = :a"), {"a": agent_id}
+            text("UPDATE organizations SET notice_ai_enabled = false WHERE id = :t"),
+            {"t": tenant_id},
         )
     ctx = await _trial_dial_context(monkeypatch, tenant_id, agent_id)
     assert ctx.opening == (

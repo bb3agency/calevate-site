@@ -10,9 +10,9 @@
  * is deliberately no mutation hook for any of that, for the same reason kb.ts has no
  * `approve`: a button that would 403 is worse than no button at all.
  *
- * `useSetDisclosure` is the exception because the DECISION is not ours to make. The
+ * `useSetCallNotices` is the exception because the DECISION is not ours to make. The
  * client is the Principal Entity — the calls go out under their identity and their DLT
- * templates — so which notices their agent volunteers is theirs to choose and theirs to
+ * templates — so which notices their calls volunteer (D-1021) is theirs to choose and theirs to
  * answer for. The endpoint is `org:manage`, which the client OWNER holds and which no
  * admin or impersonating session holds against a tenant (D-22), so this control is
  * genuinely theirs alone and every flip is written to the audit log.
@@ -105,47 +105,50 @@ export function useAgent(session: Session, agentId: string): UseQueryResult<Agen
   });
 }
 
+/** The account's two call notices (D-1021): one AI switch and one recording switch. */
+export const CALL_NOTICES_PATH = "/v1/organization/call-notices";
+
+const callNoticesKey = (orgSlug: string) => ["call-notices", orgSlug] as const;
+
+export function useCallNotices(session: Session): UseQueryResult<DisclosureOut> {
+  return useQuery({
+    queryKey: callNoticesKey(session.orgSlug),
+    queryFn: () => apiRequest<DisclosureOut>(session, CALL_NOTICES_PATH),
+  });
+}
+
 /**
- * Switch the AI disclosure or the recording notice on this agent (D-163).
+ * Switch the account's AI notice or recording notice, for every call (D-1021).
  *
  * Sends only the switch that MOVED. The API treats a missing field as "leave this one
  * alone", so two switches on one screen cannot race each other into a read-modify-write
  * that resurrects the other's old value.
  *
- * The response is the server's own answer about the new posture — including
- * `opening_line`, the notices now said after the agent's own opening line (never the
- * opening line itself, D-708), and `engine_synced`, which says whether
- * the change reached the voice platform. Neither is recomputed here: joining the two
- * sentences in TypeScript would be a second implementation of a compliance rule, which
- * is exactly how a screen ends up describing a phone line it is not describing.
- *
- * The awaited invalidation (rather than `void`) is `publishing.ts::useAfterPublish`'s
- * argument: the roster row carries the posture this mutation just changed, so a paint
- * from the stale cache would contradict the switch the client just moved.
+ * Every agent row carries the account's switches and the first words they compose, so the
+ * agent queries are invalidated too, awaited for `publishing.ts::useAfterPublish`'s reason.
  */
-export function useSetDisclosure(
+export function useSetCallNotices(
   session: Session,
-  agentId: string,
 ): UseMutationResult<DisclosureOut, Error, DisclosureIn> {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (payload: DisclosureIn) =>
-      apiRequest<DisclosureOut>(session, `/v1/agents/${agentId}/disclosure`, {
-        method: "PATCH",
-        body: payload,
-      }),
-    onSuccess: () =>
-      Promise.all([
+      apiRequest<DisclosureOut>(session, CALL_NOTICES_PATH, { method: "PATCH", body: payload }),
+    onSuccess: (data) => {
+      client.setQueryData(callNoticesKey(session.orgSlug), data);
+      return Promise.all([
         client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
-        client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
-      ]),
+        // Every agent's own query: `agentKeys.one` minus its id.
+        client.invalidateQueries({ queryKey: ["agent", session.orgSlug] }),
+      ]);
+    },
   });
 }
 
 /**
  * Switch caller continuity on or off for one agent (D-513/D-514).
  *
- * `useSetDisclosure`'s reasoning, plus one of its own: this is the client's DURABLE-DATA
+ * `useSetCallNotices`'s reasoning, plus one of its own: this is the client's DURABLE-DATA
  * decision, not only their disclosure posture. Switching it on starts keeping a note about
  * the people who ring them, so the same `org:manage` permission governs it and the same
  * audit row records it.
@@ -212,7 +215,7 @@ export function useSetCallerScreen(
  * and lifecycle controls gate on — so this is genuinely the client's to change and no
  * impersonating session holds it against a tenant (D-22).
  *
- * The awaited invalidation (rather than `void`) matches `useSetDisclosure`: the agent row
+ * The awaited invalidation (rather than `void`) matches `useSetCallNotices`: the agent row
  * carries `extraction_fields`, so the screen must repaint from the server's stored answer
  * — including any normalisation the validator applied — rather than from the draft that was
  * sent.

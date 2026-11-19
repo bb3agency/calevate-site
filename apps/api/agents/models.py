@@ -443,8 +443,8 @@ class Agent(PKMixin, TimestampMixin, Base):
         CheckConstraint("length(disclosure_line) > 0", name="disclosure_nonempty"),
         # Hard rule 5 AFTER D-163: the AI sentence must EXIST on every agent — the
         # compliance gate reads it, and the honest answer to "are you an AI?" is
-        # meaningless without one. Whether it is VOLUNTEERED is
-        # `ai_disclosure_enabled`, which is a tenant's choice and not a constraint.
+        # meaningless without one. Whether it is VOLUNTEERED is the account's
+        # `organizations.notice_ai_enabled` (D-1021), a choice and not a constraint.
         CheckConstraint(
             "length(btrim(ai_disclosure_line)) > 0", name="ck_agents_ai_disclosure_nonempty"
         ),
@@ -744,12 +744,10 @@ class Agent(PKMixin, TimestampMixin, Base):
     #: `caller_memory_enabled` below is on, so "remembers a caller without saying so" is
     #: not a state this schema can hold. See `calevate_shared.engine.DisclosurePosture`.
     caller_memory_notice_line: Mapped[str] = mapped_column(Text, nullable=False)
-    # Default FALSE on both (D-669, migration a6d2f81c4e3b): the founder's choice is that a
-    # call opens with the greeting only. The alternative, TRUE, is what D-163 shipped, on
-    # the ground that an omitted column should produce the posture with no legal exposure;
-    # the founder accepted that exposure while testing, to be reviewed before client
-    # traffic. Neither default reaches the truthful answer, which no column carries, nor
-    # the two sentences, which stay NOT NULL and non-blank.
+    # NO LONGER READ OR WRITTEN (D-1021): the two switches are the account's,
+    # `organizations.notice_ai_enabled` / `notice_recording_enabled`, which migration
+    # c4e8a2f61d93 backfilled from these (any agent on turned the account on). Kept with
+    # their rows under hard rule 8's two-step; the next release's drop migration closes it.
     ai_disclosure_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )

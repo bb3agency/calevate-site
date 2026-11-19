@@ -120,14 +120,6 @@ const FIELD_LABELS: Record<string, string> = {
   extraction_fields: "What it writes down",
   training: "What it knows and training",
   voice: "Its voice",
-  /* D-163's two rows shipped in `LANES` without a label here, so they rendered as
-     "ai disclosure enabled" and "recording notice enabled" — our column names, in a list a
-     clinic owner reads. The `why` beneath each is the server's and is NOT summarised here:
-     both sentences end with the guarantee that the answer a caller gets when they ask
-     outright is always the truth and cannot be switched off, and that is the one wording
-     on this screen a paraphrase must never touch (hard rule 5). */
-  ai_disclosure_enabled: "Saying it is an AI at the start",
-  recording_notice_enabled: "Saying the call is recorded at the start",
 };
 
 function LaneList({

@@ -23,7 +23,7 @@ from apps.api.agents.engine_limits import (
     greeting_budget,
     refuse_over_engine_limits,
 )
-from apps.api.agents.publishing import set_caller_memory, set_disclosure_posture
+from apps.api.agents.publishing import set_account_notices, set_caller_memory
 from apps.api.agents.roster import agent_by_id
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
@@ -147,10 +147,14 @@ async def _agent(opening: str) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
             created_by=None,
         )
         await session.execute(
+            text("UPDATE agents SET caller_memory_enabled = false WHERE id = :aid"),
+            {"aid": agent_id},
+        )
+        await session.execute(
             text(
-                "UPDATE agents SET ai_disclosure_enabled = false, "
-                "recording_notice_enabled = false, caller_memory_enabled = false "
-                "WHERE id = :aid"
+                "UPDATE organizations SET notice_ai_enabled = false, "
+                "notice_recording_enabled = false "
+                "WHERE id = (SELECT tenant_id FROM agents WHERE id = :aid)"
             ),
             {"aid": agent_id},
         )
@@ -162,7 +166,7 @@ async def _row(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> Any:
         return (
             await session.execute(
                 text(
-                    "SELECT a.caller_memory_enabled, a.ai_disclosure_enabled, "
+                    "SELECT a.caller_memory_enabled, o.notice_ai_enabled, "
                     "o.caller_memory_attested_at FROM agents a "
                     "JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :aid"
                 ),
@@ -202,14 +206,14 @@ async def test_a_notice_switch_without_room_is_refused_and_naming_it() -> None:
     with _on_thinnest():
         tenant_id, agent_id, _owner = await _agent("a" * 190)
         with pytest.raises(ProblemError) as refused:
-            await set_disclosure_posture(
+            await set_account_notices(
                 tenant_id=tenant_id,
-                agent_id=agent_id,
                 ai_disclosure_enabled=True,
                 recording_notice_enabled=None,
             )
     assert refused.value.code == NOTICE_NEEDS_ROOM
-    assert refused.value.detail.startswith("Saying that it is an AI assistant")
+    assert "Saying that it is an AI assistant" in refused.value.detail
+    assert getattr(refused.value.extensions, "agent_id", None) == agent_id
     assert (await _row(tenant_id, agent_id))[1] is False
 
 

@@ -74,11 +74,16 @@ async def _live_agent(
     voice = await rows.add(source)  # type: ignore[arg-type]
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text(
-                "UPDATE agents SET engine_voice_id = :v, direction = 'both', "
-                "ai_disclosure_enabled = true, recording_notice_enabled = true WHERE id = :aid"
-            ),
+            text("UPDATE agents SET engine_voice_id = :v, direction = 'both' WHERE id = :aid"),
             {"v": voice, "aid": agent_id},
+        )
+        await session.execute(
+            text(
+                "UPDATE organizations SET notice_ai_enabled = true, "
+                "notice_recording_enabled = true "
+                "WHERE id = (SELECT tenant_id FROM agents WHERE id = :aid)"
+            ),
+            {"aid": agent_id},
         )
     engine = HostingEngine()
     with selected(engine):

@@ -21,6 +21,7 @@ from apps.api.db.session import tenant_session
 from calevate_shared.call_script import CallScript
 from sqlalchemy import text
 from tests.agent_lifecycle_test import _fresh_engine, _number, _tenant, _write_script
+from tests.live_apply_support import drain_live_apply
 
 
 async def _ready_agent() -> tuple[uuid.UUID, uuid.UUID]:
@@ -31,7 +32,8 @@ async def _ready_agent() -> tuple[uuid.UUID, uuid.UUID]:
     await _number(tenant_id, agent_id, ref=f"num_{uuid.uuid4().hex[:8]}")
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE agents SET ai_disclosure_enabled = true WHERE id = :a"), {"a": agent_id}
+            text("UPDATE organizations SET notice_ai_enabled = true WHERE id = :t"),
+            {"t": tenant_id},
         )
         await lifecycle.prepare_agent(session, tenant_id=tenant_id, agent_id=agent_id)
     return tenant_id, agent_id
@@ -88,12 +90,10 @@ async def test_renaming_a_ready_agent_reaches_the_engine() -> None:
 async def test_switching_a_ready_agents_notices_reaches_the_engine() -> None:
     _fresh_engine()
     tenant_id, agent_id = await _ready_agent()
-    await publishing.set_disclosure_posture(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        ai_disclosure_enabled=False,
-        recording_notice_enabled=True,
+    await publishing.set_account_notices(
+        tenant_id=tenant_id, ai_disclosure_enabled=False, recording_notice_enabled=True
     )
+    await drain_live_apply(tenant_id)
     await _assert_ready_and_in_sync(tenant_id, agent_id)
 
 
@@ -113,10 +113,11 @@ async def test_a_platform_wide_apply_converges_a_ready_agent_and_keeps_it_ready(
     # holds what the earlier publish sent.
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text(
-                "UPDATE agents SET name = 'Sravani', recording_notice_enabled = true WHERE id = :a"
-            ),
-            {"a": agent_id},
+            text("UPDATE agents SET name = 'Sravani' WHERE id = :a"), {"a": agent_id}
+        )
+        await session.execute(
+            text("UPDATE organizations SET notice_recording_enabled = true WHERE id = :t"),
+            {"t": tenant_id},
         )
     before = await publishing.engine_drift_for(tenant_id=tenant_id, agent_id=agent_id)
     assert before.state == "not_applied"

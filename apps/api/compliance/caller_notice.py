@@ -110,7 +110,7 @@ DRAFT_WARNING = (
 _INHERENT: tuple[tuple[str, str], ...] = (
     ("Your phone number", "the number the call is made from or to"),
     # NOT "where recording is switched on for the agent": there is no such switch. What
-    # `agents.recording_notice_enabled` toggles is whether the agent ANNOUNCES the
+    # the account's recording-notice switch toggles (D-1021) is whether calls ANNOUNCE the
     # recording, not whether it happens — recording is unconditional
     # (`calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE`: "nothing in this repository
     # can turn a call's recording off"), and `_disclosure_paragraph` below already tells
@@ -213,8 +213,8 @@ class CallerNoticeDraft:
 
     collected: list[CollectedItem]
     retention: list[RetentionLine]
-    #: Agents whose AI disclosure is switched OFF, by name. The client's notice has to
-    #: carry the weight instead, so they are named rather than counted.
+    #: The agents, by name, while the account's AI notice is switched OFF (D-1021): all of
+    #: them or none. The client's notice has to carry the weight instead.
     ai_disclosure_off: list[str] = field(default_factory=list)
     #: Same for the recording notice.
     recording_notice_off: list[str] = field(default_factory=list)
@@ -266,7 +266,7 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
     rows = (
         await session.execute(
             text(
-                "SELECT a.id, a.name, a.ai_disclosure_enabled, a.recording_notice_enabled, "
+                "SELECT a.id, a.name, o.notice_ai_enabled, o.notice_recording_enabled, "
                 f"a.direction, {MEMORY_ON_SQL}, a.handoff_enabled, "
                 "s.fields, COALESCE(o.vertical_template, o.unconfirmed_business_type) "
                 "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
@@ -407,19 +407,18 @@ def _disclosure_paragraph(draft: CallerNoticeDraft) -> str:
             "AI assistant."
         )
     else:
-        named = ", ".join(draft.ai_disclosure_off)
+        # One switch for the account's every call (D-1021), so off is off on all of them.
         lines.append(
-            f"Our AI assistants do not all announce themselves at the start of a call "
-            f"({named}). We are telling you here instead: when you call us, or we call "
-            "you, you may be speaking to an AI assistant rather than a person."
+            "Our AI assistants do not announce themselves at the start of a call. We are "
+            "telling you here instead: when you call us, or we call you, you may be "
+            "speaking to an AI assistant rather than a person."
         )
     if not draft.recording_notice_off:
         lines.append("You are told at the start of the call that it is being recorded.")
     else:
-        named = ", ".join(draft.recording_notice_off)
         lines.append(
-            f"Not all of our calls open with a recording announcement ({named}). Calls "
-            "may be recorded, and this notice is where we tell you so."
+            "Our calls do not open with a recording announcement. Calls may be recorded, "
+            "and this notice is where we tell you so."
         )
     if draft.caller_memory_on:
         named = ", ".join(draft.caller_memory_on)
@@ -671,7 +670,7 @@ def _open_questions(agents: list[dict[str, Any]]) -> list[str]:
     if any(not agent["ai_disclosure_enabled"] for agent in agents):
         questions.insert(
             0,
-            "At least one of your assistants does not announce that it is an AI at the "
+            "Your assistants do not announce that they are an AI at the "
             "start of the call. This notice is then the only place your callers are told, "
             "so it must be somewhere they will actually see before they call you — ask "
             "your advocate where.",

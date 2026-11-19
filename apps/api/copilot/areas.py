@@ -218,8 +218,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "agent_edit",
         "agents",
-        "language, voice, opening line or notices of a draft or paused agent; live: "
-        "agent_edit_live",
+        "language, voice or opening line of a draft or paused agent; live: agent_edit_live",
     ),
     AreaEntry("agent_edit_live", "agents", "the same for a live agent; not live: agent_edit"),
     AreaEntry(
@@ -431,7 +430,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "account_switch_set",
         "settings",
-        "an owner switch on or off",
+        "an owner switch on or off, the AI and recording notices of every call included",
     ),
     # D-934: charts and tables drawn in the panel, and cards kept on the home screen.
     AreaEntry("report_chart", "reports", "chart or table for the person; to keep it: chart_pin"),

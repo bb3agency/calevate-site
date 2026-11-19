@@ -101,7 +101,6 @@ from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.core.schemas import Strict
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.engine import engine_capabilities
 
 log = get_logger(__name__)
 
@@ -434,14 +433,12 @@ class CallCapOut(Strict):
 )
 async def list_lanes(_: PublishingReader) -> LanesOut:
     """No DB, no engine call, no tenant scoping — the split is the same for every client,
-    which is the point of publishing it rather than describing it. It reads one engine
-    CAPABILITY (`records_audio`), because the recording notice's explanation must match
-    what this deployment's phone line actually does."""
+    which is the point of publishing it rather than describing it."""
     return LanesOut(
         precedence_rule=publishing.PRECEDENCE_RULE,
         lanes=[
             LaneOut(field=e.field, lane=e.lane, precedence=e.precedence, why=e.why)
-            for e in publishing.lanes(records_audio=engine_capabilities().records_audio)
+            for e in publishing.LANES
         ],
         call_cap_default_s=CALL_CAP_DEFAULT_S,
         call_cap_min_s=CALL_CAP_MIN_S,

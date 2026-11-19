@@ -19,8 +19,8 @@ prove**, and each test below is one half of it:
      and the refusal is the grant binding, not a WHERE clause somebody remembered;
   5. the hash chain still verifies with the new field in the payload (the column is hashed
      only when present, so every pre-D-587 row keeps its own shape);
-  6. hard rule 5's invariants survive: the D-163 toggles are switchable by an operator and
-     audited as theirs, and nothing about the always-answer-truthfully promise moved.
+  6. hard rule 5's invariants survive: the account's notice switches (D-1021) are switchable
+     by an operator and audited as theirs, and the always-answer-truthfully promise never moved.
 
 Concurrency: this repo's tests share one Postgres. Everything is scoped to run-unique
 tenants and nothing asserts a global row count.
@@ -55,7 +55,7 @@ def _client() -> AsyncClient:
 
 
 async def _make_org(prefix: str = "vw") -> dict[str, Any]:
-    """A fresh org. Its agent volunteers neither notice (D-669), so the toggle writes below
+    """A fresh org. It volunteers neither notice (D-669), so the switch writes below
     switch one ON: re-asserting a state already held writes no audit row."""
     return await create_org_with_receptionist(
         name="View-As Clinic",
@@ -92,8 +92,8 @@ async def _rows(action: str, tenant_id: uuid.UUID) -> list[Any]:
 async def test_an_impersonated_write_lands_and_names_the_operator_and_the_grant() -> None:
     """THE CLAIM OF D-587, driven end to end on a compliance toggle (hard rule 5).
 
-    `PATCH /v1/agents/{id}/disclosure` is the D-163 switch — what the agent VOLUNTEERS at
-    the start of a call — and it is deliberately the surface chosen here rather than a
+    `PATCH /v1/organization/call-notices` is the account's notice switch (D-1021) — what
+    every call VOLUNTEERS at its start — and it is deliberately the surface chosen here over a
     lead's status: it is the one where "who did this" is legally load-bearing, so if
     attribution holds anywhere it must hold here.
 
@@ -109,7 +109,7 @@ async def test_an_impersonated_write_lands_and_names_the_operator_and_the_grant(
     async with _client() as http:
         headers = await view_as_headers(http, token, str(org["slug"]))
         response = await http.patch(
-            f"/v1/agents/{org['agent_id']}/disclosure",
+            "/v1/organization/call-notices",
             headers=headers,
             json={"ai_disclosure_enabled": True},
         )
@@ -117,7 +117,7 @@ async def test_an_impersonated_write_lands_and_names_the_operator_and_the_grant(
     assert response.status_code == 200, response.text
     assert response.json()["ai_disclosure_enabled"] is True
 
-    rows = await _rows("agent.ai_disclosure_enabled", tenant_id)
+    rows = await _rows("organization.ai_disclosure_enabled", tenant_id)
     assert len(rows) == 1, "one flip that moved is one row"
     actor_type, actor_id, row_tenant, via_grant = rows[0]
     assert actor_type == "admin", "an operator's act is an admin act, whatever face it wore"
@@ -152,7 +152,7 @@ async def test_the_write_names_the_same_grant_the_session_started_with() -> None
     async with _client() as http:
         headers = await view_as_headers(http, token, str(org["slug"]))
         response = await http.patch(
-            f"/v1/agents/{org['agent_id']}/disclosure",
+            "/v1/organization/call-notices",
             headers=headers,
             json={"recording_notice_enabled": True},
         )
@@ -164,7 +164,7 @@ async def test_the_write_names_the_same_grant_the_session_started_with() -> None
         )
 
     assert response.status_code == 200, response.text
-    rows = await _rows("agent.recording_notice_enabled", tenant_id)
+    rows = await _rows("organization.recording_notice_enabled", tenant_id)
     assert [str(row[3]) for row in rows] == [str(claims["jti"])]
 
     started = await _rows(STARTED_ACTION, tenant_id)
@@ -209,7 +209,7 @@ async def test_the_clients_own_write_carries_no_grant() -> None:
 
     async with _client() as http:
         response = await http.patch(
-            f"/v1/agents/{org['agent_id']}/disclosure",
+            "/v1/organization/call-notices",
             headers={
                 "Authorization": f"Bearer dev:client:{owner_id}",
                 "X-Org-Slug": str(org["slug"]),
@@ -218,7 +218,7 @@ async def test_the_clients_own_write_carries_no_grant() -> None:
         )
 
     assert response.status_code == 200, response.text
-    rows = await _rows("agent.ai_disclosure_enabled", tenant_id)
+    rows = await _rows("organization.ai_disclosure_enabled", tenant_id)
     assert len(rows) == 1
     assert uuid.UUID(str(rows[0][1])) == owner_id
     assert rows[0][3] is None
@@ -251,7 +251,7 @@ async def test_a_view_as_write_cannot_reach_another_tenant() -> None:
             "X-Impersonation-Grant"
         ]
         response = await http.patch(
-            f"/v1/agents/{victim['agent_id']}/disclosure",
+            "/v1/organization/call-notices",
             headers={
                 "Authorization": f"Bearer {token}",
                 "X-Impersonate-Org": str(victim["slug"]),
@@ -264,7 +264,7 @@ async def test_a_view_as_write_cannot_reach_another_tenant() -> None:
     # RFC-9457 problem+json: the machine code is `type`'s last segment, which is how every
     # other suite here reads it — `code` is the field name in `ProblemError`, not on the wire.
     assert "tenant_mismatch" in response.text, response.text
-    assert await _rows("agent.ai_disclosure_enabled", uuid.UUID(str(victim["id"]))) == []
+    assert await _rows("organization.ai_disclosure_enabled", uuid.UUID(str(victim["id"]))) == []
 
 
 async def test_the_write_lands_in_the_entered_tenant_and_nowhere_else() -> None:
@@ -283,21 +283,18 @@ async def test_the_write_lands_in_the_entered_tenant_and_nowhere_else() -> None:
     async with _client() as http:
         headers = await view_as_headers(http, token, str(entered["slug"]))
         response = await http.patch(
-            f"/v1/agents/{entered['agent_id']}/disclosure",
-            headers=headers,
-            json={"ai_disclosure_enabled": True},
-        )
-        crossed = await http.patch(
-            f"/v1/agents/{neighbour['agent_id']}/disclosure",
+            "/v1/organization/call-notices",
             headers=headers,
             json={"ai_disclosure_enabled": True},
         )
 
     assert response.status_code == 200, response.text
-    # RLS answers "no such agent" for one that is not this session's tenant, which is the
-    # correct answer and the one a leak would turn into a 200.
-    assert crossed.status_code == 404, crossed.text
-    assert await _rows("agent.ai_disclosure_enabled", uuid.UUID(str(neighbour["id"]))) == []
+    assert await _rows("organization.ai_disclosure_enabled", uuid.UUID(str(neighbour["id"]))) == []
+    async with tenant_session(uuid.UUID(str(neighbour["id"]))) as session:
+        untouched = (
+            await session.execute(text("SELECT notice_ai_enabled FROM organizations"))
+        ).scalar_one()
+    assert untouched is False, "the operator's switch reached the neighbouring account"
 
 
 # ------------------------------------------------------- 5: the chain still verifies
@@ -318,7 +315,7 @@ async def test_the_hash_chain_verifies_with_an_impersonated_write_in_it() -> Non
     async with _client() as http:
         headers = await view_as_headers(http, token, str(org["slug"]))
         response = await http.patch(
-            f"/v1/agents/{org['agent_id']}/disclosure",
+            "/v1/organization/call-notices",
             headers=headers,
             json={"ai_disclosure_enabled": True},
         )
@@ -338,7 +335,7 @@ async def test_the_hash_chain_verifies_with_an_impersonated_write_in_it() -> Non
 async def test_the_truthful_answer_promise_is_not_touchable_from_a_view_as_session() -> None:
     """HARD RULE 5, ASSERTED AS A PROPERTY OF THE SURFACE RATHER THAN OF A CALLER.
 
-    The D-163 toggles decide what an agent VOLUNTEERS and are legitimately switchable —
+    The account's notice switches decide what calls VOLUNTEER and are legitimately switchable —
     the test above drives an operator switching one. What may never be switchable is the
     answer an agent gives when ASKED, and the reason it cannot be is that no field carries
     it: it is composed server-side by `compose_engine_prompt` and returned to every caller
@@ -352,7 +349,7 @@ async def test_the_truthful_answer_promise_is_not_touchable_from_a_view_as_sessi
     async with _client() as http:
         headers = await view_as_headers(http, token, str(org["slug"]))
         response = await http.patch(
-            f"/v1/agents/{org['agent_id']}/disclosure",
+            "/v1/organization/call-notices",
             headers=headers,
             json={"ai_disclosure_enabled": False, "recording_notice_enabled": False},
         )

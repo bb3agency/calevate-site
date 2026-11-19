@@ -13,7 +13,7 @@ import uuid
 
 import pytest
 from apps.api.agents import roster
-from apps.api.agents.publishing import set_disclosure_posture
+from apps.api.agents.publishing import set_account_notices
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.disclosure import ai_disclosure_for
 from apps.api.db.session import tenant_session
@@ -52,7 +52,7 @@ async def test_the_first_agents_ai_notice_is_switched_on_and_audited_as_the_syst
             (
                 await session.execute(
                     text("SELECT actor_type FROM audit_log WHERE action = :a AND object_id = :o"),
-                    {"a": "agent.ai_disclosure_enabled", "o": str(agent_id)},
+                    {"a": "organization.ai_disclosure_enabled", "o": str(tenant_id)},
                 )
             )
             .scalars()
@@ -72,31 +72,43 @@ async def test_the_first_agents_ai_notice_is_switched_on_and_audited_as_the_syst
         count = (
             await session.execute(
                 text("SELECT count(*) FROM audit_log WHERE action = :a AND object_id = :o"),
-                {"a": "agent.ai_disclosure_enabled", "o": str(agent_id)},
+                {"a": "organization.ai_disclosure_enabled", "o": str(tenant_id)},
             )
         ).scalar_one()
     assert count == 1
 
 
-async def test_the_notice_stays_off_when_the_owner_switched_it_off() -> None:
-    tenant_id, agent_id = await _first_agent()
-    assert await _notice(tenant_id, agent_id) == "done"
-    await set_disclosure_posture(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        ai_disclosure_enabled=False,
-        recording_notice_enabled=None,
+async def _owner_switched_off(tenant_id: uuid.UUID, *, object_type: str, object_id: str) -> None:
+    await set_account_notices(
+        tenant_id=tenant_id, ai_disclosure_enabled=False, recording_notice_enabled=None
     )
     async with tenant_session(tenant_id) as session:
         await write_audit(
             session,
-            action="agent.ai_disclosure_disabled",
+            action=(
+                "organization.ai_disclosure_disabled"
+                if object_type == "organization"
+                else "agent.ai_disclosure_disabled"
+            ),
             actor_type="user",
             tenant_id=tenant_id,
-            object_type="agent",
-            object_id=str(agent_id),
+            object_type=object_type,
+            object_id=object_id,
             ip="203.0.113.7",
         )
+
+
+@pytest.mark.parametrize("where", ["organization", "agent"])
+async def test_the_notice_stays_off_when_the_owner_switched_it_off(where: str) -> None:
+    """The owner's choice is kept whether they made it on the account's switch (D-1021) or
+    on the agent's own switch before it moved there."""
+    tenant_id, agent_id = await _first_agent()
+    assert await _notice(tenant_id, agent_id) == "done"
+    await _owner_switched_off(
+        tenant_id,
+        object_type=where,
+        object_id=str(tenant_id) if where == "organization" else str(agent_id),
+    )
     assert await _notice(tenant_id, agent_id) == "off"
     async with tenant_session(tenant_id) as session:
         agent = await roster.agent_by_id(session, agent_id)

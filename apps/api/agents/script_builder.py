@@ -59,6 +59,7 @@ from apps.api.agents.models import is_published
 from apps.api.agents.prompts import insert_prompt_version, write_prompt_version
 from apps.api.agents.t0_block import block_of, splice_t0_block
 from apps.api.agents.write_guard import archived_refusal
+from apps.api.compliance.call_notices import AI_NOTICE_SQL, RECORDING_NOTICE_SQL
 from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.errors import ProblemError
 from apps.api.engine import engine_capabilities, get_engine
@@ -98,12 +99,12 @@ class SavedScript:
 
 
 # The columns the builder reads about an agent: which prompt version is the DRAFT
-# (`system_prompt_id`), whether a change is pending, and the four disclosure columns that
-# compose the opening line the preview must show above the client's script.
+# (`system_prompt_id`), whether a change is pending, and the two sentences and the account's
+# two switches (D-1021) that compose the opening line the preview shows above the script.
 _AGENT_SQL = (
     "SELECT a.system_prompt_id, a.live_prompt_id, a.name, a.direction, a.language_primary, "
-    "a.status, a.ai_disclosure_line, a.ai_disclosure_enabled, "
-    "a.recording_notice_line, a.recording_notice_enabled, "
+    f"a.status, a.ai_disclosure_line, {AI_NOTICE_SQL} AS ai_notice_on, "
+    f"a.recording_notice_line, {RECORDING_NOTICE_SQL} AS recording_notice_on, "
     # Sentence three (D-507): the preview must show the opening the caller actually hears,
     # and an agent that remembers says so as part of it.
     "a.caller_memory_notice_line, a.caller_memory_enabled "
@@ -134,9 +135,9 @@ async def assert_agent_visible(session: AsyncSession, agent_id: UUID) -> None:
 def _posture(row: Any) -> DisclosurePosture:
     return DisclosurePosture(
         ai_disclosure_line=str(row.ai_disclosure_line),
-        ai_disclosure_enabled=bool(row.ai_disclosure_enabled),
+        ai_disclosure_enabled=bool(row.ai_notice_on),
         recording_notice_line=str(row.recording_notice_line),
-        recording_notice_enabled=bool(row.recording_notice_enabled),
+        recording_notice_enabled=bool(row.recording_notice_on),
         caller_memory_notice_line=str(row.caller_memory_notice_line),
         caller_memory_enabled=bool(row.caller_memory_enabled),
     )
@@ -786,8 +787,8 @@ async def replace_opening_line(
                 "SELECT a.status, a.direction, pv.structured_script, "
                 "(a.live_prompt_id IS NOT NULL "
                 "AND a.system_prompt_id IS DISTINCT FROM a.live_prompt_id) AS staged, "
-                "a.ai_disclosure_line, a.ai_disclosure_enabled, "
-                "a.recording_notice_line, a.recording_notice_enabled, "
+                f"a.ai_disclosure_line, {AI_NOTICE_SQL} AS ai_notice_on, "
+                f"a.recording_notice_line, {RECORDING_NOTICE_SQL} AS recording_notice_on, "
                 "a.caller_memory_notice_line, a.caller_memory_enabled, a.language_primary "
                 "FROM agents a JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"

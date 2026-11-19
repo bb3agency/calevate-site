@@ -626,89 +626,43 @@ async def _draft_agent(tenant_id: UUID) -> UUID:
 async def test_agent_edit_changes_a_draft_and_undo_puts_it_back() -> None:
     tenant_id, slug, token = await _make_tenant()
     agent_id = await _draft_agent(tenant_id)
-    before = await _one(
-        tenant_id,
-        "SELECT language_primary, ai_disclosure_enabled FROM agents WHERE id = :a",
-        a=agent_id,
-    )
+    sql = "SELECT language_primary FROM agents WHERE id = :a"
+    before = await _one(tenant_id, sql, a=agent_id)
     receipt = await _run(
         tenant_id,
         token,
         "agent_edit",
-        {
-            "agent_id": str(agent_id),
-            "language_primary": "en-IN",
-            "voice_id": None,
-            "ai_disclosure_enabled": not before[1],
-            "recording_notice_enabled": None,
-        },
+        {"agent_id": str(agent_id), "language_primary": "en-IN", "voice_id": None},
     )
     assert receipt.applied is True
-    after = await _one(
-        tenant_id,
-        "SELECT language_primary, ai_disclosure_enabled FROM agents WHERE id = :a",
-        a=agent_id,
-    )
-    assert tuple(after) == ("en-IN", not before[1])
+    assert tuple(await _one(tenant_id, sql, a=agent_id)) == ("en-IN",)
     async with _client() as http:
         undone = await http.post(
             f"/v1/copilot/actions/{receipt.action_id}/undo", headers=_headers(token, slug)
         )
     assert undone.status_code == 200, undone.text
-    restored = await _one(
-        tenant_id,
-        "SELECT language_primary, ai_disclosure_enabled FROM agents WHERE id = :a",
-        a=agent_id,
-    )
-    assert tuple(restored) == tuple(before)
-
-
-async def test_agent_edit_puts_the_notices_back_when_the_rest_is_refused(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The notices commit on their own first; a refused language, voice or opening line
-    after them must not leave them changed behind a failed action with no Undo."""
-    from apps.api.copilot import console_actions
-
-    async def refuse(*_args: Any, **_kwargs: Any) -> None:
-        raise ProblemError.business_rule("voice_not_offered", "That voice is not offered.")
-
-    monkeypatch.setattr(console_actions, "_apply_voice_and_opening", refuse)
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _draft_agent(tenant_id)
-    sql = "SELECT language_primary, ai_disclosure_enabled FROM agents WHERE id = :a"
-    before = await _one(tenant_id, sql, a=agent_id)
-
-    with pytest.raises(ProblemError):
-        await _run(
-            tenant_id,
-            token,
-            "agent_edit",
-            {
-                "agent_id": str(agent_id),
-                "language_primary": "en-IN",
-                "voice_id": None,
-                "ai_disclosure_enabled": not before[1],
-                "recording_notice_enabled": None,
-            },
-        )
-
     assert tuple(await _one(tenant_id, sql, a=agent_id)) == tuple(before)
 
-    # With no notice in the edit there is nothing to put back; the refusal still reaches them.
-    with pytest.raises(ProblemError):
+
+async def test_agent_edit_refuses_a_notice_and_names_the_account_switch() -> None:
+    """The notices are the account's (D-1021): an agent edit naming one is refused, and
+    the refusal names the tool that switches them for every call."""
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _draft_agent(tenant_id)
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
         await _run(
             tenant_id,
             token,
             "agent_edit",
             {
                 "agent_id": str(agent_id),
-                "language_primary": "en-IN",
+                "language_primary": None,
                 "voice_id": None,
-                "ai_disclosure_enabled": None,
+                "ai_disclosure_enabled": True,
                 "recording_notice_enabled": None,
             },
         )
+    assert "account_switch_set" in refused.value.reason
 
 
 async def test_agent_edit_refuses_a_live_agent_and_the_live_twin_needs_a_click() -> None:

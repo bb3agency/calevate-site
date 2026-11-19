@@ -3759,9 +3759,7 @@ export interface paths {
         /**
          * Which agent settings apply immediately and which wait for Apply (§2b)
          * @description No DB, no engine call, no tenant scoping — the split is the same for every client,
-         *     which is the point of publishing it rather than describing it. It reads one engine
-         *     CAPABILITY (`records_audio`), because the recording notice's explanation must match
-         *     what this deployment's phone line actually does.
+         *     which is the point of publishing it rather than describing it.
          */
         get: operations["list_lanes_v1_agents_lanes_get"];
         put?: never;
@@ -4316,32 +4314,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/disclosure": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Switch the AI disclosure and the recording notice on or off (D-163)
-         * @description Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call. Neither switch changes the agent's opening line, which is part of its script: a notice switched on is said right after it, and with both off the opening line is the first thing callers hear.
-         *
-         *     It does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant. Asked whether the call is recorded, it answers according to whether the voice platform records audio: where it does, it says yes; where it does not (the platform's own voice runtime today), it says the audio is not recorded and that a written transcript is kept. That is composed server-side, appended to every agent's instructions after the script, and verified against the voice platform on every publish — no script can withdraw it. `truthful_answer_rule` in the response states the answer in force.
-         *
-         *     The recording notice is spoken only where audio is recorded; the switch is kept so it applies wherever it is. Switching it off does not stop a recording being made, and does not discharge the client's own notice obligation under the DPDP Act; it moves where that notice is given. Every flip is written to the audit log.
-         *
-         *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a posture the platform is not running.
-         */
-        patch: operations["set_disclosure_v1_agents__agent_id__disclosure_patch"];
         trace?: never;
     };
     "/v1/agents/{agent_id}/engine-state": {
@@ -14399,6 +14371,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/organization/call-notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This account's AI notice and recording notice (D-1021)
+         * @description One AI-notice switch and one recording-notice switch for the whole account (D-1021): every call, inbound and outbound, on every agent, Inbound line and campaign, follows them. Two switches, because the two notices are separate obligations under separate regimes (D-163). A notice switched on is said in the opening of each call, in that opening's own words, so an answered call and a placed call each say it their own way.
+         *
+         *     It does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant; asked whether the call is recorded, it answers according to whether the voice platform records audio. That is composed server-side, appended to every agent's instructions and verified against the voice platform on every publish; no script and no switch can withdraw it. `truthful_answer_rule` states the answer in force.
+         *
+         *     Switching the recording notice off does not stop a recording being made and does not discharge the client's own notice obligation under the DPDP Act. Every flip is written to the audit log, and reaches every live agent, line and campaign from its next call.
+         */
+        get: operations["get_call_notices_v1_organization_call_notices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Switch this account's AI notice or recording notice on or off (D-1021)
+         * @description One AI-notice switch and one recording-notice switch for the whole account (D-1021): every call, inbound and outbound, on every agent, Inbound line and campaign, follows them. Two switches, because the two notices are separate obligations under separate regimes (D-163). A notice switched on is said in the opening of each call, in that opening's own words, so an answered call and a placed call each say it their own way.
+         *
+         *     It does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant; asked whether the call is recorded, it answers according to whether the voice platform records audio. That is composed server-side, appended to every agent's instructions and verified against the voice platform on every publish; no script and no switch can withdraw it. `truthful_answer_rule` states the answer in force.
+         *
+         *     Switching the recording notice off does not stop a recording being made and does not discharge the client's own notice obligation under the DPDP Act. Every flip is written to the audit log, and reaches every live agent, line and campaign from its next call.
+         */
+        patch: operations["set_call_notices_v1_organization_call_notices_patch"];
+        trace?: never;
+    };
     "/v1/organization/llm-defaults": {
         parameters: {
             query?: never;
@@ -23449,7 +23453,7 @@ export interface components {
         };
         /**
          * DisclosureIn
-         * @description Which notices this agent volunteers. `null` on a field leaves it alone.
+         * @description Which of the account's two call notices are on. `null` on a field leaves it alone.
          *
          *     Two nullable booleans rather than two endpoints: the pair is one posture, a screen
          *     with two switches sends whichever one moved, and a PATCH that could only send both
@@ -23463,17 +23467,10 @@ export interface components {
         };
         /** DisclosureOut */
         DisclosureOut: {
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
             /** Ai Disclosure Enabled */
             ai_disclosure_enabled: boolean;
-            /** Engine Synced */
-            engine_synced: boolean;
-            /** Opening Line */
-            opening_line: string;
+            /** Calls Recorded */
+            calls_recorded: boolean;
             /** Recording Notice Enabled */
             recording_notice_enabled: boolean;
             /** Truthful Answer Rule */
@@ -29669,6 +29666,20 @@ export interface components {
             /** Notes */
             notes: components["schemas"]["NoteOut"][];
         };
+        /**
+         * NoticeNeedsRoomOnAgent
+         * @description Switching a notice on for the account was refused: this agent's first words have no
+         *     room for it. Names the agent, so the screen can open that agent's script.
+         */
+        NoticeNeedsRoomOnAgent: components["schemas"]["ProblemBody"] & {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string;
+        };
         /** NotificationFeedOut */
         NotificationFeedOut: {
             /** Attention Total */
@@ -30007,6 +30018,20 @@ export interface components {
         OpeningBIn: {
             /** Opening B */
             opening_b?: string | null;
+        };
+        /**
+         * OpeningIntroducesOnAgent
+         * @description Switching the AI notice on for the account was refused: this agent's opening line
+         *     already says who is calling, so callers would hear it twice.
+         */
+        OpeningIntroducesOnAgent: components["schemas"]["ProblemBody"] & {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string;
         };
         /** OpeningLineIn */
         OpeningLineIn: {
@@ -47689,41 +47714,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentLifecycleOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    set_disclosure_v1_agents__agent_id__disclosure_patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DisclosureIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DisclosureOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -66221,6 +66211,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AllAgentsCallHandlingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_call_notices_v1_organization_call_notices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisclosureOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_call_notices_v1_organization_call_notices_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisclosureIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisclosureOut"];
+                };
+            };
+            /** @description RFC 9457 problem+json */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["OpeningIntroducesOnAgent"];
+                };
+            };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["NoticeNeedsRoomOnAgent"];
                 };
             };
             /** @description RFC-9457 problem+json */

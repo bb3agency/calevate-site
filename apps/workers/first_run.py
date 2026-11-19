@@ -10,7 +10,7 @@
    rule. Without a model, or with nothing left, the fixed questions for the profile's empty
    sections are asked instead: the step never stops for lack of AI.
 3. NOTICE (`switch_on_first_notice`): the first agent made on "Name and voice" gets its AI
-   notice switched on (D-864), unless the owner switched it off for this agent or the
+   notice switched on for the account (D-864, D-1021), unless the owner switched it off or a
    greeting leaves no room for it.
 
 The model reads the owner's own words about their business (the tenant-authored class
@@ -35,7 +35,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.assist_leg import account_assist_leg
-from apps.api.agents.publishing import audit_action_for, set_disclosure_posture
+from apps.api.agents.publishing import (
+    LEGACY_AGENT_AI_OFF_ACTION,
+    audit_action_for,
+    set_account_notices,
+)
 from apps.api.billing.ai_quota import new_assist_ref, platform_brake_tripped
 from apps.api.billing.models import ASSIST_FEATURE_FIRST_RUN
 from apps.api.compliance.audit import write_audit
@@ -82,7 +86,7 @@ log = get_logger(__name__)
 #: `usage_events.meta.feature` for hearing a spoken brief. Absorbed, as the teach box's is.
 ASSIST_FEATURE_FIRST_RUN_VOICE: Final = "first_run_voice"
 
-#: The switch the notice step turns on (`agents.ai_disclosure_enabled`).
+#: The switch the notice step turns on: the account's AI notice (D-1021).
 AI_NOTICE: Final = "ai_disclosure_enabled"
 
 #: How long the question writer waits for a document still being read before going on
@@ -484,7 +488,8 @@ async def _meter(
 
 
 async def _ai_notice_on_file(tenant_id: UUID, agent_id: UUID) -> tuple[str, bool]:
-    """(the agent's AI sentence, whether its owner switched the notice off for this agent)."""
+    """(the agent's AI sentence, whether the owner ever switched the AI notice off: the
+    account's switch (D-1021), or this agent's before the switch moved to the account)."""
     async with tenant_session(tenant_id) as session:
         line = (
             await session.execute(
@@ -493,33 +498,38 @@ async def _ai_notice_on_file(tenant_id: UUID, agent_id: UUID) -> tuple[str, bool
         ).scalar()
         owner_off = (
             await session.execute(
-                text("SELECT 1 FROM audit_log WHERE action = :a AND object_id = :o LIMIT 1"),
-                {"a": audit_action_for(AI_NOTICE, enabled=False), "o": str(agent_id)},
+                text(
+                    "SELECT 1 FROM audit_log WHERE (action = :account AND object_id = :t) "
+                    "OR (action = :agent AND object_id = :o) LIMIT 1"
+                ),
+                {
+                    "account": audit_action_for(AI_NOTICE, enabled=False),
+                    "t": str(tenant_id),
+                    "agent": LEGACY_AGENT_AI_OFF_ACTION,
+                    "o": str(agent_id),
+                },
             )
         ).first()
     return (line or "").strip(), owner_off is not None
 
 
 async def _switch_on_ai_notice(tenant_id: UUID, agent_id: UUID) -> dict[str, Any]:
-    """Switch the AI notice on, so the first agent says it after its greeting (D-864).
+    """Switch the account's AI notice on, so the first agent says it in its opening (D-864).
 
-    Every agent is created with both notices off (D-669), so without this the first run's
-    agent would open with no AI notice. The recording notice is left as created: it is the
-    owner's choice (D-669, D-163). An owner who has already switched the AI notice off for
-    this agent keeps that choice. Through `set_disclosure_posture`, the
-    one writer of the switch, so the greeting budget is checked (D-846) and a live agent is
-    republished; audited as the system, as the switch route audits the owner."""
+    An account starts with both notices off (D-669), so without this the first run's agent
+    would open with no AI notice. The recording notice is left as it is: it is the owner's
+    choice (D-669, D-163). An owner who has switched the AI notice off keeps that choice.
+    Through `set_account_notices`, the one writer of the switch (D-1021), so every published
+    agent's greeting is checked (D-846) and the change reaches every live agent; audited as
+    the system, as the switch route audits the owner."""
     line, owner_off = await _ai_notice_on_file(tenant_id, agent_id)
     if not line:
         return {"state": "missing"}
     if owner_off:
         return {"state": "off"}
     try:
-        result = await set_disclosure_posture(
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            ai_disclosure_enabled=True,
-            recording_notice_enabled=None,
+        result = await set_account_notices(
+            tenant_id=tenant_id, ai_disclosure_enabled=True, recording_notice_enabled=None
         )
     except ProblemError as refused:
         log.info("first_run_notice_refused", extra={"reason": refused.code})
@@ -530,9 +540,9 @@ async def _switch_on_ai_notice(tenant_id: UUID, agent_id: UUID) -> dict[str, Any
                 session,
                 action=audit_action_for(AI_NOTICE, enabled=True),
                 tenant_id=tenant_id,
-                object_type="agent",
-                object_id=str(agent_id),
-                summary={"engine_synced": result.engine_synced, "by": "first_run"},
+                object_type="organization",
+                object_id=str(tenant_id),
+                summary={"agent_id": str(agent_id), "by": "first_run"},
             )
     return {"state": "done"}
 

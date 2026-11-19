@@ -496,10 +496,10 @@ async def test_the_business_copy_says_every_notice_switched_on_in_its_first_word
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE agents SET ai_disclosure_enabled = true, recording_notice_enabled = true "
-                "WHERE id = :a"
+                "UPDATE organizations SET notice_ai_enabled = true, "
+                "notice_recording_enabled = true WHERE id = :t"
             ),
-            {"a": agent_id},
+            {"t": tenant_id},
         )
     # The publish's own read-back refuses a copy that drops a notice.
     ref = await paid_test_calls.refresh_test_copy(

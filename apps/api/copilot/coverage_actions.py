@@ -10,11 +10,13 @@ Each calls the service function its own button's route calls, under the same per
 * `knowledge_refresh` — approve a waiting upload, or read a PDF or page again,
   `POST /v1/kb/uploads/{id}/confirm` and `/read`.
 * `connection_disconnect` — `DELETE /v1/integrations/credentials/{id}`.
-* `account_switch_set` — four owner switches: staff may curate knowledge
+* `account_switch_set` — six owner switches: staff may curate knowledge
   (`PUT /v1/kb/staff-curation`), opt-in required before dialling
   (`PUT /v1/compliance/call-consent/policy`), the save-our-number WhatsApp
-  (`PUT /v1/forwarding/save-number`, which demands its emailed code here as on the screen)
-  and the owner's daily summary (`PUT /v1/notifications/daily-summary`, D-944).
+  (`PUT /v1/forwarding/save-number`, which demands its emailed code here as on the screen),
+  the owner's daily summary (`PUT /v1/notifications/daily-summary`, D-944), and the AI
+  and recording notices every call opens with (`PATCH /v1/organization/call-notices`,
+  D-1021).
 
 Every one is `confirm`: a model tier changes what each minute costs; a team alert sends a
 caller's details outside the dashboard; a team address and a disconnect change who receives
@@ -670,7 +672,12 @@ CONNECTION_DISCONNECT: Final = ActionTool(
 # =========================================================================================
 
 Switch = Literal[
-    "staff_knowledge", "opt_in_before_calling", "save_number_whatsapp", "daily_summary"
+    "staff_knowledge",
+    "opt_in_before_calling",
+    "save_number_whatsapp",
+    "daily_summary",
+    "ai_notice",
+    "recording_notice",
 ]
 
 _SWITCH_WORDS: Final[dict[str, tuple[str, str, str, str]]] = {
@@ -699,6 +706,25 @@ _SWITCH_WORDS: Final[dict[str, tuple[str, str, str, str]]] = {
         "Each evening the day's calls, leads, spend and waiting call-backs go to the owner.",
         "No daily summary is sent.",
     ),
+    # D-1021: one pair for every call of the account, answered and placed.
+    "ai_notice": (
+        "Every call says it is an AI assistant",
+        "on Settings, Call notices",
+        "Every call says so in its opening, from the next call.",
+        "Calls stop saying it, and still say so to anyone who asks.",
+    ),
+    "recording_notice": (
+        "Every call says it is recorded",
+        "on Settings, Call notices",
+        "Every call says so in its opening, from the next call.",
+        "Calls stop saying it. They are still recorded, so tell callers another way.",
+    ),
+}
+
+#: The account's notice switches by the field `set_account_notices` names them by.
+_NOTICE_FIELD: Final[dict[str, str]] = {
+    "ai_notice": "ai_disclosure_enabled",
+    "recording_notice": "recording_notice_enabled",
 }
 
 
@@ -719,6 +745,11 @@ class _SwitchArgs(BaseModel):
 
 
 async def _read_switch(session: AsyncSession, switch: str) -> bool:
+    if switch in _NOTICE_FIELD:
+        from apps.api.compliance.call_notices import read_account_notices
+
+        notices = await read_account_notices(session)
+        return notices.ai if switch == "ai_notice" else notices.recording
     if switch == "staff_knowledge":
         from apps.api.kb.curation import read_switch
 
@@ -774,8 +805,9 @@ async def _plan_switch(session: AsyncSession, actor: ToolActor, args: Mapping[st
 async def _execute_switch(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    del actor
     parsed = parse_args(_SwitchArgs, args)
+    if parsed.switch in _NOTICE_FIELD:
+        return await _execute_notice(actor, parsed)
     changed = await _write_switch(session, parsed.switch, parsed.on)
     return Executed(
         applied=changed,
@@ -784,6 +816,31 @@ async def _execute_switch(
         else f"It was already {'on' if parsed.on else 'off'}.",
         audit_summary={"switch": parsed.switch, "on": parsed.on, "changed": changed},
         audit_action=_SWITCH_AUDIT[parsed.switch],
+    )
+
+
+async def _execute_notice(actor: ToolActor, parsed: _SwitchArgs) -> Executed:
+    """`PATCH /v1/organization/call-notices`'s writer (D-1021). It opens its own transaction
+    and takes the organization row's lock, which nothing in this action's transaction holds;
+    a refusal (an agent's opening with no room for the notice) is raised as the route's. The
+    audit action names the switch and the direction, as the route's rows do."""
+    from apps.api.agents.publishing import audit_action_for, set_account_notices
+
+    field = _NOTICE_FIELD[parsed.switch]
+    result = await set_account_notices(
+        tenant_id=actor.tenant_id,
+        ai_disclosure_enabled=parsed.on if field == "ai_disclosure_enabled" else None,
+        recording_notice_enabled=parsed.on if field == "recording_notice_enabled" else None,
+        requested_by=actor.user_id,
+    )
+    changed = bool(result.changed)
+    return Executed(
+        applied=changed,
+        detail=("Switched " + ("on." if parsed.on else "off."))
+        if changed
+        else f"It was already {'on' if parsed.on else 'off'}.",
+        audit_summary={"switch": parsed.switch, "on": parsed.on, "changed": changed},
+        audit_action=audit_action_for(field, enabled=parsed.on),
     )
 
 
@@ -817,6 +874,8 @@ ACCOUNT_SWITCH_SET: Final = ActionTool(
                     "opt_in_before_calling",
                     "save_number_whatsapp",
                     "daily_summary",
+                    "ai_notice",
+                    "recording_notice",
                 ],
             },
             "on": {"type": "boolean"},
@@ -897,7 +956,10 @@ async def _account_switches(
 
 ACCOUNT_SWITCHES: Final = ReadTool(
     name="account_switches",
-    description="The owner switches (daily summary, staff knowledge, opt-in, save-our-number).",
+    description=(
+        "The owner switches (daily summary, staff knowledge, opt-in, save-our-number, "
+        "AI and recording notices)."
+    ),
     parameters={"type": "object", "properties": {}, "additionalProperties": False},
     permission="org:read",
     run=_account_switches,

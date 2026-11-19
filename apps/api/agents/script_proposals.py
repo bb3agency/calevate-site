@@ -167,8 +167,8 @@ async def brief_for(
         await session.execute(
             text(
                 "SELECT a.direction, a.language_primary, o.vertical_template, o.name, a.name, "
-                "CASE WHEN a.ai_disclosure_enabled THEN a.ai_disclosure_line ELSE '' END, "
-                "a.ai_disclosure_enabled, a.recording_notice_enabled "
+                "CASE WHEN o.notice_ai_enabled THEN a.ai_disclosure_line ELSE '' END, "
+                "o.notice_ai_enabled, o.notice_recording_enabled "
                 "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL AND o.id = :tid"
             ),

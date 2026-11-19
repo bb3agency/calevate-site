@@ -289,6 +289,9 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   -- is configured to do; this one exists only because a switch we record is on.
   ai_disclosure_enabled BOOL NOT NULL DEFAULT false,     -- D-669 (migration a6d2f81c4e3b):
   recording_notice_enabled BOOL NOT NULL DEFAULT false,  -- a call opens with the greeting only
+  -- ^ Both UNREAD since D-1021: the switches are the account's, `organizations.
+  -- notice_ai_enabled` / `notice_recording_enabled` (migration c4e8a2f61d93, backfilled ON
+  -- when any agent was on). Kept for hard rule 8's two-step; the next release drops them.
   disclosure_line TEXT NOT NULL,  -- LEGACY: the two sentences joined, whatever the
     -- toggles say. Still written, no longer read by the publish path — step 1 of a
     -- two-step deprecation (hard rule 8); step 2 drops it (D-163).

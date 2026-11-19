@@ -143,6 +143,7 @@ from apps.api.billing.tts_volume import (
     PLAN_BILLED_VOICE_TIER,
     bump_cartesia_volume,
 )
+from apps.api.compliance.call_notices import AI_NOTICE_SQL, RECORDING_NOTICE_SQL
 from apps.api.compliance.consent import record_recording_notice
 from apps.api.compliance.deletion import refile_erasure_for_late_records
 from apps.api.compliance.disclosure import disclosure_spoken
@@ -3560,7 +3561,7 @@ async def _load_call_context(
     conservative (it can only turn True into False); the alternative is a
     `calls.disclosure_line_at_call` column, which is a real answer and a migration this
     finding does not call for. **D-163 widens that approximation by exactly one case**:
-    a tenant who switches `ai_disclosure_enabled` off turns the verdict on their older
+    a tenant who switches the account's AI notice off turns the verdict on their older
     calls from True to `None` (unknown), never to False — still the conservative
     direction, and the same column would fix both.
     """
@@ -3582,14 +3583,14 @@ async def _load_call_context(
                     "SELECT c.agent_id, c.direction, es.version, "
                     "  COALESCE(NULLIF(g.extraction_fields, '[]'::jsonb), "
                     "  NULLIF(l.extraction_fields, '[]'::jsonb), es.fields), "
-                    "  CASE WHEN a.ai_disclosure_enabled THEN a.ai_disclosure_line ELSE '' END, "
+                    f"  CASE WHEN {AI_NOTICE_SQL} THEN a.ai_disclosure_line ELSE '' END, "
                     # THE RECORDING SENTENCE, on the same toggle logic and for the same
                     # reason — an agent whose owner switched THIS notice off must not be
                     # scored against it. It rides on this statement rather than getting
                     # its own for the reason the AI line does: it is one column further
                     # along a row this query already holds, and a second per-call round
                     # trip to read one string would be on the pipeline's critical path.
-                    "  CASE WHEN a.recording_notice_enabled THEN a.recording_notice_line "
+                    f"  CASE WHEN {RECORDING_NOTICE_SQL} THEN a.recording_notice_line "
                     "  ELSE '' END "
                     "FROM calls c "
                     "JOIN agents a ON a.id = c.agent_id "
@@ -3625,7 +3626,7 @@ async def _record_recording_notice(
     Returns whether a row was written. THREE CONDITIONS, all of them observed rather
     than assumed, and each one is a thing the row would otherwise be claiming falsely:
 
-    1. **The agent was asked to announce it.** `recording_notice_enabled` off makes
+    1. **The agent was asked to announce it.** The account's recording notice off makes
        `notice_line` the empty string upstream, and there is no notice to be evidence of.
     2. **The announcement was observed in the transcript.** `disclosure_spoken` returns
        the same tri-state it does for the AI sentence, and only `True` counts — `None`

@@ -695,7 +695,7 @@ class TestSchemaInvariants:
         failures = guard.evaluate_schema(weakened)
         assert any("ai_disclosure_line" in f and "NOT NULL" in f for f in failures), failures
 
-    def test_catches_a_nullable_notice_toggle(self, engine: Engine) -> None:
+    def test_catches_a_nullable_account_notice_switch(self, engine: Engine) -> None:
         """NULL is a third state for a two-state posture, and every reader would have to
         invent which way it falls. `compose_opening_line` reads a false as OFF — the one
         reading an omission must never silently produce."""
@@ -703,12 +703,14 @@ class TestSchemaInvariants:
         weakened = replace(
             facts,
             columns=frozenset(
-                (t, c, False) if (t, c) == ("agents", "recording_notice_enabled") else (t, c, n)
+                (t, c, False)
+                if (t, c) == ("organizations", "notice_recording_enabled")
+                else (t, c, n)
                 for t, c, n in facts.columns
             ),
         )
         failures = guard.evaluate_schema(weakened)
-        assert any("toggle" in f and "nullable" in f for f in failures), failures
+        assert any("notice switch" in f and "nullable" in f for f in failures), failures
 
     def test_catches_the_loss_of_the_non_empty_check(self, engine: Engine) -> None:
         """NOT NULL alone admits `''` and `'   '` — an agent with no AI sentence at all,

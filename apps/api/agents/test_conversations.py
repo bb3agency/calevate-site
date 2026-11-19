@@ -1252,7 +1252,7 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
                 "a.caller_has_screen, "
                 # The applied script's compiled body and the spoken AI sentence, for the
                 # opening a "both" agent places calls with (`engine.placed_call_line`).
-                "pv.body, CASE WHEN a.ai_disclosure_enabled THEN a.ai_disclosure_line "
+                "pv.body, CASE WHEN o.notice_ai_enabled THEN a.ai_disclosure_line "
                 "ELSE '' END FROM agents a "
                 "JOIN organizations o ON o.id = a.tenant_id "
                 "LEFT JOIN prompt_versions pv ON pv.id = a.live_prompt_id "

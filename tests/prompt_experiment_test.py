@@ -100,11 +100,16 @@ async def _agent(direction: str = "outbound") -> tuple[uuid.UUID, uuid.UUID, Fak
         # arms below are asserted to carry the AI sentence and the agent's recording
         # notice in their opening.
         await session.execute(
-            text(
-                "UPDATE agents SET direction = :d, ai_disclosure_enabled = true, "
-                "recording_notice_enabled = true WHERE id = :a"
-            ),
+            text("UPDATE agents SET direction = :d WHERE id = :a"),
             {"d": direction, "a": agent_id},
+        )
+        await session.execute(
+            text(
+                "UPDATE organizations SET notice_ai_enabled = true, "
+                "notice_recording_enabled = true "
+                "WHERE id = (SELECT tenant_id FROM agents WHERE id = :a)"
+            ),
+            {"a": agent_id},
         )
         await prompts.write_prompt_version(
             session,

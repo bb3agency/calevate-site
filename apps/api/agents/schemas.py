@@ -86,8 +86,11 @@ class AgentOut(BaseModel):
     # Entity, so they need to be able to read what their agent announces — and, now that
     # each half is theirs to switch off, to see the two halves separately.
     ai_disclosure_line: str
+    #: The ACCOUNT's AI-notice switch as it applies to this agent (D-1021), read-only here:
+    #: `PATCH /v1/organization/call-notices` is the one place it is set.
     ai_disclosure_enabled: bool
     recording_notice_line: str
+    #: The account's recording-notice switch, as above.
     recording_notice_enabled: bool
     #: SENTENCE THREE AND ITS ONLY SWITCH (D-507). The line is on file for every agent
     #: whether or not memory is on; `caller_memory_enabled` is what decides whether it is

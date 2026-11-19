@@ -57,6 +57,7 @@ from apps.api.agents.llm_tiers import engine_model_token, tier_label, tier_of_mo
 from apps.api.agents.models import AgentStatus, is_published
 from apps.api.agents.schemas import AgentOut, GreetingBudgetOut
 from apps.api.billing.rates import llm_surcharge_applies
+from apps.api.compliance.call_notices import AI_NOTICE_SQL, RECORDING_NOTICE_SQL
 from apps.api.compliance.caller_memory import CALLER_MEMORY_ATTESTATION, statement_is_current
 from apps.api.compliance.disclosure import truthful_answer_promise
 from apps.api.engine import engine_capabilities, get_engine
@@ -82,8 +83,8 @@ AGENT_ROSTER_SQL = (
     # Slot 7 is unused: `published` is the status (D-1019), and a NULL keeps every later
     # positional index meaning what it meant.
     "a.disclosure_line, a.engine, NULL, es.fields, "
-    "a.ai_disclosure_line, a.ai_disclosure_enabled, "
-    "a.recording_notice_line, a.recording_notice_enabled, a.archived_at, "
+    f"a.ai_disclosure_line, {AI_NOTICE_SQL}, "
+    f"a.recording_notice_line, {RECORDING_NOTICE_SQL}, a.archived_at, "
     "(SELECT count(*) FROM phone_numbers pn WHERE pn.agent_id = a.id), "
     # The two rungs of the model fallback that live in the database (D-454). Joined
     # rather than fetched per row: `organizations` is one PK lookup and RLS makes it the

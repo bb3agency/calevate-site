@@ -630,11 +630,11 @@ identical words, and `tests/legal.test.tsx` asserts both documents carry it.
 **How the code keeps it** (SECURITY-COMPLIANCE §2.0-§2.2): the truthful answer is
 `calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE`, composed after the client's script on
 every agent and read back off the engine on every publish and drift sweep; no column or
-script can withdraw it. The two volunteered notices are separate per-agent toggles,
-`agents.ai_disclosure_enabled` and `agents.recording_notice_enabled`, both off by default
+script can withdraw it. The two volunteered notices are separate switches of the client account (D-1021, one each for every call),
+`organizations.notice_ai_enabled` and `organizations.notice_recording_enabled`, both off by default
 since D-669; the sentences are always on file and `calls.disclosure_played` records NULL,
-not `false`, on a call whose agent had the AI notice off. The first-run build switches the
-AI notice on for the agent it builds unless the owner has turned it off (D-864, kept by the
+not `false`, on a call made while the AI notice was off. The first-run build switches the
+AI notice on for the account unless the owner has turned it off (D-864, kept by the
 founder on 28 Oct 2026, D-921).
 
 ### F-5 — Retention: the documents and the seed disagree, and I published the seed's numbers. **OURS, founder's call.**

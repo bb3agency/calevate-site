@@ -313,6 +313,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "me",
     // The owner's daily summary switch is on `organizations` (D-944).
     "daily-summary",
+    // The call notices every call opens with are on `organizations` too (D-1021).
+    "call-notices",
     // The saved test numbers every campaign and inbound line offers (`organizations.test_numbers`).
     "test-numbers",
     "members",

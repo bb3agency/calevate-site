@@ -338,8 +338,8 @@ def disclosure_spoken(turns: Sequence[SpokenTurn], *, disclosure_line: str) -> b
     needle = normalize_utterance(disclosure_line)
     if not needle:
         # THIS IS NOW A REACHABLE, INTENDED STATE (D-163), where it used to be a
-        # defensive branch: the pipeline passes the AI sentence only when the agent's
-        # `ai_disclosure_enabled` toggle is on, and the empty string otherwise. An agent
+        # defensive branch: the pipeline passes the AI sentence only when the
+        # account's AI notice is on (D-1021), and the empty string otherwise. An agent
         # that was never asked to volunteer the sentence has nothing to be scored against
         # — which is precisely the `None` this tri-state already means, and precisely
         # what stops the QA queue rendering a lawful choice as a red `False` on every

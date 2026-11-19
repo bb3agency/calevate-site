@@ -298,7 +298,8 @@ async def create_agent(
     **CREATION IS NOT A ROUTE AROUND THE FLOOR.** All THREE sentences are written here, from
     the language templates, and never taken from the caller: `ai_disclosure_line`,
     `recording_notice_line` and `caller_memory_notice_line` are NOT NULL with non-empty
-    CHECKs, both D-163 toggles start FALSE (D-669), `caller_memory_enabled` starts FALSE
+    CHECKs, whether they are volunteered is the account's two switches (D-1021),
+    `caller_memory_enabled` starts FALSE
     (D-506) and the legacy bundle is composed from the first pair by its own function. The memory
     sentence is on file from the first second of an agent's life even though nothing speaks
     it yet, which is the whole of D-507's argument for a column with no switch: turning
@@ -374,10 +375,9 @@ async def create_agent(
             "languages_extra, "
             "disclosure_line, ai_disclosure_line, recording_notice_line, "
             "caller_memory_notice_line, "
-            "ai_disclosure_enabled, recording_notice_enabled, max_call_duration_s, "
-            "opening_waits_for_caller, "
+            "max_call_duration_s, opening_waits_for_caller, "
             "status, engine, created_at, updated_at) VALUES (:id, :tid, :name, :dir, :lang, "
-            ":extra, :bundle, :ai_line, :rec_line, :mem_line, false, false, :cap, :waits, "
+            ":extra, :bundle, :ai_line, :rec_line, :mem_line, :cap, :waits, "
             "'draft', :engine, now(), now())"
         ),
         {
@@ -393,10 +393,8 @@ async def create_agent(
                 else languages_extra,
                 tenant_id=tenant_id,
             ),
-            # Both toggles FALSE (D-669: a call opens with the greeting only) and the
-            # bundle written, spelled at the INSERT rather than left to a
-            # `server_default` three files away, because what a new agent volunteers is
-            # a statement worth reading here. Both sentences are still on file.
+            # Whether the sentences are volunteered is the account's switch (D-1021), so a
+            # new agent follows it from its first call; both sentences are on file.
             "bundle": bundled_disclosure_line(
                 ai_disclosure_line=ai_line, recording_notice_line=recording_line
             ),
@@ -535,7 +533,7 @@ async def update_agent(
 
     All of them ride on `AgentConfig` — name, direction, language and the chosen model reach the
     vendor's agent object — so a live or ready agent is republished, as it stands, in the same
-    transaction. That is the ordering `set_call_cap` and `set_disclosure_posture` already use and
+    transaction. That is the ordering `set_call_cap` and `set_caller_memory` already use and
     the reason it is safe: the column write happens first, the engine push second, so a vendor
     failure rolls the row back with it and our record never claims a configuration the engine was
     not sent.

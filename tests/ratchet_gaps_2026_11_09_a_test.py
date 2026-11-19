@@ -41,8 +41,8 @@ async def test_the_dial_gate_refuses_first_words_that_drop_a_switched_on_notice(
     tenant_id, agent_id = created["id"], created["agent_id"]
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE agents SET ai_disclosure_enabled = true WHERE id = :a"),
-            {"a": agent_id},
+            text("UPDATE organizations SET notice_ai_enabled = true WHERE id = :t"),
+            {"t": tenant_id},
         )
 
     def opening_only(_notices: str, opening: str, **_kwargs: Any) -> str:

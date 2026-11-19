@@ -3,8 +3,10 @@
 Founder, 5 Nov 2026: "When an opening is saved, Pip weaves the notices into that agent's own
 opening line in its own words, which the engine then speaks." The opening lines the engine
 speaks are checked whenever an agent is put on the voice platform (`service.publish_agent`)
-and whenever a notice switch moves (`publishing.set_disclosure_posture`); a line that does
-not say exactly the notices switched on is written again by `workers/opening_notices`.
+and whenever one of the account's notice switches moves (`publishing.set_account_notices`,
+D-1021); a line that does not say exactly the notices switched on is written again by
+`workers/opening_notices`. Each line is written for its direction: the opening an inbound
+call hears, and the opening of the calls the agent places.
 
 Until it is, nothing is lost: `engine.join_first_words` keeps the stored sentence beside an
 opening that does not carry the woven words, so a call never goes out without one.
@@ -28,6 +30,7 @@ from calevate_shared.opening_notices import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.call_notices import AI_NOTICE_SQL, RECORDING_NOTICE_SQL
 from apps.api.core.logging import get_logger
 from apps.api.engine import engine_capabilities
 from apps.api.reliability.service import enqueue_outbox_once
@@ -94,8 +97,8 @@ async def weave_state(session: AsyncSession, agent_id: UUID) -> WeaveState | Non
     row = (
         await session.execute(
             text(
-                "SELECT a.system_prompt_id, a.direction, a.ai_disclosure_enabled, "
-                "a.recording_notice_enabled, pv.structured_script, "
+                f"SELECT a.system_prompt_id, a.direction, {AI_NOTICE_SQL} AS ai_on, "
+                f"{RECORDING_NOTICE_SQL} AS recording_on, pv.structured_script, "
                 "(a.live_prompt_id IS NOT NULL "
                 "AND a.system_prompt_id IS DISTINCT FROM a.live_prompt_id) AS staged "
                 "FROM agents a JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
@@ -107,8 +110,8 @@ async def weave_state(session: AsyncSession, agent_id: UUID) -> WeaveState | Non
     if row is None or not isinstance(row.structured_script, dict):
         return None
     woven = WovenNotices(
-        ai=bool(row.ai_disclosure_enabled),
-        recording=bool(row.recording_notice_enabled) and engine_capabilities().records_audio,
+        ai=bool(row.ai_on),
+        recording=bool(row.recording_on) and engine_capabilities().records_audio,
     )
     script = CallScript.model_validate(row.structured_script)
     return WeaveState(

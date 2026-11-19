@@ -55,7 +55,7 @@ attached to it. The test is not "how risky does this feel" but §2b's own senten
   exposure. Immediate.
 - **voice** is delivery. Immediate per §2b, and since D-586 the CODE is immediate too:
   choosing a voice (`lifecycle.update_agent`) writes the row and re-publishes a live
-  agent in the same transaction, exactly as the cap and the two notice toggles do.
+  agent in the same transaction, exactly as the cap does.
   `PendingState.voice`
   still reports configured-vs-sent as two fields, because a PAUSED or draft agent, and
   an agent published before the mirror existed, still make them two facts.
@@ -79,10 +79,10 @@ from one (hard rule 6) — version NUMBERS only.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Final, Literal
+from typing import Any, ClassVar, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import opening_line_of, said_notices_of
@@ -99,7 +99,7 @@ from calevate_shared.spoken_guard import introduced_opening_problem, without_gre
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.engine_limits import refuse_notice_without_room
+from apps.api.agents.engine_limits import NOTICE_NEEDS_ROOM, refuse_notice_without_room
 from apps.api.agents.give_callers_time import apply_where_default
 from apps.api.agents.hosted_voices import parse_hosted_voice_id, source_rate_key
 from apps.api.agents.live_apply import queue_live_apply
@@ -120,13 +120,18 @@ from apps.api.billing.lots import voice_tier_rates
 from apps.api.billing.plans import NOW_SQL, OVERAGE_RATE_SECOND_SQL, plan_in_effect_sql
 from apps.api.billing.rates import VoiceTier
 from apps.api.billing.service import to_paise
+from apps.api.compliance.call_notices import (
+    AI_NOTICE_SQL,
+    RECORDING_NOTICE_SQL,
+    read_account_notices,
+)
 from apps.api.compliance.caller_memory import (
     CALLER_MEMORY_ATTESTATION,
     CALLER_MEMORY_ATTESTATION_VERSION,
     spdi_refuses_memory,
     statement_is_current,
 )
-from apps.api.core.errors import ProblemError
+from apps.api.core.errors import ProblemError, ProblemExtension, problem_responses
 from apps.api.core.logging import get_logger
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
@@ -205,32 +210,6 @@ LANES: tuple[LaneEntry, ...] = (
             "so it applies to the next call."
         ),
     ),
-    # D-163. CONDUCT, not content — the same lane and the same precedence as the call cap,
-    # and for the same reason: neither can change one word of the script. What they change
-    # is what the agent does around it, and a compliance posture that only landed in our
-    # table after somebody remembered to press Apply would be a screen making a claim
-    # about a phone line that is not true yet. `set_disclosure_posture` republishes a live
-    # agent in the same transaction, which is what puts them honestly on this side.
-    LaneEntry(
-        field="ai_disclosure_enabled",
-        lane="live",
-        precedence=2,
-        why=(
-            "Whether the agent announces it is an AI before anything else. It applies to "
-            "the next call. It never changes the answer a caller gets when they ask "
-            "outright — that answer is always the truth and cannot be switched off."
-        ),
-    ),
-    LaneEntry(
-        field="recording_notice_enabled",
-        lane="live",
-        precedence=2,
-        why=(
-            "Whether the agent says the call is being recorded before anything else. It "
-            "applies to the next call. It does not stop the call being recorded, and it "
-            "never changes the answer a caller gets when they ask whether it is."
-        ),
-    ),
 )
 
 _LANE_BY_FIELD: dict[str, LaneEntry] = {entry.field: entry for entry in LANES}
@@ -243,36 +222,6 @@ def lane_of(field_name: str) -> LaneEntry:
     """The lane a configurable field is on, or a KeyError — an unknown field is a
     programming mistake, not a client input."""
     return _LANE_BY_FIELD[field_name]
-
-
-#: The recording-notice `why` on an engine that captures no audio. `LANES` above carries
-#: the recorded wording; this one replaces it rather than qualifying it, because "it does
-#: not stop the call being recorded" is false where nothing is recorded, and the switch
-#: does nothing a caller can hear there (`compose_opening_line` drops the sentence).
-_RECORDING_NOTICE_WHY_NOT_RECORDED: Final = (
-    "Calls are not audio-recorded on this platform today, so the notice is not spoken "
-    "whatever this is set to; it is kept for the day recording is switched on. A caller "
-    "who asks is told the truth."
-)
-
-
-def lanes(*, records_audio: bool) -> tuple[LaneEntry, ...]:
-    """The lane table as served to a client, told the truth about THIS engine's recording.
-
-    Lanes and precedence never vary; only the recording notice's explanation does, and it
-    follows the same fact (`EngineCapabilities.records_audio`) the opening and the
-    truthful-answer floor are composed from, so the screen cannot describe a switch the
-    phone line is not honouring. `records_audio` is required: either default describes
-    some engine falsely.
-    """
-    if records_audio:
-        return LANES
-    return tuple(
-        replace(entry, why=_RECORDING_NOTICE_WHY_NOT_RECORDED)
-        if entry.field == "recording_notice_enabled"
-        else entry
-        for entry in LANES
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,18 +414,19 @@ class UndoResult:
     live_version: int | None
 
 
-#: The two toggles, keyed by the column they write. The API's request model, the audit
-#: action names and the lane table are all derived from this mapping rather than each
-#: spelling the pair out — a third toggle would otherwise be three edits and a fourth
-#: place to forget one. `lane_of` reads the same field names.
+#: The account's two switches (D-1021), keyed by the field the API names them by, to the
+#: audit action stem, so one spelling serves the setter, the route and the audit row.
 DISCLOSURE_TOGGLES: dict[str, str] = {
-    "ai_disclosure_enabled": "agent.ai_disclosure",
-    "recording_notice_enabled": "agent.recording_notice",
+    "ai_disclosure_enabled": "organization.ai_disclosure",
+    "recording_notice_enabled": "organization.recording_notice",
 }
+#: The action a flip of an agent's own switch wrote before D-1021; still read, so an owner
+#: who switched the AI notice off on an agent is not overruled by the first-run step.
+LEGACY_AGENT_AI_OFF_ACTION: Final = "agent.ai_disclosure_disabled"
 
 
 def audit_action_for(field: str, *, enabled: bool) -> str:
-    """The `audit_log.action` for one toggle flip — WHICH toggle and WHICH way, in the row.
+    """The `audit_log.action` for one switch flip — WHICH switch and WHICH way, in the row.
 
     NOT a single `agent.disclosure_changed` with the detail in `summary`, and that is the
     whole point rather than a style choice: `write_audit` deliberately does NOT persist
@@ -491,20 +441,16 @@ def audit_action_for(field: str, *, enabled: bool) -> str:
 
 @dataclass(frozen=True, slots=True)
 class DisclosureResult:
-    """What an agent now volunteers, after one toggle flip."""
+    """The account's two switches after one request (D-1021)."""
 
-    agent_id: UUID
     ai_disclosure_enabled: bool
     recording_notice_enabled: bool
-    #: The notices callers hear before the agent's opening line, composed server-side.
-    #: Empty string = the agent volunteers neither and opens on its opening line (D-708).
-    opening_line: str
-    #: Did the change reach the voice platform? False for an agent it does not hold (a
-    #: draft): there is nothing to push to, and the first publish carries it.
-    engine_synced: bool
     #: The fields this call actually changed, so a caller (and the audit writer above it)
     #: can tell a real flip from a re-assertion of the state that was already there.
     changed: tuple[str, ...]
+    #: The live-apply run that republishes every live agent, line and campaign of the
+    #: account with the change; None when nothing changed.
+    live_apply_run_id: UUID | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1624,148 +1570,193 @@ def _refuse_introduction_twice(
     )
 
 
-async def set_disclosure_posture(
-    *,
-    tenant_id: UUID,
-    agent_id: UUID,
-    ai_disclosure_enabled: bool | None,
-    recording_notice_enabled: bool | None,
-) -> DisclosureResult:
-    """Switch either opening notice on or off for one agent (D-163).
+class NoticeNeedsRoomOnAgent(ProblemExtension):
+    """Switching a notice on for the account was refused: this agent's first words have no
+    room for it. Names the agent, so the screen can open that agent's script."""
 
-    THE FOUNDER'S DECISION, IMPLEMENTED RATHER THAN SOFTENED. SEC-COMP §2's two
-    call-level invariants — "this is an AI" and "this call is recorded" — are two
-    obligations under two regimes (TRAI/UCC and DPDP notice-and-consent) that shared one
-    column, so a client could have both or neither. Each is now its own toggle, on
-    inbound and outbound agents alike, and a toggle switched off means the agent does not
-    VOLUNTEER that fact at the top of the call.
+    code: ClassVar[str] = NOTICE_NEEDS_ROOM
+    status: ClassVar[int] = 422
 
-    WHAT NO ARGUMENT HERE CAN REACH. Asked outright — "am I talking to a person?", "is
-    this being recorded?" — the agent answers truthfully, on every agent, always. That
-    behaviour is `calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE`: a `Final` in the
-    portability contract with no writer anywhere in this repository, appended by every
-    adapter to every prompt, and verified on read-back by `agents/verification.judge`,
-    which REFUSES a publish whose engine copy has lost it. A client-authored script
-    cannot withdraw it because the script is a different string and the directive is
-    appended after it, saying so in words.
+    agent_id: UUID
+    agent_name: str
 
-    FAST LANE, and the republish is inside the transaction. A posture that lands only in
-    our table is a screen making a claim about a phone line that is not true yet, and the
-    direction of that lie is unbounded in both directions — an agent still announcing a
-    notice its owner withdrew, or (worse) our records saying it announces one when the
-    engine was never told. The ordering is `set_call_cap`'s: column write, then the engine
-    push, so a vendor failure rolls the column back with it.
 
-    `None` on either argument means "leave this one alone", so the two toggles can be
-    flipped independently by one endpoint without a partial write ever meaning "set the
-    other one to false".
+class OpeningIntroducesOnAgent(ProblemExtension):
+    """Switching the AI notice on for the account was refused: this agent's opening line
+    already says who is calling, so callers would hear it twice."""
 
-    IDEMPOTENT. Re-asserting the state an agent is already in changes nothing, publishes
-    nothing and reports `changed=()` — which is what stops a double-clicked switch writing
-    two ledger entries for one decision.
-    """
-    async with tenant_session(tenant_id) as session:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT ai_disclosure_enabled, recording_notice_enabled, "
-                    "ai_disclosure_line, recording_notice_line, status, engine_agent_ref, "
-                    # Read but NOT settable here: this route toggles the two D-163
-                    # switches, and the memory sentence has none of its own (D-507). It is
-                    # selected so the recomposed opening carries it — a toggle flip that
-                    # dropped the memory sentence would republish an agent that still
-                    # remembers callers and has stopped saying so.
-                    "caller_memory_notice_line, caller_memory_enabled, "
-                    f"a.direction, {_APPLIED_BODY_SQL}, a.language_primary, a.name, "
-                    "(SELECT o.name FROM organizations o WHERE o.id = a.tenant_id) "
-                    "FROM agents a WHERE a.id = :aid AND a.deleted_at IS NULL FOR UPDATE OF a"
-                ),
-                {"aid": agent_id},
-            )
-        ).first()
-        if row is None:
-            raise ProblemError.not_found("Agent")
-        wanted = {
-            "ai_disclosure_enabled": (
-                bool(row[0]) if ai_disclosure_enabled is None else ai_disclosure_enabled
-            ),
-            "recording_notice_enabled": (
-                bool(row[1]) if recording_notice_enabled is None else recording_notice_enabled
-            ),
-        }
-        current = {
-            "ai_disclosure_enabled": bool(row[0]),
-            "recording_notice_enabled": bool(row[1]),
-        }
-        changed = tuple(field for field in DISCLOSURE_TOGGLES if wanted[field] != current[field])
-        posture = DisclosurePosture(
-            ai_disclosure_line=str(row[2]),
-            ai_disclosure_enabled=wanted["ai_disclosure_enabled"],
-            recording_notice_line=str(row[3]),
-            recording_notice_enabled=wanted["recording_notice_enabled"],
-            caller_memory_notice_line=str(row[6]),
-            caller_memory_enabled=bool(row[7]),
-        )
+    code: ClassVar[str] = OPENING_INTRODUCES_CODE
+    status: ClassVar[int] = 409
+
+    agent_id: UUID
+    agent_name: str
+
+
+#: `responses=` for the route that switches the account's notices.
+ACCOUNT_NOTICE_RESPONSES: Final = problem_responses(
+    NoticeNeedsRoomOnAgent, OpeningIntroducesOnAgent
+)
+
+#: Every agent of the account not archived or deleted, a draft included: its opening is spoken
+#: once it is put live. The two sentences on file and what the first words are measured from.
+_ACCOUNT_AGENTS_SQL: Final = (
+    "SELECT a.id, a.name, a.status, a.ai_disclosure_line, a.recording_notice_line, "
+    "a.caller_memory_notice_line, a.caller_memory_enabled, a.direction, "
+    f"{_APPLIED_BODY_SQL}, a.language_primary, "
+    "(SELECT o.name FROM organizations o WHERE o.id = a.tenant_id) "
+    "FROM agents a WHERE a.deleted_at IS NULL AND a.archived_at IS NULL "
+    "AND a.status <> 'archived' ORDER BY a.created_at, a.id"
+)
+
+
+def _refuse_for_agent(row: Any, *, ai: bool, recording: bool, turned_on: tuple[str, ...]) -> None:
+    """The per-agent refusals of switching a notice on, re-raised naming the agent."""
+    agent_id = UUID(str(row[0]))
+    name = str(row[1] or "")
+    posture = DisclosurePosture(
+        ai_disclosure_line=str(row[3]),
+        ai_disclosure_enabled=ai,
+        recording_notice_line=str(row[4]),
+        recording_notice_enabled=recording,
+        caller_memory_notice_line=str(row[5]),
+        caller_memory_enabled=bool(row[6]),
+    )
+    try:
         _refuse_notices_without_room(
             agent_id=agent_id,
-            direction=str(row[8]),
+            direction=str(row[7]),
             posture=posture,
-            body=row[9],
-            language=str(row[10]),
-            turned_on=tuple(field for field in changed if wanted[field]),
+            body=row[8],
+            language=str(row[9]),
+            turned_on=turned_on,
         )
-        if "ai_disclosure_enabled" in changed and wanted["ai_disclosure_enabled"]:
+        if "ai_disclosure_enabled" in turned_on:
             _refuse_introduction_twice(
                 ai_line=posture.ai_disclosure_line,
-                language=str(row[10]),
-                body=row[9],
-                names=(str(row[11] or ""), str(row[12] or "")),
+                language=str(row[9]),
+                body=row[8],
+                names=(name, str(row[10] or "")),
             )
-        on_engine = is_published(row[4])
+    except ProblemError as refused:
+        extension: ProblemExtension
+        if refused.code == NOTICE_NEEDS_ROOM:
+            extension = NoticeNeedsRoomOnAgent(agent_id=agent_id, agent_name=name)
+        elif refused.code == OPENING_INTRODUCES_CODE:
+            extension = OpeningIntroducesOnAgent(agent_id=agent_id, agent_name=name)
+        else:
+            raise
+        who = name or "One of your agents"
+        raise ProblemError(
+            kind=refused.kind,
+            code=refused.code,
+            title=refused.title,
+            detail=f"{who}: {refused.detail}",
+            remediation=(
+                f"Open {name or 'that agent'}'s script and change its opening line, then "
+                "switch this on again."
+            ),
+            status=refused.status,
+            extensions=extension,
+        ) from refused
+
+
+async def set_account_notices(
+    *,
+    tenant_id: UUID,
+    ai_disclosure_enabled: bool | None,
+    recording_notice_enabled: bool | None,
+    requested_by: UUID | None = None,
+) -> DisclosureResult:
+    """Switch the account's AI notice or recording notice on or off (D-1021, over D-163's
+    per-agent switches).
+
+    ONE SWITCH EACH FOR EVERY CALL OF THE CLIENT. Founder, 19 Nov 2026: inbound and outbound,
+    every agent, every Inbound line and every campaign follow the account's two switches; what
+    is SPOKEN still follows the call's direction, because each opening says the notice in its
+    own words. Two switches, not one: "this is an AI" (TRAI/UCC) and "this call is recorded"
+    (DPDP notice-and-consent) are separate obligations under separate regimes (D-163).
+
+    WHAT NO ARGUMENT HERE CAN REACH. Asked outright, the agent answers truthfully, on every
+    call, always: `calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE`, appended to every prompt
+    and verified on every publish read-back (hard rule 5).
+
+    SWITCHING ON IS REFUSED, NAMING THE AGENT, when any scripted agent's first words would
+    then be over the engine's greeting ceiling or say who is calling twice: an account switch
+    that one line could not honour would publish that line with an error and leave it
+    saying what it said before. Switching OFF is never refused.
+
+    THE CHANGE REACHES THE PHONE LINES THROUGH THE ONE SEAM FOR A CLIENT SETTING
+    (`live_apply.queue_live_apply`, D-720), queued in this transaction: every live agent of
+    the account is republished from our rows, and each publish carries its lines, campaigns
+    and experiment arms with it. Every opening is queued to be rewritten to say, or stop
+    saying, the notices (`queue_opening_notices`, D-971); until it is, the stored sentence
+    is said beside it, so switching on is never a call without the notice. The dial gate
+    composes the first words from the account's switch on every dial, so a placed call
+    cannot go out without a notice that is on while its republish is still queued.
+
+    `None` leaves a switch alone. IDEMPOTENT: re-asserting the state changes nothing,
+    queues nothing and reports `changed=()`, so a double click writes one audit row.
+    """
+    wanted_on = {
+        "ai_disclosure_enabled": ai_disclosure_enabled,
+        "recording_notice_enabled": recording_notice_enabled,
+    }
+    async with tenant_session(tenant_id) as session:
+        current = await read_account_notices(session, tenant_id=tenant_id, for_update=True)
+        now = {"ai_disclosure_enabled": current.ai, "recording_notice_enabled": current.recording}
+        wanted = {key: now[key] if value is None else value for key, value in wanted_on.items()}
+        changed = tuple(key for key in DISCLOSURE_TOGGLES if wanted[key] != now[key])
+        run_id: UUID | None = None
         if changed:
+            turned_on = tuple(key for key in changed if wanted[key])
+            agents = (await session.execute(text(_ACCOUNT_AGENTS_SQL))).all()
+            if turned_on:
+                for row in agents:
+                    if row[8] is not None:
+                        _refuse_for_agent(
+                            row,
+                            ai=wanted["ai_disclosure_enabled"],
+                            recording=wanted["recording_notice_enabled"],
+                            turned_on=turned_on,
+                        )
             await session.execute(
                 text(
-                    "UPDATE agents SET ai_disclosure_enabled = :ai, "
-                    "recording_notice_enabled = :rec, updated_at = now() "
-                    "WHERE id = :aid AND deleted_at IS NULL"
+                    "UPDATE organizations SET notice_ai_enabled = :ai, "
+                    "notice_recording_enabled = :rec, updated_at = now() WHERE id = :tid"
                 ),
                 {
                     "ai": wanted["ai_disclosure_enabled"],
                     "rec": wanted["recording_notice_enabled"],
-                    "aid": agent_id,
+                    "tid": tenant_id,
                 },
             )
-            if on_engine:
-                await publish_agent(
-                    session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False
+            for row in agents:
+                await queue_opening_notices(
+                    session, tenant_id=tenant_id, agent_id=UUID(str(row[0]))
                 )
-            # The opening line is written again to say, or stop saying, the notices (D-971).
-            # Until then the stored sentences are said beside it, so switching on is never a
-            # call without the notice.
-            await queue_opening_notices(session, tenant_id=tenant_id, agent_id=agent_id)
+            run_id = await queue_live_apply(
+                session,
+                scope="tenant",
+                tenant_id=tenant_id,
+                reason="call_notices",
+                requested_by=requested_by,
+            )
 
-    # Ids, booleans and field NAMES. The sentences themselves are a client's own business
-    # copy and stay out of the log (hard rule 6's neighbourhood — they are not PII, but
-    # nothing is served by putting them in a log line either).
+    # Ids, booleans and field names; the sentences are the client's copy and stay out.
     log.info(
-        "agent_disclosure_posture_set",
+        "account_call_notices_set",
         extra={
-            "agent_id": str(agent_id),
-            "ai_disclosure_enabled": posture.ai_disclosure_enabled,
-            "recording_notice_enabled": posture.recording_notice_enabled,
+            "tenant_id": str(tenant_id),
+            "ai_disclosure_enabled": wanted["ai_disclosure_enabled"],
+            "recording_notice_enabled": wanted["recording_notice_enabled"],
             "changed": list(changed),
-            "engine_synced": bool(changed) and on_engine,
         },
     )
     return DisclosureResult(
-        agent_id=agent_id,
-        ai_disclosure_enabled=posture.ai_disclosure_enabled,
-        recording_notice_enabled=posture.recording_notice_enabled,
-        opening_line=compose_opening_line(
-            posture, call_is_recorded=engine_capabilities().records_audio
-        ),
-        engine_synced=bool(changed) and on_engine,
+        ai_disclosure_enabled=wanted["ai_disclosure_enabled"],
+        recording_notice_enabled=wanted["recording_notice_enabled"],
         changed=changed,
+        live_apply_run_id=run_id,
     )
 
 
@@ -1789,7 +1780,7 @@ async def set_caller_has_screen(
 ) -> CallerScreenResult:
     """Switch "caller follows along on a screen" for one agent (D-906).
 
-    The ordering is `set_disclosure_posture`'s: the column, then the republish in the same
+    The ordering is `set_call_cap`'s: the column, then the republish in the same
     transaction, so a voice-platform refusal rolls the column back and the screen never says
     the agent guides a screen it does not. Idempotent for the same reason as that one.
 
@@ -1864,7 +1855,7 @@ async def set_caller_memory(
     A tenant on a refused vertical is told no here, before the switch reaches the engine.
 
     **FAST LANE, AND THE REPUBLISH IS INSIDE THE TRANSACTION**, exactly as
-    `set_disclosure_posture` and `set_call_cap`: a live agent whose column moved is
+    `set_caller_has_screen` and `set_call_cap`: a live agent whose column moved is
     re-published before this returns, so the prompt's memory section and the engine's
     caller-memory setting land on the phone line at the same moment the screen changes. That
     ordering is the whole guarantee here — a column that said "forgets" while the engine
@@ -1879,8 +1870,8 @@ async def set_caller_memory(
             await session.execute(
                 text(
                     "SELECT a.caller_memory_enabled, a.ai_disclosure_line, "
-                    "a.ai_disclosure_enabled, a.recording_notice_line, "
-                    "a.recording_notice_enabled, a.caller_memory_notice_line, a.status, "
+                    f"{AI_NOTICE_SQL}, a.recording_notice_line, "
+                    f"{RECORDING_NOTICE_SQL}, a.caller_memory_notice_line, a.status, "
                     "a.engine_agent_ref, "
                     "COALESCE(o.vertical_template, o.unconfirmed_business_type), "
                     "o.caller_memory_attested_at, "
@@ -2075,9 +2066,11 @@ async def set_call_cap(
 
 
 __all__ = [
+    "ACCOUNT_NOTICE_RESPONSES",
     "DISCLOSURE_TOGGLES",
     "HOLDER_STATES_WORST_FIRST",
     "LANES",
+    "LEGACY_AGENT_AI_OFF_ACTION",
     "PRECEDENCE_RULE",
     "VOICE_NOT_IN_CATALOGUE_NOTE",
     "AgentVoice",
@@ -2088,6 +2081,8 @@ __all__ = [
     "EngineDrift",
     "Lane",
     "LaneEntry",
+    "NoticeNeedsRoomOnAgent",
+    "OpeningIntroducesOnAgent",
     "PendingChange",
     "PendingState",
     "UndoResult",
@@ -2098,11 +2093,10 @@ __all__ = [
     "engine_drift_for",
     "holders_verification",
     "lane_of",
-    "lanes",
     "pending_state_for",
+    "set_account_notices",
     "set_call_cap",
     "set_caller_has_screen",
-    "set_disclosure_posture",
     "undo_staged",
     "worst_case_cost",
     "worst_case_rate",

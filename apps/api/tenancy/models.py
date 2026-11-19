@@ -331,6 +331,18 @@ class Organization(PKMixin, TimestampMixin, Base):
     outbound_requires_consent: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false()
     )
+    #: THE TWO CALL NOTICES, ONE SWITCH EACH FOR THE WHOLE ACCOUNT (D-1021, founder,
+    #: 19 Nov 2026). Whether every call of this client, inbound and outbound, on every agent,
+    #: Inbound line and campaign, opens by saying it is an AI and that it is recorded. Two
+    #: switches, not one: separate obligations under separate regimes (D-163). The words
+    #: follow the call's direction (each opening says them in its own words,
+    #: `workers/opening_notices`); the switches do not. Read only through
+    #: `compliance/call_notices`; written only by `agents/publishing.set_account_notices`.
+    #: Neither reaches the truthful answer to a caller who asks (hard rule 5).
+    notice_ai_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    notice_recording_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=false()
+    )
     #: Send a caller who booked one "save our number" WhatsApp (D-746). Off by default.
     save_number_message_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false()

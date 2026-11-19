@@ -227,6 +227,23 @@ async def test_the_daily_summary_is_read_and_switched_through_pip() -> None:
     assert "(daily_summary): on" in await _read("account_switches", tenant_id, {})
 
 
+async def test_the_account_call_notices_are_read_and_switched_through_pip() -> None:
+    """D-1021: the AI and recording notices are owner switches of the account, read by
+    `account_switches` and switched by `account_switch_set`, audited with the switch and the
+    direction as `PATCH /v1/organization/call-notices` audits them."""
+    tenant_id, _slug, token = await _make_tenant()
+    before = await _read("account_switches", tenant_id, {})
+    assert "(ai_notice): off" in before and "(recording_notice): off" in before
+    done = await _do(tenant_id, token, "account_switch_set", {"switch": "ai_notice", "on": True})
+    assert done.applied is True
+    row = await _one(
+        tenant_id, "SELECT notice_ai_enabled, notice_recording_enabled FROM organizations"
+    )
+    assert tuple(row) == (True, False)
+    assert "organization.ai_disclosure_enabled" in [a for a, _t, _i in await _audit(tenant_id)]
+    assert "(ai_notice): on" in await _read("account_switches", tenant_id, {})
+
+
 async def test_the_save_number_switch_demands_the_emailed_code() -> None:
     tenant_id, _slug, token = await _make_tenant()
     proposal = await _propose(

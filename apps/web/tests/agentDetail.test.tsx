@@ -859,7 +859,7 @@ describe("the numbers come from the server", () => {
   });
 });
 
-describe("the two opening notices, and the answer neither of them reaches (D-163)", () => {
+describe("the two opening notices, as the account sets them (D-163, D-1021)", () => {
   //: The fixture agent's `first_words`, shown as the server sent it.
   const OPENING =
     "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.";
@@ -896,25 +896,6 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(panel.textContent).not.toContain("“");
   });
 
-  /**
-   * The two OPENING-NOTICE switches, by name.
-   *
-   * NOT `getAllByRole("switch")`, which counts every switch on the WORKSPACE — and the
-   * workspace grew a third one when caller continuity landed (D-513/D-514), on a panel
-   * mounted directly under this one. A bare count read as "the notices panel has two
-   * switches" and actually asserted "this page has two switches", so it broke on a change
-   * that was correct. Naming them keeps the assertion on the property the test is about:
-   * these two are switchable and the memory SENTENCE is not.
-   */
-  const noticeSwitches = () =>
-    screen
-      .getAllByRole("switch")
-      .filter((el) =>
-        /Say it is an AI assistant|Say the call is being recorded/.test(
-          el.closest("label")?.textContent ?? "",
-        ),
-      );
-
   it("has no memory row on an agent that remembers callers: that sentence is not spoken", async () => {
     const MEMORY = "I keep a short note of what you ask about.";
     await renderClientPage(
@@ -929,7 +910,6 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     );
 
     const panel = await waitFor(() => card("What it says at the start of every call"));
-    await waitFor(() => expect(noticeSwitches()).toHaveLength(2));
     expect(panel.textContent).not.toContain(MEMORY);
     expect(panel.textContent).not.toContain("remembers callers");
   });
@@ -1102,130 +1082,21 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(container.textContent).not.toContain("Caller memory is paused");
   });
 
-  it("puts the truthful-answer guarantee above the switches, in the server's words", async () => {
-    // The one sentence that must not be paraphrased on the way to a client: the switches
-    // change what the agent VOLUNTEERS, never what it ANSWERS. It comes from the API
-    // (`compliance/disclosure.TRUTHFUL_ANSWER_PROMISE`) and is rendered as sent.
-    const RULE = "The agent never claims to be human. Ask it and it says so.";
-    const { container } = await renderClientPage(
-      page,
-      routes({ "/v1/agents/agent-1": agent({ truthful_answer_rule: RULE }) }),
-    );
-
-    // VERBATIM: asserted against a sentence this test invents, so it can only pass if the
-    // screen renders what the server sent rather than wording of its own. The guarantee (the
-    // first sentence) is on screen; the rest is in "How these work" (D-873).
-    const promise = await screen.findByText("The agent never claims to be human.");
-    const rest = screen.getByText("Ask it and it says so.");
-    expect(rest.closest("details")?.open).toBe(false);
-    expect(promise.closest("details")).toBeNull();
-    expect(container.textContent).toContain("Ask it and it says so.");
-    const switches = noticeSwitches();
-    expect(switches).toHaveLength(2);
-    // Above, not below: two switches read "off" before the guarantee is read is exactly how
-    // a client concludes the opposite of what the platform enforces.
-    expect(
-      promise.compareDocumentPosition(switches[0]) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-  });
-
-  it("says plainly what switching each notice off does NOT do", async () => {
-    const { container } = await renderClientPage(
+  it("shows the account's two notices and one button to change them for all calls", async () => {
+    // D-1021: the switches are the account's, so this agent's page has none of its own.
+    await renderClientPage(
       page,
       routes({
-        "/v1/agents/agent-1": agent({
-          ai_disclosure_enabled: false,
-          recording_notice_enabled: false,
-          opening_line: "",
-          first_words: "",
-        }),
+        "/v1/agents/agent-1": agent({ ai_disclosure_enabled: true, recording_notice_enabled: false }),
       }),
     );
-
-    // The two sentences a screen like this most easily omits, each beside its own switch.
-    const recording = await screen.findByRole("switch", { name: /Say the call is being recorded/ });
-    const warning = document.getElementById(recording.getAttribute("aria-describedby") ?? "");
-    expect(warning?.textContent).toBe("Calls are still recorded. You must tell callers another way.");
-    expect(warning?.getAttribute("data-notice")).toBe("warn");
-    const ai = screen.getByRole("switch", { name: /Say it is an AI assistant/ });
-    expect(document.getElementById(ai.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
-      "Reception won't bring it up, but still says so if a caller asks.",
-    );
-    // "DPDP" now carries a hover gloss, so it renders in its own element and the gloss
-    // text interleaves with the sentence in textContent; assert the term and the phrases
-    // around it rather than one contiguous run.
-    expect(container.textContent).toContain(
-      "still your responsibility under the",
-    );
-    expect(container.textContent).toContain("DPDP");
-    expect(container.textContent).toContain(
-      "Act; with this off, it has to be covered by your own privacy notice or consent",
-    );
-    expect(container.textContent).toContain("the agent still says yes");
-    // Nothing is switched on, so nothing is said to be mentioned.
-    expect(container.textContent).not.toContain("also mentions");
-  });
-
-  it("sends only the switch that moved", async () => {
-    // `null` on the other field means "leave it alone" server-side, so a screen that sent
-    // both would make one click a read-modify-write race against the other.
-    const { calls } = await renderClientPage(
-      page,
-      routes({
-        "PATCH /v1/agents/agent-1/disclosure": {
-          agent_id: "agent-1",
-          ai_disclosure_enabled: false,
-          recording_notice_enabled: true,
-          opening_line: "This call is being recorded.",
-          engine_synced: true,
-          truthful_answer_rule:
-            "Whatever these settings say, the agent always answers honestly when a caller asks.",
-        },
-      }),
-    );
-
-    const aiSwitch = await within(
-      await waitFor(() => card("What it says at the start of every call")),
-    ).findByRole("switch", { name: /say it is an ai assistant/i });
-    // The switch fails closed until `/v1/me` has said this session holds `org:manage`.
-    await waitFor(() => expect(aiSwitch.hasAttribute("disabled")).toBe(false));
-    await act(async () => {
-      fireEvent.click(aiSwitch);
-    });
-
-    const patched = calls.find((call) => call.path.endsWith("/disclosure"));
-    expect(patched?.method).toBe("PATCH");
-    expect(JSON.parse(patched?.body ?? "{}")).toEqual({
-      ai_disclosure_enabled: false,
-    });
-    // The save is confirmed beside the heading, in a live region, not by a toast.
-    const saved = await screen.findByText("Saved. The next call uses this.");
-    expect(saved.getAttribute("role")).toBe("status");
-  });
-
-  it("does not hand staff switches the route refuses", async () => {
-    // `PATCH /v1/agents/{id}/disclosure` is `org:manage`, which `staff` does not hold
-    // (`core/rbac.ROLE_PERMISSIONS`), while the panel itself is readable on `agents:read`.
-    const staff = {
-      ...OWNER,
-      role: "staff",
-      permissions: ["agents:read", "agents:write", "calls:read", "org:read"],
-    };
-    const { calls } = await renderClientPage(page, routes({ "/v1/me": staff }));
 
     const panel = await waitFor(() => card("What it says at the start of every call"));
-    expect(
-      await within(panel).findByText("Only an account owner can switch these notices."),
-    ).toBeTruthy();
-    for (const toggle of within(panel).getAllByRole("switch")) {
-      expect(toggle.hasAttribute("disabled")).toBe(true);
-      fireEvent.click(toggle);
-    }
-    // A mutation's request leaves on a later tick than the click, so asserting in the same
-    // tick passed while two PATCHes were on their way. Let them leave first.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(calls.some((call) => call.path.endsWith("/disclosure"))).toBe(false);
+    expect(panel.textContent).toContain("Says it is an AI: on.");
+    expect(panel.textContent).toContain("Says the call is recorded: off.");
+    expect(within(panel).queryAllByRole("switch")).toHaveLength(0);
+    const change = within(panel).getByRole("link", { name: "Change for all calls" });
+    expect(change.getAttribute("href")).toContain("/settings/call-notices");
   });
 });
 
@@ -1243,7 +1114,6 @@ describe("the readiness card on Overview (D-873)", () => {
     }
     await screen.findByText("Give it a job: an Inbound line or a campaign.");
     expect(screen.getByText("How the score is made").closest("details")?.open).toBe(false);
-    expect(screen.getByText("How these work").closest("details")?.open).toBe(false);
   });
 });
 
@@ -2517,7 +2387,7 @@ describe("the screen when the agent could not be read", () => {
  * both opening-notice switches (doctrine §8 rule 7). The script keeps its own section,
  * whose entry point is still pinned below.
  */
-describe("the header holds the one primary, and Overview keeps the guarantee first", () => {
+describe("the header holds the one primary", () => {
   const HEADER_PRIMARY = "bg-brand-strong px-4 py-2";
 
   it("puts a single primary in the header, and no hero-sized button anywhere", async () => {
@@ -2563,25 +2433,6 @@ describe("the header holds the one primary, and Overview keeps the guarantee fir
         node.className.includes(HEADER_PRIMARY),
       ),
     ).toHaveLength(0);
-  });
-
-  it("renders the guarantee above both switches, on the section that opens first", async () => {
-    await renderClientPage(page, routes());
-
-    const guarantee = await screen.findByText(
-      "Whatever these settings say, the agent always answers honestly when a caller asks.",
-    );
-    // The header's "Taking calls" switch is the agent's on/off, not a notice.
-    const switches = screen
-      .getAllByRole("switch")
-      .filter((toggle) => toggle.closest("header") === null);
-    expect(switches.length).toBeGreaterThanOrEqual(2);
-    for (const toggle of switches.slice(0, 2)) {
-      expect(
-        guarantee.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
-    }
-    expect(guarantee.closest("details")).toBeNull();
   });
 
   it("opens an old Script address on Overview, with a way to Inbound and Campaigns", async () => {

@@ -289,8 +289,8 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
                 "  n.provider AS number_provider, n.direction AS number_direction, "
                 # The AI sentence, not the legacy bundle (D-163) — the launch gate asks
                 # whether the agent HAS one on file, which is still mandatory. Whether it
-                # is volunteered at the top of the call is `ai_disclosure_enabled`, the
-                # tenant's own decision, and never a launch blocker.
+                # is volunteered at the top of the call is the account's AI notice (D-1021),
+                # the tenant's own decision, and never a launch blocker.
                 "  a.status AS agent_status, a.ai_disclosure_line, "
                 "  a.direction AS agent_direction, a.deleted_at AS agent_deleted_at, "
                 "  c.consent_source, c.consent_collected_at, "

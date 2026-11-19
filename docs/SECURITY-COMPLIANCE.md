@@ -70,17 +70,20 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
 1. **AI disclosure** (TRAI/UCC-side): `agents.ai_disclosure_line` is NOT NULL and
    non-blank on every agent, so the sentence always EXISTS and `check_dispatch` refuses a
    dial from an agent without one. Whether it is spoken at the start of the call is
-   `agents.ai_disclosure_enabled`, a per-agent toggle on inbound and outbound alike,
-   defaulting FALSE since D-669 (it was TRUE under D-163). The first-run build ("Meet your
-   agent", D-855) switches it on for the agent it builds (`first_run._switch_on_ai_notice`,
-   D-864, kept by the founder on 28 Oct 2026, D-921) through `set_disclosure_posture`, the
+   `organizations.notice_ai_enabled`, ONE switch for every call of the client account,
+   inbound and outbound, every agent, line and campaign (D-1021, founder 19 Nov 2026, over
+   D-163's per-agent toggle; `agents.ai_disclosure_enabled` is kept unread for hard rule
+   8's two-step), defaulting FALSE since D-669 (it was TRUE under D-163). The words follow
+   the call's direction: each opening says the notice in its own words. The first-run build
+   ("Meet your agent", D-855) switches it on for the account (`first_run._switch_on_ai_notice`,
+   D-864, kept by the founder on 28 Oct 2026, D-921) through `set_account_notices`, the
    one writer of the switch, audited as the system; an owner who already switched it off
-   for that agent keeps that choice, and the recording notice is left as created. `calls.disclosure_played` records whether it was observed on a call —
+   keeps that choice, and the recording notice is left as it is. `calls.disclosure_played` records whether it was observed on a call —
    and records NULL, not `false`, for an agent whose owner switched the notice off, since
    nothing was required and so nothing is certified.
 2. **Recording notice** (DPDP-side, a different regime — see §1's table): its own
    sentence in `agents.recording_notice_line` (NOT NULL, non-blank) and its own toggle
-   `agents.recording_notice_enabled`, defaulting FALSE since D-669. **Switching it off does not switch
+   `organizations.notice_recording_enabled`, the account's one switch for every call (D-1021), defaulting FALSE since D-669. **Switching it off does not switch
    recording off**, and the caller who asks is still told yes. Recording is ThinnestAI's:
    every agent is published with `recordCalls: true` and ThinnestAI records phone calls on
    every number (`apps/api/engine/thinnest.py`, `records_audio`), so every call is recorded
@@ -121,7 +124,7 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
    flip additionally carries `via_grant_id`, so the ledger answers "who turned this off"
    with the OPERATOR'S `admin_users.id` and the view-as session they did it in, never with
    the client's name. —
-   `agent.ai_disclosure_disabled`, `agent.recording_notice_enabled`, … — so the ledger
+   `organization.ai_disclosure_disabled`, `organization.recording_notice_enabled`, … (D-1021; `agent.*` before it) — so the ledger
    itself answers "who turned this off, and when" without joining a log shipper. No
    `consent_ledger` row is written: that register holds a DATA PRINCIPAL's consent, and a
    Fiduciary changing its own notice practice is not a caller consenting to anything.

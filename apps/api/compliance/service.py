@@ -62,7 +62,12 @@ from datetime import UTC, datetime, time
 from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
 
-from calevate_shared.call_script import CallScript, compile_call_script, opening_line_of
+from calevate_shared.call_script import (
+    CallScript,
+    compile_call_script,
+    opening_line_of,
+    outbound_opening_of,
+)
 from calevate_shared.calling_window import CALLING_HOURS_RULE as _CALLING_HOURS_RULE
 from calevate_shared.calling_window import DEFAULT_WINDOW as _DEFAULT_WINDOW
 from calevate_shared.calling_window import IST
@@ -94,6 +99,7 @@ from apps.api.billing.service import current_billing_month, get_balance, plan_ti
 from apps.api.billing.trials import trial_billing_active
 from apps.api.callbacks.service import cancel_for_phones
 from apps.api.compliance.autodialer import a2p_dial_blocker
+from apps.api.compliance.call_notices import AI_NOTICE_SQL, RECORDING_NOTICE_SQL
 from apps.api.compliance.caller_ref import ANONYMIZED_PREFIX
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.engine_dnc import queue_engine_dnc_push
@@ -1025,7 +1031,11 @@ def _first_words_disclose(agent: Sequence[Any]) -> bool:
     The opening and the woven notice words are read as `compose_first_utterance` reads them
     (in their taught form, `said` from the compiled script), so the gate checks the greeting
     the engine speaks: without `said` it would compose a greeting that keeps the stored
-    sentence where the spoken one drops it, and pass a line whose woven words were lost."""
+    sentence where the spoken one drops it, and pass a line whose woven words were lost.
+
+    A "both" agent opens the calls it places with its own placed-call opening (D-920), so
+    that opening is checked too: the account's switch governs both directions (D-1021) and
+    each opening says the notices in its own words."""
     ai_on, recording_on, recording_line, language, body, business_name = agent[4:10]
     business = str(business_name or "")
     posture = DisclosurePosture(
@@ -1035,21 +1045,27 @@ def _first_words_disclose(agent: Sequence[Any]) -> bool:
         recording_notice_enabled=bool(recording_on),
     )
     fields = notice_fields(posture, call_is_recorded=engine_capabilities().records_audio)
-    said = said_notices(body, business=business)
-    first_words = join_first_words(
-        fields["opening_line"],
-        said_as_taught(opening_line_of(body), body=body, business=business),
-        ai_notice=fields["ai_notice"],
-        language=str(language),
-        said=said,
-    )
     ai_notice = fields["ai_notice"]
-    return first_words_disclose(
-        first_words,
-        ai_notice=ai_notice,
-        recording_notice=fields["opening_line"].removeprefix(ai_notice).strip(),
-        said=said,
-    )
+    openings = [(opening_line_of(body), False)]
+    if str(agent[2]) == "both" and outbound_opening_of(body):
+        openings.append((outbound_opening_of(body), True))
+    for opening, placed in openings:
+        said = said_notices(body, business=business, placed=placed)
+        first_words = join_first_words(
+            fields["opening_line"],
+            said_as_taught(opening, body=body, business=business),
+            ai_notice=ai_notice,
+            language=str(language),
+            said=said,
+        )
+        if not first_words_disclose(
+            first_words,
+            ai_notice=ai_notice,
+            recording_notice=fields["opening_line"].removeprefix(ai_notice).strip(),
+            said=said,
+        ):
+            return False
+    return True
 
 
 async def _campaign_opening_body(
@@ -1179,12 +1195,11 @@ async def check_dispatch(
             text(
                 # `ai_disclosure_line`, not the legacy bundle (D-163). The gate asks
                 # whether this agent HAS an AI disclosure on file, which is still
-                # mandatory; `ai_disclosure_enabled` — whether it is volunteered at the
-                # top of the call — is the tenant's own decision and is deliberately NOT
-                # a dial blocker. Reading the bundled column here would have made the
-                # question un-answerable the moment the two halves stopped sharing it.
+                # mandatory; whether it is volunteered at the top of the call is the
+                # account's switch (D-1021), which decides what the first words must say
+                # (`_first_words_disclose`) and is not itself a dial blocker.
                 "SELECT a.ai_disclosure_line, a.status, a.direction, a.engine_agent_ref, "
-                "a.ai_disclosure_enabled, a.recording_notice_enabled, a.recording_notice_line, "
+                f"{AI_NOTICE_SQL}, {RECORDING_NOTICE_SQL}, a.recording_notice_line, "
                 "a.language_primary, (SELECT pv.body FROM prompt_versions pv "
                 "WHERE pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id)), "
                 # The business name the spoken opening is written with (`said_as_taught`).

@@ -137,6 +137,7 @@ import QaSamplingPage from "@/app/admin/qa-sampling/page";
 import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
 import LineProtectionPage from "@/app/c/[slug]/settings/line-protection/page";
+import CallNoticesPage from "@/app/c/[slug]/settings/call-notices/page";
 import ExistingNumberPage from "@/app/c/[slug]/phone-number/existing-number/page";
 import BusinessProfilePage from "@/app/c/[slug]/settings/business/page";
 import LeadDetailsPage from "@/app/c/[slug]/settings/lead-details/page";
@@ -2232,6 +2233,21 @@ const CLIENT_SCREENS: Screen[] = [
         forwarding_supported: true,
       },
       "/v1/healer/proposals?days=30&limit=20": HEALER_PROPOSALS,
+    },
+  },
+  {
+    // Both account notice switches off, with the recording warning on screen (D-1021).
+    file: "c/[slug]/settings/call-notices/page.tsx",
+    realm: "client",
+    element: () => <CallNoticesPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/organization/call-notices": {
+        ai_disclosure_enabled: false,
+        recording_notice_enabled: false,
+        calls_recorded: true,
+        truthful_answer_rule: "The agent never claims to be human. Ask it and it says so.",
+      },
     },
   },
   {

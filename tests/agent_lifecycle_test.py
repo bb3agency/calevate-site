@@ -1318,7 +1318,7 @@ async def test_both_disclosure_toggles_survive_the_whole_lifecycle_and_stay_inde
     async def flip(payload: dict[str, bool]) -> dict[str, Any]:
         async with _client(_app()) as http:
             response = await http.patch(
-                f"/v1/agents/{agent_id}/disclosure", json=payload, headers=headers
+                "/v1/organization/call-notices", json=payload, headers=headers
             )
         assert response.status_code == 200, response.text
         body: dict[str, Any] = response.json()
@@ -1354,8 +1354,7 @@ async def test_both_disclosure_toggles_survive_the_whole_lifecycle_and_stay_inde
     # legacy bundle: `disclosure_line` still holds both sentences joined (step 1 of the
     # two-step), so an empty `opening_line` beside a populated bundle is the shape a
     # careless renderer gets wrong.
-    both_off = await flip({"ai_disclosure_enabled": False})
-    assert both_off["opening_line"] == ""
+    await flip({"ai_disclosure_enabled": False})
     quiet = await read()
     assert quiet["opening_line"] == ""
     assert quiet["disclosure_line"].strip(), "the legacy bundle was blanked by a toggle"
@@ -1375,9 +1374,9 @@ async def test_both_disclosure_toggles_survive_the_whole_lifecycle_and_stay_inde
 
     # And back on again from the archive-and-restore, one at a time, so the round trip is
     # proven reversible rather than merely survived.
-    restored = await flip({"ai_disclosure_enabled": True, "recording_notice_enabled": True})
-    assert restored["opening_line"].strip()
+    await flip({"ai_disclosure_enabled": True, "recording_notice_enabled": True})
     final = await read()
+    assert final["opening_line"].strip()
     assert (final["ai_disclosure_enabled"], final["recording_notice_enabled"]) == (True, True)
     assert final["status"] == "paused"
 

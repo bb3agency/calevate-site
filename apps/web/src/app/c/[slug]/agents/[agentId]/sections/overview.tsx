@@ -84,8 +84,8 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
       { key: "status", label: "Status", value: agent.status },
       { key: "published", label: "Callers hear the latest version", value: agent.published ? "yes" : "no" },
       { key: "direction", label: "Calls it handles", value: agent.direction },
-      { key: "ai_disclosure_enabled", label: "Says it is an AI at the start", value: agent.ai_disclosure_enabled ? "yes" : "no" },
-      { key: "recording_notice_enabled", label: "Says the call is recorded at the start", value: agent.recording_notice_enabled ? "yes" : "no" },
+      { key: "ai_disclosure_enabled", label: "Says it is an AI at the start (all calls)", value: agent.ai_disclosure_enabled ? "yes" : "no" },
+      { key: "recording_notice_enabled", label: "Says the call is recorded at the start (all calls)", value: agent.recording_notice_enabled ? "yes" : "no" },
       { key: "script_opening_line", label: "Opening line (its greeting, from the script)", value: agent.script_opening_line.trim() || "none written" },
       { key: "first_words", label: "What callers hear first", value: agent.first_words.trim() || "nothing yet" },
       ...(agent.first_words_when_calling != null

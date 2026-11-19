@@ -34,7 +34,7 @@ the script directly: the assistant prepares a suggestion the owner reviews on th
 
 ═══ SERVICES THAT OPEN THEIR OWN TRANSACTION ═══
 
-`set_disclosure_posture`, `apply_to_live` and `purchase_engine_number`
+`set_account_notices`, `apply_to_live` and `purchase_engine_number`
 each open their own session (they push to the voice platform inside it). They are called
 BEFORE anything in the action's own transaction touches the agent row, and the inverse
 compares without `FOR UPDATE`, because a row lock held by the outer transaction would
@@ -1606,18 +1606,17 @@ class _AgentEditArgs(BaseModel):
     agent_id: UUID
     language_primary: OfferedLanguage | None
     voice_id: Annotated[str, Field(max_length=200)] | None
-    ai_disclosure_enabled: bool | None
-    recording_notice_enabled: bool | None
+    #: Read only from records written before D-1021, when the notices were an agent's; a
+    #: request naming either is refused (they are the account's, `account_switch_set`).
+    ai_disclosure_enabled: bool | None = None
+    recording_notice_enabled: bool | None = None
     #: The script's opening line (D-854). `OpeningLineIn`'s bound; absent on older records.
     opening_line: Annotated[str, Field(max_length=1000)] | None = None
     #: A "both" agent's opening on the calls it places (D-920); absent on older records.
     outbound_opening_line: Annotated[str, Field(max_length=1000)] | None = None
 
 
-_AGENT_EDIT_COLUMNS: Final = (
-    "a.status, a.language_primary, a.engine_voice_id, a.ai_disclosure_enabled, "
-    "a.recording_notice_enabled, pv.body, a.direction"
-)
+_AGENT_EDIT_COLUMNS: Final = "a.status, a.language_primary, a.engine_voice_id, pv.body, a.direction"
 
 
 async def _agent_settings(session: AsyncSession, agent_id: UUID) -> dict[str, Any]:
@@ -1640,16 +1639,10 @@ async def _agent_settings(session: AsyncSession, agent_id: UUID) -> dict[str, An
         "status": str(row[0]),
         "language_primary": str(row[1]),
         "voice_id": None if row[2] is None else str(row[2]),
-        "ai_disclosure_enabled": bool(row[3]),
-        "recording_notice_enabled": bool(row[4]),
-        "opening_line": opening_line_of(row[5]),
-        "outbound_opening_line": outbound_opening_of(row[5]),
-        "direction": str(row[6]),
+        "opening_line": opening_line_of(row[3]),
+        "outbound_opening_line": outbound_opening_of(row[3]),
+        "direction": str(row[4]),
     }
-
-
-def _on_off(value: bool) -> str:
-    return "on" if value else "off"
 
 
 async def _voice_labels(session: AsyncSession, ids: Sequence[str]) -> dict[str, str]:
@@ -1687,12 +1680,6 @@ def _describe_edit(
             was.append(f"voice {voices[before]}" if before in voices else "its current voice")
         after = parsed.voice_id.strip()
         becomes.append(f"voice {voices[after]}" if after in voices else "a different voice")
-    if parsed.ai_disclosure_enabled is not None:
-        was.append(f"AI disclosure {_on_off(current['ai_disclosure_enabled'])}")
-        becomes.append(f"AI disclosure {_on_off(parsed.ai_disclosure_enabled)}")
-    if parsed.recording_notice_enabled is not None:
-        was.append(f"recording notice {_on_off(current['recording_notice_enabled'])}")
-        becomes.append(f"recording notice {_on_off(parsed.recording_notice_enabled)}")
     if parsed.opening_line is not None:
         was.append(f"opens with “{current['opening_line'] or 'nothing written yet'}”")
         becomes.append(f"opens with “{strip_invisible(parsed.opening_line.strip())}”")
@@ -1726,16 +1713,16 @@ def _opening_line_problem(
     return WriteRefusedError(problem, plain="The opening line used words callers do not say.")
 
 
-_TRUTHFUL_ANYWAY: Final = (
-    " Whatever the notices say, the agent always answers truthfully when asked whether it is "
-    "an AI or whether the call is recorded."
-)
-
-
 async def _plan_agent_edit_common(
     session: AsyncSession, args: Mapping[str, Any], *, live: bool, said: Sequence[str] = ()
 ) -> tuple[_AgentEditArgs, Plan]:
     parsed = parse_args(_AgentEditArgs, args)
+    if parsed.ai_disclosure_enabled is not None or parsed.recording_notice_enabled is not None:
+        raise WriteRefusedError(
+            "the AI and recording notices are one switch each for the whole account, not "
+            "per agent — use `account_switch_set` (`ai_notice`, `recording_notice`)",
+            plain="Notices are set for the whole account now.",
+        )
     current = await _agent_settings(session, parsed.agent_id)
     if (
         parsed.outbound_opening_line is not None
@@ -1763,9 +1750,6 @@ async def _plan_agent_edit_common(
             "that agent is live, so this change would reach callers at once — use "
             "`agent_edit_live`, which the person confirms first"
         )
-    notices = (
-        parsed.ai_disclosure_enabled is not None or parsed.recording_notice_enabled is not None
-    )
     opening_line = None
     if parsed.opening_line is not None:
         opening_line = strip_invisible(parsed.opening_line.strip())
@@ -1803,7 +1787,6 @@ async def _plan_agent_edit_common(
                 if live
                 else " It is not live, so no caller hears it yet."
             )
-            + (_TRUTHFUL_ANYWAY if notices else "")
         ),
         current="; ".join(was),
         proposed="; ".join(becomes),
@@ -1819,8 +1802,6 @@ async def _plan_agent_edit_common(
             "voice_id": None
             if parsed.voice_id is None
             else strip_invisible(parsed.voice_id.strip()),
-            "ai_disclosure_enabled": parsed.ai_disclosure_enabled,
-            "recording_notice_enabled": parsed.recording_notice_enabled,
             "opening_line": opening_line,
             "outbound_opening_line": outbound_opening_line,
         },
@@ -1835,59 +1816,23 @@ async def _apply_agent_settings(
     agent_id: UUID,
     language_primary: str | None,
     voice_id: str | None,
-    ai_disclosure_enabled: bool | None,
-    recording_notice_enabled: bool | None,
     opening_line: str | None = None,
     outbound_opening_line: str | None = None,
 ) -> None:
-    """The console buttons, in the order their transactions allow (module docstring):
-    `set_disclosure_posture` owns its session and goes first, then `lifecycle.update_agent`
-    in this one, which checks the voice against the voice platform's catalogue, then the
-    opening line through `PUT .../script/opening-line`'s own function, which refuses a line
-    over the greeting budget (D-846). Each re-publishes a live agent itself."""
-    from apps.api.agents.publishing import set_disclosure_posture
-
-    notices = ai_disclosure_enabled is not None or recording_notice_enabled is not None
-    rest = (
-        language_primary is not None
-        or voice_id is not None
-        or opening_line is not None
-        or outbound_opening_line is not None
-    )
-    # The notices commit in their own transaction, before the voice or opening line can be
-    # refused. A refusal there would leave the notices changed behind an action reported as
-    # failed and with no Undo, so they are put back before the refusal is reported. The rest
-    # runs in a savepoint: rolling it back releases the agent row's lock, which putting the
-    # notices back (another session) needs, and keeps this transaction's claim and tenant
-    # settings, which a full rollback would drop.
-    prior = await _agent_settings(session, agent_id) if notices and rest else None
-    if notices:
-        await set_disclosure_posture(
-            tenant_id=actor.tenant_id,
+    """The console buttons, in one savepoint: `lifecycle.update_agent`, which checks the voice
+    against the voice platform's catalogue, then the opening line through
+    `PUT .../script/opening-line`'s own function, which refuses a line over the greeting
+    budget (D-846). Each re-publishes a live agent itself."""
+    async with session.begin_nested():
+        await _apply_voice_and_opening(
+            session,
+            actor,
             agent_id=agent_id,
-            ai_disclosure_enabled=ai_disclosure_enabled,
-            recording_notice_enabled=recording_notice_enabled,
+            language_primary=language_primary,
+            voice_id=voice_id,
+            opening_line=opening_line,
+            outbound_opening_line=outbound_opening_line,
         )
-    try:
-        async with session.begin_nested():
-            await _apply_voice_and_opening(
-                session,
-                actor,
-                agent_id=agent_id,
-                language_primary=language_primary,
-                voice_id=voice_id,
-                opening_line=opening_line,
-                outbound_opening_line=outbound_opening_line,
-            )
-    except Exception:
-        if prior is not None:
-            await set_disclosure_posture(
-                tenant_id=actor.tenant_id,
-                agent_id=agent_id,
-                ai_disclosure_enabled=prior["ai_disclosure_enabled"],
-                recording_notice_enabled=prior["recording_notice_enabled"],
-            )
-        raise
 
 
 async def _apply_voice_and_opening(
@@ -1934,6 +1879,12 @@ async def _execute_agent_edit(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
     parsed = parse_args(_AgentEditArgs, args)
+    if parsed.ai_disclosure_enabled is not None or parsed.recording_notice_enabled is not None:
+        # A card proposed before D-1021 moved the notices to the account.
+        raise WriteRefusedError(
+            "the notices are the account's now — propose `account_switch_set` instead",
+            plain="Notices are set for the whole account now.",
+        )
     before = await _agent_settings(session, parsed.agent_id)
     await _apply_agent_settings(
         session,
@@ -1941,8 +1892,6 @@ async def _execute_agent_edit(
         agent_id=parsed.agent_id,
         language_primary=parsed.language_primary,
         voice_id=parsed.voice_id,
-        ai_disclosure_enabled=parsed.ai_disclosure_enabled,
-        recording_notice_enabled=parsed.recording_notice_enabled,
         opening_line=parsed.opening_line,
         outbound_opening_line=parsed.outbound_opening_line,
     )
@@ -2019,12 +1968,6 @@ async def _invert_agent_edit(session: AsyncSession, actor: ToolActor, record: Un
         agent_id=agent_id,
         language_primary=prior["language_primary"] if "language_primary" in changed else None,
         voice_id=prior["voice_id"] if "voice_id" in changed else None,
-        ai_disclosure_enabled=(
-            prior["ai_disclosure_enabled"] if "ai_disclosure_enabled" in changed else None
-        ),
-        recording_notice_enabled=(
-            prior["recording_notice_enabled"] if "recording_notice_enabled" in changed else None
-        ),
         opening_line=prior["opening_line"] if "opening_line" in changed else None,
         outbound_opening_line=(
             prior["outbound_opening_line"] if "outbound_opening_line" in changed else None
@@ -2042,14 +1985,6 @@ _AGENT_EDIT_PROPERTIES: Final[dict[str, Any]] = {
     "voice_id": {
         "anyOf": [{"type": "string"}, {"type": "null"}],
         "description": "A voice id from `voices_offered`, or null to leave it.",
-    },
-    "ai_disclosure_enabled": {
-        "anyOf": [{"type": "boolean"}, {"type": "null"}],
-        "description": "Say it is an AI at the start of each call, or null to leave it.",
-    },
-    "recording_notice_enabled": {
-        "anyOf": [{"type": "boolean"}, {"type": "null"}],
-        "description": "Say the call is recorded at the start, or null to leave it.",
     },
     "opening_line": {
         "anyOf": [{"type": "string"}, {"type": "null"}],
@@ -2074,9 +2009,9 @@ AGENT_EDIT: Final = ActionTool(
     where="under Agents in your dashboard",
     schema=action_schema(
         "agent_edit",
-        "Change a DRAFT or PAUSED agent's language, voice, opening lines, or opening notices "
-        "(saying it is an AI, saying the call is recorded). A notice switched on is said "
-        "after the opening line. For a LIVE agent use `agent_edit_live`." + DOES_IT,
+        "Change a DRAFT or PAUSED agent's language, voice or opening lines. The AI and "
+        "recording notices are the account's, `account_switch_set`. For a LIVE agent use "
+        "`agent_edit_live`." + DOES_IT,
         _AGENT_EDIT_PROPERTIES,
     ),
     plan=_plan_agent_edit,
@@ -2093,8 +2028,7 @@ AGENT_EDIT_LIVE: Final = ActionTool(
     where="under Agents in your dashboard",
     schema=action_schema(
         "agent_edit_live",
-        "Propose changing a LIVE agent's language, voice, opening lines, or opening notices. "
-        "Callers hear "
+        "Propose changing a LIVE agent's language, voice or opening lines. Callers hear "
         "the change from their next call. For a draft or paused agent use `agent_edit`."
         + PROPOSES_ONLY,
         _AGENT_EDIT_PROPERTIES,
@@ -2102,8 +2036,6 @@ AGENT_EDIT_LIVE: Final = ActionTool(
     plan=_plan_agent_edit_live,
     execute=_execute_agent_edit,
 )
-
-
 #: The type names a model writes for the five a field may have.
 _TYPE_SPELLINGS: Final = {
     "string": "text",

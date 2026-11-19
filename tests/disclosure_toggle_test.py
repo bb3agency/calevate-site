@@ -1,4 +1,5 @@
-"""D-163 — two notices, two toggles, and one answer nobody can switch off.
+"""D-163, D-1021 — two notices, one switch each for the whole account, and one answer
+nobody can switch off.
 
 WHAT THIS FILE HAS TO PROVE, in falling order of what it costs to get wrong:
 
@@ -9,13 +10,14 @@ WHAT THIS FILE HAS TO PROVE, in falling order of what it costs to get wrong:
 2. **A dropped rule is DETECTED, not assumed.** An engine that accepts the write and
    returns a prompt without the marker refuses the publish, and the drift read reports it
    for an agent nobody is publishing.
-3. **The toggles actually toggle**, both directions, independently, idempotently, and all
-   the way to the engine — including CLEARING a greeting the vendor was already holding,
-   which is the failure mode a "we only ever add" implementation would have shipped.
-4. **The switch is the client's and it is audited**, with the toggle and the direction in
+3. **The account's switches actually switch**, both directions, independently,
+   idempotently, and all the way to the engine — including CLEARING a greeting the vendor
+   was already holding, which is the failure mode a "we only ever add" implementation
+   would have shipped.
+4. **The switch is the client's and it is audited**, with the switch and the direction in
    the `audit_log` ACTION rather than in a summary the ledger does not store.
-5. **Hard rule 1 still holds over the new columns**, and the migration goes down and back
-   up.
+5. **Hard rule 1 still holds over the columns**, and the migrations go down and back up,
+   D-1021's backfill turning an account on when any of its agents was on.
 
 WHY THE FAKE ENGINE IS ENOUGH HERE. Everything above is a property of OUR composition and
 OUR read-back scoring. That both real adapters carry the directive is a different claim,
@@ -38,6 +40,7 @@ import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from apps.api.agents import prompts, publishing
+from apps.api.agents.lifecycle import create_agent
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.service import _load_agent, _to_config, publish_agent, publish_variant
 from apps.api.agents.verification import judge
@@ -78,6 +81,7 @@ from sqlalchemy import create_engine as create_sync_engine
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from tests.conftest import accept_agreements, create_org_with_receptionist
+from tests.live_apply_support import drain_live_apply
 
 #: The fake engine with no recorder: every remaining adapter records audio, so the
 #: "not recorded" answer (hard rule 5) is driven through this profile.
@@ -101,10 +105,10 @@ async def _tenant(
 ) -> tuple[uuid.UUID, uuid.UUID]:
     """A fresh tenant and its receptionist.
 
-    `notices_on` switches both announcements ON after creation, by a direct column write
-    that models an agent whose owner turned them on: a new agent volunteers neither since
-    D-669, and most tests here prove that switching one OFF moves the opening, the engine
-    and the ledger. `notices_on=False` is the agent exactly as `create_agent` makes it.
+    `notices_on` switches both of the account's announcements ON after creation, by a
+    direct column write that models an owner who turned them on: an account volunteers
+    neither since D-669, and most tests here prove that switching one OFF moves the opening,
+    the engine and the ledger. `notices_on=False` is the account as it is created.
     """
     created = await create_org_with_receptionist(
         name="Sunrise Clinic",
@@ -123,10 +127,10 @@ async def _tenant(
         async with tenant_session(created["id"]) as session:
             await session.execute(
                 text(
-                    "UPDATE agents SET ai_disclosure_enabled = true, "
-                    "recording_notice_enabled = true WHERE id = :a"
+                    "UPDATE organizations SET notice_ai_enabled = true, "
+                    "notice_recording_enabled = true WHERE id = :t"
                 ),
-                {"a": created["agent_id"]},
+                {"t": created["id"]},
             )
     return created["id"], created["agent_id"]
 
@@ -205,8 +209,9 @@ async def _posture(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[bool, boo
         row = (
             await session.execute(
                 text(
-                    "SELECT ai_disclosure_enabled, recording_notice_enabled, "
-                    "ai_disclosure_line, recording_notice_line FROM agents WHERE id = :a"
+                    "SELECT o.notice_ai_enabled, o.notice_recording_enabled, "
+                    "a.ai_disclosure_line, a.recording_notice_line FROM agents a "
+                    "JOIN organizations o ON o.id = a.tenant_id WHERE a.id = :a"
                 ),
                 {"a": agent_id},
             )
@@ -267,11 +272,8 @@ async def test_the_rule_reaches_the_engine_even_with_both_notices_off() -> None:
     """The end-to-end shape of the founder's decision: nothing volunteered, everything
     answered."""
     tenant_id, agent_id = await _tenant()
-    await publishing.set_disclosure_posture(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        ai_disclosure_enabled=False,
-        recording_notice_enabled=False,
+    await publishing.set_account_notices(
+        tenant_id=tenant_id, ai_disclosure_enabled=False, recording_notice_enabled=False
     )
     ref, engine = await _published(tenant_id, agent_id, body=HOSTILE_SCRIPT)
 
@@ -531,17 +533,14 @@ async def test_a_new_agent_still_has_both_sentences_required_on_file() -> None:
     ("ai_on", "rec_on", "expect_ai", "expect_rec"),
     [(False, None, False, True), (None, False, True, False), (False, False, False, False)],
 )
-async def test_each_toggle_moves_independently(
+async def test_each_switch_moves_independently(
     ai_on: bool | None, rec_on: bool | None, expect_ai: bool, expect_rec: bool
 ) -> None:
     """`None` means "leave this one alone", so a screen with two switches can send only
     the one that moved without racing the other."""
     tenant_id, agent_id = await _tenant()
-    result = await publishing.set_disclosure_posture(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        ai_disclosure_enabled=ai_on,
-        recording_notice_enabled=rec_on,
+    result = await publishing.set_account_notices(
+        tenant_id=tenant_id, ai_disclosure_enabled=ai_on, recording_notice_enabled=rec_on
     )
     assert (result.ai_disclosure_enabled, result.recording_notice_enabled) == (
         expect_ai,
@@ -550,90 +549,95 @@ async def test_each_toggle_moves_independently(
     assert (await _posture(tenant_id, agent_id))[:2] == (expect_ai, expect_rec)
 
 
-async def test_re_asserting_the_current_posture_changes_and_publishes_nothing() -> None:
-    tenant_id, agent_id = await _tenant()
-    result = await publishing.set_disclosure_posture(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        ai_disclosure_enabled=True,
-        recording_notice_enabled=True,
+async def test_re_asserting_the_current_posture_changes_and_queues_nothing() -> None:
+    tenant_id, _ = await _tenant()
+    result = await publishing.set_account_notices(
+        tenant_id=tenant_id, ai_disclosure_enabled=True, recording_notice_enabled=True
     )
     assert result.changed == ()
-    assert result.engine_synced is False
+    assert result.live_apply_run_id is None
 
 
 async def test_switching_a_notice_off_clears_it_on_a_live_engine_agent() -> None:
-    """FAST LANE. A posture that only lands in our table is a screen claiming something
-    about a phone line that is not true yet — and the direction that matters most is the
-    one where the vendor keeps speaking a notice its owner withdrew."""
+    """A posture that only lands in our table is a screen claiming something about a phone
+    line that is not true yet — and the direction that matters most is the one where the
+    vendor keeps speaking a notice its owner withdrew. The account's change reaches the
+    live agent through the live-apply seam (D-720), queued in the switch's transaction."""
     tenant_id, agent_id = await _tenant()
     ref, engine = await _published(tenant_id, agent_id)
     assert engine._agents[ref].opening_line
 
-    result = await publishing.set_disclosure_posture(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        ai_disclosure_enabled=False,
-        recording_notice_enabled=None,
+    result = await publishing.set_account_notices(
+        tenant_id=tenant_id, ai_disclosure_enabled=False, recording_notice_enabled=None
     )
+    assert result.live_apply_run_id is not None
+    await drain_live_apply(tenant_id)
 
-    assert result.engine_synced is True
-    assert result.opening_line == RECORDING_NOTICE_TEMPLATES["te-IN"]
     assert engine._agents[ref].opening_line == RECORDING_NOTICE_TEMPLATES["te-IN"]
     snapshot = await engine.get_agent(ref)
     assert snapshot.greeting == RECORDING_NOTICE_TEMPLATES["te-IN"]
     assert snapshot.carries_prompt_marker(TRUTHFUL_ANSWER_MARKER) is True
 
 
-async def test_an_unpublished_agent_records_the_posture_without_an_engine_hop() -> None:
+async def test_the_account_switch_reaches_every_agent_inbound_and_outbound() -> None:
+    """D-1021: one switch for every call of the account. An answering agent and a calling
+    agent of the same client are both composed with the AI notice from one flip."""
+    tenant_id, inbound_id = await _tenant(notices_on=False)
+    async with tenant_session(tenant_id) as session:
+        outbound_id = await create_agent(
+            session,
+            tenant_id=tenant_id,
+            name="Sunrise Calls",
+            direction="outbound",
+            language_primary="te-IN",
+        )
+    for agent_id in (inbound_id, outbound_id):
+        await _with_script(tenant_id, agent_id)
+
+    async def openings() -> dict[uuid.UUID, str]:
+        out = {}
+        async with tenant_session(tenant_id) as session:
+            for agent_id in (inbound_id, outbound_id):
+                agent = await _load_agent(session, tenant_id, agent_id)
+                out[agent_id] = _to_config(tenant_id, agent, engine=FakeEngine()).opening_line
+        return out
+
+    assert set((await openings()).values()) == {""}
+    await publishing.set_account_notices(
+        tenant_id=tenant_id, ai_disclosure_enabled=True, recording_notice_enabled=None
+    )
+    for agent_id, opening in (await openings()).items():
+        _, _, ai_line, _ = await _posture(tenant_id, agent_id)
+        assert opening == ai_line, agent_id
+
+
+async def test_an_unpublished_agent_follows_the_switch_without_an_engine_hop() -> None:
     tenant_id, agent_id = await _tenant()
-    result = await publishing.set_disclosure_posture(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        ai_disclosure_enabled=False,
-        recording_notice_enabled=False,
+    result = await publishing.set_account_notices(
+        tenant_id=tenant_id, ai_disclosure_enabled=False, recording_notice_enabled=False
     )
     assert result.changed == ("ai_disclosure_enabled", "recording_notice_enabled")
-    assert result.engine_synced is False
     assert (await _posture(tenant_id, agent_id))[:2] == (False, False)
 
 
 async def test_the_introduction_is_refused_over_an_opening_that_says_who_is_calling() -> None:
     """D-865: the Telugu AI notice introduces the agent, so an opening written while it was
     off ("this is Sunrise Clinic") would be heard after it, saying it twice. Nothing is
-    written; the repair is the opening suggestion."""
+    written, and the refusal names the agent so the screen can open its script."""
     tenant_id, agent_id = await _tenant(notices_on=False)
     opening = "నమస్కారం అండి, Sunrise Clinic నుండి మాట్లాడుతున్నాము. ఏమి కావాలి?"
-    await _with_script(
-        tenant_id,
-        agent_id,
-        compile_call_script(CallScript(opening_line=opening), collect=[]),
+    await _published(
+        tenant_id, agent_id, compile_call_script(CallScript(opening_line=opening), collect=[])
     )
     with pytest.raises(ProblemError) as caught:
-        await publishing.set_disclosure_posture(
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            ai_disclosure_enabled=True,
-            recording_notice_enabled=None,
+        await publishing.set_account_notices(
+            tenant_id=tenant_id, ai_disclosure_enabled=True, recording_notice_enabled=None
         )
     assert caught.value.code == publishing.OPENING_INTRODUCES_CODE
+    extension = caught.value.extensions
+    assert isinstance(extension, publishing.OpeningIntroducesOnAgent)
+    assert extension.agent_id == agent_id
     assert (await _posture(tenant_id, agent_id))[0] is False
-
-
-async def test_a_deleted_agent_is_not_found_rather_than_silently_toggled() -> None:
-    tenant_id, agent_id = await _tenant()
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET deleted_at = now() WHERE id = :a"), {"a": agent_id}
-        )
-    with pytest.raises(ProblemError) as caught:
-        await publishing.set_disclosure_posture(
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            ai_disclosure_enabled=False,
-            recording_notice_enabled=None,
-        )
-    assert caught.value.status == 404
 
 
 # --- the toggles do NOT open a dial bypass ---------------------------------------
@@ -644,11 +648,10 @@ async def test_switching_the_ai_notice_off_does_not_unblock_or_block_a_dial() ->
     A toggle that quietly became a dial blocker would be a compliance control a client
     could trip by accident; one that became a bypass would be worse."""
     tenant_id, agent_id = await _tenant()
-    # Switched off while a draft, then put live by hand: a live agent is republished by the
-    # switch (D-1019), and this fixture's agent has no script to publish.
-    await publishing.set_disclosure_posture(
+    # Switched off while a draft, then put live by hand: this fixture's agent has no
+    # script to publish.
+    await publishing.set_account_notices(
         tenant_id=tenant_id,
-        agent_id=agent_id,
         ai_disclosure_enabled=False,
         recording_notice_enabled=False,
     )
@@ -680,15 +683,14 @@ async def test_an_agent_with_a_blank_ai_sentence_is_refused_by_the_schema() -> N
 # --- experiments carry the sentence, never the posture ----------------------------
 
 
-async def test_an_experiment_arm_follows_the_agents_toggles() -> None:
+async def test_an_experiment_arm_follows_the_accounts_switches() -> None:
     """An A/B test tests a SCRIPT. Forking the compliance posture per arm would be an
     unannounced experiment on live callers, so the arm carries its own AI sentence and
-    the agent's own switches."""
+    the account's switches."""
     tenant_id, agent_id = await _tenant()
     await _published(tenant_id, agent_id)
-    await publishing.set_disclosure_posture(
+    await publishing.set_account_notices(
         tenant_id=tenant_id,
-        agent_id=agent_id,
         ai_disclosure_enabled=None,
         recording_notice_enabled=False,
     )
@@ -715,33 +717,48 @@ async def test_an_experiment_arm_follows_the_agents_toggles() -> None:
 
 # --- 4. the audit trail -----------------------------------------------------------
 
+NOTICES_PATH = "/v1/organization/call-notices"
 
-def test_the_action_names_the_toggle_and_the_direction() -> None:
+
+def test_the_action_names_the_switch_and_the_direction() -> None:
     """`write_audit` does not persist `summary` (BACKEND-PATTERNS §7), so anything that
     must survive in the hash-chained ledger has to be in a column — and `action` is the
     only one with room for it."""
     assert (
         publishing.audit_action_for("ai_disclosure_enabled", enabled=False)
-        == "agent.ai_disclosure_disabled"
+        == "organization.ai_disclosure_disabled"
     )
     assert (
         publishing.audit_action_for("recording_notice_enabled", enabled=True)
-        == "agent.recording_notice_enabled"
+        == "organization.recording_notice_enabled"
     )
 
 
-async def test_flipping_a_toggle_through_the_api_writes_one_audit_row_naming_it() -> None:
-    tenant_id, agent_id, token = await _member()
+async def _notice_actions(tenant_id: uuid.UUID) -> list[tuple[str, str, str | None]]:
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT action, object_id, ip FROM audit_log WHERE tenant_id = :t "
+                    "AND (action LIKE 'organization.ai_disclosure%' "
+                    "OR action LIKE 'organization.recording_notice%') ORDER BY at"
+                ),
+                {"t": tenant_id},
+            )
+        ).all()
+    return [(str(r[0]), str(r[1]), None if r[2] is None else str(r[2])) for r in rows]
+
+
+async def test_flipping_a_switch_through_the_api_writes_one_audit_row_naming_it() -> None:
+    tenant_id, _, token = await _member()
     async with _client() as http:
         response = await http.patch(
-            f"/v1/agents/{agent_id}/disclosure",
+            NOTICES_PATH,
             json={"ai_disclosure_enabled": False},
             headers={
                 "Authorization": f"Bearer {token}",
                 # `CF-Connecting-IP` is the ONE header `client_ip` believes — the edge's
-                # statement about the caller. `X-Forwarded-For` is deliberately not read
-                # (`calevate_shared/client_address.py`), so sending that instead would
-                # assert the socket peer and prove nothing about `check_audit_ip`.
+                # statement about the caller (`calevate_shared/client_address.py`).
                 "CF-Connecting-IP": "203.0.113.7",
             },
         )
@@ -749,109 +766,80 @@ async def test_flipping_a_toggle_through_the_api_writes_one_audit_row_naming_it(
     body = response.json()
     assert body["ai_disclosure_enabled"] is False
     assert body["recording_notice_enabled"] is True
-    assert body["opening_line"] == RECORDING_NOTICE_TEMPLATES["te-IN"]
+    assert body["calls_recorded"] is True
     # The suite's engine is the recording fake, so the served promise is the recorded one.
     assert body["truthful_answer_rule"] == TRUTHFUL_ANSWER_PROMISE
 
-    async with untenanted_session() as session:
-        rows = (
-            await session.execute(
-                text(
-                    "SELECT action, object_id, ip FROM audit_log "
-                    "WHERE tenant_id = :t AND action LIKE 'agent.%disclosure%' ORDER BY at"
-                ),
-                {"t": tenant_id},
-            )
-        ).all()
-    assert [r[0] for r in rows] == ["agent.ai_disclosure_disabled"], rows
-    assert str(rows[0][1]) == str(agent_id)
+    rows = await _notice_actions(tenant_id)
+    assert [r[0] for r in rows] == ["organization.ai_disclosure_disabled"], rows
+    assert rows[0][1] == str(tenant_id)
     # `check_audit_ip`: the CALLER's address, not the socket peer.
     assert rows[0][2] == "203.0.113.7"
 
 
-async def test_two_toggles_in_one_request_write_one_ledger_row_each() -> None:
-    """Two decisions, two entries — and the chain survives both.
+async def test_the_account_switches_are_read_back_through_the_api() -> None:
+    _, _, token = await _member(role="staff")
+    async with _client() as http:
+        response = await http.get(NOTICES_PATH, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200, response.text
+    assert response.json()["ai_disclosure_enabled"] is True
+    assert response.json()["recording_notice_enabled"] is True
 
-    `write_audit` appends INSIDE the caller's transaction under
-    `pg_advisory_xact_lock('audit:chain')`, so the second entry in this request reads the
-    head the FIRST one just wrote. Asserting the row count is the cheap half; asserting
-    both actions are present is what catches an implementation that batched the two
-    decisions into one entry and lost which switch moved.
-    """
-    tenant_id, agent_id, token = await _member()
+
+async def test_two_switches_in_one_request_write_one_ledger_row_each() -> None:
+    """Two decisions, two entries — and the chain survives both. Asserting both actions
+    are present is what catches an implementation that batched the two decisions into one
+    entry and lost which switch moved."""
+    tenant_id, _, token = await _member()
     async with _client() as http:
         response = await http.patch(
-            f"/v1/agents/{agent_id}/disclosure",
+            NOTICES_PATH,
             json={"ai_disclosure_enabled": False, "recording_notice_enabled": False},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert response.status_code == 200, response.text
-    assert response.json()["opening_line"] == ""
-
-    async with untenanted_session() as session:
-        actions = [
-            row[0]
-            for row in (
-                await session.execute(
-                    text(
-                        "SELECT action FROM audit_log WHERE tenant_id = :t "
-                        "AND action LIKE 'agent.%' ORDER BY at"
-                    ),
-                    {"t": tenant_id},
-                )
-            ).all()
-        ]
-    assert actions == ["agent.ai_disclosure_disabled", "agent.recording_notice_disabled"], actions
+    assert [r[0] for r in await _notice_actions(tenant_id)] == [
+        "organization.ai_disclosure_disabled",
+        "organization.recording_notice_disabled",
+    ]
 
 
 async def test_re_asserting_the_same_posture_through_the_api_writes_no_ledger_row() -> None:
     """A double-clicked switch is one decision, already taken. An entry per REQUEST would
     fill the ledger with non-events and make "when did this change" unanswerable."""
-    tenant_id, agent_id, token = await _member()
+    tenant_id, _, token = await _member()
     async with _client() as http:
         response = await http.patch(
-            f"/v1/agents/{agent_id}/disclosure",
+            NOTICES_PATH,
             json={"ai_disclosure_enabled": True},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert response.status_code == 200, response.text
-
-    async with untenanted_session() as session:
-        count = (
-            await session.execute(
-                text(
-                    "SELECT count(*) FROM audit_log WHERE tenant_id = :t "
-                    "AND action LIKE 'agent.%disclosure%'"
-                ),
-                {"t": tenant_id},
-            )
-        ).scalar_one()
-    assert count == 0
+    assert await _notice_actions(tenant_id) == []
 
 
-async def test_a_body_naming_no_toggle_is_refused_rather_than_audited() -> None:
-    _, agent_id, token = await _member()
+async def test_a_body_naming_no_switch_is_refused_rather_than_audited() -> None:
+    _, _, token = await _member()
     async with _client() as http:
         response = await http.patch(
-            f"/v1/agents/{agent_id}/disclosure",
-            json={},
-            headers={"Authorization": f"Bearer {token}"},
+            NOTICES_PATH, json={}, headers={"Authorization": f"Bearer {token}"}
         )
     assert response.status_code == 422, response.text
 
 
 async def test_a_staff_member_cannot_change_the_compliance_posture() -> None:
-    """`org:manage` is the OWNER's. A `staff` session can read the agent and cannot
-    decide what it discloses — the same split that keeps billing and org settings out of
-    their hands (SEC-COMP §5)."""
-    _, agent_id, token = await _member(role="staff")
+    """`org:manage` is the OWNER's. A `staff` session can read the switches and cannot
+    decide what the calls disclose — the same split that keeps billing and org settings
+    out of their hands (SEC-COMP §5)."""
+    tenant_id, _, token = await _member(role="staff")
     async with _client() as http:
         response = await http.patch(
-            f"/v1/agents/{agent_id}/disclosure",
+            NOTICES_PATH,
             json={"ai_disclosure_enabled": False},
             headers={"Authorization": f"Bearer {token}"},
         )
     assert response.status_code == 403, response.text
+    assert await _notice_actions(tenant_id) == []
 
 
 # --- the evidence half follows the toggle -----------------------------------------
@@ -874,42 +862,130 @@ def test_a_withdrawn_notice_certifies_nothing_rather_than_reporting_a_breach() -
 # --- 5. tenancy and the migration --------------------------------------------------
 
 
-async def test_the_new_columns_are_invisible_across_tenants() -> None:
-    """Hard rule 1 over the four columns this release adds. `agents` is FORCE-RLS'd and a
-    new column inherits the policy — CONFIRMED here rather than assumed, because "it
-    inherits" is the kind of sentence that stays written down after it stops being true."""
+async def test_the_switches_are_invisible_across_tenants() -> None:
+    """Hard rule 1 over the account's switches (D-1021). `organizations` is FORCE-RLS'd and
+    new columns inherit the policy — confirmed here rather than assumed."""
     mine, my_agent = await _tenant()
     theirs, their_agent = await _tenant()
-    await publishing.set_disclosure_posture(
-        tenant_id=theirs,
-        agent_id=their_agent,
-        ai_disclosure_enabled=False,
-        recording_notice_enabled=False,
+    await publishing.set_account_notices(
+        tenant_id=theirs, ai_disclosure_enabled=False, recording_notice_enabled=False
     )
 
     async with tenant_session(mine) as session:
         rows = (
             await session.execute(
                 text(
-                    "SELECT ai_disclosure_line, ai_disclosure_enabled, "
-                    "recording_notice_line, recording_notice_enabled FROM agents "
-                    "WHERE id = :a"
+                    "SELECT notice_ai_enabled, notice_recording_enabled FROM organizations "
+                    "WHERE id = :t"
                 ),
-                {"a": their_agent},
+                {"t": theirs},
             )
         ).all()
-    assert rows == [], "another tenant's disclosure posture is readable"
+    assert rows == [], "another tenant's notice switches are readable"
 
     async with tenant_session(mine) as session:
         blocked = (
             await session.execute(
-                text("UPDATE agents SET ai_disclosure_enabled = false WHERE id = :a RETURNING id"),
-                {"a": their_agent},
+                text(
+                    "UPDATE organizations SET notice_ai_enabled = true WHERE id = :t RETURNING id"
+                ),
+                {"t": theirs},
             )
         ).all()
-    assert blocked == [], "another tenant's disclosure posture is writable"
+    assert blocked == [], "another tenant's notice switches are writable"
     assert (await _posture(theirs, their_agent))[:2] == (False, False)
     assert (await _posture(mine, my_agent))[:2] == (True, True)
+
+
+def _sync_engine():  # type: ignore[no-untyped-def]
+    url = (get_settings().alembic_database_url or get_settings().database_url).replace(
+        "+asyncpg", "+psycopg"
+    )
+    return create_sync_engine(url)
+
+
+def test_the_account_switch_migration_backfills_any_on_and_goes_down_and_back_up() -> None:
+    """D-1021's revision, run against the live schema in one rolled-back transaction.
+
+    Down: each account's switches are written back onto its agents and the columns go.
+    Up again: an account is ON when ANY of its agents not deleted was on (never
+    under-disclose), and OFF when none was; a deleted agent's switch does not count."""
+    revision = _load_revision("c4e8a2f61d93_call_notices_per_account")
+    account = "SELECT notice_ai_enabled, notice_recording_enabled FROM organizations WHERE id = :t"
+    sync = _sync_engine()
+    try:
+        with sync.connect() as connection:
+            transaction = connection.begin()
+            try:
+                tenants = [
+                    row[0]
+                    for row in connection.execute(
+                        text(
+                            "SELECT o.id FROM organizations o WHERE (SELECT count(*) FROM agents "
+                            "a WHERE a.tenant_id = o.id AND a.deleted_at IS NULL) = 1 LIMIT 3"
+                        )
+                    ).all()
+                ]
+                assert len(tenants) == 3, "the shared database holds too few one-agent tenants"
+                some_on, none_on, deleted_on = tenants
+                context = MigrationContext.configure(connection)
+                with Operations.context(context):
+                    revision.downgrade()
+                    gone = connection.execute(
+                        text(
+                            "SELECT count(*) FROM information_schema.columns "
+                            "WHERE table_name = 'organizations' AND column_name IN "
+                            "('notice_ai_enabled', 'notice_recording_enabled')"
+                        )
+                    ).scalar_one()
+                    assert gone == 0, "downgrade() left columns behind"
+                    for tid, ai in ((some_on, True), (none_on, False), (deleted_on, True)):
+                        connection.execute(
+                            text(
+                                "UPDATE agents SET ai_disclosure_enabled = :ai, "
+                                "recording_notice_enabled = false WHERE tenant_id = :t "
+                                "AND deleted_at IS NULL"
+                            ),
+                            {"ai": ai, "t": tid},
+                        )
+                    # A deleted agent with the notice on does not turn its account on.
+                    connection.execute(
+                        text("UPDATE agents SET deleted_at = now() WHERE tenant_id = :t"),
+                        {"t": deleted_on},
+                    )
+                    revision.upgrade()
+                    assert connection.execute(text(account), {"t": some_on}).one() == (
+                        True,
+                        False,
+                    )
+                    assert connection.execute(text(account), {"t": none_on}).one() == (
+                        False,
+                        False,
+                    )
+                    assert connection.execute(text(account), {"t": deleted_on}).one() == (
+                        False,
+                        False,
+                    )
+                    # And down again puts the account's value back on its agents.
+                    connection.execute(
+                        text(
+                            "UPDATE organizations SET notice_recording_enabled = true WHERE id = :t"
+                        ),
+                        {"t": none_on},
+                    )
+                    revision.downgrade()
+                    assert connection.execute(
+                        text(
+                            "SELECT bool_and(recording_notice_enabled) FROM agents "
+                            "WHERE tenant_id = :t"
+                        ),
+                        {"t": none_on},
+                    ).scalar_one()
+                    revision.upgrade()
+            finally:
+                transaction.rollback()
+    finally:
+        sync.dispose()
 
 
 def test_the_migration_goes_down_and_comes_back_up() -> None:
@@ -1227,25 +1303,23 @@ def test_the_promise_a_client_reads_matches_the_answer_callers_get() -> None:
 async def test_the_disclosure_route_serves_the_not_recorded_promise_on_such_an_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The route and the composer it calls read the engine through `engine_capabilities`;
-    pointed at a non-recording engine, the response must not promise a recording and the
-    opening it reports must not contain one."""
+    """The route reads the engine through `engine_capabilities`; pointed at a non-recording
+    engine, the response must not promise a recording and says calls are not recorded."""
     from apps.api.agents import routes as agent_routes
 
     def non_recording(engine: object = None) -> EngineCapabilities:
         return NON_RECORDING_CAPABILITIES
 
-    _, agent_id, token = await _member()
+    _, _, token = await _member()
     monkeypatch.setattr(agent_routes, "engine_capabilities", non_recording)
-    monkeypatch.setattr(publishing, "engine_capabilities", non_recording)
     async with _client() as http:
         response = await http.patch(
-            f"/v1/agents/{agent_id}/disclosure",
+            NOTICES_PATH,
             json={"ai_disclosure_enabled": False},
             headers={"Authorization": f"Bearer {token}", "CF-Connecting-IP": "203.0.113.7"},
         )
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["recording_notice_enabled"] is True
-    assert body["opening_line"] == ""
+    assert body["calls_recorded"] is False
     assert body["truthful_answer_rule"] == truthful_answer_promise(call_is_recorded=False)

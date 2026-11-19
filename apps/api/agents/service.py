@@ -227,6 +227,7 @@ from apps.api.compliance.autodialer import (
     agent_calling_numbers,
     enforcement_active,
 )
+from apps.api.compliance.call_notices import AI_NOTICE_SQL, RECORDING_NOTICE_SQL
 from apps.api.compliance.caller_memory import MEMORY_ON_SQL
 from apps.api.compliance.dnc_recall import RECALL_CAUSE_CONSENT, enqueue_dnc_recall
 from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_dnc_refusal
@@ -694,11 +695,11 @@ async def _load_agent(
                 "SELECT a.id, a.name, a.direction, a.language_primary, a.disclosure_line, "
                 "a.stt_provider, a.stt_model, a.llm_model, a.tts_provider, a.tts_voice, "
                 "a.engine, a.engine_agent_ref, a.status, pv.body, a.max_call_duration_s, "
-                # The four columns that decide what this agent OPENS with (D-163). Read
-                # here, on the one path that builds an `AgentConfig`, so a publish and
-                # the drift read can never disagree about the posture.
-                "a.ai_disclosure_line, a.ai_disclosure_enabled, "
-                "a.recording_notice_line, a.recording_notice_enabled, "
+                # What this agent OPENS with: its two sentences and the ACCOUNT's two
+                # switches (D-163, D-1021). Read here, on the one path that builds an
+                # `AgentConfig`, so a publish and the drift read never disagree about it.
+                f"a.ai_disclosure_line, {AI_NOTICE_SQL}, "
+                f"a.recording_notice_line, {RECORDING_NOTICE_SQL}, "
                 # Whether it remembers callers NOW: its switch AND the current statement
                 # accepted (D-900, `MEMORY_ON_SQL`), so publish, drift and recall agree.
                 f"a.caller_memory_notice_line, {MEMORY_ON_SQL}, "
@@ -1759,10 +1760,10 @@ def credit_stop_prompt(*, call_is_recorded: bool) -> str:
 #: vouches for a `+` of literals but cannot trace a `.split()` of one, and deriving the
 #: second query that way is exactly the shortcut it caught.
 _ANSWERING_AGENT_COLUMNS = (
-    "SELECT id, engine_agent_ref, ai_disclosure_line, ai_disclosure_enabled, "
-    "recording_notice_line, recording_notice_enabled, caller_memory_notice_line, "
-    "caller_memory_enabled, inbound_silenced_at, inbound_silence_reason, direction "
-    "FROM agents"
+    f"SELECT a.id, a.engine_agent_ref, a.ai_disclosure_line, {AI_NOTICE_SQL}, "
+    f"a.recording_notice_line, {RECORDING_NOTICE_SQL}, a.caller_memory_notice_line, "
+    "a.caller_memory_enabled, a.inbound_silenced_at, a.inbound_silence_reason, a.direction "
+    "FROM agents a"
 )
 
 #: An agent with a live inbound line answers on it whatever its own direction (D-997), and
@@ -1772,7 +1773,7 @@ _ANSWERING_AGENTS_SQL = (
     _ANSWERING_AGENT_COLUMNS + " WHERE status = 'live'"
     " AND ((engine_agent_ref IS NOT NULL AND direction IN ('inbound', 'both'))"
     " OR EXISTS (SELECT 1 FROM inbound_lines l"
-    " WHERE l.agent_id = agents.id AND l.archived_at IS NULL AND l.published_at IS NOT NULL"
+    " WHERE l.agent_id = a.id AND l.archived_at IS NULL AND l.published_at IS NOT NULL"
     " AND l.engine_agent_ref IS NOT NULL))"
     " AND deleted_at IS NULL AND archived_at IS NULL ORDER BY id"
 )
@@ -3194,7 +3195,7 @@ async def publish_agent(
     # status carries the same three facts and reaching for it here was the first attempt;
     # `scripts/check_session_nesting` refused it, correctly. That read falls through to
     # `untenanted_session`, and three of this function's callers are already two sessions
-    # deep (`set_disclosure_posture`, `set_caller_memory`, `apply_to_live` — each a route
+    # deep (`set_caller_has_screen`, `set_caller_memory`, `apply_to_live` — each a route
     # holding `Depends(db)`), so a third connection puts the whole chain past the pool's
     # overflow: under saturation every task at that depth waits for a connection only
     # another task at that depth can release.
@@ -3274,7 +3275,7 @@ async def publish_agent(
     # AN ARCHIVED AGENT IS NEVER RESURRECTED BY A REPUBLISH (D-440), and the guard is here
     # rather than only in `agents/lifecycle.py` because this function ends in
     # `status = 'live'` and has seven callers — the lifecycle activate, the admin publish
-    # route, `apply_to_live`, `set_call_cap`, `set_disclosure_posture`, a prompt write and
+    # route, `apply_to_live`, `set_call_cap`, `set_caller_has_screen`, a prompt write and
     # the experiment republish. Each of the last five guards itself with its own "is this
     # agent live?" read, which is a rule spelled five times and therefore a rule with five
     # chances to be forgotten by the sixth. Refusing at the one statement that writes the

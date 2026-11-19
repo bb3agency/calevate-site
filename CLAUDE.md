@@ -198,9 +198,13 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
    whether it is an AI or whether the call is recorded — enforced server-side, appended
    to every prompt by `compose_engine_prompt`, and verified against the engine on every
    publish and every drift sweep; no column, config row or client-authored script can
-   withdraw it. What an agent VOLUNTEERS at the start of a call is two per-agent toggles
-   (D-163): the AI disclosure and the recording notice are separate obligations under
-   separate regimes and are separately switchable, on inbound and outbound alike. A
+   withdraw it. What a call VOLUNTEERS at its start is two switches of the CLIENT ACCOUNT
+   (D-1021, over D-163's per-agent toggles): one AI switch and one recording switch for
+   every call of the client, inbound and outbound, every agent, line and campaign
+   (`organizations.notice_ai_enabled` / `notice_recording_enabled`, read through
+   `compliance/call_notices`). They stay two because the AI disclosure and the recording
+   notice are separate obligations under separate regimes (D-163); the words spoken
+   follow the call's direction, each opening saying them in its own words. A
    notice switched on is said IN THE AGENT'S OWN OPENING LINE, in its own words (D-971,
    founder, 5 Nov 2026: "When an opening is saved, Pip weaves the notices into that
    agent's own opening line in its own words, which the engine then speaks"): an opening

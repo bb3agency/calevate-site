@@ -311,7 +311,7 @@ async def test_a_withdrawn_ai_notice_certifies_nothing_rather_than_reporting_a_b
 
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE agents SET ai_disclosure_enabled = false WHERE tenant_id = :t"),
+            text("UPDATE organizations SET notice_ai_enabled = false WHERE id = :t"),
             {"t": tenant_id},
         )
     _spec, _version, _agent_id, _direction, line, _notice = await pipeline._load_call_context(

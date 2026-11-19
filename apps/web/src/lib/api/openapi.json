@@ -24468,7 +24468,7 @@
       },
       "DisclosureIn": {
         "additionalProperties": false,
-        "description": "Which notices this agent volunteers. `null` on a field leaves it alone.\n\nTwo nullable booleans rather than two endpoints: the pair is one posture, a screen\nwith two switches sends whichever one moved, and a PATCH that could only send both\nwould make flipping one switch a read-modify-write race against the other.",
+        "description": "Which of the account's two call notices are on. `null` on a field leaves it alone.\n\nTwo nullable booleans rather than two endpoints: the pair is one posture, a screen\nwith two switches sends whichever one moved, and a PATCH that could only send both\nwould make flipping one switch a read-modify-write race against the other.",
         "properties": {
           "ai_disclosure_enabled": {
             "anyOf": [
@@ -24499,22 +24499,13 @@
       "DisclosureOut": {
         "additionalProperties": false,
         "properties": {
-          "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
-          },
           "ai_disclosure_enabled": {
             "title": "Ai Disclosure Enabled",
             "type": "boolean"
           },
-          "engine_synced": {
-            "title": "Engine Synced",
+          "calls_recorded": {
+            "title": "Calls Recorded",
             "type": "boolean"
-          },
-          "opening_line": {
-            "title": "Opening Line",
-            "type": "string"
           },
           "recording_notice_enabled": {
             "title": "Recording Notice Enabled",
@@ -24526,11 +24517,9 @@
           }
         },
         "required": [
-          "agent_id",
           "ai_disclosure_enabled",
           "recording_notice_enabled",
-          "opening_line",
-          "engine_synced",
+          "calls_recorded",
           "truthful_answer_rule"
         ],
         "title": "DisclosureOut",
@@ -41410,6 +41399,33 @@
         "title": "NotesOut",
         "type": "object"
       },
+      "NoticeNeedsRoomOnAgent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ProblemBody"
+          },
+          {
+            "properties": {
+              "agent_id": {
+                "format": "uuid",
+                "title": "Agent Id",
+                "type": "string"
+              },
+              "agent_name": {
+                "title": "Agent Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "agent_id",
+              "agent_name"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Switching a notice on for the account was refused: this agent's first words have no\nroom for it. Names the agent, so the screen can open that agent's script.",
+        "title": "NoticeNeedsRoomOnAgent"
+      },
       "NotificationFeedOut": {
         "additionalProperties": false,
         "properties": {
@@ -42322,6 +42338,33 @@
         },
         "title": "OpeningBIn",
         "type": "object"
+      },
+      "OpeningIntroducesOnAgent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ProblemBody"
+          },
+          {
+            "properties": {
+              "agent_id": {
+                "format": "uuid",
+                "title": "Agent Id",
+                "type": "string"
+              },
+              "agent_name": {
+                "title": "Agent Name",
+                "type": "string"
+              }
+            },
+            "required": [
+              "agent_id",
+              "agent_name"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Switching the AI notice on for the account was refused: this agent's opening line\nalready says who is calling, so callers would hear it twice.",
+        "title": "OpeningIntroducesOnAgent"
       },
       "OpeningLineIn": {
         "additionalProperties": false,
@@ -80281,7 +80324,7 @@
     },
     "/v1/agents/lanes": {
       "get": {
-        "description": "No DB, no engine call, no tenant scoping \u2014 the split is the same for every client,\nwhich is the point of publishing it rather than describing it. It reads one engine\nCAPABILITY (`records_audio`), because the recording notice's explanation must match\nwhat this deployment's phone line actually does.",
+        "description": "No DB, no engine call, no tenant scoping \u2014 the split is the same for every client,\nwhich is the point of publishing it rather than describing it.",
         "operationId": "list_lanes_v1_agents_lanes_get",
         "responses": {
           "200": {
@@ -81617,57 +81660,6 @@
           }
         },
         "summary": "Take the agent off the frontline (active -> inactive)",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/agents/{agent_id}/disclosure": {
-      "patch": {
-        "description": "Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call. Neither switch changes the agent's opening line, which is part of its script: a notice switched on is said right after it, and with both off the opening line is the first thing callers hear.\n\nIt does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant. Asked whether the call is recorded, it answers according to whether the voice platform records audio: where it does, it says yes; where it does not (the platform's own voice runtime today), it says the audio is not recorded and that a written transcript is kept. That is composed server-side, appended to every agent's instructions after the script, and verified against the voice platform on every publish \u2014 no script can withdraw it. `truthful_answer_rule` in the response states the answer in force.\n\nThe recording notice is spoken only where audio is recorded; the switch is kept so it applies wherever it is. Switching it off does not stop a recording being made, and does not discharge the client's own notice obligation under the DPDP Act; it moves where that notice is given. Every flip is written to the audit log.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a posture the platform is not running.",
-        "operationId": "set_disclosure_v1_agents__agent_id__disclosure_patch",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DisclosureIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DisclosureOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Switch the AI disclosure and the recording notice on or off (D-163)",
         "tags": [
           "agents"
         ],
@@ -107462,6 +107454,100 @@
           }
         },
         "summary": "Use call settings on every agent of this account",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/organization/call-notices": {
+      "get": {
+        "description": "One AI-notice switch and one recording-notice switch for the whole account (D-1021): every call, inbound and outbound, on every agent, Inbound line and campaign, follows them. Two switches, because the two notices are separate obligations under separate regimes (D-163). A notice switched on is said in the opening of each call, in that opening's own words, so an answered call and a placed call each say it their own way.\n\nIt does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant; asked whether the call is recorded, it answers according to whether the voice platform records audio. That is composed server-side, appended to every agent's instructions and verified against the voice platform on every publish; no script and no switch can withdraw it. `truthful_answer_rule` states the answer in force.\n\nSwitching the recording notice off does not stop a recording being made and does not discharge the client's own notice obligation under the DPDP Act. Every flip is written to the audit log, and reaches every live agent, line and campaign from its next call.",
+        "operationId": "get_call_notices_v1_organization_call_notices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisclosureOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This account's AI notice and recording notice (D-1021)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "patch": {
+        "description": "One AI-notice switch and one recording-notice switch for the whole account (D-1021): every call, inbound and outbound, on every agent, Inbound line and campaign, follows them. Two switches, because the two notices are separate obligations under separate regimes (D-163). A notice switched on is said in the opening of each call, in that opening's own words, so an answered call and a placed call each say it their own way.\n\nIt does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant; asked whether the call is recorded, it answers according to whether the voice platform records audio. That is composed server-side, appended to every agent's instructions and verified against the voice platform on every publish; no script and no switch can withdraw it. `truthful_answer_rule` states the answer in force.\n\nSwitching the recording notice off does not stop a recording being made and does not discharge the client's own notice obligation under the DPDP Act. Every flip is written to the audit log, and reaches every live agent, line and campaign from its next call.",
+        "operationId": "set_call_notices_v1_organization_call_notices_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisclosureIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisclosureOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/OpeningIntroducesOnAgent"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/NoticeNeedsRoomOnAgent"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Switch this account's AI notice or recording notice on or off (D-1021)",
         "tags": [
           "agents"
         ],

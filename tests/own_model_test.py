@@ -1077,9 +1077,12 @@ async def _trial_agent() -> tuple[Any, Any]:
         # A trial agent places test calls and answers nothing (D-697), and an outgoing call
         # opens on its announcement.
         await session.execute(
+            text("UPDATE agents SET direction = 'outbound' WHERE id = :a"), {"a": agent_id}
+        )
+        await session.execute(
             text(
-                "UPDATE agents SET direction = 'outbound', ai_disclosure_enabled = true "
-                "WHERE id = :a"
+                "UPDATE organizations SET notice_ai_enabled = true "
+                "WHERE id = (SELECT tenant_id FROM agents WHERE id = :a)"
             ),
             {"a": agent_id},
         )

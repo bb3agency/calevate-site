@@ -3,7 +3,7 @@
 /**
  * Client-realm structured call-script builder hooks — `/v1/agents/{id}/script/...`.
  *
- * This is the exception's exception. `agents.ts` is read-only but for `useSetDisclosure`,
+ * This is the exception's exception. `agents.ts` is read-only but for `useSetCallNotices`,
  * on D-21's ground that a script change routes through us. The founder's APPROVED DECISION
  * makes the STRUCTURED builder the primary client authoring surface, so these mutation
  * hooks exist — reconciled with D-21 rather than overriding it: every save STAGES (the

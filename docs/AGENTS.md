@@ -144,8 +144,10 @@ make web-check                # frontend: typecheck + lint + vitest + browser ax
 4. Compliance: an agent ALWAYS answers truthfully when asked whether it is an AI or
    whether the call is recorded — server-composed, appended to every prompt, verified
    against the engine, unreachable from any column or script. What it VOLUNTEERS at the
-   start of a call is two per-agent toggles (D-163: AI disclosure and recording notice
-   are separate obligations under separate regimes). A notice switched on is said in the
+   start of a call is two switches of the client account, one AI and one recording switch
+   for every call of the client, inbound and outbound (D-1021; two because, D-163, AI
+   disclosure and recording notice are separate obligations under separate regimes); the
+   words follow the call's direction. A notice switched on is said in the
    agent's own opening line, in its own words (D-971, founder, 5 Nov 2026: "When an opening
    is saved, Pip weaves the notices into that agent's own opening line in its own words,
    which the engine then speaks"); until Pip has rewritten the line the stored sentence is

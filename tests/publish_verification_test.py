@@ -277,10 +277,10 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     async with tenant_session(created["id"]) as session:
         await session.execute(
             text(
-                "UPDATE agents SET ai_disclosure_enabled = true, "
-                "recording_notice_enabled = true WHERE id = :a"
+                "UPDATE organizations SET notice_ai_enabled = true, "
+                "notice_recording_enabled = true WHERE id = :t"
             ),
-            {"a": created["agent_id"]},
+            {"t": created["id"]},
         )
     return created["id"], created["agent_id"]
 

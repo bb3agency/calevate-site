@@ -184,6 +184,9 @@ export function clientNavigation(slug: string): NavGroup[] {
         // wrong with a line lately (D-701). Beside Alerts: both are about what we do for
         // the owner when something needs them.
         { href: `/c/${slug}/settings/line-protection`, label: "Line protection", icon: LifeBuoy },
+        // The AI and recording notices every call opens with, one switch each for the
+        // whole account (D-1021): an account setting about the calls, beside the others.
+        { href: `/c/${slug}/settings/call-notices`, label: "Call notices", icon: Bot },
         // Which AI model every agent thinks with, and what each one costs a minute. It
         // sits in this group rather than beside "Agents" because it is an ACCOUNT-wide
         // default that happens to be about agents — the same reason the spending limit

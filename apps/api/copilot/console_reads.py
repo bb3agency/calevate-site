@@ -158,14 +158,15 @@ async def _agent_detail(
         + f", speaks {agent.language_primary}, {agent.inbound_number_count} number(s).",
         f"Voice: {agent.engine_voice_id or 'the platform default'}. "
         f"Model tier: {agent.llm_tier_label}.",
-        "Opening notices: AI disclosure "
+        # The roster carries the ACCOUNT's two switches (D-1021): one pair for every call.
+        "Opening notices (set for the whole account, `account_switch_set`): AI notice "
         + ("ON" if agent.ai_disclosure_enabled else "off")
         + ", recording notice "
         + ("ON" if agent.recording_notice_enabled else "off")
-        + ". Whatever the toggles, the agent always answers truthfully if asked whether "
+        + ". Whatever the switches, the agent always answers truthfully if asked whether "
         "it is an AI or whether the call is recorded.",
         # The notices and the opening line are separate things (D-708): the switches above
-        # decide only whether the notices follow the opening line (D-861).
+        # decide only whether the opening says the notices (D-971).
         "Its opening line (the greeting, from its script): "
         + (agent.script_opening_line or "none written yet")
         + ".",

@@ -120,16 +120,17 @@ async def _publish(
         await session.execute(
             text(
                 "UPDATE agents SET status = 'live', extraction_schema_id = :s, "
-                "ai_disclosure_enabled = :ai, recording_notice_enabled = :rec, "
                 "direction = :dir, updated_at = now() WHERE id = :a"
             ),
-            {
-                "s": schema_id,
-                "ai": ai_disclosure,
-                "rec": recording_notice,
-                "dir": direction,
-                "a": agent_id,
-            },
+            {"s": schema_id, "dir": direction, "a": agent_id},
+        )
+        # The account's switches (D-1021): one pair for every agent of the client.
+        await session.execute(
+            text(
+                "UPDATE organizations SET notice_ai_enabled = :ai, "
+                "notice_recording_enabled = :rec WHERE id = :t"
+            ),
+            {"ai": ai_disclosure, "rec": recording_notice, "t": tenant_id},
         )
 
 
@@ -330,20 +331,21 @@ async def test_the_draft_says_the_announcement_is_made_when_it_is() -> None:
     assert "says at the start of the call that it is an AI assistant" in draft.markdown  # type: ignore[attr-defined]
 
 
-async def test_an_agent_with_the_ai_announcement_off_changes_what_the_draft_says() -> None:
+async def test_an_account_with_the_ai_announcement_off_changes_what_the_draft_says() -> None:
     """The dangerous case, and the reason this is generated rather than templated.
 
-    D-163 made the AI disclosure a per-agent toggle. With it off the agent does not
-    VOLUNTEER that it is an AI, so the obligation moves into the client's own written
-    notice — and a draft that assumed the announcement is made would hand them a document
-    asserting something their agent does not do.
+    The AI notice is the account's switch (D-1021). With it off no call VOLUNTEERS that it
+    is an AI, so the obligation moves into the client's own written notice — and a draft
+    that assumed the announcement is made would hand them a document asserting something
+    their calls do not do.
     """
     tenant_id, agent_id, _, _ = await _tenant()
     await _publish(tenant_id, agent_id, ai_disclosure=False)
 
     draft = await _draft(tenant_id)
 
-    assert draft.ai_disclosure_off, "the agent with the announcement off was not named"  # type: ignore[attr-defined]
+    assert draft.ai_disclosure_off, "the agents with the announcement off were not named"  # type: ignore[attr-defined]
+    assert "do not announce themselves" in draft.markdown  # type: ignore[attr-defined]
     assert "says at the start of the call that it is an AI assistant" not in draft.markdown  # type: ignore[attr-defined]
     assert "you may be speaking to an AI assistant rather than a person" in draft.markdown  # type: ignore[attr-defined]
     # And the client is told this notice now carries the weight, as a task.

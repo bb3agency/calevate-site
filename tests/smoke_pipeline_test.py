@@ -58,23 +58,24 @@ async def _seed_tenant(engine_agent_ref: str) -> tuple[uuid.UUID, uuid.UUID]:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "INSERT INTO organizations (id, name, slug, status, created_at, updated_at) "
-                "VALUES (:id, 'Sunrise Clinic', :slug, 'active', now(), now())"
+                "INSERT INTO organizations (id, name, slug, status, notice_ai_enabled, "
+                "notice_recording_enabled, created_at, updated_at) "
+                "VALUES (:id, 'Sunrise Clinic', :slug, 'active', true, true, now(), now())"
             ),
             {"id": tenant_id, "slug": slug},
         )
         await session.execute(
             text(
-                # Both notices named ON rather than left to the column default, which is
-                # OFF since D-669: the disclosure-evidence and recording-artefact suites
+                # Both of the account's notices named ON (above) rather than left to the column
+                # default, OFF since D-669: the disclosure-evidence and recording-artefact suites
                 # that share this fixture score an agent that volunteers both.
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
                 "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, "
-                "ai_disclosure_enabled, recording_notice_enabled, status, "
+                "status, "
                 "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, "
                 "'Receptionist', 'inbound', 'Idi AI assistant. Call record avutundi.', 'Idi AI "
                 "assistant. Call record avutundi.', 'This call is being recorded.', 'I keep a "
-                "short note of what you ask about.', true, true, 'live', 'fake', :ref, now(), "
+                "short note of what you ask about.', 'live', 'fake', :ref, now(), "
                 "now())"
             ),
             {"id": agent_id, "tid": tenant_id, "ref": engine_agent_ref},
