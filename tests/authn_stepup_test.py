@@ -553,7 +553,11 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE runs the adoption job for a client (D-1019,
     # `admin/engine_retirement_routes.py::run_retirement`, `retirement_confirmation`, bound to
     # the client; a dry run takes no gate): it changes what answers the client's numbers.
-    assert sites == 94, f"found {sites} step-up call sites, expected 94; the census went stale"
+    # ONE MORE sets how many calling setups a client's workspace may hold
+    # (`admin/engine_workspace_routes.py::admin_set_agent_allowance`,
+    # `agent_allowance_confirmation`, bound to the client): it lifts the cap the vendor bills
+    # against.
+    assert sites == 95, f"found {sites} step-up call sites, expected 95; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.
