@@ -48,6 +48,7 @@ import { FoldSection } from "./FoldSection";
 import { SourcePicker, useChosenCount } from "./SourcePicker";
 import { CampaignFlow, FLOW_PART } from "./CampaignFlow";
 import { ScriptLanguagePick, languageName } from "./ScriptLanguages";
+import { MAIN_TASK_PLACEHOLDER } from "./NewCampaignSteps";
 
 // The review is drawn only while Pip's draft waits or the script is being edited, so it is
 // its own chunk rather than part of every campaign page's first load.
@@ -58,8 +59,6 @@ const ProposalReview = dynamic(
 
 export const MAIN_TASK_HINT = "What should this campaign achieve?";
 export const MAIN_TASK_INFO = "Write it in your own words, as much as you like. Pip writes the script from it.";
-export const MAIN_TASK_PLACEHOLDER =
-  "For example: call farmers who registered on Rytu Khata but never opened the app, and help them add it to their home screen, step by step for Android or iPhone.";
 export const SCRIPT_HINT = "What the agent says on each call.";
 export const SCRIPT_INFO =
   "Pip writes it from your main task and sources; change anything, any time. Only this campaign's calls say it; your agent's own script stays as it is.";

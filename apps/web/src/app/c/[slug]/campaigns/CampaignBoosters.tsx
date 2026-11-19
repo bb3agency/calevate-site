@@ -386,7 +386,7 @@ function OpeningTest({
         className={`${FIELD} min-h-20 w-full resize-y`}
         maxLength={200}
         value={text}
-        placeholder="Namaskaram! This is Anjali from Rytu Khata. Do you have two minutes to set up the app?"
+        placeholder="For example: a different first sentence, to hear which one gets more people talking."
         onChange={(e) => setText(e.target.value)}
       />
       <div className="mt-2 flex flex-wrap gap-2">

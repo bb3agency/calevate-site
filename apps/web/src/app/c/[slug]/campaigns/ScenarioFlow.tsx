@@ -908,7 +908,7 @@ function ScenarioEditor({
               value={s.name}
               maxLength={limits.nameMax}
               readOnly={readOnly}
-              placeholder="For example: Does not remember Rytu Khata"
+              placeholder="For example: Does not remember us"
               aria-invalid={issue("name") ? true : undefined}
               onChange={(e) =>
                 onChange(renameScenario(script, id, e.target.value))

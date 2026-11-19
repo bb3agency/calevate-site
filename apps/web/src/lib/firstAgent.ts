@@ -28,7 +28,8 @@ import {
 } from "lucide-react";
 
 import { formatCallCap } from "@/components/ui";
-import { LANGUAGE_CHOICES } from "@/lib/agentState";
+import { LANGUAGE_CHOICES, LANGUAGE_NAMES } from "@/lib/agentState";
+import { FALLBACK_LANGUAGE } from "@/lib/businessCapabilities";
 import type { Agent } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
 import type { FirstRun, FirstRunDocument, FirstRunJob } from "@/lib/api/firstRun";
@@ -207,13 +208,16 @@ export function languageShortLabel(tag: string): string {
 }
 
 export function languageLabel(tag: string | null | undefined): string {
-  return LANGUAGES.find((language) => language.tag === tag)?.label ?? "Telugu";
+  // A language outside the everyday picker (one the console switched on for this account,
+  // D-855) is named from the full table, and an unknown tag by itself: never as Telugu.
+  if (!tag) return "";
+  return LANGUAGE_NAMES[tag as keyof typeof LANGUAGE_NAMES] ?? tag;
 }
 
 /** The main language a new agent starts in: the business profile's first one we sell, else
- *  Telugu (we are Telugu-first). */
+ *  the platform default (`FALLBACK_LANGUAGE`, Telugu-first). */
 export function defaultLanguage(profileLanguages: readonly string[] | undefined): string {
-  return profileLanguages?.find((tag) => LANGUAGES.some((language) => language.tag === tag)) ?? "te-IN";
+  return profileLanguages?.find((tag) => LANGUAGES.some((language) => language.tag === tag)) ?? FALLBACK_LANGUAGE;
 }
 
 /** The agent this screen is building: the first run's own, else none. */

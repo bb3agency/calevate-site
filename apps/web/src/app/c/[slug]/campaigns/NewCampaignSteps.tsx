@@ -41,6 +41,10 @@ export interface ListQuery<T> {
   isLoading: boolean;
 }
 
+/** The main task box's example: an instruction any business can read as its own. */
+export const MAIN_TASK_PLACEHOLDER =
+  "For example: call the people who asked about us last month, answer their questions, and book a time with those still interested.";
+
 /**
  * The numbers a campaign can call from: the launch gate's own predicate (`places_calls`),
  * so the picker never offers a number the launch then refuses. Any of the account's numbers
@@ -374,7 +378,7 @@ function MainTaskField({ form }: { form: CampaignFormState }) {
         className={`${FIELD} mt-3 min-h-36 w-full resize-y bg-surface`}
         value={form.mainTask}
         maxLength={4000}
-        placeholder="For example: call farmers who registered on Rytu Khata but never opened the app, and help them add it to their home screen, step by step for Android or iPhone."
+        placeholder={MAIN_TASK_PLACEHOLDER}
         onChange={(e) => form.setMainTask(e.target.value)}
       />
       <p className="mt-1 text-right text-meta text-ink-faint">{form.mainTask.length.toLocaleString("en-IN")} / 4,000</p>

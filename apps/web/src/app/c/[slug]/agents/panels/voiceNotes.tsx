@@ -14,7 +14,6 @@ import { useActionFeedback } from "@/components/arc/feedback";
 import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatIST } from "@/components/ui";
 import { LANGUAGE_NAMES } from "@/lib/agentState";
 import { useClientSession } from "@/lib/api/session";
-import { founderLine } from "@/lib/founderLines";
 import { lookup } from "@/lib/lookup";
 import { useRetireVoiceNote, useTeachVoiceNote, useVoiceNotes } from "@/lib/api/voiceNotes";
 
@@ -83,7 +82,7 @@ export function AgentVoiceNotes({ agentId, canWrite = true }: { agentId: string;
           <input
             aria-label="Teach it how to sound"
             className={FIELD}
-            placeholder={`e.g. Speak a little slower, say Rytu Khata as ${founderLine("client.voice_notes.0")}`}
+            placeholder="e.g. Speak a little slower, and say our name the way our callers say it"
             value={typed}
             maxLength={300}
             onChange={(e) => setTyped(e.target.value)}
