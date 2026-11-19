@@ -14,8 +14,8 @@ opening that does not carry the woven words, so a call never goes out without on
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Final
+from dataclasses import dataclass, replace
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript
@@ -151,13 +151,147 @@ async def queue_opening_notices(session: AsyncSession, *, tenant_id: UUID, agent
     return queued is not None
 
 
+#: The job that writes the notices into an Inbound line's or a campaign's own script (D-1021).
+HOLDER_WEAVE_JOB: Final = "weave_holder_opening_notices"
+
+HolderKind = Literal["line", "campaign"]
+
+#: A holder's own script, its voice, a stamp that moves with every saved script, and the
+#: account's two switches (read on the holder's agent `a`, as every posture reads them).
+#: A campaign has no script version, so its stamp is the script's own digest.
+_HOLDER_SQL: Final[dict[str, str]] = {
+    "line": (
+        f"SELECT l.script, l.agent_id, CAST(l.version AS text) AS stamp, {AI_NOTICE_SQL} AS ai_on, "
+        f"{RECORDING_NOTICE_SQL} AS recording_on FROM inbound_lines l "
+        "JOIN agents a ON a.id = l.agent_id WHERE l.id = :hid AND l.archived_at IS NULL"
+    ),
+    "campaign": (
+        f"SELECT c.script, c.agent_id, md5(CAST(c.script AS text)) AS stamp, {AI_NOTICE_SQL} "
+        f"AS ai_on, {RECORDING_NOTICE_SQL} AS recording_on FROM campaigns c "
+        "JOIN agents a ON a.id = c.agent_id WHERE c.id = :hid AND c.archived_at IS NULL"
+    ),
+}
+
+#: Every holder of the account with a script of its own, for a switch flip to re-weave.
+_ACCOUNT_HOLDERS_SQL: Final = (
+    "SELECT 'line', id FROM inbound_lines WHERE archived_at IS NULL AND script IS NOT NULL "
+    "UNION ALL SELECT 'campaign', id FROM campaigns "
+    "WHERE archived_at IS NULL AND script IS NOT NULL"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class HolderWeaveState:
+    """An Inbound line's or a campaign's own script, its notices and the lines that do not
+    say them."""
+
+    kind: HolderKind
+    holder_id: UUID
+    agent_id: UUID
+    stamp: str
+    script: CallScript
+    woven: WovenNotices
+    todo: tuple[OpeningToWeave, ...]
+
+
+def holder_openings(
+    kind: HolderKind, script: CallScript, *, woven: WovenNotices
+) -> tuple[OpeningToWeave, ...]:
+    """The openings of a holder's script that do not say exactly the notices switched on.
+
+    A line answers calls, and may place call-backs with its placed-call opening (D-1019 D2),
+    so both its openings are read as a "both" agent's are. A campaign only places calls, so
+    its one opening is written as a placed call's (`placed`), kept in `opening_line`."""
+    if kind == "line":
+        return openings_to_weave(script, direction="both", woven=woven)
+    return tuple(
+        replace(line, placed=True)
+        for line in openings_to_weave(script, direction="inbound", woven=woven)
+    )
+
+
+async def holder_weave_state(
+    session: AsyncSession, kind: HolderKind, holder_id: UUID
+) -> HolderWeaveState | None:
+    """The holder's own script and what is left to weave, or None for a holder that is gone,
+    archived or has no script of its own (it speaks its agent's, woven on the agent)."""
+    row = (await session.execute(text(_HOLDER_SQL[kind]), {"hid": holder_id})).first()
+    if row is None or not isinstance(row.script, dict):
+        return None
+    woven = WovenNotices(
+        ai=bool(row.ai_on),
+        recording=bool(row.recording_on) and engine_capabilities().records_audio,
+    )
+    script = CallScript.model_validate(row.script)
+    return HolderWeaveState(
+        kind=kind,
+        holder_id=holder_id,
+        agent_id=UUID(str(row.agent_id)),
+        stamp=str(row.stamp),
+        script=script,
+        woven=woven,
+        todo=holder_openings(kind, script, woven=woven),
+    )
+
+
+async def queue_holder_opening_notices(
+    session: AsyncSession, *, tenant_id: UUID, kind: HolderKind, holder_id: UUID
+) -> bool:
+    """Queue the rewrite of a holder's openings that do not say the notices switched on, or
+    say one switched off; True when queued. Once per saved script and switch state."""
+    state = await holder_weave_state(session, kind, holder_id)
+    if state is None or not state.todo:
+        return False
+    queued = await enqueue_outbox_once(
+        session,
+        job=HOLDER_WEAVE_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "kind": kind,
+            "holder_id": str(holder_id),
+            "stamp": state.stamp,
+        },
+        dedupe_key=(
+            f"opening-notices:{kind}:{holder_id}:{state.stamp}:"
+            f"{int(state.woven.ai)}{int(state.woven.recording)}"
+        ),
+    )
+    if queued is not None:
+        log.info(
+            "holder_opening_notices_queued",
+            extra={"kind": kind, "holder_id": str(holder_id), "lines": len(state.todo)},
+        )
+    return queued is not None
+
+
+async def queue_account_holder_notices(session: AsyncSession, *, tenant_id: UUID) -> int:
+    """Queue the rewrite for every Inbound line and campaign of the account with a script of
+    its own (D-1021): the account's switch moved, so an opening woven under the old state
+    says a notice now off, or lacks one now on. Returns how many were queued."""
+    rows = (await session.execute(text(_ACCOUNT_HOLDERS_SQL))).all()
+    queued = 0
+    for kind, holder_id in rows:
+        if await queue_holder_opening_notices(
+            session, tenant_id=tenant_id, kind=kind, holder_id=UUID(str(holder_id))
+        ):
+            queued += 1
+    return queued
+
+
 __all__ = [
+    "HOLDER_WEAVE_JOB",
     "WEAVE_JOB",
     "WEAVE_NOTE",
+    "HolderKind",
+    "HolderWeaveState",
     "OpeningToWeave",
     "WeaveState",
+    "holder_openings",
+    "holder_weave_state",
     "notices_of",
     "openings_to_weave",
+    "queue_account_holder_notices",
+    "queue_holder_opening_notices",
     "queue_opening_notices",
     "weave_state",
 ]

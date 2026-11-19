@@ -20,12 +20,21 @@ from sqlalchemy import text
 
 from apps.api.agents import script_builder, script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
-from apps.api.agents.opening_notices import WEAVE_JOB, WEAVE_NOTE, OpeningToWeave, weave_state
+from apps.api.agents.opening_notices import (
+    WEAVE_JOB,
+    WEAVE_NOTE,
+    HolderKind,
+    OpeningToWeave,
+    holder_weave_state,
+    weave_state,
+)
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
+from apps.api.campaigns import workspace as campaign_workspace
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
+from apps.api.inbound import lines as inbound_lines
 from apps.workers.opening_line import WrittenOpening, opening_problems, write_opening
 from apps.workers.script_assist import JsonAnswer
 
@@ -156,4 +165,141 @@ async def weave_opening_notices(ctx: dict[str, Any], payload: dict[str, Any]) ->
     return "woven" if applied else "unwritten"
 
 
-__all__ = ["JOB_NAME", "weave_opening_notices"]
+async def weave_holder_opening_notices(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """The same rewrite for an Inbound line's or a campaign's own script (D-1021), queued by
+    `agents/opening_notices.queue_account_holder_notices` when the account's switch moves.
+
+    Saved through the holder's own save (`inbound/lines.save_script`,
+    `campaigns/workspace.save_script`, which hold it to its agent's limits), then put on its
+    calls as an owner's save is: a live line and a campaign holding its engine agent are
+    republished; a draft's reaches its calls when it goes live."""
+    del ctx
+    tenant_id = UUID(str(payload["tenant_id"]))
+    kind: HolderKind = "line" if payload["kind"] == "line" else "campaign"
+    holder_id = UUID(str(payload["holder_id"]))
+    stamp = str(payload["stamp"])
+    async with tenant_session(tenant_id) as session:
+        state = await holder_weave_state(session, kind, holder_id)
+        if state is None:
+            return "gone"
+        if state.stamp != stamp:
+            return "stale"
+        if not state.todo:
+            return "already_said"
+        brief = await script_proposals.brief_for(session, tenant_id, state.agent_id)
+        tenant_leg = await account_assist_leg(session)
+        quota = await read_ai_quota(session, tenant_id=tenant_id)
+    names = (brief.business_name, brief.agent_name)
+    spends: list[JsonAnswer[WrittenOpening] | ProblemError] = []
+    written: list[tuple[OpeningToWeave, WrittenOpening]] = []
+    for line in state.todo:
+        problems = opening_problems(
+            line.line,
+            brief.language,
+            names=names,
+            introduced=brief.introduced,
+            where=line.field,
+            woven=brief.woven,
+            said=line.said,
+        )
+        try:
+            answer = await write_opening(
+                brief,
+                line=line.line,
+                problems=problems,
+                tenant_leg=tenant_leg,
+                quota_exhausted=quota.at_ceiling or quota.platform_paused,
+                placed=line.placed,
+            )
+        except ProblemError as refused:
+            log.info(
+                "opening_notices_unwritten", extra={"reason": refused.code, "field": line.field}
+            )
+            spends.append(refused)
+            continue
+        spends.append(answer)
+        written.append((line, answer.value))
+    saved = False
+    async with tenant_session(tenant_id) as session:
+        # Read again under the holder's lock (taken by its save): a script the owner saved
+        # since is theirs, and the next switch flip asks again.
+        current = await holder_weave_state(session, kind, holder_id)
+        stale = current is None or current.stamp != stamp
+        if written and not stale:
+            update: dict[str, Any] = {}
+            for line, value in written:
+                record = (
+                    "outbound_opening_notices"
+                    if line.field != "opening_line"
+                    else ("opening_notices")
+                )
+                update[line.field] = value.line
+                update[record] = value.notices(before=line.line)
+            script = state.script.model_copy(update=update)
+            try:
+                async with session.begin_nested():
+                    if kind == "line":
+                        await inbound_lines.save_script(session, holder_id, script)
+                    else:
+                        await campaign_workspace.save_script(session, holder_id, script)
+                saved = True
+            except ProblemError as refused:
+                # The stored sentences are still said beside the old line.
+                log.info("opening_notices_not_applied", extra={"reason": refused.code})
+    await _meter(tenant_id, spends)
+    if saved:
+        await _put_holder_live(tenant_id, kind, holder_id)
+    log.info(
+        "holder_opening_notices_woven",
+        extra={
+            "kind": kind,
+            "holder_id": str(holder_id),
+            "written": len(written),
+            "saved": saved,
+            "stale": stale,
+        },
+    )
+    if stale:
+        return "stale"
+    return "woven" if saved else "unwritten"
+
+
+async def _put_holder_live(tenant_id: UUID, kind: HolderKind, holder_id: UUID) -> None:
+    """Put a re-woven script on the holder's calls, as its owner's save would: a live line
+    and a campaign holding its engine agent at once, a draft at its own Start or publish. A
+    refusal is logged and left: the stored sentences are said beside the old line meanwhile,
+    and the drift sweep reads the engine against our rows."""
+    from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES
+    from apps.api.campaigns.engine_agent import put_campaign_live
+    from apps.api.inbound.publish import put_line_live
+
+    async with tenant_session(tenant_id) as session:
+        if kind == "line":
+            goes = (await inbound_lines.read_line(session, holder_id)).live
+        else:
+            goes = bool(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT engine_agent_ref IS NOT NULL AND status = ANY(:holding) "
+                            "FROM campaigns WHERE id = :c"
+                        ),
+                        {"c": holder_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
+                    )
+                ).scalar_one_or_none()
+            )
+    if not goes:
+        return
+    try:
+        if kind == "line":
+            await put_line_live(tenant_id=tenant_id, line_id=holder_id)
+        else:
+            await put_campaign_live(tenant_id=tenant_id, campaign_id=holder_id)
+    except ProblemError as refused:
+        log.warning(
+            "holder_opening_notices_not_live",
+            extra={"kind": kind, "holder_id": str(holder_id), "reason": refused.code},
+        )
+
+
+__all__ = ["JOB_NAME", "weave_holder_opening_notices", "weave_opening_notices"]

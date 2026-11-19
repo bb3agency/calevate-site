@@ -302,7 +302,7 @@ from apps.workers.onboarding_completion import (
     SWEEP_SECOND as ONBOARDING_SWEEP_SECOND,
 )
 from apps.workers.onboarding_completion import complete_finished_onboardings
-from apps.workers.opening_notices import weave_opening_notices
+from apps.workers.opening_notices import weave_holder_opening_notices, weave_opening_notices
 from apps.workers.outbound_webhooks import deliver_outbound_webhook, retry_outbound_deliveries
 from apps.workers.outbox_consumer import consume_outbox_once
 from apps.workers.own_model_key import (
@@ -472,6 +472,9 @@ FUNCTIONS: list[Any] = [
         # An opening line written again to say the notices switched on in its own words
         # (D-971), from the outbox (`agents/opening_notices.queue_opening_notices`).
         weave_opening_notices,
+        # The same for an Inbound line's or a campaign's own script when the account's
+        # notice switches move (D-1021, `agents/opening_notices.queue_account_holder_notices`).
+        weave_holder_opening_notices,
         # The teach box (founder decision 9) and saved test cases made from real calls
         # (founder decision 11), both from the outbox (`apps/api/teach/`).
         run_kb_teaching,

@@ -104,7 +104,7 @@ from apps.api.agents.give_callers_time import apply_where_default
 from apps.api.agents.hosted_voices import parse_hosted_voice_id, source_rate_key
 from apps.api.agents.live_apply import queue_live_apply
 from apps.api.agents.models import is_published
-from apps.api.agents.opening_notices import queue_opening_notices
+from apps.api.agents.opening_notices import queue_account_holder_notices, queue_opening_notices
 from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.api.agents.service import (
     CAMPAIGN_HOLDING_STATUSES,
@@ -1689,7 +1689,8 @@ async def set_account_notices(
     (`live_apply.queue_live_apply`, D-720), queued in this transaction: every live agent of
     the account is republished from our rows, and each publish carries its lines, campaigns
     and experiment arms with it. Every opening is queued to be rewritten to say, or stop
-    saying, the notices (`queue_opening_notices`, D-971); until it is, the stored sentence
+    saying, the notices — each agent's (`queue_opening_notices`, D-971) and each Inbound line's
+    and campaign's own script (`queue_account_holder_notices`); until it is, the stored sentence
     is said beside it, so switching on is never a call without the notice. The dial gate
     composes the first words from the account's switch on every dial, so a placed call
     cannot go out without a notice that is on while its republish is still queued.
@@ -1734,6 +1735,9 @@ async def set_account_notices(
                 await queue_opening_notices(
                     session, tenant_id=tenant_id, agent_id=UUID(str(row[0]))
                 )
+            # The Inbound lines' and campaigns' own scripts too: each opening is rewritten to
+            # say, or stop saying, the notices in its own words.
+            await queue_account_holder_notices(session, tenant_id=tenant_id)
             run_id = await queue_live_apply(
                 session,
                 scope="tenant",
