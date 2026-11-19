@@ -3299,16 +3299,20 @@ async def publish_agent(
     # An agent already ready (live or paused) with no engine agent of its own stays without
     # one (D-1019), whatever `agents_hold_engine_agent` says: a settings save on it republishes
     # its lines and campaigns, and must not take one of the client's few workspace slots
-    # by creating an engine agent nobody asked for. Only a first publish of a draft creates one
-    # (`first_publish`: a caller that moved the agent out of draft in this transaction says
-    # so), and only while the setting is on.
+    # by creating an engine agent nobody asked for. While the setting is on, a first publish
+    # of a draft (`first_publish`: a caller that moved the agent out of draft in this
+    # transaction says so) still creates one; once it is off, nothing does.
     holds_none = (
         not onto_test_copy
-        and not first_publish
         and not agent["engine_agent_ref"]
-        and (not get_settings().agents_hold_engine_agent or agent["status"] in ("live", "paused"))
+        and (
+            not get_settings().agents_hold_engine_agent
+            or (not first_publish and agent["status"] in ("live", "paused"))
+        )
     )
-    if holds_none and not str(agent.get("prompt") or "").strip():
+    # Getting a draft ready with nothing to say is still refused (`_to_config`,
+    # `agent_has_no_script`): only an agent already ready is stamped with its name alone.
+    if holds_none and not first_publish and not str(agent.get("prompt") or "").strip():
         # Nothing of the agent's own is sent anywhere: this config only stamps the voice it
         # speaks in, and each line and campaign composes its own script over the agent
         # (`line_config`, `campaign_config`). An agent with no script of its own is normal now.

@@ -21,7 +21,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.agents import publishing
+from apps.api.agents import lifecycle, publishing
 from apps.api.agents import service as agents_service
 from apps.api.campaigns import engine_numbers
 from apps.api.core.errors import ProblemError
@@ -33,7 +33,11 @@ from apps.workers import healer
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.agent_lifecycle_test import (
+    _app,
+    _client,
+    _code,
     _fresh_engine,
+    _move,
     _number,
     _tenant,
     _write_script,
@@ -391,3 +395,39 @@ async def test_the_pending_read_carries_the_holders_answer() -> None:
         )
     assert response.status_code == 200, response.text
     assert response.json()["holders_verification"] is None
+
+
+@pytest.mark.usefixtures("no_own_engine_agent")
+async def test_getting_a_draft_ready_with_the_setting_off_creates_no_engine_agent() -> None:
+    # "Ready, not taking calls" on a new draft is a first publish; with the setting off it
+    # must not take one of the client's workspace slots.
+    engine = _fresh_engine()
+    tenant_id, agent_id, _ = await _tenant()
+    await _write_script(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await lifecycle.prepare_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+
+    status, ref = await _agent_row(tenant_id, agent_id)
+    assert status == "paused"
+    assert ref is None, "the draft was given an engine agent of its own"
+    assert engine._agents == {}
+    assert await _own_routes(tenant_id, agent_id) == 0
+
+
+@pytest.mark.usefixtures("no_own_engine_agent")
+async def test_getting_a_draft_with_nothing_to_say_ready_is_still_refused() -> None:
+    _fresh_engine()
+    tenant_id, _, token = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text("DELETE FROM business_profiles"))
+    async with _client(_app()) as http:
+        created = await http.post(
+            "/v1/agents",
+            json={"name": "Silent", "direction": "inbound"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    agent_id = UUID(created.json()["id"])
+
+    code, body = await _move(token, agent_id, "prepare")
+    assert code == 422, body
+    assert _code(body) == "agent_has_no_script", body
