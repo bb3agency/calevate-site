@@ -85,11 +85,11 @@ def _repair() -> sa.TextClause:
         "RETURNING o.id, w.ai, w.recording) "
         "INSERT INTO outbox_messages (id, job, payload, status, attempt_count, min_revision, "
         "dedupe_key, created_at, updated_at) "
-        f"SELECT gen_random_uuid(), '{JOB}', jsonb_build_object('tenant_id', id::text, "
+        "SELECT gen_random_uuid(), :job, jsonb_build_object('tenant_id', id::text, "
         "'ai', ai, 'recording', recording), 'pending', 0, :revision, "
         "'call-notices-repair:' || id::text || ':' || :revision, now(), now() FROM repaired "
         "ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING"
-    ).bindparams(revision=revision)
+    ).bindparams(revision=revision, job=JOB)
 
 
 def upgrade() -> None:

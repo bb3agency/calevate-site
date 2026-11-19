@@ -226,7 +226,9 @@ async def _stored(tenant_id: UUID, campaign_id: UUID) -> tuple[Any, Any]:
     return script, proposal
 
 
-async def _platform_refuses(*, tenant_id: UUID, campaign_id: UUID) -> str | None:
+async def _platform_refuses(
+    *, tenant_id: UUID, campaign_id: UUID, require_holding: bool = False
+) -> str | None:
     raise ProblemError.business_rule("engine_unavailable", "The calling platform did not answer.")
 
 

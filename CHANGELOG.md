@@ -3,6 +3,26 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.79 — 19-Nov-2026
+
+- Accounts whose agents had the AI or recording notice on before 0.4.78 have the account
+  switch back on, and their openings say it again.
+- Switching a notice on checks every opening it reaches, Inbound lines and campaigns
+  included, and names the one that has no room.
+- A placed call always opens with what is saved now, right after a change too.
+- Starting a campaign from Pip runs the same checks as the Start button.
+- Putting back a campaign's script from before Pip reaches its calls; keeping Pip's draft
+  is one step.
+- A long test call to your own number is never cut by a setup being handed back.
+- Minutes left after a trial ends match the limit that stops calling; a gift trial's month
+  bills every paid call of the month.
+- Key moments read the same time on the lead page and the call page; playback lights up the
+  caller's lines too.
+- A summary keeps what the caller said when it drops a feeling nobody said.
+- Details from your contact list fill numbers, yes/no, choices and dates too, on the lead
+  page as well.
+- A short answer is no longer flagged as stopping the conversation.
+
 ## 0.4.78 — 19-Nov-2026
 
 - The AI notice and the recording notice are now one switch each for the whole account,
