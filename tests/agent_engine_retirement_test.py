@@ -590,3 +590,29 @@ async def test_the_sweep_runs_only_when_its_setting_is_on(
     swept = await agent_engine_retirement.sweep_agent_engine_retirement({})
     assert "failed=0" in swept and "retired=1" in swept, swept
     assert await _agent_ref(tenant_id, agent_id) is None
+
+
+async def test_the_sweep_reaches_an_account_whose_routes_are_all_inactive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An erased account's routes are deactivated while its agent still holds a ref.
+    _fresh_engine()
+    tenant_id, agent_id = await _live_agent()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE engine_agent_routes SET active = false WHERE tenant_id = :t"),
+            {"t": tenant_id},
+        )
+
+    async def only_this_one(*, tenant_id: UUID, dry_run: bool) -> RetirementRun:
+        if tenant_id != mine:
+            return RetirementRun(tenant_id=tenant_id, dry_run=dry_run, agents=())
+        return await retire_for_tenant(tenant_id=tenant_id, dry_run=dry_run)
+
+    mine = tenant_id
+    monkeypatch.setattr(get_settings(), "agent_engine_retirement_sweep", True)
+    monkeypatch.setattr(agent_engine_retirement, "agents_still_get_their_own", lambda: False)
+    monkeypatch.setattr(agent_engine_retirement, "retire_for_tenant", only_this_one)
+    swept = await agent_engine_retirement.sweep_agent_engine_retirement({})
+    assert "failed=0" in swept and "retired=1" in swept, swept
+    assert await _agent_ref(tenant_id, agent_id) is None

@@ -25,11 +25,12 @@ from apps.workers.fleet_walk import WalkBudget, resumed_walk
 
 log = get_logger(__name__)
 
-#: Accounts with an engine agent routed, read untenanted (`agents` is invisible here). Every
-#: agent holding a ref has an active route.
+#: Accounts that ever had an engine agent routed, read untenanted (`agents` is invisible
+#: here). Not only active routes: an account's erasure deactivates its routes while its agent
+#: can still hold a ref, and a walk of active routes alone never reaches it.
 _TENANTS_SQL: Final = (
     "SELECT DISTINCT tenant_id FROM engine_agent_routes "
-    "WHERE active AND tenant_id IS NOT NULL ORDER BY tenant_id"
+    "WHERE tenant_id IS NOT NULL ORDER BY tenant_id"
 )
 
 
