@@ -93,6 +93,9 @@ ALREADY_RUN_AND_REPAIRED_ELSEWHERE = {
     # The `kb_chunks` projection read `kb_documents`; the embeddings sweep runs the same
     # `_BACKFILL` under each tenant, as `b7e35c2f81da` records.
     "dc1aaeeeff02_kb_chunks_the_retrieval_projection.py": "b7e35c2f81da (kb_embeddings sweep)",
+    # Per-tenant walks whose tenant list was read before any tenant was set.
+    "d8b2f5a7c3e1_inbound_lines.py": "bd9b4b153d5a",
+    "e3c7a1d9b4f2_campaign_sources.py": "bd9b4b153d5a",
 }
 
 #: ⚠ EMPTY, AND KEPT AS A NAMED EMPTY RATHER THAN DELETED.
@@ -198,6 +201,7 @@ def _unbracketed(source: str) -> set[str]:
             re.IGNORECASE,
         )
     }
+    walks_tenants = any(_SETS_TENANT.search(sql) for _, sql in literals)
     offenders: set[str] = set()
     for line, sql in literals:
         # A FUNCTION BODY IS NOT RUN BY THIS MIGRATION. `CREATE FUNCTION` stores the text;
@@ -207,6 +211,12 @@ def _unbracketed(source: str) -> set[str]:
         # trigger whose body inserts into `retention_worklist`, and counting that as a
         # migration-time write reported a defect in code that has none.
         if re.search(r"CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION", sql, re.IGNORECASE):
+            continue
+        # The tenant list a per-tenant walk loops over is read BEFORE any tenant is set, so
+        # under FORCE it is empty and the walk writes nothing, however correctly each write
+        # is scoped. `d8b2f5a7c3e1` and `e3c7a1d9b4f2` both shipped that way.
+        if walks_tenants and "organizations" not in guarded and _reads_unscoped(sql):
+            offenders.add("organizations")
             continue
         # A block that sets `app.tenant_id` itself before its writes runs them under each
         # tenant's own policy, so they match that tenant's rows rather than none.
@@ -241,6 +251,18 @@ def _sets_tenant_first(sql: str) -> bool:
     scoped = _SETS_TENANT.search(sql)
     first_write = DML.search(sql)
     return scoped is not None and first_write is not None and scoped.start() < first_write.start()
+
+
+_READS_ORGANIZATIONS = re.compile(r"\b(?:FROM|JOIN)\s+(?:ONLY\s+)?organizations\b", re.IGNORECASE)
+
+
+def _reads_unscoped(sql: str) -> bool:
+    """True when the literal reads `organizations` before it sets a tenant, if it sets one."""
+    read = _READS_ORGANIZATIONS.search(sql)
+    if read is None:
+        return False
+    scoped = _SETS_TENANT.search(sql)
+    return scoped is None or read.start() < scoped.start()
 
 
 def _created_before(source: str, table: str, line: int, forced: list[int]) -> bool:
@@ -340,6 +362,8 @@ def test_the_exception_list_is_closed_and_names_who_pays_the_debt() -> None:
         "a2d8e6c4f1b7_notices_carry_no_greeting.py",
         "e9b4c2a7d136_notices_in_their_own_script.py",
         "dc1aaeeeff02_kb_chunks_the_retrieval_projection.py",
+        "d8b2f5a7c3e1_inbound_lines.py",
+        "e3c7a1d9b4f2_campaign_sources.py",
     }
     assert not UNAUDITED_PRE_EXISTING, (
         "an unaudited entry is a defect that has run in production with no repair written "
@@ -389,17 +413,23 @@ def test_the_repair_migration_actually_seeds_the_row_the_broken_one_missed() -> 
 
 
 def test_a_write_scoped_to_each_tenant_passes_and_an_unscoped_one_does_not() -> None:
-    """FAILS IF: the tenant-scoped exception widens to a write that sets no tenant first."""
-    scoped = (
+    """FAILS IF: the tenant-scoped exception widens to a write that sets no tenant first, or
+    clears a walk whose tenant list is read before any tenant is set (`d8b2f5a7c3e1`)."""
+    walk = (
         'from alembic import op\n\nSQL = """\nDO $$ DECLARE t uuid; BEGIN\n'
         "FOR t IN SELECT id FROM organizations LOOP\n"
         "  PERFORM set_config('app.tenant_id', t::text, true);\n"
         '  UPDATE agents SET name = name;\nEND LOOP; END $$;\n"""\n'
     )
+    assert _unbracketed(walk) == {"organizations"}
+    scoped = walk + (
+        'LIFT = "ALTER TABLE organizations NO FORCE ROW LEVEL SECURITY"\n'
+        'RESTORE = "ALTER TABLE organizations FORCE ROW LEVEL SECURITY"\n'
+    )
     assert _unbracketed(scoped) == set()
-    unscoped = scoped.replace("  PERFORM set_config('app.tenant_id', t::text, true);\n", "")
+    unscoped = walk.replace("  PERFORM set_config('app.tenant_id', t::text, true);\n", "")
     assert _unbracketed(unscoped) == {"agents", "organizations"}
-    cleared = scoped.replace("t::text", "''")
+    cleared = walk.replace("t::text", "''")
     assert _unbracketed(cleared) == {"agents", "organizations"}
 
 

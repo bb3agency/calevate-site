@@ -113,6 +113,11 @@ DATA_ONLY_REPAIRS: dict[str, str] = {
         "DDL beyond the RLS bracket, ON CONFLICT DO NOTHING cannot tell its rows from the "
         "original's, and deleting one would send that account to a review it was spared"
     ),
+    "bd9b4b153d5a": (
+        "re-runs d8b2f5a7c3e1's Inbound-line and e3c7a1d9b4f2's campaign-source backfills "
+        "that FORCE-RLS swallowed; no DDL beyond the RLS bracket, their rows cannot be told "
+        "apart from the originals', and the owner may have edited them since"
+    ),
     "a4f7d20c81be": (
         "seeds the two D-179 retention rows for tenants that predate it; no DDL, and "
         "the INSERT is ON CONFLICT DO NOTHING so it cannot tell a row it wrote from one "

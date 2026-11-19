@@ -88,17 +88,27 @@ def _words_of(kind: str, url: str | None, note: str | None) -> str:
     return note or ""
 
 
-def _carry_over(bind: sa.Connection, tenant_id: object) -> None:
+def _carry_over(
+    bind: sa.Connection, tenant_id: object, campaigns: set[object] | None = None
+) -> None:
+    """One tenant's live campaign materials as picks. `campaigns`, when given, limits it to
+    those campaigns: `bd9b4b153d5a` re-runs this for the campaigns that still have no picks."""
     from apps.api.db.base import uuid7
     from apps.api.kb.service import chunk_text
     from apps.api.teach.facts import FACTS_SOURCE_NAME
 
     for campaign_id, source_id, created_by in bind.execute(_POINTERS).all():
+        if campaigns is not None and campaign_id not in campaigns:
+            continue
         bind.execute(
             _PICK,
             {"id": uuid7(), "t": tenant_id, "c": campaign_id, "s": source_id, "by": created_by},
         )
-    rows = bind.execute(_WORDS).all()
+    rows = [
+        row
+        for row in bind.execute(_WORDS).all()
+        if campaigns is None or row.campaign_id in campaigns
+    ]
     if not rows:
         return
     # Named by tenant: inside the bracket the owner reads every tenant's rows.

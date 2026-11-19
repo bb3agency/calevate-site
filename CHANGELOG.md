@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.80 — 19-Nov-2026
+
+- Campaigns created before 16 Nov get the files and notes they were written from back, as
+  picks from What your agents know. A campaign you have already picked for is left as it is.
+- A number that answers calls and had no Inbound line gets one.
+
 ## 0.4.79 — 19-Nov-2026
 
 - Accounts whose agents had the AI or recording notice on before 0.4.78 have the account
