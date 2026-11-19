@@ -415,11 +415,14 @@ async def record_engine_rate_key(
 ) -> None:
     """Stamp which rate a vendor agent's minutes are metered at, and the model of our own
     key it answers with (None: the engine's own model). For the publish path, in the tenant
-    session that wrote the route row."""
+    session that wrote the route row. `rate_key_changed_at` moves only when the key does: it
+    is what the meter reads to tell a voice moved mid-call (D-987)."""
     _require_rate_key(rate_key, keys=ENGINE_RATE_KEYS)
     await session.execute(
         text(
             "UPDATE engine_agent_routes SET engine_rate_key = :k, engine_own_model = :m, "
+            "rate_key_changed_at = CASE WHEN engine_rate_key IS DISTINCT FROM CAST(:k AS text) "
+            "THEN now() ELSE rate_key_changed_at END, "
             "updated_at = now() WHERE engine = :e AND engine_agent_ref = :ref"
         ),
         {"k": rate_key, "m": own_model, "e": engine, "ref": engine_agent_ref},
@@ -519,7 +522,7 @@ async def engine_minute_cost(
     ref no route carries) the agent's active route is used.
 
     `ran_keys` / `ran_voice_plan` are the platform's billing of the call (`CallBilling`). When
-    they name another rate than the route's AND the route was re-stamped after the call began
+    they name another rate than the route's AND the route's rate key changed after the call began
     (the agent's voice moved mid-flight, as a healer switch does, D-987), the call is metered
     at what it ran on: each call billed on the voice that spoke it.
 
@@ -546,7 +549,8 @@ async def engine_minute_cost(
         await session.execute(
             text(
                 "SELECT r.engine_rate_key, r.engine_own_model, "
-                "r.updated_at > coalesce(c.started_at, c.created_at) FROM calls c "
+                # Not `updated_at`: the drift, knowledge and webhook sweeps bump it hourly.
+                "r.rate_key_changed_at > coalesce(c.started_at, c.created_at) FROM calls c "
                 "JOIN engine_agent_routes r "
                 "ON r.agent_id = c.agent_id AND r.tenant_id = c.tenant_id AND r.engine = :e "
                 "WHERE c.id = :cid AND c.tenant_id = :tid "

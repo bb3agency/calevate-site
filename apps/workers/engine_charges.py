@@ -1002,13 +1002,37 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
     complete = True
     other_currency = 0
     walk = WalkReport()
+    unreadable: list[str] = []
     async for visit in walk_workspaces("engine_charges", report=walk):
-        with in_workspace(visit.workspace):
-            listing = await engine.list_call_charges(since=since)
+        try:
+            with in_workspace(visit.workspace):
+                listing = await engine.list_call_charges(since=since)
+        except Exception as exc:
+            # Kept inside the visit: the walk's cursor moves past a workspace only once the
+            # body returns, so an escaping error would drop every other workspace's charges
+            # and put this one first again on every run.
+            label = visit.workspace or "developer"
+            log.warning(
+                "engine_charge_workspace_unreadable",
+                extra={"workspace": label, "engine": engine.name, "error": type(exc).__name__},
+            )
+            unreadable.append(f"{label} ({type(exc).__name__})")
+            complete = False
+            continue
         charges.extend(listing.charges)
         complete = complete and listing.complete
         other_currency += listing.other_currency
     complete = complete and walk.deferred == 0
+    if unreadable:
+        alert(
+            "WORKER_DELIVERY",
+            "engine_charge_workspace_unreadable",
+            detail=(
+                f"engine={engine.name}: {len(unreadable)} workspace(s)' call charges could not "
+                f"be listed and are read again on a later run; the others were compared: "
+                f"{', '.join(unreadable[:_ALERT_ID_LIMIT])}"
+            ),
+        )
     restated = await restate_minutes_without_fee(engine.name)
     # After the restatement, so a restatement written earlier at a higher fee is corrected.
     corrected = await correct_overstated_fees(engine.name)

@@ -478,6 +478,111 @@ async def test_charges_are_read_in_every_workspace(monkeypatch: pytest.MonkeyPat
     assert "workspaces=2" in outcome
 
 
+def _two_client_workspaces(monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = [
+        resolver.WorkspaceRow(tenant_id=UUID(int=81), status="active", workspace_id="org_bad"),
+        resolver.WorkspaceRow(tenant_id=UUID(int=82), status="active", workspace_id="org_ok"),
+    ]
+
+    async def _active(**_kw: Any) -> list[resolver.WorkspaceRow]:
+        return rows
+
+    monkeypatch.setattr(workspace_walk, "active_workspaces", _active)
+
+
+async def _cursor(sweep: str) -> str | None:
+    from apps.workers.fleet_walk import WalkCursor
+
+    return await WalkCursor(sweep, key_template=workspace_walk._CURSOR_KEY).last()
+
+
+async def test_one_unreadable_workspace_keeps_the_others_charges(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A workspace whose call log cannot be read is reported and skipped; the others are
+    still compared, the sweep is incomplete, and the walk moves past it."""
+    from apps.api.engine.charges import EngineChargeListing
+    from apps.api.engine.thinnest_workspace import current_workspace
+    from apps.workers import engine_charges
+
+    read_in: list[str | None] = []
+    raised: list[tuple[str, str, str | None]] = []
+
+    class _Engine:
+        name = "thinnest"
+
+        def holds_credentials(self) -> bool:
+            return True
+
+        async def list_call_charges(self, *, since: Any) -> EngineChargeListing:
+            read_in.append(current_workspace())
+            if current_workspace() == "org_bad":
+                raise RuntimeError("refused")
+            return EngineChargeListing(charges=[], complete=True, other_currency=0)
+
+    def _alert(stage: str, code: str, *, detail: str | None = None, **_ids: str) -> None:
+        raised.append((stage, code, detail))
+
+    _two_client_workspaces(monkeypatch)
+    monkeypatch.setattr(engine_charges, "get_engine", lambda: _Engine())
+    monkeypatch.setattr(engine_charges, "alert", _alert)
+    outcome = await engine_charges.reconcile_engine_charges({})
+
+    assert sorted(w or "" for w in read_in) == ["", "org_bad", "org_ok"]
+    assert "complete=False" in outcome
+    assert [(s, c) for s, c, _d in raised] == [
+        ("WORKER_DELIVERY", "engine_charge_workspace_unreadable")
+    ]
+    assert "org_bad (RuntimeError)" in (raised[0][2] or "")
+    last = read_in[-1]
+    assert await _cursor("engine_charges") == str(UUID(int=81 if last == "org_bad" else 82))
+
+
+async def test_one_unreadable_workspace_keeps_the_others_executions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reconciliation listing keeps every workspace it could read, says which one it
+    could not, and marks itself a partial fan-out rather than an engine outage."""
+    from datetime import UTC, datetime
+
+    from apps.api.engine.thinnest_workspace import current_workspace
+    from apps.workers import pipeline
+    from calevate_shared.engine import ExecutionListing
+
+    read_in: list[str | None] = []
+    raised: list[tuple[str, str, str | None]] = []
+
+    class _Engine:
+        name = "thinnest"
+
+        async def list_executions(self, *, since: Any) -> ExecutionListing:
+            read_in.append(current_workspace())
+            if current_workspace() == "org_bad":
+                raise RuntimeError("refused")
+            return ExecutionListing(snapshots=[], complete=True, pages_fetched=1)
+
+    def _alert(stage: str, code: str, *, detail: str | None = None, **_ids: str) -> None:
+        raised.append((stage, code, detail))
+
+    _two_client_workspaces(monkeypatch)
+    monkeypatch.setattr(pipeline, "alert", _alert)
+    listing = await pipeline._listing_over_workspaces(
+        _Engine(),  # type: ignore[arg-type]
+        datetime.now(UTC),
+    )
+
+    assert sorted(w or "" for w in read_in) == ["", "org_bad", "org_ok"]
+    assert listing.complete is False
+    assert listing.incomplete_reason == "partial_fan_out"
+    assert listing.pages_fetched == 2
+    assert [(s, c) for s, c, _d in raised] == [
+        ("WORKER_DELIVERY", "reconciliation_workspace_unreadable")
+    ]
+    assert "org_bad (RuntimeError)" in (raised[0][2] or "")
+    last = read_in[-1]
+    assert await _cursor("executions") == str(UUID(int=81 if last == "org_bad" else 82))
+
+
 # --- a trial an operator ends -------------------------------------------------------------
 
 

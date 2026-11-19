@@ -1846,6 +1846,9 @@ engine_agent_routes(engine, engine_agent_ref, tenant_id, agent_id, active,
   -- model of OUR language-model key the vendor agent was published on, NULL on the engine's
   -- own model; the meter costs the call's tokens at its attested price. engine_rate_key
   -- admits `platform, standard, premium, studio, byok_voice, byok_llm_voice`.
+  -- rate_key_changed_at TIMESTAMPTZ NULL (d7e2a9c4f1b6): set only when engine_rate_key
+  -- takes a new value; the meter bills a call on the voice that ran only when this is
+  -- after the call began (D-987). NULL: not known to have changed, read as not moved.
   -- The inbound routing table: (vendor engine, vendor agent id) → (tenant, agent).
   -- WHY IT IS EXEMPT: an engine webhook arrives carrying only the VENDOR's agent id —
   -- no session, no tenant, no GUC — so resolving it is inherently a cross-tenant read.

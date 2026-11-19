@@ -23,7 +23,11 @@ from uuid import UUID
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from apps.api.billing.engine_minutes import engine_minute_cost, rate_key_ran
+from apps.api.billing.engine_minutes import (
+    engine_minute_cost,
+    rate_key_ran,
+    record_engine_rate_key,
+)
 from apps.api.core.alarm_severity import ALARM_SEVERITY
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
@@ -767,40 +771,80 @@ async def test_a_call_that_began_before_a_switch_is_billed_on_the_voice_that_spo
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
-                "active, engine_rate_key, created_at, updated_at) VALUES ('thinnest', :r, :t, :a, "
-                "true, 'studio', now() - interval '1 day', now())"
+                "active, engine_rate_key, rate_key_changed_at, created_at, updated_at) VALUES "
+                "('thinnest', :r, :t, :a, true, 'studio', now(), now() - interval '1 day', now())"
             ),
             {"r": f"bill_{agent_id.hex}", "t": tenant_id, "a": agent_id},
         )
-        moved = await engine_minute_cost(
-            session,
-            engine="thinnest",
-            tenant_id=tenant_id,
-            call_id=call_id,
-            seconds=Decimal(60),
-            at=datetime.now(UTC),
-            ran_keys="llm_voice",
-        )
+
+        async def _cost() -> Any:
+            return await engine_minute_cost(
+                session,
+                engine="thinnest",
+                tenant_id=tenant_id,
+                call_id=call_id,
+                seconds=Decimal(60),
+                at=datetime.now(UTC),
+                ran_keys="llm_voice",
+            )
+
+        moved = await _cost()
         assert moved.rate_key == "byok_llm_voice" and moved.client_rate_key == "byok_llm_voice"
         await session.execute(
             text(
-                "UPDATE engine_agent_routes SET updated_at = now() - interval '1 day' "
+                "UPDATE engine_agent_routes SET rate_key_changed_at = now() - interval '1 day' "
                 "WHERE agent_id = :a"
             ),
             {"a": agent_id},
         )
-        unmoved = await engine_minute_cost(
-            session,
-            engine="thinnest",
-            tenant_id=tenant_id,
-            call_id=call_id,
-            seconds=Decimal(60),
-            at=datetime.now(UTC),
-            ran_keys="llm_voice",
+        unmoved = await _cost()
+        # A sweep touching the route (drift, knowledge, webhook) is not a voice move.
+        await session.execute(
+            text(
+                "UPDATE engine_agent_routes SET rate_key_changed_at = NULL, updated_at = now() "
+                "WHERE agent_id = :a"
+            ),
+            {"a": agent_id},
         )
+        swept = await _cost()
     # The route did not move after the call began: its key stands (a key of ours gone at
     # the start still shows as a mismatch in the charge comparison).
     assert unmoved.rate_key == "studio"
+    assert swept.rate_key == "studio"
+
+
+async def test_only_a_new_rate_key_marks_the_route_as_moved() -> None:
+    tenant_id, agent_id = await _agent("stamp", STUDIO)
+    ref = f"stamp_{agent_id.hex}"
+
+    async def _changed_at() -> Any:
+        return (
+            await session.execute(
+                text(
+                    "SELECT rate_key_changed_at FROM engine_agent_routes "
+                    "WHERE engine_agent_ref = :r"
+                ),
+                {"r": ref},
+            )
+        ).scalar()
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
+                "active, engine_rate_key, created_at, updated_at) VALUES "
+                "('thinnest', :r, :t, :a, true, 'studio', now(), now())"
+            ),
+            {"r": ref, "t": tenant_id, "a": agent_id},
+        )
+        await record_engine_rate_key(
+            session, engine="thinnest", engine_agent_ref=ref, rate_key="studio"
+        )
+        assert await _changed_at() is None
+        await record_engine_rate_key(
+            session, engine="thinnest", engine_agent_ref=ref, rate_key="premium"
+        )
+        assert await _changed_at() is not None
 
 
 # --- the publish watch, summaries, notices ---------------------------------------------------

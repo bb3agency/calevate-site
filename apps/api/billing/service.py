@@ -82,7 +82,7 @@ from apps.api.billing.rates import (
     is_surchargeable_llm_model,
     stored_voice_tier,
 )
-from apps.api.billing.trials import ON_TRIAL_ROW_SQL, counter_epoch, read_trial
+from apps.api.billing.trials import ON_TRIAL_ROW_SQL, TrialState, counter_epoch, read_trial
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -2770,6 +2770,58 @@ class MonthIncrement:
     llm_surcharge_inr: Decimal
 
 
+def _without_call(buckets: dict[str, Decimal], key: str, seconds: Decimal) -> dict[str, Decimal]:
+    """`buckets` with this call's `seconds` taken back off `key`: the month before the call.
+
+    `max(0, …)` cannot bind on the meter's path for a paid call — its rows are in this
+    transaction and in this month, so they are in the sum just read. It is kept because a
+    negative bucket would make `allocate_paise` refuse rather than answer, and seconds the
+    read does not hold should give "this call added nothing" rather than an exception."""
+    before = dict(buckets)
+    before[key] = max(Decimal("0"), before.get(key, Decimal("0")) - seconds)
+    return before
+
+
+@dataclass(frozen=True, slots=True)
+class CountingWindow:
+    """Which rows of a month a client is charged for (D-536): read by `usage_summary`, which
+    prices the panel and the invoice, and by `month_increment`, which charges the live
+    counter the same overage, so the two cannot price one month over different rows."""
+
+    #: Where the current counting period begins (`trials.counter_epoch`); None for an
+    #: account that never had a trial, whose window is the plain IST month.
+    epoch: datetime | None
+    trial: TrialState | None
+    trial_active: bool
+    #: A running trial covers the open period only: a closed month was charged, and
+    #: reading it while a later trial runs must still say what it cost.
+    period_on_us: bool
+    #: A paid period counts only paid calls. The window is dated by `occurred_at`, a call's
+    #: END, and a trial call is free by its START, so a call that began inside the trial
+    #: and ended after the first top-up lands inside the paid window with no debit behind
+    #: it (`trials.ON_TRIAL_ROW_SQL` reads the meter's decision). Only an account that has
+    #: had a trial pays for the predicate.
+    paid_only: bool
+
+
+async def counting_window(
+    session: AsyncSession, *, tenant_id: UUID, period: str, today: str, at: datetime
+) -> CountingWindow:
+    """The window `period` is charged over, judged at `at` with `today` the open month
+    (both passed so a caller reading the clock once keeps one reading)."""
+    epoch = await counter_epoch(session, tenant_id=tenant_id)
+    trial = await read_trial(session, tenant_id=tenant_id)
+    trial_active = trial is not None and trial.is_active(at=at)
+    period_on_us = trial_active and period == today
+    return CountingWindow(
+        epoch=epoch,
+        trial=trial,
+        trial_active=trial_active,
+        period_on_us=period_on_us,
+        paid_only=epoch is not None and not period_on_us,
+    )
+
+
 async def month_increment(
     session: AsyncSession,
     *,
@@ -2840,34 +2892,53 @@ async def month_increment(
     invoice prints by the accumulated remainder. Computed as a difference it telescopes to
     the month's own surcharge exactly — including across a month that straddles a model
     switch, where the ledger simply holds two buckets and this call moves one of them.
+
+    **THE TWO HALVES READ DIFFERENT WINDOWS.** The minutes are the whole IST month, trial
+    minutes included, because a minute ceiling limits calling. The rupees are read over
+    `usage_summary`'s own window (`counting_window`): from the trial boundary, paid calls
+    only. Read over the whole month, a trial that ended mid-month would have spent the
+    plan's included minutes on free calls and the counter would charge overage the
+    invoice never prints. A call the trial covered falls outside that window; its caller
+    charges it nothing, so the rupee half for it is never used.
     """
     after = await rung_seconds(session, tenant_id=tenant_id, month=month)
-    before_seconds = dict(after.by_rung)
-    before_models = dict(after.by_llm_model)
-    # `max(0, …)` cannot bind on the meter's path — the rows for `seconds` are in this
-    # transaction and in this month, so they are in the sum we just read. It is kept
-    # because a negative bucket would make `allocate_paise` refuse rather than answer,
-    # and a caller that passed seconds the ledger does not hold should get the honest
-    # "this call added nothing" instead of an exception on a metered call.
-    before_seconds[tier] = max(Decimal("0"), before_seconds[tier] - seconds)
-    before_models[llm_model_bucket] = max(
-        Decimal("0"), before_models.get(llm_model_bucket, Decimal("0")) - seconds
-    )
     after_minutes = rung_minutes(after.by_rung)
-    before_minutes = rung_minutes(before_seconds)
+    before_minutes = rung_minutes(_without_call(after.by_rung, tier, seconds))
+    window = await counting_window(
+        session,
+        tenant_id=tenant_id,
+        period=month,
+        today=current_billing_month(),
+        at=datetime.now(UTC),
+    )
+    paid = (
+        await rung_seconds(
+            session,
+            tenant_id=tenant_id,
+            month=month,
+            since=window.epoch,
+            paid_only=window.paid_only,
+        )
+        if window.epoch is not None
+        else after
+    )
+    paid_after = rung_minutes(paid.by_rung)
+    paid_before = rung_minutes(_without_call(paid.by_rung, tier, seconds))
     # Both partitions are re-allocated over the same "before" total, so the surcharge's
     # before-state is the month the previous call priced against — the property that makes
     # the increments telescope on this axis too.
-    after_model_minutes = llm_model_minutes(after.by_llm_model)
-    before_model_minutes = llm_model_minutes(before_models)
+    after_model_minutes = llm_model_minutes(paid.by_llm_model)
+    before_model_minutes = llm_model_minutes(
+        _without_call(paid.by_llm_model, llm_model_bucket, seconds)
+    )
     after_overage = priced_overage(
-        minutes_by_rung=after_minutes,
+        minutes_by_rung=paid_after,
         included_min=included_min,
         rate=rate,
         rate_value=rate_value,
     )
     before_overage = priced_overage(
-        minutes_by_rung=before_minutes,
+        minutes_by_rung=paid_before,
         included_min=included_min,
         rate=rate,
         rate_value=rate_value,
@@ -2986,19 +3057,9 @@ async def usage_summary(
     # boundary, and every figure below is counted from there: "when the trial is lifted or
     # over or stopped the numbers should start from 0 again". Nothing is deleted to make
     # that true; the WINDOW moves, and `usage_events` keeps every row (hard rule 4).
-    epoch = await counter_epoch(session, tenant_id=tenant_id)
-    trial = await read_trial(session, tenant_id=tenant_id)
-    trial_active = trial is not None and trial.is_active(at=at)
-    # WHETHER THE MONTH ON SCREEN IS THE ONE ON US. A running trial covers the open period
-    # only: a closed month was charged, and reading it while a later trial runs must still
-    # say what it cost rather than ₹0.00 "on us".
-    period_on_us = trial_active and period == today
-    # A PAID PERIOD COUNTS ONLY PAID CALLS. The window is dated by `occurred_at`, a call's
-    # END, and a trial call is free by its START, so a call that began inside the trial and
-    # ended after the first top-up lands inside the paid window with no debit behind it
-    # (`trials.ON_TRIAL_ROW_SQL` reads the meter's decision). Only an account that has had
-    # a trial (`epoch`) pays for the predicate.
-    paid_only = epoch is not None and not period_on_us
+    window = await counting_window(session, tenant_id=tenant_id, period=period, today=today, at=at)
+    epoch, trial, trial_active = window.epoch, window.trial, window.trial_active
+    period_on_us, paid_only = window.period_on_us, window.paid_only
     # WHICH VOICE SPOKE THIS MONTH'S MINUTES, AND WHAT THE WALLET WAS ACTUALLY CHARGED
     # (D-547) — out of the ledger's own lot splits, over the same window as the minutes.
     lot_charges = await voice_tier_usage(session, tenant_id=tenant_id, month=period, since=epoch)

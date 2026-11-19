@@ -489,9 +489,24 @@ async def smoke_trial_call(
     idempotency_key: Annotated[str | None, Header()] = None,
 ) -> TrialSmokeCallOut:
     from apps.api.agents.trial_calls import place_trial_call
+    from apps.api.compliance.trial_access import read_trial_access
 
     async with tenant_session(tenant_id) as scoped:
         await _assert_tenant_exists(tenant_id, scoped)
+        on_trial = await read_trial_access(scoped, tenant_id=tenant_id) is not None
+    if not on_trial:
+        # On a paying account the same call rings through the client's own workspace, is
+        # billed to its wallet and counts against its daily test-call cap (D-1020).
+        raise ProblemError(
+            kind="conflict",
+            code="smoke_call_not_on_trial",
+            title="This client is not on a free trial",
+            detail=(
+                "The operator's smoke test is for a client on a free trial. On a paying "
+                "account it would bill the client's wallet and use their daily test calls."
+            ),
+            remediation="Ask the client to place the test call from their own dashboard.",
+        )
     key = require_idempotency_key(
         idempotency_key,
         title="A test call needs an Idempotency-Key header",

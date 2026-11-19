@@ -21,6 +21,7 @@ from calevate_shared.backoff import ladder_delay_s
 from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 
+from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
@@ -131,8 +132,18 @@ async def _retire_test_copies(session: Any, *, tenant_id: UUID, workspace: str |
     return retired
 
 
-async def _retire_copies_outside_workspaces() -> int:
-    """Retire the idle test copies of accounts with no active workspace of their own.
+def _sweep_failed(stage: str, tenant_id: UUID, exc: Exception) -> None:
+    # The walk's cursor moves only once the body returns, so an account that raised and was
+    # not caught here would be first in line again every hour and stop every one behind it.
+    log.warning(
+        "agent_move_sweep_failed",
+        extra={"tenant_id": str(tenant_id), "stage": stage, "error": type(exc).__name__},
+    )
+
+
+async def _retire_copies_outside_workspaces() -> tuple[int, int]:
+    """Retire the idle test copies of accounts with no active workspace of their own, as
+    (copies retired, accounts that failed).
 
     A free-trial account's "Just the business" copy (`agents/business_only`) is made in our
     developer workspace like every test copy, and that workspace's agents count against one
@@ -141,11 +152,15 @@ async def _retire_copies_outside_workspaces() -> int:
     async with untenanted_session() as directory:
         routed = {UUID(str(r[0])) for r in (await directory.execute(text(_ROUTED_TENANTS_SQL)))}
     outside = sorted(routed - {row.tenant_id for row in await active_workspaces()})
-    retired = 0
+    retired = failed = 0
     async for tenant_id in resumed_walk("agent_test_copies_outside", outside, WalkBudget()):
-        async with tenant_session(tenant_id) as session:
-            retired += await _retire_test_copies(session, tenant_id=tenant_id, workspace=None)
-    return retired
+        try:
+            async with tenant_session(tenant_id) as session:
+                retired += await _retire_test_copies(session, tenant_id=tenant_id, workspace=None)
+        except Exception as exc:
+            failed += 1
+            _sweep_failed("copies_outside", tenant_id, exc)
+    return retired, failed
 
 
 async def sweep_agent_moves(ctx: dict[str, Any]) -> str:
@@ -155,27 +170,35 @@ async def sweep_agent_moves(ctx: dict[str, Any]) -> str:
     if not engine_has_workspaces():
         return "not_applicable"
     tick = datetime.now(UTC).strftime("%Y%m%d%H")
-    queued = behind = copies_retired = 0
+    queued = behind = copies_retired = failed = 0
     report = WalkReport()
     async for visit in walk_workspaces(
         "agent_moves", budget=SWEEP_BUDGET, include_developer=False, report=report
     ):
         if visit.tenant_id is None or visit.workspace is None:
             continue
-        async with tenant_session(visit.tenant_id) as session:
-            copies_retired += await _retire_test_copies(
-                session, tenant_id=visit.tenant_id, workspace=visit.workspace
-            )
-            owed = await agents_to_move(
-                session, tenant_id=visit.tenant_id, workspace=visit.workspace
-            )
-            if not owed:
-                continue
-            behind += 1
-            queued += await queue_agent_move(
-                session, tenant_id=visit.tenant_id, workspace=visit.workspace, tick=tick
-            )
-    copies_retired += await _retire_copies_outside_workspaces()
+        try:
+            async with tenant_session(visit.tenant_id) as session:
+                copies_retired += await _retire_test_copies(
+                    session, tenant_id=visit.tenant_id, workspace=visit.workspace
+                )
+                owed = await agents_to_move(
+                    session, tenant_id=visit.tenant_id, workspace=visit.workspace
+                )
+                if not owed:
+                    continue
+                behind += 1
+                queued += await queue_agent_move(
+                    session, tenant_id=visit.tenant_id, workspace=visit.workspace, tick=tick
+                )
+        except Exception as exc:
+            failed += 1
+            _sweep_failed("workspace", visit.tenant_id, exc)
+    outside_retired, outside_failed = await _retire_copies_outside_workspaces()
+    copies_retired += outside_retired
+    failed += outside_failed
+    if failed:
+        alert("WORKER_DELIVERY", "agent_move_sweep_failed", detail=f"{failed} account(s)")
     log.info(
         "agent_move_sweep",
         extra={
@@ -184,11 +207,12 @@ async def sweep_agent_moves(ctx: dict[str, Any]) -> str:
             "behind": behind,
             "queued": queued,
             "copies_retired": copies_retired,
+            "failed": failed,
         },
     )
     return (
         f"workspaces={report.visited} behind={behind} queued={queued} "
-        f"copies_retired={copies_retired}"
+        f"copies_retired={copies_retired} failed={failed}"
     )
 
 

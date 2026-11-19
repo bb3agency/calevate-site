@@ -212,6 +212,11 @@ class EngineAgentRoute(Base):
     #: Which attested per-minute price (`platform_engine_minute_prices.rate_key`) a call on
     #: this vendor agent is metered at. NULL means the engine's `platform` rate.
     engine_rate_key: Mapped[str | None] = mapped_column(Text)
+    #: When `engine_rate_key` last took a different value (migration d7e2a9c4f1b6). The meter
+    #: reads it to tell a voice moved mid-call (D-987) from a call on an unchanged route;
+    #: `updated_at` cannot, because the drift, knowledge and webhook sweeps bump it hourly.
+    #: NULL: not known to have changed, read as not moved.
+    rate_key_changed_at: Mapped[datetime | None]
     #: The model of OUR language-model key the vendor agent was published on (D-764,
     #: migration a4c8e1f6b2d9); NULL when it answers on the engine's own model. The meter
     #: costs the call's tokens at this model's attested price.

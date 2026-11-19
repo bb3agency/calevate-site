@@ -6249,9 +6249,24 @@ async def _listing_over_workspaces(engine: VoiceEngine, since: datetime) -> Exec
     reason: ListingIncompleteReason | None = None
     pages = 0
     walk = WalkReport()
+    unreadable: list[str] = []
     async for visit in walk_workspaces("executions", report=walk):
-        with in_workspace(visit.workspace):
-            part = await engine.list_executions(since=since)
+        try:
+            with in_workspace(visit.workspace):
+                part = await engine.list_executions(since=since)
+        except Exception as exc:
+            # Kept inside the visit: the walk's cursor moves past a workspace only once the
+            # body returns, so an escaping error would discard every other workspace's rows
+            # and put this one first again on every tick.
+            label = visit.workspace or "developer"
+            log.warning(
+                "reconciliation_workspace_unreadable",
+                extra={"workspace": label, "engine": engine.name, "error": type(exc).__name__},
+            )
+            unreadable.append(f"{label} ({type(exc).__name__})")
+            complete = False
+            reason = reason or "partial_fan_out"
+            continue
         snapshots.extend(part.snapshots)
         complete = complete and part.complete
         reason = reason or part.incomplete_reason
@@ -6259,6 +6274,16 @@ async def _listing_over_workspaces(engine: VoiceEngine, since: datetime) -> Exec
     if walk.deferred:
         complete = False
         reason = reason or "page_cap_reached"
+    if unreadable:
+        alert(
+            "WORKER_DELIVERY",
+            "reconciliation_workspace_unreadable",
+            detail=(
+                f"{len(unreadable)} workspace(s) could not be listed and are read again on a "
+                f"later tick; the others were reconciled: {', '.join(unreadable[:10])}"
+            ),
+            engine=engine.name,
+        )
     return ExecutionListing(
         snapshots=snapshots,
         complete=complete,

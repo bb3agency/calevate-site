@@ -378,6 +378,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "reconciliation_fetch_failed": "record",
     "reconciliation_probe_incomplete": "record",
     "reconciliation_listing_incomplete": "attention",
+    "reconciliation_workspace_unreadable": "attention",
     # D-678: the vendor switched an agent's webhook endpoint off and the sweep put it back;
     # deliveries in the gap were lost (the call list settles them, without transcripts
     # for inbound calls). One agent, bounded, recovered: attention.
@@ -443,6 +444,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # agent stops a client getting an agent ready, which an operator lifts in the day.
     "agent_move_held": "attention",
     "agent_move_failed": "attention",
+    "agent_move_sweep_failed": "attention",
     "engine_agent_allowance_used": "attention",
     # Money taken back from an account that has paid: a human decision, made in the day.
     "paid_account_payment_reversed": "attention",
@@ -520,6 +522,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # being metered wrong on every call), or the call log matches nothing of ours.
     "engine_charge_mismatch": "page",
     "engine_charge_unmatched": "attention",
+    "engine_charge_workspace_unreadable": "attention",
     # D-678 phase 2, in-call actions. Repaired is recovered and bounded; unreachable means a
     # live agent's callers cannot opt out mid-call (the post-call transcript pass still
     # can), which is the compliance tool, so it pages.

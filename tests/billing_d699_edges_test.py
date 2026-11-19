@@ -19,7 +19,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from fastapi import Request
-from tests.conftest import create_org_with_receptionist
+from tests.conftest import create_org_with_receptionist, mark_paid_for_tests
 
 pytestmark = [pytest.mark.rls]
 
@@ -111,6 +111,8 @@ async def test_the_smoke_call_needs_an_idempotency_key_then_runs_the_clients_pat
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=14, actor_user_id=None)
     operator = Principal(realm="admin", user_id=uuid.uuid4(), tenant_id=None, role="operator")
     payload = trial_routes.TrialSmokeCallIn(agent_id=uuid.uuid4(), number="9876543210")
     with pytest.raises(ProblemError) as missing:
@@ -125,3 +127,18 @@ async def test_the_smoke_call_needs_an_idempotency_key_then_runs_the_clients_pat
     assert out.status == "blocked"
     assert out.blocked_rule == "trial_calling_not_ready"
     assert out.call_handle is None
+
+
+async def test_the_smoke_call_is_refused_for_a_paying_client() -> None:
+    """On a paying account the call would ring through the client's own workspace, bill its
+    wallet and use its daily test calls (D-1020), so the operator's smoke test refuses."""
+    tenant_id = await _tenant()
+    await mark_paid_for_tests(tenant_id)
+    operator = Principal(realm="admin", user_id=uuid.uuid4(), tenant_id=None, role="operator")
+    payload = trial_routes.TrialSmokeCallIn(agent_id=uuid.uuid4(), number="9876543210")
+    with pytest.raises(ProblemError) as refused:
+        await trial_routes.smoke_trial_call(
+            tenant_id, payload, _request(), operator, str(uuid.uuid4())
+        )
+    assert refused.value.code == "smoke_call_not_on_trial"
+    assert refused.value.status == 409
