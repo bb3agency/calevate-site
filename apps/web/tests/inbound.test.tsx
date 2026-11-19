@@ -297,11 +297,14 @@ describe("one inbound line", () => {
     await waitFor(() => expect(box.value).toBe("+919876543210"));
     // The saved numbers are the account's, kept by the campaigns; a line only uses them.
     expect(within(fold).queryByRole("button", { name: /Remove/ })).toBeNull();
+    // Vouching for the number is the owner's own tick (D-855): never sent unasked.
+    const mine = within(fold).getByRole("checkbox", { name: /This number is my own/ }) as HTMLInputElement;
+    expect(mine.checked).toBe(false);
     fireEvent.click(within(fold).getByRole("button", { name: "Call me" }));
     await waitFor(() => expect(writes(rendered.calls)).toHaveLength(1));
     expect(bodyOf(rendered.calls, "POST", `/v1/inbound-lines/${LINE_ID}/test-call`)).toEqual({
       number: "+919876543210",
-      number_is_mine: true,
+      number_is_mine: false,
     });
     expect(await within(fold).findByText(/Calling you now/)).toBeTruthy();
     expect(within(fold).getByText("Your test calls")).toBeTruthy();

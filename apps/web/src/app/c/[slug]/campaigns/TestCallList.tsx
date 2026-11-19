@@ -212,7 +212,11 @@ function RemoveTestCall({
   canWrite: boolean;
   refusal?: string;
 }) {
-  const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline", successToast: "Test call removed" });
+  // Every row watches the one shared mutation, so only the row whose call was removed says so.
+  const removeFeedback = useActionFeedback(remove, {
+    errorDisplay: "inline",
+    successToast: (_data, id) => (id === call.call_id ? "Test call removed" : null),
+  });
   const [confirming, setConfirming] = useState(false);
   return (
     <>

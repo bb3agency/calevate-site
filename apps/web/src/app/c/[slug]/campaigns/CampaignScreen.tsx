@@ -94,7 +94,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
   const schedule = useScheduleCampaign(session, campaignId);
   const unschedule = useUnscheduleCampaign(session, campaignId);
   const repeat = useSetRecurrence(session, campaignId);
-  const launchFeedback = useActionFeedback(launch, { errorTitle: "Could not launch this campaign" });
+  const launchFeedback = useActionFeedback(launch, { errorTitle: "Could not launch this campaign", errorDisplay: "inline" });
   const setStatusFeedback = useActionFeedback(setStatus, {
     errorTitle: "Could not change this campaign",
     successToast: (_out, action) => (action === "pause" ? "Campaign paused" : "Campaign resumed"),
@@ -220,6 +220,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
   // Start and Stop sit on Set up and Progress & results only (founder, 16 Nov 2026).
   const startButton = (
     <StartCampaign
+      slug={slug}
       campaignId={campaignId}
       status={status}
       check={check}
@@ -446,6 +447,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               />
               <div className="flex justify-end">
                 <StartCampaign
+                  slug={slug}
                   campaignId={campaignId}
                   status={status}
                   check={check}

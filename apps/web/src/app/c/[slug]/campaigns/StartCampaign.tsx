@@ -22,6 +22,7 @@ import type { useCampaignProgress, useLaunchCheck } from "@/lib/api/campaigns";
 
 import { blockerNote } from "./blockerCopy";
 import { peopleSectionId } from "./DraftPeople";
+import { SlotsFullProblem, isSlotsFull } from "./SlotHolders";
 
 /** A pause whose cause must be cleared first; the notice above the page says how. */
 const HELD_PAUSES = ["complaint_spike", "out_of_credit", "spend_cap"];
@@ -62,6 +63,7 @@ function highlight(ids: string[]): void {
 type Problem = { rule: string; text: string };
 
 export function StartCampaign({
+  slug,
   campaignId,
   status,
   check,
@@ -71,6 +73,7 @@ export function StartCampaign({
   canWrite,
   refusal,
 }: {
+  slug: string;
   campaignId: string;
   status: string | null;
   check: ReturnType<typeof useLaunchCheck>;
@@ -93,6 +96,9 @@ export function StartCampaign({
     action.error instanceof ApiProblem && action.error.fields?.length
       ? action.error.fields.map((f) => ({ rule: f.rule, text: blockerNote(f.rule, { promotionalOpen: null })?.text ?? f.message }))
       : [];
+  // No free calling setup: name what holds each one, with a way to free it, as the line and
+  // test-call screens do, rather than the refusal's sentence alone.
+  const slotsFull = isSlotsFull(action.error);
   useEffect(() => {
     if (refused.length > 0) highlight(refused.map((p) => sectionFor(p.rule, campaignId)));
     // Once per refusal.
@@ -162,13 +168,14 @@ export function StartCampaign({
           cancelLabel={shown.length > 0 ? "Close" : "Not now"}
           status={action.status}
           confirmDisabled={problems.length > 0 || check.isRefetching}
-          error={refused.length > 0 ? null : action.error}
+          error={refused.length > 0 || slotsFull ? null : action.error}
           onCancel={() => {
             action.reset();
             setAsking(false);
           }}
           onConfirm={() => (resuming ? resume.run("resume") : launch.run())}
         >
+          {slotsFull ? <SlotsFullProblem slug={slug} error={action.error} /> : null}
           {shown.length > 0 ? (
             <>
               <span className="block">Fix these first. The sections are outlined in red on the page.</span>

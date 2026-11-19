@@ -1,9 +1,10 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { UseMutationResult } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import { blockerNote } from "@/app/c/[slug]/campaigns/blockerCopy";
 import { TestCallForm } from "@/app/c/[slug]/campaigns/CampaignBoosters";
+import { StartCampaign } from "@/app/c/[slug]/campaigns/StartCampaign";
 import { ApiProblem } from "@/lib/api/client";
 
 vi.mock("@/lib/api/session", () => ({
@@ -225,6 +226,31 @@ describe("the launch checklist's line for a full workspace", () => {
     );
     expect(`${note?.text} ${note?.why ?? ""}`).not.toMatch(
       /at once|calling agents/,
+    );
+  });
+});
+
+describe("Start refused for want of a calling setup", () => {
+  it("names what holds each setup, as links, not the refusal's sentence alone", () => {
+    const failed = { status: "error" as const, run: vi.fn(), error: refused("start"), reset: vi.fn() };
+    const idle = { status: "idle" as const, run: vi.fn(), error: null, reset: vi.fn() };
+    render(
+      <StartCampaign
+        slug="rytu-khata"
+        campaignId="c1"
+        status="draft"
+        check={{ data: { ready: true, blockers: [] }, isRefetching: false } as never}
+        progress={{ data: { total: 5, contacts: { pending: 5 } } } as never}
+        launch={failed}
+        resume={idle}
+        canWrite
+        refusal={undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Start campaign" }));
+    const list = screen.getByRole("list", { name: "Calling setups in use" });
+    expect(within(list).getAllByRole("link").map((l) => l.getAttribute("href"))).toContain(
+      "/c/rytu-khata/inbound/l-front",
     );
   });
 });

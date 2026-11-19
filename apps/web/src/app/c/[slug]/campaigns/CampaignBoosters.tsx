@@ -183,7 +183,13 @@ export function TestCallForm({
   const loaded = saved.data !== undefined;
   const numbers = saved.data?.numbers ?? [];
   const [number, setNumber] = useState("");
-  const [mine, setMine] = useState(true);
+  // The owner's own tick, never assumed (D-855): it lifts the calling-hours limit for this
+  // number and is recorded as their word, so it starts off and clears when the number changes.
+  const [mine, setMine] = useState(false);
+  const choose = (value: string) => {
+    setNumber(value);
+    setMine(false);
+  };
   const result = call.data;
   const digits = number.replace(/\D/g, "");
   const typed = digits.length >= 10;
@@ -226,7 +232,7 @@ export function TestCallForm({
                     type="button"
                     aria-pressed={chosen}
                     className="py-1 pl-3 pr-2 font-medium tabular-nums touch:min-h-11"
-                    onClick={() => setNumber(n)}
+                    onClick={() => choose(n)}
                   >
                     {formatPhone(n)}
                   </button>
@@ -260,7 +266,7 @@ export function TestCallForm({
             className={`${FIELD} mt-1 w-full`}
             placeholder="98765 43210"
             value={number}
-            onChange={(e) => setNumber(e.target.value)}
+            onChange={(e) => choose(e.target.value)}
           />
         </label>
         {saveNumbers ? (
@@ -308,7 +314,7 @@ export function TestCallForm({
           checked={mine}
           onChange={(e) => setMine(e.target.checked)}
         />
-        This number is mine
+        This number is my own. Test calls to it can ring at any hour.
       </label>
       {saveNumbers?.error != null && (
         <p role="alert" className="mt-2 text-meta text-danger">
