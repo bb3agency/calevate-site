@@ -316,6 +316,20 @@ async def test_a_delivered_alert_is_recorded_on_the_lead_timeline(
     assert sink.last is not None and sink.last.variables == ("urgency",)
 
 
+async def test_the_owner_alert_stays_on_the_platform_locale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The alert goes to the business owner, so the caller's and the agent's language (a
+    Telugu agent here) do not move it off the console's one locale."""
+    payload = await _hot_lead("ownerlocale")
+    sink = _enable(monkeypatch)
+    monkeypatch.setattr(get_settings(), "whatsapp_template_locale", "en_IN")
+
+    assert await notify_hot_lead_whatsapp({"job_try": 1}, payload) == "sent"
+
+    assert sink.last is not None and sink.last.locale == "en_IN"
+
+
 async def test_a_delivered_alert_is_never_sent_twice(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = await _hot_lead("once")
     sink = _enable(monkeypatch)

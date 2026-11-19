@@ -141,6 +141,56 @@ const PHONE_HEADER = /phone|mobile|number|contact|whatsapp|msisdn/i;
  *  "Registration number", "Number of acres" and "Contact name". */
 const STRONG_PHONE_HEADER = /phone|mobile|whatsapp|msisdn/i;
 const NAME_HEADER = /name/i;
+/** Headers that name the person on the row. "Contact name" heads a phone-header word, so it
+ *  is listed here rather than left to the phone rules. */
+const PERSON_HEADERS = new Set([
+  "contact name",
+  "contact person",
+  "customer name",
+  "customer",
+  "client name",
+  "full name",
+  "person",
+  "person name",
+]);
+/** Words that make a "… name" header name something other than the person called: a place,
+ *  a business or a thing, or a relative ("Father name"). Such a column is kept as a variable
+ *  unless no other header could be the name. */
+const NOT_THE_PERSON =
+  /\b(village|town|city|area|place|location|locality|district|mandal|taluk|state|street|road|colony|business|shop|store|company|firm|brand|branch|office|school|college|hospital|clinic|product|item|crop|project|plan|scheme|course|father|mother|husband|wife|spouse|guardian|son|daughter|nominee|reference|referred)\b/;
+
+/** Lower case, separators as single spaces, so "Customer_Name " reads "customer name". */
+function headerWords(cell: string): string {
+  return cell
+    .toLowerCase()
+    .replace(/[_\-./:'’]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * The name column of a list with a header row, best first: a column headed exactly "name";
+ * one that names the person (`PERSON_HEADERS`, or the business's own word for its callers,
+ * "Farmer name" for a business whose callers are farmers); one containing "name" that does
+ * not qualify a place, business, thing or relative; and only then any header containing
+ * "name". The first header containing the word used to win, which took "Village name" or
+ * "Business name" as every contact's name.
+ */
+function nameColumn(header: string[], phoneIdx: number, callerNoun: string | null): number {
+  const noun = callerNoun ? headerWords(callerNoun) : "";
+  const person = (words: string) => PERSON_HEADERS.has(words) || (noun !== "" && (words === noun || words === `${noun} name`));
+  const ranks: ((words: string, raw: string) => boolean)[] = [
+    (words) => words === "name",
+    person,
+    (words, raw) => NAME_HEADER.test(raw) && !NOT_THE_PERSON.test(words),
+    (_words, raw) => NAME_HEADER.test(raw),
+  ];
+  for (const matches of ranks) {
+    const index = header.findIndex((cell, i) => i !== phoneIdx && matches(headerWords(cell), cell));
+    if (index >= 0) return index;
+  }
+  return -1;
+}
 
 /**
  * The phone column of a list with a header row: of the columns whose header could name
@@ -170,9 +220,13 @@ const newId = () => `c${(nextId += 1)}`;
  * Cells → entries. A first row naming a phone column is a header: its phone and name
  * columns are found by name, and every other named column becomes a variable. Without a
  * header the first column is the phone and the second the name, and nothing else is kept,
- * because a variable needs a name.
+ * because a variable needs a name. `callerNoun` is what the business calls its callers
+ * (`BusinessCapabilities.callerNoun`), when known.
  */
-export function rowsToEntries(table: string[][]): { entries: ContactEntry[]; dropped: string[] } {
+export function rowsToEntries(
+  table: string[][],
+  callerNoun: string | null = null,
+): { entries: ContactEntry[]; dropped: string[] } {
   if (table.length === 0) return { entries: [], dropped: [] };
   const header = table[0];
   const hasHeader = header.some((cell) => PHONE_HEADER.test(cell)) && !header.some((cell) => normalizePhone(cell));
@@ -184,10 +238,7 @@ export function rowsToEntries(table: string[][]): { entries: ContactEntry[]; dro
     };
   }
   const phoneIdx = phoneColumn(header, table.slice(1));
-  // A column headed exactly "name" wins over one that merely contains the word, so a
-  // "Village name" column before it is kept as a variable rather than taken as the name.
-  const exactName = header.findIndex((cell, i) => i !== phoneIdx && cell.trim().toLowerCase() === "name");
-  const nameIdx = exactName >= 0 ? exactName : header.findIndex((cell, i) => i !== phoneIdx && NAME_HEADER.test(cell));
+  const nameIdx = nameColumn(header, phoneIdx, callerNoun);
   const varCols: { index: number; key: string }[] = [];
   header.forEach((cell, index) => {
     if (index === phoneIdx || index === nameIdx || cell === "") return;

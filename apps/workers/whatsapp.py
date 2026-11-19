@@ -185,6 +185,7 @@ from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.api.reliability.service import enqueue_outbox_once
 from apps.api.team_alerts import service as team_alerts
+from apps.api.whatsapp.caller_locale import caller_locale
 
 log = get_logger(__name__)
 
@@ -818,9 +819,12 @@ ESCALATION_KIND = "campaign_escalation"
 # behind the client's login (the same DPDP reasoning as the hot-lead template above).
 #
 # It is a module constant rather than a setting because a template name is only meaningful
-# alongside the body approved for it, and the two must not drift; `whatsapp_template_locale`
-# is reused for the locale, since a client's callers get one language from the agent too.
+# alongside the body approved for it, and the two must not drift.
 TEMPLATE_MISSED_CALL = "calevate_missed_call_follow_up_v1"
+# The languages it is submitted in. Only the English body above exists, so every caller
+# whose language is not English gets the platform locale (`whatsapp.caller_locale`); a
+# language is added here together with its body, once Meta has approved that pair.
+TEMPLATE_MISSED_CALL_LOCALES: tuple[str, ...] = ("en",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -833,6 +837,9 @@ class _Escalation:
     phone_e164: str
     status: str
     business_name: str
+    #: The contact's last call's language (`calls.summary_language`), then the agent's.
+    call_language: str | None
+    agent_language: str | None
 
 
 async def resolve_escalation_destination(
@@ -1039,7 +1046,11 @@ async def _send_escalation(
         WhatsAppMessage(
             to_e164=destination.to_e164,
             template=TEMPLATE_MISSED_CALL,
-            locale=get_settings().whatsapp_template_locale,
+            locale=caller_locale(
+                TEMPLATE_MISSED_CALL_LOCALES,
+                call_language=escalation.call_language,
+                agent_language=escalation.agent_language,
+            ),
             variables=_compose_escalation_variables(escalation.business_name),
         )
     )
@@ -1060,10 +1071,12 @@ async def _load_escalation(session: AsyncSession, *, contact_id: UUID) -> _Escal
                 "SELECT cc.campaign_id, c.agent_id, cc.phone_e164, cc.status, o.name, "
                 "  COALESCE(cl.lead_id, (SELECT l.id FROM leads l "
                 "    WHERE l.tenant_id = cc.tenant_id AND l.phone_e164 = cc.phone_e164 "
-                "    AND l.agent_id = c.agent_id)) "
+                "    AND l.agent_id = c.agent_id)), "
+                "  cl.summary_language, a.language_primary "
                 "FROM campaign_contacts cc "
                 "JOIN campaigns c ON c.id = cc.campaign_id "
                 "JOIN organizations o ON o.id = cc.tenant_id "
+                "LEFT JOIN agents a ON a.id = c.agent_id "
                 "LEFT JOIN calls cl ON cl.id = cc.last_call_id "
                 "WHERE cc.id = :id"
             ),
@@ -1079,6 +1092,8 @@ async def _load_escalation(session: AsyncSession, *, contact_id: UUID) -> _Escal
         status=str(row[3]),
         business_name=str(row[4]),
         lead_id=UUID(str(row[5])) if row[5] is not None else None,
+        call_language=row[6],
+        agent_language=row[7],
     )
 
 

@@ -160,10 +160,22 @@ async def test_a_caller_without_a_messaging_opt_in_is_refused(transport: Transpo
     assert transport.sent == []
 
 
-@pytest.mark.parametrize(("language", "locale"), [("te-IN", "te"), ("hi-IN", "hi"), (None, "en")])
+@pytest.mark.parametrize(
+    ("language", "locale"),
+    [
+        ("te-IN", "te"),
+        ("hi-IN", "hi"),
+        ("en-IN", "en"),
+        # No language read on the call: the agent's (Telugu, `make_client`) decides.
+        (None, "te"),
+        # A language the template is not approved in: the platform locale, never "ta".
+        ("ta-IN", "en_IN"),
+    ],
+)
 async def test_the_language_follows_the_caller(
-    transport: Transport, language: str | None, locale: str
+    transport: Transport, monkeypatch: pytest.MonkeyPatch, language: str | None, locale: str
 ) -> None:
+    monkeypatch.setattr(get_settings(), "whatsapp_template_locale", "en_IN")
     tenant_id, call_id = await _booked_call(language=language)
     await _send(tenant_id, call_id)
     assert transport.sent[0].locale == locale

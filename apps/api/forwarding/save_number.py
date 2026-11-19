@@ -48,6 +48,7 @@ SEND_JOB: Final = "send_save_number_message"
 #:   hi "{{1}} के reminder {{2}} से आएंगे। कृपया यह नंबर save कर लें।"
 #:   te "{{1}} నుండి reminders {{2}} నుండి వస్తాయి. దయచేసి ఈ నంబర్‌ను save చేసుకోండి."
 TEMPLATE: Final = "calevate_save_our_number_v1"
+#: The languages it is submitted in; `whatsapp.caller_locale` picks one per caller.
 LOCALES: Final = ("en", "hi", "te")
 
 _READ_SQL: Final = "SELECT save_number_message_enabled FROM organizations"
@@ -92,13 +93,6 @@ def caller_ref(tenant_id: UUID, phone_e164: str) -> str:
     return hmac.new(material, message, hashlib.sha256).hexdigest()
 
 
-def locale_for(language: str | None) -> str:
-    """The caller's language, from the call's reading (`calls.summary_language`, BCP-47,
-    NULL on an English call)."""
-    head = (language or "").split("-")[0].lower()
-    return head if head in LOCALES else "en"
-
-
 async def queue_if_booked(session: AsyncSession, *, tenant_id: UUID, call_id: UUID) -> bool:
     """Queue the message for a completed call in which a call-back or appointment was
     booked, when the switch is on. Once per call (the outbox key); once per caller is the
@@ -131,7 +125,6 @@ __all__ = [
     "SEND_JOB",
     "TEMPLATE",
     "caller_ref",
-    "locale_for",
     "queue_if_booked",
     "read_switch",
     "write_switch",

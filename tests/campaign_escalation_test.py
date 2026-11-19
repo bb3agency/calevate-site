@@ -756,6 +756,35 @@ async def test_the_template_carries_no_consumer_data(monkeypatch: pytest.MonkeyP
     assert not hasattr(sink.last, "body")
 
 
+async def test_the_follow_up_is_in_the_contacts_language_where_its_template_is_approved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The contact never answered, so the call has no language and the agent's (Telugu)
+    decides — once the template is approved in Telugu."""
+    fixture = await _exhausted_contact("localete")
+    sink = await _enable(monkeypatch, fixture)
+    monkeypatch.setattr(get_settings(), "whatsapp_template_locale", "en_IN")
+    monkeypatch.setattr(whatsapp, "TEMPLATE_MISSED_CALL_LOCALES", ("en", "te"))
+
+    assert await escalate_campaign_contact({"job_try": 1}, fixture.payload) == "sent"
+
+    assert sink.last is not None and sink.last.locale == "te"
+
+
+async def test_a_language_without_an_approved_follow_up_falls_back_to_the_platform_locale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the English body is approved: a Telugu agent's contact gets the platform locale,
+    never a (template, language) pair Meta has not approved."""
+    fixture = await _exhausted_contact("localefb")
+    sink = await _enable(monkeypatch, fixture)
+    monkeypatch.setattr(get_settings(), "whatsapp_template_locale", "en_IN")
+
+    assert await escalate_campaign_contact({"job_try": 1}, fixture.payload) == "sent"
+
+    assert sink.last is not None and sink.last.locale == "en_IN"
+
+
 # --------------------------------------------------------------------------------
 # 4. The delivery record — and it is not sent twice
 # --------------------------------------------------------------------------------

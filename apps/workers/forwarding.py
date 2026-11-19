@@ -27,7 +27,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.forwarding import quiet
-from apps.api.forwarding.save_number import TEMPLATE, caller_ref, locale_for
+from apps.api.forwarding.save_number import LOCALES, TEMPLATE, caller_ref
 from apps.api.forwarding.testing import (
     ARRIVAL_WINDOW,
     SETTLE_JOB,
@@ -35,6 +35,7 @@ from apps.api.forwarding.testing import (
     settle_test,
 )
 from apps.api.ingest.service import normalize_phone
+from apps.api.whatsapp.caller_locale import caller_locale
 from apps.workers.whatsapp import (
     Destination,
     SendStatus,
@@ -216,8 +217,10 @@ async def send_save_number_message(ctx: dict[str, Any], payload: dict[str, Any])
             await session.execute(
                 text(
                     "SELECT o.save_number_message_enabled, o.name, c.agent_id, c.direction, "
-                    "c.from_e164, c.to_e164, c.summary_language, l.phone_e164, c.caller_id_hidden "
+                    "c.from_e164, c.to_e164, c.summary_language, l.phone_e164, c.caller_id_hidden, "
+                    "a.language_primary "
                     "FROM calls c JOIN organizations o ON o.id = c.tenant_id "
+                    "LEFT JOIN agents a ON a.id = c.agent_id "
                     "LEFT JOIN leads l ON l.id = c.lead_id WHERE c.id = :cid"
                 ),
                 {"cid": call_id},
@@ -225,7 +228,18 @@ async def send_save_number_message(ctx: dict[str, Any], payload: dict[str, Any])
         ).first()
         if row is None or not row[0]:
             return "switched_off"
-        _enabled, business, agent_id, direction, from_e, to_e, language, lead_phone, hidden = row
+        (
+            _enabled,
+            business,
+            agent_id,
+            direction,
+            from_e,
+            to_e,
+            language,
+            lead_phone,
+            hidden,
+            agent_language,
+        ) = row
         # The caller is the lead's number when the network hid theirs; ours is the other end.
         caller = lead_phone if hidden else (from_e if direction == "inbound" else to_e)
         ours = to_e if direction == "inbound" else from_e
@@ -239,7 +253,7 @@ async def send_save_number_message(ctx: dict[str, Any], payload: dict[str, Any])
         )
         if message_id is None:
             return "already_sent"
-        locale = locale_for(language)
+        locale = caller_locale(LOCALES, call_language=language, agent_language=agent_language)
         decision = await check_dispatch(
             session,
             tenant_id=tenant_id,

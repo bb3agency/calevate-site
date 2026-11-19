@@ -10,6 +10,7 @@ import { problemToast } from "@/components/arc/feedback";
 import { ApiProblem } from "@/lib/api/client";
 import { contactsFromExcel } from "@/lib/api/campaignWorkspace";
 import { useClientRealm } from "@/lib/api/session";
+import { useBusinessCapabilities } from "@/lib/businessCapabilities";
 import { Pagination } from "@/components/interior/pagination";
 import {
   FIELD,
@@ -70,6 +71,7 @@ export function ContactEditor({
   label?: string;
 }) {
   const { session } = useClientRealm();
+  const { callerNoun } = useBusinessCapabilities();
   const ids = useId();
   const [panel, setPanel] = useState<Panel>("none");
   const [pasteText, setPasteText] = useState("");
@@ -99,7 +101,7 @@ export function ContactEditor({
   const problems = checked.counts.invalid + checked.counts.duplicate;
 
   const append = (text: string, source: string) => {
-    const { entries: added, dropped } = rowsToEntries(parseCsv(text));
+    const { entries: added, dropped } = rowsToEntries(parseCsv(text), callerNoun);
     if (added.length === 0) {
       setNotice(`No rows found in ${source}.`);
       return;

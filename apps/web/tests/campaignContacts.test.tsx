@@ -77,6 +77,41 @@ describe("reading a CSV", () => {
     expect(row.vars).toEqual({ "Village name": "Kondapur" });
   });
 
+  it("takes a header that names the person over one whose name is a place or a business", () => {
+    for (const person of ["Customer name", "Contact name", "Full Name", "Person", "customer_name"]) {
+      const [row] = entries(`phone,Village name,Business name,${person}\n9876543210,Kondapur,Sri Traders,Ramu`);
+      expect(row.name).toBe("Ramu");
+      expect(row.vars).toEqual({ "Village name": "Kondapur", "Business name": "Sri Traders" });
+    }
+  });
+
+  it("prefers exactly name to a person header", () => {
+    const [row] = entries("phone,Customer name,Name\n9876543210,Ramu,Priya");
+    expect(row.name).toBe("Priya");
+    expect(row.vars).toEqual({ "Customer name": "Ramu" });
+  });
+
+  it("takes the business's own word for its callers as the person", () => {
+    const text = "phone,Crop name,Farmer name\n9876543210,Cotton,Ramu";
+    expect(rowsToEntries(parseCsv(text), "farmer").entries[0].name).toBe("Ramu");
+    expect(rowsToEntries(parseCsv("phone,Shop name,Farmer\n9876543210,Sri Traders,Ramu"), "farmer").entries[0].name).toBe(
+      "Ramu",
+    );
+  });
+
+  it("never takes a place, business, thing or relative as the name while another name header exists", () => {
+    const [row] = entries("phone,Company name,Name of village,Father name,Owner name\n9876543210,Sri Traders,Kondapur,Ravi,Ramu");
+    expect(row.name).toBe("Ramu");
+    const [crop] = entries("phone,Crop name,Product name,Lead name\n9876543210,Cotton,Seeds,Ramu");
+    expect(crop.name).toBe("Ramu");
+  });
+
+  it("falls back to a non-person name header only when nothing else could be the name", () => {
+    const [row] = entries("phone,Business name,city\n9876543210,Sri Traders,Guntur");
+    expect(row.name).toBe("Sri Traders");
+    expect(row.vars).toEqual({ city: "Guntur" });
+  });
+
   it("takes the column that holds phone numbers, not the first header that says number", () => {
     const [row] = entries("Contact name,Registration number,Number of acres,Phone\nRamu,RK-2231,4,9876543210");
     expect(row.phone).toBe("9876543210");
