@@ -5594,7 +5594,6 @@ class KBSourceRef(BaseModel):
     kb_id: str
     title: str
     text: str
-    language: str = "te-IN"
     #: The rendered document, for engines whose knowledge base ingests files. `None` on
     #: an engine that takes text — never a silent empty document.
     document: bytes | None = None

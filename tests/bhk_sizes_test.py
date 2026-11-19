@@ -49,7 +49,6 @@ def test_the_migrations_new_field_is_the_shipped_template() -> None:
     shipped = _shipped()
     assert revision.JOB == JOB_NAME
     assert revision.KEY == "bhk_size"
-    assert shipped["reason"] == revision.NEW_REASON
     assert shipped["enum_values"] == list(revision.NEW_CHOICES)
     assert len(revision.NEW_REASON) <= MAX_REASON_LEN
     assert revision.OLD_CHOICES != revision.NEW_CHOICES
@@ -58,7 +57,7 @@ def test_the_migrations_new_field_is_the_shipped_template() -> None:
 def test_every_size_up_to_five_is_its_own_choice_and_five_is_spelled_out() -> None:
     shipped = _shipped()
     assert shipped["enum_values"] == ["1BHK", "2BHK", "3BHK", "4BHK", "5BHK+"]
-    for spoken in ("'five'", "ఐదు బెడ్ రూమ్స్", "5BHK+", "Never round"):
+    for spoken in ("'five'", "5BHK+", "Never round"):
         assert spoken in shipped["reason"]
 
 
@@ -166,7 +165,8 @@ async def test_the_migration_queues_only_accounts_holding_the_exact_field() -> N
     await _set_bhk(
         edited_tenant, edited_agent, revision.OLD_REASON, [*revision.OLD_CHOICES, "Plot"]
     )
-    new_tenant, _new_agent = await _real_estate_account()
+    new_tenant, new_agent = await _real_estate_account()
+    await _set_bhk(new_tenant, new_agent, revision.NEW_REASON, list(revision.NEW_CHOICES))
     url = (get_settings().alembic_database_url or get_settings().database_url).replace(
         "+asyncpg", "+psycopg"
     )

@@ -126,14 +126,14 @@
       "key": "budget_lakhs",
       "label": "Budget (lakhs)",
       "type": "number",
-      "reason": "Budget in LAKHS of rupees: '50 lakhs' is 50, '2 crore' is 200. Two numbers before one unit are a range, never a decimal: 'one two crores', 'ఒకటి రెండు కోట్లు' and '1-2 crore' mean one to two crore, so 200; 'two three lakhs' is 3. A decimal needs a point or a half: 'one point two crore' or '1.2 crore' is 120, 'ఒకటిన్నర కోటి' is 150. Never rupees; take the upper figure of a range; leave it empty if they state none.",
+      "reason": "Budget in LAKHS of rupees: '50 lakhs' is 50, '2 crore' is 200. Two numbers before one unit are a range, never a decimal: 'one two crores' and '1-2 crore' mean one to two crore, so 200; 'two three lakhs' is 3. A decimal needs a point or a half: 'one point two crore' or '1.2 crore' is 120, 'one and a half crore' is 150. Never rupees; take the upper figure of a range; leave it empty if they state none. The caller may say it in any language.",
       "required": false
     },
     {
       "key": "preferred_location",
       "label": "Location",
       "type": "text",
-      "reason": "Area/locality the CALLER wants, in their own words (Kondapur, Gachibowli). Never a locality only the agent named.",
+      "reason": "Area or locality the CALLER wants, in their own words. Never a locality only the agent named.",
       "required": false
     },
     {
@@ -147,21 +147,21 @@
         "4BHK",
         "5BHK+"
       ],
-      "reason": "Number of bedrooms the caller asked for, as they counted it: 'two BHK' or 'డబుల్ బెడ్ రూమ్' is 2BHK, 'four bedroom' is 4BHK, 'five', 'ఐదు బెడ్ రూమ్స్' or more is 5BHK+. Never round to a nearer size. Not one the agent offered, and not one they rejected.",
+      "reason": "Number of bedrooms the caller asked for, as they counted it, in any language: 'two BHK' or 'double bedroom' is 2BHK, 'four bedroom' is 4BHK, 'five' or more is 5BHK+. Never round to a nearer size. Not one the agent offered, and not one they rejected.",
       "required": false
     },
     {
       "key": "timeline",
       "label": "Timeline",
       "type": "text",
-      "reason": "When they intend to buy or need possession, in the caller's own words ('aaru nelalo', 'next year') — never resolved to a date.",
+      "reason": "When they intend to buy or need possession, in the caller's own words ('in six months', 'next year') — never resolved to a date.",
       "required": false
     },
     {
       "key": "site_visit_interest",
       "label": "Site visit",
       "type": "bool",
-      "reason": "true ONLY if the caller agreed to a site visit. A refusal ('vaddu', 'avasaram ledu') is not a yes, and neither is the agent offering one.",
+      "reason": "true ONLY if the caller agreed to a site visit. A refusal ('not now', 'no need') is not a yes, and neither is the agent offering one.",
       "required": false
     },
     {

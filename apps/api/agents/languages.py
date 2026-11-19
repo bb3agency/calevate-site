@@ -57,6 +57,7 @@ from typing import Annotated, Final, Literal, get_args
 from uuid import UUID
 
 from calevate_shared import call_words
+from calevate_shared.engine import DEFAULT_PRIMARY_LANGUAGE
 from calevate_shared.languages import (
     built_languages,
     find_language,
@@ -84,6 +85,7 @@ __all__ = [
     "assert_staged_languages_may_switch_on",
     "client_language_tags",
     "default_extra_languages",
+    "default_primary_language",
     "enabled_staged_tags",
     "language_refusal",
     "published_extra_languages",
@@ -354,6 +356,22 @@ MAX_REPLY_LANGUAGES: Final = 4
 #: (founder decision, 18 Oct 2026). The main language always comes first, because the
 #: first language is the one the agent falls back to and the one its notices are written in.
 DEFAULT_REPLY_LANGUAGES: Final[tuple[Language, ...]] = ("te-IN", "en-IN")
+
+
+def default_primary_language(
+    business: Sequence[str] | None, *, tenant_id: UUID | None = None
+) -> str:
+    """The main language of a new agent whose creator named none.
+
+    The first of the business profile's languages this account may choose right now, so a
+    Hindi-speaking business is not handed a Telugu agent; else the platform default. A
+    profile language that is staged and switched off is skipped rather than refused,
+    because nobody chose it for this agent."""
+    allowed = client_language_tags(tenant_id)
+    for tag in business or ():
+        if tag in allowed:
+            return tag
+    return DEFAULT_PRIMARY_LANGUAGE
 
 
 def default_extra_languages(

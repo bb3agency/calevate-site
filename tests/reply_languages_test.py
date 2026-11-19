@@ -116,6 +116,39 @@ async def test_a_new_agent_replies_in_telugu_then_english() -> None:
     assert english.json()["reply_languages"] == ["en-IN", "te-IN"]
 
 
+@pytest.mark.parametrize(
+    ("business", "expected"),
+    [
+        # The profile's first language this account may choose is the main language.
+        (["hi-IN", "en-IN"], ["hi-IN", "en-IN"]),
+        # A staged language switched off is skipped, not refused.
+        (["ta-IN", "en-IN"], ["en-IN"]),
+    ],
+)
+async def test_a_new_agent_with_no_language_speaks_the_business_profiles_first(
+    business: list[str], expected: list[str]
+) -> None:
+    tenant_id, _seeded, token = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO business_profiles (id, tenant_id, languages) "
+                "VALUES (:id, :tid, CAST(:langs AS text[])) "
+                "ON CONFLICT (tenant_id) DO UPDATE SET languages = EXCLUDED.languages"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "langs": business},
+        )
+    async with _client(_app()) as http:
+        response = await http.post(
+            "/v1/agents",
+            json={"name": "Front desk", "direction": "inbound"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 201, response.text
+    assert response.json()["language_primary"] == expected[0]
+    assert response.json()["reply_languages"] == expected
+
+
 async def test_the_owner_sets_the_order_and_the_main_language_follows() -> None:
     tenant_id, agent_id, token = await _tenant()
     async with _client(_app()) as http:

@@ -15861,12 +15861,8 @@ export interface components {
         AgentCreateIn: {
             /** Direction */
             direction?: ("inbound" | "outbound" | "both") | null;
-            /**
-             * Language Primary
-             * @default te-IN
-             * @enum {string}
-             */
-            language_primary: "te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN";
+            /** Language Primary */
+            language_primary?: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN") | null;
             /** Max Call Duration S */
             max_call_duration_s?: number | null;
             /** Name */

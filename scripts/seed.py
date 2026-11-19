@@ -190,15 +190,16 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             # Spoken Indian budgets run two numbers into one unit ("one two crores") to
             # mean a range; with only a decimal example the model read that as 1.2 crore
             # and saved 120 for a 1-2 crore buyer (production call, 24 Oct 2026). So the
-            # range and decimal forms are both spelled out, in English and Telugu.
+            # range and decimal forms are both spelled out.
             # Migration b3d7e2a9c461 refreshes agents still carrying the previous wording.
             "reason": (
                 "Budget in LAKHS of rupees: '50 lakhs' is 50, '2 crore' is 200. Two "
-                "numbers before one unit are a range, never a decimal: 'one two crores', "
-                "'ఒకటి రెండు కోట్లు' and '1-2 crore' mean one to two crore, so 200; 'two "
-                "three lakhs' is 3. A decimal needs a point or a half: 'one point two "
-                "crore' or '1.2 crore' is 120, 'ఒకటిన్నర కోటి' is 150. Never rupees; take "
-                "the upper figure of a range; leave it empty if they state none."
+                "numbers before one unit are a range, never a decimal: 'one two crores' "
+                "and '1-2 crore' mean one to two crore, so 200; 'two three lakhs' is 3. A "
+                "decimal needs a point or a half: 'one point two crore' or '1.2 crore' is "
+                "120, 'one and a half crore' is 150. Never rupees; take the upper figure "
+                "of a range; leave it empty if they state none. The caller may say it in "
+                "any language."
             ),
             "required": True,
         },
@@ -207,8 +208,8 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "label": "Location",
             "type": "text",
             "reason": (
-                "Area/locality the CALLER wants, in their own words (Kondapur, "
-                "Gachibowli). Never a locality only the agent named."
+                "Area or locality the CALLER wants, in their own words. Never a "
+                "locality only the agent named."
             ),
             "required": True,
         },
@@ -217,17 +218,17 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "label": "BHK",
             "type": "enum",
             # One value per bedroom count up to five. With "4BHK+" as the top value, a
-            # caller who said "Five" (and heard "ఐదు బెడ్ రూమ్స్" read back) was saved as
+            # caller who said "Five" (and heard five bedrooms read back) was saved as
             # 3BHK on a production call of 25 Oct 2026: a count the list does not name
             # was mapped to a neighbouring value instead of to the open bucket. So every
             # size up to five is its own value and the reason maps the spoken count.
             # Migration c8e2f4a6b913 moves agents still holding the previous field.
             "enum_values": ["1BHK", "2BHK", "3BHK", "4BHK", "5BHK+"],
             "reason": (
-                "Number of bedrooms the caller asked for, as they counted it: 'two "
-                "BHK' or 'డబుల్ బెడ్ రూమ్' is 2BHK, 'four bedroom' is 4BHK, 'five', "
-                "'ఐదు బెడ్ రూమ్స్' or more is 5BHK+. Never round to a nearer size. "
-                "Not one the agent offered, and not one they rejected."
+                "Number of bedrooms the caller asked for, as they counted it, in any "
+                "language: 'two BHK' or 'double bedroom' is 2BHK, 'four bedroom' is "
+                "4BHK, 'five' or more is 5BHK+. Never round to a nearer size. Not one "
+                "the agent offered, and not one they rejected."
             ),
             "required": False,
         },
@@ -237,7 +238,7 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "type": "text",
             "reason": (
                 "When they intend to buy or need possession, in the caller's own "
-                "words ('aaru nelalo', 'next year') — never resolved to a date."
+                "words ('in six months', 'next year') — never resolved to a date."
             ),
             "required": False,
         },
@@ -246,9 +247,8 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "label": "Site visit",
             "type": "bool",
             "reason": (
-                "true ONLY if the caller agreed to a site visit. A refusal "
-                "('vaddu', 'avasaram ledu') is not a yes, and neither is the agent "
-                "offering one."
+                "true ONLY if the caller agreed to a site visit. A refusal ('not "
+                "now', 'no need') is not a yes, and neither is the agent offering one."
             ),
             "required": False,
         },
@@ -269,8 +269,9 @@ VERTICAL_TEMPLATES: dict[str, list[dict[str, Any]]] = {
             "reason": (
                 "Cover amount in LAKHS of rupees: '5 lakhs' is 5, '1 crore' is 100. Two "
                 "numbers before one unit are a range, take the upper figure: 'ten fifteen "
-                "lakhs' or 'పది పదిహేను లక్షలు' is 15. A decimal needs a point or a half: "
-                "'1.5 crore' is 150. Never rupees; leave it empty if they state none."
+                "lakhs' is 15, in whatever language it is said. A decimal needs a point "
+                "or a half: '1.5 crore' is 150. Never rupees; leave it empty if they "
+                "state none."
             ),
             "required": False,
         },

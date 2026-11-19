@@ -500,7 +500,9 @@ class AgentCreateIn(BaseModel):
     #: first step of a dialling motion). Nullable rather than defaulted to `inbound` so the
     #: generated client does not demand a direction the starter already sets.
     direction: AgentDirection | None = None
-    language_primary: OfferedLanguage = "te-IN"
+    #: Omitted: the business profile's first language this account may choose, else the
+    #: platform default (`languages.default_primary_language`), resolved at creation.
+    language_primary: OfferedLanguage | None = None
     #: The languages the agent replies in, in order, at most four; the first is its main
     #: language and the one it falls back to. Omitted: the business profile's languages, else
     #: the main language, then Telugu and English (`languages.default_extra_languages`).
@@ -521,10 +523,7 @@ class AgentCreateIn(BaseModel):
         self.name = self.name.strip()
         if not self.name:
             raise ValueError("name must not be blank")
-        sent_primary = (
-            self.language_primary if "language_primary" in self.model_fields_set else None
-        )
-        _check_reply_languages(self.reply_languages, sent_primary)
+        _check_reply_languages(self.reply_languages, self.language_primary)
         if self.opening_line is not None:
             self.opening_line = self.opening_line.strip() or None
         if self.opening_line is not None and self.starter is None:
@@ -532,8 +531,9 @@ class AgentCreateIn(BaseModel):
         return self
 
     @property
-    def main_language(self) -> OfferedLanguage:
-        """The agent's main language: the first reply language, else `language_primary`."""
+    def main_language(self) -> OfferedLanguage | None:
+        """The agent's main language: the first reply language, else `language_primary`;
+        None when neither was sent, for `lifecycle.create_agent` to resolve."""
         return self.reply_languages[0] if self.reply_languages else self.language_primary
 
     @property

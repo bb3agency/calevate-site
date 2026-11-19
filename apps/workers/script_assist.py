@@ -71,6 +71,7 @@ from calevate_shared.call_script import (
     procedure_pointer,
 )
 from calevate_shared.engine import (
+    DEFAULT_PRIMARY_LANGUAGE,
     SARVAM_DEFAULT_LLM,
     azure_openai_base_url,
     google_openai_compat_base_url,
@@ -834,7 +835,9 @@ class ScriptBrief:
     agent_name: str = ""
     business_type: str = "custom"
     direction: str = "inbound"
-    language: str = "te-IN"
+    #: The agent's main language (`script_proposals.brief_for` always sets it); the platform
+    #: default only for a bare description, which has no agent.
+    language: str = DEFAULT_PRIMARY_LANGUAGE
     register: str = ""
     collect: tuple[str, ...] = ()
     knowledge_titles: tuple[str, ...] = ()

@@ -50,19 +50,22 @@ def _shipped(key: str) -> dict[str, Any]:
     return next(f for fields in VERTICAL_TEMPLATES.values() for f in fields if f["key"] == key)
 
 
-def test_the_migrations_new_wording_is_the_shipped_template() -> None:
+def test_the_migration_refreshes_a_real_change() -> None:
     revision = _revision()
     assert revision.JOB == JOB_NAME
-    for key, old, new in revision.REFRESHES:
-        assert _shipped(key)["reason"] == new
+    for _key, old, new in revision.REFRESHES:
         assert old != new
 
 
 def test_the_new_wording_spells_out_the_range_and_fits_the_field_limit() -> None:
     budget = _shipped("budget_lakhs")["reason"]
-    for spoken in ("one two crores", "ఒకటి రెండు కోట్లు", "1-2 crore", "ఒకటిన్నర కోటి"):
+    for spoken in ("one two crores", "1-2 crore", "one and a half crore"):
         assert spoken in budget
     assert "200" in budget
+    for key in ("budget_lakhs", "sum_assured"):
+        reason = _shipped(key)["reason"]
+        assert len(reason) <= MAX_REASON_LEN
+        assert "range" in reason and "LAKHS" in reason
     for _key, _old, new in _revision().REFRESHES:
         assert len(new) <= MAX_REASON_LEN
         assert "range" in new and "LAKHS" in new
@@ -206,7 +209,8 @@ async def test_the_migration_queues_only_accounts_holding_the_exact_wording() ->
     await _set_budget_reason(old_tenant, old_agent, old)
     edited_tenant, edited_agent = await _real_estate_account()
     await _set_budget_reason(edited_tenant, edited_agent, old + " Ask about the loan too.")
-    new_tenant, _new_agent = await _real_estate_account()
+    new_tenant, new_agent = await _real_estate_account()
+    await _set_budget_reason(new_tenant, new_agent, new)
     revision = _revision()
     url = (get_settings().alembic_database_url or get_settings().database_url).replace(
         "+asyncpg", "+psycopg"
@@ -234,7 +238,7 @@ async def test_the_migration_queues_only_accounts_holding_the_exact_wording() ->
                     assert queued(edited_tenant) == []
                     assert queued(new_tenant) == []
                     revision.downgrade()
-                    # The inverse, for an agent made from today's template.
+                    # The inverse, for an agent holding the wording this migration wrote.
                     back = queued(new_tenant)
                     assert [(p["old_reason"], p["new_reason"]) for p in back] == [(new, old)]
                     assert queued(edited_tenant) == []

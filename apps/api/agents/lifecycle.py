@@ -75,7 +75,11 @@ from apps.api.agents.engine_choice import (
     refuse_choice_under_byok,
     require_engine_choice,
 )
-from apps.api.agents.languages import default_extra_languages, published_extra_languages
+from apps.api.agents.languages import (
+    default_extra_languages,
+    default_primary_language,
+    published_extra_languages,
+)
 from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection, AgentStatus, is_published
 from apps.api.agents.own_model import refuse_own_model_choice
 from apps.api.agents.service import (
@@ -267,7 +271,7 @@ async def create_agent(
     tenant_id: UUID,
     name: str,
     direction: AgentDirection,
-    language_primary: str,
+    language_primary: str | None,
     languages_extra: Sequence[str] | None = None,
     max_call_duration_s: int | None = None,
     starter: JobChoice | None = None,
@@ -321,7 +325,9 @@ async def create_agent(
 
     `languages_extra` is the reply languages after the main one; None gives the default
     (`languages.default_extra_languages`: the business profile's languages when it lists
-    any, else Telugu then English; founder 18 Oct 2026, D-815).
+    any, else Telugu then English; founder 18 Oct 2026, D-815). `language_primary` None
+    gives `languages.default_primary_language`: the profile's first language this account
+    may choose, else the platform default.
     """
     await assert_account_open(session, tenant_id=tenant_id)
     if direction not in AGENT_DIRECTIONS:
@@ -350,6 +356,8 @@ async def create_agent(
         )
     ).one()
     business, vertical_template, business_languages = org[0], org[1], org[2]
+    if language_primary is None:
+        language_primary = default_primary_language(business_languages, tenant_id=tenant_id)
     # No voice yet, so the voice's gender is not known (`ai_disclosure_for`); choosing one
     # re-renders the sentence (`_rerender_ai_line`).
     ai_line = ai_disclosure_for(language=language_primary, business=str(business), name=name)

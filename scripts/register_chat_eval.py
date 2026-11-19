@@ -562,7 +562,6 @@ async def evaluate(
                         kb_id=f"facts:{run_tag}:{variant.key}",
                         title="Business facts",
                         text=source.facts,
-                        language=LANGUAGE,
                     ),
                 )
             say(f"created {cfg.name}")

@@ -3201,18 +3201,24 @@
             "title": "Direction"
           },
           "language_primary": {
-            "default": "te-IN",
-            "enum": [
-              "te-IN",
-              "hi-IN",
-              "en-IN",
-              "ta-IN",
-              "kn-IN",
-              "ml-IN",
-              "mr-IN"
+            "anyOf": [
+              {
+                "enum": [
+                  "te-IN",
+                  "hi-IN",
+                  "en-IN",
+                  "ta-IN",
+                  "kn-IN",
+                  "ml-IN",
+                  "mr-IN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Language Primary",
-            "type": "string"
+            "title": "Language Primary"
           },
           "max_call_duration_s": {
             "anyOf": [

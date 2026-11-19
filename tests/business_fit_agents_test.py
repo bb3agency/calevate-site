@@ -329,6 +329,15 @@ def test_a_shop_keeps_its_callers_and_an_unjudged_business_gets_neutral_ones() -
     assert not {"asks_about_products", "price_in_words"} & unjudged
 
 
+def test_a_shop_whose_copy_names_a_question_asks_it_in_english() -> None:
+    shop = replace(SHOP, example_questions=("Do you deliver on Sundays?",))
+    english = test_conversations.standard_scenarios("en-IN", "inbound", shop)
+    vague = next(s for s in english if s.key == "vague_answer")
+    assert vague.turns == ("Do you deliver on Sundays?", "Just the usual.")
+    telugu = test_conversations.standard_scenarios("te-IN", "inbound", shop)
+    assert "vague_answer" in {s.key for s in telugu}
+
+
 def test_a_business_that_prices_but_takes_no_orders_gets_a_neutral_price_caller() -> None:
     clinic = replace(SHOP, takes_orders=False, example_questions=())
     callers = test_conversations.standard_scenarios("en-IN", "inbound", clinic)

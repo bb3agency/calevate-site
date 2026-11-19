@@ -363,6 +363,16 @@ def _shape_for(fit: BusinessFit) -> dict[str, tuple[str, Turns, str]]:
     judged to quote prices."""
     shape: dict[str, tuple[str, Turns, str]] = dict(_STANDARD_SHAPE)
     if _sells_goods(fit):
+        if fit.example_questions:
+            # The founder's vague caller names one shop's product; in English, the language
+            # the copy's questions are written in, a shop asks its own callers' question
+            # instead. Other languages keep his lines until he writes neutral ones.
+            title, lines, expect = shape["vague_answer"]
+            own = (
+                {**lines[0], "en-IN": fit.example_questions[0]},
+                {**lines[1], "en-IN": _NEUTRAL_VAGUE["en-IN"]},
+            )
+            shape["vague_answer"] = (title, own, expect)
         return shape
     title, lines, expect = shape["vague_answer"]
     shape["vague_answer"] = (title, (_first_question(fit), _NEUTRAL_VAGUE), expect)

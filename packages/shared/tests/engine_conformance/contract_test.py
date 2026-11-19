@@ -1441,7 +1441,7 @@ async def test_a_status_that_is_not_even_a_string_is_not_a_success(engine: Voice
 _STUB_PDF = b"%PDF-1.4\n% conformance fixture, not a rendering\n%%EOF\n"
 
 
-def _kb_source(kb_id: str, title: str, text: str, *, language: str = "te-IN") -> KBSourceRef:
+def _kb_source(kb_id: str, title: str, text: str) -> KBSourceRef:
     """One approved source as the publisher hands it over: text AND a rendered document.
 
     Both, always. An engine that ingests text reads `text`; one that ingests files reads
@@ -1452,7 +1452,6 @@ def _kb_source(kb_id: str, title: str, text: str, *, language: str = "te-IN") ->
         kb_id=kb_id,
         title=title,
         text=text,
-        language=language,
         document=_STUB_PDF,
         content_sha256=hashlib.sha256(_STUB_PDF).hexdigest(),
     )
