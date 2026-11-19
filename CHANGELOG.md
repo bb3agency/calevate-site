@@ -3,6 +3,22 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.78 — 19-Nov-2026
+
+- The AI notice and the recording notice are now one switch each for the whole account,
+  under Settings › Call notices. They cover every agent, Inbound line and campaign; inbound
+  calls say them in the inbound opening, placed calls in the campaign's opening.
+- Every agent now adapts when an answer changes the plan instead of repeating itself, never
+  stops at "OK" without a next step, asks "anything else?" once, and closes when the caller
+  is done. It uses a contact's name from your list instead of asking for it.
+- A reply that stops the conversation short is now flagged on the call page.
+- Each of the agent's replies on a call page shows its own time, and plays from the right
+  spot. Key moments point at the line that settled the answer.
+- A call summary no longer says how the caller felt unless they said it, and spells your
+  business's name the way you do.
+- On a placed call, details your contact list already holds are shown as from the list.
+- One name per captured detail, and "nothing for you to do" said once.
+
 ## 0.4.77 — 19-Nov-2026
 
 - "This number is mine" on a campaign's or Inbound line's test call now starts unticked and
