@@ -91,6 +91,7 @@ from apps.api.billing.caps import (
     cap_fullness,
     lock_tenant_spend_state,
     over_cap_sql,
+    read_spend_counters,
 )
 from apps.api.billing.engine_minutes import (
     ATTESTED_MINUTE_ENGINES,
@@ -4401,6 +4402,21 @@ def _engine_minute_voice_tier(
     return VALUE_VOICE_TIER
 
 
+async def _call_row_began(
+    session: AsyncSession, *, tenant_id: UUID, call_id: UUID
+) -> datetime | None:
+    """When our call row says the call began: `started_at`, else when the row was made."""
+    began = await session.execute(
+        text(
+            "SELECT COALESCE(started_at, created_at) FROM calls "
+            "WHERE id = :cid AND tenant_id = :tid"
+        ),
+        {"cid": call_id, "tid": tenant_id},
+    )
+    value = began.scalar()
+    return value if isinstance(value, datetime) else None
+
+
 async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> int:
     """Write the cost ledger. Append-only (hard rule 4), so the guard against a
     double-run is a pre-check, not an upsert: a compensating entry is the only fix
@@ -4612,8 +4628,18 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # not its end and never the clock at settlement. A top-up that converts a
         # trial while the call is running does not charge that call, and an ARQ retry or the
         # reconciliation poller settling it hours later cannot either. With no engine start
-        # time, the start is the end less the billed duration.
-        call_started_at = snapshot.started_at or occurred_at - timedelta(seconds=float(duration_s))
+        # time, the start is the end less the billed duration; with no end either, the
+        # call row's own start, as `engine_minute_cost` dates a call
+        # (`COALESCE(started_at, created_at)`), and never the settlement clock.
+        call_started_at = (
+            snapshot.started_at
+            or (
+                snapshot.ended_at - timedelta(seconds=float(duration_s))
+                if snapshot.ended_at is not None
+                else await _call_row_began(session, tenant_id=tenant_id, call_id=call_id)
+            )
+            or occurred_at - timedelta(seconds=float(duration_s))
+        )
         on_us = await trial_covers(session, tenant_id=tenant_id, at=call_started_at)
         turns, agent_chars = await _agent_transcript(session, tenant_id=tenant_id, call_id=call_id)
         spoken_chars, spoken_source = spoken_characters(snapshot.tts_characters, agent_chars)
@@ -5071,13 +5097,15 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             # bill (D-39) — and since the debit is now priced by the lots it consumed, the
             # only way to state the same number twice is to state it once.
             prepaid_billed=charged_inr,
+            call_id=call_id,
         )
         # A CALL A FREE TRIAL COVERED SPENDS NOTHING OF THE CLIENT'S, ON EITHER MOTION. The
         # rupee ceiling is a limit on what the client pays, so a free minute must not draw
         # it down; pricing it at the list rate here showed a trial client "Spent ₹18" of a
         # trial that cost them nothing and could stop them at a ceiling they never reached.
-        # Its minutes still count, because a minute ceiling limits calling, not money. What
-        # the trial gave away is `usage_summary.trial_absorbed_inr`, computed there.
+        # Its minutes count only while the trial runs, as the panel counts them; the period
+        # after it counts paid calls only (`month_increment`, D-1023). What the trial gave
+        # away is `usage_summary.trial_absorbed_inr`, computed there.
         billed = Decimal("0") if on_us else increment.billed_inr
         counters = (
             await session.execute(
@@ -5156,10 +5184,11 @@ class _CounterIncrement:
     to US, and it needs no month arithmetic at all.
     """
 
-    #: What this call adds to `spend_state.minutes_used`. THE LEDGER'S OWN INCREMENT for
-    #: every tier, not the call's `duration_s / 60` — see `month_increment` for the
-    #: measurement, and note that this is what makes the counter the ceiling is judged
-    #: against exactly equal to the "minutes used" the client is shown.
+    #: What this call moves `spend_state.minutes_used` by: the counting period's minutes
+    #: from the LEDGER (`month_increment`) less what the counter holds, on every tier and
+    #: never the call's `duration_s / 60`. Adding it leaves the counter the ceiling is
+    #: judged against exactly equal to the "minutes used" the client is shown. Negative
+    #: when the counter had drifted above the period's figure.
     minutes: Decimal
     #: What this call adds to `spend_state.billed_inr` — the CLIENT's currency.
     billed_inr: Decimal
@@ -5180,6 +5209,7 @@ async def _counter_increment(
     rate_value: Decimal | None,
     llm_surcharge: Decimal | None,
     prepaid_billed: Decimal,
+    call_id: UUID,
 ) -> _CounterIncrement:
     """This call's contribution to the two `spend_state` counters the cap is judged on.
 
@@ -5194,10 +5224,11 @@ async def _counter_increment(
     is now called for a prepaid tenant too — the rupee half of its answer is unused
     there, and the read it comes from is the one the minute half needs. What that buys
     is stated in full on `month_increment`: the counter `over_cap_sql` compares against
-    stops being a per-call quotient rounded at the column's scale and becomes exactly the
-    figure `usage_summary` publishes. The cost is one grouped aggregate over the month's
-    `usage_events` on the prepaid path that was not there before, under a lock this
-    caller already holds.
+    is the `minutes_used` `usage_summary` publishes, over the same counting period
+    (`counting_window`: from a trial's end, paid calls only), so trial minutes do not
+    spend a paid minute ceiling (D-1023). The minute delta is taken against the counter
+    as it stands, read under the lock this caller holds, so it SETS the counter to that
+    figure and a drifted counter is corrected by the next call.
 
     PREPAID (`self_serve`, `trial`) RUPEES: `prepaid_billed` verbatim, which is what the
     wallet was actually debited.
@@ -5244,18 +5275,23 @@ async def _counter_increment(
         rate=rate,
         rate_value=rate_value,
         llm_surcharge=llm_surcharge,
+        call_id=call_id,
     )
+    # Zeros for a row stamped with another month: the upsert then rolls a closed row to
+    # this month (the delta is the whole figure) or leaves a later one alone.
+    held = await read_spend_counters(session, tenant_id=tenant_id, month=month)
+    minutes = increment.period_minutes - held.minutes_used
     if plan_tier in PREPAID_TIERS:
         # THE DEBIT ITSELF, to the paisa, surcharge included — see the docstring. The
-        # minute figure beside it is still the LEDGER's increment and not this call's own
-        # quotient, which is what keeps the counter the cap is judged against equal to the
+        # minute figure beside it is still the LEDGER's and not this call's own quotient,
+        # which is what keeps the counter the cap is judged against equal to the
         # "minutes used" the client is shown.
-        return _CounterIncrement(minutes=increment.minutes, billed_inr=prepaid_billed)
+        return _CounterIncrement(minutes=minutes, billed_inr=prepaid_billed)
     # MANAGED: the overage this call added, PLUS the model surcharge it added — both
-    # differences of the same month read with and without this call, so both telescope to
+    # differences of the same period read with and without this call, so both telescope to
     # the figures `usage_summary` publishes and the invoice prints.
     return _CounterIncrement(
-        minutes=increment.minutes,
+        minutes=minutes,
         billed_inr=increment.overage_inr + increment.llm_surcharge_inr,
     )
 

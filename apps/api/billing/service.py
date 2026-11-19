@@ -2746,22 +2746,23 @@ def priced_overage(
 
 @dataclass(frozen=True, slots=True)
 class MonthIncrement:
-    """What ONE call adds to the two month totals `spend_state` counts.
+    """The counting period's minutes after ONE call, and what that call adds to its rupees.
 
-    Both are DIFFERENCES of the same month's ledger read with and without this call, so
-    both telescope: whatever order the month's calls meter in, the running totals are
-    exactly the figures `usage_summary` publishes for that month. That is the property
-    that makes the cap and the client's own panel about the same month.
+    The rupees are DIFFERENCES of the period's ledger read with and without this call, so
+    they telescope: whatever order the period's calls meter in, the running totals are
+    exactly the figures `usage_summary` publishes. The minutes are the period's TOTAL, so
+    the counter is set to the panel's figure rather than accumulated towards it.
     """
 
-    #: What this call adds to `usage_summary.minutes_used`. Paise-exact, because that is
-    #: the quantum `_tier_totals` allocates the whole month at.
-    minutes: Decimal
+    #: `usage_summary.minutes_used` for this call's period, this call included when the
+    #: period counts it. Paise-exact, because that is the quantum `_tier_totals`
+    #: allocates the whole period at.
+    period_minutes: Decimal
     #: What this call adds to a MANAGED month's overage bill. Meaningless for a prepaid
     #: tenant, whose every minute is charged at the list price with no allowance in
     #: front of it (`rates.prepaid_billed_inr` is that tier's answer) — the field is
     #: still computed rather than branched on here, because the read it comes from is
-    #: the same one `minutes` needs and a second query is what the caller would pay.
+    #: the same one the minutes need and a second query is what the caller would pay.
     overage_inr: Decimal
     #: What this call adds to the month's LANGUAGE-MODEL SURCHARGE (D-455). Zero on every
     #: plan that quotes none, and zero for a call the client did not choose the model of.
@@ -2822,6 +2823,56 @@ async def counting_window(
     )
 
 
+async def _period_seconds(
+    session: AsyncSession, *, tenant_id: UUID, month: str
+) -> tuple[CountingWindow, MonthSeconds]:
+    """`month`'s counting window as of now, and its per-rung seconds over that window."""
+    window = await counting_window(
+        session,
+        tenant_id=tenant_id,
+        period=month,
+        today=current_billing_month(),
+        at=datetime.now(UTC),
+    )
+    seconds = await rung_seconds(
+        session,
+        tenant_id=tenant_id,
+        month=month,
+        since=window.epoch,
+        paid_only=window.paid_only,
+    )
+    return window, seconds
+
+
+async def period_minutes(session: AsyncSession, *, tenant_id: UUID, month: str) -> Decimal:
+    """`usage_summary.minutes_used` for `month`, read the way the meter reads it: the figure
+    `spend_state.minutes_used` must hold. For the writers that re-derive the counter."""
+    _window, seconds = await _period_seconds(session, tenant_id=tenant_id, month=month)
+    # Summed over the rungs rather than re-divided: `rung_minutes` allocates the period's
+    # paise so that its parts add to `to_paise(seconds / 60)` exactly, which is
+    # `usage_summary.minutes_used`. A second division would be another spelling of it.
+    return sum(rung_minutes(seconds.by_rung).values(), _ZERO_PAISE)
+
+
+async def _call_in_period(
+    session: AsyncSession, *, tenant_id: UUID, call_id: UUID, month: str, window: CountingWindow
+) -> bool:
+    """Does the period `window` counts hold this call's rows? The same predicates
+    `rung_seconds` reads the period with, asked of one call."""
+    if window.epoch is None:
+        # The plain IST month, and the meter only prices a call against its own month.
+        return True
+    found = await session.execute(
+        text(
+            "SELECT EXISTS (SELECT 1 FROM usage_events WHERE tenant_id = :tid "
+            f"AND call_id = :cid AND {_IST_MONTH_WINDOW} "
+            f"AND {_NOT_AI_UNITS}{_paid_rows(window.paid_only)})"
+        ),
+        {"tid": tenant_id, "cid": call_id, **_month_bounds(month, since=window.epoch)},
+    )
+    return bool(found.scalar())
+
+
 async def month_increment(
     session: AsyncSession,
     *,
@@ -2834,9 +2885,11 @@ async def month_increment(
     rate: Decimal,
     rate_value: Decimal | None,
     llm_surcharge: Decimal | None,
+    call_id: UUID,
 ) -> MonthIncrement:
-    """What one call ADDS to a month's minutes and to its overage bill — the panel's and
-    the invoice's own arithmetic, in the currency of a counter.
+    """The minutes of a month's counting period after one call, and what that call ADDS to
+    its overage bill — the panel's and the invoice's own arithmetic, in the currency of a
+    counter.
 
     **WHY MINUTES ARE HERE AND NOT COMPUTED BY THE CALLER, which is where they were.**
     The meter used to pass its own `duration_s / 60` straight into
@@ -2853,16 +2906,17 @@ async def month_increment(
     The drift is the sum of the per-call rounding errors and it only ever grows within a
     month, so on a busy tenant the two land either side of an integer ceiling and the
     panel says there are minutes left while the gate has already stopped the dialling.
-    Deriving the increment from the LEDGER makes the counter equal to the published
-    figure exactly rather than approximately: `rung_minutes` guarantees its parts sum to
-    `to_paise(total_seconds / 60)`, so the increments telescope to precisely the number
-    `usage_summary` prints, and every increment is a two-decimal value the column stores
-    without rounding at all.
+    Reading the minutes from the LEDGER makes the counter equal to the published figure
+    exactly: `rung_minutes` guarantees its parts sum to `to_paise(total_seconds / 60)`, the
+    number `usage_summary` prints, a two-decimal value the column stores without rounding.
+    The caller SETS the counter to it rather than adding a difference, so a counter that
+    drifted for any reason (a boundary reset, a late call outside the period) is put right
+    by the next call instead of carrying the error to the month's end.
 
-    `after - before`, where both are `priced_overage` over the month's per-rung SECONDS
-    and `before` is the ledger with this call's seconds taken back off its own rung. Two
-    properties follow, and they are the whole reason it is a difference rather than a
-    formula:
+    The rupees are `after - before`, where both are `priced_overage` over the period's
+    per-rung SECONDS and `before` is the ledger with this call's seconds taken back off its
+    own rung. Two properties follow, and they are the whole reason it is a difference
+    rather than a formula:
 
     * **the increments telescope.** Each call's `before` is the previous call's `after`
       (both are computed from the same raw-seconds state by the same function), so the
@@ -2893,36 +2947,28 @@ async def month_increment(
     the month's own surcharge exactly — including across a month that straddles a model
     switch, where the ledger simply holds two buckets and this call moves one of them.
 
-    **THE TWO HALVES READ DIFFERENT WINDOWS.** The minutes are the whole IST month, trial
-    minutes included, because a minute ceiling limits calling. The rupees are read over
-    `usage_summary`'s own window (`counting_window`): from the trial boundary, paid calls
-    only. Read over the whole month, a trial that ended mid-month would have spent the
-    plan's included minutes on free calls and the counter would charge overage the
-    invoice never prints. A call the trial covered falls outside that window; its caller
-    charges it nothing, so the rupee half for it is never used.
+    **BOTH HALVES READ ONE WINDOW, `usage_summary`'s own (`counting_window`)** (D-1023):
+    from the trial boundary, and once a trial is over, paid calls only. Free trial minutes
+    do not spend the client's paid minute ceiling, so the gate, the panel's "minutes left"
+    and the invoice count the same minutes. Read over the whole month, a trial that ended
+    mid-month stopped outbound calling early on minutes the client never paid for, and
+    spent the plan's included minutes on free calls. A call outside the window (one a
+    trial covered that settled after the trial ended) adds nothing to the rupees, and the
+    minutes returned for it are the period's, which it does not change.
     """
-    after = await rung_seconds(session, tenant_id=tenant_id, month=month)
-    after_minutes = rung_minutes(after.by_rung)
-    before_minutes = rung_minutes(_without_call(after.by_rung, tier, seconds))
-    window = await counting_window(
-        session,
-        tenant_id=tenant_id,
-        period=month,
-        today=current_billing_month(),
-        at=datetime.now(UTC),
-    )
-    paid = (
-        await rung_seconds(
-            session,
-            tenant_id=tenant_id,
-            month=month,
-            since=window.epoch,
-            paid_only=window.paid_only,
-        )
-        if window.epoch is not None
-        else after
-    )
+    window, paid = await _period_seconds(session, tenant_id=tenant_id, month=month)
     paid_after = rung_minutes(paid.by_rung)
+    period_total = sum(paid_after.values(), _ZERO_PAISE)
+    if not await _call_in_period(
+        session, tenant_id=tenant_id, call_id=call_id, month=month, window=window
+    ):
+        # `_without_call` would take seconds the read does not hold off the period and
+        # price the gap as this call's overage.
+        return MonthIncrement(
+            period_minutes=period_total,
+            overage_inr=_ZERO_PAISE,
+            llm_surcharge_inr=_ZERO_PAISE,
+        )
     paid_before = rung_minutes(_without_call(paid.by_rung, tier, seconds))
     # Both partitions are re-allocated over the same "before" total, so the surcharge's
     # before-state is the month the previous call priced against — the property that makes
@@ -2944,12 +2990,7 @@ async def month_increment(
         rate_value=rate_value,
     )
     return MonthIncrement(
-        # Summed over the rungs rather than re-divided: `rung_minutes` allocates the
-        # month's paise so that its three parts add to `to_paise(seconds / 60)` exactly,
-        # which is `usage_summary.minutes_used`. Summing the parts IS that figure; a
-        # second division would be a fourth spelling of it.
-        minutes=sum(after_minutes.values(), _ZERO_PAISE)
-        - sum(before_minutes.values(), _ZERO_PAISE),
+        period_minutes=period_total,
         overage_inr=after_overage.total_inr - before_overage.total_inr,
         llm_surcharge_inr=(
             priced_llm_surcharge(

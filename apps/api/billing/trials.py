@@ -835,7 +835,7 @@ async def end_trial(
 
 
 async def reset_client_counters(session: AsyncSession, *, tenant_id: UUID) -> None:
-    """Zero the LIVE counters at a period boundary. Deletes nothing.
+    """Restart the LIVE counters at a period boundary. Deletes nothing.
 
     `spend_state` is a single derived row per tenant carrying this month's minutes, our
     cost, what the client owes, and whether the cap has bitten. Every one of those is a
@@ -853,14 +853,25 @@ async def reset_client_counters(session: AsyncSession, *, tenant_id: UUID) -> No
     a flag cleared outright would disarm a ceiling of ZERO, which zero counters have
     already reached — the client's own stop button. The spend-state lock is taken first,
     as every writer of the flag takes it.
+
+    The minutes are not zeroed but SET to the new period's figure (`service.period_minutes`,
+    D-1023), so the caller must have written the trial row first. The expiry sweep dates a
+    trial's end to its end date, and paid calls placed between that instant and the sweep
+    are in the new period; zeroing them would let the minute ceiling be passed.
     """
+    # Imported here: `billing/service.py` imports this module.
+    from apps.api.billing.service import current_billing_month, period_minutes
+
     await lock_tenant_spend_state(session, tenant_id)
+    month = current_billing_month()
+    minutes = await period_minutes(session, tenant_id=tenant_id, month=month)
     await session.execute(
         text(
-            "UPDATE spend_state SET minutes_used = 0, spend_used = 0, billed_inr = 0, "
-            "capped = false WHERE tenant_id = :tid"
+            "UPDATE spend_state SET minutes_used = "
+            "CASE WHEN month = :month THEN CAST(:minutes AS numeric) ELSE 0 END, "
+            "spend_used = 0, billed_inr = 0, capped = false WHERE tenant_id = :tid"
         ),
-        {"tid": tenant_id},
+        {"tid": tenant_id, "month": month, "minutes": minutes},
     )
     await recompute_capped(session, tenant_id=tenant_id)
 
