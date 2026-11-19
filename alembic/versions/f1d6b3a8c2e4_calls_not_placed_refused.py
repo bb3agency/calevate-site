@@ -10,7 +10,7 @@ Downgrade folds `refused` into `unstated`, the code the old constraint allows fo
 was not placed for a reason it does not name.
 
 Revision ID: f1d6b3a8c2e4
-Revises: c3a9f5e2b7d1
+Revises: d7e2a9c4f1b6
 Create Date: 2026-11-19 14:00:00.000000
 """
 
@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "f1d6b3a8c2e4"
-down_revision: str | None = "c3a9f5e2b7d1"
+down_revision: str | None = "d7e2a9c4f1b6"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
