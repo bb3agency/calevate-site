@@ -591,3 +591,31 @@ def test_every_statement_that_empties_an_extraction_also_clears_its_markers() ->
         assert "moments = NULL" in flat, (
             f"an erasure empties the extraction and leaves its key moments behind: {flat}"
         )
+
+
+def test_a_marker_on_a_vendor_timed_caller_line_plays_from_that_line() -> None:
+    """The stored `at_ms` of a caller line is when the vendor wrote it, after the caller
+    stopped; the marker takes the line's play-from point, and keeps its own time when the
+    transcript has none for that line."""
+    stored = [
+        {
+            "at_ms": 37_400,
+            "turn_idx": 4,
+            "kind": "complaint",
+            "label": "Not using it",
+            "label_redacted": "Not using it",
+            "source": "model",
+            "precision": "approximate",
+        },
+        {
+            "at_ms": 61_000,
+            "turn_idx": 6,
+            "kind": "complaint",
+            "label": "Asked what it is",
+            "label_redacted": "Asked what it is",
+            "source": "model",
+            "precision": "approximate",
+        },
+    ]
+    moments = _moments_out(stored, raw=False, play_from={4: 12_300, 6: None})
+    assert [(m.turn_idx, m.at_ms) for m in moments] == [(4, 12_300), (6, 61_000)]

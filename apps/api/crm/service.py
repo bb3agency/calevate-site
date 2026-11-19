@@ -804,6 +804,8 @@ async def get_call(
             # spec gave it, where the list may fall back to the key for a field no longer
             # in any version.
             labels={field.key: field.label for field in captured if field.core},
+            # A marker plays from its line, timed the way the transcript above times it.
+            play_from={idx: t.play_from_ms for idx, t in times.items()},
         ),
         # Per-field "confirm before acting" advisories (P4). NOT on the redaction switch:
         # the reasons are PII-free by construction (the flagged value lives in `extraction`
@@ -836,7 +838,11 @@ def _field_moment_label(item: dict[str, Any], labels: Mapping[str, str]) -> str 
 
 
 def _moments_out(
-    stored: Any, *, raw: bool, labels: Mapping[str, str] | None = None
+    stored: Any,
+    *,
+    raw: bool,
+    labels: Mapping[str, str] | None = None,
+    play_from: Mapping[int, int | None] | None = None,
 ) -> list[CallMomentOut]:
     """The stored markers, on the SAME redaction switch as the transcript above.
 
@@ -877,9 +883,12 @@ def _moments_out(
                     kind, item = corrected, {**item, "category": None}
             turn_idx = item.get("turn_idx")
             importance = item.get("importance")
+            # A stored `at_ms` on a caller line is when the vendor wrote the line, after the
+            # caller stopped; the line's play-from point is where the transcript seeks to.
+            line_play = play_from.get(turn_idx) if play_from and isinstance(turn_idx, int) else None
             out.append(
                 CallMomentOut(
-                    at_ms=int(item["at_ms"]),
+                    at_ms=line_play if line_play is not None else int(item["at_ms"]),
                     turn_idx=int(turn_idx) if isinstance(turn_idx, int) else None,
                     kind=kind,
                     # Rows written before categories existed carry none; the kind decides.
