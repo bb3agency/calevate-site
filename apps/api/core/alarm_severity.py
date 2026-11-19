@@ -299,6 +299,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # The same money-and-service failure on one inbound line (D-997) put live while its
     # agent is held: the line takes calls nobody is paying for.
     "inbound_line_hold_failed": "page",
+    # A line or campaign left on its previous config while its agent's change went out:
+    # after a notice switch, its calls may say a notice that is off or miss one that is on.
+    "holder_republish_failed": "attention",
     # An agent's own engine agent the adoption job could not hand over (D-1019): its legacy
     # paths keep working, so an operator acts on it during the day.
     "agent_engine_agent_held": "attention",

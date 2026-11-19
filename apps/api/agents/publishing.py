@@ -79,10 +79,11 @@ from one (hard rule 6) — version NUMBERS only.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, ClassVar, Final, Literal
+from typing import Any, ClassVar, Final, Literal, cast
 from uuid import UUID
 
 from calevate_shared.call_script import opening_line_of, said_notices_of
@@ -99,7 +100,12 @@ from calevate_shared.spoken_guard import introduced_opening_problem, without_gre
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.engine_limits import NOTICE_NEEDS_ROOM, refuse_notice_without_room
+from apps.api.agents.engine_limits import (
+    NOTICE_NEEDS_ROOM,
+    FirstWordsOver,
+    first_words_over_limit,
+    refuse_notice_without_room,
+)
 from apps.api.agents.give_callers_time import apply_where_default
 from apps.api.agents.hosted_voices import parse_hosted_voice_id, source_rate_key
 from apps.api.agents.live_apply import queue_live_apply
@@ -136,6 +142,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.api.engine import engine_capabilities, get_engine
+from apps.api.engine.hosted_platform import hosted_agent_limits
 
 log = get_logger(__name__)
 
@@ -1571,14 +1578,22 @@ def _refuse_introduction_twice(
 
 
 class NoticeNeedsRoomOnAgent(ProblemExtension):
-    """Switching a notice on for the account was refused: this agent's first words have no
-    room for it. Names the agent, so the screen can open that agent's script."""
+    """Switching a notice on for the account was refused: these first words have no room for
+    it. Names the agent, and the Inbound line or campaign when the words are its own script's,
+    so the screen can open the one thing to fix. `agent_id` is the line's or campaign's voice
+    then."""
 
     code: ClassVar[str] = NOTICE_NEEDS_ROOM
     status: ClassVar[int] = 422
 
     agent_id: UUID
     agent_name: str
+    line_id: UUID | None = None
+    line_name: str | None = None
+    campaign_id: UUID | None = None
+    campaign_name: str | None = None
+    #: Which of the campaign's openings: its script's own ("a") or the one tested beside it.
+    campaign_opening: Literal["a", "b"] | None = None
 
 
 class OpeningIntroducesOnAgent(ProblemExtension):
@@ -1646,18 +1661,208 @@ def _refuse_for_agent(row: Any, *, ai: bool, recording: bool, turned_on: tuple[s
         else:
             raise
         who = name or "One of your agents"
+        remediation = (
+            f"Open {name or 'that agent'}'s script and change its opening line, then "
+            "switch this on again."
+        )
+        # Each refusal's kind written out, both 4xx: a kind read off the caught error is one
+        # `scripts/check_alarm_wiring.py` cannot resolve, so it would count it as an alarm.
+        if isinstance(extension, OpeningIntroducesOnAgent):
+            raise ProblemError(
+                kind="conflict",
+                code=refused.code,
+                title=refused.title,
+                detail=f"{who}: {refused.detail}",
+                remediation=remediation,
+                status=refused.status,
+                extensions=extension,
+            ) from refused
         raise ProblemError(
-            kind=refused.kind,
+            kind="business_rule",
             code=refused.code,
             title=refused.title,
             detail=f"{who}: {refused.detail}",
-            remediation=(
-                f"Open {name or 'that agent'}'s script and change its opening line, then "
-                "switch this on again."
-            ),
+            remediation=remediation,
             status=refused.status,
             extensions=extension,
         ) from refused
+
+
+#: The Inbound lines and campaigns that will still speak their own openings: a line not
+#: archived, a campaign not archived and not ended. Each with its voice agent and its name.
+_ACCOUNT_HOLDERS_FOR_ROOM_SQL: Final = (
+    "SELECT 'line' AS kind, l.id, l.name, l.agent_id, NULL AS opening_b FROM inbound_lines l "
+    "JOIN agents a ON a.id = l.agent_id WHERE l.archived_at IS NULL AND l.script IS NOT NULL "
+    "AND a.deleted_at IS NULL AND a.archived_at IS NULL "
+    "UNION ALL SELECT 'campaign', c.id, c.name, c.agent_id, c.opening_b FROM campaigns c "
+    "JOIN agents a ON a.id = c.agent_id WHERE c.archived_at IS NULL "
+    "AND c.status NOT IN ('completed', 'cancelled') "
+    "AND a.deleted_at IS NULL AND a.archived_at IS NULL ORDER BY 1, 2"
+)
+
+
+def _room_refusal(
+    over: FirstWordsOver, *, where: str, cause: str, extension: NoticeNeedsRoomOnAgent
+) -> ProblemError:
+    """`refuse_notice_without_room`'s refusal, for first words measured from a whole config."""
+    return ProblemError(
+        kind="business_rule",
+        code=NOTICE_NEEDS_ROOM,
+        title="Shorten the opening line to switch this on",
+        detail=(
+            f"{where}: {cause} With it, what is said first"
+            f"{' on the calls it places' if over.placed else ''} would be {over.length:,} "
+            f"characters, and at most {over.cap:,} can be spoken there. Nothing was changed."
+        ),
+        remediation=(
+            f"Shorten the opening line of {where} by at least {over.length - over.cap:,} "
+            "characters, then switch this on again."
+        ),
+        extensions=extension,
+    )
+
+
+async def _refuse_where_first_words_have_no_room(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agents: Sequence[Any],
+    ai: bool,
+    recording: bool,
+    turned_on: tuple[str, ...],
+) -> None:
+    """Refuse switching a notice on when any first words that are not an agent's answering
+    greeting would be over the engine's ceiling with it: a "both" agent's placed-call opening,
+    each Inbound line's openings, each campaign's script opening and its tested opening B.
+    Each is measured from the config its own publish or dial composes, with the switches as
+    they would be, and the refusal names the agent, line or campaign that has no room."""
+    from apps.api.agents.service import (
+        _load_agent,
+        _to_config,
+        campaign_agent_row,
+        campaign_config,
+        campaign_first_words,
+        line_config,
+    )
+
+    engine = get_engine()
+    cause = (
+        _NOTICE_ADDED[turned_on[0]]
+        if len(turned_on) == 1
+        else "These notices add sentences your agent says at the start of every call, "
+        "with its opening line."
+    )
+    switched = {"ai_disclosure_enabled": ai, "recording_notice_enabled": recording}
+    voices: dict[UUID, AgentRow] = {}
+
+    async def voice(agent_id: UUID) -> AgentRow:
+        if agent_id not in voices:
+            row = await _load_agent(session, tenant_id, agent_id)
+            voices[agent_id] = cast(AgentRow, {**row, **switched})
+        return voices[agent_id]
+
+    for row in agents:
+        if row[8] is None or str(row[7]) != "both":
+            continue
+        agent_id, name = UUID(str(row[0])), str(row[1] or "")
+        over = first_words_over_limit(
+            engine, _to_config(tenant_id, await voice(agent_id), engine=engine)
+        )
+        if over is not None and over.placed:
+            raise _room_refusal(
+                over,
+                where=name or "One of your agents",
+                cause=cause,
+                extension=NoticeNeedsRoomOnAgent(agent_id=agent_id, agent_name=name),
+            )
+    dial_cap = hosted_agent_limits(engine).call_opening_chars
+    for kind, holder_id, holder_name, agent_id, opening_b in (
+        await session.execute(text(_ACCOUNT_HOLDERS_FOR_ROOM_SQL))
+    ).all():
+        agent = await voice(UUID(str(agent_id)))
+        name = str(holder_name or "")
+        try:
+            cfg = (
+                await line_config(session, tenant_id=tenant_id, line_id=holder_id, agent=agent)
+                if kind == "line"
+                else await campaign_config(
+                    session, tenant_id=tenant_id, campaign_id=holder_id, agent=agent
+                )
+            )
+        except ProblemError:
+            # Nothing to speak yet (a campaign in the voice of an agent with no script): its
+            # own publish refuses it until there is, so it has no first words to measure.
+            cfg = None
+        if kind == "line":
+            if cfg is None:
+                continue
+            extension = NoticeNeedsRoomOnAgent(
+                agent_id=agent_id, agent_name=str(agent["name"]), line_id=holder_id, line_name=name
+            )
+            # A line answers in its voice's direction and may place call-backs with its own
+            # placed-call opening (D-1019 D2), measured as a "both" agent's.
+            placed = first_words_over_limit(engine, cfg.model_copy(update={"direction": "both"}))
+            over = first_words_over_limit(engine, cfg) or (
+                placed if placed is not None and placed.placed else None
+            )
+            if over is not None:
+                raise _room_refusal(
+                    over, where=name or "One of your lines", cause=cause, extension=extension
+                )
+            continue
+        over = first_words_over_limit(engine, cfg) if cfg is not None else None
+        if over is not None:
+            raise _room_refusal(
+                over,
+                where=name or "One of your campaigns",
+                cause=cause,
+                extension=NoticeNeedsRoomOnAgent(
+                    agent_id=agent_id,
+                    agent_name=str(agent["name"]),
+                    campaign_id=holder_id,
+                    campaign_name=name,
+                    campaign_opening="a",
+                ),
+            )
+        if not (opening_b and str(opening_b).strip()) or dial_cap is None:
+            continue
+        speaker = await campaign_agent_row(
+            session, tenant_id=tenant_id, campaign_id=holder_id, agent=agent
+        )
+        length = len(
+            campaign_first_words(
+                speaker, str(opening_b), call_is_recorded=engine.capabilities.records_audio
+            )
+        )
+        if length > dial_cap:
+            raise _room_refusal(
+                FirstWordsOver(length=length, cap=dial_cap, placed=True),
+                where=f"{name or 'One of your campaigns'} (its second opening)",
+                cause=cause,
+                extension=NoticeNeedsRoomOnAgent(
+                    agent_id=agent_id,
+                    agent_name=str(agent["name"]),
+                    campaign_id=holder_id,
+                    campaign_name=name,
+                    campaign_opening="b",
+                ),
+            )
+
+
+async def queue_notices_reach_calls(
+    session: AsyncSession, *, tenant_id: UUID, reason: str, requested_by: UUID | None = None
+) -> UUID:
+    """After the account's switches moved, in the same transaction: queue every opening's
+    rewrite (each agent's, D-971, and each Inbound line's and campaign's own script) and the
+    tenant live apply that republishes every live agent and its holders (D-720). Returns the
+    live-apply run."""
+    agents = (await session.execute(text(_ACCOUNT_AGENTS_SQL))).all()
+    for row in agents:
+        await queue_opening_notices(session, tenant_id=tenant_id, agent_id=UUID(str(row[0])))
+    await queue_account_holder_notices(session, tenant_id=tenant_id)
+    return await queue_live_apply(
+        session, scope="tenant", tenant_id=tenant_id, reason=reason, requested_by=requested_by
+    )
 
 
 async def set_account_notices(
@@ -1680,7 +1885,7 @@ async def set_account_notices(
     call, always: `calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE`, appended to every prompt
     and verified on every publish read-back (hard rule 5).
 
-    SWITCHING ON IS REFUSED, NAMING THE AGENT, when any scripted agent's first words would
+    SWITCHING ON IS REFUSED, NAMING THE AGENT, LINE OR CAMPAIGN, when any first words would
     then be over the engine's greeting ceiling or say who is calling twice: an account switch
     that one line could not honour would publish that line with an error and leave it
     saying what it said before. Switching OFF is never refused.
@@ -1691,9 +1896,11 @@ async def set_account_notices(
     and experiment arms with it. Every opening is queued to be rewritten to say, or stop
     saying, the notices — each agent's (`queue_opening_notices`, D-971) and each Inbound line's
     and campaign's own script (`queue_account_holder_notices`); until it is, the stored sentence
-    is said beside it, so switching on is never a call without the notice. The dial gate
-    composes the first words from the account's switch on every dial, so a placed call
-    cannot go out without a notice that is on while its republish is still queued.
+    is said beside it, so switching on is never a call without the notice. Every call we
+    place carries first words composed from our rows with the account's switch
+    (`service.dispatch_call`), so a placed call says a notice that is on, and stops saying one
+    that is off, while its republish is still queued. An answered call speaks the greeting
+    the engine holds until that republish lands.
 
     `None` leaves a switch alone. IDEMPOTENT: re-asserting the state changes nothing,
     queues nothing and reports `changed=()`, so a double click writes one audit row.
@@ -1720,10 +1927,19 @@ async def set_account_notices(
                             recording=wanted["recording_notice_enabled"],
                             turned_on=turned_on,
                         )
+                await _refuse_where_first_words_have_no_room(
+                    session,
+                    tenant_id=tenant_id,
+                    agents=agents,
+                    ai=wanted["ai_disclosure_enabled"],
+                    recording=wanted["recording_notice_enabled"],
+                    turned_on=turned_on,
+                )
             await session.execute(
                 text(
                     "UPDATE organizations SET notice_ai_enabled = :ai, "
-                    "notice_recording_enabled = :rec, updated_at = now() WHERE id = :tid"
+                    "notice_recording_enabled = :rec, notice_generation = notice_generation + 1, "
+                    "updated_at = now() WHERE id = :tid"
                 ),
                 {
                     "ai": wanted["ai_disclosure_enabled"],
@@ -1731,19 +1947,8 @@ async def set_account_notices(
                     "tid": tenant_id,
                 },
             )
-            for row in agents:
-                await queue_opening_notices(
-                    session, tenant_id=tenant_id, agent_id=UUID(str(row[0]))
-                )
-            # The Inbound lines' and campaigns' own scripts too: each opening is rewritten to
-            # say, or stop saying, the notices in its own words.
-            await queue_account_holder_notices(session, tenant_id=tenant_id)
-            run_id = await queue_live_apply(
-                session,
-                scope="tenant",
-                tenant_id=tenant_id,
-                reason="call_notices",
-                requested_by=requested_by,
+            run_id = await queue_notices_reach_calls(
+                session, tenant_id=tenant_id, reason="call_notices", requested_by=requested_by
             )
 
     # Ids, booleans and field names; the sentences are the client's copy and stay out.
@@ -2098,6 +2303,7 @@ __all__ = [
     "holders_verification",
     "lane_of",
     "pending_state_for",
+    "queue_notices_reach_calls",
     "set_account_notices",
     "set_call_cap",
     "set_caller_has_screen",

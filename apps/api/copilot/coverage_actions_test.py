@@ -244,6 +244,29 @@ async def test_the_account_call_notices_are_read_and_switched_through_pip() -> N
     assert "(ai_notice): on" in await _read("account_switches", tenant_id, {})
 
 
+async def test_a_pip_notice_flip_is_audited_on_the_account_and_a_no_op_is_not_a_flip() -> None:
+    """FAILS IF: a Pip flip is audited with no object id (so the first-run step cannot see an
+    owner's "off" and switches the notice back on), or a flip that moved nothing is recorded
+    as the notice being switched."""
+    from apps.workers.first_run import _ai_notice_on_file
+
+    tenant_id, _slug, token = await _make_tenant()
+    await _do(tenant_id, token, "account_switch_set", {"switch": "ai_notice", "on": True})
+    done = await _do(tenant_id, token, "account_switch_set", {"switch": "ai_notice", "on": False})
+    assert done.applied is True
+    again = await _do(tenant_id, token, "account_switch_set", {"switch": "ai_notice", "on": False})
+    assert again.applied is False
+    rows = await _audit(tenant_id)
+    flips = [(a, i) for a, _t, i in rows if a.startswith("organization.ai_disclosure")]
+    assert flips == [
+        ("organization.ai_disclosure_enabled", str(tenant_id)),
+        ("organization.ai_disclosure_disabled", str(tenant_id)),
+    ]
+    assert ("organization.switch_set", str(tenant_id)) in [(a, i) for a, _t, i in rows]
+    _line, owner_off = await _ai_notice_on_file(tenant_id, await _agent_of(tenant_id))
+    assert owner_off is True
+
+
 async def test_the_save_number_switch_demands_the_emailed_code() -> None:
     tenant_id, _slug, token = await _make_tenant()
     proposal = await _propose(

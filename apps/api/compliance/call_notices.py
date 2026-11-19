@@ -36,6 +36,13 @@ RECORDING_NOTICE_SQL: Final = (
 )
 
 
+#: How many times the account's switches have moved, for the agent row `a`: part of the
+#: key that makes each flip's opening rewrite new work (`agents/opening_notices`).
+NOTICE_GENERATION_SQL: Final = (
+    "COALESCE((SELECT o_n.notice_generation FROM organizations o_n WHERE o_n.id = a.tenant_id), 0)"
+)
+
+
 @dataclass(frozen=True, slots=True)
 class AccountNotices:
     ai: bool
@@ -62,4 +69,10 @@ async def read_account_notices(
     return AccountNotices(ai=bool(row[0]), recording=bool(row[1]))
 
 
-__all__ = ["AI_NOTICE_SQL", "RECORDING_NOTICE_SQL", "AccountNotices", "read_account_notices"]
+__all__ = [
+    "AI_NOTICE_SQL",
+    "NOTICE_GENERATION_SQL",
+    "RECORDING_NOTICE_SQL",
+    "AccountNotices",
+    "read_account_notices",
+]

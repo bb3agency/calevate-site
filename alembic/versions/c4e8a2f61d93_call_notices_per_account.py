@@ -55,11 +55,20 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # The upgrade's backfill above ran without this bracket and matched no rows wherever the
+    # owner is subject to RLS; `f2477c8d623d` re-runs it bracketed. The downgrade has never
+    # run in production, so it is corrected here.
     op.execute("SET LOCAL lock_timeout = '3s'")
-    for account_column, agent_column in _COLUMNS:
-        op.execute(
-            f"UPDATE agents a SET {agent_column} = o.{account_column} "
-            "FROM organizations o WHERE o.id = a.tenant_id"
-        )
+    op.execute("ALTER TABLE agents NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE organizations NO FORCE ROW LEVEL SECURITY")
+    try:
+        for account_column, agent_column in _COLUMNS:
+            op.execute(
+                f"UPDATE agents a SET {agent_column} = o.{account_column} "
+                "FROM organizations o WHERE o.id = a.tenant_id"
+            )
+    finally:
+        op.execute("ALTER TABLE organizations FORCE ROW LEVEL SECURITY")
+        op.execute("ALTER TABLE agents FORCE ROW LEVEL SECURITY")
     for account_column, _agent_column in reversed(_COLUMNS):
         op.drop_column("organizations", account_column)

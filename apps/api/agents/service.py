@@ -77,6 +77,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from typing import (
     Any,
     Final,
@@ -118,6 +119,7 @@ from calevate_shared.engine import (
     TurnDetection,
     VoiceEngine,
     compose_engine_prompt,
+    compose_first_utterance,
     compose_opening_line,
     introduces_itself,
     introduction_names,
@@ -4565,7 +4567,8 @@ async def republish_lines(session: AsyncSession, *, tenant_id: UUID, agent_id: U
     answer, as `republish_running_variants` does for arms. Each line keeps its own script.
     A draft's test holder is left alone: it answers no caller, and its test call republishes
     it first (`inbound/publish.line_test_dial`), so an agent edit is never refused for it.
-    Returns how many were republished."""
+    One line the platform refuses does not keep the others on the old config
+    (`_republish_holder`). Returns how many were republished."""
     rows = (
         await session.execute(
             text(
@@ -4578,9 +4581,50 @@ async def republish_lines(session: AsyncSession, *, tenant_id: UUID, agent_id: U
     ).scalars()
     count = 0
     for line_id in list(rows):
-        await publish_line(session, tenant_id=tenant_id, line_id=UUID(str(line_id)))
-        count += 1
+        holder_id = UUID(str(line_id))
+        if await _republish_holder(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            kind="line",
+            holder_id=holder_id,
+            publish=partial(publish_line, session, tenant_id=tenant_id, line_id=holder_id),
+        ):
+            count += 1
     return count
+
+
+async def _republish_holder(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    kind: Literal["line", "campaign"],
+    holder_id: UUID,
+    publish: Callable[[], Awaitable[object]],
+) -> bool:
+    """Republish one line or campaign in a savepoint, so its refusal rolls back its own rows
+    only and its agent's other holders still get the agent's change. A failure alarms naming
+    the holder (its engine agent keeps what it held, the notices included) and its next
+    republish, a drift repair or an owner's save, tries again. True when it was republished."""
+    try:
+        async with session.begin_nested():
+            await publish()
+    except Exception as exc:
+        reason = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
+        alert(
+            "CORE_LOGIC",
+            "holder_republish_failed",
+            detail=(
+                f"An {'inbound line' if kind == 'line' else 'campaign'} was not republished "
+                f"with its agent's change, so it keeps its previous settings. Refusal: {reason}."
+            ),
+            tenant_id=str(tenant_id),
+            agent_id=str(agent_id),
+            holder_id=str(holder_id),
+        )
+        return False
+    return True
 
 
 #: A campaign whose engine agent it no longer needs: archived, ended, or a test holder not
@@ -5146,10 +5190,18 @@ async def republish_campaign_agents(
     ).scalars()
     count = 0
     for campaign_id in list(rows):
-        await publish_campaign_agent(
-            session, tenant_id=tenant_id, campaign_id=UUID(str(campaign_id))
-        )
-        count += 1
+        holder_id = UUID(str(campaign_id))
+        if await _republish_holder(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            kind="campaign",
+            holder_id=holder_id,
+            publish=partial(
+                publish_campaign_agent, session, tenant_id=tenant_id, campaign_id=holder_id
+            ),
+        ):
+            count += 1
     return count
 
 
@@ -6169,6 +6221,62 @@ def dial_first_words(
     return None
 
 
+_ARM_SCRIPT_SQL: Final = (
+    "SELECT v.label, v.disclosure_line, pv.body FROM prompt_experiment_variants v "
+    "JOIN prompt_versions pv ON pv.id = v.prompt_version_id WHERE v.id = :vid"
+)
+
+
+async def held_greeting(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent: AgentRow,
+    campaign_id: UUID | None = None,
+    line_id: UUID | None = None,
+    arm: assignment.VariantArm | None = None,
+) -> str | None:
+    """The greeting the dialled engine agent holds once its republish lands, composed from our
+    rows now (`compose_first_utterance` of the config that publish writes): the campaign's,
+    the line's, the experiment arm's or the agent's own. A dial whose first words are that
+    greeting carries this instead of letting the engine speak what it holds, which after a
+    notice switch moves is the old posture until the tenant's live apply reaches it.
+
+    None leaves the engine's own greeting: an arm whose script is gone, an empty greeting, or
+    a config our rows cannot compose (no script yet), which a publish would refuse too and
+    which must not refuse a dial the engine can still place."""
+    engine = get_engine()
+    try:
+        if campaign_id is not None:
+            cfg = await campaign_config(
+                session, tenant_id=tenant_id, campaign_id=campaign_id, agent=agent
+            )
+        elif line_id is not None:
+            cfg = await line_config(session, tenant_id=tenant_id, line_id=line_id, agent=agent)
+        elif arm is not None:
+            row = (await session.execute(text(_ARM_SCRIPT_SQL), {"vid": arm.variant_id})).first()
+            if row is None:
+                return None
+            cfg = _variant_config(
+                tenant_id,
+                agent,
+                arm.variant_id,
+                str(row.label),
+                str(row.body),
+                str(row.disclosure_line),
+                engine=engine,
+            )
+        else:
+            cfg = _to_config(tenant_id, agent, engine=engine)
+    except ProblemError as refused:
+        log.info(
+            "dial_greeting_not_composed",
+            extra={"agent_id": str(agent["id"]), "reason": refused.code},
+        )
+        return None
+    return compose_first_utterance(cfg) or None
+
+
 async def dispatch_call(
     session: AsyncSession,
     *,
@@ -6412,6 +6520,26 @@ async def dispatch_call(
     # its call ceiling under the line lock. Both are refused before the intent row exists,
     # so nothing is left `queued` for a dial that was never placed. The hold-off is scoped
     # to what the 429 named, so one client's exhausted number holds no other dial.
+    # What the dialled engine agent says first when this dial brings no first words of its
+    # own, composed from our rows before anything is written: a notice switch moved since
+    # that engine agent was last published must not open a placed call on the old notices
+    # (D-1021). A test copy and a test holder are published for the call they make.
+    held_first_words = (
+        await held_greeting(
+            session,
+            tenant_id=tenant_id,
+            agent=agent,
+            campaign_id=campaign.campaign_id if campaign is not None else None,
+            line_id=line.line_id if line is not None else None,
+            arm=arm.arm if arm is not None and arm.arm.engine_agent_ref else None,
+        )
+        if trial is None
+        and copy_test is None
+        and line_test is None
+        and not (opening_line and opening_line.strip())
+        else None
+    )
+
     engine_capped = engine_concurrency_cap() is not None
     origin = _dial_origin(dial_ref, caller, trial=trial is not None)
     if engine_capped and (held := await dial_backoff_refusal(origin)) is not None:
@@ -6550,6 +6678,7 @@ async def dispatch_call(
                         lead_name=lead_name or prefill.name,
                         through_line=line is not None,
                     )
+                    or held_first_words
                 ),
                 rings_at_any_hour=rings_at_any_hour,
             ),

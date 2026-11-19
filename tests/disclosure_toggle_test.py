@@ -897,95 +897,77 @@ async def test_the_switches_are_invisible_across_tenants() -> None:
     assert (await _posture(mine, my_agent))[:2] == (True, True)
 
 
-def _sync_engine():  # type: ignore[no-untyped-def]
-    url = (get_settings().alembic_database_url or get_settings().database_url).replace(
-        "+asyncpg", "+psycopg"
-    )
-    return create_sync_engine(url)
+async def test_the_account_switch_migration_backfills_any_on_and_goes_down_and_back_up() -> None:
+    """D-1021's revision and its repair, run against the live schema as an owner RLS binds
+    (`rls_bound_owner`), in one rolled-back transaction.
 
+    This test used to run as the local owner, a superuser, which bypasses RLS: it passed
+    while `c4e8a2f61d93`'s unbracketed backfill matched no row in production. Under the bound
+    role the shipped backfill turns nothing on, and `f2477c8d623d` does what it meant to: an
+    account is ON when ANY of its agents not deleted was on (never under-disclose), and OFF
+    when none was; a deleted agent's switch does not count. Down: each account's switches are
+    written back onto its agents (bracketed now) and the columns go."""
+    from tests.call_notices_repair_migration_test import load_revision, rls_bound_owner
 
-def test_the_account_switch_migration_backfills_any_on_and_goes_down_and_back_up() -> None:
-    """D-1021's revision, run against the live schema in one rolled-back transaction.
-
-    Down: each account's switches are written back onto its agents and the columns go.
-    Up again: an account is ON when ANY of its agents not deleted was on (never
-    under-disclose), and OFF when none was; a deleted agent's switch does not count."""
-    revision = _load_revision("c4e8a2f61d93_call_notices_per_account")
+    shipped = load_revision("c4e8a2f61d93_call_notices_per_account")
+    repair = load_revision("f2477c8d623d_call_notices_backfill_under_rls")
+    some_on, none_on, deleted_on = [(await _tenant())[0] for _ in range(3)]
     account = "SELECT notice_ai_enabled, notice_recording_enabled FROM organizations WHERE id = :t"
-    sync = _sync_engine()
-    try:
-        with sync.connect() as connection:
-            transaction = connection.begin()
-            try:
-                tenants = [
-                    row[0]
-                    for row in connection.execute(
-                        text(
-                            "SELECT o.id FROM organizations o WHERE (SELECT count(*) FROM agents "
-                            "a WHERE a.tenant_id = o.id AND a.deleted_at IS NULL) = 1 LIMIT 3"
-                        )
-                    ).all()
-                ]
-                assert len(tenants) == 3, "the shared database holds too few one-agent tenants"
-                some_on, none_on, deleted_on = tenants
-                context = MigrationContext.configure(connection)
-                with Operations.context(context):
-                    revision.downgrade()
-                    gone = connection.execute(
-                        text(
-                            "SELECT count(*) FROM information_schema.columns "
-                            "WHERE table_name = 'organizations' AND column_name IN "
-                            "('notice_ai_enabled', 'notice_recording_enabled')"
-                        )
-                    ).scalar_one()
-                    assert gone == 0, "downgrade() left columns behind"
-                    for tid, ai in ((some_on, True), (none_on, False), (deleted_on, True)):
-                        connection.execute(
-                            text(
-                                "UPDATE agents SET ai_disclosure_enabled = :ai, "
-                                "recording_notice_enabled = false WHERE tenant_id = :t "
-                                "AND deleted_at IS NULL"
-                            ),
-                            {"ai": ai, "t": tid},
-                        )
-                    # A deleted agent with the notice on does not turn its account on.
-                    connection.execute(
-                        text("UPDATE agents SET deleted_at = now() WHERE tenant_id = :t"),
-                        {"t": deleted_on},
-                    )
-                    revision.upgrade()
-                    assert connection.execute(text(account), {"t": some_on}).one() == (
-                        True,
-                        False,
-                    )
-                    assert connection.execute(text(account), {"t": none_on}).one() == (
-                        False,
-                        False,
-                    )
-                    assert connection.execute(text(account), {"t": deleted_on}).one() == (
-                        False,
-                        False,
-                    )
-                    # And down again puts the account's value back on its agents.
-                    connection.execute(
-                        text(
-                            "UPDATE organizations SET notice_recording_enabled = true WHERE id = :t"
-                        ),
-                        {"t": none_on},
-                    )
-                    revision.downgrade()
-                    assert connection.execute(
-                        text(
-                            "SELECT bool_and(recording_notice_enabled) FROM agents "
-                            "WHERE tenant_id = :t"
-                        ),
-                        {"t": none_on},
-                    ).scalar_one()
-                    revision.upgrade()
-            finally:
-                transaction.rollback()
-    finally:
-        sync.dispose()
+    with rls_bound_owner() as (connection, become):
+        become()
+        with Operations.context(MigrationContext.configure(connection)):
+            repair.downgrade()
+            shipped.downgrade()
+            connection.execute(text("RESET ROLE"))
+            gone = connection.execute(
+                text(
+                    "SELECT count(*) FROM information_schema.columns "
+                    "WHERE table_name = 'organizations' AND column_name IN "
+                    "('notice_ai_enabled', 'notice_recording_enabled')"
+                )
+            ).scalar_one()
+            assert gone == 0, "downgrade() left columns behind"
+            for tid, ai in ((some_on, True), (none_on, False), (deleted_on, True)):
+                connection.execute(
+                    text(
+                        "UPDATE agents SET ai_disclosure_enabled = :ai, "
+                        "recording_notice_enabled = false WHERE tenant_id = :t "
+                        "AND deleted_at IS NULL"
+                    ),
+                    {"ai": ai, "t": tid},
+                )
+            # A deleted agent with the notice on does not turn its account on.
+            connection.execute(
+                text("UPDATE agents SET deleted_at = now() WHERE tenant_id = :t"),
+                {"t": deleted_on},
+            )
+            become()
+            shipped.upgrade()
+            connection.execute(text("RESET ROLE"))
+            # What production got: the shipped backfill saw no row.
+            assert connection.execute(text(account), {"t": some_on}).one() == (False, False)
+            become()
+            repair.upgrade()
+            connection.execute(text("RESET ROLE"))
+            assert connection.execute(text(account), {"t": some_on}).one() == (True, False)
+            assert connection.execute(text(account), {"t": none_on}).one() == (False, False)
+            assert connection.execute(text(account), {"t": deleted_on}).one() == (False, False)
+            # And down again puts the account's value back on its agents.
+            connection.execute(
+                text("UPDATE organizations SET notice_recording_enabled = true WHERE id = :t"),
+                {"t": none_on},
+            )
+            become()
+            repair.downgrade()
+            shipped.downgrade()
+            connection.execute(text("RESET ROLE"))
+            assert connection.execute(
+                text("SELECT bool_and(recording_notice_enabled) FROM agents WHERE tenant_id = :t"),
+                {"t": none_on},
+            ).scalar_one()
+            become()
+            shipped.upgrade()
+            repair.upgrade()
 
 
 def test_the_migration_goes_down_and_comes_back_up() -> None:

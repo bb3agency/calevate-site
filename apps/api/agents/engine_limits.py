@@ -304,15 +304,21 @@ def refuse_opening_over_limit(
     )
 
 
-def refuse_over_engine_limits(engine: VoiceEngine, cfg: AgentConfig) -> None:
-    """Raise a plain-language `ProblemError` if `cfg` cannot be held by `engine` as is."""
-    limits = hosted_agent_limits(engine)
-    if limits.prompt_chars is not None:
-        _check_prompt(engine, cfg, limits.prompt_chars)
+@dataclass(frozen=True, slots=True)
+class FirstWordsOver:
+    """First words of `cfg` longer than the engine speaks there."""
+
+    length: int
+    cap: int
+    #: The opening of the calls a "both" agent places, rather than its greeting.
+    placed: bool
+
+
+def _greeting_length(engine: VoiceEngine, cfg: AgentConfig) -> int:
     # The text the engine holds as the greeting on every direction: on ThinnestAI the
     # opening line and the notices switched on (D-861, D-865), so the ceiling and the
     # outbound requirement apply to both together.
-    length = greeting_chars(
+    return greeting_chars(
         engine,
         notices=cfg.opening_line,
         opening=said_as_taught(
@@ -322,18 +328,34 @@ def refuse_over_engine_limits(engine: VoiceEngine, cfg: AgentConfig) -> None:
         language=cfg.language_primary,
         said=said_notices(cfg.system_prompt, business=cfg.business),
     )
+
+
+def first_words_over_limit(engine: VoiceEngine, cfg: AgentConfig) -> FirstWordsOver | None:
+    """The first of `cfg`'s first words over the engine's ceiling, or None when they fit."""
+    length = _greeting_length(engine, cfg)
     limit = greeting_limit(engine, cfg.direction)
     if limit is not None and length > limit:
-        raise _opening_too_long(engine, cfg, length=length, cap=limit)
+        return FirstWordsOver(length=length, cap=limit, placed=False)
     placed = compose_placed_call_first_words(cfg)
     placed_cap = hosted_agent_limits(engine).call_opening_chars
     if placed is not None and placed_cap is not None and len(placed) > placed_cap:
         # A "both" agent's opening on the calls it places rides each dial (D-920); one too
         # long would be dropped at dial time for the answering greeting.
-        raise _opening_too_long(engine, cfg, length=len(placed), cap=placed_cap, placed=True)
+        return FirstWordsOver(length=len(placed), cap=placed_cap, placed=True)
+    return None
+
+
+def refuse_over_engine_limits(engine: VoiceEngine, cfg: AgentConfig) -> None:
+    """Raise a plain-language `ProblemError` if `cfg` cannot be held by `engine` as is."""
+    limits = hosted_agent_limits(engine)
+    if limits.prompt_chars is not None:
+        _check_prompt(engine, cfg, limits.prompt_chars)
+    over = first_words_over_limit(engine, cfg)
+    if over is not None:
+        raise _opening_too_long(engine, cfg, length=over.length, cap=over.cap, placed=over.placed)
     if cfg.direction == "inbound":
         return
-    if limits.call_opening_required and not length:
+    if limits.call_opening_required and not _greeting_length(engine, cfg):
         log.warning(
             "agent_publish_refused_engine_limit",
             extra={"agent_id": cfg.agent_id, "engine": engine.name, "reason": OPENING_REQUIRED},
@@ -463,9 +485,11 @@ __all__ = [
     "OPENING_REQUIRED",
     "OPENING_TOO_LONG",
     "PROMPT_TOO_LONG",
+    "FirstWordsOver",
     "GreetingBudget",
     "OpeningTooLongError",
     "PromptTooLongError",
+    "first_words_over_limit",
     "greeting_budget",
     "greeting_chars",
     "greeting_limit",

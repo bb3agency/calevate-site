@@ -65,18 +65,19 @@ QUEUE_RECHECK = (
     "t.tenant_id::text), 'pending', 0, :revision, now(), now() "
     "FROM (SELECT DISTINCT tenant_id FROM knowledge_gaps WHERE status = 'open') t"
 )
-_FORCED = ("caller_memories", "calls", "knowledge_gaps")
-
-
 def _unforced() -> None:
     # The FORCE bracket (`f4a2c7e19d63`): FORCE-RLS'd tables read as empty to the owner.
-    for table in _FORCED:
-        op.execute(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
+    # One statement per table rather than a loop, so `tests/migration_rls_bracket_test.py`,
+    # which reads the source, can see the bracket.
+    op.execute("ALTER TABLE caller_memories NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE calls NO FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE knowledge_gaps NO FORCE ROW LEVEL SECURITY")
 
 
 def _forced() -> None:
-    for table in _FORCED:
-        op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE caller_memories FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE calls FORCE ROW LEVEL SECURITY")
+    op.execute("ALTER TABLE knowledge_gaps FORCE ROW LEVEL SECURITY")
 
 
 def upgrade() -> None:

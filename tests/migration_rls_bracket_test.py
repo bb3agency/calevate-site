@@ -56,6 +56,12 @@ DML = re.compile(
 #: for the wrong reason and would have cleared a `SELECT FROM organizations` that mattered.
 READ_SIDE = re.compile(r"\b(?:FROM|JOIN)\s+(?:ONLY\s+)?([a-z_][a-z0-9_]*)", re.IGNORECASE)
 
+#: Every table whose policy binds the owner: the tenant tables, and `organizations`, whose
+#: policy matches on `id` rather than `tenant_id` and so is not in `TENANT_TABLES`
+#: (`05bba2f3c19c` forces it). Leaving it out is how `c4e8a2f61d93` wrote `organizations`
+#: unbracketed and passed this guard.
+FORCED_TABLES: frozenset[str] = frozenset({*TENANT_TABLES, "organizations"})
+
 #: A migration that predates this guard, shipped the defect, and CANNOT be repaired by
 #: editing it — it has already run everywhere, so its revision will never be applied again.
 #: The repair belongs in a LATER migration, and the value here names the one that carries
@@ -73,6 +79,20 @@ ALREADY_RUN_AND_REPAIRED_ELSEWHERE = {
     "e83b5d1a4c07_outbox_probes_stop_scanning.py": "b7e35c2f81da",
     # D-863's `first_runs.jobs` backfill from `job`; an empty `jobs` reads as unstarted.
     "a7d3e9c2f416_first_run_jobs_and_written_questions.py": "cdd375802099",
+    # The rest were found when the guard began reading `organizations` and judging every
+    # read side, not only one forced in the same file.
+    # D-1021's account notice switches, backfilled from the agents' (hard rule 5).
+    "c4e8a2f61d93_call_notices_per_account.py": "f2477c8d623d",
+    # The approved row for accounts whose first campaign predates the review.
+    "c4d9e18a72b6_first_campaign_reviews.py": "a0849ad2f893",
+    # Notice rewrites joined to `organizations` for the business name: `f8c3a1d9e4b2`
+    # rewrote the AI and bundled lines by shape, and `c3e8a1f5d702` every old default,
+    # recording and memory lines included, neither reading `organizations`.
+    "a2d8e6c4f1b7_notices_carry_no_greeting.py": "f8c3a1d9e4b2 (+ c3e8a1f5d702)",
+    "e9b4c2a7d136_notices_in_their_own_script.py": "f8c3a1d9e4b2 (+ c3e8a1f5d702)",
+    # The `kb_chunks` projection read `kb_documents`; the embeddings sweep runs the same
+    # `_BACKFILL` under each tenant, as `b7e35c2f81da` records.
+    "dc1aaeeeff02_kb_chunks_the_retrieval_projection.py": "b7e35c2f81da (kb_embeddings sweep)",
 }
 
 #: ⚠ EMPTY, AND KEPT AS A NAMED EMPTY RATHER THAN DELETED.
@@ -164,7 +184,7 @@ def _unbracketed(source: str) -> set[str]:
     brackets one statement and forgets a second later one passes this test.
     """
     literals = _sql_literals(source)
-    tenant = set(TENANT_TABLES)
+    tenant = FORCED_TABLES
 
     def lines_matching(pattern: str) -> list[int]:
         return [line for line, sql in literals if re.search(pattern, sql, re.IGNORECASE)]
@@ -203,13 +223,10 @@ def _unbracketed(source: str) -> set[str]:
             if table not in tenant or table in guarded:
                 continue
             forced = lines_matching(rf"ALTER\s+TABLE\s+{table}\s+FORCE\s+ROW\s+LEVEL\s+SECURITY")
-            if table in read:
-                # Read side: the only question is whether ITS policy is already live, since
-                # no statement creates the table it selects from and fills it in one breath.
-                if not forced or line < min(forced):
-                    continue
-                offenders.add(table)
-                continue
+            # The read side is judged as the write side is: its policy is live unless THIS
+            # migration created the table and reads it before forcing it. Judging a read only
+            # by a FORCE in the same file cleared every table forced by an earlier migration,
+            # which is how `c4e8a2f61d93`'s `UPDATE organizations ... FROM agents` shipped.
             if _created_before(source, table, line, forced):
                 continue
             offenders.add(table)
@@ -318,6 +335,11 @@ def test_the_exception_list_is_closed_and_names_who_pays_the_debt() -> None:
         "f4b1e9a2c7d0_extraction_field_description_to_reason.py",
         "e83b5d1a4c07_outbox_probes_stop_scanning.py",
         "a7d3e9c2f416_first_run_jobs_and_written_questions.py",
+        "c4e8a2f61d93_call_notices_per_account.py",
+        "c4d9e18a72b6_first_campaign_reviews.py",
+        "a2d8e6c4f1b7_notices_carry_no_greeting.py",
+        "e9b4c2a7d136_notices_in_their_own_script.py",
+        "dc1aaeeeff02_kb_chunks_the_retrieval_projection.py",
     }
     assert not UNAUDITED_PRE_EXISTING, (
         "an unaudited entry is a defect that has run in production with no repair written "
@@ -376,6 +398,38 @@ def test_a_write_scoped_to_each_tenant_passes_and_an_unscoped_one_does_not() -> 
     )
     assert _unbracketed(scoped) == set()
     unscoped = scoped.replace("  PERFORM set_config('app.tenant_id', t::text, true);\n", "")
-    assert _unbracketed(unscoped) == {"agents"}
+    assert _unbracketed(unscoped) == {"agents", "organizations"}
     cleared = scoped.replace("t::text", "''")
-    assert _unbracketed(cleared) == {"agents"}
+    assert _unbracketed(cleared) == {"agents", "organizations"}
+
+
+def test_an_unbracketed_write_of_organizations_reading_agents_fails() -> None:
+    """FAILS IF: `c4e8a2f61d93`'s shape passes again: an `organizations` write whose `EXISTS`
+    reads `agents`, both forced by earlier migrations, with no bracket."""
+    shipped = (
+        "from alembic import op\n\n"
+        "def upgrade() -> None:\n"
+        "    for column, agent_column in COLUMNS:\n"
+        "        op.execute(\n"
+        '            f"UPDATE organizations o SET {column} = true "\n'
+        '            f"WHERE EXISTS (SELECT 1 FROM agents a WHERE a.tenant_id = o.id "\n'
+        '            f"AND a.{agent_column})"\n'
+        "        )\n"
+    )
+    assert _unbracketed(shipped) == {"agents", "organizations"}
+    bracketed = shipped.replace(
+        "    for column",
+        '    op.execute("ALTER TABLE organizations NO FORCE ROW LEVEL SECURITY")\n'
+        '    op.execute("ALTER TABLE agents NO FORCE ROW LEVEL SECURITY")\n'
+        "    for column",
+    )
+    assert _unbracketed(bracketed) == set()
+
+
+def test_a_read_of_a_table_this_migration_did_not_create_counts() -> None:
+    """FAILS IF: the read side is cleared again for a table forced by an earlier migration."""
+    source = (
+        "SQL = \"INSERT INTO outbox_messages (id, job) SELECT gen_random_uuid(), 'x' "
+        'FROM campaigns c WHERE c.archived_at IS NULL"\n'
+    )
+    assert _unbracketed(source) == {"campaigns"}

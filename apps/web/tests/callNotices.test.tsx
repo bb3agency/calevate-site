@@ -253,3 +253,37 @@ describe("a switch an agent's opening cannot take (D-846, D-865)", () => {
     expect(JSON.parse(put?.body ?? "{}")).toEqual({ opening_line: "Emi kavali andi?", when: "answers" });
   });
 });
+
+describe("a switch a line's or a campaign's own opening cannot take (D-1021)", () => {
+  it.each([
+    [{ line_id: "line-1", line_name: "Bookings" }, "Open Bookings", "/inbound/line-1"],
+    [
+      { campaign_id: "camp-1", campaign_name: "Reminders", campaign_opening: "b" },
+      "Open Reminders",
+      "/campaigns/camp-1",
+    ],
+  ])("names it and links to it, not to its agent", async (holder, label, path) => {
+    await renderClientPage(<CallNoticesPage />, {
+      "/v1/me": OWNER,
+      "/v1/organization/call-notices": notices(),
+      "PATCH /v1/organization/call-notices": () =>
+        problem(422, {
+          type: "https://calevate.tech/problems/opening_line_too_long_for_notice",
+          title: "Shorten the opening line to switch this on",
+          detail: "Bookings: Saying that it is an AI assistant adds a sentence. Nothing was changed.",
+          remediation: "Shorten the opening line of Bookings, then switch this on again.",
+          kind: "business_rule",
+          retryable: false,
+          agent_id: "agent-1",
+          agent_name: "Varsha",
+          ...holder,
+        }),
+    });
+
+    await waitFor(() => expect(aiSwitch().disabled).toBe(false));
+    fireEvent.click(aiSwitch());
+    const link = await screen.findByRole("link", { name: label });
+    expect(link.getAttribute("href")).toContain(path);
+    expect(screen.queryByRole("link", { name: "Open Varsha" })).toBeNull();
+  });
+});

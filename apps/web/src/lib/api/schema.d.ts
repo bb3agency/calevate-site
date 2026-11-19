@@ -29668,8 +29668,10 @@ export interface components {
         };
         /**
          * NoticeNeedsRoomOnAgent
-         * @description Switching a notice on for the account was refused: this agent's first words have no
-         *     room for it. Names the agent, so the screen can open that agent's script.
+         * @description Switching a notice on for the account was refused: these first words have no room for
+         *     it. Names the agent, and the Inbound line or campaign when the words are its own script's,
+         *     so the screen can open the one thing to fix. `agent_id` is the line's or campaign's voice
+         *     then.
          */
         NoticeNeedsRoomOnAgent: components["schemas"]["ProblemBody"] & {
             /**
@@ -29679,6 +29681,16 @@ export interface components {
             agent_id: string;
             /** Agent Name */
             agent_name: string;
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /** Campaign Name */
+            campaign_name?: string | null;
+            /** Campaign Opening */
+            campaign_opening?: ("a" | "b") | null;
+            /** Line Id */
+            line_id?: string | null;
+            /** Line Name */
+            line_name?: string | null;
         };
         /** NotificationFeedOut */
         NotificationFeedOut: {

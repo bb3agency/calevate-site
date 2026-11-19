@@ -745,8 +745,9 @@ class Agent(PKMixin, TimestampMixin, Base):
     #: not a state this schema can hold. See `calevate_shared.engine.DisclosurePosture`.
     caller_memory_notice_line: Mapped[str] = mapped_column(Text, nullable=False)
     # NO LONGER READ OR WRITTEN (D-1021): the two switches are the account's,
-    # `organizations.notice_ai_enabled` / `notice_recording_enabled`, which migration
-    # c4e8a2f61d93 backfilled from these (any agent on turned the account on). Kept with
+    # `organizations.notice_ai_enabled` / `notice_recording_enabled`, backfilled from these
+    # (any agent on turned the account on) by f2477c8d623d, which re-ran c4e8a2f61d93's
+    # backfill inside the RLS bracket it lacked. Kept with
     # their rows under hard rule 8's two-step; the next release's drop migration closes it.
     ai_disclosure_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"

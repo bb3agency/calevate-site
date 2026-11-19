@@ -840,7 +840,11 @@ async def _execute_notice(actor: ToolActor, parsed: _SwitchArgs) -> Executed:
         if changed
         else f"It was already {'on' if parsed.on else 'off'}.",
         audit_summary={"switch": parsed.switch, "on": parsed.on, "changed": changed},
-        audit_action=audit_action_for(field, enabled=parsed.on),
+        # The account, as the route's rows name it: `first_run._ai_notice_on_file` finds an
+        # owner's "off" by this object id. A flip that moved nothing is recorded under the
+        # tool's own action, so the ledger never shows a notice switched that was not.
+        object_id=str(actor.tenant_id),
+        audit_action=audit_action_for(field, enabled=parsed.on) if changed else None,
     )
 
 

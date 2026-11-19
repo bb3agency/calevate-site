@@ -41414,6 +41414,67 @@
               "agent_name": {
                 "title": "Agent Name",
                 "type": "string"
+              },
+              "campaign_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Campaign Id"
+              },
+              "campaign_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Campaign Name"
+              },
+              "campaign_opening": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "a",
+                      "b"
+                    ],
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Campaign Opening"
+              },
+              "line_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Line Id"
+              },
+              "line_name": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Line Name"
               }
             },
             "required": [
@@ -41423,7 +41484,7 @@
             "type": "object"
           }
         ],
-        "description": "Switching a notice on for the account was refused: this agent's first words have no\nroom for it. Names the agent, so the screen can open that agent's script.",
+        "description": "Switching a notice on for the account was refused: these first words have no room for\nit. Names the agent, and the Inbound line or campaign when the words are its own script's,\nso the screen can open the one thing to fix. `agent_id` is the line's or campaign's voice\nthen.",
         "title": "NoticeNeedsRoomOnAgent"
       },
       "NotificationFeedOut": {

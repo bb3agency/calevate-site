@@ -343,6 +343,9 @@ class Organization(PKMixin, TimestampMixin, Base):
     notice_recording_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false()
     )
+    #: Moves on every flip of either switch, so the opening rewrite each flip queues is new
+    #: work rather than a duplicate of an earlier flip's to the same state (off, on, off).
+    notice_generation: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     #: Send a caller who booked one "save our number" WhatsApp (D-746). Off by default.
     save_number_message_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false()

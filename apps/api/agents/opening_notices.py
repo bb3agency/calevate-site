@@ -30,7 +30,11 @@ from calevate_shared.opening_notices import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.compliance.call_notices import AI_NOTICE_SQL, RECORDING_NOTICE_SQL
+from apps.api.compliance.call_notices import (
+    AI_NOTICE_SQL,
+    NOTICE_GENERATION_SQL,
+    RECORDING_NOTICE_SQL,
+)
 from apps.api.core.logging import get_logger
 from apps.api.engine import engine_capabilities
 from apps.api.reliability.service import enqueue_outbox_once
@@ -61,6 +65,8 @@ class WeaveState:
     staged: bool
     woven: WovenNotices
     todo: tuple[OpeningToWeave, ...]
+    #: `organizations.notice_generation`: each flip of the account's switches is new work.
+    generation: int = 0
 
 
 def openings_to_weave(
@@ -99,6 +105,7 @@ async def weave_state(session: AsyncSession, agent_id: UUID) -> WeaveState | Non
             text(
                 f"SELECT a.system_prompt_id, a.direction, {AI_NOTICE_SQL} AS ai_on, "
                 f"{RECORDING_NOTICE_SQL} AS recording_on, pv.structured_script, "
+                f"{NOTICE_GENERATION_SQL} AS generation, "
                 "(a.live_prompt_id IS NOT NULL "
                 "AND a.system_prompt_id IS DISTINCT FROM a.live_prompt_id) AS staged "
                 "FROM agents a JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
@@ -119,12 +126,19 @@ async def weave_state(session: AsyncSession, agent_id: UUID) -> WeaveState | Non
         staged=bool(row.staged),
         woven=woven,
         todo=openings_to_weave(script, direction=str(row.direction), woven=woven),
+        generation=int(row.generation),
     )
+
+
+def _dedupe_suffix(woven: WovenNotices, generation: int) -> str:
+    """The switch state and the flip that produced it: a republish of the same script under
+    the same flip dedupes, and every flip, back to an earlier state too, is new work."""
+    return f"{int(woven.ai)}{int(woven.recording)}:g{generation}"
 
 
 async def queue_opening_notices(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> bool:
     """Queue the rewrite when an opening line does not say the notices switched on; True when
-    queued. Once per script version and switch state: a republish of the same version does
+    queued. Once per script version and switch flip: a republish of the same version does
     not ask again, and a version waiting to go live is left until it does."""
     state = await weave_state(session, agent_id)
     if state is None or state.staged or not state.todo:
@@ -140,7 +154,7 @@ async def queue_opening_notices(session: AsyncSession, *, tenant_id: UUID, agent
         payload=payload,
         dedupe_key=(
             f"opening-notices:{agent_id}:{state.prompt_id}:"
-            f"{int(state.woven.ai)}{int(state.woven.recording)}"
+            f"{_dedupe_suffix(state.woven, state.generation)}"
         ),
     )
     if queued is not None:
@@ -156,20 +170,32 @@ HOLDER_WEAVE_JOB: Final = "weave_holder_opening_notices"
 
 HolderKind = Literal["line", "campaign"]
 
-#: A holder's own script, its voice, a stamp that moves with every saved script, and the
-#: account's two switches (read on the holder's agent `a`, as every posture reads them).
-#: A campaign has no script version, so its stamp is the script's own digest.
+#: A holder's own script, its voice, a stamp that moves with every saved script, the
+#: account's two switches and their flip count (read on the holder's agent `a`, as every
+#: posture reads them), and the language the script is written in when it is not the
+#: agent's (a campaign's `language_primary` override). A campaign has no script version, so
+#: its stamp is the script's own digest.
 _HOLDER_SQL: Final[dict[str, str]] = {
     "line": (
         f"SELECT l.script, l.agent_id, CAST(l.version AS text) AS stamp, {AI_NOTICE_SQL} AS ai_on, "
-        f"{RECORDING_NOTICE_SQL} AS recording_on FROM inbound_lines l "
+        f"{RECORDING_NOTICE_SQL} AS recording_on, {NOTICE_GENERATION_SQL} AS generation, "
+        "NULL AS language FROM inbound_lines l "
         "JOIN agents a ON a.id = l.agent_id WHERE l.id = :hid AND l.archived_at IS NULL"
     ),
     "campaign": (
         f"SELECT c.script, c.agent_id, md5(CAST(c.script AS text)) AS stamp, {AI_NOTICE_SQL} "
-        f"AS ai_on, {RECORDING_NOTICE_SQL} AS recording_on FROM campaigns c "
+        f"AS ai_on, {RECORDING_NOTICE_SQL} AS recording_on, {NOTICE_GENERATION_SQL} AS "
+        "generation, c.settings_overrides->>'language_primary' AS language FROM campaigns c "
         "JOIN agents a ON a.id = c.agent_id WHERE c.id = :hid AND c.archived_at IS NULL"
     ),
+}
+
+#: The holder's row lock, taken before the script is read again to be saved over: the save
+#: (`inbound/lines.save_script`, `campaigns/workspace.save_script`) takes the same lock, so an
+#: owner's save either lands before the re-read, which then sees the new stamp, or waits.
+HOLDER_LOCK_SQL: Final[dict[str, str]] = {
+    "line": "SELECT 1 FROM inbound_lines WHERE id = :hid FOR UPDATE",
+    "campaign": "SELECT 1 FROM campaigns WHERE id = :hid FOR UPDATE",
 }
 
 #: Every holder of the account with a script of its own, for a switch flip to re-weave.
@@ -192,6 +218,9 @@ class HolderWeaveState:
     script: CallScript
     woven: WovenNotices
     todo: tuple[OpeningToWeave, ...]
+    generation: int = 0
+    #: The script's language when the holder sets one over its agent's, else None.
+    language: str | None = None
 
 
 def holder_openings(
@@ -231,6 +260,8 @@ async def holder_weave_state(
         script=script,
         woven=woven,
         todo=holder_openings(kind, script, woven=woven),
+        generation=int(row.generation),
+        language=str(row.language) if row.language else None,
     )
 
 
@@ -253,7 +284,7 @@ async def queue_holder_opening_notices(
         },
         dedupe_key=(
             f"opening-notices:{kind}:{holder_id}:{state.stamp}:"
-            f"{int(state.woven.ai)}{int(state.woven.recording)}"
+            f"{_dedupe_suffix(state.woven, state.generation)}"
         ),
     )
     if queued is not None:
@@ -279,6 +310,7 @@ async def queue_account_holder_notices(session: AsyncSession, *, tenant_id: UUID
 
 
 __all__ = [
+    "HOLDER_LOCK_SQL",
     "HOLDER_WEAVE_JOB",
     "WEAVE_JOB",
     "WEAVE_NOTE",

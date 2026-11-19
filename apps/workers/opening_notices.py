@@ -13,14 +13,18 @@ Pip's other script writing is (hard rule 7).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Final
 from uuid import UUID
 
+from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
 
 from apps.api.agents import script_builder, script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.opening_notices import (
+    HOLDER_LOCK_SQL,
     WEAVE_JOB,
     WEAVE_NOTE,
     HolderKind,
@@ -30,17 +34,55 @@ from apps.api.agents.opening_notices import (
 )
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.campaigns import workspace as campaign_workspace
+from apps.api.compliance.audit import write_audit
+from apps.api.compliance.call_notices import read_account_notices
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.inbound import lines as inbound_lines
+from apps.workers.extraction import PROVIDER_UNAVAILABLE_REASON
 from apps.workers.opening_line import WrittenOpening, opening_problems, write_opening
 from apps.workers.script_assist import JsonAnswer
 
 log = get_logger(__name__)
 
 JOB_NAME: Final = WEAVE_JOB
+
+#: The job `alembic/versions/f2477c8d623d` queues for each account whose notice switch it
+#: turned back on (D-1021).
+REFRESH_JOB: Final = "refresh_account_notices"
+
+#: The wait before asking again when every line went unwritten because no writer answered.
+RETRY_BACKOFF_S: Final[tuple[float, ...]] = (60.0, 300.0)
+#: The refusal a later attempt may not meet: the model was asked and did not answer. Not a
+#: missing credential or an exhausted quota, which a retry minutes later meets again.
+_NO_ANSWER_CODE: Final = f"assist_{PROVIDER_UNAVAILABLE_REASON}"
+
+
+def _retry_when_no_writer_answered(
+    ctx: dict[str, Any],
+    spends: Sequence[JsonAnswer[WrittenOpening] | ProblemError],
+    *,
+    quota_exhausted: bool,
+) -> None:
+    """Raise arq's `Retry` when nothing was written and a writer refused for a reason that
+    can pass (`_NO_ANSWER_CODE`): the notices are still said beside the old line meanwhile,
+    and without a retry the line would wait for the owner's next change. An account out of
+    AI quota, a refusal of the answer itself, or the last attempt is left as it is."""
+    refusals = [spent for spent in spends if isinstance(spent, ProblemError)]
+    if quota_exhausted or not refusals:
+        return
+    if not any(
+        refused.kind == "transient" or refused.code == _NO_ANSWER_CODE for refused in refusals
+    ):
+        return
+    attempt = job_try(ctx)
+    if attempt >= WORKER_MAX_TRIES:
+        log.warning("opening_notices_retries_spent", extra={"attempts": attempt})
+        return
+    raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
 
 
 async def _meter(tenant_id: UUID, spends: list[JsonAnswer[WrittenOpening] | ProblemError]) -> None:
@@ -66,7 +108,6 @@ async def _meter(tenant_id: UUID, spends: list[JsonAnswer[WrittenOpening] | Prob
 
 
 async def weave_opening_notices(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
     agent_id = UUID(str(payload["agent_id"]))
     prompt_id = str(payload["prompt_id"])
@@ -112,6 +153,12 @@ async def weave_opening_notices(ctx: dict[str, Any], payload: dict[str, Any]) ->
             continue
         spends.append(answer)
         written.append((line, answer.value))
+    if not written:
+        await _meter(tenant_id, spends)
+        _retry_when_no_writer_answered(
+            ctx, spends, quota_exhausted=quota.at_ceiling or quota.platform_paused
+        )
+        return "unwritten"
     applied = 0
     stale = False
     async with tenant_session(tenant_id) as session:
@@ -173,7 +220,6 @@ async def weave_holder_opening_notices(ctx: dict[str, Any], payload: dict[str, A
     `campaigns/workspace.save_script`, which hold it to its agent's limits), then put on its
     calls as an owner's save is: a live line and a campaign holding its engine agent are
     republished; a draft's reaches its calls when it goes live."""
-    del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
     kind: HolderKind = "line" if payload["kind"] == "line" else "campaign"
     holder_id = UUID(str(payload["holder_id"]))
@@ -186,7 +232,11 @@ async def weave_holder_opening_notices(ctx: dict[str, Any], payload: dict[str, A
             return "stale"
         if not state.todo:
             return "already_said"
-        brief = await script_proposals.brief_for(session, tenant_id, state.agent_id)
+        # A campaign written in its own main language is woven in that language, as its
+        # script was written (`workers/campaign_script`).
+        brief = await script_proposals.brief_for(
+            session, tenant_id, state.agent_id, language=state.language
+        )
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
     names = (brief.business_name, brief.agent_name)
@@ -219,10 +269,18 @@ async def weave_holder_opening_notices(ctx: dict[str, Any], payload: dict[str, A
             continue
         spends.append(answer)
         written.append((line, answer.value))
+    if not written:
+        await _meter(tenant_id, spends)
+        _retry_when_no_writer_answered(
+            ctx, spends, quota_exhausted=quota.at_ceiling or quota.platform_paused
+        )
+        return "unwritten"
     saved = False
     async with tenant_session(tenant_id) as session:
-        # Read again under the holder's lock (taken by its save): a script the owner saved
-        # since is theirs, and the next switch flip asks again.
+        # Read again under the holder's lock, taken BEFORE the read and held to commit, as
+        # its save takes it: a script the owner saved since is theirs (the stamp moved), and
+        # one they save now waits for this commit rather than being written over.
+        await session.execute(text(HOLDER_LOCK_SQL[kind]), {"hid": holder_id})
         current = await holder_weave_state(session, kind, holder_id)
         stale = current is None or current.stamp != stamp
         if written and not stale:
@@ -304,4 +362,50 @@ async def _put_holder_live(tenant_id: UUID, kind: HolderKind, holder_id: UUID) -
         )
 
 
-__all__ = ["JOB_NAME", "weave_holder_opening_notices", "weave_opening_notices"]
+#: (payload key the migration writes, the switch's field name).
+_RESTORED: Final = (("ai", "ai_disclosure_enabled"), ("recording", "recording_notice_enabled"))
+
+
+async def refresh_account_notices(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """Put a notice switch that `f2477c8d623d` turned back on onto the account's calls: the
+    openings' rewrites and the tenant live apply a flip queues
+    (`publishing.queue_notices_reach_calls`), and the audit row recording that the switch is
+    on, for each restored switch still on. One transaction under the organization row's lock,
+    so a flip by the owner meanwhile is read rather than overwritten, and a retry repeats
+    nothing that committed."""
+    from apps.api.agents.publishing import audit_action_for, queue_notices_reach_calls
+
+    del ctx
+    tenant_id = UUID(str(payload["tenant_id"]))
+    async with tenant_session(tenant_id) as session:
+        now = await read_account_notices(session, tenant_id=tenant_id, for_update=True)
+        on = {"ai_disclosure_enabled": now.ai, "recording_notice_enabled": now.recording}
+        restored = [field for key, field in _RESTORED if payload.get(key) and on[field]]
+        if not restored:
+            return "switched_off_since"
+        run_id = await queue_notices_reach_calls(
+            session, tenant_id=tenant_id, reason="call_notices_repair"
+        )
+        for field in restored:
+            await write_audit(
+                session,
+                action=audit_action_for(field, enabled=True),
+                tenant_id=tenant_id,
+                object_type="organization",
+                object_id=str(tenant_id),
+                summary={"migration": "f2477c8d623d", "live_apply_run_id": str(run_id)},
+            )
+    log.info(
+        "account_call_notices_restored",
+        extra={"tenant_id": str(tenant_id), "restored": restored, "run_id": str(run_id)},
+    )
+    return "queued"
+
+
+__all__ = [
+    "JOB_NAME",
+    "REFRESH_JOB",
+    "refresh_account_notices",
+    "weave_holder_opening_notices",
+    "weave_opening_notices",
+]

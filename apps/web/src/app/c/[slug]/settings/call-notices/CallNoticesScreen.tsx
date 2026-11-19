@@ -52,8 +52,9 @@ export function splitPromise(rule: string): { lead: string; rest: string } {
  * (D-971), so no sentence is quoted. "Off" never makes the agent lie: the server's
  * truthful-answer promise is drawn above the switches in its own words.
  *
- * A refusal names the one agent whose opening cannot take the notice, with a button to that
- * agent, so the owner has one thing to fix rather than a paragraph to read.
+ * A refusal names the one agent, Inbound line or campaign whose opening cannot take the
+ * notice, with a button to it, so the owner has one thing to fix rather than a paragraph to
+ * read.
  */
 export function CallNoticesScreen() {
   const { session, href } = useClientRealm();
@@ -74,6 +75,8 @@ export function CallNoticesScreen() {
   const blocked = roomRefusal ?? introRefusal;
   const agentId = typeof blocked?.agent_id === "string" ? blocked.agent_id : "";
   const agentName = typeof blocked?.agent_name === "string" ? blocked.agent_name : "";
+  // A line's or a campaign's own opening has no room: that line or campaign is the one to fix.
+  const holder = holderOf(roomRefusal, session.orgSlug);
 
   return (
     <div className="max-w-2xl space-y-6 pb-12">
@@ -103,7 +106,14 @@ export function CallNoticesScreen() {
                     : ""}
               </p>
             </div>
-            {save.error != null && agentId && lastOn ? (
+            {save.error != null && holder ? (
+              <div className="mt-3 space-y-2">
+                <ProblemNotice error={save.error} />
+                <Link href={href(holder.path)} className={`inline-flex ${SECONDARY_BUTTON_SM}`}>
+                  {holder.name ? `Open ${holder.name}` : holder.fallback}
+                </Link>
+              </div>
+            ) : save.error != null && agentId && lastOn ? (
               <BlockedAgent
                 agentId={agentId}
                 agentName={agentName}
@@ -170,6 +180,32 @@ export function CallNoticesScreen() {
       </Section>
     </div>
   );
+}
+
+/**
+ * The Inbound line or campaign a room refusal names, with the page to open it on; undefined
+ * when the refusal names an agent's own opening.
+ */
+export function holderOf(
+  refusal: { [member: string]: unknown } | undefined,
+  slug: string,
+): { path: string; name: string; fallback: string } | undefined {
+  const text = (member: string) => (typeof refusal?.[member] === "string" ? (refusal[member] as string) : "");
+  if (text("line_id")) {
+    return {
+      path: `/c/${slug}/inbound/${text("line_id")}`,
+      name: text("line_name"),
+      fallback: "Open the line",
+    };
+  }
+  if (text("campaign_id")) {
+    return {
+      path: `/c/${slug}/campaigns/${text("campaign_id")}`,
+      name: text("campaign_name"),
+      fallback: "Open the campaign",
+    };
+  }
+  return undefined;
 }
 
 /**
