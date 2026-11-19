@@ -28,12 +28,26 @@ def language_head(tag: str | None) -> str:
     return (tag or "").replace("_", "-").split("-")[0].strip().lower()
 
 
+#: Meta's code for the English template body.
+ENGLISH: str = "en"
+
+
 def caller_locale(
-    approved: Collection[str], *, call_language: str | None, agent_language: str | None
+    approved: Collection[str],
+    *,
+    call_language: str | None,
+    agent_language: str | None,
+    call_summarised: bool = False,
 ) -> str:
     """The locale to send a caller-facing template in. `approved` is the set of languages
-    that template was submitted and approved in; a NULL `call_language` (an English call,
-    or one whose language was never read) defers to the agent's."""
+    that template was submitted and approved in.
+
+    A NULL `call_language` means either an English call or one whose language was never read
+    (`calls.summary_language`). A call that WAS summarised and has no local-language summary
+    was held in English, so it gets English rather than the agent's language; only a call
+    never summarised (a missed call, say) defers to the agent's."""
+    if call_language is None and call_summarised:
+        call_language = ENGLISH
     head = language_head(call_language) or language_head(agent_language)
     if head and head in approved:
         return head

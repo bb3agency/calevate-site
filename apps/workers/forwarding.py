@@ -218,7 +218,7 @@ async def send_save_number_message(ctx: dict[str, Any], payload: dict[str, Any])
                 text(
                     "SELECT o.save_number_message_enabled, o.name, c.agent_id, c.direction, "
                     "c.from_e164, c.to_e164, c.summary_language, l.phone_e164, c.caller_id_hidden, "
-                    "a.language_primary "
+                    "a.language_primary, c.summary IS NOT NULL "
                     "FROM calls c JOIN organizations o ON o.id = c.tenant_id "
                     "LEFT JOIN agents a ON a.id = c.agent_id "
                     "LEFT JOIN leads l ON l.id = c.lead_id WHERE c.id = :cid"
@@ -239,6 +239,7 @@ async def send_save_number_message(ctx: dict[str, Any], payload: dict[str, Any])
             lead_phone,
             hidden,
             agent_language,
+            summarised,
         ) = row
         # The caller is the lead's number when the network hid theirs; ours is the other end.
         caller = lead_phone if hidden else (from_e if direction == "inbound" else to_e)
@@ -253,7 +254,12 @@ async def send_save_number_message(ctx: dict[str, Any], payload: dict[str, Any])
         )
         if message_id is None:
             return "already_sent"
-        locale = caller_locale(LOCALES, call_language=language, agent_language=agent_language)
+        locale = caller_locale(
+            LOCALES,
+            call_language=language,
+            agent_language=agent_language,
+            call_summarised=bool(summarised),
+        )
         decision = await check_dispatch(
             session,
             tenant_id=tenant_id,

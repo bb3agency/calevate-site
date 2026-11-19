@@ -45,3 +45,15 @@ def test_a_template_approved_in_english_only_never_names_another_language() -> N
 )
 def test_language_head(tag: str | None, head: str) -> None:
     assert language_head(tag) == head
+
+
+def test_a_summarised_call_with_no_local_summary_was_english() -> None:
+    # `summary_language` is NULL for an English call; a Telugu agent's English caller is
+    # not sent the Telugu template.
+    approved = ("en", "hi", "te")
+    assert (
+        caller_locale(approved, call_language=None, agent_language="te-IN", call_summarised=True)
+        == "en"
+    )
+    # A call never summarised (a missed call) defers to the agent's language.
+    assert caller_locale(approved, call_language=None, agent_language="te-IN") == "te"
