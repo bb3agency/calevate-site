@@ -696,6 +696,7 @@ def build_extraction_prompt(
     goal: str | None = None,
     business_name: str | None = None,
     called_at: datetime | None = None,
+    agent_name: str | None = None,
 ) -> str:
     """Generate the extraction instruction. Kept in `shared` so the regression harness
     scores the SAME prompt the pipeline uses (OPERATIONS §3).
@@ -721,6 +722,7 @@ def build_extraction_prompt(
     `business_name` is the business's own spelling of its name, which the summary, headline
     and next step must copy: a caller saying the name in Telugu leaves the model to
     transliterate it, and "Rytu Khata" came back "Raitu Khata" (4 Nov 2026 call review).
+    `agent_name` is the agent's, held to the same rule.
     `called_at` is when the call happened, so a call-back day the caller named ("tomorrow
     evening") resolves against the call's own date rather than a guess.
 
@@ -750,7 +752,7 @@ def build_extraction_prompt(
 
     return f"""You are extracting structured data from a phone call transcript.
 {_language_context(languages)} Do not translate; extract.
-{_business_line(business_name)}{_call_day_line(called_at)}
+{_business_line(business_name, agent_name)}{_call_day_line(called_at)}
 Return ONLY a JSON object with these keys:
 
 {chr(10).join(lines)}
@@ -758,6 +760,11 @@ Return ONLY a JSON object with these keys:
 Also include:
 - "summary": two sentences, in English, of what the caller wanted and what happened.
   Written in your own words: never copy a transcript line into it.
+  Say only what was said and done. Never say how the caller felt (satisfied, happy,
+  pleased, frustrated, interested) or that the call ended well, unless the caller said
+  so in their own words. A call that stops in the middle of a sentence ended there; say
+  no more about how it ended. The summary agrees with your answer above: a detail you
+  left null is not stated in it.
 - "headline": at most 90 characters, in English: what the caller wanted and how it ended,
   shaped like "Asked <what they asked>; wants <what they want next>".
 - "next_step": one short English sentence, or "" when nothing is left to do. The business
@@ -879,15 +886,32 @@ Return only the JSON object, by the rules above. Use null for anything the calle
 """
 
 
-def _business_line(business_name: str | None) -> str:
-    """The business's own spelling of its name, quoted as data; empty without one."""
-    name = " ".join((business_name or "").split()).replace('"', "\N{RIGHT DOUBLE QUOTATION MARK}")
-    if not name:
+def _quoted_name(raw: str | None) -> str:
+    return " ".join((raw or "").split()).replace('"', "\N{RIGHT DOUBLE QUOTATION MARK}")
+
+
+def _business_line(business_name: str | None, agent_name: str | None = None) -> str:
+    """The business's and the agent's own spellings of their names, quoted as data; empty
+    without either.
+
+    Spelt out because a name spoken in Telugu or Hindi is otherwise transliterated, and a
+    model transliterating writes scholarly marks ("Raiṭu Khātā", 19 Nov 2026 call review)
+    that no business uses."""
+    name = _quoted_name(business_name)
+    agent = _quoted_name(agent_name)
+    if not name and not agent:
         return ""
+    said = []
+    if name:
+        said.append(f'The business is called "{name}".')
+    if agent:
+        said.append(f'Its agent on the call is called "{agent}".')
     return (
-        f'The business is called "{name}". Whenever summary, headline, next_step or a reason\n'
-        "names the business, write that name exactly as given here, never a spelling of\n"
-        "how it sounded on the call.\n"
+        " ".join(said) + "\n"
+        "Whenever summary, headline, next_step or a reason names the business, its app or\n"
+        "product of that name, or the agent, write the name exactly as given here, never a\n"
+        "spelling of how it sounded on the call. Write every name in plain letters, never\n"
+        "with accents or marks such as ā, ṭ or ś.\n"
     )
 
 
@@ -980,6 +1004,18 @@ def goal_verdict(raw: object) -> GoalVerdict | None:
 #: pass 0.8 with the same number of words and the same first letter, which are required too.
 _NAME_LIKENESS: Final = 0.8
 _WORD_RE: Final = re.compile(r"[A-Za-z][A-Za-z'\-]*")
+#: Precomposed accented Latin letters (Latin-1 to Extended-B, and Extended Additional) and
+#: the combining marks, as character-class ranges.
+_ACCENTED: Final = f"{chr(0xC0)}-{chr(0x24F)}{chr(0x1E00)}-{chr(0x1EFF)}"
+_COMBINING: Final = f"{chr(0x300)}-{chr(0x36F)}"
+#: A word of a name as a summary may write it: Latin letters, accented or marked ("Raiṭu
+#: Khātā", precomposed or with combining marks), which `_plain_letters` folds back.
+_MARKED_WORD_RE: Final = re.compile(f"[A-Za-z{_ACCENTED}][A-Za-z{_ACCENTED}{_COMBINING}'\\-]*")
+
+
+def _plain_letters(word: str) -> str:
+    """`word` without accents and marks: "Khātā" is "Khata"."""
+    return "".join(c for c in unicodedata.normalize("NFKD", word) if not unicodedata.combining(c))
 
 
 def spell_business_name(text: str, business_name: str | None) -> str:
@@ -987,14 +1023,15 @@ def spell_business_name(text: str, business_name: str | None) -> str:
 
     The prompt asks for the name verbatim, but a summary can come from the voice platform
     (`calls.summary_source = 'engine'`), which no prompt of ours reaches, and the spoken name
-    is transliterated by ear. Only Latin-letter names of five or more letters are matched,
-    word count for word count, so a short or common word is never rewritten.
+    is transliterated by ear, sometimes with scholarly marks. Only Latin-letter names of five
+    or more letters are matched, word count for word count, compared without marks, so a
+    short or common word is never rewritten.
     """
     name = " ".join((business_name or "").split())
     target = name.split()
     if not text or len(name.replace(" ", "")) < 5 or not all(_WORD_RE.fullmatch(w) for w in target):
         return text
-    words = list(_WORD_RE.finditer(text))
+    words = list(_MARKED_WORD_RE.finditer(text))
     width = len(target)
     out: list[str] = []
     cursor = 0
@@ -1004,11 +1041,12 @@ def spell_business_name(text: str, business_name: str | None) -> str:
         start, end = run[0].start(), run[-1].end()
         candidate = text[start:end]
         joined = " ".join(m.group(0) for m in run)
+        plain = _plain_letters(joined)
         if (
             " ".join(candidate.split()) == joined
             and joined != name
-            and joined[0].lower() == name[0].lower()
-            and SequenceMatcher(None, joined.lower(), name.lower()).ratio() >= _NAME_LIKENESS
+            and plain[0].lower() == name[0].lower()
+            and SequenceMatcher(None, plain.lower(), name.lower()).ratio() >= _NAME_LIKENESS
         ):
             out.append(text[cursor:start])
             out.append(name)
@@ -1046,6 +1084,31 @@ def genders_a_person(text: str) -> bool:
     writing to "the caller" and "they" (a call does not say how a person wants to be
     referred to); this is how a summary written elsewhere is checked against that."""
     return _GENDERED_PRONOUN_RE.search(text) is not None
+
+
+#: A feeling or a verdict on how the call went, stated of someone. The prompt keeps our
+#: summary to what the caller said; a summary written elsewhere is checked with this.
+_FEELING_RE: Final = re.compile(
+    r"\b(?:(?:dis|un)?satisf(?:ied|action|actory)|(?:un)?happy|(?:dis)?pleased|delighted|"
+    r"thrilled|glad|grateful|thankful|frustrated|angry|annoyed|upset|irritated|"
+    r"disappointed|relieved|excited|impressed|ended\s+(?:well|positively|on\s+a\s+(?:good|"
+    r"positive|high)\s+note))\b",
+    re.IGNORECASE,
+)
+_SENTENCE_RE: Final = re.compile(r"[^.!?]+(?:[.!?]+|$)")
+
+
+def asserts_feeling(text: str) -> bool:
+    """Does this English text say how someone felt, or that the call ended well?"""
+    return _FEELING_RE.search(text) is not None
+
+
+def without_feelings(text: str) -> str:
+    """`text` without its sentences that say how someone felt; `text` itself when every
+    sentence does, because a summary is still the call's only account of it."""
+    kept = [s.strip() for s in _SENTENCE_RE.findall(text) if s.strip()]
+    plain = [s for s in kept if not asserts_feeling(s)]
+    return " ".join(plain) if plain else text
 
 
 def owner_step(text: str) -> str:
@@ -1169,7 +1232,9 @@ Kinds:
 - Point at the line where it happened: the caller's own line for what the caller said or
   did, the agent's line for a price the agent quoted.
 - A field_captured moment is only for a field your answer above holds a value for, on the
-  caller's line that gave it. The agent asking for a detail is not a moment.
+  caller's line that gave THAT value. When the caller's answer changed during the call,
+  it is the later line that settled the value in your answer, never an earlier line that
+  said otherwise or only touched the subject. The agent asking for a detail is not a moment.
 - A label says WHAT happened, never the detail itself: "Gave a delivery address", not the
   address. Never put a name, phone number, address, date or amount in a label.
 - Do not mark greetings, small talk, the AI notice or the recording notice.
@@ -1321,6 +1386,7 @@ __all__ = [
     "Sentiment",
     "ValidationOutcome",
     "ascii_digits",
+    "asserts_feeling",
     "build_extraction_prompt",
     "callback_clock",
     "callback_day",
@@ -1339,4 +1405,5 @@ __all__ = [
     "spell_business_name",
     "validate_extraction",
     "withheld_moment_kinds",
+    "without_feelings",
 ]

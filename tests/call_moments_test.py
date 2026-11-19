@@ -82,10 +82,12 @@ def test_a_value_anchors_to_the_turn_that_actually_contains_it() -> None:
     assert anchor_of("9876543210", CALL) == 21_000
 
 
-def test_the_earliest_turn_wins_when_a_value_is_repeated() -> None:
-    """The caller says it, the agent reads it back. The moment worth jumping to is the one
-    where the information ARRIVED, not the confirmation."""
-    assert anchor_of("Tuesday", CALL) == 8_000
+def test_the_latest_turn_wins_when_a_value_is_repeated() -> None:
+    """The stored value is the caller's final word, so the marker sits on the last turn that
+    says it; `derive_moments` hands only the caller's turns in, so an agent's read-back is
+    never that turn (`call_moments_backed_test`)."""
+    assert anchor_of("Tuesday", CALL) == 15_000
+    assert anchor_of("Tuesday", [t for t in CALL if t.speaker == "caller"]) == 8_000
 
 
 def test_a_value_nobody_said_verbatim_produces_no_anchor_at_all() -> None:

@@ -56,6 +56,7 @@ from apps.api.crm.captured import (
     holder_fields,
     unclear_fields,
     with_known_name,
+    with_list_columns,
 )
 from apps.api.crm.lead_definition import BECAME_LEADS_SQL, REAL_CALL_SQL, stage_name
 from apps.api.crm.lens import (
@@ -477,6 +478,12 @@ _LIST_NAME_COLUMN = (
     "AND cc.phone_e164 = CASE WHEN c.direction = 'outbound' THEN c.to_e164 ELSE c.from_e164 END "
     "AND cc.name IS NOT NULL LIMIT 1) AS list_name"
 )
+#: The same row's own columns (`campaign_contacts.custom`), one row per number per campaign.
+_LIST_COLUMNS_COLUMN = (
+    "(SELECT cc.custom FROM campaign_contacts cc WHERE cc.campaign_id = c.campaign_id "
+    "AND cc.phone_e164 = CASE WHEN c.direction = 'outbound' THEN c.to_e164 ELSE c.from_e164 END "
+    "LIMIT 1) AS list_columns"
+)
 #: The business's own name, which `_caller_name` keeps off the caller's side of a call.
 _BUSINESS_NAME_COLUMN = (
     "(SELECT o.name FROM organizations o WHERE o.id = c.tenant_id) AS business_name"
@@ -619,7 +626,7 @@ async def get_call(
                 "cb.source_execution_id, cb.next_attempt_at, "
                 "c.next_step_by, c.goal_reason, c.goal_reached, "
                 "(SELECT g.goal FROM campaigns g WHERE g.id = c.campaign_id), "
-                f"{_LIST_NAME_COLUMN}, c.tenant_id, {_HOLDER_COLUMNS} "
+                f"{_LIST_NAME_COLUMN}, c.tenant_id, {_HOLDER_COLUMNS}, {_LIST_COLUMNS_COLUMN} "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 f"{_HOLDER_JOIN} "
                 "WHERE c.id = :cid"
@@ -696,6 +703,9 @@ async def get_call(
             captured,
             list_name=row[50],
             lead_name=_caller_name(row[29], agent_name=row[2], business_name=row[43]),
+        )
+        captured = with_list_columns(
+            captured, columns=row[56] if isinstance(row[56], dict) else None
         )
     reading_failed = bool(
         extraction and isinstance(extraction[7], dict) and MODEL_FAILURE in extraction[7]

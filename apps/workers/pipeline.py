@@ -61,6 +61,7 @@ from calevate_shared.extraction import (
     ExtractionSchemaSpec,
     MomentsBrief,
     OutcomeTag,
+    asserts_feeling,
     clip_headline,
     genders_a_person,
     goal_verdict,
@@ -68,6 +69,7 @@ from calevate_shared.extraction import (
     owner_step,
     spell_business_name,
     withheld_moment_kinds,
+    without_feelings,
 )
 from calevate_shared.lead_fields import with_core
 from sqlalchemy import Numeric, text
@@ -211,6 +213,7 @@ from apps.workers.engine_delivery import (
 from apps.workers.extraction import (
     MODEL_FAILURE,
     CallSetting,
+    OfflineExtractor,
     SarvamExtractor,
     extract_call,
     model_answered,
@@ -2017,6 +2020,7 @@ async def _extract_stage(
                 setting=CallSetting(
                     business_name=await _business_name(tenant_id),
                     called_at=snapshot.started_at,
+                    agent_name=await _agent_name(tenant_id, agent_id),
                 ),
             )
             extraction = reconcile_goal(extraction, goal=goal, outcomes=business_outcomes)
@@ -2072,6 +2076,8 @@ async def _extract_stage(
                 redact=lambda label: redact(label).text,
                 captured=extraction.data.keys(),
                 unheard=likely_cut_off(snapshot.transcript),
+                values=extraction.data,
+                denies=OfflineExtractor.denies,
             )
         )
         moments = merge_moments(
@@ -2189,6 +2195,17 @@ async def _business_name(tenant_id: UUID) -> str | None:
         name = (
             await session.execute(
                 text("SELECT name FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+            )
+        ).scalar()
+    return str(name) if name else None
+
+
+async def _agent_name(tenant_id: UUID, agent_id: UUID) -> str | None:
+    """The agent's name as the business spelt it (`agents.name`)."""
+    async with tenant_session(tenant_id) as session:
+        name = (
+            await session.execute(
+                text("SELECT name FROM agents WHERE id = :aid"), {"aid": agent_id}
             )
         ).scalar()
     return str(name) if name else None
@@ -3049,6 +3066,11 @@ def _settle_summaries(
     them on the owner's screen (6 Nov 2026 call review: "guided him ... his Android phone").
     With no summary of ours to take its place, the engine's still stands: its facts outweigh
     the pronoun.
+
+    The same holds for an engine summary that says how the caller felt or that the call
+    ended well ("The call ended with the customer satisfied." over a call cut off mid-
+    sentence, 19 Nov 2026 call review): ours, which is told to state only what was said,
+    takes its place; with none, the engine's stands without those sentences.
     """
     english, local, source = "", stored_local, None
     romanised: tuple[str, str] | None = None
@@ -3056,13 +3078,15 @@ def _settle_summaries(
         bool(model_summary)
         and not call_language.reads_as_romanised(model_summary)
         and not genders_a_person(model_summary)
+        and not asserts_feeling(model_summary)
     )
+    engine_guesses = genders_a_person(engine_summary) or asserts_feeling(engine_summary)
     if engine_summary and call_language.has_indic_script(engine_summary):
         local = engine_summary
     elif engine_summary and call_language.reads_as_romanised(engine_summary):
         romanised = (engine_summary, "engine")
-    elif engine_summary and not (genders_a_person(engine_summary) and neutral_model):
-        english, source = engine_summary, "engine"
+    elif engine_summary and not (engine_guesses and neutral_model):
+        english, source = without_feelings(engine_summary), "engine"
     if not english and model_summary:
         if not call_language.reads_as_romanised(model_summary):
             english, source = model_summary, "extraction"

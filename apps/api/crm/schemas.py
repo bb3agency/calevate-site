@@ -273,9 +273,10 @@ class CapturedFieldOut(Strict):
     current: bool
     value: Any = None
     unlisted: str | None = None
-    #: Where `value` came from: `call` (the caller said it), or, for a name the call did not
-    #: capture, `list` (the campaign list this call dialled from) or `lead` (the lead's name
-    #: on file). Only a name is ever filled from elsewhere (`crm/captured.with_known_name`).
+    #: Where `value` came from: `call` (the caller said it), or, for a detail the call did not
+    #: capture, `list` (the campaign list row this call dialled: its name or a column naming
+    #: the field, `crm/captured.with_list_columns`) or `lead` (the lead's name on file,
+    #: `crm/captured.with_known_name`).
     source: Literal["call", "list", "lead"] = "call"
 
 

@@ -477,6 +477,7 @@ class SarvamExtractor:
             goal=goal,
             business_name=setting.business_name if setting else None,
             called_at=setting.called_at if setting else None,
+            agent_name=setting.agent_name if setting else None,
         )
         schema = build_response_schema(
             spec, moments=moments is not None, outcomes=outcomes, unlisted=unlisted, goal=goal
@@ -1354,6 +1355,12 @@ class OfflineExtractor:
         direction carries no information the clause boundary does not already carry.
         """
         return cls._NEGATION_RE.search(clause) is not None
+
+    @classmethod
+    def denies(cls, turn: str) -> bool:
+        """Does any clause of this turn refuse or negate? The key-moments check that keeps
+        a "yes" off a line that said no (`moments.model_moments(denies=)`)."""
+        return any(cls._negated(clause) for clause in cls._clauses(turn))
 
     @staticmethod
     def _asked_about(clause: str) -> bool:
@@ -2512,10 +2519,11 @@ class _ReadsContext(Protocol):
 @dataclass(frozen=True, slots=True)
 class CallSetting:
     """Facts about the call the reading needs and the transcript does not carry: the
-    business's own spelling of its name, and when the call happened."""
+    business's and its agent's own spellings of their names, and when the call happened."""
 
     business_name: str | None = None
     called_at: datetime | None = None
+    agent_name: str | None = None
 
 
 #: What `extract_call` files as a model failure rather than letting it fail the call.

@@ -13,6 +13,7 @@ The core every lead carries (`calevate_shared.lead_fields`) is always listed fir
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Final, Literal
 from uuid import UUID
@@ -225,6 +226,37 @@ def with_known_name(
     ]
 
 
+def _header_key(header: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", header.strip().lower()).strip("_")
+
+
+def with_list_columns(
+    fields: list[CapturedFieldOut], *, columns: dict[str, Any] | None
+) -> list[CapturedFieldOut]:
+    """`fields` with an empty text field filled from the campaign list row this call dialled
+    (`campaign_contacts.custom`, D-905), marked `list`. A column matches a field whose key or
+    label it spells, folded as `call_variable_key` folds a header ("Village Name" is
+    `village_name`). The list already gave the agent that value (D-905's THIS CALL), so the
+    call not saying it again is not a gap. A value the call captured is never replaced."""
+    if not columns:
+        return fields
+    by_key: dict[str, str] = {}
+    for header, raw in columns.items():
+        value = " ".join(str(raw).split()) if raw is not None else ""
+        key = _header_key(str(header))
+        if key and value:
+            by_key.setdefault(key, value)
+    if not by_key:
+        return fields
+    out: list[CapturedFieldOut] = []
+    for field in fields:
+        known = by_key.get(_header_key(field.key)) or by_key.get(_header_key(field.label))
+        if known and field.type == "text" and field.value is None and field.unlisted is None:
+            field = field.model_copy(update={"value": known, "source": "list"})
+        out.append(field)
+    return out
+
+
 #: Why a captured detail is unclear, in the owner's words, from the validator's message.
 #: Matched on the validator's own fixed wording (`calevate_shared.extraction.coerce_value`),
 #: never shown verbatim: those messages quote the value, which can be anything the caller said.
@@ -328,4 +360,5 @@ __all__ = [
     "lead_unlisted",
     "unclear_fields",
     "with_known_name",
+    "with_list_columns",
 ]

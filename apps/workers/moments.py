@@ -35,7 +35,7 @@ default view (hard rule 5).
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from typing import Any, Final, Literal, Protocol
 
 from calevate_shared.extraction import (
@@ -59,6 +59,45 @@ MIN_ANCHOR_CHARS: Final = 3
 MAX_MOMENTS: Final = MAX_CALL_MOMENTS
 
 _WHITESPACE = re.compile(r"\s+")
+
+#: Choice values that answer any question ("Yes", "No"): found verbatim in a turn they
+#: prove only that the caller said the word, about whatever was asked then.
+ANSWER_WORDS: Final[frozenset[str]] = frozenset(
+    {"yes", "no", "maybe", "not sure", "other", "none", "unknown", "ok", "okay"}
+)
+_YES_WORDS: Final[frozenset[str]] = frozenset({"yes", "true"})
+
+#: Word splitting for `supporting_turn`: anything that is neither a letter, a digit nor an
+#: Indic sign. `\w` alone would cut Telugu and Hindi words at every vowel sign (category Mn).
+_TOKEN_SPLIT = re.compile(f"[^\\w{chr(0x900)}-{chr(0xDFF)}]+")
+MIN_SUPPORT_TOKEN_CHARS: Final = 4
+#: English words a summary-style value shares with any sentence.
+_FUNCTION_WORDS: Final[frozenset[str]] = frozenset(
+    {
+        "that",
+        "this",
+        "with",
+        "they",
+        "them",
+        "their",
+        "have",
+        "from",
+        "will",
+        "what",
+        "when",
+        "your",
+        "about",
+        "would",
+        "there",
+        "were",
+        "been",
+        "into",
+        "only",
+        "also",
+        "caller",
+        "agent",
+    }
+)
 
 #: The model kinds that are something the CALLER did, and so can only sit on a caller line.
 CALLER_ONLY_KINDS: Final[frozenset[str]] = frozenset(
@@ -102,7 +141,12 @@ def _precision(turn: Turn) -> MomentPrecision:
 
 
 def anchor_turn(value: Any, turns: Sequence[Turn]) -> Turn | None:
-    """The EARLIEST timed turn containing `value` verbatim, or None.
+    """The LATEST timed turn containing `value` verbatim, or None.
+
+    The latest rather than the earliest because the value stored is the caller's final
+    answer: a value first named inside a refusal or a question ("not Gachibowli, Kondapur")
+    and settled later is matched first by the turn that said otherwise. A value said once
+    is the same turn either way.
 
     None rather than a guess: an extracted value is often a normalised form of what was said
     ("Tuesday 5pm" for "tuesday at five"), and a fuzzy match would put the marker on a
@@ -113,14 +157,46 @@ def anchor_turn(value: Any, turns: Sequence[Turn]) -> Turn | None:
         # `True` is not a thing anyone said, and `"true"` would match the word.
         return None
     needle = _normalize(str(value))
-    if len(needle) < MIN_ANCHOR_CHARS:
+    if len(needle) < MIN_ANCHOR_CHARS or needle in ANSWER_WORDS:
         return None
-    for turn in sorted(turns, key=lambda t: t.idx):
+    for turn in sorted(turns, key=lambda t: t.idx, reverse=True):
         if turn.start_ms is None:
             continue
         if needle in _normalize(turn.text):
             return turn
     return None
+
+
+def _tokens(text: str) -> set[str]:
+    return {
+        token
+        for token in _TOKEN_SPLIT.split(text.casefold())
+        if len(token) >= MIN_SUPPORT_TOKEN_CHARS and token not in _FUNCTION_WORDS
+    }
+
+
+def supporting_turn(value: Any, turns: Sequence[Turn]) -> Turn | None:
+    """The timed turn sharing the most words with a text `value`, the latest on a tie, or
+    None when no turn shares one. For checking a model's line, never for placing a derived
+    marker: shared words show a turn is ABOUT the value, not that it says it."""
+    if not isinstance(value, str):
+        return None
+    wanted = _tokens(value)
+    if not wanted:
+        return None
+    best: Turn | None = None
+    best_score = 0
+    for turn in sorted(turns, key=lambda t: t.idx):
+        if turn.start_ms is None:
+            continue
+        score = len(wanted & _tokens(turn.text))
+        if score and score >= best_score:
+            best, best_score = turn, score
+    return best
+
+
+def _affirms(value: Any) -> bool:
+    return value is True or (isinstance(value, str) and _normalize(value) in _YES_WORDS)
 
 
 def anchor_of(value: Any, turns: Sequence[Turn]) -> int | None:
@@ -263,6 +339,8 @@ def model_moments(
     redact: Callable[[str], str],
     captured: Collection[str],
     unheard: Collection[int] = (),
+    values: Mapping[str, Any] | None = None,
+    denies: Callable[[str], bool] | None = None,
 ) -> list[dict[str, Any]]:
     """The model's suggestions, placed on their turns. Unplaceable ones are dropped.
 
@@ -273,12 +351,26 @@ def model_moments(
 
     `captured` is the keys the final reading holds a value for. A `field_captured`
     suggestion is kept only for one of them and only on a caller turn (`field_backed`).
+
+    `values` is the final reading, which a `field_captured` line is checked against
+    (`_checked_field_turn`); `denies` says whether a caller line refuses or negates, so a
+    "yes" is never pinned on one.
     """
     out: list[dict[str, Any]] = []
+    caller_lines = _unique_turns(
+        t for t in line_turns if t.speaker == "caller" and t.idx not in unheard
+    )
     for candidate in candidates:
         if not 1 <= candidate.line <= len(line_turns):
             continue
         turn = line_turns[candidate.line - 1]
+        if candidate.kind == "field_captured" and candidate.field and values is not None:
+            checked = _checked_field_turn(
+                turn, values.get(candidate.field), caller_lines, denies=denies
+            )
+            if checked is None:
+                continue
+            turn = checked
         if turn.start_ms is None or turn.idx in unheard:
             continue
         if candidate.kind in CALLER_ONLY_KINDS and turn.speaker != "caller":
@@ -309,6 +401,48 @@ def model_moments(
     caller_turns = {t.idx for t in line_turns if t.speaker == "caller"}
     backed: list[dict[str, Any]] = field_backed(out, captured=captured, caller_turns=caller_turns)
     return backed
+
+
+def _unique_turns(turns: Iterable[Turn]) -> list[Turn]:
+    seen: set[int] = set()
+    out: list[Turn] = []
+    for turn in turns:
+        if turn.idx not in seen:
+            seen.add(turn.idx)
+            out.append(turn)
+    return out
+
+
+def _checked_field_turn(
+    turn: Turn,
+    value: Any,
+    caller_lines: Sequence[Turn],
+    *,
+    denies: Callable[[str], bool] | None,
+) -> Turn | None:
+    """The caller line a `field_captured` suggestion should sit on, or None to drop it.
+
+    The model picks the line in the same answer as the value, and on a long call it picks
+    the first line ABOUT the field: the caller's "I'm not using it" for a final "using it:
+    yes", or a later unrelated line. What the code can check, it checks:
+
+    - a text value moves to the caller line sharing the most of its words (the latest on a
+      tie) when the line the model chose is the agent's or shares none and another shares
+      some; with no line sharing any (a value written in other words) the model's line
+      stands, and `field_backed` still drops it from an agent line;
+    - a "yes" on a line that refuses or negates is dropped: that line said the opposite,
+      and which later line settled it is not something a word match can tell.
+    """
+    if isinstance(value, str) and not _affirms(value):
+        wanted = _tokens(value)
+        if wanted and (turn.speaker != "caller" or not wanted & _tokens(turn.text)):
+            better = supporting_turn(value, caller_lines)
+            if better is not None:
+                return better
+        return turn
+    if _affirms(value) and denies is not None and turn.speaker == "caller" and denies(turn.text):
+        return None
+    return turn
 
 
 def field_backed(
@@ -378,6 +512,7 @@ def merge_moments(
 
 
 __all__ = [
+    "ANSWER_WORDS",
     "CALLER_ONLY_KINDS",
     "MAX_MOMENTS",
     "MIN_ANCHOR_CHARS",
@@ -393,4 +528,5 @@ __all__ = [
     "model_moments",
     "moment",
     "prompt_line_turns",
+    "supporting_turn",
 ]
