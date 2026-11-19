@@ -46,7 +46,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.opening_notices import WEAVE_NOTE
 from apps.api.agents.prompts import rollback_prompt
 from apps.api.agents.service import (
+    CAMPAIGN_AGENT_UNNEEDED_WHERE,
     CAMPAIGN_HOLDING_STATUSES,
+    LINE_HOLDER_IDLE_WHERE,
     retire_campaign_agent,
     retire_idle_client_test_copies,
     retire_line_test_holder,
@@ -81,21 +83,13 @@ _TENANTS_SQL: Final = (
     "WHERE tenant_id IS NOT NULL ORDER BY tenant_id"
 )
 
-#: A campaign's engine agent it no longer needs: archived, ended, or a test holder unused.
+#: Candidates only, read without a lock: each is asked again under its row lock by the
+#: retire call (`idle_seconds`), so a Start or a test call in between keeps its engine agent.
 _TO_RETIRE_SQL: Final = (
-    "SELECT id FROM campaigns WHERE engine_agent_ref IS NOT NULL AND (archived_at IS NOT NULL "
-    "OR status IN ('completed', 'cancelled') OR (NOT (status = ANY(:holding)) "
-    "AND (engine_agent_at IS NULL OR engine_agent_at < now() - make_interval(secs => :idle)))) "
-    "ORDER BY id"
+    f"SELECT id FROM campaigns WHERE {CAMPAIGN_AGENT_UNNEEDED_WHERE} ORDER BY id"
 )
-
-#: Draft lines whose test holder has not been published for `TEST_HOLDER_IDLE`. A line has no
-#: publish stamp of its own; every publish rewrites its route's `updated_at`.
 _IDLE_LINE_HOLDERS_SQL: Final = (
-    "SELECT l.id FROM inbound_lines l JOIN engine_agent_routes r "
-    "ON r.engine_agent_ref = l.engine_agent_ref AND r.tenant_id = l.tenant_id "
-    "WHERE l.published_at IS NULL AND l.engine_agent_ref IS NOT NULL "
-    "AND r.updated_at < now() - make_interval(secs => :idle) ORDER BY l.id"
+    f"SELECT id FROM inbound_lines WHERE {LINE_HOLDER_IDLE_WHERE} ORDER BY id"
 )
 
 #: Agents a campaign put its script on before D-1003, and whether every campaign still going
@@ -139,32 +133,25 @@ def own_script_version(versions: list[tuple[int, str]]) -> int | None:
 
 
 async def _retire_unneeded(session: AsyncSession, *, tenant_id: UUID) -> int:
+    idle = TEST_HOLDER_IDLE.total_seconds()
     rows = (
         await session.execute(
-            text(_TO_RETIRE_SQL),
-            {
-                "holding": list(CAMPAIGN_HOLDING_STATUSES),
-                "idle": TEST_HOLDER_IDLE.total_seconds(),
-            },
+            text(_TO_RETIRE_SQL), {"holding": list(CAMPAIGN_HOLDING_STATUSES), "idle": idle}
         )
     ).scalars()
     retired = 0
     for campaign_id in list(rows):
         if await retire_campaign_agent(
-            session, tenant_id=tenant_id, campaign_id=UUID(str(campaign_id))
+            session, tenant_id=tenant_id, campaign_id=UUID(str(campaign_id)), idle_seconds=idle
         ):
             retired += 1
-    lines = (
-        await session.execute(
-            text(_IDLE_LINE_HOLDERS_SQL), {"idle": TEST_HOLDER_IDLE.total_seconds()}
-        )
-    ).scalars()
+    lines = (await session.execute(text(_IDLE_LINE_HOLDERS_SQL), {"idle": idle})).scalars()
     for line_id in list(lines):
-        if await retire_line_test_holder(session, tenant_id=tenant_id, line_id=UUID(str(line_id))):
+        if await retire_line_test_holder(
+            session, tenant_id=tenant_id, line_id=UUID(str(line_id)), idle_seconds=idle
+        ):
             retired += 1
-    retired += await retire_idle_client_test_copies(
-        session, tenant_id=tenant_id, idle_seconds=TEST_HOLDER_IDLE.total_seconds()
-    )
+    retired += await retire_idle_client_test_copies(session, tenant_id=tenant_id, idle_seconds=idle)
     return retired
 
 

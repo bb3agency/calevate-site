@@ -54513,7 +54513,7 @@
       },
       "SlotHolder": {
         "additionalProperties": false,
-        "description": "One calling setup in the workspace. `id` is the agent's for an agent or a script\ntrial of it, the line's for a line, the campaign's for a campaign. `removing`: its\nholder has let go of it and the deletion has not run yet; nothing to do but wait.",
+        "description": "One calling setup in the workspace. `id` is the agent's for an agent or a script\ntrial of it, the line's for a line, the campaign's for a campaign. `removing`: its\nholder has let go of it and the deletion has not run yet; nothing to do but wait.\n`test_only`: a draft line's or a not-started campaign's, held only for its test calls;\na Start or a line put live takes its place once no test call is on it, so archiving the\nline or stopping the campaign is not what frees it.",
         "properties": {
           "id": {
             "format": "uuid",
@@ -54537,6 +54537,11 @@
           },
           "removing": {
             "title": "Removing",
+            "type": "boolean"
+          },
+          "test_only": {
+            "default": false,
+            "title": "Test Only",
             "type": "boolean"
           }
         },

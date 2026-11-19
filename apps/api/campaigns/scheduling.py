@@ -158,7 +158,7 @@ from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.workspace_slots import ENGINE_AGENT_ALLOWANCE_FULL_RULE
+from apps.api.agents.workspace_slots import ENGINE_AGENT_ALLOWANCE_FULL_RULE, SLOTS_FULL_CODES
 from apps.api.campaigns.engine_agent import end_campaign_agent, put_campaign_live
 from apps.api.campaigns.service import launch_blockers, launch_campaign
 from apps.api.compliance.service import DEFAULT_WINDOW
@@ -943,10 +943,10 @@ async def claim_slot_at_start(*, tenant_id: UUID, due: DueSchedule, now: datetim
         ref = await put_campaign_live(tenant_id=tenant_id, campaign_id=due.campaign_id)
     except Exception as exc:
         code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
+        # The platform's own full-workspace refusal is the same rule as our count's: the
+        # owner frees a setup either way, and it is not a defect to alarm on.
         rule = (
-            ENGINE_AGENT_ALLOWANCE_FULL_RULE
-            if code == ENGINE_AGENT_ALLOWANCE_FULL_RULE
-            else START_NOT_READY_RULE
+            ENGINE_AGENT_ALLOWANCE_FULL_RULE if code in SLOTS_FULL_CODES else START_NOT_READY_RULE
         )
         async with tenant_session(tenant_id) as session:
             await _record_put_live_refusal(session, due=due, rule=rule, now=now)

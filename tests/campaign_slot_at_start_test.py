@@ -225,23 +225,31 @@ async def test_a_refusal_at_start_is_settled_and_the_owner_is_told(
     assert len(tries) == 2
 
 
+@pytest.mark.parametrize(
+    "code",
+    # Our own count, and the platform's refusal when it disagrees with our count.
+    [agents_service.ENGINE_AGENT_ALLOWANCE_FULL_RULE, "engine_agent_allowance_used"],
+)
 async def test_a_full_workspace_at_start_is_named_as_the_allowance(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, code: str
 ) -> None:
     tenant_id, campaign_id = await _due_with_script()
+    alarms: list[str] = []
 
     async def full(*, tenant_id: UUID, campaign_id: UUID) -> str | None:
         raise ProblemError.business_rule(
-            agents_service.ENGINE_AGENT_ALLOWANCE_FULL_RULE,
+            code,
             "Starting needs a free calling setup. Your account can have 2, and both are in use.",
         )
 
     monkeypatch.setattr(scheduling, "put_campaign_live", full)
+    monkeypatch.setattr(scheduling, "alert", lambda _kind, event, **_k: alarms.append(event))
 
     assert await campaign_dispatch._fire_due_schedules(tenant_id) == 0
     status, _ref, schedule = await _held(tenant_id, campaign_id)
     assert status == "scheduled"
     assert schedule["last_blocked"]["rules"] == [agents_service.ENGINE_AGENT_ALLOWANCE_FULL_RULE]
+    assert "campaign_engine_agent_unavailable" not in alarms, "a full workspace is no defect"
 
 
 # ------------------------------------------------------------------ 4. giving it back

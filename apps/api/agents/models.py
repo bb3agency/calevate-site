@@ -2285,6 +2285,9 @@ class InboundLine(PKMixin, TimestampMixin, Base):
         ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
     )
     engine_agent_ref: Mapped[str | None] = mapped_column(Text)
+    #: When a draft's test holder was last published; it is retired once unused for an hour
+    #: (`workers/campaign_engine_agents`). Not the route's `updated_at`, which sweeps rewrite.
+    engine_agent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: Moves on every save of the script; `published_at` is when that version went live.
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

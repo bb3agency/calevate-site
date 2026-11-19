@@ -75,7 +75,7 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import (
     Any,
@@ -131,7 +131,7 @@ from calevate_shared.engine import (
     spoken_ai_notice,
     truthful_answer_directive,
 )
-from calevate_shared.engine_scope import is_customer_workspace, scope_of
+from calevate_shared.engine_scope import SCOPE_SEPARATOR, is_customer_workspace, scope_of
 from calevate_shared.events import NotPlacedReason
 from calevate_shared.spoken_style import thinking_lines, trial_call_opening
 from pydantic import ValidationError
@@ -201,6 +201,7 @@ from apps.api.agents.voice_stamp import stamp_of
 from apps.api.agents.voice_tuning import TUNING_COLUMNS, config_speaking_speed, config_tuning
 from apps.api.agents.voices import get_voice, speech_for_voice_id, voice_id_of
 from apps.api.agents.workspace_slots import (
+    CAMPAIGN_HOLDING_STATUSES,
     ENGINE_AGENT_ALLOWANCE_FULL_RULE,
     AllowanceContext,
     EngineAgentAllowanceFull,
@@ -4404,7 +4405,37 @@ async def publish_line(
             context="test_call" if test else "line_live",
         )
     if existing_ref:
-        await engine.update_agent(existing_ref, config)
+        try:
+            await engine.update_agent(existing_ref, config)
+        except Exception as gone:
+            # A draft's test holder deleted at the vendor (given back for a Start, or by
+            # hand) is made again, as `publish_agent` does for a test copy; a live line's
+            # engine agent answers its numbers, so losing it is the publish's failure.
+            if not (test and adopt_ref is None and _vendor_says_gone(gone)):
+                raise
+            log.warning("line_test_holder_gone", extra={"line_id": str(line_id)})
+            await session.execute(
+                text(
+                    "UPDATE engine_agent_routes SET active = false, updated_at = now() "
+                    "WHERE engine = :engine AND engine_agent_ref = :ref"
+                ),
+                {"engine": engine.name, "ref": existing_ref},
+            )
+            await session.execute(
+                text(
+                    "DELETE FROM engine_kb_routes WHERE inbound_line_id = :lid AND tenant_id = :tid"
+                ),
+                {"lid": line_id, "tid": tenant_id},
+            )
+            existing_ref = None
+            if not in_developer:
+                await _refuse_if_allowance_full(
+                    session,
+                    tenant_id=tenant_id,
+                    workspace=config.engine_workspace,
+                    context="test_call",
+                )
+    if existing_ref:
         ref = existing_ref
     elif in_developer:
         with trial_agent_in_developer_workspace():
@@ -4431,7 +4462,8 @@ async def publish_line(
     await session.execute(
         text(
             "UPDATE inbound_lines SET engine_agent_ref = :ref, "
-            + ("" if test else "published_at = now(), ")
+            # A test holder's stamp is what the hourly sweep ages it by.
+            + ("engine_agent_at = now(), " if test else "published_at = now(), ")
             + "updated_at = now() WHERE id = :lid"
         ),
         {"ref": ref, "lid": line_id},
@@ -4548,11 +4580,38 @@ async def republish_lines(session: AsyncSession, *, tenant_id: UUID, agent_id: U
     return count
 
 
-#: The campaign statuses whose engine agent is kept: it is dialling, or paused so Resume
-#: dials at once; every other state retires it. A scheduled campaign holds none (D-1010):
-#: the engine agent takes one of the workspace's few slots, so it is made when the start
-#: fires, not when it is set, and a repeat gives it back between runs.
-CAMPAIGN_HOLDING_STATUSES: Final = ("running", "paused")
+#: A campaign whose engine agent it no longer needs: archived, ended, or a test holder not
+#: published for `:idle` seconds while the campaign is neither dialling nor paused. Asked by
+#: the hourly sweep to pick candidates and again under the row lock before one is retired,
+#: so a Start that took the row meanwhile keeps its engine agent. Binds `:holding`, `:idle`.
+CAMPAIGN_AGENT_UNNEEDED_WHERE: Final = (
+    "engine_agent_ref IS NOT NULL AND (archived_at IS NOT NULL "
+    "OR status IN ('completed', 'cancelled') OR (NOT (status = ANY(:holding)) "
+    "AND (engine_agent_at IS NULL OR engine_agent_at < now() - make_interval(secs => :idle))))"
+)
+
+#: A draft line whose test holder has not been published for `:idle` seconds. Every test
+#: call through a draft line publishes its holder first (`inbound/publish.line_test_dial`),
+#: which is what stamps `engine_agent_at`; the route's `updated_at` would not do, the drift,
+#: webhook, facts and rate sweeps rewrite it. Binds `:idle`.
+LINE_HOLDER_IDLE_WHERE: Final = (
+    "published_at IS NULL AND engine_agent_ref IS NOT NULL "
+    "AND (engine_agent_at IS NULL OR engine_agent_at < now() - make_interval(secs => :idle))"
+)
+
+#: How long after its last publish a test holder in a client's workspace is left to the call
+#: it was made for, before a Start or a line put live may take its place. The publish commits
+#: before the dial writes its call row, so for these seconds no live call can be seen on it.
+TEST_HOLDER_GRACE: Final = timedelta(minutes=2)
+
+#: A call on this engine agent that may still be connected: our own row, which a test dial
+#: writes before it rings, so a call still ringing counts (the vendor's connected list would
+#: miss it). Bounded like `paid_test_calls.copy_call_live`, so a lost result cannot pin it.
+_HOLDER_CALL_LIVE_SQL: Final = (
+    "SELECT EXISTS (SELECT 1 FROM calls WHERE engine_agent_ref = :ref "
+    "AND status IN ('queued', 'ringing', 'in_progress') "
+    "AND created_at > now() - make_interval(secs => :horizon))"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -4701,7 +4760,7 @@ async def engine_agents_in_workspace(
 
 
 async def _allowance_full(
-    session: AsyncSession, *, tenant_id: UUID, workspace: str | None
+    session: AsyncSession, *, tenant_id: UUID, workspace: str | None, spare: int = 0
 ) -> int | None:
     """The limit, when a NEW engine agent cannot be made in this client's own workspace
     because it holds as many as its plan allows; None when there is room or no such
@@ -4709,12 +4768,13 @@ async def _allowance_full(
     workspace on request (VENDOR-STATED 23 Oct 2026,
     `docs/vendor/thinnest-relationship-2026-10-23.md:136-142`), so the limit is this client's
     `workspace_agent_allowance`, never a constant; the platform's own refusal still maps to
-    `engine_agent_allowance_used` if the two ever disagree."""
+    `engine_agent_allowance_used` if the two ever disagree. `spare`: held setups the
+    attempt would give back first (`idle_test_holders_in`)."""
     if workspace is None or not is_customer_workspace(workspace):
         return None
     limit = await workspace_agent_allowance(session, tenant_id)
     held = await engine_agents_in_workspace(session, tenant_id=tenant_id, workspace=workspace)
-    if held < limit:
+    if held - spare < limit:
         return None
     log.info(
         "campaign_engine_agent_allowance_full",
@@ -4730,10 +4790,22 @@ async def _refuse_if_allowance_full(
     workspace: str | None,
     context: AllowanceContext,
 ) -> None:
-    """Refuse a new engine agent in a full workspace, naming what holds every setup."""
+    """Refuse a new engine agent in a full workspace, naming what holds every setup. Start
+    and putting a line live first give back the test holders in the workspace that no test
+    call is on (`give_back_idle_test_holders`) and count again; a test call does not, since
+    it falls back to our developer workspace instead."""
     refusal = await allowance_refusal(
         session, tenant_id=tenant_id, workspace=workspace, context=context
     )
+    if (
+        refusal is not None
+        and context != "test_call"
+        and workspace is not None
+        and await give_back_idle_test_holders(tenant_id=tenant_id, workspace=workspace)
+    ):
+        refusal = await allowance_refusal(
+            session, tenant_id=tenant_id, workspace=workspace, context=context
+        )
     if refusal is not None:
         raise refusal
 
@@ -4768,7 +4840,7 @@ async def engine_agent_allowance_blocker(
 ) -> tuple[str, str, tuple[SlotHolder, ...]] | None:
     """The launch gate's form of the pre-flight (D-1003): `(rule, reason, holders)` when Start
     would have to make this campaign a new engine agent and the client's workspace has no
-    room."""
+    room. Test holders Start would give back count as room (`idle_test_holders_in`)."""
     if not engine_has_workspaces(get_engine().name):
         return None
     ref = (
@@ -4779,7 +4851,12 @@ async def engine_agent_allowance_blocker(
     workspace = await resolve_workspace(session, tenant_id)
     if ref and scope_of(str(ref)) == workspace:
         return None
-    limit = await _allowance_full(session, tenant_id=tenant_id, workspace=workspace)
+    spare = (
+        await idle_test_holders_in(session, workspace=workspace)
+        if workspace is not None and is_customer_workspace(workspace)
+        else 0
+    )
+    limit = await _allowance_full(session, tenant_id=tenant_id, workspace=workspace, spare=spare)
     if limit is None:
         return None
     assert workspace is not None  # `_allowance_full` answers None without one
@@ -4875,9 +4952,16 @@ async def publish_campaign_agent(
     that dials through it and holds none of its own (D-1019, `agents/engine_retirement`), as
     `publish_line` adopts one. A live publish only.
 
-    The campaign row is locked first, so two Starts never make two engine agents for it."""
+    The tenant's knowledge lock is taken first and then the campaign row, as `publish_line`
+    takes them: the row lock keeps two Starts of one campaign from making two engine agents,
+    and the tenant lock keeps a Start, another campaign's and a line put live from each
+    counting the same free setup in the workspace and all making one."""
     if not test:
         await _refuse_during_maintenance(session)
+    # Imported here: `kb.service` imports `agents.t0`, which imports this module.
+    from apps.api.kb.service import lock_tenant_knowledge
+
+    await lock_tenant_knowledge(session, tenant_id=tenant_id)
     holder = await _campaign_holder(session, campaign_id, lock=True)
     agent, engine, config = await _campaign_publishable(session, tenant_id=tenant_id, holder=holder)
     if test:
@@ -5052,18 +5136,31 @@ async def republish_campaign_agents(
     return count
 
 
-async def retire_campaign_agent(
-    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
-) -> str | None:
-    """A campaign that has ended gives its engine agent back (D-1003): the campaign forgets
-    it in this transaction, its knowledge claims go (the copies are deleted with the vendor
-    agent), and the deletion is owed through the outbox, which waits out a call still on it
-    (`workers/engine_workspaces.retire_moved_engine_agent`). Its route stays active until then,
-    so the results of its last calls still land. Returns the retired ref, or None."""
-    holder = await _campaign_holder(session, campaign_id, lock=True)
-    ref = holder.engine_agent_ref
-    if ref is None:
-        return None
+async def _owe_holder_deletion(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    ref: str,
+    campaign_id: UUID | None = None,
+) -> None:
+    """Owe the deletion of a campaign's or a draft line's engine agent through the outbox,
+    which waits out a call still on it. Not `retire_engine_agent`'s once-per-ref key: a holder
+    made again finds the same vendor agent by its name tag, and giving it back a second time
+    must queue a second deletion; the job leaves alone one that is held again by then."""
+    from apps.api.reliability.service import enqueue_outbox
+
+    payload = {"tenant_id": str(tenant_id), "agent_id": str(agent_id), "old_ref": ref}
+    if campaign_id is not None:
+        payload["campaign_id"] = str(campaign_id)
+    await enqueue_outbox(session, job=RETIRE_MOVED_AGENT_JOB, payload=payload)
+
+
+async def _detach_campaign_agent(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID, ref: str
+) -> None:
+    """The campaign forgets its engine agent and its knowledge claims go (the copies are
+    deleted with the vendor agent). The caller holds the campaign row."""
     await session.execute(
         text(
             "UPDATE campaigns SET engine_agent_ref = NULL, engine_agent_at = NULL "
@@ -5075,20 +5172,62 @@ async def retire_campaign_agent(
         text("DELETE FROM engine_kb_routes WHERE campaign_id = :cid AND tenant_id = :tid"),
         {"cid": campaign_id, "tid": tenant_id},
     )
-    from apps.api.reliability.service import enqueue_outbox
 
-    # Not `retire_engine_agent`'s once-per-ref key: a campaign started again may take the same
-    # vendor agent back by its tag and give it back a second time. The campaign rides the
-    # payload so the job leaves it standing if the campaign holds it again by then.
-    await enqueue_outbox(
-        session,
-        job=RETIRE_MOVED_AGENT_JOB,
-        payload={
-            "tenant_id": str(tenant_id),
-            "agent_id": str(holder.agent_id),
-            "old_ref": ref,
-            "campaign_id": str(campaign_id),
-        },
+
+async def _detach_line_holder(session: AsyncSession, *, tenant_id: UUID, line_id: UUID) -> None:
+    """The draft line forgets its test holder and its knowledge claims go with the vendor
+    agent. The caller holds the line row."""
+    await session.execute(
+        text(
+            "UPDATE inbound_lines SET engine_agent_ref = NULL, engine_agent_at = NULL "
+            "WHERE id = :lid"
+        ),
+        {"lid": line_id},
+    )
+    await session.execute(
+        text("DELETE FROM engine_kb_routes WHERE inbound_line_id = :lid AND tenant_id = :tid"),
+        {"lid": line_id, "tid": tenant_id},
+    )
+
+
+async def retire_campaign_agent(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    campaign_id: UUID,
+    idle_seconds: float | None = None,
+) -> str | None:
+    """A campaign that has ended gives its engine agent back (D-1003): the campaign forgets
+    it in this transaction, its knowledge claims go (the copies are deleted with the vendor
+    agent), and the deletion is owed through the outbox, which waits out a call still on it
+    (`workers/engine_workspaces.retire_moved_engine_agent`). Its route stays active until then,
+    so the results of its last calls still land. Returns the retired ref, or None.
+
+    With `idle_seconds` (the hourly sweep) it is retired only if it still meets
+    `CAMPAIGN_AGENT_UNNEEDED_WHERE` under the row lock: the sweep picked it without one, and
+    a Start or a test call that published it since keeps it."""
+    holder = await _campaign_holder(session, campaign_id, lock=True)
+    ref = holder.engine_agent_ref
+    if ref is None:
+        return None
+    if idle_seconds is not None:
+        unneeded = (
+            await session.execute(
+                text(
+                    f"SELECT 1 FROM campaigns WHERE id = :cid AND {CAMPAIGN_AGENT_UNNEEDED_WHERE}"
+                ),
+                {
+                    "cid": campaign_id,
+                    "holding": list(CAMPAIGN_HOLDING_STATUSES),
+                    "idle": idle_seconds,
+                },
+            )
+        ).first()
+        if unneeded is None:
+            return None
+    await _detach_campaign_agent(session, tenant_id=tenant_id, campaign_id=campaign_id, ref=ref)
+    await _owe_holder_deletion(
+        session, tenant_id=tenant_id, agent_id=holder.agent_id, ref=ref, campaign_id=campaign_id
     )
     log.info(
         "campaign_engine_agent_retired",
@@ -5098,39 +5237,210 @@ async def retire_campaign_agent(
 
 
 async def retire_line_test_holder(
-    session: AsyncSession, *, tenant_id: UUID, line_id: UUID
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    line_id: UUID,
+    idle_seconds: float | None = None,
 ) -> str | None:
     """A draft line gives back the engine agent its test call was rung through (D-1018), as
     `retire_campaign_agent` does for a campaign: the line forgets it in this transaction, its
     knowledge claims go with the vendor agent, and the deletion is owed through the outbox,
-    which waits out a call still on it. A line put live meanwhile keeps it. Returns the
-    retired ref, or None."""
+    which waits out a call still on it. A line put live meanwhile keeps it, and with
+    `idle_seconds` (the hourly sweep) so does one whose holder a test call published since
+    (`LINE_HOLDER_IDLE_WHERE`, asked under the row lock). Returns the retired ref, or None."""
+    held = (
+        LINE_HOLDER_IDLE_WHERE
+        if idle_seconds is not None
+        else "published_at IS NULL AND engine_agent_ref IS NOT NULL"
+    )
     row = (
         await session.execute(
             text(
-                "SELECT agent_id, engine_agent_ref FROM inbound_lines "
-                "WHERE id = :lid AND published_at IS NULL AND engine_agent_ref IS NOT NULL "
+                f"SELECT agent_id, engine_agent_ref FROM inbound_lines WHERE id = :lid AND {held} "
                 "FOR UPDATE"
             ),
-            {"lid": line_id},
+            {"lid": line_id, "idle": idle_seconds},
         )
     ).first()
     if row is None:
         return None
     ref = str(row.engine_agent_ref)
-    await session.execute(
-        text("UPDATE inbound_lines SET engine_agent_ref = NULL WHERE id = :lid"),
-        {"lid": line_id},
-    )
-    await session.execute(
-        text("DELETE FROM engine_kb_routes WHERE inbound_line_id = :lid AND tenant_id = :tid"),
-        {"lid": line_id, "tid": tenant_id},
-    )
-    await retire_engine_agent(
+    await _detach_line_holder(session, tenant_id=tenant_id, line_id=line_id)
+    await _owe_holder_deletion(
         session, tenant_id=tenant_id, agent_id=UUID(str(row.agent_id)), ref=ref
     )
     log.info("line_test_holder_retired", extra={"line_id": str(line_id)})
     return ref
+
+
+async def _holder_call_live(session: AsyncSession, ref: str) -> bool:
+    return bool(
+        (
+            await session.execute(
+                text(_HOLDER_CALL_LIVE_SQL),
+                {"ref": ref, "horizon": trial_line_horizon().total_seconds()},
+            )
+        ).scalar()
+    )
+
+
+async def _delete_holder_now(
+    session: AsyncSession, engine: VoiceEngine, *, tenant_id: UUID, agent_id: UUID, ref: str
+) -> bool:
+    """What `workers/engine_workspaces.retire_moved_engine_agent` does, now rather than after
+    commit, so the platform stops counting the engine agent before a new one is made in its
+    place. False when the platform would not delete it; the caller then owes the deletion
+    through the outbox, and the slot frees when that runs."""
+    from apps.api.reliability.engine_webhooks import retire_agent_webhook
+
+    try:
+        await retire_in_call_actions(agent_id=agent_id, ref=ref)
+        await retire_agent_webhook(session, engine=engine.name, engine_agent_ref=ref)
+        await engine.delete_agent(ref)
+    except Exception as exc:
+        log.warning(
+            "test_holder_give_back_deferred",
+            extra={
+                "tenant_id": str(tenant_id),
+                "agent_id": str(agent_id),
+                "error": exc.code if isinstance(exc, ProblemError) else type(exc).__name__,
+            },
+        )
+        return False
+    await session.execute(
+        text(
+            "UPDATE engine_agent_routes SET active = false, updated_at = now() "
+            "WHERE engine = :engine AND engine_agent_ref = :ref"
+        ),
+        {"engine": engine.name, "ref": ref},
+    )
+    return True
+
+
+#: Rows of this account holding a test holder in one workspace, matched on the handle's
+#: scope suffix (`<raw>@<org_…>`) so rows in other workspaces are never locked. Locked by
+#: `give_back_idle_test_holders` with SKIP LOCKED: a row someone holds is in use, and
+#: waiting on it from there could wait on its own caller.
+_IDLE_LINE_HOLDERS_IN_SQL: Final = (
+    "SELECT id, agent_id, engine_agent_ref FROM inbound_lines "
+    f"WHERE {LINE_HOLDER_IDLE_WHERE} AND right(engine_agent_ref, :n) = :suffix ORDER BY id"
+)
+_IDLE_CAMPAIGN_HOLDERS_IN_SQL: Final = (
+    "SELECT id, agent_id, engine_agent_ref FROM campaigns "
+    f"WHERE {CAMPAIGN_AGENT_UNNEEDED_WHERE} AND right(engine_agent_ref, :n) = :suffix "
+    "ORDER BY id"
+)
+_IDLE_TEST_COPIES_IN_SQL: Final = (
+    "SELECT agent_id, engine_agent_ref FROM agent_test_copies "
+    "WHERE COALESCE(last_used_at, created_at) < now() - make_interval(secs => :idle) "
+    "AND right(engine_agent_ref, :n) = :suffix ORDER BY agent_id"
+)
+_SKIP_LOCKED: Final = " FOR UPDATE SKIP LOCKED"
+
+
+def _idle_holder_params(workspace: str) -> dict[str, Any]:
+    suffix = f"{SCOPE_SEPARATOR}{workspace}"
+    return {
+        "idle": TEST_HOLDER_GRACE.total_seconds(),
+        "holding": list(CAMPAIGN_HOLDING_STATUSES),
+        "suffix": suffix,
+        "n": len(suffix),
+    }
+
+
+async def idle_test_holders_in(session: AsyncSession, *, workspace: str) -> int:
+    """How many setups in `workspace` `give_back_idle_test_holders` would free now, read
+    without taking them: the launch check counts them as room, since Start frees them."""
+    from apps.api.agents.paid_test_calls import copy_call_live
+
+    params = _idle_holder_params(workspace)
+    count = 0
+    for sql in (_IDLE_LINE_HOLDERS_IN_SQL, _IDLE_CAMPAIGN_HOLDERS_IN_SQL):
+        for _id, _agent_id, ref in (await session.execute(text(sql), params)).all():
+            if scope_of(str(ref)) == workspace and not await _holder_call_live(session, str(ref)):
+                count += 1
+    for agent_id, ref in (await session.execute(text(_IDLE_TEST_COPIES_IN_SQL), params)).all():
+        if scope_of(str(ref)) == workspace and not await copy_call_live(
+            session, UUID(str(agent_id))
+        ):
+            count += 1
+    return count
+
+
+async def give_back_idle_test_holders(*, tenant_id: UUID, workspace: str) -> int:
+    """Free the calling setups a Start or a line put live needs (D-1020): every test holder
+    of a draft line or a campaign not started, and every agent test copy, held in this
+    client's `workspace`, not published for `TEST_HOLDER_GRACE` and with no call on it. Each
+    is detached and deleted at the platform at once, rather than the hour the sweep would
+    leave it: a test holder costs nothing to make again on the next test call, and a Start
+    refused for one is a campaign that does not dial.
+
+    In its own committed transaction, before the caller recounts: the caller holds the
+    tenant's knowledge lock and its own row, and the count it makes next must see these
+    gone. Rows locked by anyone are skipped, its caller's own included. Returns how many."""
+    from apps.api.agents.paid_test_calls import copy_call_live
+    from apps.api.kb.service import release_test_copy_claims
+
+    engine = get_engine()
+    params = _idle_holder_params(workspace)
+    given = 0
+    async with tenant_session(tenant_id) as session:
+        for line_id, agent_id, ref in (
+            await session.execute(text(_IDLE_LINE_HOLDERS_IN_SQL + _SKIP_LOCKED), params)
+        ).all():
+            if scope_of(str(ref)) != workspace or await _holder_call_live(session, str(ref)):
+                continue
+            await _detach_line_holder(session, tenant_id=tenant_id, line_id=UUID(str(line_id)))
+            if not await _delete_holder_now(
+                session, engine, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
+            ):
+                await _owe_holder_deletion(
+                    session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
+                )
+            given += 1
+        for campaign_id, agent_id, ref in (
+            await session.execute(text(_IDLE_CAMPAIGN_HOLDERS_IN_SQL + _SKIP_LOCKED), params)
+        ).all():
+            if scope_of(str(ref)) != workspace or await _holder_call_live(session, str(ref)):
+                continue
+            await _detach_campaign_agent(
+                session, tenant_id=tenant_id, campaign_id=UUID(str(campaign_id)), ref=str(ref)
+            )
+            if not await _delete_holder_now(
+                session, engine, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
+            ):
+                await _owe_holder_deletion(
+                    session,
+                    tenant_id=tenant_id,
+                    agent_id=UUID(str(agent_id)),
+                    ref=str(ref),
+                    campaign_id=UUID(str(campaign_id)),
+                )
+            given += 1
+        copies = await session.execute(text(_IDLE_TEST_COPIES_IN_SQL + _SKIP_LOCKED), params)
+        for agent_id, ref in copies.all():
+            agent = UUID(str(agent_id))
+            if scope_of(str(ref)) != workspace or await copy_call_live(session, agent):
+                continue
+            await session.execute(
+                text(
+                    "DELETE FROM agent_test_copies "
+                    "WHERE agent_id = :aid AND engine_agent_ref = :ref"
+                ),
+                {"aid": agent, "ref": ref},
+            )
+            await release_test_copy_claims(session, tenant_id=tenant_id, agent_id=agent)
+            if not await _delete_holder_now(
+                session, engine, tenant_id=tenant_id, agent_id=agent, ref=str(ref)
+            ):
+                await retire_engine_agent(
+                    session, tenant_id=tenant_id, agent_id=agent, ref=str(ref)
+                )
+            given += 1
+    if given:
+        log.info("idle_test_holders_given_back", extra={"tenant_id": str(tenant_id), "n": given})
+    return given
 
 
 async def retire_idle_client_test_copies(
@@ -7093,6 +7403,8 @@ async def attach_number_to_agent(
 
 
 __all__ = [
+    "CAMPAIGN_AGENT_UNNEEDED_WHERE",
+    "CAMPAIGN_HOLDING_STATUSES",
     "CAMPAIGN_NUMBER_UNAVAILABLE_CODE",
     "CARRIER_SPELLINGS",
     "CLIENT_NUMBER_UNAVAILABLE_RULE",
@@ -7105,6 +7417,7 @@ __all__ = [
     "INBOUND_SILENCE_REASONS",
     "INBOUND_SILENCE_TRUTHFUL_ANSWER",
     "KNOWLEDGE_PUBLISH_IN_PROGRESS",
+    "LINE_HOLDER_IDLE_WHERE",
     "NUMBER_INBOUND_ONLY_REASON",
     "NUMBER_INBOUND_ONLY_RULE",
     "NUMBER_NOT_ON_CARRIER_REASON",
@@ -7128,6 +7441,7 @@ __all__ = [
     "dial_was_not_placed",
     "dispatch_call",
     "effective_call_cap",
+    "give_back_idle_test_holders",
     "healer_forward_greeting",
     "healer_forward_prompt",
     "in_call_model",

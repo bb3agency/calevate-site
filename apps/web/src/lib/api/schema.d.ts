@@ -34421,6 +34421,9 @@ export interface components {
          * @description One calling setup in the workspace. `id` is the agent's for an agent or a script
          *     trial of it, the line's for a line, the campaign's for a campaign. `removing`: its
          *     holder has let go of it and the deletion has not run yet; nothing to do but wait.
+         *     `test_only`: a draft line's or a not-started campaign's, held only for its test calls;
+         *     a Start or a line put live takes its place once no test call is on it, so archiving the
+         *     line or stopping the campaign is not what frees it.
          */
         SlotHolder: {
             /**
@@ -34437,6 +34440,11 @@ export interface components {
             name: string;
             /** Removing */
             removing: boolean;
+            /**
+             * Test Only
+             * @default false
+             */
+            test_only: boolean;
         };
         /**
          * SlowCall

@@ -59,12 +59,16 @@ const KIND_WORDS: Record<SlotHolder["kind"], string> = {
   test_call: "Test call",
 };
 
+/** A setup held only for test calls: a test copy, a draft line's or a not-started campaign's. */
+const TEST_SETUP_FREED =
+  "Held for test calls. Freed an hour after the last one, or when you start a campaign or put a line live.";
+
 function FreesIt({ holder, at }: { holder: SlotHolder; at: (path: string) => string }) {
   if (holder.removing) return <>Being removed. Nothing to do.</>;
+  if (holder.test_only || holder.kind === "test_call") return <>{TEST_SETUP_FREED}</>;
   if (holder.kind === "inbound_line") return <>Archive the line to free it.</>;
   if (holder.kind === "campaign") return <>Stop the campaign to free it.</>;
   if (holder.kind === "script_trial") return <>Freed when the script trial ends.</>;
-  if (holder.kind === "test_call") return <>Freed an hour after the last test call.</>;
   return (
     <>
       It answers your calls until its{" "}
@@ -121,6 +125,7 @@ function holderOf(value: unknown): SlotHolder | null {
     id: value.id,
     name: typeof value.name === "string" ? value.name : "",
     removing: value.removing === true,
+    test_only: value.test_only === true,
   };
 }
 

@@ -730,11 +730,19 @@ async def offboard_engine_workspace(ctx: dict[str, Any], payload: dict[str, Any]
 # --- a recreated agent's old vendor agent -----------------------------------------------
 
 
-#: The campaign a retired engine agent was given back by (`agents/service.
-#: retire_campaign_agent` names it in the payload) recording it as its own again: it started
-#: again before this ran, and its publish found the same vendor agent by its tag (D-1003).
+#: Something still naming the vendor agent this job was told to delete: a publish after the
+#: retirement made a holder again and the platform's `create_agent` found this same agent
+#: by its name tag (D-1003, D-1018). A line or campaign not archived, or an agent, never a
+#: test copy: the copy paths owe this job with the copy row still in place, and the job
+#: deletes that row itself below. An agent only in a client's own workspace: closing an
+#: account owes every developer-workspace agent it still names
+#: (`service.retire_developer_workspace_agents`).
 _HELD_AGAIN_SQL: Final = (
-    "SELECT 1 FROM campaigns WHERE id = CAST(:cid AS uuid) AND engine_agent_ref = :ref"
+    "SELECT EXISTS (SELECT 1 FROM inbound_lines WHERE engine_agent_ref = :ref "
+    "AND archived_at IS NULL) "
+    "OR EXISTS (SELECT 1 FROM campaigns WHERE engine_agent_ref = :ref AND archived_at IS NULL) "
+    "OR (CAST(:scoped AS boolean) AND EXISTS (SELECT 1 FROM agents "
+    "WHERE engine_agent_ref = :ref AND deleted_at IS NULL))"
 )
 
 
@@ -747,16 +755,15 @@ async def retire_moved_engine_agent(ctx: dict[str, Any], payload: dict[str, Any]
     old_ref = str(payload["old_ref"])
     engine = get_engine()
     attempt = job_try(ctx)
-    if payload.get("campaign_id"):
-        async with tenant_session(tenant_id) as session:
-            held = (
-                await session.execute(
-                    text(_HELD_AGAIN_SQL), {"cid": str(payload["campaign_id"]), "ref": old_ref}
-                )
-            ).first()
-        if held is not None:
-            log.info("engine_agent_retire_skipped_held_again", extra={"agent_id": str(agent_id)})
-            return "held_again"
+    async with tenant_session(tenant_id) as session:
+        held = (
+            await session.execute(
+                text(_HELD_AGAIN_SQL), {"ref": old_ref, "scoped": scope_of(old_ref) is not None}
+            )
+        ).scalar()
+    if held:
+        log.info("engine_agent_retire_skipped_held_again", extra={"agent_id": str(agent_id)})
+        return "held_again"
     try:
         if await thinnest_actions().has_live_call(old_ref):
             if attempt < WORKER_MAX_TRIES:

@@ -37,6 +37,19 @@ from apps.api.core.settings import get_settings
 
 #: The refusal's problem code and launch-gate rule.
 ENGINE_AGENT_ALLOWANCE_FULL_RULE: Final = "engine_agent_allowance_full"
+#: The platform's own refusal of a new agent in a full workspace (`engine/thinnest.
+#: AGENT_ALLOWANCE_USED`), named here because only the engine package may import the adapter.
+ENGINE_AGENT_ALLOWANCE_USED_CODE: Final = "engine_agent_allowance_used"
+#: Either refusal: our count said the workspace is full, or the platform did.
+SLOTS_FULL_CODES: Final = frozenset(
+    {ENGINE_AGENT_ALLOWANCE_FULL_RULE, ENGINE_AGENT_ALLOWANCE_USED_CODE}
+)
+
+#: The campaign statuses whose engine agent is kept: it is dialling, or paused so Resume
+#: dials at once; every other state retires it. A scheduled campaign holds none (D-1010):
+#: the engine agent takes one of the workspace's few slots, so it is made when the start
+#: fires, not when it is set, and a repeat gives it back between runs.
+CAMPAIGN_HOLDING_STATUSES: Final = ("running", "paused")
 
 #: `test_call`: an agent's test copy made in the workspace for a test call from the client's
 #: own number (D-1020), given back an hour after its last use.
@@ -50,7 +63,10 @@ AllowanceContext = Literal["test_call", "start", "line_live"]
 class SlotHolder(BaseModel):
     """One calling setup in the workspace. `id` is the agent's for an agent or a script
     trial of it, the line's for a line, the campaign's for a campaign. `removing`: its
-    holder has let go of it and the deletion has not run yet; nothing to do but wait."""
+    holder has let go of it and the deletion has not run yet; nothing to do but wait.
+    `test_only`: a draft line's or a not-started campaign's, held only for its test calls;
+    a Start or a line put live takes its place once no test call is on it, so archiving the
+    line or stopping the campaign is not what frees it."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -58,6 +74,7 @@ class SlotHolder(BaseModel):
     id: UUID
     name: str
     removing: bool
+    test_only: bool = False
 
 
 class EngineAgentAllowanceFull(ProblemExtension):
@@ -102,7 +119,9 @@ async def workspace_agent_allowance(session: AsyncSession, tenant_id: UUID) -> i
 _HOLDERS_SQL: Final = (
     "SELECT r.engine_agent_ref, r.agent_id, r.inbound_line_id, r.campaign_id, "
     "c.name, c.engine_agent_ref IS NOT DISTINCT FROM r.engine_agent_ref, "
+    "c.status = ANY(:holding) AND c.archived_at IS NULL, "
     "l.name, l.engine_agent_ref IS NOT DISTINCT FROM r.engine_agent_ref, "
+    "l.published_at IS NOT NULL, "
     "a.name, a.engine_agent_ref IS NOT DISTINCT FROM r.engine_agent_ref, "
     "EXISTS (SELECT 1 FROM prompt_experiment_variants v "
     "        WHERE v.engine_agent_ref = r.engine_agent_ref), "
@@ -121,7 +140,12 @@ async def slot_holders(
     session: AsyncSession, *, tenant_id: UUID, engine: str, workspace: str
 ) -> list[SlotHolder]:
     """The calling setups this client holds in `workspace`, oldest first."""
-    rows = (await session.execute(text(_HOLDERS_SQL), {"tid": tenant_id, "engine": engine})).all()
+    rows = (
+        await session.execute(
+            text(_HOLDERS_SQL),
+            {"tid": tenant_id, "engine": engine, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
+        )
+    ).all()
     holders: list[SlotHolder] = []
     for (
         ref,
@@ -130,8 +154,10 @@ async def slot_holders(
         campaign_id,
         c_name,
         c_holds,
+        c_going,
         l_name,
         l_holds,
+        l_live,
         a_name,
         a_holds,
         arm,
@@ -145,11 +171,19 @@ async def slot_holders(
             )
         elif campaign_id is not None:
             holder = SlotHolder(
-                kind="campaign", id=campaign_id, name=str(c_name or ""), removing=not c_holds
+                kind="campaign",
+                id=campaign_id,
+                name=str(c_name or ""),
+                removing=not c_holds,
+                test_only=bool(c_holds) and not c_going,
             )
         elif line_id is not None:
             holder = SlotHolder(
-                kind="inbound_line", id=line_id, name=str(l_name or ""), removing=not l_holds
+                kind="inbound_line",
+                id=line_id,
+                name=str(l_name or ""),
+                removing=not l_holds,
+                test_only=bool(l_holds) and not l_live,
             )
         elif arm:
             holder = SlotHolder(
@@ -203,8 +237,14 @@ def allowance_remediation(holders: list[SlotHolder]) -> str:
     """What the owner can do about it, said with every form of the refusal. Only the steps
     that would free one of THESE setups: an agent's own setup, a script trial's and a test
     call's are not the owner's to free (archiving an agent keeps its engine agent), so a
-    workspace full of those is ours to clear."""
-    kinds = {h.kind for h in holders if not h.removing}
+    workspace full of those is ours to clear.
+
+    A setup held only for test calls (an agent's test copy, a draft line's or a not-started
+    campaign's) is not offered as a line to archive or a campaign to stop: Start and putting
+    a line live take its place themselves once no test call is on it
+    (`service.give_back_idle_test_holders`), and the hourly sweep otherwise."""
+    live = [h for h in holders if not h.removing]
+    kinds = {h.kind for h in live if not h.test_only}
     steps = [
         step
         for kind, step in (
@@ -213,14 +253,26 @@ def allowance_remediation(holders: list[SlotHolder]) -> str:
         )
         if kind in kinds
     ]
-    if not steps:
+    testing = any(h.test_only or h.kind == "test_call" for h in live)
+    said: list[str] = []
+    if steps:
+        first = " or ".join(steps)
+        said.append(f"{first[0].upper()}{first[1:]} to free one.")
+    if testing:
+        said.append(
+            "A setup held for test calls is freed an hour after the last one, or when you "
+            "start a campaign or put a line live with no test call on it."
+        )
+    if not said:
         return "Ask us to free one or to raise your limit."
-    first = " or ".join(steps)
-    return f"{first[0].upper()}{first[1:]} to free one. To have more, ask us to raise your limit."
+    return " ".join([*said, "To have more, ask us to raise your limit."])
 
 
 __all__ = [
+    "CAMPAIGN_HOLDING_STATUSES",
     "ENGINE_AGENT_ALLOWANCE_FULL_RULE",
+    "ENGINE_AGENT_ALLOWANCE_USED_CODE",
+    "SLOTS_FULL_CODES",
     "SLOTS_FULL_RESPONSES",
     "AllowanceContext",
     "EngineAgentAllowanceFull",

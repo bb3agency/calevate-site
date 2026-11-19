@@ -596,7 +596,7 @@ async def test_an_idle_draft_lines_test_holder_is_retired_and_a_live_ones_kept()
         assert await _retire_unneeded(session, tenant_id=tenant_id) == 0
         await session.execute(
             text(
-                "UPDATE engine_agent_routes SET updated_at = now() - interval '2 hours' "
+                "UPDATE inbound_lines SET engine_agent_at = now() - interval '2 hours' "
                 "WHERE tenant_id = :t"
             ),
             {"t": tenant_id},
@@ -804,7 +804,11 @@ def test_remediation_for_setups_the_owner_cannot_free_asks_us() -> None:
     # campaign frees nothing, so the owner is not told to.
     agents = [_holder("agent"), _holder("agent")]
     assert allowance_remediation(agents) == "Ask us to free one or to raise your limit."
-    # A line already being removed is not one the owner can archive again.
+    # A line already being removed is not one the owner can archive again, and a test
+    # call's setup is freed without them.
+    assert allowance_remediation([_holder("inbound_line", removing=True)]) == (
+        "Ask us to free one or to raise your limit."
+    )
     assert allowance_remediation(
         [_holder("inbound_line", removing=True), _holder("test_call")]
-    ) == ("Ask us to free one or to raise your limit.")
+    ).startswith("A setup held for test calls is freed an hour after the last one")

@@ -51,7 +51,7 @@ from apps.api.agents.paid_test_calls import (
     read_paid_test_access,
     refresh_test_copy,
 )
-from apps.api.agents.workspace_slots import ENGINE_AGENT_ALLOWANCE_FULL_RULE
+from apps.api.agents.workspace_slots import SLOTS_FULL_CODES
 from apps.api.billing.first_payment import has_paid
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
@@ -84,11 +84,6 @@ TRIAL_CALL_ENGINES: Final = frozenset({"thinnest"})
 NOT_READY_RULE: Final = "trial_calling_not_ready"
 NOT_READY_REASON: Final = "Test calls are not available yet. Please try again later."
 
-
-#: A test holder could not be made in the client's own workspace for want of a free engine
-#: agent: our pre-check, or the platform's own refusal, which the adapter raises as
-#: `engine_agent_allowance_used` (D-1020 falls back to ours).
-_SLOTS_FULL: Final = frozenset({ENGINE_AGENT_ALLOWANCE_FULL_RULE, "engine_agent_allowance_used"})
 
 _Held = TypeVar("_Held")
 
@@ -369,7 +364,7 @@ async def place_trial_call(
             try:
                 return await make(own)
             except ProblemError as refused:
-                if not (own and refused.code in _SLOTS_FULL):
+                if not (own and refused.code in SLOTS_FULL_CODES):
                     raise
                 if not trial_calling_ready():
                     return refused

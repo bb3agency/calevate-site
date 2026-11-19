@@ -56,6 +56,7 @@ const HOLDERS = [
   },
   { kind: "campaign", id: "c-old", name: "Old list", removing: true },
   { kind: "test_call", id: "a-anjali", name: "Anjali", removing: false },
+  { kind: "inbound_line", id: "l-draft", name: "After hours", removing: false, test_only: true },
 ] as const;
 
 function refused(context: "test_call" | "start"): ApiProblem {
@@ -141,9 +142,13 @@ describe("a test call with no free calling setup", () => {
     expect(list.textContent).toContain("Being removed.");
     // A test call's own setup in the workspace (D-1020) goes back by itself.
     expect(hrefs).toContain("/c/rytu-khata/agents/a-anjali");
-    expect(list.textContent).toContain(
-      "Freed an hour after the last test call.",
-    );
+    const freedByItself =
+      "Held for test calls. Freed an hour after the last one, or when you start a campaign or put a line live.";
+    expect(list.textContent).toContain(freedByItself);
+    // So does a draft line's: archiving it is not what frees it.
+    const draft = within(list).getByRole("link", { name: "After hours" }).closest("li");
+    expect(draft?.textContent).toContain(freedByItself);
+    expect(draft?.textContent).not.toContain("Archive the line");
   });
 
   it("offers a real button to ask for a higher limit, naming the account", () => {
