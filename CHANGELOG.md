@@ -3,6 +3,22 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.76 — 19-Nov-2026
+
+- Example text on the campaign, opening-line, scenario and voice-notes screens no longer
+  names another business; it reads as an instruction any business can follow.
+- A language switched on for your account is shown by its own name on the first-agent
+  screens, not as Telugu.
+- A new agent created without a language speaks your business's first language.
+- WhatsApp messages to your callers go out in the caller's language where that message is
+  approved in it.
+- When you upload a contact list, the person's name is taken from a name column such as
+  "Name" or "Customer name", not from "Village name" or "Business name".
+- When the voice platform briefly limits calls in one account or from one number, only that
+  account or number waits; other accounts keep calling.
+- Admin: a client's limit on calling setups can be raised on its Numbers page. Paid test
+  calls per day and the longest own-number test call are console settings.
+
 ## 0.4.75 — 19-Nov-2026
 
 - A campaign testing a second opening rings people again. Before this, every contact of
