@@ -799,6 +799,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/agent-allowance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How many calling setups this client's workspace may hold
+         * @description How many engine agents (agents, inbound lines, campaigns, script trials and test calls) this client's own ThinnestAI workspace may hold. ThinnestAI allows 2 per workspace on pay-as-you-go and raises it per workspace on request; record a raise here once they confirm it. `null` is the console's `thinnest_agents_per_workspace`. Refused `engine_workspace_not_provisioned` until the workspace exists.
+         */
+        get: operations["admin_agent_allowance_v1_admin_engine_workspaces_tenants__tenant_id__agent_allowance_get"];
+        /**
+         * Record the calling setups ThinnestAI allows this client's workspace
+         * @description How many engine agents (agents, inbound lines, campaigns, script trials and test calls) this client's own ThinnestAI workspace may hold. ThinnestAI allows 2 per workspace on pay-as-you-go and raises it per workspace on request; record a raise here once they confirm it. `null` is the console's `thinnest_agents_per_workspace`. Refused `engine_workspace_not_provisioned` until the workspace exists.
+         */
+        put: operations["admin_set_agent_allowance_v1_admin_engine_workspaces_tenants__tenant_id__agent_allowance_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/engine-workspaces/tenants/{tenant_id}/agent-engine-retirement": {
         parameters: {
             query?: never;
@@ -15655,6 +15679,31 @@ export interface components {
             week_count: number;
             /** Weekly Limit */
             weekly_limit: number;
+        };
+        /** AgentAllowanceIn */
+        AgentAllowanceIn: {
+            /** Agent Allowance */
+            agent_allowance: number | null;
+        };
+        /**
+         * AgentAllowanceOut
+         * @description How many engine agents ("calling setups") this client's own workspace may hold.
+         */
+        AgentAllowanceOut: {
+            /** Agent Allowance */
+            agent_allowance: number | null;
+            /** Default */
+            default: number;
+            /** In Use */
+            in_use: number | null;
+            /** Limit */
+            limit: number;
+            /** Max Allowance */
+            max_allowance: number;
+            /** Min Allowance */
+            min_allowance: number;
+            /** Settable */
+            settable: boolean;
         };
         /**
          * AgentCallHandlingIn
@@ -41119,6 +41168,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TenantWorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_agent_allowance_v1_admin_engine_workspaces_tenants__tenant_id__agent_allowance_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentAllowanceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_set_agent_allowance_v1_admin_engine_workspaces_tenants__tenant_id__agent_allowance_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Confirm-Action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentAllowanceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentAllowanceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

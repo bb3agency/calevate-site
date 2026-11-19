@@ -5323,6 +5323,16 @@ const ADMIN_SCREENS: Screen[] = [
         numbers: { own_workspace: 0, platform_held: 1 },
         agents_in_platform_account: 1,
       },
+      // Raised for this client, so the limit row says so and offers Change.
+      "/v1/admin/engine-workspaces/tenants/t1/agent-allowance": {
+        limit: 3,
+        agent_allowance: 3,
+        default: 2,
+        in_use: 2,
+        settable: true,
+        min_allowance: 1,
+        max_allowance: 1000,
+      },
       "/v1/admin/numbers/tenants/t1": [
         {
           id: "num-1",

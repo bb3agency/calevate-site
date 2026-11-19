@@ -146,6 +146,8 @@ export const llmDefaultConfirmation = (tenantId: string) => `set_llm_default:${t
 /** Mirrors `engine_retirement_routes.retirement_confirmation` (D-1019). */
 export const agentEngineRetirementConfirmation = (tenantId: string) =>
   `retire_agent_engine_agents:${tenantId}`;
+/** Mirrors `engine_workspace_routes.agent_allowance_confirmation`. */
+export const agentAllowanceConfirmation = (tenantId: string) => `set_agent_allowance:${tenantId}`;
 
 /**
  * A confirmed operator write (D-731): sends `X-Confirm-Action`, and when the API answers

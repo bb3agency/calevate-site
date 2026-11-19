@@ -4,8 +4,11 @@ A calling setup is one engine agent object in the client's ThinnestAI customer w
 whether or not it is on a call. The platform caps how many may EXIST per workspace (2 on
 pay-as-you-go, raised per workspace on request, VENDOR-STATED 23 Oct 2026,
 `docs/vendor/thinnest-relationship-2026-10-23.md:136-142`); that is not the account's call
-concurrency, which is a separate account-wide limit. The cap is the console's
-`thinnest_agents_per_workspace`; `agents/service._allowance_full` decides when it is reached.
+concurrency, which is a separate account-wide limit. The cap is
+`workspace_agent_allowance`: the one the vendor raised for this client's workspace when an
+operator recorded it, else the console's `thinnest_agents_per_workspace`. Raising the console
+value instead would let every client past the vendor's cap. `agents/service._allowance_full`
+decides when it is reached.
 
 What this module adds is WHO holds them, so the refusal can say what to free instead of a
 bare count: each agent, inbound line, campaign, script trial or test call holding one, and
@@ -30,6 +33,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemExtension, problem_responses
+from apps.api.core.settings import get_settings
 
 #: The refusal's problem code and launch-gate rule.
 ENGINE_AGENT_ALLOWANCE_FULL_RULE: Final = "engine_agent_allowance_full"
@@ -70,6 +74,25 @@ class EngineAgentAllowanceFull(ProblemExtension):
 #: `responses=` for every route that can make a new engine agent: a test call, Start, putting
 #: a line live.
 SLOTS_FULL_RESPONSES: Final = problem_responses(EngineAgentAllowanceFull)
+
+
+async def workspace_agent_override(session: AsyncSession, tenant_id: UUID) -> int | None:
+    """The cap an operator recorded for this client's workspace, None when it has none (or no
+    workspace row yet). Read in the caller's tenant session, under RLS."""
+    value = (
+        await session.execute(
+            text("SELECT agent_allowance FROM tenant_engine_workspaces WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).scalar_one_or_none()
+    return int(value) if value is not None else None
+
+
+async def workspace_agent_allowance(session: AsyncSession, tenant_id: UUID) -> int:
+    """How many engine agents this client's own workspace may hold: its recorded override,
+    else the console's `thinnest_agents_per_workspace`. The ONE reader of the limit."""
+    override = await workspace_agent_override(session, tenant_id)
+    return override if override is not None else get_settings().thinnest_agents_per_workspace
 
 
 #: Every active route of this tenant on this engine; the workspace is matched on the ref's
@@ -206,4 +229,6 @@ __all__ = [
     "allowance_reason",
     "allowance_remediation",
     "slot_holders",
+    "workspace_agent_allowance",
+    "workspace_agent_override",
 ]

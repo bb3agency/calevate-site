@@ -7,7 +7,7 @@ import TenantNumbersPage from "@/app/admin/tenants/[tenantId]/numbers/page";
 import type { TenantSummary } from "@/lib/api/admin";
 import { ENGINE_BUSINESS_DETAILS_PATH } from "@/lib/api/numbers";
 
-import { callLinesRoute } from "./fixtures/sharedReads";
+import { agentAllowanceRoute, callLinesRoute } from "./fixtures/sharedReads";
 import { renderAdminPage, type Routes } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
@@ -57,6 +57,7 @@ function routes(extra: Routes = {}): Routes {
   return {
     [ADMIN_ME_PATH]: SUPERADMIN,
     ...callLinesRoute(TENANT),
+    ...agentAllowanceRoute(TENANT),
     // The numbers screen also shows the client's forwarded numbers (D-746): none here.
     [`/v1/admin/forwarding/tenants/${TENANT}?limit=5`]: {
       lines: [],

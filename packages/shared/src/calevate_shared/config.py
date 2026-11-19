@@ -623,7 +623,8 @@ class Settings(BaseSettings):
     #: inbound lines' and the campaigns'. ThinnestAI counts agents per workspace, 2 on
     #: pay-as-you-go and raised per workspace on request (VENDOR-STATED 23 Oct 2026,
     #: `docs/vendor/thinnest-relationship-2026-10-23.md:136-142`). Campaign Start refuses
-    #: plainly at it; an operator raises it when ThinnestAI confirms a raise.
+    #: plainly at it. It is the default: a raise ThinnestAI confirms for one workspace is
+    #: recorded on that client (`tenant_engine_workspaces.agent_allowance`), not here.
     thinnest_agents_per_workspace: int = Field(default=2, ge=1, le=1000)
     #: The hourly sweep that gives each agent's own engine agent to the line or campaign that
     #: uses it, or retires it (D-1019, `agents/engine_retirement`). Off: it runs only when an

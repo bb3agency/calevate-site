@@ -4,7 +4,9 @@ Per client (`/tenants/{tenant_id}`): the workspace and where its provisioning st
 business-details application, the purchase gates, and the numbers it holds — its own and any
 held in the platform account for testing. Actions: provision again, send the business details
 (again), refresh their status, offboard again, and buy or release a number in the client's
-name through the same purchase path the client uses (`campaigns/engine_number_purchase.py`).
+name through the same purchase path the client uses (`campaigns/engine_number_purchase.py`),
+and record how many engine agents ThinnestAI lets this workspace hold once they raise it
+(`agents/workspace_slots.workspace_agent_allowance`).
 
 Across clients (`/summary`, the ops dashboard): workspaces provisioned against tenants, the
 ones failing, and the plan's headroom — 3 customers on pay-as-you-go, 100 on Pro, 1,000 on
@@ -29,6 +31,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service
+from apps.api.agents.workspace_slots import (
+    slot_holders,
+    workspace_agent_allowance,
+    workspace_agent_override,
+)
 from apps.api.billing.number_rental import RentalOutcome
 from apps.api.campaigns import engine_numbers
 from apps.api.campaigns.engine_business_details import (
@@ -64,6 +71,7 @@ from apps.api.tenancy.engine_workspace import (
     read_workspace_state,
     workspace_directory,
 )
+from apps.api.tenancy.models import AGENT_ALLOWANCE_MAX, AGENT_ALLOWANCE_MIN
 
 log = get_logger(__name__)
 
@@ -72,6 +80,9 @@ router = APIRouter(prefix="/v1/admin/engine-workspaces", tags=["admin"])
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 WorkspaceOperator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 ConfirmAction = Annotated[str | None, Header(alias="X-Confirm-Action")]
+#: A read; D-22 forbids gating a GET on `admin:tenants`, which read-only impersonation
+#: refuses. Both admin roles hold `org:read`.
+AllowanceReader = Annotated[Principal, Depends(requires("org:read", realm="admin"))]
 
 
 #: The step-up strings for this router's writes (D-731), each bound to the tenant and, for
@@ -443,6 +454,161 @@ async def refresh_details(
         submitted_at=details.submitted_at,
         checked_at=None,
     )
+
+
+class AgentAllowanceOut(BaseModel):
+    """How many engine agents ("calling setups") this client's own workspace may hold."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The cap in force: `agent_allowance` when set, else `default`.
+    limit: int
+    #: The cap ThinnestAI raised for this workspace, as an operator recorded it; null is the
+    #: console default.
+    agent_allowance: int | None
+    #: The console's `thinnest_agents_per_workspace`.
+    default: int
+    #: Setups held in the workspace now, counting any whose deletion has not run; null
+    #: without an active workspace.
+    in_use: int | None
+    #: A cap can be recorded only once the workspace exists at ThinnestAI.
+    settable: bool
+    min_allowance: int
+    max_allowance: int
+
+
+class AgentAllowanceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: `null` goes back to the console default.
+    agent_allowance: int | None = Field(ge=AGENT_ALLOWANCE_MIN, le=AGENT_ALLOWANCE_MAX)
+
+
+def agent_allowance_confirmation(tenant_id: UUID) -> str:
+    """The step-up string for changing one client's cap: past what ThinnestAI really allows,
+    every new setup there is refused by the platform, so it is confirmed like call lines."""
+    return f"set_agent_allowance:{tenant_id}"
+
+
+_ALLOWANCE_ROW = "SELECT workspace_id, status FROM tenant_engine_workspaces WHERE tenant_id = :tid"
+
+
+async def _allowance_out(scoped: AsyncSession, tenant_id: UUID) -> AgentAllowanceOut:
+    row = (await scoped.execute(text(_ALLOWANCE_ROW), {"tid": tenant_id})).first()
+    workspace_id = row[0] if row is not None else None
+    active = row is not None and row[1] == "active" and workspace_id is not None
+    return AgentAllowanceOut(
+        limit=await workspace_agent_allowance(scoped, tenant_id),
+        agent_allowance=await workspace_agent_override(scoped, tenant_id),
+        default=get_settings().thinnest_agents_per_workspace,
+        in_use=(
+            len(
+                await slot_holders(
+                    scoped,
+                    tenant_id=tenant_id,
+                    engine=get_settings().engine,
+                    workspace=str(workspace_id),
+                )
+            )
+            if active
+            else None
+        ),
+        settable=workspace_id is not None,
+        min_allowance=AGENT_ALLOWANCE_MIN,
+        max_allowance=AGENT_ALLOWANCE_MAX,
+    )
+
+
+_ALLOWANCE_DESCRIPTION = (
+    "How many engine agents (agents, inbound lines, campaigns, script trials and test calls) "
+    "this client's own ThinnestAI workspace may hold. ThinnestAI allows 2 per workspace on "
+    "pay-as-you-go and raises it per workspace on request; record a raise here once they "
+    "confirm it. `null` is the console's `thinnest_agents_per_workspace`. Refused "
+    "`engine_workspace_not_provisioned` until the workspace exists."
+)
+
+
+@router.get(
+    "/tenants/{tenant_id}/agent-allowance",
+    response_model=AgentAllowanceOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="How many calling setups this client's workspace may hold",
+    description=_ALLOWANCE_DESCRIPTION,
+)
+async def admin_agent_allowance(
+    tenant_id: UUID, request: Request, principal: AllowanceReader
+) -> AgentAllowanceOut:
+    async with tenant_session(tenant_id) as scoped:
+        await _require_tenant(scoped, tenant_id)
+        out = await _allowance_out(scoped, tenant_id)
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
+    return out
+
+
+@router.put(
+    "/tenants/{tenant_id}/agent-allowance",
+    response_model=AgentAllowanceOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Record the calling setups ThinnestAI allows this client's workspace",
+    description=_ALLOWANCE_DESCRIPTION,
+)
+async def admin_set_agent_allowance(
+    tenant_id: UUID,
+    payload: AgentAllowanceIn,
+    request: Request,
+    principal: WorkspaceOperator,
+    step_up: StepUpGate,
+    x_confirm_action: ConfirmAction = None,
+) -> AgentAllowanceOut:
+    step_up.require(x_confirm_action, agent_allowance_confirmation(tenant_id))
+    if not engine_has_workspaces():
+        raise _off()
+    async with tenant_session(tenant_id) as scoped:
+        await _require_tenant(scoped, tenant_id)
+        before = (
+            await scoped.execute(
+                text(
+                    "SELECT agent_allowance FROM tenant_engine_workspaces "
+                    "WHERE tenant_id = :tid AND workspace_id IS NOT NULL FOR UPDATE"
+                ),
+                {"tid": tenant_id},
+            )
+        ).first()
+        if before is None:
+            raise ProblemError.business_rule(
+                "engine_workspace_not_provisioned",
+                "This client has no voice workspace yet, so there is no cap to raise.",
+                remediation="Create the workspace first, then ask ThinnestAI to raise its cap.",
+            )
+        await scoped.execute(
+            text(
+                "UPDATE tenant_engine_workspaces SET agent_allowance = :n, updated_at = now() "
+                "WHERE tenant_id = :tid"
+            ),
+            {"n": payload.agent_allowance, "tid": tenant_id},
+        )
+        out = await _allowance_out(scoped, tenant_id)
+        await write_audit(
+            scoped,
+            action="engine_workspace.agent_allowance_set",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="organization",
+            object_id=str(tenant_id),
+            ip=client_request_ip(request),
+            summary={
+                "agent_allowance": payload.agent_allowance,
+                "was": before[0],
+                "limit": out.limit,
+            },
+        )
+    log.info(
+        "engine_workspace_agent_allowance_set",
+        extra={"tenant_id": str(tenant_id), "limit": out.limit},
+    )
+    return out
 
 
 class AdminCityOut(BaseModel):

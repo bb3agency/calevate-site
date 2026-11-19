@@ -44,6 +44,12 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 CALL_LINES_MIN = 1
 CALL_LINES_MAX = 50
 
+#: How many engine agents an operator may record for one client's workspace
+#: (`tenant_engine_workspaces.agent_allowance`, migration c3a9f5e2b7d1); the upper bound is
+#: the console default's own.
+AGENT_ALLOWANCE_MIN = 1
+AGENT_ALLOWANCE_MAX = 1000
+
 #: The highest low-balance warning line a client may set, in rupees. Migration f1a6c3e9d204.
 LOW_BALANCE_ALERT_MAX_INR = Decimal("100000.00")
 
@@ -719,6 +725,11 @@ class TenantEngineWorkspace(PKMixin, TimestampMixin, Base):
             "retention_error_code IS NULL OR char_length(retention_error_code) <= 64",
             name="retention_error_code_bounded",
         ),
+        CheckConstraint(
+            f"agent_allowance IS NULL OR (agent_allowance >= {AGENT_ALLOWANCE_MIN} "
+            f"AND agent_allowance <= {AGENT_ALLOWANCE_MAX})",
+            name="agent_allowance_range",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -754,6 +765,10 @@ class TenantEngineWorkspace(PKMixin, TimestampMixin, Base):
     retention_plan_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     retention_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     retention_error_code: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: How many engine agents the vendor lets THIS workspace hold, once raised on request;
+    #: None means the console's `thinnest_agents_per_workspace` (migration c3a9f5e2b7d1).
+    #: Read only through `agents/workspace_slots.workspace_agent_allowance`.
+    agent_allowance: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 #: Why a run of the business copy did not write new copy (D-827). The copy on file stays in

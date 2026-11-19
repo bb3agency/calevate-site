@@ -72,6 +72,7 @@ import {
   type TenantNumberCost,
 } from "@/lib/api/numbers";
 
+import { AgentAllowancePanel } from "./AgentAllowancePanel";
 import { CallLinesPanel } from "./CallLinesPanel";
 import { EngineNumbersPanel } from "./EngineNumbersPanel";
 import { ForwardingCard } from "./ForwardingCard";
@@ -153,6 +154,10 @@ export function NumbersScreen({ tenantId }: { tenantId: string }) {
           agents={engineNumbers.data?.agents}
         />
       )}
+
+      {/* How many calling setups that workspace may hold: the console default unless
+          ThinnestAI raised it for this client. */}
+      {engineHeld && <AgentAllowancePanel tenantId={tenantId} canWrite={write.allowed} />}
 
       {/* How many calls this client may have at once (F7): its own workspace is capped at it,
           and a free trial's calls are counted by the dial gate. */}

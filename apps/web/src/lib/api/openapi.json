@@ -2491,6 +2491,88 @@
         "title": "AdminWhatsAppOut",
         "type": "object"
       },
+      "AgentAllowanceIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_allowance": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Allowance"
+          }
+        },
+        "required": [
+          "agent_allowance"
+        ],
+        "title": "AgentAllowanceIn",
+        "type": "object"
+      },
+      "AgentAllowanceOut": {
+        "additionalProperties": false,
+        "description": "How many engine agents (\"calling setups\") this client's own workspace may hold.",
+        "properties": {
+          "agent_allowance": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Allowance"
+          },
+          "default": {
+            "title": "Default",
+            "type": "integer"
+          },
+          "in_use": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "In Use"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "max_allowance": {
+            "title": "Max Allowance",
+            "type": "integer"
+          },
+          "min_allowance": {
+            "title": "Min Allowance",
+            "type": "integer"
+          },
+          "settable": {
+            "title": "Settable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "limit",
+          "agent_allowance",
+          "default",
+          "in_use",
+          "settable",
+          "min_allowance",
+          "max_allowance"
+        ],
+        "title": "AgentAllowanceOut",
+        "type": "object"
+      },
       "AgentCallHandlingIn": {
         "additionalProperties": false,
         "description": "Any of the settings. A field left out is untouched; `null` goes back to inheriting,\nexcept `opening_waits_for_caller`, which inherits nothing and takes only true or false.",
@@ -70966,6 +71048,112 @@
           }
         },
         "summary": "This client's own voice workspace, business details, purchase gates, numbers",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/engine-workspaces/tenants/{tenant_id}/agent-allowance": {
+      "get": {
+        "description": "How many engine agents (agents, inbound lines, campaigns, script trials and test calls) this client's own ThinnestAI workspace may hold. ThinnestAI allows 2 per workspace on pay-as-you-go and raises it per workspace on request; record a raise here once they confirm it. `null` is the console's `thinnest_agents_per_workspace`. Refused `engine_workspace_not_provisioned` until the workspace exists.",
+        "operationId": "admin_agent_allowance_v1_admin_engine_workspaces_tenants__tenant_id__agent_allowance_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentAllowanceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How many calling setups this client's workspace may hold",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "put": {
+        "description": "How many engine agents (agents, inbound lines, campaigns, script trials and test calls) this client's own ThinnestAI workspace may hold. ThinnestAI allows 2 per workspace on pay-as-you-go and raises it per workspace on request; record a raise here once they confirm it. `null` is the console's `thinnest_agents_per_workspace`. Refused `engine_workspace_not_provisioned` until the workspace exists.",
+        "operationId": "admin_set_agent_allowance_v1_admin_engine_workspaces_tenants__tenant_id__agent_allowance_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Confirm-Action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentAllowanceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentAllowanceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record the calling setups ThinnestAI allows this client's workspace",
         "tags": [
           "admin"
         ],

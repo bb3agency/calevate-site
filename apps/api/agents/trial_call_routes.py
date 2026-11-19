@@ -85,7 +85,7 @@ class RingsFromOut(Strict):
     #: The account's own number a test call would ring from, E.164; null when it rings from
     #: our test number (a free trial, or a paid account with no number yet, D-1020).
     own_number: str | None = None
-    #: It rings from our test number because both of the account's calling setups are in use.
+    #: It rings from our test number because every calling setup of the account is in use.
     setups_busy: bool = False
     #: Why a test call cannot ring right now (no free calling setup and nothing to fall back
     #: to), with what the owner can do; null when it can.

@@ -224,10 +224,17 @@ def _admin_gates(t: str) -> list[tuple[str, str, dict[str, Any] | None, str]]:
             {"engine_number_ref": "pn_gate_probe"},
             f"set_engine_ref:{t}:{n}",
         ),
+        # Past what ThinnestAI really allows, every new setup in the workspace is refused.
+        (
+            "PUT",
+            f"/v1/admin/engine-workspaces/tenants/{t}/agent-allowance",
+            {"agent_allowance": 3},
+            f"set_agent_allowance:{t}",
+        ),
     ]
 
 
-GATE_COUNT = 25
+GATE_COUNT = 26
 
 
 def test_the_gate_list_is_the_one_this_file_claims() -> None:

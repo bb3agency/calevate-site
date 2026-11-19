@@ -96,7 +96,7 @@ describe("an agent's test call on a paying account", () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          "Varsha rings you from our test number: both your calling setups are in use. Billed like any call.",
+          "Varsha rings you from our test number: all your calling setups are in use. Billed like any call.",
         ),
       ).toBeTruthy(),
     );

@@ -850,6 +850,21 @@ export function callLinesRoute(tenantId: string) {
   };
 }
 
+/** A client's calling setups on the console default, keyed by its route. */
+export function agentAllowanceRoute(tenantId: string) {
+  return {
+    [`/v1/admin/engine-workspaces/tenants/${tenantId}/agent-allowance`]: {
+      limit: 2,
+      agent_allowance: null,
+      default: 2,
+      in_use: null,
+      settable: false,
+      min_allowance: 1,
+      max_allowance: 1000,
+    },
+  };
+}
+
 /** How an agent's Studio voice sounds (D-843): a Studio voice on calm, every sample left. */
 export function clientVoiceTuning(agentId = "agent-1", over: Partial<ClientVoiceTuning> = {}): ClientVoiceTuning {
   return {

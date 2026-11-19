@@ -6,7 +6,7 @@ import TenantNumbersPage from "@/app/admin/tenants/[tenantId]/numbers/page";
 import type { TenantSummary } from "@/lib/api/admin";
 import type { TenantNumberCost } from "@/lib/api/numbers";
 
-import { callLinesRoute } from "./fixtures/sharedReads";
+import { agentAllowanceRoute, callLinesRoute } from "./fixtures/sharedReads";
 import { type Routes } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
@@ -390,6 +390,7 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
       ...healthy([]),
       // The client's own workspace (D-693) is read on this engine; not the subject here.
       [`/v1/admin/engine-workspaces/tenants/${TENANT}`]: { available: false },
+      ...agentAllowanceRoute(TENANT),
       [`${COSTS_PATH}/engine`]: {
         managed_in_engine_console: true,
         platform: "ThinnestAI",

@@ -202,6 +202,7 @@ from apps.api.agents.workspace_slots import (
     allowance_reason,
     allowance_remediation,
     slot_holders,
+    workspace_agent_allowance,
 )
 from apps.api.agents.write_guard import archived_refusal, assert_agent_writable
 from apps.api.billing.engine_minutes import (
@@ -4673,12 +4674,12 @@ async def _allowance_full(
     because it holds as many as its plan allows; None when there is room or no such
     workspace. ThinnestAI counts agents per workspace, 2 on pay-as-you-go and raised per
     workspace on request (VENDOR-STATED 23 Oct 2026,
-    `docs/vendor/thinnest-relationship-2026-10-23.md:136-142`), so the limit is the console's
-    `thinnest_agents_per_workspace`, never a constant; the platform's own refusal still maps
-    to `engine_agent_allowance_used` if the two ever disagree."""
+    `docs/vendor/thinnest-relationship-2026-10-23.md:136-142`), so the limit is this client's
+    `workspace_agent_allowance`, never a constant; the platform's own refusal still maps to
+    `engine_agent_allowance_used` if the two ever disagree."""
     if workspace is None or not is_customer_workspace(workspace):
         return None
-    limit = get_settings().thinnest_agents_per_workspace
+    limit = await workspace_agent_allowance(session, tenant_id)
     held = await engine_agents_in_workspace(session, tenant_id=tenant_id, workspace=workspace)
     if held < limit:
         return None

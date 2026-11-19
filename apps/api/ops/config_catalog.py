@@ -653,12 +653,13 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         "Calling agents per client workspace",
-        "How many engine agents one client's workspace may hold: agents, inbound lines and "
-        "running campaigns.",
+        "Default engine agents per client workspace, unless the client has its own limit.",
         _THINNEST,
         details=(
-            "ThinnestAI allows 2 on pay-as-you-go and raises it per workspace on request. Raise "
-            "this only once they confirm. A campaign is refused Start when it is full."
+            "ThinnestAI allows 2 on pay-as-you-go and raises it per workspace on request. When "
+            "they raise one client's, set that client's limit on its Numbers page; raising this "
+            "default lets every client past their cap. A campaign is refused Start when it is "
+            "full."
         ),
     ),
     "agent_engine_retirement_sweep": _m(

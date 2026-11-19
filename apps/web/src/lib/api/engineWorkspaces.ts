@@ -14,6 +14,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 
 import {
   adminSession,
+  agentAllowanceConfirmation,
   agentEngineRetirementConfirmation,
   buyNumberConfirmation,
   confirmedAdminRequest,
@@ -41,6 +42,8 @@ export type AdminReleased = Schemas["AdminReleasedOut"];
 export type AdminMoved = Schemas["AdminMovedOut"];
 export type AgentEngineRetirementRun = Schemas["RetirementRunOut"];
 export type AgentEngineRetirement = Schemas["AgentRetirementOut"];
+export type AgentAllowance = Schemas["AgentAllowanceOut"];
+export type AgentAllowanceIn = Schemas["AgentAllowanceIn"];
 
 /**
  * The voice platform's business-details application, for an operator. The statuses are the
@@ -83,9 +86,34 @@ export const WORKSPACE_PATHS = {
     `${BASE}/tenants/${tenantId}/numbers/${numberId}/move`,
   agentEngineRetirement: (tenantId: string) =>
     `${BASE}/tenants/${tenantId}/agent-engine-retirement`,
+  agentAllowance: (tenantId: string) => `${BASE}/tenants/${tenantId}/agent-allowance`,
 } as const;
 
 const tenantKey = (tenantId: string) => ["admin", "engine-workspace", tenantId] as const;
+const allowanceKey = (tenantId: string) => [...tenantKey(tenantId), "agent-allowance"] as const;
+
+/** How many calling setups this client's workspace may hold, and how many it holds. */
+export function useAgentAllowance(tenantId: string) {
+  return useQuery<AgentAllowance>({
+    queryKey: allowanceKey(tenantId),
+    queryFn: () => apiRequest<AgentAllowance>(adminSession(), WORKSPACE_PATHS.agentAllowance(tenantId)),
+    enabled: Boolean(tenantId),
+  });
+}
+
+/** Record the cap ThinnestAI raised for this workspace; `null` goes back to the console default. */
+export function useSetAgentAllowance(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: AgentAllowanceIn) =>
+      confirmedAdminRequest<AgentAllowance>(
+        WORKSPACE_PATHS.agentAllowance(tenantId),
+        { method: "PUT", body: payload, confirmAction: agentAllowanceConfirmation(tenantId) },
+        "Changing how many calling setups this client's workspace may hold.",
+      ),
+    onSuccess: (data) => client.setQueryData(allowanceKey(tenantId), data),
+  });
+}
 
 export function useWorkspacesSummary(enabled = true) {
   return useQuery({
