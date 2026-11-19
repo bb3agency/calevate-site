@@ -5,7 +5,7 @@
     "turn_checks.question_words": "Telugu and Hindi question words with an ending joined on, as callers say them (the Telugu for 'how much for', 'to where', 'from when', 'by when'). Only whole bare question words are heard as a question today, so such a question without a '?' is missed (5 Nov 2026, L5-05). Add each form to this list.",
     "detection.dont_know": "'I don't know', 'I can't say', 'no idea' in Telugu letters and in Hindi letters. Only the romanised forms are listed, so an agent turn written in Telugu letters saying it does not know is not seen.",
     "detection.later_by_a_person": "'the team will call you', 'we will call you later', 'someone will get back to you' in Telugu letters and in Hindi letters (only two romanised Telugu forms are listed).",
-    "turn_checks._ASKS_TO_WAIT": "'wait', 'one minute', 'hold on' in Telugu letters and in Hindi letters (only English is listed), so a 'Sure.' to a Telugu 'one minute' followed by a question is noted as a stalled reply.",
+    "turn_checks.stall_words": "For each language, the words of a reply that only acknowledges ('ok', 'sure', 'no problem', 'fine', 'thank you', 'got it', 'sir'/'madam' and the polite 'andi'/'garu' or 'ji' a reply adds) under acknowledgements, and a caller asking to wait ('wait', 'one minute', 'hold on', 'let me check') under waits, in Telugu letters and in Hindi letters. Until a language has both, a reply that only reacts is not noted as a stall on its calls; a script step line made only of a language's listed acknowledgements is flagged as only a reaction once they are listed. Also asked for: whole-word forms of the sign-offs in turn_checks._CALLER_SIGNS_OFF with an ending joined on ('that is all' + the polite ending), which are now heard only as whole words.",
     "detection.stalls": "'let me check and tell you', 'I will find out and tell you' in Telugu letters and in Hindi letters (only two romanised Telugu forms are listed).",
     "detection.topic.*": "Each topic's trigger words in Telugu letters and Hindi letters (only English and a few romanised words are listed), so a question asked in Telugu letters falls to the caller's-own-words label instead of the topic."
   },
@@ -179,7 +179,16 @@
     "turn_checks._SLOWER": "slow(?:ly|er)?|నెమ్మదిగా|మెల్లగా|నిదానంగా|స్లోగా|धीरे",
     "turn_checks._ASKS_REPEAT": "మళ్ళా|మళ్ళీ|మళ్లీ|మరలా|ఇంకోసారి|फिर से|दोबारा|एक बार और",
     "turn_checks._CALLER_SIGNS_OFF": "\\bnothing (?:else|more)\\b|\\bthat'?s (?:all|it)\\b|\\bbye\\b|\\b(?:i'?ll|i will|we'?ll|will) (?:call|ring|phone|contact) (?:you )?(?:back )?(?:later|again|tomorrow|another time|when)|\\b(?:call|talk|speak) (?:to you |you )?later\\b|బై|అంతే|बस इतना|बाय",
-    "turn_checks._ASKS_TO_WAIT": "\\bwait\\b|\\bhold on\\b|\\b(?:one|a|just a|give me a) (?:minute|moment|second|sec)\\b",
+    "turn_checks.stall_words": {
+      "te": {
+        "acknowledgements": [],
+        "waits": []
+      },
+      "hi": {
+        "acknowledgements": [],
+        "waits": []
+      }
+    },
     "turn_checks._ASKS_IF_NOW_SUITS": "good time|(?:is|if) (?:now|this) (?:a good time|ok|okay|fine)|can (?:you|we) talk|free to talk|(?:got|have) a (?:minute|moment)|మాట్లాడొచ్చా|మాట్లాడవచ్చా|మాట్లాడగలరా|మాట్లాడటం కుదురుతుందా|మాట్లాడడం కుదురుతుందా|మాట్లాడటానికి (?:సమయం|టైమ్|వీలు)|ఇప్పుడు కుదురుతుందా|ఫ్రీగా ఉన్నారా|बात कर सकते|बात कर सकती|अभी बात|बात करने का (?:समय|टाइम)|सही समय",
     "turn_checks._SALUTATION": "^\\W*(?:namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)|నమస్కారం|నమస్కారాలు|నమస్తే|नमस्ते|नमस्कार)(?=[\\s,.!?।]|$)",
     "turn_checks._NUMBER_VALUES.1": [
@@ -800,6 +809,7 @@
   "notes": {
     "turn_checks.word_languages": "The languages, by two-letter code, whose words the turn_checks lists in this file were written for. English is in code. A practice run in any other language says on its result that word-by-word checks do not cover that language yet. Add a code here only once that language's words are in the turn_checks lists.",
     "optout.patterns": "How a caller says 'do not call me again', per language, as regular expressions over the caller's words (the do-not-call ledger, TRAI). A staged language may not be switched on until it has patterns here (agents/languages readiness). Each entry is [rule id, pattern]; a plain phrase is a valid pattern. English is in code. Precision matters, because a match makes the number undiallable for the client: match the negative form only (Telugu cheyakandi or cheyyoddu, never cheyandi; Hindi mat karo, never karo); a removal verb only ('number teesi pettukondi' is 'note the number down'); and never 'phone band karo', which is 'hang up'. The native-script lists are smaller than the romanised ones, written from the language rather than from observed speech-to-text output, and should grow from the first native-script transcripts. tests/call_optout_test.py holds a negative example for each rule.",
+    "turn_checks.stall_words": "Per language: acknowledgements are words and phrases a reply made only of them is a bare reaction ('stalled' on calls, 'only a reaction' on a script step); waits are a caller asking to wait, after which a bare reaction is right. Both are matched as whole words, a space matching any spaces. The stall is judged on a language's calls only once both lists have words; English is in code.",
     "optout.not_now": "'Now' a few words before an opt-out makes it 'not now' (another time), per language: latin is matched as whole words, native as written.",
     "call_purpose.rules": "Promotional wording in a call script, matched as written inside words (both scripts join endings to a noun). Key: language (te or hi), category (discount, urgency, free_offer, cross_sell, buy_now, claim) and severity (strong blocks a campaign launch; soft only asks the client to check). Keep a word strong only when it is promotional in any sentence: 'do not delay' (te urgency soft) is also 'do not be late', which every appointment reminder says. A word with an everyday sense is told apart by the words after or before it in call_purpose._INDIC_EVERYDAY_AFTER and _BEFORE (Hindi chhoot as 'was missed' or a tax exemption, offer as the verb 'to offer' or a job offer letter). An unknown key fails the build; an emptied list switches that rule off."
   }

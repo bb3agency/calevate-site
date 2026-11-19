@@ -151,8 +151,11 @@ def opening_room(
     if limit is None or not hosted_agent_limits(engine).greeting_is_first_words:
         return None
     posture = unsaid_posture(posture, opening, said)
-    # Measured with a one-character line, so the separator between notices and line counts.
-    return limit - (_posture_chars(engine, posture, opening="x", language=language) - 1)
+    # Measured with a line that ends on its own mark, so the separator between notices and
+    # line counts and no full stop is added to it (`join_first_words` closes an unmarked
+    # opening with one, which a bare "x" would count against the notices).
+    probe = "x."
+    return limit - (_posture_chars(engine, posture, opening=probe, language=language) - len(probe))
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,6 +404,30 @@ def _check_prompt(engine: VoiceEngine, cfg: AgentConfig, cap: int) -> None:
     raise PromptTooLongError(size)
 
 
+class OpeningTooLongError(ProblemError):
+    """`engine_greeting_too_long` from the publish check, carrying the counts so a live-apply
+    failure can say how far over the first words are (counts only, never the text)."""
+
+    def __init__(self, *, length: int, cap: int, title: str, detail: str, remediation: str):
+        self.length = length
+        self.cap = cap
+        super().__init__(
+            kind="business_rule",
+            code=OPENING_TOO_LONG,
+            title=title,
+            detail=detail,
+            remediation=remediation,
+        )
+
+
+def opening_too_long_message(over: int) -> str:
+    """What a live agent held back by a too-long opening tells its owner."""
+    return (
+        f"Your agent is still using its previous settings because what it says first is "
+        f"{over:,} characters too long. Shorten the opening line to put it live."
+    )
+
+
 def _opening_too_long(
     engine: VoiceEngine, cfg: AgentConfig, *, length: int, cap: int, placed: bool = False
 ) -> ProblemError:
@@ -410,9 +437,9 @@ def _opening_too_long(
     )
     introduced = introduces_itself(ai_notice=cfg.ai_notice, language=cfg.language_primary)
     which = "opening line for calls it places" if placed else "opening line"
-    return ProblemError(
-        kind="business_rule",
-        code=OPENING_TOO_LONG,
+    return OpeningTooLongError(
+        length=length,
+        cap=cap,
         title=f"This agent's {which} is too long to publish",
         detail=(
             f"What the agent says first{' when it calls' if placed else ''} (its {which} and "
@@ -437,11 +464,13 @@ __all__ = [
     "OPENING_TOO_LONG",
     "PROMPT_TOO_LONG",
     "GreetingBudget",
+    "OpeningTooLongError",
     "PromptTooLongError",
     "greeting_budget",
     "greeting_chars",
     "greeting_limit",
     "opening_room",
+    "opening_too_long_message",
     "refuse_notice_without_room",
     "refuse_opening_over_limit",
     "refuse_over_engine_limits",

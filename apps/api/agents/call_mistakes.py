@@ -268,6 +268,7 @@ def mistakes_in(
             [r.exchange for r in replies[:n]] + [_Exchange(following, "")],
             opening=opening,
             prior_contact=prior_contact,
+            language=language,
         )
         for problem in (*own, *whole):
             if problem.kind in LESSONS:

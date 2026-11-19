@@ -526,20 +526,32 @@ def is_permanent(exc: BaseException) -> bool:
 
 def failure_detail(exc: BaseException) -> dict[str, Any]:
     """Counts a failure record keeps beside its code: for a script over the engine's box,
-    how long it is, the limit and its longest sections. Never text (hard rule 6)."""
-    from apps.api.agents.engine_limits import PromptTooLongError
+    how long it is, the limit and its longest sections; for first words over the ceiling,
+    how long they are and the limit. Never text (hard rule 6)."""
+    from apps.api.agents.engine_limits import OpeningTooLongError, PromptTooLongError
     from apps.api.agents.prompt_size import as_dict
 
+    if isinstance(exc, OpeningTooLongError):
+        return {
+            "total_chars": exc.length,
+            "limit_chars": exc.cap,
+            "over_chars": exc.length - exc.cap,
+        }
     return as_dict(exc.size) if isinstance(exc, PromptTooLongError) else {}
 
 
 #: What a recorded refusal means to the owner, for the codes a live apply records most. The
-#: too-long sentence is `engine_limits.too_long_sentence`, built from the recorded counts.
+#: too-long sentences (`engine_limits.too_long_message`, `opening_too_long_message`) are
+#: built from the recorded counts; an entry here is for a refusal recorded without them.
 HELD_BACK_MESSAGES: Final[dict[str, str]] = {
     "agreements_not_accepted": (
         "Your agent is still using its previous settings because this account's agreements "
         "are not accepted. The account owner accepts them on the Agreements & readiness "
         "screen; the update then goes live by itself."
+    ),
+    "engine_greeting_too_long": (
+        "Your agent is still using its previous settings because what it says first is too "
+        "long. Shorten the opening line to put it live."
     ),
 }
 HELD_BACK_GENERIC: Final = (
@@ -563,12 +575,19 @@ class HeldBack:
 
 
 def held_back_from(failure: dict[str, Any], failed_at: datetime | None) -> HeldBack:
-    from apps.api.agents.engine_limits import PROMPT_TOO_LONG, too_long_message
+    from apps.api.agents.engine_limits import (
+        OPENING_TOO_LONG,
+        PROMPT_TOO_LONG,
+        opening_too_long_message,
+        too_long_message,
+    )
 
     code = str(failure.get("code", ""))
     over = failure.get("over_chars")
     if code == PROMPT_TOO_LONG and isinstance(over, int):
         message = too_long_message(over)
+    elif code == OPENING_TOO_LONG and isinstance(over, int) and over > 0:
+        message = opening_too_long_message(over)
     else:
         message = HELD_BACK_MESSAGES.get(code, HELD_BACK_GENERIC)
     longest = tuple(

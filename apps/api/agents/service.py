@@ -6030,14 +6030,21 @@ def lead_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | None:
 
 def campaign_first_words(agent: AgentRow, opening_line: str, *, call_is_recorded: bool) -> str:
     """A campaign's own opening line with the agent's notices: `join_first_words` says each
-    switched-on notice's stored sentence beside an opening that does not already say it."""
+    switched-on notice's stored sentence beside an opening that does not already say it.
+    The opening is said with the names the owner taught the voice (D-947). A sentence before
+    its question is dropped as a second introduction only when it says the agent's name, as
+    on any placed call (`placed_call_first_words`): "calling from <business> about ..." is
+    the reason for the call, which the introduction does not say."""
     posture = posture_of(agent)
+    body = str(agent.get("prompt") or "")
     return join_first_words(
         compose_opening_line(posture, call_is_recorded=call_is_recorded),
-        opening_line.strip(),
+        said_as_taught(
+            opening_line.strip(), body=body, business=str(agent.get("business_name") or "")
+        ),
         ai_notice=spoken_ai_notice(posture),
         language=str(agent["language_primary"]),
-        names=tuple(n for n in (str(agent.get("business_name") or ""), str(agent["name"])) if n),
+        names=introduction_names(name=str(agent["name"]), business="", body=body),
     )
 
 

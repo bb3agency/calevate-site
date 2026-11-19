@@ -54,6 +54,12 @@ def _posture(**on: bool) -> DisclosurePosture:
     )
 
 
+def _line(chars: int) -> str:
+    """An opening of `chars` characters that ends on its own mark, as a written one does: an
+    opening without one gains a full stop before the notices (`join_first_words`)."""
+    return "a" * (chars - 1) + "."
+
+
 def _cfg(posture: DisclosurePosture, opening: str, direction: str = "inbound") -> AgentConfig:
     return AgentConfig(
         tenant_id=str(uuid.uuid4()),
@@ -76,9 +82,9 @@ def test_the_room_is_exactly_what_the_publish_lets_through(direction: str) -> No
         engine, posture=posture, opening="", direction=direction, language="te-IN"
     )
     assert budget is not None and budget.limit == 200
-    refuse_over_engine_limits(engine, _cfg(posture, "a" * budget.opening_room, direction))
+    refuse_over_engine_limits(engine, _cfg(posture, _line(budget.opening_room), direction))
     with pytest.raises(ProblemError) as refused:
-        refuse_over_engine_limits(engine, _cfg(posture, "a" * (budget.opening_room + 1), direction))
+        refuse_over_engine_limits(engine, _cfg(posture, _line(budget.opening_room + 1), direction))
     assert refused.value.code == OPENING_TOO_LONG
 
 
@@ -95,9 +101,9 @@ def test_each_switch_room_is_what_the_publish_would_let_through_with_it_on() -> 
         ("recording", budget.opening_room_with_recording_notice),
     ):
         on = _posture(**{switch: True})
-        refuse_over_engine_limits(engine, _cfg(on, "a" * room))
+        refuse_over_engine_limits(engine, _cfg(on, _line(room)))
         with pytest.raises(ProblemError):
-            refuse_over_engine_limits(engine, _cfg(on, "a" * (room + 1)))
+            refuse_over_engine_limits(engine, _cfg(on, _line(room + 1)))
 
 
 def test_an_engine_with_no_ceiling_has_no_budget() -> None:

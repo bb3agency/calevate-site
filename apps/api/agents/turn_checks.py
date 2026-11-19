@@ -35,6 +35,7 @@ from typing import Final, Literal, Protocol
 from calevate_shared.call_words import Live as _Live
 from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import say as _say
+from calevate_shared.call_words import table
 from calevate_shared.call_words import words as _word_list
 from calevate_shared.languages import find_language
 from calevate_shared.spoken_guard import (
@@ -1024,32 +1025,113 @@ def offers_more(reply: str) -> bool:
 
 _GOODBYE: Final = _LivePattern(lambda: _say("turn_checks._GOODBYE"), re.IGNORECASE)
 
-#: The most words a reply may hold and still be a reaction and nothing more ("OK, no problem.").
-REACTION_MAX_WORDS: Final = NUDGE_MAX_WORDS
+#: The Devanagari full stop and the full-width question mark, spelled as code points so no
+#: look-alike character sits in the source.
+_DANDA: Final = chr(0x0964)
+_WIDE_QUESTION: Final = chr(0xFF1F)
+#: What ends a word: what `_TOKEN` splits on, as the inside of a character class.
+_WORD_EDGE: Final = rf"\s,.!?;:\"'(){_DANDA}{_WIDE_QUESTION}"
+
+
+def _whole_words(pattern: str) -> str:
+    """`pattern` matched only from the start of a word to the end of one (a hyphen also ends
+    a word, for "bye-bye"). `\\b` cannot do this for Telugu or Hindi, whose vowel signs are
+    not word characters, and Telugu builds words onto words, so a bare alternative is found
+    inside a longer word ("bye" inside a city's name)."""
+    return rf"(?<![^{_WORD_EDGE}-])(?:{pattern})(?![^{_WORD_EDGE}-])"
+
+
+def _phrases(listed: Sequence[str]) -> str:
+    """Listed words and phrases as alternatives, a space matching any run of spaces."""
+    return "|".join(r"\s+".join(map(re.escape, w.split())) for w in listed if w.strip())
+
+
+#: Per language, the words of a reply that only acknowledges and of a caller asking to wait
+#: (`call_words.json`, founder-owned). English is in code.
+_STALL_WORDS: Final = _Live(lambda: table("turn_checks.stall_words"))
+_EN_ACKNOWLEDGEMENTS: Final = (
+    *("ok", "okay", "sure", "alright", "all right", "fine", "good", "great", "nice"),
+    *("perfect", "wonderful", "excellent", "right", "yes", "yeah", "yep", "oh", "ah"),
+    *("hmm", "mm", "i see", "got it", "understood", "noted", "of course", "certainly"),
+    *("no problem", "not a problem", "no worries", "i understand", "sounds good"),
+    *("that's fine", "that is fine", "that's okay", "that is okay", "that's good"),
+    *("very good", "thank you", "thanks", "thank you so much", "sir", "madam", "ma'am"),
+)
+#: A reply made only of acknowledgements, read over `_words` with the apostrophe made
+#: straight. Any other word ("share", "pincode") makes it a turn that carries something.
+_ACKNOWLEDGEMENT: Final = _Live(
+    lambda: re.compile(
+        (lambda a: rf"(?:{a})(?:\s+(?:{a}))*")(
+            _phrases(
+                (
+                    *_EN_ACKNOWLEDGEMENTS,
+                    *(w for v in _STALL_WORDS().values() for w in v["acknowledgements"]),
+                )
+            )
+        ),
+        re.IGNORECASE,
+    )
+)
+_EN_ASKS_TO_WAIT: Final = (
+    r"\bwait\b|\bhold on\b|\b(?:one|a|just a|give me a) (?:minute|moment|second|sec)\b"
+)
+
+
+def _wait_source() -> str:
+    listed = _phrases([w for v in _STALL_WORDS().values() for w in v["waits"]])
+    return f"{_EN_ASKS_TO_WAIT}|{_whole_words(listed)}" if listed else _EN_ASKS_TO_WAIT
+
+
 #: A caller asking the agent to wait, after which a bare "Sure." is the right turn.
-_ASKS_TO_WAIT: Final = _LivePattern(lambda: _say("turn_checks._ASKS_TO_WAIT"), re.IGNORECASE)
+_ASKS_TO_WAIT: Final = _LivePattern(_wait_source, re.IGNORECASE)
+#: A caller asking for something without a question: "tell me the price", "send the photo".
+#: The Indian-language requests are the ones `_ORDER_ENDING` already reads.
+_EN_REQUEST: Final = re.compile(r"\b(?:tell|share|please|give|send)\b", re.IGNORECASE)
+
+
+def hears_stalls(language: str) -> bool:
+    """Whether `stalled` can be judged in `language`: English, or a language the founder has
+    listed both acknowledgements and wait words for. Without them, every short reply in it
+    would read as a bare reaction and every "one minute" as a line that asked nothing."""
+    base = language.split("-")[0].lower()
+    if not base or base == "en":
+        return True
+    listed = _STALL_WORDS().get(base)
+    return bool(listed and listed["acknowledgements"] and listed["waits"])
 
 
 def only_reaction(reply: str) -> bool:
-    """A reply of a few words that asks nothing, says no goodbye and reads no number: a
-    reaction that stops the turn (D-1022)."""
-    words = _words(reply)
+    """A reply made only of acknowledgements ("OK, no problem."), which asks nothing, says no
+    goodbye and reads no number: a reaction that stops the turn (D-1022)."""
+    words = _words(reply.replace(chr(0x2019), "'"))
     return (
-        0 < len(words) <= REACTION_MAX_WORDS
+        bool(words)
+        and _ACKNOWLEDGEMENT().fullmatch(" ".join(words)) is not None
         and not any(is_question(s) or _reads_as_question(s) for s in sentences(reply))
         and not _GOODBYE.search(reply)
         and not _digit_count(reply)
     )
 
 
-def stalled(said: str, reply: str, said_next: str) -> bool:
-    """The reply only reacted to a caller line that asked nothing, and the caller's next line
-    had to ask what comes next. A caller who asked to wait or broke off is answered rightly by a
-    few words, and a reply the caller did not follow with a question left them nothing to ask."""
+def _asks_or_requests(said: str) -> bool:
+    """A caller line a short answer can be complete for: a question in any form, or a request."""
     return (
-        only_reaction(reply)
+        asks_question(said)
+        or any(_reads_as_question(s) for s in sentences(said))
+        or bool(_EN_REQUEST.search(said) or _ORDER_ENDING.search(said))
+    )
+
+
+def stalled(said: str, reply: str, said_next: str, *, language: str = "") -> bool:
+    """The reply only reacted to a caller line that asked nothing, and the caller's next line
+    had to ask what comes next. A caller who asked, requested, asked to wait or broke off is
+    answered rightly by a few words, and a reply the caller did not follow with a question
+    left them nothing to ask."""
+    return (
+        hears_stalls(language)
+        and only_reaction(reply)
         and bool(said.strip())
-        and not asks_question(said)
+        and not _asks_or_requests(said)
         and not broke_off(said)
         and not _ASKS_TO_WAIT.search(said)
         and asks_question(said_next)
@@ -1096,14 +1178,10 @@ _EN_ASKS_TO_BE_TOLD: Final = re.compile(
 _EN_OPENERS: Final = frozenset(
     {"ok", "okay", "so", "and", "but", "then", "well", "oh", "hello", "hi", "sir", "madam"}
 )
-#: The Devanagari full stop and the full-width question mark, spelled as code points so no
-#: look-alike character sits in the source.
-_DANDA: Final = chr(0x0964)
-_WIDE_QUESTION: Final = chr(0xFF1F)
 _CLAUSES: Final = re.compile(rf"[.,!;:{_DANDA}]+|\s+(?:and|but|so)\s+", re.IGNORECASE)
 #: A word: a run of anything but space and punctuation, so a Telugu or Devanagari word stays
 #: whole with its vowel signs (which `\w` does not count as word characters).
-_TOKEN: Final = re.compile(rf"[^\s,.!?;:\"'(){_DANDA}{_WIDE_QUESTION}]+")
+_TOKEN: Final = re.compile(rf"[^{_WORD_EDGE}]+")
 
 
 def _english_question(clause: str) -> bool:
@@ -1146,7 +1224,7 @@ _ASKS_REPEAT: Final = _LivePattern(
 #: A caller line that ends the conversation in so many words, whatever else it holds: "nothing
 #: more for now, I'll call you when I'm free" closes although "when" is in it.
 _CALLER_SIGNS_OFF: Final = _LivePattern(
-    lambda: _say("turn_checks._CALLER_SIGNS_OFF"), re.IGNORECASE
+    lambda: _whole_words(_say("turn_checks._CALLER_SIGNS_OFF")), re.IGNORECASE
 )
 
 
@@ -1670,6 +1748,7 @@ def conversation_problems(
     today: date | None = None,
     prior_contact: bool | None = None,
     presumed: Sequence[str] = (),
+    language: str = "",
 ) -> list[TurnProblem]:
     """The problems only a whole conversation shows, each kind once, in order.
 
@@ -1683,7 +1762,8 @@ def conversation_problems(
     `prior_contact` is whether this person had an enquiry or a call with the business before
     this one; only False judges a reply that claims they did, and None skips it.
     `presumed` are the lines of script steps reached by callers they do not fit
-    (`script_lint.presumed_lines`); a reply saying one is the script's failure.
+    (`script_lint.presumed_lines`); a reply saying one is the script's failure. `language`
+    is the agent's language tag; a stall is judged only where `hears_stalls` holds for it.
     """
     opening_questions = [s for s in sentences(opening) if is_question(s)]
     offered: set[int] = set()
@@ -1745,7 +1825,7 @@ def conversation_problems(
                 ),
             )
         said_next = exchanges[position + 1].said if position + 1 < len(exchanges) else ""
-        if stalled(said, reply, said_next):
+        if stalled(said, reply, said_next, language=language):
             found.setdefault(
                 "stalled",
                 TurnProblem(

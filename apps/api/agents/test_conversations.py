@@ -668,6 +668,7 @@ def speech_problems(
             opening=opening,
             prior_contact=prior_contact,
             presumed=presumed,
+            language=language,
         )
         if p.kind not in seen
     ]

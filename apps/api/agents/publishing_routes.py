@@ -342,7 +342,8 @@ class HeldBackOut(Strict):
     code: str
     message: str
     failed_at: datetime | None
-    #: For a script over the calling system's box: its length, the box and how far over.
+    #: For a script over the calling system's box, or first words over its ceiling: the
+    #: length, the limit and how far over.
     total_chars: int | None = None
     limit_chars: int | None = None
     over_chars: int | None = None
