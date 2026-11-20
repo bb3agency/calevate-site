@@ -161,7 +161,8 @@ _SYSTEM_INSTRUCTION = (
     "the spoken word and never its formal form, use its tags and fillers lightly, say "
     "prices, quantities and times as its number rules say, and copy how its example "
     "exchanges sound, never their facts. Keep every spoken line to one short sentence, "
-    "marked as the guide's last paragraph says.\n"
+    "marked as the guide's last paragraph says. A spoken line you keep from the current "
+    "script is rewritten to the guide too, its English words written as the guide shows.\n"
     f"Rules, the same ones the agent's tests check: {writer_rules()} Facts live in the "
     "knowledge base, which the agent searches. "
     "quick_facts only restates facts the owner wrote. The example_exchange shows style "
@@ -212,7 +213,7 @@ CONVERT_INSTRUCTION = (
     "The words the agent will SAY (opening_line, sounds_like, sample_phrases, "
     "example_exchange) follow the spoken-style guide in the brief: where the owner's line "
     "uses a formal word the guide lists, use the spoken word instead and keep the meaning; "
-    "English words in the call language's letters too; numbers and punctuation as the guide "
+    "English words written as the guide shows; numbers and punctuation as the guide "
     "says. "
     "Return ONLY JSON matching the schema."
 )

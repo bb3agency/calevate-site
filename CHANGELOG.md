@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.85 — 20-Nov-2026
+
+- Pip's script writer no longer keeps English words in Telugu letters from the old
+  script. One of its instructions still said to write English words in the call
+  language's letters, and lines it kept from the current script were left as they were.
+
 ## 0.4.84 — 20-Nov-2026
 
 - "Add to my draft" works when Pip rewrites a script by replacing steps. The steps it
