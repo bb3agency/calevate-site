@@ -2887,9 +2887,14 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: trigger, and on the Varsha call of 13 Nov 2026 (11:30) "Ah, tell me." and "I'm done
 #: already." from a Telugu caller turned the agent English twice, the caller-memory recap
 #: included (ThinnestAI says it in the call's language, `channels/voice.md:392`).
+#: Their speech reaches the model as the recogniser wrote it, and Telugu often arrives in
+#: English letters ("Aa cheppandi, chadunnanu ippudu", Varsha call of 20 Nov 2026 23:28): read
+#: as English, it turned the agent English three times. The guide's English-letter loanwords
+#: (D-1024) took away the all-Telugu-letters prompt that had kept it in Telugu, so the rule
+#: now says English letters alone are no switch.
 _SWITCH_RULE: Final = (
     "Keep the language you greeted in until they ask, or say two full sentences running in "
-    "another; a few words never switch."
+    "another; a few words, even in English letters, never switch."
 )
 #: Each language's own script and its English words are in its SPOKEN REGISTER line.
 _REGISTER_BULLET: Final = (
@@ -3150,7 +3155,7 @@ def screen_steps_bullet(language: str | None) -> str:
     spelled = f' ("{example}")' if example else ""
     return (
         "- They follow you on their screen: one step a turn, naming what to tap by its label "
-        "word for word as it is written, then wait until they say it is done. Say a web "
+        "word for word, then wait until they say it is done. Say a web "
         "address as it reads, no www: a word as a word, initials each by its English letter "
         f'name in the call\'s letters, a comma between, "dot" as a word{spelled}. Spell a word '
         "by letters only if they cannot find it, or send the link if a tool can.\n"

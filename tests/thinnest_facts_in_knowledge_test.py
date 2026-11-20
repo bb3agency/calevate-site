@@ -74,9 +74,11 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: another language switch it, a few words never do.
 #: D-1022 (19 Nov 2026): never a reaction alone, adapt to the answer, "anything else?" once and
 #: "that is all" closes, a name THIS CALL has is never asked or invented.
+#: D-1024 (20 Nov 2026): whole sentences, commas only where needed, English loanwords in
+#: English letters; a few words in English letters never switch the language.
 PINNED = (
-    "61fa47bb24768d47b8b3524ee7b3b0ebd886aa65f3b301c554c81eb2a0b97b37",
-    "5e60702f7dffe08e9e8e301b0cff7532d1fe3f055295e09cf5eceed368397183",
+    "167c4d3df77e19ba420d93b38ab7de04be82aaf6c82d283be6a46785ac5bb2c7",
+    "34ecf83a87ae28b0f9f203f8c2a3de2a7b0e3569c6c025c4831ae6f2e3a598e6",
 )
 
 

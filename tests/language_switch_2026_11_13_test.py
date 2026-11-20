@@ -47,4 +47,4 @@ def test_the_run_resets_on_a_line_in_the_agents_language() -> None:
 
 def test_the_in_call_rule_says_the_same() -> None:
     assert "two full sentences running" in VOICE_STYLE_GUIDANCE
-    assert "a few words never switch" in VOICE_STYLE_GUIDANCE
+    assert "a few words, even in English letters, never switch" in VOICE_STYLE_GUIDANCE

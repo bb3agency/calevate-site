@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.87 — 20-Nov-2026
+
+- Telugu agents stay in Telugu when a caller's Telugu reaches them written in English
+  letters. Since 0.4.82 such lines were read as English and the agent answered in English.
+- On-screen steps no longer push the agent towards English: the label is said word for word
+  inside a sentence in the call's language.
+
 ## 0.4.86 — 20-Nov-2026
 
 - A call where the caller hung up early is never counted as reaching the campaign's goal,
