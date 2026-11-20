@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.84 — 20-Nov-2026
+
+- "Add to my draft" works when Pip rewrites a script by replacing steps. The steps it
+  replaced started unticked, so the new ones were added beside them, went over the twelve
+  step limit and were refused. When the new steps alone would not fit, the replaced ones
+  now start ticked, and the button says how many steps the choice keeps if it is over.
+
 ## 0.4.83 — 20-Nov-2026
 
 - Saving or test-calling a Telugu script no longer fails with "script did not read back as

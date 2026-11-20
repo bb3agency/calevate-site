@@ -39,7 +39,7 @@ import {
   applyTraced,
   changedSegments,
   diffScripts,
-  keptAtFirst,
+  keptAtFirstWithin,
   partText,
   removesContent,
   renamedOnly,
@@ -280,8 +280,11 @@ export function ProposalReview({
   // What the owner did to the draft since Pip wrote this: a change to a step they deleted
   // has nothing left to apply to, and one to a step or part they edited replaces their edit.
   const since = useMemo(() => sinceWritten(changes, base, current), [changes, base, current]);
-  // A removal starts unticked: the owner keeps it only after looking at it (A-04).
-  const [ticked, setKept] = useState<Set<string>>(() => keptAtFirst(changes));
+  // A removal starts unticked: the owner keeps it only after looking at it (A-04), unless
+  // the new steps alone would go over the step limit.
+  const [ticked, setKept] = useState<Set<string>>(() =>
+    keptAtFirstWithin(current, proposal, changes, limits.maxSections),
+  );
   const kept = useMemo(() => new Set([...ticked].filter((id) => since.get(id) !== "deleted")), [ticked, since]);
   const offered = changes.filter((c) => since.get(c.id) !== "deleted").length;
   // The proposal as the owner reworded it. The parent keys this component by proposal id,
@@ -320,6 +323,9 @@ export function ProposalReview({
     return rows;
   }, [result, limits, changes, kept]);
   const blocked = changes.filter((c) => issuesByRow.has(c.id));
+  // Too many steps belongs to no one row, so it is said beside the button.
+  const steps = sectionsOf(result.script).length;
+  const tooMany = steps > limits.maxSections;
 
   const setIn = (setter: typeof setKept, id: string, on: boolean) =>
     setter((s) => {
@@ -512,7 +518,9 @@ export function ProposalReview({
           <button
             type="button"
             className={PRIMARY_BUTTON_SM}
-            disabled={(editing ? touched.size === 0 : keptCount === 0) || Boolean(gate) || pending !== null}
+            disabled={
+              (editing ? touched.size === 0 : keptCount === 0) || tooMany || Boolean(gate) || pending !== null
+            }
             title={gate ?? undefined}
             onClick={add}
           >
@@ -533,6 +541,11 @@ export function ProposalReview({
           </button>
         </div>
         {gate && <p className="text-meta text-ink-muted">{gate}</p>}
+        {tooMany && (
+          <p role="alert" className="text-meta text-danger">
+            {`This keeps ${steps} steps and a script holds at most ${limits.maxSections}. Tick the removed steps it replaces, or untick some new ones.`}
+          </p>
+        )}
         {tried && blocked.length > 0 && (
           <p role="alert" className="text-meta text-danger">
             {blocked.length === 1

@@ -251,6 +251,23 @@ export function keptAtFirst(changes: readonly Change[]): Set<string> {
 }
 
 /**
+ * `keptAtFirst`, unless keeping Pip's new steps without its removed ones would go over
+ * `maxSections`: a rewrite that replaces steps then starts with the removals ticked too, so
+ * the first "Add" is the script Pip wrote rather than one the server refuses.
+ */
+export function keptAtFirstWithin(
+  current: CallScript,
+  proposal: CallScript,
+  changes: readonly Change[],
+  maxSections: number,
+): Set<string> {
+  const first = keptAtFirst(changes);
+  if (sectionsOf(applyChanges(current, proposal, first)).length <= maxSections) return first;
+  for (const change of changes) if (change.kind === "section-removed") first.add(change.id);
+  return first;
+}
+
+/**
  * The owner's script with only the kept changes applied. Ways out that point at a section
  * the result does not have are dropped (a discarded addition, a kept removal), so the
  * result is always a script the server accepts.

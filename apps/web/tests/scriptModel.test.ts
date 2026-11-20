@@ -16,7 +16,12 @@ import {
   chars,
   scriptAsText,
 } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
-import { applyChanges, changeSummary, diffScripts } from "@/app/c/[slug]/agents/[agentId]/script/scriptDiff";
+import {
+  applyChanges,
+  changeSummary,
+  diffScripts,
+  keptAtFirstWithin,
+} from "@/app/c/[slug]/agents/[agentId]/script/scriptDiff";
 import { EMPTY_SCRIPT, type CallScript, type ConversationStage } from "@/lib/api/script";
 
 /**
@@ -158,6 +163,18 @@ describe("AI proposals, kept part by part", () => {
     expect(changes[0]).toMatchObject({ label: "Quick facts", after: "Site visits? → Daily, ten to six." });
     expect(applyChanges(current, proposal, new Set(["part:faqs"])).faqs).toEqual(facts);
     expect(applyChanges(current, proposal, new Set()).faqs).toEqual([]);
+  });
+
+  it("starts a rewrite that replaces steps with its removals ticked when the new ones alone would not fit", () => {
+    const old = script(...Array.from({ length: 12 }, (_, i) => stage(`o${i}`, `Old ${i}`)));
+    const rewrite = script(...Array.from({ length: 12 }, (_, i) => stage(`n${i}`, `New ${i}`)));
+    const changes = diffScripts(old, rewrite);
+    const first = keptAtFirstWithin(old, rewrite, changes, 12);
+    expect(changes.every((c) => first.has(c.id))).toBe(true);
+    expect(sectionsOf(applyChanges(old, rewrite, first))).toHaveLength(12);
+    // One that fits keeps the owner's steps until they tick the removal (A-04).
+    const small = keptAtFirstWithin(current, script(stage("greet", "Greet")), diffScripts(current, script(stage("greet", "Greet"))), 12);
+    expect(small.has("remove:price")).toBe(false);
   });
 
   it("drops a kept way out that points at a discarded addition", () => {
