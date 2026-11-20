@@ -948,6 +948,20 @@ def test_a_verified_publish_is_not_an_equality_check_on_our_own_formatting() -> 
     assert judge(FakeEngine(), cfg, rendered).state == "applied"
 
 
+def test_a_telugu_script_with_join_marks_reads_back_as_sent() -> None:
+    """The engine is sent the script without the join mark Telugu print puts after a
+    virama, so the stored script, which still has it, is compared the same way. The
+    rytu-khata test call of 20 Nov 2026 was refused with "script did not read back"."""
+    # ka, virama, the join mark, na: a consonant joined to a suffix as print writes it.
+    joined = "".join(map(chr, (0x0C15, 0x0C4D, 0x200C, 0x0C28))) + "."
+    cfg = _cfg(system_prompt=f"{SCRIPT}\n{joined}")
+    held = compose_engine_prompt(cfg)
+    assert chr(0x200C) not in held
+    verdict = judge(FakeEngine(), cfg, _snapshot(cfg, system_prompt=held))
+    assert verdict.prompt_applied is True
+    assert verdict.state == "applied"
+
+
 def test_a_not_applied_verdict_can_never_reach_a_column() -> None:
     """The schema cannot express it, and neither can the code path: a proven mismatch is
     a refusal, so the transaction that would store it does not commit."""

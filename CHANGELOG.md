@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.83 — 20-Nov-2026
+
+- Saving or test-calling a Telugu script no longer fails with "script did not read back as
+  sent". 0.4.82 stopped sending the invisible joining mark to the voice, but the check that
+  reads the script back still looked for it.
+
 ## 0.4.82 — 20-Nov-2026
 
 - Telugu agents write English words like "call" and "app" in English letters again, as

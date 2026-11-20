@@ -77,6 +77,7 @@ from calevate_shared.engine import (
     quoted_client_words,
     said_notices,
 )
+from calevate_shared.invisible_text import plain_joins
 from calevate_shared.opening_notices import first_words_disclose
 
 from apps.api.core.errors import ProblemError
@@ -386,7 +387,9 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     # The script as the composer fences it: a script that wrote our marker shape is held
     # with those runs neutralised (`neutralise_markers`), and only that text can read back;
     # the quoted first words below likewise.
-    prompt = snapshot.carries_prompt_marker(neutralise_markers(cfg.system_prompt))
+    # The engine holds the script without Telugu join marks (`_steps_body`, the prompt
+    # layers), so the stored script is compared the same way.
+    prompt = snapshot.carries_prompt_marker(plain_joins(neutralise_markers(cfg.system_prompt)))
     disclosure = _greeting_verdict(engine, cfg, snapshot)
     # The whole first turn, which START OF THE CALL quotes verbatim: an introducing agent's
     # notices are said on either side of its opening line (D-865), so `cfg.opening_line`
