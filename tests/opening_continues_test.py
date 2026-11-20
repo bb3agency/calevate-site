@@ -171,37 +171,39 @@ def test_the_hello_caller_is_a_standing_practice_test() -> None:
     assert "opened_again" in {p.kind for p in checked.sounds}
 
 
-# --- the opening in the language's own letters (D-861) ------------------------------------
+# --- English words in a written opening ----------------------------------------------------
+# Hindi writes every word in Devanagari (D-861); Telugu went back to English words in English
+# letters (founder, 20 Nov 2026), so only a Hindi line is sent back for them.
 
 CALL_OPENING = "నమస్కారం అండి, Sri Estates నుంచి call చేస్తున్నాను. ఇప్పుడు మాట్లాడొచ్చా?"
+HINDI_CALL = "नमस्ते, मैं Anjali, call कर रही हूँ?"
 
 
 def test_english_letters_in_a_written_opening_are_caught_but_names_are_kept() -> None:
     names = ("Sri Estates", "Anjali")
-    assert latin_words(CALL_OPENING, "te-IN", names=names) == ["call"]
-    assert latin_words(OPENING, "te-IN", names=names) == []
+    assert latin_words(HINDI_CALL, "hi-IN", names=names) == ["call"]
     assert latin_words("Hello, Sri Estates here. Can we talk?", "en-IN") == []
-    assert latin_words("नमस्ते, मैं Anjali, call कर रही हूँ?", "hi-IN", names=names) == ["call"]
-    problem = latin_word_problem("opening_line", CALL_OPENING, "te-IN", names=names)
+    problem = latin_word_problem("opening_line", HINDI_CALL, "hi-IN", names=names)
     assert problem is not None and "“call”" in problem
 
 
-def test_the_first_runs_greeting_rule_refuses_english_letters() -> None:
+def test_a_telugu_opening_keeps_its_english_words_in_english_letters() -> None:
     names = ("Sri Estates", "Anjali")
-    assert opening_problems(CALL_OPENING, "te-IN", names=names)
-    assert not opening_problems(CALL_OPENING.replace("call", "కాల్"), "te-IN", names=names)
-
-
-def test_the_script_writers_opening_is_sent_back_for_english_letters() -> None:
+    assert latin_words(CALL_OPENING, "te-IN", names=names) == []
+    problems = opening_problems(CALL_OPENING, "te-IN", names=names)
+    assert not any("English letters" in p for p in problems)
     written = CallScript(schema_version=2, opening_line=CALL_OPENING)
-    problems = language_problems(written, "te-IN", names=("Sri Estates",))
-    assert any(p.startswith("opening_line: writes “call”") for p in problems)
-    fixed = written.model_copy(update={"opening_line": CALL_OPENING.replace("call", "కాల్")})
     assert not any(
-        "English letters" in p for p in language_problems(fixed, "te-IN", names=("Sri Estates",))
+        "English letters" in p for p in language_problems(written, "te-IN", names=("Sri Estates",))
     )
+
+
+def test_the_script_writers_hindi_opening_is_sent_back_for_english_letters() -> None:
+    written = CallScript(schema_version=2, opening_line=HINDI_CALL)
+    problems = language_problems(written, "hi-IN", names=("Anjali",))
+    assert any(p.startswith("opening_line: writes “call”") for p in problems)
     # The owner's own line, kept by a conversion, is theirs.
     assert not any(
         "English letters" in p
-        for p in language_problems(written, "te-IN", allowed=CALL_OPENING, names=())
+        for p in language_problems(written, "hi-IN", allowed=HINDI_CALL, names=())
     )

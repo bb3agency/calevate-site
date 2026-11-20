@@ -20,7 +20,7 @@ from apps.api.agents.test_conversations import Turn
 from apps.api.agents.turn_checks import conversation_problems, turn_problems
 from apps.api.core.errors import ProblemError
 from apps.api.engine.thinnest import BASE_URL, ThinnestEngine
-from apps.workers.script_assist import UnusableAnswerError, drafted_script, language_problems
+from apps.workers.script_assist import drafted_script, language_problems
 from calevate_shared.call_script import (
     OUTBOUND_OPENING_HEADER,
     CallScript,
@@ -40,12 +40,13 @@ from calevate_shared.engine import (
     compose_placed_call_first_words,
     engine_prompt_layers,
 )
+from calevate_shared.invisible_text import plain_joins
 from calevate_shared.spoken_style import opening_in, placed_call_opening
 
-ANSWERING = "కాల్ చేసినందుకు థాంక్స్. చెప్పండి, ఏం కావాలి?"
+ANSWERING = "call చేసినందుకు thanks. చెప్పండి, ఏం కావాలి?"
 AI_NOTICE = "నేను Rytu Khata నుండి Sindhuని, ఏఐ అసిస్టెంట్‌ని మాట్లాడుతున్నాను అండి."
 OWN_PLACED = "మీరు మా వెబ్‌సైట్‌లో Rytu Khata గురించి అడిగారు, దాని గురించే కాల్ చేశాను. ఇప్పుడు మాట్లాడొచ్చా?"
-THANKS = "థాంక్స్"
+THANKS = "thanks"
 
 
 def _script(placed: str = "") -> str:
@@ -95,7 +96,7 @@ def test_a_both_agent_never_thanks_the_person_it_rang_for_calling() -> None:
         assert THANKS not in said and "ఏం కావాలి" not in said
         # The AI notice still introduces it (hard rule 5's disclosure, D-163, D-865), and the
         # line after it is the language's placed-call question.
-        assert AI_NOTICE in said
+        assert plain_joins(AI_NOTICE) in said
         introduced = opening_in("te-IN", "outbound", introduced=True)
         assert introduced is not None
         assert said.endswith(introduced.replace("{business}", "Rytu Khata"))
@@ -103,7 +104,8 @@ def test_a_both_agent_never_thanks_the_person_it_rang_for_calling() -> None:
 
 def test_its_own_outbound_opening_is_said_when_it_has_one() -> None:
     said = dial_first_words(_row(placed=OWN_PLACED), test_call=False, call_is_recorded=True)
-    assert said is not None and said.endswith(OWN_PLACED) and AI_NOTICE in said
+    assert said is not None and said.endswith(plain_joins(OWN_PLACED))
+    assert plain_joins(AI_NOTICE) in said
 
 
 def test_agents_of_one_direction_keep_their_first_words() -> None:
@@ -236,10 +238,6 @@ def test_the_script_writer_keeps_an_outbound_opening_only_for_a_both_agent() -> 
     assert both.outbound_opening_line == OWN_PLACED
     one = drafted_script(raw, language="te-IN", direction="inbound", names=names)
     assert not one.outbound_opening_line
-    # Its letters are judged like the answering line's (D-861): English letters other than
-    # the business's and the agent's names send it back.
-    with pytest.raises(UnusableAnswerError):
-        drafted_script(raw, language="te-IN", direction="both")
     # And held to the opening's length rule.
     long_line = CallScript(schema_version=2, outbound_opening_line="ఇ " * 200)
     assert any(p.startswith("outbound_opening_line") for p in language_problems(long_line, "te-IN"))

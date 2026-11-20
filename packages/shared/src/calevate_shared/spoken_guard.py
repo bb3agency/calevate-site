@@ -98,10 +98,12 @@ def has_indic_letters(text: str) -> bool:
 
 
 #: The languages whose spoken lines write every word in the language's own letters, English
-#: words included (D-861): the ones whose spoken style was rewritten that way. The staged
-#: languages keep Latin-letter loanwords until the founder rules on them, and English has no
-#: other letters.
-OWN_LETTER_LANGUAGES: Final = frozenset({"te", "hi"})
+#: words included (D-861). Hindi only: Telugu went back to English words in English letters
+#: (founder, 20 Nov 2026), after a Varsha call on which "call" and "app" written in Telugu
+#: letters came out wrong, so a Telugu line may carry English letters and is never refused for
+#: them. The staged languages keep Latin-letter loanwords until the founder rules on them, and
+#: English has no other letters.
+OWN_LETTER_LANGUAGES: Final = frozenset({"hi"})
 _LATIN_WORD: Final = re.compile(r"[A-Za-z]+")
 
 
@@ -147,15 +149,23 @@ WRITTEN_FORM_RULE: Final = (
 #: numbers as digits separated by commas, never full stops (prompting-tips, Sonic 3.5 change);
 #: amounts in words because ThinnestAI's guide calls a written "₹1,200" unreliable
 #: (`guides/how-your-agent-sounds.md:47`). The ban on ellipses is the founder's ear (D-921).
+#: 20 Nov 2026: "a comma every few words" became commas only where the sentence needs one,
+#: none in the first sentence. Cartesia: "Full sentences sound more natural than isolated
+#: fragments" and heavy preprocessing hurts (prompting-tips and sonic-3-to-sonic-3-5, read 20
+#: Nov 2026); ThinnestAI speaks its first piece from the first comma once three words exist,
+#: so an early comma sends a fragment. Digits in groups with a comma between groups is
+#: Cartesia's format since Sonic 3.5 (same page).
 SPOKEN_LINE_RULES: Final = (
-    "Every line written for the agent to say, or to show how a call sounds, is read by a voice "
-    "that pauses only at a mark: one idea a sentence, a comma every few words where a speaker "
-    "breathes, and every sentence ends with a full stop (or the language's own), a question "
-    'mark on every question, or now and then "!". '
+    "Every line written for the agent to say, or to show how a call sounds, is read aloud in "
+    "pieces, so write whole sentences, one idea each, punctuated as ordinary prose: a comma "
+    "only where the sentence needs one, never to add a pause, none in the first sentence, and "
+    "every sentence ends with a full stop (or the language's own), a question mark on every "
+    'question, or now and then "!". '
     f"{WRITTEN_FORM_RULE} No ellipses, dashes, brackets, slashes, quotation marks, dotted "
-    "abbreviations, markdown, bullets, emoji or symbols such as the rupee sign. Amounts and "
-    "numbers in words, the way people say them; a phone number, OTP or code one digit at a "
-    "time, a comma after each digit."
+    "abbreviations, markdown, bullets, emoji or symbols such as the rupee sign; capitals only "
+    "for initials. Amounts and numbers in words, the way people say them; a phone number, OTP "
+    "or code inside a sentence, never alone, digit by digit in groups as people say them, a "
+    "comma between groups, never a full stop."
 )
 
 #: The opening-line rules in the words both the writer's instruction and the problems sent

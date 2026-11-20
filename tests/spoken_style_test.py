@@ -109,7 +109,7 @@ def test_the_prompt_carries_only_the_short_list() -> None:
     guidance = register_guidance(TE)
     assert guidance is not None
     assert 10 <= len(style.prompt_swaps) < len(style.word_swaps)
-    assert '"థాంక్స్ అండి"' in guidance
+    assert '"thanks అండి"' in guidance
     # A swap that is not in the prompt list stays out of the prompt.
     left_out = next(f for f, _ in style.word_swaps if (f, _) not in style.prompt_swaps)
     assert f'"{left_out}"' not in guidance
@@ -123,7 +123,7 @@ def test_the_writers_get_everything() -> None:
     assert style is not None
     for formal, spoken in style.word_swaps:
         assert f"{formal} -> {spoken}" in guide
-    assert "వన్ ట్వంటీ రూపీస్" in guide and "Writing for a voice" in guide
+    assert "one twenty rupees" in guide and "Writing for a voice" in guide
     # This business type's example first, then the neutral one: two or three in all.
     assert guide.index("(retail)") < guide.index("(any business)")
     assert guide.count("Agent:") >= 4
@@ -264,8 +264,10 @@ def test_the_test_call_opening_is_spoken_and_says_who_why_and_asks(tag: str) -> 
     line = trial_call_opening(tag, name="Anjali", business="Raghava Organics")
     assert line is not None
     assert "Anjali" in line and "Raghava Organics" in line and "{" not in line
-    receptionist = {TE: "రిసెప్షనిస్ట్", "hi-IN": "रिसेप्शनिस्ट", "en-IN": "receptionist"}[tag]
+    receptionist = {TE: "receptionist", "hi-IN": "रिसेप्शनिस्ट", "en-IN": "receptionist"}[tag]
     assert receptionist in line and line.endswith("?")
     assert textbook_problem("opening", line, tag) is None
     assert not FORBIDDEN.search(line), line
-    assert turn_problems(line, language=tag) == [], line
+    # The opening is fixed text, not a streamed reply; whether ThinnestAI also cuts it at its
+    # first comma is UNKNOWN (asked in the 20 Nov 2026 email), so `early_comma` is not judged.
+    assert [p for p in turn_problems(line, language=tag) if p.kind != "early_comma"] == [], line

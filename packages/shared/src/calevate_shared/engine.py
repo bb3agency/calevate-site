@@ -55,6 +55,7 @@ from calevate_shared.events import (
     NotPlacedReason,
     TranscriptTurn,
 )
+from calevate_shared.invisible_text import plain_joins
 from calevate_shared.languages import find_language
 from calevate_shared.opening_notices import NONE_SAID, SaidNotices, says_ai
 from calevate_shared.spoken_guard import (
@@ -2984,6 +2985,15 @@ _REGISTER_BULLET: Final = (
 #: Paid for by "then ask the next thing" (the one-question bullet already asks) and "each
 #: turn begun differently" (the reaction is how a turn begins, and the bullet before says
 #: never the same way twice).
+#: 20 Nov 2026, after a Varsha call with words cut off: "a comma every few words" is gone.
+#: Cartesia asks for whole sentences punctuated as ordinary prose ("Full sentences with
+#: normal capitalization and punctuation produce the best pacing", docs.cartesia.ai
+#: capability-guides/prompting-tips, read 20 Nov 2026), and ThinnestAI cuts its first piece
+#: at the first comma once three words exist, so an early comma made a fragment on every
+#: reply. The opening is now one short whole sentence with no comma, the practice check
+#: measures sentences (`turn_checks.BREATH_MAX_WORDS`) and flags a first-sentence comma
+#: (`early_comma`). Digits: Cartesia's own format since Sonic 3.5 is spaces within a group and
+#: a comma between groups, never full stops between characters (same page).
 #: D-947, from the founder's Sri Estates call of 30 Oct 2026: "Unclear? Ask again" let the
 #: agent say the same question word for word after each non-answer; "reworded" makes the one
 #: retry a different approach. What follows a second non-answer is in WHAT YOU CAN DO.
@@ -3064,8 +3074,8 @@ _DEFAULT_AMOUNTS: Final = amounts_rule(DEFAULT_PRIMARY_LANGUAGE) or _NEUTRAL_AMO
 
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
-    "- Open with a few words and a full stop; one or two short sentences, then wait. Never a "
-    "reaction alone: add a question or next step, unless closing.\n"
+    "- Open with one short whole sentence, no comma; one or two short sentences, then wait. "
+    "Never a reaction alone: add a question or next step, unless closing.\n"
     '- Asked something? Lead with the answer to it, never your last point again or "do you '
     'want to know". Told something? '
     "React only if it fits what they said, never the same way twice in a call, often not.\n"
@@ -3078,8 +3088,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     "answer? Explain or offer choices.\n"
     "- Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter, in new "
     "words.\n"
-    '- Pauses come only at marks: a comma every few words, "?" on every question, else a '
-    "full stop. No markdown, "
+    '- Whole sentences, a comma only where needed; "?" on every question, else a full stop. '
+    "No markdown, "
     "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
     "time now.\n"
     f"{_WRITTEN_FORM_BULLET}"
@@ -3089,8 +3099,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     "confirm, act or end on part of one.\n"
     "- Read back what you heard and wait for a yes; an amount that could be a range or a "
     "decimal as which one.\n"
-    "- Any number or code, first time too: digit by digit, a comma after each, a mobile five, "
-    "full stop, five; offer to repeat.\n"
+    "- Any number or code, first time too: digit by digit, a mobile five, a comma, five; offer "
+    "to repeat.\n"
     f"{_REGISTER_BULLET}"
     '- Unclear, or a bare "OK" to your question? Ask one thing again, reworded; never pick '
     "for them. Asked to repeat? Say it shorter.\n"
@@ -3114,7 +3124,7 @@ _PACK_REGISTER_BULLET: Final = f'- Never say "uhm". {_SWITCH_RULE}\n'
 #:   was the fault that sentence answers (D-739).
 #: - One step a turn, then wait for "done": two steps in one turn are lost on a phone, and an
 #:   agent that moves on before the caller has tapped leaves them on the wrong screen.
-#: - A label is said word for word, in the call's letters (D-861), so the caller can match
+#: - A label is said word for word as it is written on the screen, so the caller can match
 #:   what they hear to what they see; the "no lists or links" bullet stays, because it is
 #:   about what the agent writes, not about what is on the caller's screen.
 #: - A web address is said as it reads: its words as words, only initials by English letter
@@ -3140,7 +3150,7 @@ def screen_steps_bullet(language: str | None) -> str:
     spelled = f' ("{example}")' if example else ""
     return (
         "- They follow you on their screen: one step a turn, naming what to tap by its label "
-        "word for word in the call's letters, then wait until they say it is done. Say a web "
+        "word for word as it is written, then wait until they say it is done. Say a web "
         "address as it reads, no www: a word as a word, initials each by its English letter "
         f'name in the call\'s letters, a comma between, "dot" as a word{spelled}. Spell a word '
         "by letters only if they cannot find it, or send the link if a tool can.\n"
@@ -4561,10 +4571,12 @@ def join_first_words(
     salutation = introduction_salutation(language)
     introduced = introduces_itself(ai_notice=lead, language=language) and rest.startswith(lead)
     if salutation is None or not introduced:
-        return _spoken_join(opening.strip(), rest)
+        return plain_joins(_spoken_join(opening.strip(), rest))
     others = rest.removeprefix(lead).strip().removeprefix(".").strip()
     line = _without_introduction(without_greeting(opening), names)
-    return " ".join(part for part in (salutation, _spoken_join(lead, line, others)) if part)
+    return plain_joins(
+        " ".join(part for part in (salutation, _spoken_join(lead, line, others)) if part)
+    )
 
 
 def _spoken_join(*parts: str) -> str:
@@ -5061,7 +5073,7 @@ def engine_prompt_layers(
         # Every value the engine fills per call, after every fixed line (`THIS_CALL_HEADER`).
         ("this_call", _this_call_section(cfg)),
     ]
-    return tuple((layer, text) for layer, text in parts if text)
+    return tuple((layer, plain_joins(text)) for layer, text in parts if text)
 
 
 @dataclass(frozen=True, slots=True)

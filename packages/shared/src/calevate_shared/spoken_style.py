@@ -692,7 +692,7 @@ def amounts_rule(tag: str | None) -> str | None:
     if style is None or style.native_price_words:
         return None
     examples = f" ({style.spoken_amounts})" if style.spoken_amounts else ""
-    return f"- Amounts the English way in the call's letters{examples}, never ₹ or digits."
+    return f"- Amounts the English way, in words{examples}, never ₹ or digits."
 
 
 def spelled_address(tag: str | None) -> str | None:

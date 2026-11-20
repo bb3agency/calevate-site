@@ -53,6 +53,7 @@ from apps.api.engine.thinnest_workspace import (
 from apps.workers import engine_workspaces
 from apps.workers import trials as trial_sweep
 from calevate_shared.engine import CallContext
+from calevate_shared.invisible_text import plain_joins
 from sqlalchemy import text
 from tests.conftest import _owner_of, accept_agreements, create_org_with_receptionist, fund_wallet
 
@@ -1011,7 +1012,11 @@ async def test_an_answer_only_agent_opens_its_test_call_saying_who_is_calling_an
             )
         ).scalar_one()
     ctx = await _trial_dial_context(monkeypatch, tenant_id, agent_id)
-    assert ctx.opening == (f"నమస్కారం అండి, {ai_line.strip()} ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?")
+    assert ctx.opening == (
+        plain_joins(
+            f"నమస్కారం అండి, {ai_line.strip()} ఇది మీ కొత్త receptionist test call. ఇప్పుడు మాట్లాడొచ్చా?"
+        )
+    )
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE organizations SET notice_ai_enabled = false WHERE id = :t"),
@@ -1019,7 +1024,8 @@ async def test_an_answer_only_agent_opens_its_test_call_saying_who_is_calling_an
         )
     ctx = await _trial_dial_context(monkeypatch, tenant_id, agent_id)
     assert ctx.opening == (
-        "నమస్కారం అండి, నేను Test caller, Trial Tea House నుంచి, ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?"
+        "నమస్కారం అండి, నేను Test caller, Trial Tea House నుంచి, ఇది మీ కొత్త receptionist test "
+        "call. ఇప్పుడు మాట్లాడొచ్చా?"
     )
 
 

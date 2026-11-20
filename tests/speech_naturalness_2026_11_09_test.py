@@ -29,6 +29,10 @@ from calevate_shared.spoken_guard import (
 from tests.opening_continues_test import CALL_OPENING, OPENING
 
 NAMES = ("Sri Estates",)
+#: The check runs only for a language that writes English words in its own letters: Hindi
+#: since Telugu went back to English letters (20 Nov 2026). It reads only the English letters
+#: of a line, so the Telugu fixture lines serve it as they are.
+OWN_LETTERS = "hi-IN"
 
 # --- R3: the writers carry the same rules -------------------------------------------------
 
@@ -68,8 +72,8 @@ def test_the_fix_writer_which_has_no_guide_carries_the_rules() -> None:
     assert SPOKEN_LINE_RULES in IMPROVE_INSTRUCTION
 
 
-def test_the_edit_writer_says_english_words_go_in_the_languages_letters() -> None:
-    assert "the English words people use too, written in that script" in EDIT_INSTRUCTION
+def test_the_edit_writer_writes_english_words_as_the_guide_shows() -> None:
+    assert "the English words people use written as the spoken-style guide" in EDIT_INSTRUCTION
 
 
 # --- R7: every spoken line in the language's own letters ----------------------------------
@@ -82,7 +86,7 @@ def _script(**update: object) -> CallScript:
 def _latin(script: CallScript, **kwargs: object) -> list[str]:
     return [
         p
-        for p in language_problems(script, "te-IN", names=NAMES, **kwargs)  # type: ignore[arg-type]
+        for p in language_problems(script, OWN_LETTERS, names=NAMES, **kwargs)  # type: ignore[arg-type]
         if "English letters" in p
     ]
 

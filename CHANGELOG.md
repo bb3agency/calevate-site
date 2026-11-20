@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.82 — 20-Nov-2026
+
+- Telugu agents write English words like "call" and "app" in English letters again, as
+  they did before 23 Oct; Telugu words stay in Telugu letters.
+- The invisible joining mark that sat on every word cut short on the 20 Nov call (app,
+  screen and install with a Telugu ending) is no longer sent to the voice.
+- Replies open with one short, complete sentence and use commas only where a sentence needs
+  one, so the voice is not handed the first few words as a piece of their own.
+- Practice tests flag a reply whose first sentence has a comma.
+
 ## 0.4.81 — 19-Nov-2026
 
 - Telugu calls are checked for a reply that only reacts ("సరేనండి." and nothing else) when

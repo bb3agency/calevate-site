@@ -291,9 +291,10 @@ async def test_the_default_sentences_are_our_telugu_spoken_style_lines(
     sentences = response.json()["sentences"]
     assert 5 <= len(sentences) <= vc.MAX_SENTENCES
     assert all(len(s) <= vc.MAX_SENTENCE_CHARS for s in sentences)
-    # Telugu letters, and the number rules' phrases are among them.
-    assert all(any("ఀ" <= ch <= "౿" for ch in s) for s in sentences)
-    assert any("రూపీస్" in s for s in sentences)
+    # Our Telugu lines, and the number rules' phrases (English words, D-861 reversed for
+    # Telugu on 20 Nov 2026) are among them.
+    assert any(any("ఀ" <= ch <= "౿" for ch in s) for s in sentences)
+    assert any("rupees" in s for s in sentences)
 
 
 def test_every_pair_crosses_providers_and_the_sides_are_drawn() -> None:

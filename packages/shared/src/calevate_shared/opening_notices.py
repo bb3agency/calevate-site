@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
+from calevate_shared.invisible_text import plain_joins
 
 #: Words that say "AI" in the languages agents speak. The staged languages write "AI" in
 #: Latin letters (`compliance/disclosure.AI_DISCLOSURE_TEMPLATES`), which the first
@@ -55,6 +56,9 @@ def says_recorded(text: str) -> bool:
 
 
 def _flat(text: str) -> str:
+    # The first words drop the Telugu join mark (`plain_joins`) while a stored notice may keep
+    # it, so both sides are compared without it.
+    text = plain_joins(text)
     return " ".join(text.split())
 
 

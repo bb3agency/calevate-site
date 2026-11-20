@@ -51,6 +51,7 @@ from calevate_shared.engine import (
     join_first_words,
     notice_fields,
 )
+from calevate_shared.invisible_text import plain_joins
 from calevate_shared.spoken_style import trial_call_opening
 from sqlalchemy import create_engine, text
 from tests.conftest import create_org_with_receptionist
@@ -58,6 +59,8 @@ from tests.conftest import create_org_with_receptionist
 BUSINESS = "Sri Estates"
 NAME = "Anjali"
 TE_AI = f"నేను {BUSINESS} నుండి {NAME}ని, ఏఐ అసిస్టెంట్‌ని మాట్లాడుతున్నాను అండి."
+#: The same sentence as the caller hears it: first words drop the Telugu join mark.
+TE_AI_SAID = plain_joins(TE_AI)
 HI_AI_FEMALE = f"मैं {BUSINESS} से {NAME}, एआई असिस्टेंट, बात कर रही हूँ।"
 HI_AI_MALE = f"मैं {BUSINESS} से Ravi, एआई असिस्टेंट, बात कर रहा हूँ।"
 GREETING_LIMIT = 200
@@ -239,7 +242,7 @@ def test_the_introduction_comes_after_the_salutation_and_before_the_opening_line
         language="te-IN",
     )
     # A greeting left at the opening line's start is dropped: the salutation already said it.
-    assert first == (f"నమస్కారం అండి, {TE_AI} ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా? ఈ కాల్ రికార్డ్ అవుతుంది.")
+    assert first == (f"నమస్కారం అండి, {TE_AI_SAID} ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా? ఈ కాల్ రికార్డ్ అవుతుంది.")
 
 
 #: Rytu Khata's placed-call opening (9 Nov 2026), with its agent's taught name in the test's.
@@ -256,7 +259,7 @@ def test_a_sentence_said_twice_keeps_the_persons_name_and_title() -> None:
         TE_AI, NAMED_OPENING, ai_notice=TE_AI, language="te-IN", names=(NAME, TAUGHT_NAME)
     )
     assert first == (
-        f"నమస్కారం అండి, {TE_AI} {{{{lead_name}}}} గారు, మీరు యాప్ రిజిస్టర్ అయ్యారు, "
+        f"నమస్కారం అండి, {TE_AI_SAID} {{{{lead_name}}}} గారు, మీరు యాప్ రిజిస్టర్ అయ్యారు, "
         "సహాయం చేయడానికి కాల్ చేశాను. ఓకేనా అండి?"
     )
     assert f"{TAUGHT_NAME}ను" not in first, "the agent is still not introduced twice"
@@ -272,7 +275,7 @@ def test_a_name_in_the_last_sentence_is_untouched_and_none_is_carried_without_on
     first = join_first_words(
         TE_AI, opening, ai_notice=TE_AI, language="te-IN", names=(TAUGHT_NAME,)
     )
-    assert first == f"నమస్కారం అండి, {TE_AI} {{{{lead_name}}}} గారు, ఓకేనా అండి?"
+    assert first == f"నమస్కారం అండి, {TE_AI_SAID} {{{{lead_name}}}} గారు, ఓకేనా అండి?"
 
 
 def test_with_the_ai_notice_off_the_opening_line_keeps_its_greeting_and_comes_first() -> None:
@@ -294,7 +297,7 @@ def test_the_prompt_quotes_the_new_first_turn_as_already_said() -> None:
         _posture("te-IN", ai=True),
     )
     first = compose_first_utterance(cfg)
-    assert first.startswith(f"నమస్కారం అండి, {TE_AI} ")
+    assert first.startswith(f"నమస్కారం అండి, {TE_AI_SAID} ")
     assert f'Already said for you as your first turn: "{first}".' in compose_engine_prompt(cfg)
 
 
@@ -328,21 +331,21 @@ def test_the_founders_agents_open_as_decided_and_fit_the_greeting() -> None:
     expected = {
         # A call it places keeps the founder's "we are calling from" half (D-945).
         ("a_te_calling", True): (
-            f"నమస్కారం అండి, {TE_AI} మేము Sri Estates నుండి కాల్ చేస్తున్నాము. "
+            f"నమస్కారం అండి, {TE_AI} మేము Sri Estates నుండి call చేస్తున్నాము. "
             f"ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా? {rec_te}"
         ),
         ("b_te_answering", True): (
-            f"నమస్కారం అండి, {TE_AI} కాల్ చేసినందుకు థాంక్స్. చెప్పండి, ఏం కావాలి? {rec_te}"
+            f"నమస్కారం అండి, {TE_AI} call చేసినందుకు thanks. చెప్పండి, ఏం కావాలి? {rec_te}"
         ),
         ("c_hi_calling_male", True): (
             f"नमस्ते जी, {HI_AI_MALE} हम Sri Estates की ओर से बोल रहे हैं। "
             f"क्या यह आपके लिए सही समय है? {rec_hi}"
         ),
         ("a_te_calling", False): (
-            f"హాయ్ అండి, మేము Sri Estates నుండి కాల్ చేస్తున్నాము. ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా? {rec_te}"
+            f"హాయ్ అండి, మేము Sri Estates నుండి call చేస్తున్నాము. ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా? {rec_te}"
         ),
         ("b_te_answering", False): (
-            f"నమస్కారం అండి, Sri Estates కి కాల్ చేసినందుకు థాంక్స్. చెప్పండి, ఏం కావాలి? {rec_te}"
+            f"నమస్కారం అండి, Sri Estates కి call చేసినందుకు thanks. చెప్పండి, ఏం కావాలి? {rec_te}"
         ),
         ("c_hi_calling_male", False): (
             f"नमस्ते, हम Sri Estates की ओर से बोल रहे हैं। क्या यह आपके लिए सही समय है? {rec_hi}"
@@ -351,7 +354,7 @@ def test_the_founders_agents_open_as_decided_and_fit_the_greeting() -> None:
     engine = FakeEngine(name="thinnest", capabilities=DICTATED_SPEECH_CAPABILITIES)
     for (case, ai), words in expected.items():
         cfg = _first_words(case, ai=ai)
-        assert compose_first_utterance(cfg) == words
+        assert compose_first_utterance(cfg) == plain_joins(words)
         assert len(words) <= GREETING_LIMIT
         refuse_over_engine_limits(engine, cfg)
 
@@ -380,7 +383,7 @@ def test_a_long_business_name_is_refused_naming_it() -> None:
 
 def test_a_test_call_line_after_the_introduction_says_only_why_it_rings() -> None:
     assert trial_call_opening("te-IN", name=NAME, business=BUSINESS, introduced=True) == (
-        "ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?"
+        "ఇది మీ కొత్త receptionist test call. ఇప్పుడు మాట్లాడొచ్చా?"
     )
     # English has no introduction: its own line, which says who is calling.
     assert NAME in str(trial_call_opening("en-IN", name=NAME, business=BUSINESS, introduced=True))

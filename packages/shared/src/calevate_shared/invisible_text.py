@@ -55,6 +55,7 @@ weaker version of the other.
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 __all__ = [
@@ -138,3 +139,19 @@ def strip_shadow_text(text: str) -> str:
     """`text` with the tag block removed and everything else — Telugu conjunct joiners,
     emoji and their selectors, soft hyphens — left exactly as written."""
     return text.translate(_SHADOW_TABLE)
+
+
+#: A zero-width non-joiner straight after a Telugu virama: how Telugu print writes a suffix
+#: onto an English loanword, so the dead consonant keeps its halant shape. On a call nothing
+#: reads the shape, only the voice reads the text, and on the founder's Varsha call of 20 Nov
+#: 2026 the words that came out wrong were the ones carrying this mark (app with its case
+#: ending, screen, install). Without it the same letters form a conjunct, the way Telugu is
+#: commonly typed. Telugu alone: a non-joiner after a virama changes meaning in Malayalam and
+#: Kannada, and Cartesia's docs say nothing about the mark either way (read 20 Nov 2026), so
+#: it is removed only where the damage was heard.
+_TELUGU_JOIN_MARK: Final = re.compile(f"(?<={chr(0x0C4D)}){chr(0x200C)}")
+
+
+def plain_joins(text: str) -> str:
+    """`text` without the invisible join mark Telugu print puts after a virama."""
+    return _TELUGU_JOIN_MARK.sub("", text)

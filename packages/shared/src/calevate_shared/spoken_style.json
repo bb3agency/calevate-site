@@ -1,5 +1,5 @@
 {
-  "about": "Spoken-register guidance for voice agents, per call language and business type. AI-drafted 10 Oct 2026 and expanded 11 Oct 2026 (founder decisions 3, 10 Oct, and the 11 Oct spoken-style rules). EVERY entry here is needs_native_review except prompt_examples (founder approved 14 Oct 2026, see its note): the founder reviews them on the admin screen Ops > Spoken style, whose published edits are stored in the database and layered over this file (calevate_shared.spoken_style.install_published). What each part is for: register is the one-line description of how the language is spoken; word_swaps pairs a formal or written form (left) with what people actually say (right), and the ones named in prompt_swaps go into every agent's prompt in that language, while the whole list guides the script writer, the test callers and the test checks; fillers are the spoken tags and light fillers people use; number_rules and punctuation say how numbers and sentences are written for a voice; examples are example exchanges per business type that show HOW to speak, never facts (no price, time, address or stock level, so an agent cannot repeat a made-up fact); openings are a starter's greeting; spelled_address is how an agent whose caller follows along on a screen spells a web address (D-906): each letter by its English name in the language's letters, a comma between, so a spelled letter is not heard as a word of the language. SCRIPT (founder, 23 Oct 2026, D-861, reversing the 11 Oct English-letters rule): every spoken line is written wholly in the language's own letters, English words and amounts too (కాల్, డెలివరీ, వన్ ట్వంటీ రూపీస్; कॉल, डिलीवरी), after the founder heard a competitor's agent written that way as very human-sounding on Cartesia; every line rewritten to that rule is needs_native_review. Register sources for te-IN: Telugu has a literary register (grandhika) and a spoken standard (vyavaharika, the sishta vyavaharika of educated everyday speech), the latter championed by Gidugu Venkata Ramamurthy (https://en.wikipedia.org/wiki/Gidugu_Venkata_Ramamurthy; https://www.deccanchronicle.com/lifestyle/culture-and-society/telugu-language-day-commemorates-gidugu-revolutionary-behind-simple-telugu-usage-1983163). Telugu-English code-mixing ('Tenglish') is extensively used in Hyderabad (Dutta and Rajeswari, Texas Linguistics Forum 2015, https://asol.ling.utexas.edu/salsa/proceedings/2015/Dutta.pdf); Standard and Telangana Telugu differences and code-mixing in speech are studied in Sravani, Kameswari and Mamidi 2021 (https://aclanthology.org/2021.calcs-1.1). Voice facts (Cartesia, read 11 Oct 2026): sonic-3.6 lists Telugu (te); it varies pacing and intonation to the transcript without SSML, pause length adapts to the sentence, and disfluencies such as 'uhm' give a thinking pace (https://docs.cartesia.ai/build-with-cartesia/tts-models/latest); full, punctuated sentences ending in . ? or ! give the best pacing (https://docs.cartesia.ai/build-with-cartesia/sonic-3-5/prompting-tips). Code-switching is documented only for Hindi written in Latin script; Telugu-English mixing is UNVERIFIED in the vendor docs and confirmed only by the founder's ear test (\"whole chilli\", \"call\", \"kg\" spoken naturally). The number style (prices, quantities and times in English words as shop people say them) is the founder's decision of 11 Oct 2026; Cartesia's own guidance would let the model normalise digits, which the founder's ear test overrode for Telugu calls. written_form (F-5, 5 Nov 2026) is one short line the founder writes in the language's own letters the way native speakers write it, suffixes and question particles joined to their word; the in-call written-form rule quotes it, and it stays empty until he writes it.",
+  "about": "Spoken-register guidance for voice agents, per call language and business type. AI-drafted 10 Oct 2026 and expanded 11 Oct 2026 (founder decisions 3, 10 Oct, and the 11 Oct spoken-style rules). EVERY entry here is needs_native_review except prompt_examples (founder approved 14 Oct 2026, see its note): the founder reviews them on the admin screen Ops > Spoken style, whose published edits are stored in the database and layered over this file (calevate_shared.spoken_style.install_published). What each part is for: register is the one-line description of how the language is spoken; word_swaps pairs a formal or written form (left) with what people actually say (right), and the ones named in prompt_swaps go into every agent's prompt in that language, while the whole list guides the script writer, the test callers and the test checks; fillers are the spoken tags and light fillers people use; number_rules and punctuation say how numbers and sentences are written for a voice; examples are example exchanges per business type that show HOW to speak, never facts (no price, time, address or stock level, so an agent cannot repeat a made-up fact); openings are a starter's greeting; spelled_address is how an agent whose caller follows along on a screen spells a web address (D-906): each letter by its English name in the language's letters, a comma between, so a spelled letter is not heard as a word of the language. SCRIPT (founder, 23 Oct 2026, D-861, reversing the 11 Oct English-letters rule): every spoken line is written wholly in the language's own letters, English words and amounts too (కాల్, డెలివరీ, వన్ ట్వంటీ రూపీస్; कॉल, डिलीवरी), after the founder heard a competitor's agent written that way as very human-sounding on Cartesia; every line rewritten to that rule is needs_native_review. Telugu went back on 20 Nov 2026 (founder, after a Varsha call where call and app were misread): Telugu words in Telugu letters, English words and amounts in English letters; Hindi is unchanged. Register sources for te-IN: Telugu has a literary register (grandhika) and a spoken standard (vyavaharika, the sishta vyavaharika of educated everyday speech), the latter championed by Gidugu Venkata Ramamurthy (https://en.wikipedia.org/wiki/Gidugu_Venkata_Ramamurthy; https://www.deccanchronicle.com/lifestyle/culture-and-society/telugu-language-day-commemorates-gidugu-revolutionary-behind-simple-telugu-usage-1983163). Telugu-English code-mixing ('Tenglish') is extensively used in Hyderabad (Dutta and Rajeswari, Texas Linguistics Forum 2015, https://asol.ling.utexas.edu/salsa/proceedings/2015/Dutta.pdf); Standard and Telangana Telugu differences and code-mixing in speech are studied in Sravani, Kameswari and Mamidi 2021 (https://aclanthology.org/2021.calcs-1.1). Voice facts (Cartesia, read 11 Oct 2026): sonic-3.6 lists Telugu (te); it varies pacing and intonation to the transcript without SSML, pause length adapts to the sentence, and disfluencies such as 'uhm' give a thinking pace (https://docs.cartesia.ai/build-with-cartesia/tts-models/latest); full, punctuated sentences ending in . ? or ! give the best pacing (https://docs.cartesia.ai/build-with-cartesia/sonic-3-5/prompting-tips). Code-switching is documented only for Hindi written in Latin script; Telugu-English mixing is UNVERIFIED in the vendor docs and confirmed only by the founder's ear test (\"whole chilli\", \"call\", \"kg\" spoken naturally). The number style (prices, quantities and times in English words as shop people say them) is the founder's decision of 11 Oct 2026; Cartesia's own guidance would let the model normalise digits, which the founder's ear test overrode for Telugu calls. written_form (F-5, 5 Nov 2026) is one short line the founder writes in the language's own letters the way native speakers write it, suffixes and question particles joined to their word; the in-call written-form rule quotes it, and it stays empty until he writes it.",
   "languages": {
     "te-IN": {
       "review": "needs_native_review",
@@ -7,8 +7,8 @@
       "written_form": "",
       "register_name": "Neutral spoken Telugu",
       "spelled_address": "బీ, సీ, డీ, డాట్ కామ్",
-      "spoken_amounts": "\"వన్ ట్వంటీ రూపీస్\", \"టూ క్రోర్స్\"",
-      "register": "Everyday spoken Telugu: vyavaharika, never grandhika; neutral for Telangana and Andhra; every word in Telugu letters, English words too: ఆర్డర్, కాల్. అండి and గారు by situation, not in every sentence.",
+      "spoken_amounts": "\"one twenty rupees\", \"two crores\"",
+      "register": "Everyday spoken Telugu: vyavaharika, never grandhika; neutral for Telangana and Andhra; Telugu words in Telugu letters, English words in English letters: order, call. అండి and గారు by situation, not in every sentence.",
       "examples": {
         "_default": [
           [
@@ -21,7 +21,7 @@
           ],
           [
             "agent",
-            "సరే అండి, నో ప్రాబ్లం. మీకు వీలైనప్పుడు కాల్ చేయండి."
+            "సరే అండి, no problem. మీకు వీలైనప్పుడు call చేయండి."
           ]
         ],
         "retail": [
@@ -31,29 +31,29 @@
           ],
           [
             "agent",
-            "హా అండి, చెప్తాను. మీకు హోల్ చిల్లీ కావాలా, పౌడర్ కావాలా?"
+            "హా అండి, చెప్తాను. మీకు whole chilli కావాలా, powder కావాలా?"
           ],
           [
             "caller",
-            "పౌడర్. ఒక కేజీ ఎంత?"
+            "powder. ఒక kg ఎంత?"
           ],
           [
             "agent",
-            "ఒక్క సెకండ్ అండి, ప్రైస్ చూసి చెప్తాను."
+            "ఒక్క సెకండ్ అండి, price చూసి చెప్తాను."
           ],
           [
             "caller",
-            "సరే. హోమ్ డెలివరీ ఉంటుందా?"
+            "సరే. home delivery ఉంటుందా?"
           ],
           [
             "agent",
-            "డెలివరీ డీటెయిల్స్ నా దగ్గర లేవండి. మీది ఏ ఏరియా?"
+            "delivery details నా దగ్గర లేవండి. మీది ఏ area?"
           ]
         ],
         "local_services": [
           [
             "caller",
-            "రేపు హెయిర్ కట్ కి స్లాట్ ఉందా?"
+            "రేపు హెయిర్ కట్ కి slot ఉందా?"
           ],
           [
             "agent",
@@ -75,15 +75,15 @@
         "automobile": [
           [
             "caller",
-            "బైక్ సర్వీస్ కి ఇవ్వాలి, ఎప్పుడు తీసుకురావొచ్చు?"
+            "bike సర్వీస్ కి ఇవ్వాలి, ఎప్పుడు తీసుకురావొచ్చు?"
           ],
           [
             "agent",
-            "సరే అండి. మీ బైక్ ఏ మోడల్?"
+            "సరే అండి. మీ bike ఏ model?"
           ],
           [
             "caller",
-            "స్ప్లెండర్. బ్రేక్స్ కొంచెం ప్రాబ్లం ఉంది."
+            "Splendor. brakes కొంచెం problem ఉంది."
           ],
           [
             "agent",
@@ -95,13 +95,13 @@
           ],
           [
             "agent",
-            "ఓకే అండి, సాటర్డే మార్నింగ్. మీ పేరు చెప్తారా?"
+            "ఓకే అండి, Saturday మార్నింగ్. మీ పేరు చెప్తారా?"
           ]
         ],
         "real_estate": [
           [
             "caller",
-            "మీ ప్రాజెక్ట్ లో టూ బీహెచ్కే ఫ్లాట్స్ ఉన్నాయా?"
+            "మీ project లో two BHK ఫ్లాట్స్ ఉన్నాయా?"
           ],
           [
             "agent",
@@ -109,25 +109,25 @@
           ],
           [
             "agent",
-            "మీ బడ్జెట్ దాదాపు ఎంతలో చూస్తున్నారు?"
+            "మీ budget దాదాపు ఎంతలో చూస్తున్నారు?"
           ],
           [
             "caller",
-            "సెవెంటీ లాక్స్ వరకు. ముందు సైట్ చూడాలి."
+            "seventy lakhs వరకు. ముందు site చూడాలి."
           ],
           [
             "agent",
-            "మంచిది అండి. సైట్ విజిట్ కి ఏ రోజు వీలవుతుంది?"
+            "మంచిది అండి. site visit కి ఏ రోజు వీలవుతుంది?"
           ]
         ],
         "clinic": [
           [
             "caller",
-            "డాక్టర్ గారిని చూపించుకోవాలి, అపాయింట్మెంట్ దొరుకుతుందా?"
+            "doctor గారిని చూపించుకోవాలి, appointment దొరుకుతుందా?"
           ],
           [
             "agent",
-            "తప్పకుండా అండి. ఏ ప్రాబ్లం తో వస్తున్నారు?"
+            "తప్పకుండా అండి. ఏ problem తో వస్తున్నారు?"
           ],
           [
             "caller",
@@ -141,29 +141,29 @@
         "insurance": [
           [
             "caller",
-            "నా పాలసీ రెన్యూవల్ డేట్ ఎప్పుడు?"
+            "నా policy renewal date ఎప్పుడు?"
           ],
           [
             "agent",
-            "మీ పాలసీ డీటెయిల్స్ నా దగ్గర లేవండి. ఏ పాలసీ తీసుకున్నారు?"
+            "మీ policy details నా దగ్గర లేవండి. ఏ policy తీసుకున్నారు?"
           ],
           [
             "caller",
-            "హెల్త్ పాలసీ అండి."
+            "హెల్త్ policy అండి."
           ],
           [
             "agent",
-            "సరే అండి. మీ పేరు, పాలసీ నంబర్ చెప్తే నోట్ చేసుకుంటాను."
+            "సరే అండి. మీ పేరు, policy number చెప్తే note చేసుకుంటాను."
           ]
         ],
         "education": [
           [
             "caller",
-            "స్పోకెన్ ఇంగ్లీష్ కోర్స్ కి అడ్మిషన్ ఉందా?"
+            "స్పోకెన్ ఇంగ్లీష్ కోర్స్ కి admission ఉందా?"
           ],
           [
             "agent",
-            "హా అండి, చెప్తాను. స్టూడెంట్ ఏ క్లాస్ చదువుతున్నారు?"
+            "హా అండి, చెప్తాను. student ఏ class చదువుతున్నారు?"
           ],
           [
             "caller",
@@ -171,14 +171,14 @@
           ],
           [
             "agent",
-            "సరే అండి. ముందు ఒక డెమో క్లాస్ చూస్తారా?"
+            "సరే అండి. ముందు ఒక demo class చూస్తారా?"
           ]
         ]
       },
       "word_swaps": [
         [
           "ధన్యవాదాలు",
-          "థాంక్స్ అండి"
+          "thanks అండి"
         ],
         [
           "మరియు",
@@ -202,7 +202,7 @@
         ],
         [
           "సమాచారం",
-          "డీటెయిల్స్"
+          "details"
         ],
         [
           "ప్రస్తుతం",
@@ -214,7 +214,7 @@
         ],
         [
           "క్షమించండి",
-          "సారీ అండి"
+          "sorry అండి"
         ],
         [
           "తెలియజేయండి",
@@ -226,11 +226,11 @@
         ],
         [
           "వివరాలు",
-          "డీటెయిల్స్"
+          "details"
         ],
         [
           "ధర",
-          "ప్రైస్"
+          "price"
         ],
         [
           "అందుబాటులో ఉంది",
@@ -238,19 +238,19 @@
         ],
         [
           "తిరిగి కాల్ చేస్తాము",
-          "మళ్ళీ కాల్ చేస్తాం"
+          "మళ్ళీ call చేస్తాం"
         ],
         [
           "సహజంగా పండించిన",
-          "నేచురల్ గా పండించిన"
+          "natural గా పండించిన"
         ],
         [
           "ఆహార పదార్థాలు",
-          "ఐటమ్స్"
+          "items"
         ],
         [
           "ఆహారాలు",
-          "ఐటమ్స్"
+          "items"
         ],
         [
           "సాధారణంగా",
@@ -290,55 +290,55 @@
         ],
         [
           "నమోదు",
-          "నోట్ చేసుకుంటాను"
+          "note చేసుకుంటాను"
         ],
         [
           "నిర్ధారించండి",
-          "కన్ఫర్మ్ చేయండి"
+          "confirm చేయండి"
         ],
         [
           "నిర్ధారిస్తాను",
-          "కన్ఫర్మ్ చేస్తాను"
+          "confirm చేస్తాను"
         ],
         [
           "ధృవీకరించండి",
-          "కన్ఫర్మ్ చేయండి"
+          "confirm చేయండి"
         ],
         [
           "సంప్రదించండి",
-          "కాల్ చేయండి"
+          "call చేయండి"
         ],
         [
           "అభ్యర్థన",
-          "రిక్వెస్ట్"
+          "request"
         ],
         [
           "సేవలు",
-          "సర్వీసెస్"
+          "services"
         ],
         [
           "ఉత్పత్తులు",
-          "ప్రొడక్ట్స్"
+          "products"
         ],
         [
           "పరిమాణం",
-          "క్వాంటిటీ"
+          "quantity"
         ],
         [
           "చిరునామా",
-          "అడ్రస్"
+          "address"
         ],
         [
           "చెల్లింపు",
-          "పేమెంట్"
+          "payment"
         ],
         [
           "రుసుము",
-          "ఛార్జెస్"
+          "charges"
         ],
         [
           "పంపిణీ",
-          "డెలివరీ"
+          "delivery"
         ],
         [
           "అనుకూలంగా",
@@ -366,23 +366,23 @@
         ],
         [
           "సహాయం",
-          "హెల్ప్"
+          "help"
         ],
         [
           "సహాయపడతాను",
-          "హెల్ప్ చేస్తాను"
+          "help చేస్తాను"
         ],
         [
           "వినియోగదారులు",
-          "కస్టమర్స్"
+          "customers"
         ],
         [
           "ఖాతాదారులు",
-          "కస్టమర్స్"
+          "customers"
         ],
         [
           "సంస్థ",
-          "కంపెనీ"
+          "company"
         ],
         [
           "స్వాగతం",
@@ -394,19 +394,19 @@
         ],
         [
           "ఎంపికలు",
-          "ఆప్షన్స్"
+          "options"
         ],
         [
           "నాణ్యత",
-          "క్వాలిటీ"
+          "quality"
         ],
         [
           "తగ్గింపు",
-          "డిస్కౌంట్"
+          "discount"
         ],
         [
           "సిద్ధంగా",
-          "రెడీ గా"
+          "ready గా"
         ],
         [
           "గృహం",
@@ -414,39 +414,39 @@
         ],
         [
           "ఋణం",
-          "లోన్"
+          "loan"
         ],
         [
           "వాహనం",
-          "వెహికల్"
+          "vehicle"
         ],
         [
           "మరమ్మతు",
-          "రిపేర్"
+          "repair"
         ],
         [
           "విడిభాగాలు",
-          "స్పేర్ పార్ట్స్"
+          "spare parts"
         ],
         [
           "కేశాలంకరణ",
-          "హెయిర్ కట్"
+          "haircut"
         ],
         [
           "సౌందర్య",
-          "బ్యూటీ"
+          "beauty"
         ],
         [
           "ముందస్తు",
-          "అడ్వాన్స్"
+          "advance"
         ],
         [
           "రద్దు",
-          "క్యాన్సిల్"
+          "cancel"
         ],
         [
           "తేదీ",
-          "డేట్"
+          "date"
         ],
         [
           "ఖరారు",
@@ -470,15 +470,15 @@
         ],
         [
           "పరిశీలించి",
-          "చెక్ చేసి"
+          "check చేసి"
         ],
         [
           "తనిఖీ",
-          "చెక్"
+          "check"
         ],
         [
           "విచారణ",
-          "ఎంక్వైరీ"
+          "enquiry"
         ],
         [
           "చేయబడుతుంది",
@@ -518,7 +518,7 @@
         ],
         [
           "ప్రయత్నిస్తాను",
-          "ట్రై చేస్తాను"
+          "try చేస్తాను"
         ],
         [
           "ఎదురుచూస్తున్నాము",
@@ -526,7 +526,7 @@
         ],
         [
           "ఉపయోగించండి",
-          "యూజ్ చేయండి"
+          "use చేయండి"
         ],
         [
           "చేయవలసి",
@@ -542,7 +542,7 @@
         ],
         [
           "అదనపు",
-          "ఎక్స్ట్రా"
+          "extra"
         ],
         [
           "గమనించండి",
@@ -550,11 +550,11 @@
         ],
         [
           "సహజంగా",
-          "నేచురల్ గా"
+          "natural గా"
         ],
         [
           "నిర్ధారించాలనుకుంటున్నారా",
-          "కన్ఫర్మ్ చేస్తారా"
+          "confirm చేస్తారా"
         ],
         [
           "తద్వారా",
@@ -566,7 +566,7 @@
         ],
         [
           "ప్రాంతం",
-          "ఏరియా"
+          "area"
         ],
         [
           "ఉదాహరణకు",
@@ -574,16 +574,16 @@
         ],
         [
           "ఉత్పత్తి",
-          "ప్రొడక్ట్"
+          "product"
         ]
       ],
       "openings": {
-        "inbound": "నమస్కారం అండి, {business} కి కాల్ చేసినందుకు థాంక్స్. చెప్పండి, ఏం కావాలి?",
-        "outbound": "హాయ్ అండి, మేము {business} నుండి కాల్ చేస్తున్నాము. ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా?",
-        "test_call": "నమస్కారం అండి, నేను {name}, {business} నుంచి, ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?",
-        "inbound_introduced": "కాల్ చేసినందుకు థాంక్స్. చెప్పండి, ఏం కావాలి?",
+        "inbound": "నమస్కారం అండి, {business} కి call చేసినందుకు thanks. చెప్పండి, ఏం కావాలి?",
+        "outbound": "హాయ్ అండి, మేము {business} నుండి call చేస్తున్నాము. ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా?",
+        "test_call": "నమస్కారం అండి, నేను {name}, {business} నుంచి, ఇది మీ కొత్త receptionist test call. ఇప్పుడు మాట్లాడొచ్చా?",
+        "inbound_introduced": "call చేసినందుకు thanks. చెప్పండి, ఏం కావాలి?",
         "outbound_introduced": "ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా?",
-        "test_call_introduced": "ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?"
+        "test_call_introduced": "ఇది మీ కొత్త receptionist test call. ఇప్పుడు మాట్లాడొచ్చా?"
       },
       "prompt_swaps": [
         "ధన్యవాదాలు",
@@ -666,7 +666,7 @@
         },
         {
           "id": "no-problem",
-          "text": "నో ప్రాబ్లం అండి",
+          "text": "no problem అండి",
           "use": "Reassuring after the caller apologises or declines."
         }
       ],
@@ -674,31 +674,31 @@
         {
           "id": "prices",
           "words": "english",
-          "text": "Prices the English way, as shop people say them, written in Telugu letters: 120 rupees is \"వన్ ట్వంటీ రూపీస్\", 250 is \"టూ ఫిఫ్టీ రూపీస్\", 1,500 is \"ఫిఫ్టీన్ హండ్రెడ్ రూపీస్\". Never the rupee sign or digits."
+          "text": "Prices the English way, as shop people say them: 120 rupees is \"one twenty rupees\", 250 is \"two fifty rupees\", 1,500 is \"fifteen hundred rupees\". Never the rupee sign or digits."
         },
         {
           "id": "lakhs",
-          "text": "Big amounts as people say them, in Telugu letters: \"సెవెంటీ లాక్స్\", \"వన్ పాయింట్ ఫైవ్ క్రోర్స్\"."
+          "text": "Big amounts as people say them: \"seventy lakhs\", \"one point five crores\"."
         },
         {
           "id": "quantities",
-          "text": "Quantities and units the English way, in Telugu letters: \"వన్ కేజీ\", \"హాఫ్ కేజీ\", \"టూ లీటర్స్\", \"టూ బీహెచ్కే\", \"ట్వెల్వ్ హండ్రెడ్ స్క్వేర్ ఫీట్\"."
+          "text": "Quantities and units the English way: \"one kg\", \"half kg\", \"two litres\", \"two BHK\", \"twelve hundred square feet\"."
         },
         {
           "id": "times",
-          "text": "A time the caller said goes back in the same words: they said \"సిక్స్\", say \"సిక్స్\". A time you bring up, as people say them: \"పొద్దున పది గంటలకు\", \"మధ్యాహ్నం రెండు గంటలకు\", \"సాయంత్రం ఐదున్నరకు\"."
+          "text": "A time the caller said goes back in the same words: they said \"six\", say \"six\". A time you bring up, as people say them: \"పొద్దున పది గంటలకు\", \"మధ్యాహ్నం రెండు గంటలకు\", \"సాయంత్రం ఐదున్నరకు\"."
         },
         {
           "id": "days",
-          "text": "రేపు, ఎల్లుండి and ఈరోజు as they are; weekdays in Telugu letters as people say them: \"మండే\", \"సాటర్డే\"."
+          "text": "రేపు, ఎల్లుండి and ఈరోజు as they are; weekdays in English as people say them: \"Monday\", \"Saturday\"."
         },
         {
           "id": "digits",
-          "text": "Phone numbers, OTPs and codes one digit at a time, the English way in Telugu letters: \"నైన్ ఎయిట్ ఫోర్ నైన్\". A mobile has ten digits: given four, ask for the other six, as in \"ఇంకా సిక్స్ డిజిట్స్ చెప్తారా?\", never read the four back."
+          "text": "Phone numbers, OTPs and codes one digit at a time, the English way: \"nine eight four nine\". A mobile has ten digits: given four, ask for the other six, as in \"ఇంకా six digits చెప్తారా?\", never read the four back."
         },
         {
           "id": "small-counts",
-          "text": "Small everyday counts stay Telugu: రెండు నిమిషాలు, ఒక్క సెకండ్; a price or a quantity is said the English way, in Telugu letters."
+          "text": "Small everyday counts stay Telugu: రెండు నిమిషాలు, ఒక్క సెకండ్; a price or a quantity is said the English way, in English letters."
         }
       ],
       "punctuation": [
@@ -708,7 +708,7 @@
         },
         {
           "id": "breath",
-          "text": "A comma every few words, after an opener and wherever you would take a breath: \"సరే అండి, ఒక్క నిమిషం.\" The voice pauses only at a mark."
+          "text": "A comma only where the sentence needs one, never in the first sentence of a reply, which is short and whole. The voice speaks a reply in pieces, and an early comma makes the first piece a fragment."
         },
         {
           "id": "question",
@@ -724,21 +724,21 @@
         },
         {
           "id": "scripts",
-          "text": "Every word in Telugu letters, English words too: డెలివరీ, not delivery."
+          "text": "Telugu words in Telugu letters, English words in English letters as written in English: delivery, call, app."
         },
         {
           "id": "choices",
-          "text": "Two choices as two short questions, \"హోల్ చిల్లీ కావాలా, పౌడర్ కావాలా?\", rather than a list joined with లేదా."
+          "text": "Two choices as two short questions, \"whole chilli కావాలా, powder కావాలా?\", rather than a list joined with లేదా."
         }
       ],
       "prompt_examples": {
         "review": "founder_approved",
         "approved_on": "2026-10-27",
         "native_review": "needs_native_review",
-        "note": "In-call examples for the SPOKEN REGISTER section (D-778, D-861): one idea per sentence, a question mark on every question (often two choices), and the caller's own words said back. D-894: a reaction only where it fits, so the first answer asks straight on with no opener, and a time the caller said in English words goes back in those words. Wording founder 27 Oct 2026 (the first and third replaced, the second kept), replacing the 23 Oct set whose every turn opened with a reaction. Every word in the language's own letters; NEEDS NATIVE-SPEAKER REVIEW. Introduced as how a turn sounds, never words to copy, and carrying no fact. Edited here, not on Ops > Spoken style. Shop-only exchanges (asking for delivery, taking an item) left out on 5 Nov 2026: this line reaches every business's prompt, and many sell nothing.",
+        "note": "In-call examples for the SPOKEN REGISTER section (D-778, D-861): one idea per sentence, a question mark on every question (often two choices), and the caller's own words said back. D-894: a reaction only where it fits, so the first answer asks straight on with no opener, and a time the caller said in English words goes back in those words. Wording founder 27 Oct 2026 (the first and third replaced, the second kept), replacing the 23 Oct set whose every turn opened with a reaction. English words in English letters since 20 Nov 2026 (founder, after the Varsha call: call and app were misread in Telugu letters); NEEDS NATIVE-SPEAKER REVIEW. Introduced as how a turn sounds, never words to copy, and carrying no fact. Edited here, not on Ops > Spoken style. Shop-only exchanges (asking for delivery, taking an item) left out on 5 Nov 2026: this line reaches every business's prompt, and many sell nothing.",
         "exchanges": [
           [["caller", "రేపు కుదురుతుందా?"], ["agent", "అలాగే అండి, రేపు. పొద్దున వీలవుతుందా, సాయంత్రమా?"]],
-          [["caller", "సాటర్డే ఈవెనింగ్ సిక్స్ కి వస్తాను."], ["agent", "సాటర్డే ఈవెనింగ్ సిక్స్ కి అండి. మీ పేరు చెప్తారా?"]]
+          [["caller", "Saturday evening six కి వస్తాను."], ["agent", "Saturday evening six కి అండి. మీ పేరు చెప్తారా?"]]
         ]
       },
       "candidate_prompt_examples": {
@@ -749,17 +749,17 @@
           [
             [
               "caller",
-              "ఓకే, థాంక్స్ అండి."
+              "ఓకే, thanks అండి."
             ],
             [
               "agent",
-              "సరే అండి, ఇంకేమైనా కావాలంటే కాల్ చేయండి."
+              "సరే అండి, ఇంకేమైనా కావాలంటే call చేయండి."
             ]
           ],
           [
             [
               "caller",
-              "కొంచెం హెల్ప్ చేస్తారా?"
+              "కొంచెం help చేస్తారా?"
             ],
             [
               "agent",
@@ -769,11 +769,11 @@
           [
             [
               "caller",
-              "నా ఆర్డర్ ఇంకా రాలేదు."
+              "నా order ఇంకా రాలేదు."
             ],
             [
               "agent",
-              "అయ్యో, సారీ అండి. ఆర్డర్ డీటెయిల్స్ ఒకసారి చెప్తారా?"
+              "అయ్యో, sorry అండి. order details ఒకసారి చెప్తారా?"
             ]
           ],
           [
@@ -783,7 +783,7 @@
             ],
             [
               "agent",
-              "హాఫ్ కేజీ కావాలా, వన్ కేజీ కావాలా?"
+              "half kg కావాలా, one kg కావాలా?"
             ]
           ]
         ]
@@ -816,14 +816,14 @@
           "when_extra": "కాలర్ తెలుగు లో మాట్లాడితే:"
         },
         "exchanges": [
-          [["caller", "దీని రేట్ ఎంత అండి?"], ["agent", "ఒక్క సెకండ్ అండి, ప్రైస్ చూసి చెప్తాను."]],
-          [["caller", "ఆ ఐటమ్ స్టాక్ లో ఉందా?"], ["agent", "హా అండి, ఉంది. ఎంత కావాలి?"]],
-          [["caller", "నా ఆర్డర్ ఇంకా రాలేదు."], ["agent", "అయ్యో, సారీ అండి. ఆర్డర్ డీటెయిల్స్ ఒకసారి చెప్తారా?"]],
-          [["caller", "మీ ప్రొడక్ట్స్ గురించి డీటెయిల్స్ చెప్తారా?"], ["agent", "తప్పకుండా అండి, ఏ ప్రొడక్ట్ గురించి కావాలి?"]],
-          [["caller", "క్వాలిటీ ఎలా ఉంటుంది?"], ["agent", "ఏ ఐటమ్ గురించి అడుగుతున్నారు అండి? దాని డీటెయిల్స్ చూసి చెప్తాను."]],
-          [["caller", "ఓకే, థాంక్స్ అండి."], ["agent", "సరే అండి, ఇంకేమైనా కావాలంటే కాల్ చేయండి."]],
-          [["caller", "ఆర్డర్ ఇవ్వాలి."], ["agent", "సరే అండి, ఏ ఐటమ్, ఎంత క్వాంటిటీ కావాలి?"]],
-          [["caller", "నాకు డెలివరీ కావాలి."], ["agent", "సరే అండి, మీది ఏ ఏరియా?"]]
+          [["caller", "దీని రేట్ ఎంత అండి?"], ["agent", "ఒక్క సెకండ్ అండి, price చూసి చెప్తాను."]],
+          [["caller", "ఆ item స్టాక్ లో ఉందా?"], ["agent", "హా అండి, ఉంది. ఎంత కావాలి?"]],
+          [["caller", "నా order ఇంకా రాలేదు."], ["agent", "అయ్యో, sorry అండి. order details ఒకసారి చెప్తారా?"]],
+          [["caller", "మీ products గురించి details చెప్తారా?"], ["agent", "తప్పకుండా అండి, ఏ product గురించి కావాలి?"]],
+          [["caller", "quality ఎలా ఉంటుంది?"], ["agent", "ఏ item గురించి అడుగుతున్నారు అండి? దాని details చూసి చెప్తాను."]],
+          [["caller", "ఓకే, thanks అండి."], ["agent", "సరే అండి, ఇంకేమైనా కావాలంటే call చేయండి."]],
+          [["caller", "order ఇవ్వాలి."], ["agent", "సరే అండి, ఏ item, ఎంత quantity కావాలి?"]],
+          [["caller", "నాకు delivery కావాలి."], ["agent", "సరే అండి, మీది ఏ area?"]]
         ]
       }
     },
@@ -1167,7 +1167,7 @@
       "punctuation": [
         {
           "id": "short",
-          "text": "Short sentences, one idea each, a comma every few words and after an opener. The voice pauses only at a mark."
+          "text": "Short whole sentences, one idea each, a comma only where the sentence needs one and none in the first sentence of a reply. The voice speaks a reply in pieces, and an early comma makes the first piece a fragment."
         },
         {
           "id": "question",

@@ -124,7 +124,7 @@ def test_a_day_in_the_next_year_names_its_year() -> None:
 
 def test_the_introduced_call_to_a_lead_keeps_its_reason() -> None:
     line = opening_in("te-IN", "outbound", introduced=True)
-    assert line == "మేము {business} నుండి కాల్ చేస్తున్నాము. ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా?"
+    assert line == "మేము {business} నుండి call చేస్తున్నాము. ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా?"
     assert opening_in("te-IN", "outbound", introduced=True, with_reason=False) == (
         "ఇప్పుడు మీరు మాట్లాడగలరా, ఫ్రీయేనా?"
     )

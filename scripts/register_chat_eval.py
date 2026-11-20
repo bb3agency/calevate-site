@@ -145,18 +145,18 @@ _SWAP_SENTENCE: Final = re.compile(r" ?Spoken words: .*?\.(?= Fillers, lightly:|
 #: of them a line the practice callers say.
 EXAMPLE_CALLS: Final[tuple[tuple[tuple[str, str], ...], ...]] = (
     (
-        ("caller", "మీ ప్రొడక్ట్స్ గురించి డీటెయిల్స్ చెప్తారా?"),
-        ("agent", "తప్పకుండా అండి, ఏ ప్రొడక్ట్ గురించి కావాలి?"),
+        ("caller", "మీ products గురించి details చెప్తారా?"),
+        ("agent", "తప్పకుండా అండి, ఏ product గురించి కావాలి?"),
         ("caller", "దీని రేట్ ఎంత అండి?"),
-        ("agent", "ఒక్క సెకండ్ అండి, ప్రైస్ చూసి చెప్తాను."),
-        ("caller", "ఓకే, థాంక్స్ అండి."),
-        ("agent", "సరే అండి, ఇంకేమైనా కావాలంటే కాల్ చేయండి."),
+        ("agent", "ఒక్క సెకండ్ అండి, price చూసి చెప్తాను."),
+        ("caller", "ఓకే, thanks అండి."),
+        ("agent", "సరే అండి, ఇంకేమైనా కావాలంటే call చేయండి."),
     ),
     (
-        ("caller", "క్వాలిటీ ఎలా ఉంటుంది?"),
-        ("agent", "ఏ ఐటమ్ గురించి అడుగుతున్నారు అండి? దాని డీటెయిల్స్ చూసి చెప్తాను."),
-        ("caller", "నాకు డెలివరీ కావాలి."),
-        ("agent", "సరే అండి, మీది ఏ ఏరియా?"),
+        ("caller", "quality ఎలా ఉంటుంది?"),
+        ("agent", "ఏ item గురించి అడుగుతున్నారు అండి? దాని details చూసి చెప్తాను."),
+        ("caller", "నాకు delivery కావాలి."),
+        ("agent", "సరే అండి, మీది ఏ area?"),
     ),
 )
 #: The compiler's own lead for the section (`call_script._compile_v2`).
@@ -175,7 +175,7 @@ def parse_variants(spec: str) -> list[Variant]:
 
 def allow_words(tag: str = LANGUAGE) -> list[str]:
     """The spoken side of the language's `word_swaps`, each once, in list order: the English
-    words people use and the everyday Telugu forms, all in Telugu letters since D-861. An
+    words people use (in English letters since 20 Nov 2026) and the everyday Telugu forms. An
     entry in brackets is an instruction ("(leave it out)"), not a word, and is skipped."""
     style = style_for(tag)
     spoken_words: list[str] = []
@@ -187,8 +187,9 @@ def allow_words(tag: str = LANGUAGE) -> list[str]:
 
 def allow_line(tag: str = LANGUAGE) -> str:
     return (
-        "Telugu: talk the way callers do, with the English words they use, every word in "
-        f"Telugu letters. Use the everyday spoken forms: {', '.join(allow_words(tag))}."
+        "Telugu: talk the way callers do, with the English words they use in English letters "
+        f"and Telugu words in Telugu letters. Use the everyday spoken forms: "
+        f"{', '.join(allow_words(tag))}."
     )
 
 
@@ -269,8 +270,8 @@ def variant_diff(base: str, changed: str) -> list[str]:
 SKIPPED_PROBES: Final = frozenset({"stop_calling", "person"})
 #: Ordering and delivery turns, each line copied from `spoken_style.json`'s Telugu data.
 EXTRA_CONVERSATIONS: Final[tuple[tuple[str, tuple[str, ...]], ...]] = (
-    ("ordering", ("ఆర్డర్ ఇవ్వాలి.", "పౌడర్. ఒక కేజీ ఎంత?")),
-    ("delivery", ("సరే. హోమ్ డెలివరీ ఉంటుందా?", "నా ఆర్డర్ ఇంకా రాలేదు.")),
+    ("ordering", ("order ఇవ్వాలి.", "powder. ఒక kg ఎంత?")),
+    ("delivery", ("సరే. home delivery ఉంటుందా?", "నా order ఇంకా రాలేదు.")),
 )
 
 

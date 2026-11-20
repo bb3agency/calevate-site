@@ -78,6 +78,9 @@ Kind = Literal[
     "asks_to_tell",
     # The founder's comparison of 23 Oct 2026 (D-861): a long stretch with no breath mark.
     "no_breath",
+    # 20 Nov 2026: a comma in the first sentence, so the voice speaks the words before it on
+    # their own (ThinnestAI starts speaking at the first comma once three words exist).
+    "early_comma",
     # The Sri Estates call of 23 Oct 2026 (D-864): a second greeting, or "can you talk now?"
     # again, in the first reply after the opening; a salutation mid-reply later on (D-910).
     "opened_again",
@@ -140,6 +143,7 @@ SOUND_KINDS: Final = frozenset(
         "repeated_turn",
         "asks_to_tell",
         "no_breath",
+        "early_comma",
         # The START OF THE CALL layer decides it, not the owner's script (D-864).
         "opened_again",
         # HOW TO SPEAK decides how a turn opens, not the owner's script (D-894).
@@ -197,13 +201,20 @@ MAX_SENTENCES: Final = 2
 MIN_COUNTED_WORDS: Final = 3
 #: The most words a reply may run without a comma or a sentence end (D-861). Cartesia paces
 #: speech by its punctuation (docs.cartesia.ai sonic-3 prompting tips, 23 Oct 2026, REPORTED),
-#: so a long unmarked run is said in one breath. Our own example turns run two to six words between
-#: marks. 14 let a 12-word Telugu run through on the founder's call of 28 Oct 2026 and he heard
-#: the call as unpunctuated; 10 still passes a plain nine-word English sentence. A choice of
-#: ours, not a measured threshold.
+#: so a long unmarked run is said in one breath. 14 let a 12-word Telugu run through on the
+#: founder's call of 28 Oct 2026 and he heard the call as unpunctuated; 10 still passes a plain
+#: nine-word English sentence. A choice of ours, not a measured threshold. A first sentence
+#: has no comma at all (`_early_comma`), so it stays within this many words.
 BREATH_MAX_WORDS: Final = 10
 #: What counts as a place to breathe.
 _BREATH_MARK: Final = re.compile(r"[,.!?;:।]")
+#: Where ThinnestAI cuts the first piece it speaks: the first comma, dash or semicolon once
+#: three words exist (ThinnestAI email 27 Oct 2026, VENDOR-STATED). Cartesia says a piece
+#: generated on its own changes prosody at the seam and one without closing punctuation may
+#: end with odd or distorted sounds (docs.cartesia.ai capability-guides/
+#: stream-inputs-using-continuations, read 12 and 20 Nov 2026).
+_CLAUSE_MARK: Final = re.compile(rf"[,;{chr(0x2013)}{chr(0x2014)}]|\s-\s")
+EARLY_COMMA_WORDS: Final = 3
 _QUOTE_MAX: Final = 80
 
 
@@ -766,8 +777,16 @@ def turn_problems(
             TurnProblem(
                 "no_breath",
                 f"It ran {run} words without a comma or a full stop, so the voice says them in "
-                "one breath. A comma after an opener and one idea per sentence give it places "
-                "to pause.",
+                "one breath. Shorter sentences, one idea each, give it places to pause.",
+            )
+        )
+    if _early_comma(reply):
+        found.append(
+            TurnProblem(
+                "early_comma",
+                "Its first sentence has a comma, so the voice says the words before it as a "
+                "piece of their own, which can sound cut off. Open with a short sentence with "
+                "no comma.",
             )
         )
     meta = next((s for s in parts if is_question(s) and _ASKS_TO_TELL.search(s)), None)
@@ -867,7 +886,7 @@ _HI_NUMBER: Final = _Live(lambda: _say("turn_checks._HI_NUMBER"))
 #: Telugu's does ("six hundred rupees", as shops in Hyderabad say it, D-744), Hindi's allows
 #: "एक सौ बीस रुपये".
 #: Telugu's also catches a big amount in Telugu number words ("రెండు కోట్ల"), which its
-#: `lakhs` rule says the English way, written in Telugu letters ("టూ క్రోర్స్", D-861). A
+#: `lakhs` rule says the English way, in English letters ("two crores"). A
 #: time in Telugu number words ("రెండు గంటలకు") is how people say a time and is not flagged.
 _NATIVE_PRICE: Final[dict[str, _LivePattern]] = {
     "te": _LivePattern(
@@ -907,6 +926,18 @@ def _english_letters(reply: str, language: str, names: Sequence[str]) -> list[st
     if not has_indic_letters(reply):
         return []
     return latin_words(reply, language, names=names)
+
+
+def _early_comma(reply: str) -> bool:
+    """Does the reply's first sentence carry a clause mark with at least
+    `EARLY_COMMA_WORDS` words before it, where the voice would cut its first piece?"""
+    first = _SENTENCE_END.split(reply.strip(), maxsplit=1)[0]
+    mark = _CLAUSE_MARK.search(first)
+    while mark is not None:
+        if len(first[: mark.start()].split()) >= EARLY_COMMA_WORDS:
+            return True
+        mark = _CLAUSE_MARK.search(first, mark.end())
+    return False
 
 
 def _script_and_number_problems(

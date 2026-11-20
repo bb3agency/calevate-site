@@ -23,7 +23,6 @@ from calevate_shared.call_script import CallScript
 from calevate_shared.opening_notices import NONE_SAID
 from calevate_shared.spoken_guard import (
     INTRODUCED_NAMES_RULE,
-    OWN_LETTERS_RULE,
     QUESTION_END_RULE,
     UNINTRODUCED_RULE,
 )
@@ -35,9 +34,9 @@ BRIEF = (
     "We keep accounts for farmers in Guntur: crop loans, fertiliser credit and what each "
     "farmer owes us after the harvest. Farmers call to check their balance."
 )
-#: A drafted opening with one English-letter word, said after the introduction.
-SLIPPED = "మీ balance చూడాలా?"
-#: What the fake model returns on the repair: own letters, no greeting, no names, a question.
+#: A drafted opening said after the introduction that does not end on a question.
+SLIPPED = "మీ balance చూడాలా."
+#: What the fake model returns on the repair: no greeting, no names, a question.
 REPAIRED = "మీ ఖాతాలో బాకీ ఎంత ఉందో చూడాలా?"
 #: The placed-call opening of the founder's call of 2 Nov 2026 after the introduction: "can we
 #: talk now?" with two words in English letters (D-959).
@@ -74,7 +73,7 @@ def test_the_writer_is_told_the_business_the_rules_and_the_lines_problems() -> N
     asked = opening_line.opening_request(brief, line=SLIPPED, problems=problems)
 
     assert "Guntur" in asked and BUSINESS in asked
-    for rule in (QUESTION_END_RULE, OWN_LETTERS_RULE, INTRODUCED_NAMES_RULE):
+    for rule in (QUESTION_END_RULE, INTRODUCED_NAMES_RULE):
         assert rule in asked, "the rules in the validator's own words"
     assert SLIPPED in asked and problems[0] in asked
     assert "THIS business" in opening_line.OPENING_WRITER_INSTRUCTION
@@ -106,7 +105,7 @@ async def test_the_writer_asks_once_and_sends_back_a_broken_line_with_its_proble
         seen.append("ask")
         with pytest.raises(UnusableAnswerError) as refused:
             parse({"opening_line": SLIPPED})
-        assert "“balance”" in refused.value.problems
+        assert "does not end on a question" in refused.value.problems
         return _answer(parse({"opening_line": f"  {REPAIRED} "}))
 
     monkeypatch.setattr(opening_line, "ask_json", ladder)

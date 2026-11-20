@@ -83,8 +83,8 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     extraction accuracy depends on — fails the build rather than the next live call."""
     block = VOICE_STYLE_GUIDANCE.lower()
     assert "markdown" in block
-    # Every number digit by digit, a mobile as five and five, from the first time (D-969).
-    assert "digit by digit, a comma after each, a mobile five, full stop, five" in block
+    # Every number digit by digit, a mobile as five, a comma, five, from the first time (D-969).
+    assert "digit by digit, a mobile five, a comma, five" in block
     assert "under ten digits of a mobile" in block
     assert "read back" in block
     # D-883: "One two crores, sir" was echoed word for word on the call of 24 Oct 2026 and
@@ -116,9 +116,9 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     assert "React only if it fits what they said" in react
     assert "never the same way twice" in react and "often not." in react
     # The voice starts on the first comma after three words (D-901), so a reply opens with a
-    # few words and a full stop: the first piece is a whole sentence (D-986).
-    assert bullet("- Open with a few words and a full stop").startswith(
-        "- Open with a few words and a full stop; one or two short sentences, then wait"
+    # short whole sentence with no comma: the first piece is a whole sentence (D-986, 20 Nov 2026).
+    assert bullet("- Open with one short whole sentence").startswith(
+        "- Open with one short whole sentence, no comma; one or two short sentences, then wait"
     )
     # The words it overused are not named: a named word can come back more often.
     for stock in ("సంతోషం", "మంచిది", "సరే"):
@@ -141,7 +141,7 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     # (D-910).
     assert "A time or amount they said goes back in their words" in amounts
     assert '("six" stays "six")' in amounts
-    assert "a mobile five, full stop, five" in bullet("- Any number or code")
+    assert "a mobile five, a comma, five" in bullet("- Any number or code")
     # Given fewer than ten digits the agent asks for the rest, never reads them back or asks
     # to confirm them, and the rule comes before the read-back (D-910).
     partial = bullet("- Under ten digits of a mobile?")
@@ -161,13 +161,13 @@ def test_the_founders_fixes_reach_every_prompt_and_the_floor_stays_last() -> Non
 
 
 def test_amounts_follow_the_agents_own_language() -> None:
-    """Telugu says prices the English way in Telugu letters; Hindi allows its own number
+    """Telugu says prices the English way in English words; Hindi allows its own number
     words and English has no rule, so neither may carry the Telugu examples (D-915)."""
     telugu = compose_engine_prompt(_config("Call leads."))
-    assert '"వన్ ట్వంటీ రూపీస్", "టూ క్రోర్స్"' in telugu
+    assert '"one twenty rupees", "two crores"' in telugu
     for language in ("hi-IN", "en-IN"):
         cfg = _config("Call leads.").model_copy(update={"language_primary": language})
         prompt = compose_engine_prompt(cfg)
-        assert "వన్ ట్వంటీ" not in prompt
+        assert "one twenty rupees" not in prompt
         assert "- Amounts in words as people say them, never ₹ or digits." in prompt
         assert 'A time or amount they said goes back in their words ("six" stays' in prompt

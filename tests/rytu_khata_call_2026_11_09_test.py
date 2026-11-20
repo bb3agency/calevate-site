@@ -12,14 +12,10 @@ from __future__ import annotations
 from apps.api.agents.call_mistakes import LESSONS, mistakes_in
 from apps.api.agents.call_rules import SCRIPT_FLOW_RULE
 from apps.api.agents.script_lint import (
-    LintContext,
     flow_problems,
     opening_redone_problems,
     same_opener_problems,
-    script_problems,
 )
-from apps.api.agents.test_conversations import RuleContext, Turn, hard_check, probe_scenario
-from apps.api.agents.turn_checks import turn_problems
 from calevate_shared.call_script import CallScript, ConversationStage
 from calevate_shared.engine import (
     OPENING_CONTINUES_RULE,
@@ -28,7 +24,6 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     screen_steps_bullet,
 )
-from calevate_shared.spoken_style import style_for
 
 STEP_ONE = (
     "Greet the lead by name, identify yourself as Varsha from Rytu Khata, state that you are "
@@ -110,48 +105,6 @@ def test_a_web_address_is_said_as_it_reads_and_spelled_only_when_not_found() -> 
     assert "Spell a word by letters only if they cannot find it" in bullet
     assert "send the link if a tool can" in bullet
     assert "one letter at a time" not in bullet
-
-
-# --- 3. English letters -----------------------------------------------------------------------
-
-
-def test_the_script_card_finds_english_letters_in_a_telugu_line() -> None:
-    script = _script(_stage("s1", "Ask which phone they have.", f"{_telugu()}, Android or iPhone?"))
-    found = script_problems(script, LintContext(language="te-IN"))
-    assert any(p.startswith("stages.0.sounds_like: writes") and "Android" in p for p in found)
-    assert not any("English letters" in p for p in script_problems(script, LintContext()))
-    english = script_problems(script, LintContext(language="en-IN"))
-    assert not any("English letters" in p for p in english)
-    # A line wholly in English is the language the owner wrote it in, not a mixed line.
-    plain = _script(_stage("s1", "Ask which phone they have.", "Android or iPhone?"))
-    te = script_problems(plain, LintContext(language="te-IN"))
-    assert not any("English letters" in p for p in te)
-
-
-def _telugu() -> str:
-    style = style_for("te-IN")
-    assert style is not None and style.fillers
-    return style.fillers[0].text
-
-
-def test_a_practice_reply_with_english_letters_in_telugu_is_noted() -> None:
-    reply = f"{_telugu()}, Android?"
-    kinds = {p.kind for p in turn_problems(reply, language="te-IN", names=("Rytu Khata",))}
-    assert "foreign_script" in kinds
-    # A caller that does not know the business's name does not judge it.
-    assert "foreign_script" not in {p.kind for p in turn_problems(reply, language="te-IN")}
-    named = f"{_telugu()}, Rytu Khata."
-    assert "foreign_script" not in {
-        p.kind for p in turn_problems(named, language="te-IN", names=("Rytu Khata",))
-    }
-
-
-def test_the_practice_check_reads_the_business_name_from_the_brief() -> None:
-    turns = [Turn("Hello.", f"{_telugu()}, Android?")]
-    verdict = hard_check(
-        probe_scenario("ai", "te-IN"), turns, language="te-IN", rules=RuleContext(names=("B",))
-    )
-    assert "foreign_script" in {p.kind for p in verdict.sounds}
 
 
 # --- 4. the same reaction every turn ----------------------------------------------------------

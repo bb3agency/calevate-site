@@ -72,7 +72,7 @@ def test_good_replies_pass() -> None:
         "ఉందండి. మీకు ఎంత quantity కావాలి?",
         "We open at ten thirty and close at eight.",
         "We open at 10:30 am and close at 8 pm.",
-        "Yes, I am an AI assistant, and this call is recorded.",
+        "Yes, I am an AI assistant. This call is recorded.",
         "One kilo is four fifty rupees. Shall I note it down?",
         "Sure. Okay andi. We deliver anywhere in Hyderabad.",
         "సరే అండి, నేను చూసి చెప్తా.",
@@ -100,7 +100,7 @@ def test_brackets_and_voice_breaking_symbols_fail() -> None:
 def test_prices_and_quantities_in_digits_fail() -> None:
     for reply in ("Whole chilli is ₹450 a kilo.", "It is Rs. 450.", "You want 2 kg, right."):
         assert "money_digits" in _kinds(reply), reply
-    assert _kinds("Two kg of whole chilli, noted.") == []
+    assert _kinds("Two kg of whole chilli. Noted.") == []
 
 
 def test_the_time_said_as_now_fails_and_opening_hours_do_not() -> None:
@@ -223,7 +223,10 @@ def test_the_prompt_says_the_turn_and_voice_rules() -> None:
     block = VOICE_STYLE_GUIDANCE.lower()
     # Turn length, one question a turn and no brackets are ours again since D-856, so the
     # practice chat reads the rules a call follows.
-    assert "open with a few words and a full stop; one or two short sentences, then wait" in block
+    assert (
+        "open with one short whole sentence, no comma; one or two short sentences, then wait"
+        in block
+    )
     assert "lead with the answer" in block and "react only if it fits" in block
     assert "one question a turn" in block and "brackets" in block
     assert "never the caller's" in block
@@ -232,11 +235,11 @@ def test_the_prompt_says_the_turn_and_voice_rules() -> None:
     assert "offer once, then close politely" in block
     assert '"?" on every question' in block
     assert "dashes, slashes, ellipses" in block
-    assert '"వన్ ట్వంటీ రూపీస్"' in block and "never ₹ or digits" in block
+    assert '"one twenty rupees"' in block and "never ₹ or digits" in block
     assert 'never "uhm"' in block
-    # Every word in the language's own letters, English words too, in each register line
-    # (founder, 23 Oct 2026, D-861).
-    assert "every word in Telugu letters" in (register_guidance("te-IN") or "")
+    # Hindi writes every word in Devanagari, English words too (D-861); Telugu writes English
+    # words in English letters (founder, 20 Nov 2026).
+    assert "English words in English letters" in (register_guidance("te-IN") or "")
     assert "every word in Devanagari" in (register_guidance("hi-IN") or "")
 
 
@@ -336,6 +339,16 @@ def test_a_long_run_without_a_breath_is_noted_and_never_fails_the_test() -> None
     assert "no_breath" not in _kinds(breathing, language="te-IN")
 
 
+def test_a_comma_in_the_first_sentence_is_noted() -> None:
+    """ThinnestAI speaks its first piece from the first comma once three words exist, so a
+    comma there sends the voice a fragment (20 Nov 2026)."""
+    assert "early_comma" in _kinds("We open at ten thirty, and close at eight.")
+    assert "early_comma" in SOUND_KINDS and "early_comma" not in JOB_KINDS
+    # Two words before the comma, or a comma only in a later sentence, leave a whole piece.
+    assert "early_comma" not in _kinds("Sure sir, we open at ten. Shall I note it, sir?")
+    assert "early_comma" not in _kinds("We open at ten. Morning or evening, which suits?")
+
+
 def test_the_prompt_examples_breathe() -> None:
     """The examples every Telugu, Hindi and English agent reads (D-861) carry no problem of
     their own: short sentences and a question to end the turn. An opener is not required
@@ -362,10 +375,10 @@ def test_the_telugu_examples_are_the_founders_27_october_wording() -> None:
     exchanges = [{t.speaker: t.text for t in exchange} for exchange in style.prompt_examples]
     assert [e["agent"] for e in exchanges] == [
         "అలాగే అండి, రేపు. పొద్దున వీలవుతుందా, సాయంత్రమా?",
-        "సాటర్డే ఈవెనింగ్ సిక్స్ కి అండి. మీ పేరు చెప్తారా?",
+        "Saturday evening six కి అండి. మీ పేరు చెప్తారా?",
     ]
     # The time goes back exactly as the caller said it.
-    assert "సాటర్డే ఈవెనింగ్ సిక్స్ కి" in exchanges[1]["caller"]
+    assert "Saturday evening six కి" in exchanges[1]["caller"]
     # No reaction opens two turns the same way, and none is the stock "సరే అండి".
     openers = [e["agent"].split(",")[0] for e in exchanges if "," in e["agent"]]
     assert len(openers) == len(set(openers))

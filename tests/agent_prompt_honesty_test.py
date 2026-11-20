@@ -85,14 +85,14 @@ def test_the_notices_are_quoted_as_already_said_and_never_repeated() -> None:
     assert prompt.rindex(TRUTHFUL_ANSWER_MARKER) > prompt.index(START_OF_CALL_HEADER)
 
 
-def test_every_word_and_amount_is_written_in_the_languages_letters() -> None:
-    """D-861 (founder, 23 Oct 2026): a Telugu agent writes English words and amounts in
-    Telugu letters, amounts the English way, and learns where to breathe from the examples."""
+def test_telugu_keeps_english_words_and_amounts_in_english_letters() -> None:
+    """Founder, 20 Nov 2026 (reversing D-861 for Telugu): a Telugu agent writes English words
+    and amounts in English letters, and learns where to breathe from the examples."""
     register = _layer(_cfg(), "spoken_register")
-    assert "every word in Telugu letters, English words too" in register
-    assert "English letters" not in register
+    assert "Telugu words in Telugu letters, English words in English letters" in register
+    assert "English words too" not in register
     assert "పొద్దున వీలవుతుందా, సాయంత్రమా?" in register
-    assert '"వన్ ట్వంటీ రూపీస్", "టూ క్రోర్స్"' in VOICE_STYLE_GUIDANCE
+    assert '"one twenty rupees", "two crores"' in VOICE_STYLE_GUIDANCE
 
 
 def test_an_answering_agent_is_told_its_test_call_opens_another_way() -> None:

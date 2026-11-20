@@ -203,7 +203,7 @@ def test_a_short_go_on_is_the_answer_to_a_cut_line() -> None:
     # Offering a reading of the cut number as one short question is the right move (D-856).
     offer = "ఒక కేజీ కావాలా అండి, ఇంకా ఎక్కువా?"
     for said in ("నాకొక", "కారం పొడి కావాలండి ఒక"):
-        assert _kinds_of_reply(_X(said, offer)) == set(), said
+        assert _kinds_of_reply(_X(said, offer)) - {"early_comma"} == set(), said
     # Taking the guess and moving on is still finishing their sentence.
     guessed = "సరే అండి, ఒక కేజీ కారం పొడి. ఇంటికి delivery కావాలా?"
     assert "caller_line" in _kinds_of_reply(_X("కారం పొడి కావాలండి ఒక", guessed))

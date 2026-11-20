@@ -111,11 +111,11 @@ def test_the_writer_gets_the_finding_in_its_repair_round() -> None:
 
 
 def test_a_merge_field_is_not_an_english_word_in_a_spoken_line() -> None:
-    # Telugu and Hindi lines write every word in their own letters (D-861); the merge field
+    # Hindi lines write every word in their own letters (D-861); the merge field
     # is replaced before anything is said, so its key is never heard.
     assert latin_words(f"{NAME_FIELD}, ?", "te-IN") == []
     assert latin_words("{{ lead_name }} {{village}}", "hi-IN") == []
-    assert latin_words(f"{NAME_FIELD} app", "te-IN") == ["app"]
+    assert latin_words(f"{NAME_FIELD} app", "hi-IN") == ["app"]
 
 
 def test_a_step_that_explains_several_actions_at_once_is_found() -> None:

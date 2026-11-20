@@ -131,6 +131,7 @@ from calevate_shared.events import (
     TurnTiming,
 )
 from calevate_shared.extraction import ascii_digits
+from calevate_shared.invisible_text import plain_joins
 from calevate_shared.webhook_signature import (
     signed_time_is_fresh,
     timestamped_sha256_signature_matches,
@@ -1687,9 +1688,12 @@ def _steps_body(cfg: AgentConfig) -> list[dict[str, Any]]:
         )
     return [
         {
-            "title": step.title.strip()[:80],
-            "detail": step.detail.strip()[:600],
-            "branches": [{"when": when, "action": action} for when, action in step.branches],
+            "title": plain_joins(step.title.strip())[:80],
+            "detail": plain_joins(step.detail.strip())[:600],
+            "branches": [
+                {"when": plain_joins(when), "action": plain_joins(action)}
+                for when, action in step.branches
+            ],
             "collect": list(step.collect),
         }
         for step in cfg.script_steps
@@ -2500,7 +2504,7 @@ class ThinnestEngine:
             # engine says the lines written in the caller's script (create-agent.md:1438-1454,
             # 19 Oct 2026 snapshot), and only after `thinkingDelayMs` of quiet.
             "thinking": True,
-            "thinkingLines": list(cfg.filler_lines),
+            "thinkingLines": [plain_joins(line) for line in cfg.filler_lines],
             # The client's background office sound. Volume is a fraction with at most two
             # decimals, 0.05-1 (same page); we hold whole percent.
             "ambience": cfg.ambience,
