@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.86 — 20-Nov-2026
+
+- A call where the caller hung up early is never counted as reaching the campaign's goal,
+  even when the after-call reading said it was, so it no longer moves the person to Goal
+  reached.
+- A test call no longer makes a lead or a Goal reached item, even for a number that once had
+  a real call. Each status move now records the call that caused it.
+- A test call's page no longer shows a note about why it cannot be called back.
+
 ## 0.4.85 — 20-Nov-2026
 
 - Pip's script writer no longer keeps English words in Telugu letters from the old

@@ -1755,7 +1755,9 @@ async def _run_post_call_stages(
     with span("pipeline.outcome", call_id=str(call_id)) as stage:
         call_outcome = await _record_outcome(tenant_id, call_id, snapshot)
         # What it came to for THIS business (D-836), beside the fact above, never instead.
-        business_outcome = await _record_business_outcome(tenant_id, call_id, business_outcomes)
+        business_outcome = await _record_business_outcome(
+            tenant_id, call_id, business_outcomes, learned=call_outcome != "hung_up_early"
+        )
         set_span_attributes(
             stage,
             outcome=call_outcome or "unknown",
@@ -3444,11 +3446,29 @@ async def _agent_business_outcomes(tenant_id: UUID, agent_id: UUID) -> list[Busi
 
 
 async def _record_business_outcome(
-    tenant_id: UUID, call_id: UUID, outcomes: list[BusinessOutcome]
+    tenant_id: UUID, call_id: UUID, outcomes: list[BusinessOutcome], *, learned: bool = True
 ) -> BusinessOutcome | None:
     """STEP 3e, second half: write `calls.business_outcome` and its label from the stored
     model choice. A key the agent no longer offers (the owner removed it before a re-drive)
-    leaves what the call already says alone, so a past call keeps its label."""
+    leaves what the call already says alone, so a past call keeps its label.
+
+    Not `learned` (the facts say the caller hung up early): no outcome and no goal reached,
+    whatever the reading chose. A model reading a 28-second call where the caller only asked
+    who was calling answered "goal reached", which moved the lead to Goal reached; the
+    facts are the platform's, the reading is a guess about them."""
+    if not learned:
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text(
+                    "UPDATE calls SET business_outcome = NULL, business_outcome_label = NULL, "
+                    "goal_reached = CASE WHEN goal_reached = 'yes' THEN 'unclear' "
+                    "ELSE goal_reached END, goal_reason = CASE WHEN goal_reached = 'yes' "
+                    "THEN NULL ELSE goal_reason END, updated_at = now() "
+                    "WHERE id = :cid AND tenant_id = :tid"
+                ),
+                {"cid": call_id, "tid": tenant_id},
+            )
+        return None
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
@@ -3513,7 +3533,7 @@ def after_call_status(
 
 
 async def _advance_lead_status(
-    session: AsyncSession, lead_id: UUID, target: str, *, announce: bool = True
+    session: AsyncSession, lead_id: UUID, target: str, *, call_id: UUID, announce: bool = True
 ) -> bool:
     """Move the lead up to `target` when the rules allow. True when it moved.
 
@@ -3544,10 +3564,11 @@ async def _advance_lead_status(
             text(
                 "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, "
                 "created_at, updated_at) SELECT :id, l.tenant_id, l.id, 'status_change', "
-                "jsonb_build_object('status', CAST(:target AS text), 'by', 'after_call_rules'), "
+                "jsonb_build_object('status', CAST(:target AS text), 'by', 'after_call_rules', "
+                "'call_id', CAST(:cid AS text)), "
                 "'system', now(), now() FROM leads l WHERE l.id = :lid"
             ),
-            {"id": uuid7(), "lid": lead_id, "target": target},
+            {"id": uuid7(), "lid": lead_id, "target": target, "cid": str(call_id)},
         )
         if announce:
             await emit_lead_updated(session, [lead_id])
@@ -3946,7 +3967,9 @@ async def _upsert_lead(
                 business_move=business_move,
             )
             if target is not None:
-                await _advance_lead_status(session, resolved_id, target, announce=not created)
+                await _advance_lead_status(
+                    session, resolved_id, target, call_id=call_id, announce=not created
+                )
             if created:
                 # After the status move, so the client's CRM hears of the lead once, as it
                 # stands at the end of the call that brought it (D-841).
@@ -5506,7 +5529,7 @@ async def _maybe_notify_hot_lead(
     hot = business_outcome is not None and reads_hot(business_outcome, connected=connected)
     async with tenant_session(tenant_id) as session:
         if hot and lead_id is not None:
-            await _advance_lead_status(session, lead_id, "hot")
+            await _advance_lead_status(session, lead_id, "hot", call_id=call_id)
         return await team_alerts.queue_after_call(
             session,
             tenant_id=tenant_id,

@@ -507,6 +507,71 @@ async def test_a_test_call_never_makes_a_lead() -> None:
     assert counts.leads == 2
 
 
+async def test_a_test_call_after_a_real_one_still_makes_no_lead() -> None:
+    """A move names the call that caused it, so a test call to a number that once had a real
+    call does not move it to Goal reached; a move named by a real call counts."""
+    tenant_id, _slug, _token = await _make_tenant()
+    at = _ist(_today_ist() - timedelta(days=1), 10)
+    async with tenant_session(tenant_id) as session:
+        agent_id = await _agent(session)
+        by_test, by_real = uuid7(), uuid7()
+        moved_by: dict[uuid.UUID, uuid.UUID] = {}
+        for lead_id, phone in ((by_test, "+919876543231"), (by_real, "+919876543232")):
+            await session.execute(
+                text(
+                    "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, "
+                    "status_set_at, created_at, updated_at) VALUES (:id, :t, :a, :p, "
+                    "'campaign', 'hot', :at, :at, now())"
+                ),
+                {"id": lead_id, "t": tenant_id, "a": agent_id, "p": phone, "at": at},
+            )
+            for trial, minutes in ((False, 0), (lead_id == by_test, 40)):
+                call_id = uuid7()
+                await session.execute(
+                    text(
+                        "INSERT INTO calls (id, tenant_id, agent_id, lead_id, engine_call_id, "
+                        "direction, status, started_at, trial_call, created_at, updated_at) "
+                        "VALUES (:id, :t, :a, :l, :e, 'outbound', 'completed', :at, :trial, "
+                        ":at, now())"
+                    ),
+                    {
+                        "id": call_id,
+                        "t": tenant_id,
+                        "a": agent_id,
+                        "l": lead_id,
+                        "e": f"tc-{uuid.uuid4().hex}",
+                        "trial": trial,
+                        "at": at + timedelta(minutes=minutes),
+                    },
+                )
+                moved_by[lead_id] = call_id
+            await session.execute(
+                text(
+                    "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, "
+                    "created_at, updated_at) VALUES (:id, :t, :l, 'status_change', "
+                    "jsonb_build_object('status', 'hot', 'by', 'after_call_rules', "
+                    "'call_id', CAST(:c AS text)), 'system', :at, :at)"
+                ),
+                {
+                    "id": uuid7(),
+                    "t": tenant_id,
+                    "l": lead_id,
+                    "c": str(moved_by[lead_id]),
+                    "at": at + timedelta(minutes=42),
+                },
+            )
+        ids = {
+            row[0]
+            for row in (
+                await session.execute(
+                    text(f"SELECT bl.id FROM {lead_definition.BECAME_LEADS_SQL} AS bl")
+                )
+            ).all()
+        }
+    assert by_test not in ids
+    assert by_real in ids
+
+
 async def test_the_fleet_view_groups_every_client_by_language() -> None:
     tenant_id, _slug, _token = await _make_tenant()
     today = _today_ist()

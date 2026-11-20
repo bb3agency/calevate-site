@@ -21,11 +21,11 @@ A TEST CALL NEVER MAKES A LEAD (founder, 5 Nov 2026). A test call is the owner r
 own agent; counting it would lower cost per lead with the owner's own enthusiasm. The
 after-call rules move a lead on a test call like on any other (the timeline stays true), so
 the exclusion is here, in the one definition, rather than in each reader: a move the
-after-call rules made (`by = after_call_rules`) counts only once the lead has had a real call
-at or before it. A person's own move counts whatever calls came before it, because a person
-chose it. Moves carry no call id, so "a real call at or before the move" is the test: the
-rules write the move after the call that caused it, so a move after a test call and before
-any real call is that test call's.
+after-call rules made (`by = after_call_rules`) counts only when the call that caused it,
+named by the move's `call_id`, was a real call. A person's own move counts whatever calls
+came before it, because a person chose it. A move written before moves named their call
+counts once the lead has had a real call at or before it; that rule let a test call to a
+number that had once had a real call move it to Goal reached.
 """
 
 from __future__ import annotations
@@ -76,7 +76,9 @@ BECAME_LEADS_SQL: Final = (
     f"LEFT JOIN {_FIRST_REAL_CALL} fr ON fr.lead_id = e.lead_id "
     f"WHERE e.type = 'status_change' AND e.payload ->> 'status' IN {_BAND_SQL} "
     "AND (e.payload ->> 'by' IS DISTINCT FROM 'after_call_rules' "
-    "OR fr.first_real_at <= e.created_at) "
+    "OR (e.payload ->> 'call_id' IS NULL AND fr.first_real_at <= e.created_at) "
+    "OR EXISTS (SELECT 1 FROM calls c WHERE c.id = CAST(e.payload ->> 'call_id' AS uuid) "
+    f"AND {REAL_CALL_SQL})) "
     "GROUP BY e.lead_id) r ON r.lead_id = l.id "
     # A row standing in the band with no timeline move into it (written before the timeline
     # existed) still counts; one whose only moves in were test calls' does not.

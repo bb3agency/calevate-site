@@ -133,6 +133,20 @@ async def test_a_resolved_call_is_not_followed_up() -> None:
     assert excinfo.value.code == "callback_not_needed"
 
 
+async def test_a_test_call_is_never_called_back() -> None:
+    """The owner rang their own agent: there is nobody to follow up, and the page says so
+    instead of the dial gate's reason for a real call back."""
+    tenant_id, agent_id = await _tenant()
+    call_id, _ = await _finished_call(tenant_id, agent_id, outcome="hung_up_early")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET trial_call = true WHERE id = :i"), {"i": call_id}
+        )
+        with pytest.raises(ProblemError) as excinfo:
+            await service.plan_callback(session, call_id)
+    assert excinfo.value.code == service.CALLBACK_TEST_CALL_RULE
+
+
 async def test_a_call_still_in_progress_cannot_be_followed_up() -> None:
     tenant_id, agent_id = await _tenant()
     call_id, _ = await _finished_call(tenant_id, agent_id, status="in_progress", outcome=None)

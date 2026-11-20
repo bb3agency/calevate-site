@@ -3272,6 +3272,8 @@ CALLBACK_WINDOW_DAYS = 7
 # point of recording an outcome is that we then act differently on it. `call_back_booked`
 # is excluded because the call back IS the follow-up and `plan_callback` says when it is.
 CALLBACK_OUTCOMES: tuple[OutcomeTag, ...] = ("needs_you", "hung_up_early", "missed")
+#: A test call is never called back: the person rung is the owner.
+CALLBACK_TEST_CALL_RULE: Final = "callback_test_call"
 CALLBACK_STATUSES: tuple[CallStatus, ...] = ("no_answer", "busy", "voicemail", "completed")
 
 
@@ -3311,6 +3313,7 @@ async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
         await session.execute(
             text(
                 "SELECT c.lead_id, c.agent_id, c.status, c.outcome_tag, c.summary, "
+                "  (c.trial_call OR c.paid_test_call), "
                 "  c.created_at, c.callback_of_call_id, l.phone_e164, l.name, a.direction "
                 "FROM calls c "
                 "LEFT JOIN leads l ON l.id = c.lead_id "
@@ -3328,6 +3331,7 @@ async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
         status,
         outcome,
         summary,
+        test_call,
         created_at,
         parent,
         phone,
@@ -3335,6 +3339,13 @@ async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
         direction,
     ) = row
 
+    # The owner ringing their own agent: there is nobody to follow up, and the dial gate's
+    # reason for a real call back ("not working anywhere that can place this call") read as
+    # a fault on the test call's page.
+    if test_call:
+        raise ProblemError.business_rule(
+            CALLBACK_TEST_CALL_RULE, "This was a test call, so there is no one to call back."
+        )
     # THE BOOKED CALL BACK IS READ FIRST (F-4): a call that ended with one is followed up
     # by it, and the panel says so — when it is due, or why it could not be placed.
     owed = await _refuse_when_call_back_booked(session, call_id)

@@ -11,6 +11,8 @@ import type { useCallbackEligibility, useWriteAccess } from "@/lib/api/hooks";
 const ALREADY_BOOKED = "callback_already_booked";
 /** The eligibility rule for "this call's outcome needs no call back". */
 const NOT_NEEDED = "callback_not_needed";
+/** The eligibility rule for "a test call": the owner rang themselves, so nothing is said. */
+const TEST_CALL = "callback_test_call";
 
 /**
  * THE ONE THING THIS SCREEN OFFERS TO DO, and why it cannot when it cannot.
@@ -75,7 +77,8 @@ export function CallBackAction({
     // asked of the owner.
     const repeats =
       (bookedShown && eligibility.data.rule === ALREADY_BOOKED) ||
-      (verdictSaysDone && eligibility.data.rule === NOT_NEEDED);
+      (verdictSaysDone && eligibility.data.rule === NOT_NEEDED) ||
+      eligibility.data.rule === TEST_CALL;
     return (
       <div className="space-y-3">
         {eligibility.data.reason && !repeats && (

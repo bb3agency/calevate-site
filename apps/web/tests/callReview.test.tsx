@@ -870,6 +870,17 @@ describe("the call back and the details, round two", () => {
     expect(screen.queryByText("The caller asked to be called back, and the agent booked it.")).toBeNull();
   });
 
+  it("says nothing about calling back on a test call", async () => {
+    const refusal = "This was a test call, so there is no one to call back.";
+    await renderClientPage(
+      page,
+      routes(detail({ outcome_tag: "hung_up_early", callback: null }), {
+        "/v1/calls/c1/callback": { eligible: false, reason: refusal, rule: "callback_test_call" },
+      }),
+    );
+    await screen.findByRole("heading", { name: "Conversation" });
+    expect(screen.queryByText(refusal)).toBeNull();
+  });
   it("does not repeat the booked call back as a refusal under the action", async () => {
     const refusal = "A call back is already booked for 05 Nov at 20:26 (IST). It will be placed then.";
     await renderClientPage(

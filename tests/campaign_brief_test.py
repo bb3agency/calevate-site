@@ -11,7 +11,7 @@ import pytest
 from apps.api.campaigns import brief, controls, results
 from apps.api.campaigns import service as campaigns
 from apps.api.db.session import tenant_session
-from apps.workers import campaign_dispatch
+from apps.workers import campaign_dispatch, pipeline
 from apps.workers import extraction as extraction_module
 from apps.workers.extraction import build_response_schema, extract_call
 from calevate_shared.business_outcomes import BusinessOutcome
@@ -335,6 +335,28 @@ async def test_a_campaign_call_is_judged_against_its_goal_and_stored_on_the_call
     assert await _scalar(tenant_id, "SELECT goal_reached FROM calls WHERE id = :c", c=call_id) == (
         "yes"
     )
+
+
+async def test_a_call_that_hung_up_early_reached_no_goal_whatever_the_reading_said() -> None:
+    """The facts say the caller hung up early, so the reading's "goal reached" and the
+    outcome that names the goal are cleared: no lead is moved to Goal reached on it."""
+    tenant_id, _execution_id, call_id = await _completed_call("hungup")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET goal_reached = 'yes', goal_reason = 'It is installed.', "
+                "business_outcome = 'installed', business_outcome_label = 'App installed' "
+                "WHERE id = :c"
+            ),
+            {"c": call_id},
+        )
+    assert await pipeline._record_business_outcome(tenant_id, call_id, [], learned=False) is None
+    row = await _scalar(
+        tenant_id,
+        "SELECT ROW(goal_reached, goal_reason, business_outcome)::text FROM calls WHERE id = :c",
+        c=call_id,
+    )
+    assert row == "(unclear,,)"
 
 
 async def test_a_call_outside_a_campaign_is_never_asked_about_a_goal(
