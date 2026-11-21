@@ -93,6 +93,7 @@ from apps.api.agents.business_fit import UNKNOWN, BusinessFit
 from apps.api.agents.call_rules import (
     OPENING_LINE_RULE,
     opening_redone_line_problems,
+    placed_opening_problems,
     said_line_problem,
     writer_rules,
 )
@@ -222,10 +223,9 @@ _SYSTEM_INSTRUCTION = (
     "scheme or urgency; a figure only when the owner's facts give it. "
     f"{OPENING_LINE_RULE} For an agent that "
     "places calls, "
-    "outbound_purpose is one sentence on why we are calling; the opening asks whether now is "
-    "a good time, and the first stage confirms this is the right person ({{lead_name}} is the "
-    "merge field for the "
-    "lead's name); for an agent that only answers calls leave outbound_purpose empty. "
+    "outbound_purpose is one sentence on why we are calling, the reason its opening says "
+    "({{lead_name}} is the merge field for the lead's name); for an agent that only answers "
+    "calls leave outbound_purpose empty. "
     "Stages are 3 to 6, each with a short name, an English instruction, exit_when, and "
     "sounds_like: one short line in the call language showing how that stage sounds. "
     "A stage's procedure lists, in order, small actions the caller does one by one on their "
@@ -335,6 +335,16 @@ def _stages_where_they_belong(fields: dict[str, Any], current: CallScript) -> di
 _OPENING_PATHS: Final = frozenset({"opening_line", "outbound_opening_line"})
 
 
+def placed_paths(direction: str) -> frozenset[str]:
+    """The opening lines said on a call the agent places: a "both" agent's
+    `outbound_opening_line`, and the `opening_line` of one that only places calls."""
+    return frozenset(
+        {"opening_line", "outbound_opening_line"}
+        if direction == "outbound"
+        else {"outbound_opening_line"}
+    )
+
+
 def language_problems(
     script: CallScript,
     language: str | None,
@@ -346,6 +356,7 @@ def language_problems(
     introduced: bool = False,
     lint: LintContext | None = None,
     woven: WovenNotices | None = None,
+    direction: str = "inbound",
 ) -> list[str]:
     """What the model must fix in a script it wrote (D-831): an instruction in an Indic
     script, and a spoken line with a textbook word (`spoken_guard`), a provider's name
@@ -363,7 +374,10 @@ def language_problems(
     False skips the English rule, for a conversion that keeps the owner's sentences.
     `lint` adds the script lint (`agents/script_lint`, D-945): promotional words, promises
     outside the account's capabilities, figures no fact gives, stacked questions and
-    another persona's name, on the model's own lines only."""
+    another persona's name, on the model's own lines only. With `lint`, an opening said on a
+    call the agent places (`placed_paths(direction)`) also says the agent's name and the
+    reason for the call (`call_rules.placed_opening_problems`)."""
+    placed = placed_paths(direction)
     kept = (
         {text for _, text in (*instruction_fields(before), *spoken_fields(before))}
         if before is not None
@@ -403,6 +417,7 @@ def language_problems(
                     text,
                     opening=path in _OPENING_PATHS,
                     close=close is not None and path.startswith(close),
+                    placed=path in placed,
                 ),
                 # Every spoken line, not only the opening: a step's example line, a sample
                 # phrase or the example call in English letters teaches the in-call model to
@@ -424,6 +439,14 @@ def language_problems(
             problems += spoken_line_problems(path, text, lint)
         if woven is not None and path in _OPENING_PATHS and not owners and text.strip():
             problems += woven_notice_problems(path, text, woven)
+        if lint is not None and path in placed and not owners and text.strip():
+            problems += placed_opening_problems(
+                path,
+                text,
+                agent_name=lint.agent_name,
+                business_name=lint.business_name,
+                introduced=introduced and not (woven is not None and woven.ai),
+            )
     if lint is not None:
         problems += shape_problems(script, before)
         if lint.places_calls:
@@ -532,6 +555,7 @@ def drafted_script(
         introduced=introduced,
         lint=lint,
         woven=woven,
+        direction=direction,
     )
     if problems:
         log.warning("script_assist_language_unusable", extra={"count": len(problems)})
@@ -670,6 +694,7 @@ def salvaged_edit(
     lint: LintContext | None = None,
     woven: WovenNotices | None = None,
     lenient: bool = False,
+    direction: str = "inbound",
 ) -> tuple[CallScript, list[LeftOut]]:
     """`edited_script`, plus the parts a `lenient` read put back as the owner had them.
 
@@ -721,6 +746,7 @@ def salvaged_edit(
         introduced=introduced,
         lint=lint,
         woven=woven,
+        direction=direction,
     )
     if problems and lenient:
         # The lines still breaking a rule go back to the owner's, and the rest of the change
@@ -1010,6 +1036,8 @@ class ScriptBrief:
     def user_message(self) -> str:
         lines = [
             f"Business name: {self.business_name or 'not given'}",
+            # A placed call's opening says who is calling (`call_rules.PLACED_OPENING_RULE`).
+            *([f"Agent name: {self.agent_name}"] if self.agent_name.strip() else []),
             f"Business type: {self.business_type}",
             _DIRECTION_SENTENCES.get(self.direction, _DIRECTION_SENTENCES["inbound"]),
             f"Call language: {self.language}",
@@ -2071,6 +2099,7 @@ async def draft_script(
             introduced=full.introduced,
             lint=full.lint_context(),
             woven=full.woven,
+            direction=full.direction,
         )
 
         def strict(raw: dict[str, Any]) -> CallScript | None:

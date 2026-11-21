@@ -16,12 +16,24 @@ broken-off "ఒక" finished as "one kg", and a 173-character greeting.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Final
 
 from calevate_shared.call_script import CallScript
-from calevate_shared.opening_notices import opening_max_chars
-from calevate_shared.spoken_guard import HONORIFICS_PER_LINE, honorific_count
+from calevate_shared.opening_notices import (
+    WOVEN_AI_CHARS,
+    WOVEN_RECORDING_CHARS,
+    opening_max_chars,
+    says_ai,
+    says_recorded,
+)
+from calevate_shared.spoken_guard import (
+    HONORIFICS_PER_LINE,
+    honorific_count,
+    names_used,
+    without_greeting,
+)
 
 from apps.api.agents.script_lint import NAME_FIELD, NAME_PLACEMENT_RULE, step_line
 from apps.api.agents.turn_checks import (
@@ -42,6 +54,77 @@ from apps.api.agents.turn_checks import (
 #: question. Voice platforms advise the same short opener ("Aim for 5-10 seconds", "Avoid
 #: long company introductions": docs.autocalls.ai/ai-assistants/initial-message, 21 Oct 2026).
 OPENING_LINE_MAX_CHARS: Final = 120
+#: A placed call's opening also says the agent's name and the one reason for the call
+#: (`PLACED_OPENING_RULE`), which 120 cannot hold in Telugu: the reviewed te-IN starter
+#: (`spoken_style.json` `outbound`) is 87 characters with neither. Its total with woven notices
+#: stays at `OPENING_CEILING_CHARS`, the most an answering opening already reaches; the
+#: engine's own ceilings are still measured at save and publish
+#: (docs/evidence/script-generation-2026-11-21/FLOW.md §2.4).
+PLACED_OPENING_MAX_CHARS: Final = 160
+OPENING_CEILING_CHARS: Final = OPENING_LINE_MAX_CHARS + WOVEN_AI_CHARS + WOVEN_RECORDING_CHARS
+
+
+def opening_most(text: str, *, placed: bool = False) -> int:
+    """The longest an opening line holding `text` may be: the room for a notice it says
+    added, and, for a placed call's opening, the room for its name and reason."""
+    if not placed:
+        return opening_max_chars(OPENING_LINE_MAX_CHARS, text)
+    return min(opening_max_chars(PLACED_OPENING_MAX_CHARS, text), OPENING_CEILING_CHARS)
+
+
+#: A placed call's opening: who, why, then permission. Stating the reason is what the person
+#: hangs up without (Varsha, 20-21 Nov 2026: "who are you, what name?"); sources and the
+#: limits of the check in docs/evidence/script-generation-2026-11-21/FLOW.md.
+PLACED_WHO_RULE: Final = (
+    "say who is calling: the agent's name, written exactly as the brief gives it"
+)
+PLACED_REASON_RULE: Final = (
+    "say the one reason for the call in a short sentence of its own, ending with a full stop, "
+    "without the names again"
+)
+PLACED_OPENING_RULE: Final = (
+    "says who is calling (the agent's name as the brief gives it, and the business), then "
+    "the call's one reason from the brief without the names, then asks only whether they "
+    "can talk now: short sentences, each ending with a full stop, the question last"
+)
+
+_MERGE_FIELD: Final = re.compile(r"\{\{[^}]*\}\}")
+
+
+def _gives_reason(sentence: str, names: list[str]) -> bool:
+    """A statement that can carry the call's reason: not a question, no name in it, not a
+    notice, and two words or more once the greeting and merge fields are gone. Structure,
+    not meaning: whether those words ARE the reason no check here can read in every
+    language, so the writer is told it and this only refuses an opening with no room for
+    it."""
+    if is_question(sentence) or names_used(sentence, names):
+        return False
+    if says_ai(sentence) or says_recorded(sentence):
+        return False
+    rest = _MERGE_FIELD.sub(" ", without_greeting(sentence))
+    return len([word for word in rest.split() if any(ch.isalnum() for ch in word)]) >= 2
+
+
+def placed_opening_problems(
+    where: str,
+    text: str,
+    *,
+    agent_name: str = "",
+    business_name: str = "",
+    introduced: bool = False,
+) -> list[str]:
+    """What a placed call's opening line is missing of `PLACED_OPENING_RULE`: the agent's
+    name (unless the agent's introduction just said it, `introduced`), and a sentence before
+    the question for the reason. The name is matched as written, the only spelling the brief
+    gives; a line that writes it in other letters is sent back to write it so."""
+    found: list[str] = []
+    name = agent_name.strip()
+    if name and not introduced and not names_used(text, [name]):
+        found.append(f"{where}: does not say who is calling; {PLACED_WHO_RULE}: {name}")
+    names = [n.strip() for n in (agent_name, business_name) if n.strip()]
+    if not any(_gives_reason(s, names) for s in sentences(text)):
+        found.append(f"{where}: does not say why the call is made; {PLACED_REASON_RULE}")
+    return found
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,11 +275,11 @@ OPENING_LINE_RULE: Final = (
     "greets, names the business and asks one short question; if it uses "
     f"{NAME_FIELD} at all, a comma follows it straight away, with no title. For an agent that "
     f"only places calls it greets the person by name with {NAME_FIELD} "
-    f"({NAME_PLACEMENT_RULE}), says in one short sentence who is calling, from which "
-    "business and why, "
-    "then asks only whether they can talk now; the business's own questions wait until they "
+    f"({NAME_PLACEMENT_RULE}) and {PLACED_OPENING_RULE}, in at most "
+    f"{PLACED_OPENING_MAX_CHARS} characters; the business's own questions wait until they "
     "say yes. When the brief says the agent introduces itself first, the opening_line "
-    "neither greets nor names the agent or the business. For an agent that answers calls "
+    "neither greets nor names the agent or the business, and says only the reason and the "
+    "question. For an agent that answers calls "
     "and also places them, outbound_opening_line is what it says first on a call it places, "
     "under the rule for placed calls, never thanks for calling; for any other agent leave "
     "outbound_opening_line empty."
@@ -239,6 +322,9 @@ OPENING_LINE_RULE: Final = (
 #:   (developers.google.com/assistant/conversation-design/questions, read 9 Nov 2026).
 #:   `script_lint.order_problems` checks that such a step is reached only through a way out
 #:   whose condition says the caller uses it.
+#: - After the opening, the purpose's order: situation asked, steps, done checked, the one
+#:   next step. On the Varsha call of 21 Nov 2026 the first step said "you gave your name in
+#:   the app" before any reason (docs/evidence/script-generation-2026-11-21/FLOW.md §2.5).
 SCRIPT_FLOW_RULE: Final = (
     "Every detail to collect is asked in a stage, named in the instruction of the stage "
     "where the call reaches it, one question a turn, so none is left over at the end. "
@@ -253,10 +339,13 @@ SCRIPT_FLOW_RULE: Final = (
     "question and branches on the answer, or its instruction first asks it and goes on only "
     "if they say yes; either way its sounds_like asks rather than asserts. "
     "Having something, installing it or registering is not using it. The opening_line "
-    "already greets, says who is calling and, on a call the agent places, asks whether now "
-    "is a good time, so no stage does any of that again: the first stage starts from what "
-    "comes after it, and its sounds_like neither greets nor asks again whether they can "
-    "talk. No two stages' sounds_like open with the same words, and no spoken line opens "
+    "already greets, says who is calling and, on a call the agent places, why and whether "
+    "now is a good time, so no stage does any of that again: the first stage starts from "
+    "their yes, and its sounds_like neither greets nor asks again whether they can talk. "
+    "Then the stages follow the purpose: ask, never state, what the call needs to know "
+    "about the person's situation; the steps one at a time; check it is done; the last "
+    "stage closes on the one next step. No two stages' sounds_like open with the same "
+    "words, and no spoken line opens "
     "with a reaction (OK, good, very good, understood, happy) before its point; each opens "
     "with its own point, the answer, the step or the question. A "
     "stage that walks the caller through doing something puts each action in its "
@@ -268,21 +357,22 @@ SCRIPT_FLOW_RULE: Final = (
     "when the caller asks how to use it, the call moves to the stage that shows the first "
     "thing to do, never back to the description. A stage meant for some callers only is "
     "reached through a way out whose condition says who; a stage that is not wanted is "
-    "left out of stages, never kept with a placeholder instruction or an empty line. The "
-    "last stage is the close. A number the agent gives out is said slowly, a few digits "
+    "left out of stages, never kept with a placeholder instruction or an empty line. A "
+    "number the agent gives out is said slowly, a few digits "
     "at a time. The ending thanks them and says goodbye, with nothing about keeping a note "
     "or remembering the call."
 )
 
 
 def said_line_problem(
-    where: str, text: str, *, opening: bool = False, close: bool = False
+    where: str, text: str, *, opening: bool = False, close: bool = False, placed: bool = False
 ) -> str | None:
     """What breaks these rules in a line an AI wrote for the agent to say (an opening line, a
     "say" step, a sample phrase, the agent's side of an example call), or None. The same
     checks the practice tests run on the agent's replies (`turn_checks`), so a line the
     writer produced cannot teach the agent what the tests then fail. `close`: the call's last
-    step, where thanks before the goodbye is the whole point of the line."""
+    step, where thanks before the goodbye is the whole point of the line. `placed`: an
+    opening on a call the agent places, with room for its name and reason (`opening_most`)."""
     if claims_done(text):
         return (
             f"{where}: says an order or details are noted or done; say the team will confirm "
@@ -300,7 +390,7 @@ def said_line_problem(
             f'{where}: opens with the reaction "{reaction}"; the agent copies it into every '
             "reply. Start the line with its own point: the answer, the step or the question."
         )
-    most = opening_max_chars(OPENING_LINE_MAX_CHARS, text)
+    most = opening_most(text, placed=placed)
     if opening and len(text.strip()) > most:
         return (
             f"{where}: {len(text.strip())} characters; keep the opening line to one short "
@@ -335,13 +425,20 @@ def opening_redone_line_problems(script: CallScript) -> list[str]:
 
 __all__ = [
     "CALL_RULES",
+    "OPENING_CEILING_CHARS",
     "OPENING_LINE_MAX_CHARS",
     "OPENING_LINE_RULE",
+    "PLACED_OPENING_MAX_CHARS",
+    "PLACED_OPENING_RULE",
+    "PLACED_REASON_RULE",
+    "PLACED_WHO_RULE",
     "SCRIPT_FLOW_RULE",
     "CallRule",
     "expect_rules",
     "judge_rules",
+    "opening_most",
     "opening_redone_line_problems",
+    "placed_opening_problems",
     "said_line_problem",
     "writer_rules",
 ]

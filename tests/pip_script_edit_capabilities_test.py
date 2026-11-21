@@ -102,7 +102,10 @@ def _with_stage(sid: str, **update: Any) -> CallScript:
     )
 
 
-OPENING = "Hello {{lead_name}}, Asha from Acme Seeds here, is now a good time?"
+OPENING = (
+    "Hello {{lead_name}}, Asha from Acme Seeds here. We are calling about your seed order. "
+    "Is now a good time?"
+)
 NEW = ConversationStage(
     id="area",
     name="Area",
@@ -188,7 +191,8 @@ CAPABILITIES: dict[str, tuple[str, CallScript, Callable[[CallScript], bool]]] = 
         lambda s: [p.action for p in _stage(s, "help").procedure] == ["Open your messages."],
     ),
     "opening line": (
-        "Open with the name, then: Asha from Acme Seeds here, is now a good time?",
+        "Open with the name, then: Asha from Acme Seeds here, about your seed order, is now a "
+        "good time?",
         CURRENT.model_copy(update={"opening_line": OPENING}),
         lambda s: s.opening_line == OPENING,
     ),

@@ -370,8 +370,13 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
             )
         ).one()
         part_language = focus.get("language") if isinstance(focus, dict) else None
-        context = await script_proposals.brief_for(
-            session, tenant_id, space.agent_id, language=part_language or main_language
+        # A campaign only places calls, whatever its agent answers
+        # (`agents.service.campaign_agent_row`), so its opening_line is a placed call's.
+        context = replace(
+            await script_proposals.brief_for(
+                session, tenant_id, space.agent_id, language=part_language or main_language
+            ),
+            direction="outbound",
         )
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
@@ -431,6 +436,9 @@ async def draft_line_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         line = await lines.read_line(session, line_id)
         words = await knowledge_words(session, only=line.sources) if line.sources else []
         context = await script_proposals.brief_for(session, tenant_id, line.agent_id)
+        # A line answers its calls; only a "both" voice also places its call-backs.
+        if context.direction != "both":
+            context = replace(context, direction="inbound")
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
         asked = (
@@ -711,7 +719,14 @@ async def _write(
     review, reviewing = await _reviewed(inputs, tenant_id, written, documents, started)
     found = review_findings(review, written)
     finished = await finish_written(
-        tenant_id, inputs.agent_id, proposal, written, started, noted=found.noted
+        tenant_id,
+        inputs.agent_id,
+        proposal,
+        written,
+        started,
+        noted=found.noted,
+        direction=context.direction,
+        purpose=inputs.main_task,
     )
     spends: list[Spent] = [
         draft,
