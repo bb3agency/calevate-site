@@ -285,6 +285,38 @@ def outbound_opening_of(body: str | None) -> str:
     return _section_of(body, OUTBOUND_OPENING_HEADER)
 
 
+def without_placed_opening(body: str) -> str:
+    """`body` without its opening on calls it places and that opening's notice rows, for an
+    agent that is not "both". Only a "both" agent's placed calls open with that line (D-920);
+    any other engine agent opens with [OPENING] (`compose_first_utterance`), and a placed-call
+    opening left in its script reads to the model as an opening still to say on the calls it
+    places. A direction change keeps the script as it was, and a campaign holder speaks its
+    voice's script as an outbound agent, so either can carry one. A body without the section
+    is returned unchanged."""
+    placed_rows = tuple(lead.strip() for (placed, _), lead in _SAID_LEADS.items() if placed)
+    sections: list[list[str]] = []
+    for line in body.split("\n"):
+        if line.startswith("[") or not sections:
+            sections.append([])
+        sections[-1].append(line)
+    kept: list[list[str]] = []
+    for section in sections:
+        header = section[0].strip()
+        if header == OUTBOUND_OPENING_HEADER:
+            continue
+        if header == NOTICES_HEADER:
+            rows = [ln for ln in section[1:] if not ln.strip().startswith(placed_rows)]
+            section = [section[0], *rows]
+            if not any(ln.strip() for ln in section[1:]):
+                continue
+        kept.append(section)
+    if len(kept) == len(sections) and sum(map(len, kept)) == sum(map(len, sections)):
+        return body
+    out = "\n".join(line for section in kept for line in section).rstrip("\n")
+    # A last section taken out leaves the blank line that separated it from the one before.
+    return out + "\n" * (len(body) - len(body.rstrip("\n")))
+
+
 #: The style line that lists the names the owner taught the voice to say.
 PRONOUNCE_LEAD: Final = "Say these names exactly like this: "
 
@@ -1536,4 +1568,5 @@ __all__ = [
     "unplaced_lines",
     "upgrade_to_v2",
     "without_outline",
+    "without_placed_opening",
 ]
