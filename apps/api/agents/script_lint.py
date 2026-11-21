@@ -149,6 +149,9 @@ class LintContext:
     #: The agent's call language, against which a line in English letters is found (D-861).
     #: Empty skips that check.
     language: str = ""
+    #: The script is said on calls the agent places, so its steps need the ways out every
+    #: placed call does (`script_assist.way_out_problems`).
+    places_calls: bool = False
 
 
 def _promo(text: str, context: LintContext) -> Finding | None:

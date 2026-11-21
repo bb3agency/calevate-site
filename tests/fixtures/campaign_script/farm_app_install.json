@@ -8,7 +8,7 @@
   "answer": {
     "opening_line": "Hello {{lead_name}}, I am calling from Rytu Khata about the app you registered for. Can you talk now?",
     "stages": [
-      {"name": "Open the link", "instruction": "Ask them to open the link they got.", "sounds_like": "Please open the link we sent you."},
+      {"name": "Open the link", "instruction": "Ask them to open the link they got.", "sounds_like": "Please open the link we sent you.", "ways_out": [{"when": "They are busy now or say they will do it later", "to": "call_back"}, {"when": "They are not interested or it is the wrong person", "to": "end"}]},
       {"name": "Finalise the call", "instruction": "Check the app opened and thank them.", "sounds_like": "Thank you, the app is ready now."}
     ]
   },

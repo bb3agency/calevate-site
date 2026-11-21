@@ -8,7 +8,7 @@
   "answer": {
     "opening_line": "Hello {{lead_name}}, I am calling from Green Meadows about the plots you asked about. Can you talk for a minute?",
     "stages": [
-      {"name": "Price", "instruction": "Tell them the price.", "sounds_like": "Plots start at 9,99,000 rupees."},
+      {"name": "Price", "instruction": "Tell them the price.", "sounds_like": "Plots start at 9,99,000 rupees.", "ways_out": [{"when": "They are busy now or say they will talk later", "to": "call_back"}, {"when": "They are not interested or it is the wrong person", "to": "end"}]},
       {"name": "Finalise the call", "instruction": "Thank them.", "sounds_like": "Thank you for your time."}
     ]
   },
