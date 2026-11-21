@@ -121,6 +121,7 @@ from calevate_shared.extraction import (
     GOAL_VERDICTS,
     MODEL_MOMENT_KINDS,
     NEXT_STEP_BY,
+    NEXT_STEP_WHY,
     OUTCOME_HINTS,
     ExtractionField,
     ExtractionOutput,
@@ -134,6 +135,7 @@ from calevate_shared.extraction import (
     clip_headline,
     goal_verdict,
     next_step_owner,
+    settled_next_step,
     validate_extraction,
 )
 
@@ -566,6 +568,7 @@ _SCHEMA_TYPES: Final[dict[str, str]] = {
 _FIXED_PROPERTIES: Final[dict[str, dict[str, Any]]] = {
     "summary": {"type": "string"},
     "headline": {"type": "string"},
+    "next_step_why": {"type": "string", "enum": list(NEXT_STEP_WHY)},
     "next_step": {"type": "string"},
     "next_step_by": {"type": "string", "enum": list(NEXT_STEP_BY)},
     "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]},
@@ -2669,12 +2672,21 @@ async def extract_call(
         record_extraction_failure(reason="schema_validation")
 
     sentiment = raw.get("sentiment")
+    out_of_scope = bool(raw.get("out_of_scope"))
+    callback_requested = bool(raw.get("callback_requested"))
+    next_step, next_step_by = settled_next_step(
+        _prose(raw.get("next_step"), limit=300),
+        next_step_owner(raw.get("next_step_by")),
+        raw.get("next_step_why"),
+        callback_requested=callback_requested,
+        out_of_scope=out_of_scope,
+    )
     return ExtractionOutput(
         data=outcome.data,
         summary=_prose(raw.get("summary"), limit=2000),
         headline=clip_headline(_prose(raw.get("headline"), limit=400)),
-        next_step=_prose(raw.get("next_step"), limit=300),
-        next_step_by=next_step_owner(raw.get("next_step_by")),
+        next_step=next_step,
+        next_step_by=next_step_by,
         sentiment=sentiment if sentiment in ("positive", "neutral", "negative") else "neutral",
         # Unknown is None, never a verdict (first-call review F-4).
         outcome_tag=hint_of(raw.get("outcome_tag")),
@@ -2689,8 +2701,8 @@ async def extract_call(
             if goal and getattr(runner, "reads_goal", False)
             else ""
         ),
-        out_of_scope=bool(raw.get("out_of_scope")),
-        callback_requested=bool(raw.get("callback_requested")),
+        out_of_scope=out_of_scope,
+        callback_requested=callback_requested,
         requested_callback_date=callback_day(raw.get("requested_callback_date")),
         requested_callback_time=callback_clock(raw.get("requested_callback_time")),
         valid=outcome.valid,

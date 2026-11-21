@@ -201,6 +201,7 @@ from apps.api.tenancy.engine_workspace import engine_has_workspaces, workspace_f
 from apps.workers import call_language, call_timeline, storage
 from apps.workers import extraction as extraction_module
 from apps.workers.after_call_callbacks import book_requested_callback, callback_number
+from apps.workers.caller_evidence import brief_texts, without_borrowed
 from apps.workers.caller_name import self_names, without_self_names
 from apps.workers.engine_charges import reconcile_call_charge
 from apps.workers.engine_delivery import (
@@ -2029,6 +2030,22 @@ async def _extract_stage(
                 ),
             )
             extraction = reconcile_goal(extraction, goal=goal, outcomes=business_outcomes)
+            kept, borrowed = without_borrowed(
+                extraction.data,
+                spec,
+                turns=snapshot.transcript or [],
+                business_texts=brief_texts(brief),
+            )
+            if borrowed:
+                extraction = extraction.model_copy(update={"data": kept})
+                log.info(
+                    "extraction_borrowed_value_dropped",
+                    extra={
+                        "tenant_id": str(tenant_id),
+                        "call_id": str(call_id),
+                        "fields": sorted(borrowed),
+                    },
+                )
             extraction_model = extractor.model_name
             await _meter_extraction(
                 tenant_id,

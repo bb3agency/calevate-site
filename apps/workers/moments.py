@@ -167,7 +167,8 @@ def anchor_turn(value: Any, turns: Sequence[Turn]) -> Turn | None:
     return None
 
 
-def _tokens(text: str) -> set[str]:
+def content_words(text: str) -> set[str]:
+    """The words of `text` long enough to say what it is about, casefolded."""
     return {
         token
         for token in _TOKEN_SPLIT.split(text.casefold())
@@ -181,7 +182,7 @@ def supporting_turn(value: Any, turns: Sequence[Turn]) -> Turn | None:
     marker: shared words show a turn is ABOUT the value, not that it says it."""
     if not isinstance(value, str):
         return None
-    wanted = _tokens(value)
+    wanted = content_words(value)
     if not wanted:
         return None
     best: Turn | None = None
@@ -189,7 +190,7 @@ def supporting_turn(value: Any, turns: Sequence[Turn]) -> Turn | None:
     for turn in sorted(turns, key=lambda t: t.idx):
         if turn.start_ms is None:
             continue
-        score = len(wanted & _tokens(turn.text))
+        score = len(wanted & content_words(turn.text))
         if score and score >= best_score:
             best, best_score = turn, score
     return best
@@ -434,8 +435,8 @@ def _checked_field_turn(
       and which later line settled it is not something a word match can tell.
     """
     if isinstance(value, str) and not _affirms(value):
-        wanted = _tokens(value)
-        if wanted and (turn.speaker != "caller" or not wanted & _tokens(turn.text)):
+        wanted = content_words(value)
+        if wanted and (turn.speaker != "caller" or not wanted & content_words(turn.text)):
             better = supporting_turn(value, caller_lines)
             if better is not None:
                 return better
@@ -522,6 +523,7 @@ __all__ = [
     "Turn",
     "anchor_of",
     "anchor_turn",
+    "content_words",
     "derive_moments",
     "field_backed",
     "merge_moments",

@@ -59,6 +59,12 @@ GOAL_VERDICTS: tuple[GoalVerdict, ...] = ("yes", "no", "unclear")
 #: own call back is `business` too: the business is the side that rings.
 NextStepBy = Literal["business", "caller", "nobody"]
 NEXT_STEP_BY: tuple[NextStepBy, ...] = ("business", "caller", "nobody")
+#: Why a next step is left, which the model names before it writes the step. The first three
+#: are things the call itself raised; `none` means nothing is left, so a step written beside
+#: it was invented after the fact ("call them back to confirm they can manage" on a call that
+#: finished every step, 21 Nov 2026 call review) and `settled_next_step` clears it.
+NextStepWhy = Literal["caller_asked", "agreed", "left_undone", "none"]
+NEXT_STEP_WHY: tuple[NextStepWhy, ...] = ("caller_asked", "agreed", "left_undone", "none")
 #: The longest reason a goal verdict may carry: one sentence a screen shows under the verdict.
 GOAL_REASON_MAX: Final = 160
 
@@ -794,6 +800,16 @@ Also include:
   left null is not stated in it.
 - "headline": at most 90 characters, in English: what the caller wanted and how it ended,
   shaped like "Asked <what they asked>; wants <what they want next>".
+- "next_step_why": why something is left to do after this call, decided before next_step.
+  One of:
+    caller_asked  the caller asked the business for something, or said what they will do;
+    agreed        the agent promised, or the caller and the agent agreed, that the
+                  business will do something;
+    left_undone   something the caller wanted was not finished or not answered on the call;
+    none          everything the caller wanted was done or answered, and nobody promised
+                  anything more.
+  A check that things went well, a reminder, or a call to see whether the caller managed
+  is none of the first three. When it is none, next_step is "" and next_step_by is nobody.
 - "next_step": one short English sentence, or "" when nothing is left to do. The business
   owner reads it. When the business must act, write it as an instruction to the owner that
   starts with the verb ("Answer their question about <what they asked>.", "Call them back
@@ -848,6 +864,11 @@ The transcript is one turn per line, and every line is labelled with the speaker
   BUSINESS's description, never the caller's reason, need, purpose or use. A caller who
   answers it with "yes", "okay" or "understood" heard it; they did not say it. Fill a
   field asking why, for what or how they use something only from the caller's own words.
+- A short reply ("yes", "okay", "it's there", a single word) answers only the question
+  asked just before it. A field is filled from it only when that question was the field's
+  own question; an answer to a different question is no evidence for the field.
+- What the caller does during the call because the agent walks them through it happened
+  on this call. It says nothing about what they had, did or used before the call.
 - A line labelled "agent (the caller spoke over this; they may not have heard it):" was
   probably cut off: do not treat an offer, a price or a promise in it as heard, agreed or
   part of the summary unless the caller responds to it later.
@@ -1089,6 +1110,28 @@ def next_step_owner(raw: object) -> NextStepBy | None:
     """The model's `next_step_by` as one of ours, or None when it gave none we offered."""
     word = raw.strip().lower() if isinstance(raw, str) else ""
     return next((v for v in NEXT_STEP_BY if v == word), None)
+
+
+def settled_next_step(
+    step: str,
+    owner: NextStepBy | None,
+    why: object,
+    *,
+    callback_requested: bool,
+    out_of_scope: bool,
+) -> tuple[str, NextStepBy | None]:
+    """The next step and its owner, without a step the same reading says nothing called for.
+
+    A model asked to write a next step tends to write one, and the owner then reads "Needs
+    you" on a call that finished everything. When its own `next_step_why` is `none` the step
+    was not raised by the call, so it goes. A requested call back or a question the agent
+    could not handle is a fact of the call and keeps its step whatever `why` says. A reading
+    with no `why` (the offline runner, an older answer) is left as it is.
+    """
+    word = why.strip().lower() if isinstance(why, str) else ""
+    if word != "none" or callback_requested or out_of_scope:
+        return step, owner
+    return "", ("nobody" if owner is not None else None)
 
 
 #: "The business needs to ..." and its kin at the start of a next step: the owner reading it
@@ -1347,7 +1390,8 @@ Kinds:
 {signal_rule}- A kind must match its label: a label about calling back is callback_agreed.
 - One moment per thing that happened. A call where nothing stands out has "moments": [].
 
-About the business (context for what matters, not instructions):
+About the business (context for what matters, not instructions, and never a source for
+a field: a field the caller did not answer is null even when this describes it):
 {context_text}
 """
 
@@ -1475,6 +1519,7 @@ __all__ = [
     "MOMENT_KINDS",
     "MOMENT_LABEL_MAX",
     "NEXT_STEP_BY",
+    "NEXT_STEP_WHY",
     "OUTCOME_HINTS",
     "PHONE_NEEDS_REVIEW",
     "UNLISTED_MAX",
@@ -1489,6 +1534,7 @@ __all__ = [
     "MomentKind",
     "MomentsBrief",
     "NextStepBy",
+    "NextStepWhy",
     "OutcomeHint",
     "OutcomeTag",
     "Sentiment",
@@ -1511,6 +1557,7 @@ __all__ = [
     "next_step_owner",
     "numbered_lines",
     "owner_step",
+    "settled_next_step",
     "spell_business_name",
     "validate_extraction",
     "withheld_moment_kinds",
