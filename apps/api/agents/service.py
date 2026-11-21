@@ -104,6 +104,7 @@ from calevate_shared.call_script import (
     outbound_opening_of,
     substitute_variables,
     without_outline,
+    without_placed_opening,
 )
 from calevate_shared.calling_window import IST
 from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER
@@ -1014,6 +1015,11 @@ def _to_config(
     steps, body = _steps_for(
         engine, agent, _script_for(engine, _assert_has_a_script(agent)), handoff=handoff
     )
+    if agent["direction"] != "both":
+        # This agent's calls open with its [OPENING] (`compose_first_utterance`), so a
+        # placed-call opening in its script (kept from a time it was "both", or a campaign's
+        # from a "both" voice) is not composed in, where it would read as still to say.
+        body = without_placed_opening(body)
     config = AgentConfig(
         tenant_id=str(tenant_id),
         agent_id=str(agent["id"]),
