@@ -94,6 +94,7 @@ async def _out(session: AsyncSession, row: service.Row) -> FollowUpOut:
         counts=_counts(counts),
         problems=[ProblemOut(step_id=p.step_id, code=p.code, message=p.message) for p in problems],
         updated_at=row.updated_at,
+        day_limit=d.day_limit(),
     )
 
 

@@ -351,10 +351,14 @@ export const businessProfileKeys = {
   tenant: (tenantId: string) => ["admin", "business-profile", tenantId] as const,
 };
 
-export function useBusinessProfile(session: Session): UseQueryResult<BusinessProfile> {
+export function useBusinessProfile(
+  session: Session,
+  { enabled = true }: { enabled?: boolean } = {},
+): UseQueryResult<BusinessProfile> {
   return useQuery({
     queryKey: businessProfileKeys.mine(session.orgSlug),
     queryFn: () => apiRequest<BusinessProfile>(session, BUSINESS_PROFILE_PATH),
+    enabled,
   });
 }
 

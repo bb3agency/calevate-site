@@ -446,6 +446,8 @@ export const STATIC_FAMILIES: Record<string, string> = {
   "integration-options": "the fixed list of services an account can connect",
   "agent-languages":
     "the languages an account may give an agent; they change with an operator's console switch",
+  "campaign-limits":
+    "the most calls at once, tries and gaps a campaign may choose; they change with an operator's console settings",
   "admin/qa-sample":
     "one sampled call under review; every read writes an audit row, so it is read once when opened",
   // "Meet your agent" (D-855): written only by its own screen and its workers, and polled

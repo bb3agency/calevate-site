@@ -10,6 +10,7 @@ import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { isAssignable } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import {
+  useCampaignLimits,
   useCampaignNumbers,
   useCampaignProgress,
   useDltTemplates,
@@ -42,7 +43,8 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
   const numbers = useCampaignNumbers(session);
   const templates = useDltTemplates(session);
   const callLines = useMyCallLines(session);
-  const cap = concurrencyCap(callLines.data?.call_lines);
+  const limits = useCampaignLimits(session);
+  const cap = concurrencyCap(callLines.data?.call_lines, limits.max_concurrency);
   const update = useUpdateCampaign(session, campaignId);
   // Success moves back to the campaign, so the save is said in a toast that survives it.
   const updateFeedback = useActionFeedback(update, { errorDisplay: "inline", successToast: "Changes saved" });
@@ -148,7 +150,7 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
         number_id: usable ? form.numberId : null,
         // A draft saved before the account's lines were checked may ask for more than can
         // dial; saving holds it to them, as the field shows.
-        concurrency: clampConcurrency(form.concurrency, cap),
+        concurrency: clampConcurrency(form.concurrency, cap, limits.max_concurrency),
         calling_hours: form.restrictHours ? { start: form.windowStart, end: form.windowEnd } : null,
         retry_policy: form.retry,
       },

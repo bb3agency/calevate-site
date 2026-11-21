@@ -53,13 +53,14 @@ def _voice_of(config: AgentConfig) -> str | None:
 
 def stamp_of(config: AgentConfig, engine: VoiceEngine) -> dict[str, Any]:
     """The record for one published config."""
-    filler = PLATFORM_AGENT_VALUES.get(engine.name, {}).get("thinkingDelayMs")
+    # Only an engine that speaks our filler timing (`thinnest._agent_body`) has one to record.
+    filler = config.thinking_delay_ms if engine.name in PLATFORM_AGENT_VALUES else None
     chars = _known_facts_chars(config.system_prompt or "")
     return {
         TURN_DETECTION: config.turn_detection,
         TURN_SILENCE_MS: config.turn_silence_ms,
         EARLY_ANSWERS: config.early_answers,
-        FILLER_DELAY_MS: filler if isinstance(filler, int) else None,
+        FILLER_DELAY_MS: filler,
         KNOWN_FACTS: chars > 0,
         KNOWN_FACTS_CHARS: chars,
         ENGINE_VOICE: _voice_of(config),

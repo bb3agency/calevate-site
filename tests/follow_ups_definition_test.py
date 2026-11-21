@@ -6,8 +6,10 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from apps.api.core.settings import get_settings
 from apps.api.follow_ups import definition as d
 from apps.api.follow_ups import runner
+from apps.api.ops.config_service import validated_value
 
 
 def _steps(*raw: dict[str, object]) -> list[d.AnyStep]:
@@ -203,3 +205,50 @@ def test_a_refusal_for_good_names_why_the_run_ended() -> None:
     assert runner.end_reason_for_refusal("dnc") == "do_not_call"
     assert runner.end_reason_for_refusal("engine_recipient_opted_out") == "do_not_call"
     assert runner.end_reason_for_refusal("trial_ended") == "refused:trial_ended"
+
+
+# --- how far a Follow-up reaches: the console's `follow_up_max_days` -----------------------
+
+
+def _date_trigger(offset: int) -> d.LeadDateTrigger:
+    return d.LeadDateTrigger(kind="lead_date", field="renewal_date", offset_days=offset)
+
+
+def test_the_day_limit_defaults_to_thirty_and_each_reach_is_held_to_it() -> None:
+    assert get_settings().follow_up_max_days == d.day_limit() == 30
+    end = _steps({"id": "s1", "kind": "end"})
+    assert d.shape_problems(MANUAL, end, d.Settings(max_days=30)) == []
+    assert _codes(d.shape_problems(MANUAL, end, d.Settings(max_days=31))) == {
+        (None, "too_many_days")
+    }
+    assert _codes(d.shape_problems(_date_trigger(-31), end, d.Settings())) == {
+        (None, "too_many_days")
+    }
+    waits = _steps(
+        {"id": "s1", "kind": "wait", "days": 31, "next": "s3"},
+        {"id": "s2", "kind": "wait", "hours": 30 * 24, "next": "s3"},
+        {"id": "s3", "kind": "end"},
+    )
+    assert _codes(d.shape_problems(MANUAL, waits, d.Settings())) == {("s1", "too_many_days")}
+
+
+def test_a_raised_limit_lets_a_year_long_renewal_publish(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(get_settings(), "follow_up_max_days", 400)
+    steps = _steps(
+        {"id": "s1", "kind": "wait", "days": 365, "next": "s2"},
+        {"id": "s2", "kind": "end"},
+    )
+    assert d.shape_problems(_date_trigger(-30), steps, d.Settings(max_days=400)) == []
+
+
+def test_the_ceiling_is_code_and_a_lowered_limit_still_loads_what_was_saved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert d.DAYS_CEILING == 400
+    assert validated_value("follow_up_max_days", 400) == 400
+    with pytest.raises(Exception):  # noqa: B017 - the range refusal, whatever its class
+        validated_value("follow_up_max_days", 401)
+    with pytest.raises(ValueError):
+        d.load_settings({"max_days": 401})
+    monkeypatch.setattr(get_settings(), "follow_up_max_days", 7)
+    assert d.load_settings({"max_days": 30}).max_days == 30

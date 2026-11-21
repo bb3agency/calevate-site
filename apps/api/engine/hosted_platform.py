@@ -120,8 +120,9 @@ THINNEST_LIMITS: Final = HostedAgentLimits(
 _LIMITS_BY_ENGINE: Final[dict[str, HostedAgentLimits]] = {"thinnest": THINNEST_LIMITS}
 
 #: The call-behaviour values every agent of an engine is published with that only a deploy
-#: can change (`thinnest.PLATFORM_VOICE_VALUES` and `PLATFORM_AGENT_FIELDS`): filler timing,
-#: interruptions, wording temperature, cross-channel recall, the vocabulary rule. Part
+#: can change (`thinnest.PLATFORM_VOICE_VALUES` and `PLATFORM_AGENT_FIELDS`): interruptions,
+#: cross-channel recall, the vocabulary rule. Values the console sets (filler timing, wording
+#: temperature) are republished by saving them (`core/platform_config.LIVE_AGENTS`). Part
 #: of `agents/live_apply.platform_prompt_revision`, so a change reaches every live agent by
 #: the worker-start republish instead of surfacing as drift on each one.
 PLATFORM_AGENT_VALUES: Final[dict[str, dict[str, Any]]] = {

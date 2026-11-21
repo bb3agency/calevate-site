@@ -70,8 +70,9 @@ _NEEDS: Final = {
 }
 
 #: How a definition is written, returned by `follow_ups_list` and with every refusal of a
-#: draft rather than carried in the tool array, which every request pays for.
-FORMAT: Final = (
+#: draft rather than carried in the tool array, which every request pays for. `{days}` is the
+#: console's day limit (`follow_up_format`).
+_FORMAT: Final = (
     "How to write one (follow_up_draft):\n"
     'trigger: {"kind":"new_lead","source_ids":null} | {"kind":"call_ended","agent_ids":null,'
     '"calls":"inbound|outbound|both","outcomes":["missed"]} | {"kind":"manual"} | '
@@ -94,12 +95,19 @@ FORMAT: Final = (
     "- action: action_id; next {done, failed}; needs a call before it\n"
     "- end: goal true|false\n"
     "settings: goal (an outcome key a decide checks), stop_on_reply, stop_on_won_lost, again "
-    "never|after_last|after_30_days, max_days 1-30, starts_per_hour.\n"
+    "never|after_last|after_30_days, max_days 1-{days}, starts_per_hour. A wait, and a "
+    "lead_date offset_days either side, reach at most {days} days.\n"
     "Ids: agents, messages and actions as listed here; teammates: team_find team_members; "
     "lead sources: integrations_find integrations_status. Never invent one.\n"
     "Calling a list of leads the person picks, once, is a campaign (campaign_create), not a "
     "Follow-up."
 )
+
+
+def follow_up_format() -> str:
+    """`_FORMAT` with the console's day limit in it."""
+    return _FORMAT.replace("{days}", str(d.day_limit()))
+
 
 _FOLLOW_UP_ID: Final = {"type": "string", "description": "Its id from follow_ups_list."}
 _NULLABLE_STR: Final = {"anyOf": [{"type": "string"}, {"type": "null"}]}
@@ -211,7 +219,7 @@ async def _follow_ups_list(
             state = "ready"
         lines.append(f"- {starter.key}: {starter.name} ({state})")
     lines += await _ingredients(session)
-    lines.append(FORMAT)
+    lines.append(follow_up_format())
     lines.append(f"They are listed {_WHERE}.")
     return "\n".join(lines)
 
@@ -328,7 +336,7 @@ def _refuse_problems(problems: Sequence[d.Problem]) -> WriteRefusedError:
         "the draft was not shown to the person because the server found problems: "
         + _problem_text(problems)
         + ". Fix them and call again; if a missing thing is the account's (an agent, a "
-        "message, a team address), tell the person what to add.\n" + FORMAT
+        "message, a team address), tell the person what to add.\n" + follow_up_format()
     )
 
 
@@ -385,7 +393,7 @@ async def _plan_draft(session: AsyncSession, actor: ToolActor, args: Mapping[str
     else:
         if parsed.trigger is None or parsed.steps is None:
             raise WriteRefusedError(
-                "give `trigger` and `steps` (or a ready-made `starter`).\n" + FORMAT
+                "give `trigger` and `steps` (or a ready-made `starter`).\n" + follow_up_format()
             )
         found, steps, found_settings, problems = _parsed(
             _json_arg(parsed.trigger), _json_arg(parsed.steps), _json_arg(parsed.settings)
@@ -908,6 +916,6 @@ __all__ = [
     "FOLLOW_UP_RESUME",
     "FOLLOW_UP_START",
     "FOLLOW_UP_TURN_OFF",
-    "FORMAT",
     "START_LEADS",
+    "follow_up_format",
 ]

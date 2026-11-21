@@ -6976,6 +6976,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The most calls at once, tries per person and gaps a campaign may choose */
+        get: operations["campaign_limits_v1_campaigns_limits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/numbers": {
         parameters: {
             query?: never;
@@ -19413,6 +19430,18 @@ export interface components {
             /** Unfixed */
             unfixed: boolean;
         };
+        /**
+         * CampaignLimitsOut
+         * @description What a campaign's settings may be, as the console sets it today.
+         */
+        CampaignLimitsOut: {
+            /** Max Concurrency */
+            max_concurrency: number;
+            /** Max Retry Attempts */
+            max_retry_attempts: number;
+            /** Retry Gap Choices */
+            retry_gap_choices: number[];
+        };
         /** CampaignLinkIn */
         CampaignLinkIn: {
             /** Name */
@@ -25402,6 +25431,8 @@ export interface components {
         /** FollowUpOut */
         FollowUpOut: {
             counts: components["schemas"]["CountsOut"];
+            /** Day Limit */
+            day_limit: number;
             /** Has Unpublished Changes */
             has_unpublished_changes: boolean;
             /**
@@ -33235,7 +33266,8 @@ export interface components {
          * @description How many times to try each person, and how long to wait between tries (D-773).
          *
          *     `gaps_minutes` has one entry per retry (`max_attempts - 1`), each one of
-         *     `service.RETRY_GAP_CHOICES`; the service refuses anything else by name.
+         *     `service.retry_gap_choices()`; the service refuses anything else by name, under the
+         *     console's limits. The field bounds are the code ceilings.
          */
         RetryPolicyIn: {
             /** Gaps Minutes */
@@ -52548,6 +52580,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ContactSheetOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    campaign_limits_v1_campaigns_limits_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignLimitsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

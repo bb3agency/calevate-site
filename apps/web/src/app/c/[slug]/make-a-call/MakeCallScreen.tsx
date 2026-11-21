@@ -42,6 +42,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { fixDestination } from "../campaigns/blockerCopy";
 import { CallStatusCard } from "./CallStatusCard";
 import { RecentOneCalls } from "./RecentOneCalls";
+import { windowWords } from "../campaigns/callingWindow";
 
 /**
  * MAKE A CALL — the one form for one call to one person (founder, 5 Nov 2026).
@@ -312,7 +313,7 @@ export function MakeCallScreen({
                 {mode === "later" ? (
                   <>
                     {when.fields}
-                    <span className={FIELD_HINT}>9 am to 9 pm India time, within 30 days.</span>
+                    <span className={FIELD_HINT}>{windowWords()} India time, within 30 days.</span>
                   </>
                 ) : null}
               </div>

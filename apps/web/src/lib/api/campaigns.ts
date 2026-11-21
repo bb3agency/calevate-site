@@ -120,6 +120,16 @@ export function useDltTemplates(session: Session) {
   });
 }
 
+/** The most calls at once, tries and gaps a campaign may choose, as the console sets them. */
+export function useCampaignLimits(session: Session): CampaignLimits {
+  const limits = useQuery({
+    queryKey: ["campaign-limits", session.orgSlug],
+    queryFn: () => apiRequest<CampaignLimits>(session, "/v1/campaigns/limits"),
+    staleTime: 5 * 60_000,
+  });
+  return limits.data ?? DEFAULT_CAMPAIGN_LIMITS;
+}
+
 export function useCreateCampaign(session: Session) {
   const client = useQueryClient();
   return useMutation({
@@ -430,8 +440,17 @@ export type CampaignEdit = Schemas["UpdateCampaignIn"];
 export type RetryPolicy = Schemas["RetryPolicyIn"];
 export type PauseReason = NonNullable<CampaignProgress["pause_reason"]>;
 
-/** The retry choices the server accepts (`campaigns.service.RETRY_GAP_CHOICES`). */
-export const RETRY_GAP_CHOICES = [15, 30, 60, 120, 240, 1440] as const;
+export type CampaignLimits = Schemas["CampaignLimitsOut"];
+/**
+ * What a campaign may choose while the server's own limits load (`GET /v1/campaigns/limits`,
+ * the console's `campaign_max_*` settings): their defaults, so a form never offers more
+ * than a fresh deployment allows.
+ */
+export const DEFAULT_CAMPAIGN_LIMITS: CampaignLimits = {
+  max_concurrency: 10,
+  max_retry_attempts: 5,
+  retry_gap_choices: [15, 30, 60, 120, 240, 1440],
+};
 export const DEFAULT_RETRY: RetryPolicy = { max_attempts: 3, gaps_minutes: [30, 120] };
 
 function searchOf(params: Record<string, string | number | string[] | undefined>): string {

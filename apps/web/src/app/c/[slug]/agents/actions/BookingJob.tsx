@@ -28,7 +28,7 @@ import {
 import type { Session } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 
-import { addMinutesLocal, daysLabel, hourLabel, keptHours, lengthLabel, readBooking } from "./jobs";
+import { addMinutesLocal, daysLabel, hoursLabel, keptHours, lengthLabel, readBooking } from "./jobs";
 import { ToolRow } from "./ToolRow";
 import { useSwitchOnWithheld, useWithheldFromViewAs } from "./viewAsWithheld";
 
@@ -102,7 +102,7 @@ export function BookingJob({
               ? "Not set, so it could book any time."
               : undefined
           }
-          value={kept === null ? "Any time" : `${hourLabel(kept.from)} – ${hourLabel(kept.to)}`}
+          value={hoursLabel(kept)}
           action={change}
         />
         <SettingRow label="Days" value={daysLabel(settings.days)} action={change} />

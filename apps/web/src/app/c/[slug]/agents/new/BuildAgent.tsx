@@ -29,6 +29,7 @@ import { NameStep, type CreatedAgent } from "./NameStep";
 import { NewAgentSteps } from "./NewAgentSteps";
 import { NewAgentRail } from "./setupStep";
 import { NEW_AGENT } from "../../_ui/copy";
+import { AGENT_NAME_MAX_CHARS } from "@/lib/textLimits";
 
 /**
  * NEW AGENT: NAME, VOICE, DONE (founder, 16 Nov 2026). An agent is staff with no script of its
@@ -268,7 +269,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
                     id="new-agent-name"
                     required
                     minLength={2}
-                    maxLength={80}
+                    maxLength={AGENT_NAME_MAX_CHARS}
                     value={name}
                     onChange={(event) => setName(event.target.value)}
                     className={FIELD}

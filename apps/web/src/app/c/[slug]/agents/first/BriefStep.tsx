@@ -28,9 +28,7 @@ import { BriefDocuments } from "./BriefDocuments";
 import { StepScreen } from "./shell";
 import { FIRST } from "../../_ui/copy";
 import { Why } from "@/components/why";
-
-/** The server's cap (`first_run/models.MAX_BRIEF_CHARS`). */
-const MAX_BRIEF_CHARS = 4000;
+import { BRIEF_MAX_CHARS } from "@/lib/textLimits";
 
 export const HEARD_FAILURES: Record<string, string> = {
   voice_unreadable: "Couldn't make that out. Try somewhere quieter.",
@@ -126,7 +124,7 @@ export function BriefStep({
           id={boxId}
           ref={box}
           value={text}
-          maxLength={MAX_BRIEF_CHARS}
+          maxLength={BRIEF_MAX_CHARS}
           placeholder={ownBrief ? undefined : examples.scriptBrief}
           onChange={(event) => setBrief(event.target.value)}
           rows={7}
@@ -135,7 +133,7 @@ export function BriefStep({
         <p className="mt-1 flex justify-between gap-3 text-meta text-ink-faint">
           <span>{brief === null && ownBrief ? "Written from your business details. Change anything." : ""}</span>
           <span className="tabular-nums">
-            {Array.from(text).length} of {MAX_BRIEF_CHARS}
+            {Array.from(text).length} of {BRIEF_MAX_CHARS}
           </span>
         </p>
       </div>

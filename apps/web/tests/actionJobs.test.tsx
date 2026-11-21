@@ -5,9 +5,11 @@ import { Actions } from "@/app/c/[slug]/agents/actions/Actions";
 import {
   JOBS,
   addMinutesLocal,
+  bookingDefaults,
   bookingParts,
   jobTitle,
   bookingTools,
+  hoursLabel,
   readBooking,
   readHours,
   uniqueName,
@@ -34,7 +36,7 @@ describe("the values the guided flow derives", () => {
 
   it("builds the two calendar tools the server's CalendarConfig accepts", () => {
     const { check, book } = bookingTools(
-      { credentialId: "cred-1", durationMin: 60, from: 9, to: 18, days: [1, 2, 3, 4, 5, 6], calendarId: "primary" },
+      { credentialId: "cred-1", durationMin: 60, from: 9, to: 18, days: [1, 2, 3, 4, 5, 6], perDay: null, calendarId: "primary" },
       { check: "find_free_times", book: "book_the_time" },
     );
     // check needs a start AND an end parameter; book needs a start and a duration.
@@ -43,9 +45,11 @@ describe("the values the guided flow derives", () => {
     expect(check.params?.map((p) => p.name)).toEqual(["start", "end"]);
     expect(book.params?.map((p) => p.name)).toEqual(["start", "summary"]);
     expect(check.credential_id).toBe("cred-1");
-    // The hours and days are rules the server keeps, on BOTH tools…
+    // The hours are rules the server keeps per weekday, on BOTH tools…
+    const day = { opens: "09:00", closes: "18:00" };
     for (const tool of [check, book]) {
-      expect(tool.config).toMatchObject({ opens: "09:00", closes: "18:00", open_days: [1, 2, 3, 4, 5, 6] });
+      expect(tool.config.hours).toEqual({ mon: day, tue: day, wed: day, thu: day, fri: day, sat: day });
+      expect(tool.config).not.toHaveProperty("opens");
     }
     // …and the same sentence is in what the agent is told, so it can say them.
     expect(readHours(book.description)).toEqual({ from: 9, to: 18 });
@@ -54,7 +58,7 @@ describe("the values the guided flow derives", () => {
 
   it("reads a booking job's settings back from its tools", () => {
     const { check, book } = bookingTools(
-      { credentialId: "cred-1", durationMin: 30, from: 10, to: 13, days: [1, 2, 3, 4, 5, 6, 7], calendarId: "front-desk" },
+      { credentialId: "cred-1", durationMin: 30, from: 10, to: 13, days: [1, 2, 3, 4, 5, 6, 7], perDay: null, calendarId: "front-desk" },
       { check: "a", book: "b" },
     );
     const asTool = (body: typeof check, id: string): ActionTool => ({
@@ -78,10 +82,58 @@ describe("the values the guided flow derives", () => {
       from: 10,
       to: 13,
       days: [1, 2, 3, 4, 5, 6, 7],
+      perDay: null,
       calendarId: "front-desk",
     });
-    // Every day sends no day rule at all.
-    expect(check.config.open_days).toBeNull();
+  });
+
+  it("starts from the business profile's hours, keeping days that differ exactly", () => {
+    expect(bookingDefaults(undefined)).toMatchObject({ from: 9, to: 18, days: [1, 2, 3, 4, 5, 6], perDay: null });
+    const same = bookingDefaults([
+      { day: "mon", opens: "10:00", closes: "21:00", closed: false },
+      { day: "sun", opens: "10:00", closes: "21:00", closed: false },
+      { day: "tue", opens: null, closes: null, closed: true },
+    ]);
+    expect(same).toMatchObject({ from: 10, to: 21, days: [1, 7], perDay: null });
+    const split = bookingDefaults([
+      { day: "mon", opens: "09:30", closes: "18:00", closed: false },
+      { day: "sat", opens: "10:00", closes: "14:00", closed: false },
+    ]);
+    expect(split.perDay).toEqual({ 1: { opens: "09:30", closes: "18:00" }, 6: { opens: "10:00", closes: "14:00" } });
+    expect(hoursLabel({ ...split, credentialId: "" })).toBe("Mon 9:30 am – 6 pm · Sat 10 am – 2 pm");
+    const { book } = bookingTools({ ...split, credentialId: "" }, { check: "a", book: "b" });
+    expect(book.config.hours).toEqual({ mon: { opens: "09:30", closes: "18:00" }, sat: { opens: "10:00", closes: "14:00" } });
+  });
+
+  it("writes an overnight or whole-day window the server reads past midnight", () => {
+    const night = bookingTools(
+      { credentialId: "", durationMin: 60, from: 18, to: 2, days: [5], perDay: null, calendarId: "primary" },
+      { check: "a", book: "b" },
+    );
+    expect(night.book.config.hours).toEqual({ fri: { opens: "18:00", closes: "02:00" } });
+    const allDay = bookingTools(
+      { credentialId: "", durationMin: 60, from: 0, to: 24, days: [7], perDay: null, calendarId: "primary" },
+      { check: "a", book: "b" },
+    );
+    expect(allDay.book.config.hours).toEqual({ sun: { opens: "00:00", closes: "00:00" } });
+  });
+
+  it("reads a one-window action saved before per-day hours", () => {
+    const saved = {
+      id: "t1",
+      agent_id: "agent-1",
+      enabled: true,
+      kind: "calendar",
+      provider: "google",
+      name: "book_the_time",
+      description: "Use this to book.",
+      trigger: "during_call",
+      pre_call_message: null,
+      credential_id: null,
+      params: [],
+      config: { operation: "book", start_param: "start", duration_min: 30, opens: "09:00", closes: "18:00", open_days: [1, 2] },
+    } satisfies ActionTool;
+    expect(readBooking(undefined, saved)).toMatchObject({ from: 9, to: 18, days: [1, 2], perDay: null });
   });
 
   it("reads hours from an action made before the server kept them", () => {
@@ -151,12 +203,21 @@ describe("turning on booking", () => {
       },
       "POST /v1/agents/agent-1/actions": {},
       "PUT /v1/agents/agent-1/actions/enabled": { ...EMPTY, api_actions_enabled: true },
+      // A new job starts from the business profile's hours.
+      "/v1/business-profile": {
+        hours: [
+          { day: "mon", opens: "10:00", closes: "19:00", closed: false },
+          { day: "tue", opens: "10:00", closes: "19:00", closed: false },
+          { day: "sun", opens: null, closes: null, closed: true },
+        ],
+      },
     });
 
     // No name field, no trigger select and no parameter rows on the way in.
     fireEvent.click(await screen.findByRole("button", { name: /take bookings/i }));
     expect(await screen.findByText("Google · sri@example.in")).toBeTruthy();
     expect(screen.queryByLabelText(/^Name/)).toBeNull();
+    await waitFor(() => expect((screen.getByLabelText("Bookings from") as HTMLSelectElement).value).toBe("10"));
 
     fireEvent.click(screen.getByRole("button", { name: "Turn on booking" }));
 
@@ -165,11 +226,13 @@ describe("turning on booking", () => {
     );
     const posted = calls
       .filter((c) => c.method === "POST")
-      .map((c) => JSON.parse(c.body ?? "{}") as { name: string; config: { operation: string } });
+      .map((c) => JSON.parse(c.body ?? "{}") as { name: string; config: { operation: string; hours: unknown } });
     expect(posted.map((b) => [b.name, b.config.operation])).toEqual([
       ["find_free_times", "check"],
       ["book_the_time", "book"],
     ]);
+    const day = { opens: "10:00", closes: "19:00" };
+    expect(posted[1]?.config.hours).toEqual({ mon: day, tue: day });
   });
 });
 

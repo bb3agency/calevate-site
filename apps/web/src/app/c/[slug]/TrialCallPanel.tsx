@@ -36,6 +36,7 @@ import { LifecycleError } from "./agents/AgentLifecycle";
 import { EarlierTestCalls, TestCallFollow } from "./TestCallStatus";
 import { HOME, TRIAL } from "./_ui/copy";
 import { Why } from "@/components/why";
+import { windowWords } from "./campaigns/callingWindow";
 
 /**
  * THE FREE TRIAL, on the dashboard (D-697): what is left of it, a test call, and the one
@@ -231,7 +232,7 @@ export function TrialCallCard({
             </p>
             {trial.ends_at ? <p>Your trial ends {formatIST(trial.ends_at)} IST.</p> : null}
             <p>
-              The do-not-call list still applies. Calls go out 9am to 9pm unless the number is your own. The
+              The do-not-call list still applies. Calls go out {windowWords()} unless the number is your own. The
               agent always says it is an AI when asked.
             </p>
           </Why>

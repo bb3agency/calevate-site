@@ -3643,6 +3643,7 @@ const CLIENT_SCREENS: Screen[] = [
         counts: { running: 2, waiting: 1, done_30d: 9, goal_30d: 4 },
         problems: [{ step_id: "s4", code: "template_not_approved", message: "This message is not approved yet." }],
         updated_at: "2026-10-30T05:00:00Z",
+        day_limit: 30,
       } satisfies FollowUpOut,
     },
   },

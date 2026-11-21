@@ -6,6 +6,8 @@
  * Counts and names are filled in by the screen; a function here returns the line it shows.
  */
 
+import { windowWords } from "../campaigns/callingWindow";
+
 const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
 export const HOME = {
@@ -112,7 +114,7 @@ export const TRIAL = {
   callsToday: (used: number, cap: number) => `${used} of ${cap} test calls today`,
   minutesLeft: (left: string, free: string) => `${left} of ${free} minutes left`,
   minutesUsedUp: "Free minutes used up. Add credit.",
-  rules: (minutes: string) => `Test calls: 9am–9pm, up to ${minutes} each`,
+  rules: (minutes: string) => `Test calls: ${windowWords("–")}, up to ${minutes} each`,
   howItWorks: "How test calls work",
   pledgeTitle: "Accept the no-cold-calls promise",
   pledgeAction: "Accept promise",

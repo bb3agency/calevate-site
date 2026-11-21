@@ -15,9 +15,9 @@ import { LANGUAGES, languageGlyph, languageShortLabel } from "@/lib/firstAgent";
 
 import { ChipChoice, StepScreen } from "./shell";
 import { FIRST } from "../../_ui/copy";
+import { AGENT_NAME_MAX_CHARS } from "@/lib/textLimits";
 
 /** The server's bound (`first_run/schemas.AgentIn.name`). */
-const NAME_MAX = 60;
 
 /**
  * STEP 2, NAME AND VOICE (Phase 3b, founder 16 Nov 2026): the agent is staff, a name, a
@@ -98,7 +98,7 @@ export function AgentStep({
         <input
           id={nameId}
           value={name}
-          maxLength={NAME_MAX}
+          maxLength={AGENT_NAME_MAX_CHARS}
           autoComplete="off"
           onChange={(event) => setName(event.target.value)}
           className={`${FIELD} mt-2 w-full text-[16px] sm:max-w-xs`}

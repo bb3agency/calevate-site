@@ -18,7 +18,6 @@ from apps.api.engine import thinnest
 from apps.api.engine.hosted_platform import PLATFORM_AGENT_VALUES
 from apps.api.engine.thinnest import (
     _SETTING_KEYS,
-    AGENT_TEMPERATURE,
     BASE_URL,
     EAR_VOICE_VALUES,
     ThinnestEngine,
@@ -58,7 +57,8 @@ def _settings_engine(
 
 
 def test_every_write_states_the_wording_temperature_at_the_vendors_own_default() -> None:
-    assert _body()["temperature"] == AGENT_TEMPERATURE == 0.3
+    assert _body()["temperature"] == 0.3
+    assert _body(temperature=0.7)["temperature"] == 0.7
 
 
 def test_the_recogniser_is_given_no_key_terms() -> None:
@@ -181,7 +181,9 @@ def test_a_deploy_that_changes_a_stated_default_republishes_every_agent() -> Non
     """Part of `live_apply.platform_prompt_revision`, so a change reaches live agents by the
     worker-start republish rather than as drift on each."""
     values = PLATFORM_AGENT_VALUES["thinnest"]
-    assert values["temperature"] == AGENT_TEMPERATURE
+    # The console's now (`thinnest_agent_temperature_tenths`); its code default is in the
+    # revision instead (`live_apply.ENGINE_CONSOLE_DEFAULT_KEYS`).
+    assert "temperature" not in values
     assert (values["recall"], values["verifyByCode"]) == ("verified", False)
     assert values["vocabulary"] == "none"
     assert all(values[key] == value for key, value in EAR_VOICE_VALUES.items())

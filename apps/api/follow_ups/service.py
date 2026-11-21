@@ -485,8 +485,9 @@ def _apply_edit(steps: list[d.AnyStep], edit: StepEdit) -> list[d.AnyStep]:
                 raise _refuse_edit(step.id, "A call waits at most a day before its first try.")
             changes |= {"wait_minutes": edit.wait_minutes, "wait_seconds": None}
         elif isinstance(step, d.WaitStep) and step.until_field is None:
-            if not 1 <= edit.wait_minutes <= d.WAIT_MAX_DAYS * 1440:
-                raise _refuse_edit(step.id, "Wait between a minute and 30 days.")
+            limit = d.day_limit()
+            if not 1 <= edit.wait_minutes <= limit * 1440:
+                raise _refuse_edit(step.id, f"Wait between a minute and {limit} days.")
             changes |= {"minutes": edit.wait_minutes, "hours": None, "days": None}
         else:
             raise _refuse_edit(step.id, "This step has no wait to change.")

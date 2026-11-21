@@ -61,7 +61,7 @@ import {
   JOBS,
   bookingParts,
   daysLabel,
-  hourLabel,
+  hoursLabel,
   jobFor,
   jobLine,
   jobLogo,
@@ -252,8 +252,8 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
         : null;
   const bookingSummary = [
     bookingAccount ? `Google · ${bookingAccount.label}` : null,
-    kept ? `${hourLabel(kept.from)} – ${hourLabel(kept.to)}` : "Any time",
-    daysLabel(bookingSettings.days),
+    hoursLabel(kept),
+    kept?.perDay ? null : daysLabel(bookingSettings.days),
   ]
     .filter(Boolean)
     .join(" · ");

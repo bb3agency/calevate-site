@@ -112,6 +112,9 @@ class FollowUpOut(_Strict):
     counts: CountsOut
     problems: list[ProblemOut]
     updated_at: datetime
+    #: How far any Follow-up may reach, in days (the console's `follow_up_max_days`): the
+    #: longest run, wait, or start before or after a lead's date a publish accepts.
+    day_limit: int
 
 
 class FollowUpSummaryOut(_Strict):
@@ -142,9 +145,9 @@ class FollowUpCreateIn(_Strict):
 class WaitEditIn(_Strict):
     """A new wait: one of minutes, hours or days."""
 
-    minutes: int | None = Field(default=None, ge=0, le=d.WAIT_MAX_DAYS * 1440)
-    hours: int | None = Field(default=None, ge=0, le=d.WAIT_MAX_DAYS * 24)
-    days: int | None = Field(default=None, ge=0, le=d.WAIT_MAX_DAYS)
+    minutes: int | None = Field(default=None, ge=0, le=d.DAYS_CEILING * 1440)
+    hours: int | None = Field(default=None, ge=0, le=d.DAYS_CEILING * 24)
+    days: int | None = Field(default=None, ge=0, le=d.DAYS_CEILING)
 
     def total_minutes(self) -> int:
         return (self.minutes or 0) + (self.hours or 0) * 60 + (self.days or 0) * 1440

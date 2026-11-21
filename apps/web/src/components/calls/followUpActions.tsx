@@ -60,6 +60,7 @@ import {
   type CallFollowUpState,
   type LeadStatus,
 } from "@/lib/api/swipe";
+import { PLATFORM_WINDOW, minutesOf } from "@/app/c/[slug]/campaigns/callingWindow";
 
 /** One row or record the actions are about. */
 export type FollowUpTarget = {
@@ -110,9 +111,9 @@ function callMarkWords(state: CallFollowUpState | null): string {
 
 // --- the time a call-back may be booked for -----------------------------------------------
 
-/** The window and step the server accepts (`crm/swipe.check_schedule_time`): 09:00 to 21:00 IST. */
-const OPENS_MIN = 9 * 60;
-const CLOSES_MIN = 21 * 60;
+/** The window and step the server accepts (`crm/swipe.check_schedule_time`): the calling window. */
+const OPENS_MIN = minutesOf(PLATFORM_WINDOW.start);
+const CLOSES_MIN = minutesOf(PLATFORM_WINDOW.end);
 const STEP_MIN = 15;
 /** The server wants at least two minutes; a slot this close is gone before the form is sent. */
 const SOONEST_MIN = 10;

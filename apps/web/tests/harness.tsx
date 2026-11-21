@@ -6,6 +6,7 @@ import { expect, vi } from "vitest";
 import { LANGUAGE_CHOICES } from "@/lib/agentState";
 import type { CallingNumberDeclaration } from "@/lib/api/autodialerNotice";
 import { clearImpersonationGrants } from "@/lib/api/admin";
+import { DEFAULT_CAMPAIGN_LIMITS } from "@/lib/api/campaigns";
 import { dismissStepUpPrompt } from "@/lib/authn/stepUpPrompt";
 import { API_BASE } from "@/lib/api/client";
 import { ClientRealmProvider } from "@/lib/api/session";
@@ -389,6 +390,11 @@ export function stubApi(routes: Routes): ApiCall[] {
         // route itself.
         if (/^GET \/v1\/agents\/[^/]+\/caller-help$/.test(scoped)) {
           return jsonResponse(NO_CALLER_HELP);
+        }
+        // THE CAMPAIGN LIMITS the console sets, answered with their defaults: every campaign
+        // form reads them. A test about a raised limit names the route itself.
+        if (scoped === "GET /v1/campaigns/limits") {
+          return jsonResponse(DEFAULT_CAMPAIGN_LIMITS);
         }
         if (/^GET \/v1\/admin\/tenants\/[^/]+\/business-copy$/.test(scoped)) {
           return jsonResponse(NO_ADMIN_BUSINESS_COPY);

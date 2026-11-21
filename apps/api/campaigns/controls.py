@@ -39,6 +39,7 @@ from apps.api.campaigns.service import (
     add_contacts,
     create_campaign,
     set_campaign_status,
+    validated_concurrency,
     validated_window,
 )
 from apps.api.campaigns.workspace import copy_workspace
@@ -152,6 +153,8 @@ async def update_draft(
     values = dict(changes)
     if values.get("calling_hours") is not None:
         values["calling_hours"] = validated_window(values["calling_hours"])
+    if values.get("concurrency") is not None:
+        values["concurrency"] = validated_concurrency(int(values["concurrency"]))
 
     assignments: list[str] = []
     params: dict[str, Any] = {"cid": campaign_id}

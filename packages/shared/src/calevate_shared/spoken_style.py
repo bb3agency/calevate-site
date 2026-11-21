@@ -708,6 +708,81 @@ def written_form(tag: str | None) -> str | None:
     return style.written_form if style is not None else None
 
 
+#: The language whose `spoken_dates` every other falls back to; its block must be complete.
+SPOKEN_DATES_FALLBACK: Final = "en-IN"
+#: Each `spoken_dates` template and the fields it is filled with. A template is filled with
+#: `str.format`, so a sentence is one unit a native speaker writes whole, never pieced together
+#: from words in code (ICU MessageFormat's rule).
+SPOKEN_DATE_TEMPLATES: Final[dict[str, frozenset[str]]] = {
+    "moment": frozenset({"weekday", "day", "month", "hour", "minute", "meridiem"}),
+    "window": frozenset({"opens", "closes"}),
+    "any_time": frozenset(),
+    "every_day": frozenset({"hours"}),
+    "on_days": frozenset({"hours", "days"}),
+    "day_hours": frozenset({"days", "opens", "closes"}),
+    "day_all_day": frozenset({"days"}),
+    "week_hours": frozenset({"list"}),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class SpokenDates:
+    """How a booked or offered time is said on a call in one language (`spoken_dates`)."""
+
+    #: Monday first, as `datetime.weekday()` counts.
+    weekdays: tuple[str, ...]
+    #: January first.
+    months: tuple[str, ...]
+    #: Before and after noon.
+    meridiem: tuple[str, str]
+    #: Keyed as `SPOKEN_DATE_TEMPLATES`.
+    templates: Mapping[str, str]
+    list_separator: str
+    group_separator: str
+
+    def say(self, template: str, **fields: object) -> str:
+        return self.templates[template].format(**fields)
+
+
+def _spoken_dates_of(block: Any) -> SpokenDates | None:
+    """A complete `spoken_dates` block, or None for one that is missing or partial."""
+    if not isinstance(block, Mapping) or block.get("missing"):
+        return None
+    weekdays, months, meridiem = block.get("weekdays"), block.get("months"), block.get("meridiem")
+    if not (
+        isinstance(weekdays, list)
+        and len(weekdays) == 7
+        and isinstance(months, list)
+        and len(months) == 12
+        and isinstance(meridiem, list)
+        and len(meridiem) == 2
+        and all(isinstance(block.get(key), str) for key in SPOKEN_DATE_TEMPLATES)
+    ):
+        return None
+    return SpokenDates(
+        weekdays=tuple(str(w) for w in weekdays),
+        months=tuple(str(m) for m in months),
+        meridiem=(str(meridiem[0]), str(meridiem[1])),
+        templates=MappingProxyType({key: str(block[key]) for key in SPOKEN_DATE_TEMPLATES}),
+        list_separator=str(block.get("list_separator", ", ")),
+        group_separator=str(block.get("group_separator", "; ")),
+    )
+
+
+def spoken_dates(tag: str | None) -> SpokenDates:
+    """How times are said on a call in `tag`'s language, or in English while that language's
+    block is missing. File-only, like `spelled_address`: these lines reach a caller."""
+    rows = _raw()["languages"]
+    row = rows.get(tag) if tag else None
+    found = _spoken_dates_of(row.get("spoken_dates")) if isinstance(row, Mapping) else None
+    if found is not None:
+        return found
+    fallback = _spoken_dates_of(rows[SPOKEN_DATES_FALLBACK].get("spoken_dates"))
+    if fallback is None:
+        raise ValueError(f"spoken_style.json: {SPOKEN_DATES_FALLBACK} spoken_dates is incomplete")
+    return fallback
+
+
 #: How the example line names each side: the agent reading it is "you".
 _WHO: Final[dict[str, str]] = {"caller": "caller", "agent": "you"}
 
@@ -936,6 +1011,8 @@ __all__ = [
     "PROMPT_EXAMPLES_APPROVED",
     "REASON_KEY",
     "REGISTER_KEY",
+    "SPOKEN_DATES_FALLBACK",
+    "SPOKEN_DATE_TEMPLATES",
     "AvoidForm",
     "EntryKind",
     "ExampleTurn",
@@ -949,6 +1026,7 @@ __all__ = [
     "PublishedLanguage",
     "ReviewStatus",
     "Speaker",
+    "SpokenDates",
     "StyleEntry",
     "amounts_rule",
     "caller_guidance",
@@ -972,6 +1050,7 @@ __all__ = [
     "register_guidance",
     "shipped_pack_choice",
     "spelled_address",
+    "spoken_dates",
     "style_for",
     "thinking_lines",
     "trial_call_opening",

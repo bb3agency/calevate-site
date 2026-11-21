@@ -317,48 +317,75 @@ export function defaultParams(kind: Kind, provider: Provider): DraftParam[] {
  * operation per tool: `check` (find free times in a window) and `book` (book one time).
  * The owner sees one job; the agent gets both.
  *
- * The hours and days are RULES the server keeps: both tools carry `opens`, `closes` and
- * `open_days`, so the executor offers only free times inside them and refuses a booking
- * outside them (`outside_hours`), whatever the agent is talked into. The same sentence is
- * also written into what the agent is told, so it says the hours to a caller rather than
- * finding them out from a refusal.
+ * The hours are RULES the server keeps: both tools carry `hours`, per weekday in the business
+ * profile's shape (`{"mon": {"opens", "closes"}}`), so the executor offers only free times
+ * inside them and refuses a booking outside them (`outside_hours`), whatever the agent is
+ * talked into. A window that closes at or before it opens runs past midnight, and
+ * `00:00`–`00:00` is the whole day. The same hours are also written into what the agent is
+ * told, so it says them to a caller rather than finding them out from a refusal. Actions
+ * saved before per-day hours carry `opens`, `closes` and `open_days`, which still read back.
  */
 export interface BookingDraft {
   credentialId: string;
   durationMin: number;
-  /** Hours of the day, 0–23, in India time. */
+  /** Hours of the day in India time: `from` 0–23, `to` 1–24 (24 is midnight). A `to` at or
+   *  before `from` runs past midnight. */
   from: number;
   to: number;
   /** ISO weekdays, 1 = Monday … 7 = Sunday, sorted. */
   days: number[];
+  /** Exact windows per ISO weekday (from the business profile, or saved that way) while the
+   *  owner has not set one time for every day; null when `from`/`to`/`days` say it all. */
+  perDay: DayWindows | null;
   calendarId: string;
 }
+
+/** Booking hours per ISO weekday, `HH:MM` India time. */
+export type DayWindows = Partial<Record<number, { opens: string; closes: string }>>;
 
 export const BOOKING_DEFAULTS: Omit<BookingDraft, "credentialId"> = {
   durationMin: 60,
   from: 9,
   to: 18,
   days: [1, 2, 3, 4, 5, 6],
+  perDay: null,
   calendarId: "primary",
 };
 
 export const LENGTH_CHOICES: readonly number[] = [15, 30, 45, 60, 90, 120];
-export const HOUR_CHOICES: readonly number[] = Array.from({ length: 18 }, (_, i) => i + 6);
-export const WEEKDAYS: readonly { day: number; short: string; long: string }[] = [
-  { day: 1, short: "Mon", long: "Monday" },
-  { day: 2, short: "Tue", long: "Tuesday" },
-  { day: 3, short: "Wed", long: "Wednesday" },
-  { day: 4, short: "Thu", long: "Thursday" },
-  { day: 5, short: "Fri", long: "Friday" },
-  { day: 6, short: "Sat", long: "Saturday" },
-  { day: 7, short: "Sun", long: "Sunday" },
+/** Opening hours, midnight to 11 pm. */
+export const HOUR_CHOICES: readonly number[] = Array.from({ length: 24 }, (_, i) => i);
+/** Closing hours, 1 am to midnight (24). */
+export const CLOSE_HOUR_CHOICES: readonly number[] = Array.from({ length: 24 }, (_, i) => i + 1);
+export const WEEKDAYS: readonly { day: number; short: string; long: string; key: DayKey }[] = [
+  { day: 1, short: "Mon", long: "Monday", key: "mon" },
+  { day: 2, short: "Tue", long: "Tuesday", key: "tue" },
+  { day: 3, short: "Wed", long: "Wednesday", key: "wed" },
+  { day: 4, short: "Thu", long: "Thursday", key: "thu" },
+  { day: 5, short: "Fri", long: "Friday", key: "fri" },
+  { day: 6, short: "Sat", long: "Saturday", key: "sat" },
+  { day: 7, short: "Sun", long: "Sunday", key: "sun" },
 ];
+type DayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 
-/** `9` → "9 am", `12` → "12 pm", `18` → "6 pm". */
+/** `9` → "9 am", `12` → "12 pm", `18` → "6 pm", `0` and `24` → "12 am". */
 export function hourLabel(hour: number): string {
-  const suffix = hour < 12 ? "am" : "pm";
-  const h = hour % 12 === 0 ? 12 : hour % 12;
+  const h24 = hour % 24;
+  const suffix = h24 < 12 ? "am" : "pm";
+  const h = h24 % 12 === 0 ? 12 : h24 % 12;
   return `${h} ${suffix}`;
+}
+
+/** `"09:30"` → "9:30 am", `"18:00"` → "6 pm". */
+function clockLabel(hhmm: string): string {
+  const [h = 0, m = 0] = hhmm.split(":").map(Number);
+  const label = hourLabel(h);
+  return m === 0 ? label : label.replace(" ", `:${String(m).padStart(2, "0")} `);
+}
+
+/** "9 am – 6 pm", "Any time of day" for a whole day. */
+function windowLabel(opens: string, closes: string): string {
+  return opens === closes ? "Any time of day" : `${clockLabel(opens)} – ${clockLabel(closes)}`;
 }
 
 /** `60` → "1 hour", `90` → "1 hour 30 minutes", `30` → "30 minutes". */
@@ -381,14 +408,77 @@ export function daysLabel(days: readonly number[]): string {
   return sorted.map(name).join(", ");
 }
 
-const pad = (h: number) => `${String(h).padStart(2, "0")}:00`;
+const pad = (h: number) => `${String(h % 24).padStart(2, "0")}:00`;
 const hourOf = (hhmm: unknown): number | null => {
   if (typeof hhmm !== "string") return null;
   const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
   return m ? Number(m[1]) : null;
 };
+const isClock = (value: unknown): value is string => typeof value === "string" && /^\d{2}:\d{2}$/.test(value);
+
+/** The per-day windows a draft stands for. */
+export function draftWindows(d: BookingDraft): DayWindows {
+  if (d.perDay) return d.perDay;
+  const windows: DayWindows = {};
+  for (const day of d.days) windows[day] = { opens: pad(d.from), closes: pad(d.to) };
+  return windows;
+}
+
+/**
+ * The windows as one draft: `from`/`to`/`days` when every open day shares one whole-hour
+ * window, else kept exactly in `perDay` (with the first open day's hours in the simple
+ * controls, for when the owner sets one time for every day).
+ */
+function draftOfWindows(windows: DayWindows): Pick<BookingDraft, "from" | "to" | "days" | "perDay"> {
+  const days = WEEKDAYS.map((w) => w.day).filter((day) => windows[day] !== undefined);
+  const first = days.length > 0 ? windows[days[0] ?? 1] : undefined;
+  if (!first) return { from: BOOKING_DEFAULTS.from, to: BOOKING_DEFAULTS.to, days: BOOKING_DEFAULTS.days, perDay: null };
+  const from = hourOf(first.opens) ?? BOOKING_DEFAULTS.from;
+  const closes = hourOf(first.closes) ?? BOOKING_DEFAULTS.to;
+  const to = closes === 0 ? 24 : closes;
+  const same = days.every((day) => windows[day]?.opens === first.opens && windows[day]?.closes === first.closes);
+  const whole = first.opens.endsWith(":00") && first.closes.endsWith(":00");
+  return { from, to, days, perDay: same && whole ? null : windows };
+}
+
+/**
+ * Where a new booking job starts: the business profile's opening hours when it has any
+ * (`BusinessProfile.hours`, one row per day; a closed or unanswered day takes no bookings),
+ * else 9 am to 6 pm, Monday to Saturday.
+ */
+export function bookingDefaults(
+  hours: readonly { day: string; opens?: string | null; closes?: string | null; closed?: boolean | null }[] | undefined,
+): Omit<BookingDraft, "credentialId"> {
+  const windows: DayWindows = {};
+  for (const row of hours ?? []) {
+    const day = WEEKDAYS.find((w) => w.key === row.day)?.day;
+    if (day !== undefined && !row.closed && isClock(row.opens) && isClock(row.closes)) {
+      windows[day] = { opens: row.opens, closes: row.closes };
+    }
+  }
+  if (Object.keys(windows).length === 0) return { ...BOOKING_DEFAULTS };
+  return { ...BOOKING_DEFAULTS, ...draftOfWindows(windows) };
+}
+
+/** The hours as one short line: "9 am – 6 pm", or per day when the days differ. */
+export function hoursLabel(d: BookingDraft | null): string {
+  if (d === null) return "Any time";
+  if (!d.perDay) return windowLabel(pad(d.from), pad(d.to));
+  const groups = new Map<string, number[]>();
+  for (const w of WEEKDAYS) {
+    const window = d.perDay[w.day];
+    if (window) groups.set(`${window.opens}|${window.closes}`, [...(groups.get(`${window.opens}|${window.closes}`) ?? []), w.day]);
+  }
+  return [...groups.entries()]
+    .map(([key, days]) => {
+      const [opens = "", closes = ""] = key.split("|");
+      return `${daysLabel(days)} ${windowLabel(opens, closes)}`;
+    })
+    .join(" · ");
+}
 
 function hoursSentence(d: BookingDraft): string {
+  if (d.perDay) return `Only offer and book times in these hours, India time: ${hoursLabel(d)}.`;
   const days = d.days.length === 7 ? "" : ` on ${daysLabel(d.days).replace(" – ", " to ")}`;
   return `Only offer and book times between ${hourLabel(d.from)} and ${hourLabel(d.to)} India time${days}.`;
 }
@@ -415,13 +505,13 @@ export function bookingTools(
 ): { check: ActionToolInput; book: ActionToolInput } {
   const length = `Each booking is ${lengthLabel(d.durationMin)}.`;
   const hours = hoursSentence(d);
-  const days = [...new Set(d.days)].sort((a, b) => a - b);
+  const windows = draftWindows(d);
   const rules = {
     calendar_id: d.calendarId || "primary",
     duration_min: d.durationMin,
-    opens: pad(d.from),
-    closes: pad(d.to),
-    open_days: days.length === 7 ? null : days,
+    hours: Object.fromEntries(
+      WEEKDAYS.filter((w) => windows[w.day] !== undefined).map((w) => [w.key, windows[w.day]]),
+    ),
   };
   const base = {
     kind: "calendar" as const,
@@ -468,15 +558,32 @@ export function bookingParts(tools: readonly ActionTool[]): {
 }
 
 /**
- * A booking job's settings, read back from its tools (for the summary and for Change):
- * the config's rules first, then — for an action made before the server kept hours — the
- * sentence in its instructions.
+ * A booking job's settings, read back from its tools (for the summary and for Change): the
+ * per-day `hours` first, then the one window an older action keeps (`opens`, `closes`,
+ * `open_days`), then — for an action made before the server kept hours — the sentence in
+ * its instructions.
  */
 export function readBooking(check: ActionTool | undefined, book: ActionTool | undefined): BookingDraft {
   const source = book ?? check;
   const config = source?.config ?? {};
   const duration = Number(config.duration_min);
   const calendarId = config.calendar_id;
+  const common = {
+    credentialId: source?.credential_id ?? "",
+    durationMin: Number.isFinite(duration) && duration > 0 ? duration : BOOKING_DEFAULTS.durationMin,
+    calendarId: typeof calendarId === "string" && calendarId ? calendarId : "primary",
+  };
+  const stored = config.hours;
+  if (stored !== null && typeof stored === "object") {
+    const windows: DayWindows = {};
+    for (const w of WEEKDAYS) {
+      const window = (stored as Record<string, unknown>)[w.key] as { opens?: unknown; closes?: unknown } | null | undefined;
+      if (window && isClock(window.opens) && isClock(window.closes)) {
+        windows[w.day] = { opens: window.opens, closes: window.closes };
+      }
+    }
+    return { ...common, ...draftOfWindows(windows) };
+  }
   const opens = hourOf(config.opens);
   const closes = hourOf(config.closes);
   const written = readHours(source?.description ?? "");
@@ -484,21 +591,19 @@ export function readBooking(check: ActionTool | undefined, book: ActionTool | un
     ? config.open_days.filter((d): d is number => typeof d === "number" && d >= 1 && d <= 7)
     : null;
   return {
-    credentialId: source?.credential_id ?? "",
-    durationMin: Number.isFinite(duration) && duration > 0 ? duration : BOOKING_DEFAULTS.durationMin,
+    ...common,
     from: opens ?? written?.from ?? BOOKING_DEFAULTS.from,
     to: closes ?? written?.to ?? BOOKING_DEFAULTS.to,
     days: days && days.length > 0 ? [...days].sort((a, b) => a - b) : [1, 2, 3, 4, 5, 6, 7],
-    calendarId: typeof calendarId === "string" && calendarId ? calendarId : "primary",
+    perDay: null,
   };
 }
 
 /** The booking hours the server keeps for this job, or null when it takes bookings any time. */
-export function keptHours(check: ActionTool | undefined, book: ActionTool | undefined): { from: number; to: number } | null {
+export function keptHours(check: ActionTool | undefined, book: ActionTool | undefined): BookingDraft | null {
   const config = (book ?? check)?.config ?? {};
-  const from = hourOf(config.opens);
-  const to = hourOf(config.closes);
-  return from !== null && to !== null ? { from, to } : null;
+  const kept = config.hours !== null && typeof config.hours === "object";
+  return kept || (hourOf(config.opens) !== null && hourOf(config.closes) !== null) ? readBooking(check, book) : null;
 }
 
 /**

@@ -35,7 +35,8 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from datetime import time as clock
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Final
 from urllib.parse import urlencode
@@ -43,6 +44,7 @@ from uuid import UUID
 
 import httpx
 from calevate_shared.calling_window import IST
+from calevate_shared.spoken_style import SpokenDates, spoken_dates
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,6 +59,7 @@ from apps.api.actions.credentials import (
     resolve_credential,
 )
 from apps.api.actions.schema import (
+    BOOKING_DAYS,
     CalendarConfig,
     CallerLookupConfig,
     CrmConfig,
@@ -706,13 +709,34 @@ def _busy(body: Any, calendar_id: str) -> list[tuple[datetime, datetime]] | None
     return out
 
 
-_WEEKDAYS: Final = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+def _day_windows(config: CalendarConfig, day: date) -> list[tuple[datetime, datetime]]:
+    """The per-day booking windows that cover any of `day`, as IST instants: the window that
+    starts on `day` and the one from the day before that runs past midnight into it. A window
+    closing at or before it opens ends the next day (`agents/business_hours`)."""
+    assert config.hours is not None
+    windows: list[tuple[datetime, datetime]] = []
+    for starts_on in (day - timedelta(days=1), day):
+        window = config.hours.get(BOOKING_DAYS[starts_on.weekday()])
+        if window is None:
+            continue
+        opens = datetime.combine(starts_on, clock.fromisoformat(window.opens), IST)
+        closes = datetime.combine(starts_on, clock.fromisoformat(window.closes), IST)
+        if closes <= opens:
+            closes += timedelta(days=1)
+        windows.append((opens, closes))
+    return windows
 
 
 def within_booking_hours(config: CalendarConfig, start: datetime, end: datetime) -> bool:
     """Does `start` to `end` sit inside the business's booking hours and days, in India time?
-    A booking that runs past midnight is never inside them."""
+    Under one window for every day (`opens`/`closes`), a booking that runs past midnight is
+    never inside them; under per-day hours it must sit inside one day's window, which may."""
     local_start, local_end = start.astimezone(IST), end.astimezone(IST)
+    if config.hours is not None:
+        return any(
+            opens <= local_start and local_end <= closes
+            for opens, closes in _day_windows(config, local_start.date())
+        )
     if config.open_days is not None and local_start.isoweekday() not in config.open_days:
         return False
     if config.opens is None or config.closes is None:
@@ -725,16 +749,41 @@ def within_booking_hours(config: CalendarConfig, start: datetime, end: datetime)
     )
 
 
-def booking_hours_text(config: CalendarConfig) -> str:
-    """The hours as the agent should say them: `from 09:00 to 18:00, Monday to Saturday`."""
+def _per_day_text(config: CalendarConfig, words: SpokenDates) -> str:
+    """Per-day hours, days that share a window said together in week order."""
+    assert config.hours is not None
+    groups: dict[tuple[str, str], list[str]] = {}
+    for index, key in enumerate(BOOKING_DAYS):
+        window = config.hours.get(key)
+        if window is not None:
+            groups.setdefault((window.opens, window.closes), []).append(words.weekdays[index])
+    parts = [
+        words.say("day_all_day", days=words.list_separator.join(days))
+        if opens == closes
+        else words.say(
+            "day_hours", days=words.list_separator.join(days), opens=opens, closes=closes
+        )
+        for (opens, closes), days in groups.items()
+    ]
+    return words.say("week_hours", list=words.group_separator.join(parts))
+
+
+def booking_hours_text(config: CalendarConfig, language: str | None = None) -> str:
+    """The hours as the agent should say them, in the call's language where its words are
+    written (`spoken_style.spoken_dates`), else English: `from 09:00 to 18:00 India time, on
+    Monday, ...`, or per day when the action keeps per-day hours."""
+    words = spoken_dates(language)
+    if config.hours is not None:
+        return _per_day_text(config, words)
     hours = (
-        f"from {config.opens} to {config.closes} India time"
+        words.say("window", opens=config.opens, closes=config.closes)
         if config.opens and config.closes
-        else "at any time of day"
+        else words.say("any_time")
     )
     if config.open_days is None or len(config.open_days) == 7:
-        return f"{hours}, every day"
-    return f"{hours}, on " + ", ".join(_WEEKDAYS[d - 1] for d in sorted(config.open_days))
+        return words.say("every_day", hours=hours)
+    days = words.list_separator.join(words.weekdays[d - 1] for d in sorted(config.open_days))
+    return words.say("on_days", hours=hours, days=days)
 
 
 def free_slots(
@@ -758,12 +807,31 @@ def free_slots(
     return slots
 
 
-def spoken_time(at: datetime) -> str:
-    """`Tuesday 14 October, 4:00 PM` in India time — read aloud exactly as written."""
+def spoken_time(at: datetime, language: str | None = None) -> str:
+    """`Tuesday 14 October, 4:00 PM` in India time, in the call's language where its words
+    are written (`spoken_style.spoken_dates`), else English — read aloud exactly as written.
+    Names come from the data, not `strftime`, whose words are the process locale's."""
     local = at.astimezone(IST)
-    hour = local.strftime("%I").lstrip("0") or "12"
-    day = f"{local.strftime('%A')} {local.day} {local.strftime('%B')}"
-    return f"{day}, {hour}:{local.strftime('%M %p')}"
+    words = spoken_dates(language)
+    return words.say(
+        "moment",
+        weekday=words.weekdays[local.weekday()],
+        day=local.day,
+        month=words.months[local.month - 1],
+        hour=local.hour % 12 or 12,
+        minute=f"{local.minute:02d}",
+        meridiem=words.meridiem[local.hour >= 12],
+    )
+
+
+async def _agent_language(session: AsyncSession, agent_id: UUID) -> str | None:
+    """The agent's primary language: the language its calls are answered in."""
+    found = (
+        await session.execute(
+            text("SELECT language_primary FROM agents WHERE id = :id"), {"id": agent_id}
+        )
+    ).scalar()
+    return str(found) if found else None
 
 
 async def _run_calendar(
@@ -796,8 +864,9 @@ async def _run_calendar(
         return _refused("time_in_past")
     # Refused before the calendar is asked: a time the business does not take bookings at
     # is not bookable however free the diary is.
+    language = await _agent_language(session, tool.agent_id)
     if config.operation == "book" and not within_booking_hours(config, start_at, end_at):
-        return _refused("outside_hours", hours=booking_hours_text(config))
+        return _refused("outside_hours", hours=booking_hours_text(config, language))
 
     cred = await _credential(session, tool)
     if cred is None:
@@ -832,9 +901,10 @@ async def _run_calendar(
             ok=True,
             payload={
                 "available": bool(slots) and slots[0] == start_at,
-                "booking_hours": booking_hours_text(config),
+                "booking_hours": booking_hours_text(config, language),
                 "free_slots": [
-                    {"start": s.astimezone(IST).isoformat(), "say": spoken_time(s)} for s in slots
+                    {"start": s.astimezone(IST).isoformat(), "say": spoken_time(s, language)}
+                    for s in slots
                 ],
             },
             status="checked",
@@ -872,7 +942,7 @@ async def _run_calendar(
         payload={
             "status": "booked",
             "event_id": str(body.get("id") or "") if isinstance(body, dict) else "",
-            "say": spoken_time(start_at),
+            "say": spoken_time(start_at, language),
         },
         status="booked",
     )

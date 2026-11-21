@@ -49,6 +49,7 @@ import { SourcePicker, useChosenCount } from "./SourcePicker";
 import { CampaignFlow, FLOW_PART } from "./CampaignFlow";
 import { ScriptLanguagePick, languageName } from "./ScriptLanguages";
 import { MAIN_TASK_PLACEHOLDER } from "./NewCampaignSteps";
+import { MAIN_TASK_MAX_CHARS } from "@/lib/textLimits";
 
 // The review is drawn only while Pip's draft waits or the script is being edited, so it is
 // its own chunk rather than part of every campaign page's first load.
@@ -202,7 +203,7 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
             id={`${campaignId}-main-task`}
             className={`${FIELD} min-h-36 w-full resize-y`}
             value={text}
-            maxLength={4000}
+            maxLength={MAIN_TASK_MAX_CHARS}
             disabled={!canWrite}
             title={refusal}
             placeholder={MAIN_TASK_PLACEHOLDER}

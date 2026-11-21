@@ -43,6 +43,7 @@ import { asText } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import type { NoticeTone } from "@/components/ui";
+import { windowWords } from "../campaigns/callingWindow";
 
 /**
  * THE CALL-BACKS PROMISED TO CALLERS AND LEADS (D-514, D-893).
@@ -389,7 +390,7 @@ export function CallbacksScreen() {
             "It rings at the time the caller asked for.",
             "Calls a Follow-up books show here too.",
             "If a check stops it, the row says why.",
-            "Move it to any time, 9am to 9pm.",
+            `Move it to any time, ${windowWords()}.`,
             "Calling off does not tell the caller.",
             "Ring them yourself if it matters.",
           ]}
@@ -594,10 +595,10 @@ function MoveDialog({
             <MonoValue className="block tabular-nums font-medium text-ink">
               {formatPhone(one.phone_e164)}
             </MonoValue>
-            Now due {formatIST(one.requested_at)}. Pick a time, 9am to 9pm.
+            Now due {formatIST(one.requested_at)}. Pick a time, {windowWords()}.
           </>
         ) : (
-          "Pick a time, 9am to 9pm. Ones already ringing stay."
+          `Pick a time, ${windowWords()}. Ones already ringing stay.`
         )
       }
       onClose={onClose}

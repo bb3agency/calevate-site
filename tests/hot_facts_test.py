@@ -284,7 +284,7 @@ def test_the_voice_stamp_records_what_the_config_carried() -> None:
     cfg = _cfg(facts_in_knowledge=True, turn_detection="ear", early_answers=False)
     stamp = stamp_of(with_known_facts(cfg, [PRICE], _thinnest()), _thinnest())
     assert stamp["turn_detection"] == "ear" and stamp["early_answers"] is False
-    assert stamp["filler_delay_ms"] == 2000  # `thinnest.PLATFORM_VOICE_VALUES`
+    assert stamp["filler_delay_ms"] == 2000  # the console default, `thinnest_thinking_delay_ms`
     assert stamp["known_facts"] is True and stamp["known_facts_chars"] > len(PRICE)
     assert stamp_of(cfg, _thinnest())["known_facts"] is False
 

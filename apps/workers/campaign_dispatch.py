@@ -789,8 +789,8 @@ async def _plan_tenant(
             #
             # UNCONDITIONAL, and it used to be guarded by `if slots > 0`. That guard
             # could not fire: `campaigns.concurrency` is NOT NULL under the CHECK
-            # `concurrency BETWEEN 1 AND 10` (`ck_campaigns_concurrency_range`, applied
-            # in `e16c96e68bc5`), and the `tenant_budget <= 0` break six lines up means
+            # `concurrency BETWEEN 1 AND 20` (`ck_campaigns_concurrency_range`, widened
+            # in `c4f81a9d2e67`), and the `tenant_budget <= 0` break six lines up means
             # the budget is at least 1 here — so `min()` of two positives is positive.
             # A defensive arm no state can reach is not free: it reads as a case that
             # happens, and it is a branch the coverage gate then has to be waived for.

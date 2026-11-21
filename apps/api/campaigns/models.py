@@ -79,8 +79,10 @@ class Campaign(PKMixin, TimestampMixin, Base):
         CheckConstraint(f"status IN {CAMPAIGN_STATUSES!r}", name="status_enum"),
         CheckConstraint(f"kind IN {CAMPAIGN_KINDS!r}", name="kind_enum"),
         # Per-campaign concurrency slider, bounded by the plan ceiling at launch time
-        # (FLOWS §5 rule 4); the DB bound is the absolute sanity limit.
-        CheckConstraint("concurrency BETWEEN 1 AND 10", name="concurrency_range"),
+        # (FLOWS §5 rule 4) and by the console's `campaign_max_concurrency` on every write;
+        # the DB bound is the absolute sanity limit, the code ceiling
+        # (`calevate_shared.config.CAMPAIGN_CONCURRENCY_CEILING`).
+        CheckConstraint("concurrency BETWEEN 1 AND 20", name="concurrency_range"),
         # NULL is a legal value — it means "nobody has said yet", which is exactly what
         # every campaign that predates these columns can honestly claim. What is NOT
         # legal is a source outside the enum...

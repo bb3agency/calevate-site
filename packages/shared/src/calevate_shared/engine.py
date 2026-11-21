@@ -4323,6 +4323,14 @@ class AgentConfig(BaseModel):
     #: Words a caller must say over the agent to stop it: the console's
     #: `thinnest_interrupt_words`. Excluded from every dump for `detect_machines`' reason.
     interrupt_words: int = Field(default=2, ge=1, le=6, exclude=True)
+    #: How adventurous the wording is, 0 to 2: the console's `thinnest_agent_temperature_tenths`
+    #: over ten. Excluded from every dump for `detect_machines`' reason.
+    temperature: float = Field(default=0.3, ge=0.0, le=2.0, exclude=True)
+    #: The filler line's quiet and repeat gap in milliseconds: the console's
+    #: `thinnest_thinking_delay_ms` and `thinnest_thinking_repeat_ms`. Excluded from every
+    #: dump for `detect_machines`' reason.
+    thinking_delay_ms: int = Field(default=2000, ge=200, le=5000, exclude=True)
+    thinking_repeat_ms: int = Field(default=2500, ge=1000, le=10_000, exclude=True)
     #: The reply ceiling in tokens (D-769): the agent's own, else the console's
     #: `thinnest_reply_length`, resolved by `apps/api/agents/reply_length`. Excluded from
     #: every dump for `detect_machines`' reason.

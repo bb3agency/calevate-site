@@ -5,7 +5,7 @@ import { asText } from "@/lib/copilot/types";
 import { canDialOut } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
 import { istDateStamp } from "@/components/ui";
-import { RETRY_GAP_CHOICES, type CampaignNumber, type DltTemplate } from "@/lib/api/campaigns";
+import { DEFAULT_CAMPAIGN_LIMITS, type CampaignNumber, type DltTemplate } from "@/lib/api/campaigns";
 
 import { STATUSES } from "../leads/StatusSelect";
 
@@ -219,7 +219,7 @@ export function useCampaignsCopilotSurface({
         label: "Minutes to wait before each retry",
         type: "text",
         value: (form.retry.gaps_minutes ?? []).join(","),
-        help: `One per retry, each one of ${RETRY_GAP_CHOICES.join(", ")}.`,
+        help: `One per retry, each one of ${DEFAULT_CAMPAIGN_LIMITS.retry_gap_choices.join(", ")}.`,
       },
       {
         id: "campaign-leads-stage",
@@ -341,7 +341,7 @@ export function useCampaignsCopilotSurface({
           case "campaign-retry-gaps": {
             const gaps = text.split(/[\s,]+/).map((part) => Number.parseInt(part, 10));
             const wanted = form.retry.max_attempts - 1;
-            if (gaps.length === wanted && gaps.every((gap) => (RETRY_GAP_CHOICES as readonly number[]).includes(gap))) {
+            if (gaps.length === wanted && gaps.every((gap) => DEFAULT_CAMPAIGN_LIMITS.retry_gap_choices.includes(gap))) {
               form.setRetry({ ...form.retry, gaps_minutes: gaps });
             }
             break;
