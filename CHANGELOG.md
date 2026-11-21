@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.99 — 21-Nov-2026
+
+- An agent that only places or only answers calls no longer carries the second opening of
+  an agent that does both, so it does not greet a second time with it.
+
 ## 0.4.98 — 21-Nov-2026
 
 - A captured detail is kept only when the caller said it: a short reply answers only the
