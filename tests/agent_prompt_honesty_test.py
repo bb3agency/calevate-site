@@ -89,7 +89,7 @@ def test_telugu_keeps_english_words_and_amounts_in_english_letters() -> None:
     """Founder, 20 Nov 2026 (reversing D-861 for Telugu): a Telugu agent writes English words
     and amounts in English letters, and learns where to breathe from the examples."""
     register = _layer(_cfg(), "spoken_register")
-    assert "Telugu words in Telugu letters, English words in English letters" in register
+    assert "English words people use, in English letters" in register
     assert "English words too" not in register
     assert "పొద్దున వీలవుతుందా, సాయంత్రమా?" in register
     assert '"one twenty rupees", "five thousand"' in VOICE_STYLE_GUIDANCE

@@ -3,6 +3,18 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.91 — 21-Nov-2026
+
+- Pip in the chat can change what a campaign or an Inbound line says: it asks that page's
+  script writer for a draft, which waits on the page for review, after a Confirm card that
+  says it uses the AI allowance. When it shows a script it read, it says it is the current
+  wording, never changes.
+- Note for Pip takes 1,000 characters, with a count under the box.
+- A page that loses its connection during a restart keeps trying for about 15 seconds
+  before it says something did not load.
+- Pip rewrites a script line that opens with a reaction such as "very good", and a step
+  line that greets again or asks again whether now is a good time.
+
 ## 0.4.90 — 21-Nov-2026
 
 - A lead that reached its goal weeks ago no longer comes back as a new Goal reached item

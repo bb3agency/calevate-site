@@ -224,7 +224,7 @@ def test_the_prompt_says_the_turn_and_voice_rules() -> None:
     # Turn length, one question a turn and no brackets are ours again since D-856, so the
     # practice chat reads the rules a call follows.
     assert (
-        "open with one short whole sentence, no comma; one or two short sentences, then wait"
+        "in one short sentence with no comma; one or two short sentences, then wait"
         in block
     )
     assert "lead with the answer" in block and "react only if it fits" in block
@@ -239,7 +239,7 @@ def test_the_prompt_says_the_turn_and_voice_rules() -> None:
     assert 'never "uhm"' in block
     # Hindi writes every word in Devanagari, English words too (D-861); Telugu writes English
     # words in English letters (founder, 20 Nov 2026).
-    assert "English words in English letters" in (register_guidance("te-IN") or "")
+    assert "English words people use, in English letters" in (register_guidance("te-IN") or "")
     assert "every word in Devanagari" in (register_guidance("hi-IN") or "")
 
 

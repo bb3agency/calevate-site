@@ -22,7 +22,8 @@ from calevate_shared.languages import offered_language_tags
 from calevate_shared.spoken_guard import SPOKEN_LINE_RULES, generation_guidance
 
 RULES = (
-    "Never a reaction alone: add a question or next step, unless closing.",
+    "Open with the point itself, the answer, step or question, in one short sentence with no "
+    "comma; one or two short sentences, then wait. No reaction to open with.",
     "Never re-ask what they said or repeat a sentence. Adapt to the answer.",
     '"Anything else?" once, when the task is done; "that is all"? Close.',
     '"?" on every question, else a full stop.',
