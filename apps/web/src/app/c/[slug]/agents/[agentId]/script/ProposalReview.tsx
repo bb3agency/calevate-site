@@ -543,7 +543,7 @@ export function ProposalReview({
         {gate && <p className="text-meta text-ink-muted">{gate}</p>}
         {tooMany && (
           <p role="alert" className="text-meta text-danger">
-            {`This keeps ${steps} steps and a script holds at most ${limits.maxSections}. Tick the removed steps it replaces, or untick some new ones.`}
+            {`Over ${limits.maxSections} steps. Tick the steps this replaces.`}
           </p>
         )}
         {tried && blocked.length > 0 && (
