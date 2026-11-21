@@ -25,6 +25,7 @@ import re
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.business_frame import BUSINESS_FRAME
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import google_assist_leg
@@ -57,7 +58,7 @@ NAMED_PREFIX: Final = "t_"
 _MAX_KEY_WORDS_CHARS: Final = 60
 
 SYSTEM_PROMPT: Final = (
-    "A small Indian business's phone agent could not answer some callers' questions. File "
+    f"The phone agent of {BUSINESS_FRAME} could not answer some callers' questions. File "
     "each numbered question under the topic this business's owner would put it under on "
     "their list of questions to answer. When one of the known topics fits, give its key. "
     "Otherwise name a new topic: 1 to 4 plain English words, a heading, in this business's "

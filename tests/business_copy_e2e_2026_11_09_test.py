@@ -54,7 +54,7 @@ from tests.business_copy_test import (
 
 def test_the_instruction_names_every_rule_the_checks_enforce() -> None:
     """FAILS IF: an answer can be refused for a rule the model was never told: a word on the
-    medical list ("appointment" is not a medical word to anyone who has not seen the list),
+    medical list ("OPD" or "dental" is not obvious to anyone who has not seen the list),
     a symbol the markdown check refuses, an ellipsis in a spoken line, digits in a caller's
     push-back, or a length the shape caps."""
     instruction = worker.instruction_for(_inputs())
@@ -81,14 +81,25 @@ def test_a_refused_medical_or_provider_word_is_named_for_the_repair() -> None:
     """FAILS IF: the repair says only "medical words" or "a technology company", leaving the
     model to guess which of some forty strings to change."""
     raw = copy_dict()
-    raw["example_questions"][0] = "Can I get an appointment on Sunday?"
+    raw["example_questions"][0] = "Can I see the doctor on Sunday?"
     raw["placeholders"]["knowledge_title"] = "Ask Gemini about prices"
     _copy, problems = worker.answer_problems(raw, inputs=_inputs())
     assert (
-        "example_questions.0: medical words (appointment), and this business is not a health "
+        "example_questions.0: medical words (doctor), and this business is not a health "
         "business" in problems
     )
     assert "placeholders.knowledge_title: names a technology company (gemini)" in problems
+
+
+def test_appointment_is_a_word_any_business_may_use() -> None:
+    """FAILS IF: a salon, garage, CA or tutor that books appointments has its copy refused
+    for a medical word, while the clinical nouns stay refused."""
+    assert "appointment" not in business_copy.CLINIC_WORD_LIST
+    assert (
+        business_copy.health_words_problem("x", "Book an appointment for a haircut", health=False)
+        is None
+    )
+    assert business_copy.health_words_problem("x", "Ask the doctor", health=False) is not None
 
 
 def test_the_owners_own_words_may_name_a_company_the_copy_then_repeats() -> None:
@@ -143,7 +154,7 @@ def test_a_screen_guess_the_ready_made_words_and_a_step_can_each_be_left_out() -
     throws away a copy whose profile is sound; each reads as "not written yet" downstream."""
     raw = copy_dict()
     raw["screen_guide"] = {"suggested": False, "reason": "They never use an app."}
-    raw["starter_words"]["caution"] = "Never promise an appointment slot."
+    raw["starter_words"]["caution"] = "Never promise a slot with the dentist."
     raw["steps"].append({"name": "Say the price", "example_line": "100 rupayalu andi"})
     _copy, problems = worker.answer_problems(raw, inputs=_inputs())
     kept = worker.salvage(raw, problems, inputs=_inputs())
@@ -159,7 +170,7 @@ def test_a_part_refused_in_two_places_is_still_left_out_whole() -> None:
     read as "already out and still refused" within one pass, so the whole copy and its
     profile were thrown away instead of that one part (audit 9 Nov 2026, round 4, X6)."""
     raw = copy_dict()
-    raw["starter_words"]["caution"] = "Never promise an appointment slot."
+    raw["starter_words"]["caution"] = "Never promise a slot with the dentist."
     raw["starter_words"]["topics"] = "the doctor's timings and prices"
     _copy, problems = worker.answer_problems(raw, inputs=_inputs())
     assert {p.partition(": ")[0] for p in problems} == {

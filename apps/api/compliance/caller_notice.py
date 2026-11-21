@@ -300,7 +300,9 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
             # their own business. The predicate is imported rather than repeated so the two
             # answers cannot drift.
             "caller_memory_enabled": bool(row[5])
-            and not spdi_refuses_memory(None if row[8] is None else str(row[8])),
+            and not spdi_refuses_memory(
+                None if row[8] is None else str(row[8]), judged_health=None
+            ),
             # D-533. The switch alone, deliberately NOT and'ed with "is anybody on the
             # roster right now": the notice describes what CAN happen on a call, and a
             # roster that is empty this afternoon is not a statement that this business

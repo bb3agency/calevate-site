@@ -18,6 +18,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
+from calevate_shared.business_frame import BUSINESS_FRAME
 from calevate_shared.call_script import CallScript
 
 from apps.api.tenancy.business_copy import provider_words
@@ -254,7 +255,7 @@ _HOW_THEY_CAME: Final[dict[str, str]] = {
     "existing_customer": "they are the business's existing customers",
     "inbound_enquiry": "they contacted the business: called, messaged or filled its enquiry form",
     "web_form_optin": "they ticked a box on the business's web form to be contacted",
-    "offline_form_optin": "they signed up on a paper form, at an event or in the shop",
+    "offline_form_optin": "they signed up on a paper form, at an event or at the business",
 }
 
 
@@ -354,7 +355,7 @@ TOO_LONG_RULE: Final = (
 #: reduce-hallucinations "Verify with citations"); the checks are yes/no rather than a score
 #: (docs/evidence/script-generation-2026-11-21/GROUNDING.md rows 1, 5, 6).
 REVIEW_INSTRUCTION: Final = (
-    "You review a call script an assistant just wrote for a small business, before the owner "
+    f"You review a call script an assistant just wrote for {BUSINESS_FRAME}, before the owner "
     "reads it. You are given the SOURCES (the owner's main task, the campaign, the owner's "
     "facts and documents) and each part of the script with its key. Judge only against the "
     "SOURCES, never your own knowledge.\n"

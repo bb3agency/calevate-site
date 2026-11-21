@@ -108,33 +108,38 @@ def test_the_writer_keeps_the_businesss_titles_and_finds_its_value_step() -> Non
 
 
 def test_the_model_answer_is_all_jobs_or_none() -> None:
-    assert worker.plans_from_model(_all_raw(), vertical=None) is not None
+    assert worker.plans_from_model(_all_raw(), vertical=None, health=False) is not None
     partial = _all_raw()
     partial["call_leads"] = partial["call_leads"][:-1]
-    assert worker.plans_from_model(partial, vertical=None) is None
+    assert worker.plans_from_model(partial, vertical=None, health=False) is None
     # The rules of every AI-written line a client reads: no provider, no medical words
-    # outside a clinic, no markdown.
+    # outside a health business, no markdown.
     # A line that breaks those is put back, not the whole answer lost: a title to the
     # platform's own for that step, a focus to none.
     platform = starters.starter_for("custom", "answer_calls").steps[0].title
-    for broken in ("Ask what Gemini thinks", "Book an appointment", "**Close**"):
+    for broken in ("Ask what Gemini thinks", "Ask for the doctor", "**Close**"):
         bad = _all_raw()
         bad["answer_calls"][0]["title"] = broken
         bad["answer_calls"][1]["focus"] = broken
-        plans = worker.plans_from_model(bad, vertical=None)
+        plans = worker.plans_from_model(bad, vertical=None, health=False)
         assert plans is not None
         assert plans["answer_calls"][0].title == platform
         assert plans["answer_calls"][1].focus == ""
         assert plans["answer_calls"][2].title == bad["answer_calls"][2]["title"]
     medical = _all_raw()
-    medical["answer_calls"][0]["title"] = "Book an appointment"
-    plans = worker.plans_from_model(medical, vertical="clinic")
+    medical["answer_calls"][0]["title"] = "Ask for the doctor"
+    plans = worker.plans_from_model(medical, vertical="retail", health=True)
+    assert plans is not None and plans["answer_calls"][0].title == "Ask for the doctor"
+    # Any business books appointments.
+    booked = _all_raw()
+    booked["answer_calls"][0]["title"] = "Book an appointment"
+    plans = worker.plans_from_model(booked, vertical=None, health=False)
     assert plans is not None and plans["answer_calls"][0].title == "Book an appointment"
     # A put-back title that collides with another step's is no plan at all.
     clash = _all_raw()
     clash["answer_calls"][0]["title"] = "**x**"
     clash["answer_calls"][1]["title"] = platform
-    assert worker.plans_from_model(clash, vertical=None) is None
+    assert worker.plans_from_model(clash, vertical=None, health=False) is None
 
 
 async def _services(tenant_id: uuid.UUID, services: str) -> None:

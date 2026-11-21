@@ -185,7 +185,8 @@ def expect_rules() -> str:
 #: 5 Nov 2026), which is why the reason comes before the question.
 OPENING_LINE_RULE: Final = (
     "The opening_line is what the agent says first, in at most "
-    f"{OPENING_LINE_MAX_CHARS} characters, with no list of products and no offer. When the "
+    f"{OPENING_LINE_MAX_CHARS} characters, with no list of what the business offers and no "
+    "offer. When the "
     "brief says the opening_line says the AI or recording notice, it says it in a few words "
     "of its own woven into the line (a few more characters are allowed for it); otherwise it "
     "says nothing about either. For an agent that only answers calls it "

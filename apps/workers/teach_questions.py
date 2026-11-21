@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.business_frame import BUSINESS_FRAME
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import google_assist_leg
@@ -46,7 +47,7 @@ JOB_NAME: Final = questions.DRAFT_JOB
 MAX_ANSWER_TOKENS: Final = 400
 
 SYSTEM_PROMPT: Final = (
-    "You help the owner of a small Indian business answer a question their phone agent "
+    f"You help the owner of {BUSINESS_FRAME} answer a question their phone agent "
     "is asked. Answer ONLY from the numbered sources, which are the business's own words. "
     "Write one or two short plain sentences the business's phone agent could say, in the "
     "language of "

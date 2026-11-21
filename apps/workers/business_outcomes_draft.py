@@ -30,6 +30,7 @@ import re
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.business_frame import BUSINESS_KIND
 from calevate_shared.business_outcomes import (
     LABEL_MAX,
     LEAD_MOVES,
@@ -71,7 +72,7 @@ DRAFT_MAX_TOKENS: Final = 1200
 MAX_CONTEXT_CHARS: Final = 7000
 
 _SYSTEM_OUTCOMES: Final = (
-    "You name the ways a phone call can end for one small Indian business, as its owner "
+    f"You name the ways a phone call can end for one {BUSINESS_KIND}, as its owner "
     "would want calls sorted. Another system already records these on its own, so never "
     "propose them: the call was missed, the caller hung up early, a call back was booked, "
     "the call was handed to a person, the caller needs a person from the business. "

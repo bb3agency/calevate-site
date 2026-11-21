@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.business_frame import BUSINESS_FRAME
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
@@ -52,7 +53,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
-from apps.api.tenancy.business_copy import screen_text_problems
+from apps.api.tenancy.business_copy import health_business_for, screen_text_problems
 from apps.workers.lead_fields_draft import business_context
 from apps.workers.script_assist import JsonAnswer, ask_json
 
@@ -68,7 +69,7 @@ WRITE_MAX_TOKENS: Final = 4096
 
 #: Pinned by `tests/starter_steps_test.py`: same steps, the business's words.
 SYSTEM_PROMPT: Final = (
-    "An AI phone agent for a small Indian business follows a fixed plan of steps on each "
+    f"An AI phone agent for {BUSINESS_FRAME} follows a fixed plan of steps on each "
     "kind of call. Rewrite each step for THIS business so its owner recognises their own "
     "call: a title in their trade's plain English words, and a focus, one short clause of "
     "what that step is about for this business (what to ask, what to offer). Keep every "
@@ -110,34 +111,36 @@ def _schema() -> dict[str, Any]:
     }
 
 
-def _kept(job: StarterJob, plan: Plan, *, trade: str) -> Plan | None:
+def _kept(job: StarterJob, plan: Plan, *, trade: str, health: bool) -> Plan | None:
     """`plan` with any line that breaks the rules of text a client reads
     (`business_copy.screen_text_problems`) put back: a title to the platform's for that step,
-    a focus to none. One "appointment" in a property office's seventeen steps costs that one
-    title, not the whole answer. None when a put-back title collides with another."""
-    clinic = trade == "clinic"
+    a focus to none. One "doctor" in a property office's seventeen steps costs that one
+    title, not the whole answer. None when a put-back title collides with another.
+    `health` is `business_copy.is_health_business`: the judged profile, not the listed type."""
     ours = CATALOGUE[(trade, job)].steps
     kept: list[PlanStep] = []
     for i, (step, platform) in enumerate(zip(plan, ours, strict=True)):
         title = step.title
-        if screen_text_problems(f"{job}.{i}.title", title, clinic=clinic):
+        if screen_text_problems(f"{job}.{i}.title", title, clinic=health):
             title = platform.title
         focus = step.focus
-        if screen_text_problems(f"{job}.{i}.focus", focus, clinic=clinic):
+        if screen_text_problems(f"{job}.{i}.focus", focus, clinic=health):
             focus = ""
         kept.append(PlanStep(title=title, focus=focus))
     titles = [s.title.casefold() for s in kept]
     return tuple(kept) if len(set(titles)) == len(titles) else None
 
 
-def plans_from_model(raw: dict[str, Any], *, vertical: str | None) -> dict[str, Plan] | None:
+def plans_from_model(
+    raw: dict[str, Any], *, vertical: str | None, health: bool
+) -> dict[str, Plan] | None:
     """Every job's plan, cleaned; None unless all of them fit their job's shape, so the
     ladder's next leg gets its chance rather than half a set being stored."""
     trade = vertical_of(vertical)
     plans: dict[str, Plan] = {}
     for job in STARTER_JOBS:
         plan = clean_plan(raw.get(job), steps=len(CATALOGUE[(trade, job)].steps))
-        kept = None if plan is None else _kept(job, plan, trade=trade)
+        kept = None if plan is None else _kept(job, plan, trade=trade, health=health)
         if kept is None:
             return None
         plans[job] = kept
@@ -189,11 +192,12 @@ async def write_starter_steps(ctx: dict[str, Any], payload: dict[str, Any]) -> s
         async with tenant_session(tenant_id) as session:
             tenant_leg = await account_assist_leg(session)
             fit = await business_fit(session, tenant_id)
+            health = await health_business_for(session, tenant_id, vertical=vertical)
         try:
             answer = await ask_json(
                 f"{description}\n\nThe plan, job by job:\n{_jobs_brief(vertical, fit)}",
                 SYSTEM_PROMPT,
-                parse=lambda raw: plans_from_model(raw, vertical=vertical),
+                parse=lambda raw: plans_from_model(raw, vertical=vertical, health=health),
                 azure_format={
                     "type": "json_schema",
                     "json_schema": {"name": "starter_steps", "strict": True, "schema": _schema()},

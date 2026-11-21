@@ -104,10 +104,26 @@ def test_the_refusal_predicate_reads_a_positive_signal_and_not_an_absent_one() -
     """`None` is NOT a refusal: `organizations.vertical_template` is nullable, so an absent
     value is the absence of a signal, and reading it as a refusal would silently disable the
     feature for accounts created by a path that never asked."""
-    assert caller_memory.spdi_refuses_memory("clinic") is True
-    assert caller_memory.spdi_refuses_memory("real_estate") is False
-    assert caller_memory.spdi_refuses_memory(None) is False
+    refuses = caller_memory.spdi_refuses_memory
+    assert refuses("clinic", judged_health=None) is True
+    assert refuses("real_estate", judged_health=None) is False
+    assert refuses(None, judged_health=None) is False
     assert "clinic" in caller_memory.SPDI_REFUSED_VERTICALS
+
+
+@pytest.mark.parametrize("vertical", [None, "retail", "local_services", "custom", "clinic"])
+def test_a_business_judged_to_give_health_care_is_refused_whatever_its_type(
+    vertical: str | None,
+) -> None:
+    """FAILS IF: a pharmacy, lab or physio filed under another type can switch memory on."""
+    assert caller_memory.spdi_refuses_memory(vertical, judged_health=True) is True
+
+
+def test_the_judgement_never_lifts_the_clinic_refusal() -> None:
+    """FAILS IF: a clinic judged not to give health care (a default type, a wrong guess) has
+    its refusal lifted: the judgement may only add refusals."""
+    assert caller_memory.spdi_refuses_memory("clinic", judged_health=False) is True
+    assert caller_memory.spdi_refuses_memory("retail", judged_health=False) is False
 
 
 # ─────────────────────────────────────── and it forgets

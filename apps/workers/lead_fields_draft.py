@@ -29,6 +29,7 @@ import re
 from typing import Any, Final, cast
 from uuid import UUID
 
+from calevate_shared.business_frame import BUSINESS_KIND
 from calevate_shared.extraction import ExtractionField, FieldType, is_phone_field
 from calevate_shared.lead_fields import CORE_KEYS, CORE_LEAD_FIELDS, OUTPUT_KEYS
 from sqlalchemy import text
@@ -74,7 +75,7 @@ _CORE_LABELS = ", ".join(f.label.lower() for f in CORE_LEAD_FIELDS)
 #: invented facts, nothing sensitive, short spoken-business vocabulary.
 SYSTEM_PROMPT: Final = (
     "You choose the details an AI phone agent should write down after each call "
-    "for one small Indian business. Every call already records: "
+    f"for one {BUSINESS_KIND}. Every call already records: "
     f"{_CORE_LABELS}. Never repeat any of those. "
     f"Propose between 3 and {MAX_DRAFTED_FIELDS} more details that THIS business needs "
     "to follow up a caller, chosen from what it does for its callers and how it works. "

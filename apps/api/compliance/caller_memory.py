@@ -41,14 +41,17 @@ from typing import Final
 #: the gazette is what would let it shrink.
 #:
 #: A PROXY AND KNOWN TO BE ONE. `vertical_template` is the extraction schema a tenant
-#: STARTED from, so a fertility clinic onboarded as `real_estate` is not caught. It is
-#: kept because it is the only structured signal that exists and it errs toward refusing;
-#: the per-tenant attestation below is the instrument on the enable path.
+#: STARTED from, so a fertility clinic onboarded as `real_estate` is not caught by it. The
+#: copy run's judged `health_business` (`tenancy/business_copy.Capabilities`) is the second
+#: signal: it can only ADD a refusal, never lift one, so a clinic judged otherwise is still
+#: refused. The per-tenant attestation below is the instrument on the enable path.
 SPDI_REFUSED_VERTICALS: Final[frozenset[str]] = frozenset({"clinic"})
 
 
-def spdi_refuses_memory(vertical_template: str | None) -> bool:
-    """Does D-507(b) refuse cross-call memory for a tenant on this vertical template?
+def spdi_refuses_memory(vertical_template: str | None, *, judged_health: bool | None) -> bool:
+    """Does D-507(b) refuse cross-call memory for this tenant? Refused on a refused vertical
+    template, or when the business is judged to give health care (`judged_health is True`);
+    an unjudged business (None) is refused on its template alone.
 
     ONE PREDICATE, because there are two readers and they must not drift:
     `agents/publishing.set_caller_memory` refuses to switch memory on, and
@@ -56,13 +59,18 @@ def spdi_refuses_memory(vertical_template: str | None) -> bool:
     their callers that the agents remember them. A notice describing processing the switch
     refuses is a false notice, which is the exact defect that module exists to avoid.
 
+    The notice passes `judged_health=None`: the switch's own column, not this predicate,
+    decides what the engine recalls (`MEMORY_ON_SQL`), so an agent switched on before its
+    business was judged health still remembers callers, and a notice silenced by the
+    judgement would hide processing that happens. The judgement refuses switching ON.
+
     `organizations.vertical_template` is NULLABLE (`tenancy/models.Organization`), and a
     tenant with none on file is NOT refused. The refusal is driven by a POSITIVE signal —
     "this business said it is a clinic" — and an absent column says nothing at all; a NULL
     read as a refusal would disable the feature for accounts created by a path that never
     asked, which is a different decision from the one D-507 took.
     """
-    return vertical_template in SPDI_REFUSED_VERTICALS
+    return vertical_template in SPDI_REFUSED_VERTICALS or judged_health is True
 
 
 #: The sentence a client accepts to switch cross-call memory on, stored nowhere and

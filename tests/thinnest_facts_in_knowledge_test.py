@@ -77,9 +77,10 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: D-1024 (20 Nov 2026): whole sentences, commas only where needed, English loanwords in
 #: English letters; a few words in English letters never switch the language; the Telugu
 #: register is how friends talk on the phone, one honorific a reply at most (21 Nov 2026).
+#: 21 Nov 2026: the Hindi and English registers name no trade's words (no order, delivery).
 PINNED = (
-    "ef3ac2a4efbd20a6198f9c50b467bf8d9affaa514b824b23fb21f940bffaed45",
-    "3c40dfb3dc7161c527666353c82a5a9a3daed9716a414e01a99296e8c46379c4",
+    "ee2b3b5b004bca5a9fe5f2207487aafd20d23fb2e83839e46dfb5957f7ee2d23",
+    "6dfe34c23e9cc80a59d2d4db3091f863068ef8c51d42225baa4ace27985f0797",
 )
 
 

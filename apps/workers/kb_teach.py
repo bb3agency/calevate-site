@@ -24,6 +24,7 @@ from typing import Any, Final
 from uuid import UUID
 
 import httpx
+from calevate_shared.business_frame import BUSINESS_FRAME
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
@@ -56,7 +57,7 @@ MAX_ITEMS: Final = 30
 SORT_MAX_TOKENS: Final = 2000
 
 SYSTEM_PROMPT: Final = (
-    "You split what the owner of a small Indian business tells their AI phone agent into "
+    f"You split what the owner of {BUSINESS_FRAME} tells their AI phone agent into "
     "FACTS: things true about the business that a caller might ask about, such as "
     "products, stock, prices, hours, address, delivery areas, offers and policies. Split "
     "the owner's words into short facts that each make sense alone. Keep the owner's "

@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.business_frame import BUSINESS_FRAME
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
@@ -32,6 +33,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
+from apps.api.tenancy.business_copy import health_business_for
 from apps.api.tenancy.profile_wording import (
     EXAMPLE_CAPS,
     HINT_MAX,
@@ -68,7 +70,7 @@ EXAMPLE_MEANINGS: Final[dict[str, str]] = {
 
 #: Pinned by `tests/profile_wording_test.py`.
 SYSTEM_PROMPT: Final = (
-    "A small Indian business is filling in the profile its AI phone agent answers from. "
+    f"The owner of {BUSINESS_FRAME} is filling in the profile its AI phone agent answers from. "
     "The form is the same for every kind of business; write ITS words for this one, from "
     "what it says about itself, so the owner recognises their own business. "
     f"offer_label: what one thing it offers is called, singular, 1 to 3 words, at most "
@@ -164,14 +166,14 @@ async def write_profile_wording(ctx: dict[str, Any], payload: dict[str, Any]) ->
         return "superseded"
     try:
         description, vertical = await business_context(tenant_id)
-        clinic = vertical == "clinic"
         async with tenant_session(tenant_id) as session:
             tenant_leg = await account_assist_leg(session)
+            health = await health_business_for(session, tenant_id, vertical=vertical)
         try:
             answer = await ask_json(
                 description,
                 SYSTEM_PROMPT,
-                parse=lambda raw: clean_wording(raw, clinic=clinic),
+                parse=lambda raw: clean_wording(raw, clinic=health),
                 azure_format={
                     "type": "json_schema",
                     "json_schema": {"name": "profile_wording", "strict": True, "schema": _schema()},

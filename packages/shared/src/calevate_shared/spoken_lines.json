@@ -300,7 +300,7 @@
       "reviewed_by": null,
       "by_language": {
         "en-IN": [
-          "Do you have chilli?",
+          "Do you have that one?",
           "Just one."
         ],
         "hi-IN": [
@@ -333,13 +333,13 @@
       }
     },
     "practice.price_in_words": {
-      "use": "Practice caller 'Asks a price and a quantity', two turns, for a business judged to take orders. What a good agent does: Says the price and the quantity in words as a shop says them, never with a rupee sign or digits, in everyday spoken words, and asks at most one question.",
+      "use": "Practice caller 'Asks a price and a quantity', two turns, for a business judged to take orders. What a good agent does: Says the price and the quantity in words as people say them, never with a rupee sign or digits, in everyday spoken words, and asks at most one question.",
       "review": "needs_native_review",
       "reviewed_by": null,
       "by_language": {
         "en-IN": [
-          "How much is a kilo of whole chilli?",
-          "Okay, can I get two kilos?"
+          "How much is one of those?",
+          "Okay, can I get two?"
         ],
         "hi-IN": [
           "साबुत मिर्च एक किलो कितने की है?",

@@ -42,6 +42,7 @@ from datetime import UTC, datetime
 from typing import Any, Final, cast
 from uuid import UUID
 
+from calevate_shared.business_frame import BUSINESS_KIND
 from calevate_shared.call_script import SOUNDS_LIKE_MAX
 from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.languages import find_language
@@ -129,7 +130,9 @@ JOB_NAME: Final = "generate_business_copy"
 #: Version 5: the ready-made agents' own words (`StarterWords`, audit of 5 Nov 2026, G1-3).
 #: Version 6: the instruction states every rule the checks enforce (the medical words, the
 #: symbols, the ellipsis, the spoken push-backs, the line caps), so a first answer can pass.
-PROMPT_VERSION: Final = 6
+#: Version 7: "appointment" is no longer a medical word, and the business is not framed as
+#: small (`calevate_shared.business_frame.BUSINESS_FRAME`).
+PROMPT_VERSION: Final = 7
 
 #: The description handed to the model, in characters.
 MAX_INPUT_CHARS: Final = 9000
@@ -280,14 +283,15 @@ class Inputs:
 
 
 #: The one place the instruction names the medical words: the check refuses each of them for
-#: a business that gives no health care, and "medical words" alone does not tell a model that
-#: "appointment" is one. Kept apart so a test can show no other part of the prompt leads the
-#: model towards them.
+#: a business that gives no health care, and "medical words" alone does not tell a model which
+#: words those are. Kept apart so a test can show no other part of the prompt leads the model
+#: towards them.
 MEDICAL_WORDS_RULE: Final = (
     "Use medical or health-care words only when health_business is true or the description "
     "itself uses them; these count as medical words, plurals too: "
     + ", ".join(CLINIC_WORD_LIST)
-    + ". For a booking that is not health care say booking, visit, slot or meeting. When a "
+    + ". For a booking that is not health care say booking, appointment, visit, slot or "
+    "meeting. When a "
     "ready-made step below names something this business does not do (a doctor or a "
     "hospital for a business that gives no health care), write its line for what this "
     "business does at that step. "
@@ -308,7 +312,7 @@ def instruction_for(inputs: Inputs) -> str:
         for job, steps in inputs.starter_steps.items()
     )
     return (
-        "You write the example text one small Indian business sees in its dashboard for an "
+        f"You write the example text one {BUSINESS_KIND} sees in its dashboard for an "
         "AI phone agent: the greyed-out examples inside empty form fields, suggested script "
         "steps, details to ask callers and questions callers ask. Write for THIS business, "
         "from the description you are given: use its own products, services, places and "

@@ -26,6 +26,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
+from calevate_shared.business_frame import BUSINESS_FRAME
 from calevate_shared.opening_notices import (
     WOVEN_AI_CHARS,
     WOVEN_RECORDING_CHARS,
@@ -70,7 +71,7 @@ OPENING_MAX_CHARS: Final = OPENING_LINE_MAX_CHARS
 OPENING_WRITER_BUDGET_S: Final = ASSIST_LADDER_LEGS * ASSIST_TIMEOUT_S
 
 OPENING_WRITER_INSTRUCTION: Final = (
-    "You write the opening line of an AI phone agent for a small Indian business: the words "
+    f"You write the opening line of an AI phone agent for {BUSINESS_FRAME}: the words "
     "it says first on a call, spoken word for word. Make it about THIS business. An agent "
     "that answers calls names what callers of this business usually want, taken from the "
     "owner's description, documents, answers and facts in the brief, and asks about it as "

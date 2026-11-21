@@ -31,6 +31,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.business_copy_test import copy_dict
 from tests.conftest import ACCEPT_CALLER_MEMORY_STATEMENT, create_org_with_receptionist
 
 BASE = "/v1/compliance/caller-notice"
@@ -768,6 +769,27 @@ async def test_a_vertical_where_the_write_is_refused_is_never_told_its_agents_re
     assert "The short note of what you asked about" not in markdown
     assert draft.memory_retention_days is None  # type: ignore[attr-defined]
     assert not [q for q in draft.open_questions if "BETWEEN calls" in q]  # type: ignore[attr-defined]
+
+
+async def test_memory_switched_on_before_a_health_judgement_is_still_described() -> None:
+    """FAILS IF: the judged health flag, which refuses switching memory ON, also silences the
+    notice for an agent already remembering callers: the engine still recalls them, so the
+    draft would hide processing that happens."""
+    tenant_id, agent_id, _, _ = await _tenant("retail")
+    await _publish(tenant_id, agent_id)
+    await _remember_callers(tenant_id, agent_id)
+    raw = copy_dict()
+    raw["capabilities"]["health_business"] = {"reason": "Judged for the test.", "applies": True}
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO business_copies (id, tenant_id, generated) "
+                "VALUES (:id, :t, CAST(:g AS jsonb))"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "g": json.dumps(raw)},
+        )
+
+    assert (await _draft(tenant_id)).caller_memory_on  # type: ignore[attr-defined]
 
 
 # THE OTHER HALF OF THE CALL. `_handoff_paragraph` was written with D-533 and had no test

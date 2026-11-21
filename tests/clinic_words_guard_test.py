@@ -40,46 +40,29 @@ ROOTS = (
 ALLOWED: tuple[tuple[str, frozenset[str], str], ...] = (
     (
         "apps/api/retrieval/routing.py",
-        frozenset({"doctor", "dentist", "which doctor", "appointment"}),
+        frozenset({"doctor", "dentist", "which doctor"}),
         "multi-trade vocabulary that routes a caller's question to the business's own facts",
     ),
     (
-        "apps/api/agents/fix_guard.py",
-        frozenset({"appointment"}),
-        "words that DETECT a calendar action in any trade's test notes (a salon or a "
-        "garage takes appointments too); matched, never spoken or shown",
-    ),
-    (
-        "apps/api/compliance/call_purpose.py",
-        frozenset({"appointment", "appointments"}),
-        "booked things in any trade ('don't miss your appointment' is a reminder, not an "
-        "offer), so the promotional checker does not flag them; matched, never spoken or shown",
-    ),
-    (
         "apps/api/engine/fake.py",
-        frozenset({"clinic", "appointment", "doctor"}),
+        frozenset({"clinic", "doctor"}),
         "ENGINE=fake, the test-only engine; its sample call is a clinic booking the "
         "pipeline tests classify, never a production default",
     ),
     (
         "scripts/spike/kb_pgvector_latency.py",
-        frozenset({"clinic", "appointment", "dentist", "doctor", "prescription"}),
+        frozenset({"clinic", "dentist", "doctor", "prescription"}),
         "a one-off latency spike's synthetic corpus, never run by the product",
     ),
     (
-        "apps/api/agents/publishing.py",
-        frozenset({"clinic"}),
-        "the caller-memory refusal names why a clinic is refused",
-    ),
-    (
         "apps/api/legal/catalogue.py",
-        frozenset({"symptom", "appointment"}),
+        frozenset({"symptom"}),
         "revision notes that record which clinic-only examples a legal revision removed; "
         "the published text itself is business-neutral",
     ),
     (
         "apps/api/agents/retired_lines.py",
-        frozenset({"appointment", "doctor"}),
+        frozenset({"doctor"}),
         "the retired clinic plan lines kept only to find and remove them on live agents "
         "(D-962); matched, never spoken or shown",
     ),
@@ -97,7 +80,6 @@ ALLOWED: tuple[tuple[str, frozenset[str], str], ...] = (
                 "doctor",
                 "dentist",
                 "dental",
-                "appointment",
                 "symptom",
                 "prescription",
                 "healthcare",

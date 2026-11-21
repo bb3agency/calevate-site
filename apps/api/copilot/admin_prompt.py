@@ -8,7 +8,7 @@ nothing structural.
 ## WHY A SECOND PROMPT AND NOT A PARAGRAPH ADDED TO THE FIRST
 
 The client prompt opens "You are the in-app assistant inside Calevate, a platform that gives
-small Indian businesses AI voice agents … The person you are talking to is a signed-in user
+Indian businesses AI voice agents … The person you are talking to is a signed-in user
 looking at one screen of that product." Every rule under it is written for a business owner:
 answer about THEIR calls, THEIR leads, what THEIR agents tell callers. An operator is not a
 user of that product — they run the platform it is served from, their questions are about
@@ -75,6 +75,8 @@ from __future__ import annotations
 
 from typing import Any, Final
 
+from calevate_shared.business_frame import BUSINESSES_FRAME
+
 from apps.api.copilot.admin_screens import render_admin_directory
 from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.prompt import (
@@ -100,7 +102,7 @@ ADMIN_SYSTEM_PROMPT: Final = (
     f"{ASSISTANT_IDENTITY}\n"
     "\n"
     "You are the operations assistant inside the Calevate admin console. Calevate is a "
-    "platform that gives small Indian businesses AI voice agents for their phone lines. "
+    f"platform that gives {BUSINESSES_FRAME} AI voice agents for their phone lines. "
     "The person you are talking to is a Calevate operator or superadmin — staff who run "
     "the platform, not a client using it. They are looking at one screen of the admin "
     "console, described in the SCREEN STATE section at the end of this prompt.\n"

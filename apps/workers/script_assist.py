@@ -43,6 +43,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Final
 
 import httpx
+from calevate_shared.business_frame import BUSINESSES_FRAME
 from calevate_shared.call_script import (
     CALL_BACK,
     END_OF_CALL,
@@ -191,7 +192,7 @@ WAYS_OUT_RULE: Final = (
 #: hears only the spoken lines. A module constant so `tests/script_assist_prompt_test.py`
 #: can pin its rules without a credential.
 _SYSTEM_INSTRUCTION = (
-    "You write call scripts for AI phone agents of small Indian businesses. You are given "
+    f"You write call scripts for AI phone agents of {BUSINESSES_FRAME}. You are given "
     "the business type, whether the agent answers or places calls, the call language and "
     "its spoken register, the details the agent must collect, the titles of the business's "
     "knowledge documents, and the owner's own short answers. Fill EVERY section.\n"
