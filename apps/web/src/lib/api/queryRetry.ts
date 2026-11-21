@@ -1,4 +1,4 @@
-import { ApiProblem } from "./client";
+import { ApiProblem, TransportProblem } from "./client";
 
 /**
  * The app-wide retry policy for reads (`app/providers.tsx`), kept here so it can be tested.
@@ -9,11 +9,24 @@ import { ApiProblem } from "./client";
  * reached the screen later for it. A wait the server names is honoured; one longer than a
  * person will sit through is not waited out at all, and the screen shows the refusal (with
  * its own Try again) instead.
+ *
+ * A read that never reached the server (`TransportProblem`: a dropped connection, the API
+ * restarting during a deploy) gets more tries than a refusal the server sent. The default
+ * two are spent inside three seconds, which a restart outlasts, so one dropped read showed
+ * as "This did not load" on a box the owner needed. Four on the same doubling backoff wait
+ * out about fifteen seconds, with the screen in its loading state meanwhile. Only a GET or
+ * HEAD gets them: a query read through a POST may not be safe to repeat, and mutations never
+ * retry at all (`providers.tsx`), since a write's outcome is unknown.
  */
 export const MAX_QUERY_RETRIES = 2;
+export const MAX_TRANSPORT_RETRIES = 4;
+const READS = new Set(["GET", "HEAD"]);
 export const MAX_RETRY_AFTER_SECONDS = 10;
 
 export function shouldRetryQuery(failureCount: number, error: unknown): boolean {
+  if (error instanceof TransportProblem && READS.has(error.request.method)) {
+    return failureCount < MAX_TRANSPORT_RETRIES;
+  }
   if (failureCount >= MAX_QUERY_RETRIES) return false;
   if (!(error instanceof ApiProblem)) return true;
   if (!error.retryable) return false;
