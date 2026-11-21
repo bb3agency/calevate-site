@@ -19,11 +19,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+from calevate_shared.call_script import CallScript
 from calevate_shared.opening_notices import opening_max_chars
 from calevate_shared.spoken_guard import HONORIFICS_PER_LINE, honorific_count
 
-from apps.api.agents.script_lint import NAME_FIELD, NAME_PLACEMENT_RULE
-from apps.api.agents.turn_checks import claims_done, claims_said_before
+from apps.api.agents.script_lint import NAME_FIELD, NAME_PLACEMENT_RULE, step_line
+from apps.api.agents.turn_checks import (
+    asked_opening_again,
+    claims_done,
+    claims_said_before,
+    is_question,
+    opened_again,
+    reaction_lead,
+    sentences,
+)
 
 #: The longest opening line an AI may write. The greeting is spoken on every call, so each
 #: character is paid on every call (a Studio voice at the founder-attested ₹4.84 per 1,000
@@ -246,8 +255,10 @@ SCRIPT_FLOW_RULE: Final = (
     "Having something, installing it or registering is not using it. The opening_line "
     "already greets, says who is calling and, on a call the agent places, asks whether now "
     "is a good time, so no stage does any of that again: the first stage starts from what "
-    "comes after it. No two stages' sounds_like open with the same words; each opens with "
-    "its own point, not a stock reaction. A "
+    "comes after it, and its sounds_like neither greets nor asks again whether they can "
+    "talk. No two stages' sounds_like open with the same words, and no spoken line opens "
+    "with a reaction (OK, good, very good, understood, happy) before its point; each opens "
+    "with its own point, the answer, the step or the question. A "
     "stage that walks the caller through doing something puts each action in its "
     "procedure, one action an item, and the agent waits for the caller to say it is done "
     "before the next; never several actions in one instruction followed by asking whether "
@@ -264,11 +275,14 @@ SCRIPT_FLOW_RULE: Final = (
 )
 
 
-def said_line_problem(where: str, text: str, *, opening: bool = False) -> str | None:
+def said_line_problem(
+    where: str, text: str, *, opening: bool = False, close: bool = False
+) -> str | None:
     """What breaks these rules in a line an AI wrote for the agent to say (an opening line, a
     "say" step, a sample phrase, the agent's side of an example call), or None. The same
     checks the practice tests run on the agent's replies (`turn_checks`), so a line the
-    writer produced cannot teach the agent what the tests then fail."""
+    writer produced cannot teach the agent what the tests then fail. `close`: the call's last
+    step, where thanks before the goodbye is the whole point of the line."""
     if claims_done(text):
         return (
             f"{where}: says an order or details are noted or done; say the team will confirm "
@@ -281,6 +295,11 @@ def said_line_problem(where: str, text: str, *, opening: bool = False) -> str | 
             f"{where}: says an honorific (andi, garu, ji, sir) {count} times; at most once in a "
             "line, where it fits, never at the end of every sentence."
         )
+    if not close and (reaction := reaction_lead(text)) is not None:
+        return (
+            f'{where}: opens with the reaction "{reaction}"; the agent copies it into every '
+            "reply. Start the line with its own point: the answer, the step or the question."
+        )
     most = opening_max_chars(OPENING_LINE_MAX_CHARS, text)
     if opening and len(text.strip()) > most:
         return (
@@ -288,6 +307,30 @@ def said_line_problem(where: str, text: str, *, opening: bool = False) -> str | 
             f"greeting and one question, at most {most} characters."
         )
     return None
+
+
+def opening_redone_line_problems(script: CallScript) -> list[str]:
+    """A step's spoken line that greets again or asks again whether now is a good time, in a
+    script with an opening line: the practice check on the first replies
+    (`turn_checks.opened_again`, `asked_opening_again`) run on the lines the in-call model
+    copies. `script_lint.opening_redone_problems` reads only the English instructions, and on
+    the Varsha call of 21 Nov 2026 (10:14) the first step's line greeted the person by name
+    and asked whether they could talk, straight after the opening had asked."""
+    openings = [line for line in (script.opening_line, script.outbound_opening_line) if line]
+    if not any(line.strip() for line in openings):
+        return []
+    questions = [s for line in openings for s in sentences(line) if is_question(s)]
+    found: list[str] = []
+    for i in range(len(script.stages)):
+        path, line = step_line(script, i)
+        if not line.strip():
+            continue
+        if opened_again(line) or asked_opening_again(line, questions):
+            found.append(
+                f"{path}: greets again or asks again whether now is a good time, which the "
+                "opening line already did; start this step from what comes after their yes."
+            )
+    return found
 
 
 __all__ = [
@@ -298,6 +341,7 @@ __all__ = [
     "CallRule",
     "expect_rules",
     "judge_rules",
+    "opening_redone_line_problems",
     "said_line_problem",
     "writer_rules",
 ]

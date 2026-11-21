@@ -34,6 +34,7 @@ from typing import Final
 from calevate_shared.call_script import CallScript, substitute_variables
 
 from apps.api.agents import turn_checks
+from apps.api.agents.call_rules import opening_redone_line_problems
 from apps.api.agents.mistake_fixes import fix_paths
 from apps.api.agents.script_lint import (
     OPENING_FIELDS,
@@ -296,6 +297,11 @@ def _stalled(script: CallScript, _context: LintContext) -> list[str]:
     ]
 
 
+def _opened_again(script: CallScript, _context: LintContext) -> list[str]:
+    """A step told to redo the opening (its English instruction) or whose line does."""
+    return [*opening_redone_problems(script), *opening_redone_line_problems(script)]
+
+
 def _delegate(lint: Callable[[CallScript], list[str]]) -> _Check:
     def check(script: CallScript, _context: LintContext) -> list[str]:
         return lint(script)
@@ -306,7 +312,7 @@ def _delegate(lint: Callable[[CallScript], list[str]]) -> _Check:
 #: Each mistake kind's script check. The three that `script_lint.flow_problems` already
 #: finds go to that lint, so the readiness card and the healer read one check.
 _CHECKS: Final[dict[str, _Check]] = {
-    "opened_again": _delegate(opening_redone_problems),
+    "opened_again": _opened_again,
     "same_opening": _delegate(same_opener_problems),
     "said_again": _delegate(repeated_line_problems),
     "too_long": _too_long,
