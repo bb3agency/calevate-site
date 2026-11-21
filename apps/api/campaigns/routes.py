@@ -21,6 +21,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from calevate_shared.config import CAMPAIGN_CONCURRENCY_CEILING, CAMPAIGN_RETRY_ATTEMPTS_CEILING
 from calevate_shared.extraction import GoalVerdict
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import AfterValidator, Field, StringConstraints, model_validator
@@ -97,11 +98,14 @@ class RetryPolicyIn(Strict):
     """How many times to try each person, and how long to wait between tries (D-773).
 
     `gaps_minutes` has one entry per retry (`max_attempts - 1`), each one of
-    `service.RETRY_GAP_CHOICES`; the service refuses anything else by name.
+    `service.retry_gap_choices()`; the service refuses anything else by name, under the
+    console's limits. The field bounds are the code ceilings.
     """
 
-    max_attempts: int = Field(ge=1, le=5)
-    gaps_minutes: list[int] = Field(default_factory=list, max_length=4)
+    max_attempts: int = Field(ge=1, le=CAMPAIGN_RETRY_ATTEMPTS_CEILING)
+    gaps_minutes: list[int] = Field(
+        default_factory=list, max_length=CAMPAIGN_RETRY_ATTEMPTS_CEILING - 1
+    )
 
 
 class RetryPolicyOut(Strict):
@@ -145,7 +149,8 @@ class CreateCampaignIn(Strict):
     main_task: str | None = Field(default=None, max_length=campaign_workspace.MAIN_TASK_MAX)
     number_id: UUID | None = None
     dlt_template_id: UUID | None = None
-    concurrency: int = Field(default=3, ge=1, le=10)
+    #: Held to the console's `campaign_max_concurrency` (`service.validated_concurrency`).
+    concurrency: int = Field(default=3, ge=1, le=CAMPAIGN_CONCURRENCY_CEILING)
     # None = "the platform window" — clients narrow it, never widen it.
     calling_hours: CallingHoursIn | None = None
     # Optional to CREATE, mandatory to LAUNCH. An older frontend can still draft a
@@ -180,7 +185,7 @@ class UpdateCampaignIn(Strict):
     agent_id: UUID | None = None
     number_id: UUID | None = None
     classification: ClientClassification | None = None
-    concurrency: int | None = Field(default=None, ge=1, le=10)
+    concurrency: int | None = Field(default=None, ge=1, le=CAMPAIGN_CONCURRENCY_CEILING)
     calling_hours: CallingHoursIn | None = None
     retry_policy: RetryPolicyIn | None = None
     #: Null or blank clears them.
@@ -958,6 +963,31 @@ async def list_templates(
     return [TemplateOut(id=r[0], classification=r[1], status=r[2], body=r[3]) for r in rows]
 
 
+class CampaignLimitsOut(Strict):
+    """What a campaign's settings may be, as the console sets it today."""
+
+    max_concurrency: int
+    max_retry_attempts: int
+    #: Minutes, shortest first.
+    retry_gap_choices: list[int]
+
+
+@router.get(
+    "/limits",
+    response_model=CampaignLimitsOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="The most calls at once, tries per person and gaps a campaign may choose",
+)
+async def campaign_limits(
+    _: Principal = Depends(requires("leads:read")),
+) -> CampaignLimitsOut:
+    return CampaignLimitsOut(
+        max_concurrency=service.max_concurrency(),
+        max_retry_attempts=service.max_retry_attempts(),
+        retry_gap_choices=list(service.retry_gap_choices()),
+    )
+
+
 @router.post(
     "",
     response_model=CreateCampaignOut,
@@ -986,7 +1016,7 @@ async def create_campaign(
         classification=payload.classification,
         number_id=payload.number_id,
         dlt_template_id=payload.dlt_template_id,
-        concurrency=payload.concurrency,
+        concurrency=service.validated_concurrency(payload.concurrency),
         calling_hours=payload.calling_hours.model_dump() if payload.calling_hours else None,
         consent_source=payload.consent_provenance.source if payload.consent_provenance else None,
         consent_collected_at=(

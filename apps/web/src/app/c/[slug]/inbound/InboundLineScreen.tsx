@@ -76,6 +76,7 @@ import { PipFailed, PipWriting, retryable } from "../campaigns/PipScriptStatus";
 import { SourcePicker, useChosenCount } from "../campaigns/SourcePicker";
 
 import { LineStatusPill, lineState } from "./lineStatus";
+import { MAIN_TASK_MAX_CHARS } from "@/lib/textLimits";
 
 // Drawn only while Pip's draft waits or the script is being edited: its own chunk.
 const ProposalReview = dynamic(
@@ -84,7 +85,6 @@ const ProposalReview = dynamic(
 );
 
 const NAME_MAX = 80;
-const MAIN_TASK_MAX = 4000;
 
 export const VOICE_INFO = "The agent gives the line its voice. Changing it updates a live line at once.";
 export const MAIN_TASK_INFO = "Write it in your own words, as much as you like. Pip writes the script from it.";
@@ -247,7 +247,7 @@ function MainTaskSection({ line, canWrite, refusal }: Props) {
             id={`${line.id}-main-task`}
             className={`${FIELD} min-h-36 w-full resize-y`}
             value={text}
-            maxLength={MAIN_TASK_MAX}
+            maxLength={MAIN_TASK_MAX_CHARS}
             disabled={!canWrite}
             title={refusal}
             placeholder={MAIN_TASK_PLACEHOLDER}

@@ -258,22 +258,20 @@ export function useScheduleForm(): ScheduleFormState {
   };
 }
 
-/** The most calls at once a campaign may ask for (`campaigns.concurrency_range`). */
-export const CONCURRENCY_MAX = 10;
-
 /**
  * The most calls at once this account can really place: its call lines (`GET /v1/call-lines`)
- * under the campaign's own bound. `undefined` while the lines are unknown, so the picker can
- * say it is checking rather than offer ten the account may not have. The dispatcher also
- * holds a campaign to the plan's ceiling (`campaigns/service.effective_concurrency`), which
- * the campaign page reports once the draft exists.
+ * under the campaign's own bound (`max`, `GET /v1/campaigns/limits`). `undefined` while the
+ * lines are unknown, so the picker can say it is checking rather than offer more than the
+ * account may have. The dispatcher also holds a campaign to the plan's ceiling
+ * (`campaigns/service.effective_concurrency`), which the campaign page reports once the
+ * draft exists.
  */
-export function concurrencyCap(callLines: number | undefined): number | undefined {
+export function concurrencyCap(callLines: number | undefined, max: number): number | undefined {
   if (callLines === undefined) return undefined;
-  return Math.max(1, Math.min(CONCURRENCY_MAX, callLines));
+  return Math.max(1, Math.min(max, callLines));
 }
 
 /** A requested pace held to the cap, so the form never shows or sends more than can dial. */
-export function clampConcurrency(value: number, cap: number | undefined): number {
-  return Math.max(1, Math.min(value, cap ?? CONCURRENCY_MAX));
+export function clampConcurrency(value: number, cap: number | undefined, max: number): number {
+  return Math.max(1, Math.min(value, cap ?? max));
 }

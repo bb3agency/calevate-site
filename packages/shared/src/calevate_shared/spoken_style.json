@@ -1,9 +1,12 @@
 {
-  "about": "Spoken-register guidance for voice agents, per call language and business type. AI-drafted 10 Oct 2026 and expanded 11 Oct 2026 (founder decisions 3, 10 Oct, and the 11 Oct spoken-style rules). EVERY entry here is needs_native_review except prompt_examples (founder approved 14 Oct 2026, see its note): the founder reviews them on the admin screen Ops > Spoken style, whose published edits are stored in the database and layered over this file (calevate_shared.spoken_style.install_published). What each part is for: register is the one-line description of how the language is spoken; word_swaps pairs a formal or written form (left) with what people actually say (right), and the ones named in prompt_swaps go into every agent's prompt in that language, while the whole list guides the script writer, the test callers and the test checks; fillers are the spoken tags and light fillers people use; number_rules and punctuation say how numbers and sentences are written for a voice; examples are example exchanges per business type that show HOW to speak, never facts (no price, time, address or stock level, so an agent cannot repeat a made-up fact); openings are a starter's greeting; spelled_address is how an agent whose caller follows along on a screen spells a web address (D-906): each letter by its English name in the language's letters, a comma between, so a spelled letter is not heard as a word of the language. SCRIPT (founder, 23 Oct 2026, D-861, reversing the 11 Oct English-letters rule): every spoken line is written wholly in the language's own letters, English words and amounts too (కాల్, డెలివరీ, వన్ ట్వంటీ రూపీస్; कॉल, डिलीवरी), after the founder heard a competitor's agent written that way as very human-sounding on Cartesia; every line rewritten to that rule is needs_native_review. Telugu went back on 20 Nov 2026 (founder, after a Varsha call where call and app were misread): Telugu words in Telugu letters, English words and amounts in English letters; Hindi is unchanged. Register sources for te-IN: Telugu has a literary register (grandhika) and a spoken standard (vyavaharika, the sishta vyavaharika of educated everyday speech), the latter championed by Gidugu Venkata Ramamurthy (https://en.wikipedia.org/wiki/Gidugu_Venkata_Ramamurthy; https://www.deccanchronicle.com/lifestyle/culture-and-society/telugu-language-day-commemorates-gidugu-revolutionary-behind-simple-telugu-usage-1983163). Telugu-English code-mixing ('Tenglish') is extensively used in Hyderabad (Dutta and Rajeswari, Texas Linguistics Forum 2015, https://asol.ling.utexas.edu/salsa/proceedings/2015/Dutta.pdf); Standard and Telangana Telugu differences and code-mixing in speech are studied in Sravani, Kameswari and Mamidi 2021 (https://aclanthology.org/2021.calcs-1.1). Voice facts (Cartesia, read 11 Oct 2026): sonic-3.6 lists Telugu (te); it varies pacing and intonation to the transcript without SSML, pause length adapts to the sentence, and disfluencies such as 'uhm' give a thinking pace (https://docs.cartesia.ai/build-with-cartesia/tts-models/latest); full, punctuated sentences ending in . ? or ! give the best pacing (https://docs.cartesia.ai/build-with-cartesia/sonic-3-5/prompting-tips). Code-switching is documented only for Hindi written in Latin script; Telugu-English mixing is UNVERIFIED in the vendor docs and confirmed only by the founder's ear test (\"whole chilli\", \"call\", \"kg\" spoken naturally). The number style (prices, quantities and times in English words as shop people say them) is the founder's decision of 11 Oct 2026; Cartesia's own guidance would let the model normalise digits, which the founder's ear test overrode for Telugu calls. written_form (F-5, 5 Nov 2026) is one short line the founder writes in the language's own letters the way native speakers write it, suffixes and question particles joined to their word; the in-call written-form rule quotes it, and it stays empty until he writes it.",
+  "about": "Spoken-register guidance for voice agents, per call language and business type. AI-drafted 10 Oct 2026 and expanded 11 Oct 2026 (founder decisions 3, 10 Oct, and the 11 Oct spoken-style rules). EVERY entry here is needs_native_review except prompt_examples (founder approved 14 Oct 2026, see its note): the founder reviews them on the admin screen Ops > Spoken style, whose published edits are stored in the database and layered over this file (calevate_shared.spoken_style.install_published). What each part is for: register is the one-line description of how the language is spoken; word_swaps pairs a formal or written form (left) with what people actually say (right), and the ones named in prompt_swaps go into every agent's prompt in that language, while the whole list guides the script writer, the test callers and the test checks; fillers are the spoken tags and light fillers people use; number_rules and punctuation say how numbers and sentences are written for a voice; examples are example exchanges per business type that show HOW to speak, never facts (no price, time, address or stock level, so an agent cannot repeat a made-up fact); openings are a starter's greeting; spelled_address is how an agent whose caller follows along on a screen spells a web address (D-906): each letter by its English name in the language's letters, a comma between, so a spelled letter is not heard as a word of the language. SCRIPT (founder, 23 Oct 2026, D-861, reversing the 11 Oct English-letters rule): every spoken line is written wholly in the language's own letters, English words and amounts too (కాల్, డెలివరీ, వన్ ట్వంటీ రూపీస్; कॉल, डिलीवरी), after the founder heard a competitor's agent written that way as very human-sounding on Cartesia; every line rewritten to that rule is needs_native_review. Telugu went back on 20 Nov 2026 (founder, after a Varsha call where call and app were misread): Telugu words in Telugu letters, English words and amounts in English letters; Hindi is unchanged. Register sources for te-IN: Telugu has a literary register (grandhika) and a spoken standard (vyavaharika, the sishta vyavaharika of educated everyday speech), the latter championed by Gidugu Venkata Ramamurthy (https://en.wikipedia.org/wiki/Gidugu_Venkata_Ramamurthy; https://www.deccanchronicle.com/lifestyle/culture-and-society/telugu-language-day-commemorates-gidugu-revolutionary-behind-simple-telugu-usage-1983163). Telugu-English code-mixing ('Tenglish') is extensively used in Hyderabad (Dutta and Rajeswari, Texas Linguistics Forum 2015, https://asol.ling.utexas.edu/salsa/proceedings/2015/Dutta.pdf); Standard and Telangana Telugu differences and code-mixing in speech are studied in Sravani, Kameswari and Mamidi 2021 (https://aclanthology.org/2021.calcs-1.1). Voice facts (Cartesia, read 11 Oct 2026): sonic-3.6 lists Telugu (te); it varies pacing and intonation to the transcript without SSML, pause length adapts to the sentence, and disfluencies such as 'uhm' give a thinking pace (https://docs.cartesia.ai/build-with-cartesia/tts-models/latest); full, punctuated sentences ending in . ? or ! give the best pacing (https://docs.cartesia.ai/build-with-cartesia/sonic-3-5/prompting-tips). Code-switching is documented only for Hindi written in Latin script; Telugu-English mixing is UNVERIFIED in the vendor docs and confirmed only by the founder's ear test (\"whole chilli\", \"call\", \"kg\" spoken naturally). The number style (prices, quantities and times in English words as shop people say them) is the founder's decision of 11 Oct 2026; Cartesia's own guidance would let the model normalise digits, which the founder's ear test overrode for Telugu calls. written_form (F-5, 5 Nov 2026) is one short line the founder writes in the language's own letters the way native speakers write it, suffixes and question particles joined to their word; the in-call written-form rule quotes it, and it stays empty until he writes it. spoken_dates holds how a booked or offered time is said on a call in the language (weekday and month names and fill-in templates, file-only); a language whose block says missing is spoken in English until the founder writes it.",
   "languages": {
     "te-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
+      "spoken_dates": {
+        "missing": "Not written yet: the founder writes this language's weekday and month names and the same templates as en-IN (moment, window, any_time, every_day, on_days, day_hours, day_all_day, week_hours, the two separators and meridiem). Until then booked and offered times on a call in this language are said in English."
+      },
       "written_form": "",
       "register_name": "Neutral spoken Telugu",
       "spelled_address": "బీ, సీ, డీ, డాట్ కామ్",
@@ -830,6 +833,9 @@
     "hi-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
+      "spoken_dates": {
+        "missing": "Not written yet: the founder writes this language's weekday and month names and the same templates as en-IN (moment, window, any_time, every_day, on_days, day_hours, day_all_day, week_hours, the two separators and meridiem). Until then booked and offered times on a call in this language are said in English."
+      },
       "written_form": "",
       "register_name": "Everyday spoken Hindi (Hindustani)",
       "spelled_address": "बी, सी, डी, डॉट कॉम",
@@ -1279,6 +1285,45 @@
     "en-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
+      "spoken_dates": {
+        "weekdays": [
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+          "Sunday"
+        ],
+        "months": [
+          "January",
+          "February",
+          "March",
+          "April",
+          "May",
+          "June",
+          "July",
+          "August",
+          "September",
+          "October",
+          "November",
+          "December"
+        ],
+        "meridiem": [
+          "AM",
+          "PM"
+        ],
+        "moment": "{weekday} {day} {month}, {hour}:{minute} {meridiem}",
+        "window": "from {opens} to {closes} India time",
+        "any_time": "at any time of day",
+        "every_day": "{hours}, every day",
+        "on_days": "{hours}, on {days}",
+        "day_hours": "{days} from {opens} to {closes}",
+        "day_all_day": "{days} at any time of day",
+        "week_hours": "{list}, India time",
+        "list_separator": ", ",
+        "group_separator": "; "
+      },
       "written_form": "",
       "register_name": "Indian English, spoken",
       "spelled_address": "B, C, D, dot com",
@@ -1532,6 +1577,9 @@
     "ta-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
+      "spoken_dates": {
+        "missing": "Not written yet: the founder writes this language's weekday and month names and the same templates as en-IN (moment, window, any_time, every_day, on_days, day_hours, day_all_day, week_hours, the two separators and meridiem). Until then booked and offered times on a call in this language are said in English."
+      },
       "written_form": "",
       "register_name": "Everyday spoken Tamil",
       "register": "Everyday spoken Tamil in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
@@ -1559,6 +1607,9 @@
     "kn-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
+      "spoken_dates": {
+        "missing": "Not written yet: the founder writes this language's weekday and month names and the same templates as en-IN (moment, window, any_time, every_day, on_days, day_hours, day_all_day, week_hours, the two separators and meridiem). Until then booked and offered times on a call in this language are said in English."
+      },
       "written_form": "",
       "register_name": "Everyday spoken Kannada (Bengaluru)",
       "register": "Everyday spoken Kannada in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
@@ -1586,6 +1637,9 @@
     "ml-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
+      "spoken_dates": {
+        "missing": "Not written yet: the founder writes this language's weekday and month names and the same templates as en-IN (moment, window, any_time, every_day, on_days, day_hours, day_all_day, week_hours, the two separators and meridiem). Until then booked and offered times on a call in this language are said in English."
+      },
       "written_form": "",
       "register_name": "Everyday spoken Malayalam",
       "register": "Everyday spoken Malayalam in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
@@ -1613,6 +1667,9 @@
     "mr-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
+      "spoken_dates": {
+        "missing": "Not written yet: the founder writes this language's weekday and month names and the same templates as en-IN (moment, window, any_time, every_day, on_days, day_hours, day_all_day, week_hours, the two separators and meridiem). Until then booked and offered times on a call in this language are said in English."
+      },
       "written_form": "",
       "register_name": "Everyday spoken Marathi",
       "register": "Everyday spoken Marathi in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
@@ -1640,6 +1697,9 @@
     "bn-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
+      "spoken_dates": {
+        "missing": "Not written yet: the founder writes this language's weekday and month names and the same templates as en-IN (moment, window, any_time, every_day, on_days, day_hours, day_all_day, week_hours, the two separators and meridiem). Until then booked and offered times on a call in this language are said in English."
+      },
       "written_form": "",
       "register_name": "Everyday spoken Bengali",
       "register": "Everyday spoken Bengali in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
@@ -1663,6 +1723,9 @@
     "gu-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
+      "spoken_dates": {
+        "missing": "Not written yet: the founder writes this language's weekday and month names and the same templates as en-IN (moment, window, any_time, every_day, on_days, day_hours, day_all_day, week_hours, the two separators and meridiem). Until then booked and offered times on a call in this language are said in English."
+      },
       "written_form": "",
       "register_name": "Everyday spoken Gujarati",
       "register": "Everyday spoken Gujarati in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
@@ -1686,6 +1749,9 @@
     "pa-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
+      "spoken_dates": {
+        "missing": "Not written yet: the founder writes this language's weekday and month names and the same templates as en-IN (moment, window, any_time, every_day, on_days, day_hours, day_all_day, week_hours, the two separators and meridiem). Until then booked and offered times on a call in this language are said in English."
+      },
       "written_form": "",
       "register_name": "Everyday spoken Punjabi",
       "register": "Everyday spoken Punjabi in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
@@ -1709,6 +1775,9 @@
     "or-IN": {
       "review": "needs_native_review",
       "reviewed_by": null,
+      "spoken_dates": {
+        "missing": "Not written yet: the founder writes this language's weekday and month names and the same templates as en-IN (moment, window, any_time, every_day, on_days, day_hours, day_all_day, week_hours, the two separators and meridiem). Until then booked and offered times on a call in this language are said in English."
+      },
       "written_form": "",
       "register_name": "Everyday spoken Odia",
       "register": "Everyday spoken Odia in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",

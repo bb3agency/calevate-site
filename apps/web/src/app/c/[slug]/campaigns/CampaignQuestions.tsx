@@ -18,6 +18,7 @@ import { useAnswerQuestion, useCampaignQuestions, type CampaignQuestion } from "
 import { useClientRealm } from "@/lib/api/session";
 
 import { matchesWords } from "./matchWords";
+import { NOTE_MAX_CHARS } from "@/lib/textLimits";
 
 const KIND: Record<CampaignQuestion["kind"], string> = {
   didnt_know: "Did not know",
@@ -152,7 +153,7 @@ function Question({
             <textarea
               className={`${FIELD} mt-1 min-h-24 w-full resize-y`}
               value={text}
-              maxLength={4000}
+              maxLength={NOTE_MAX_CHARS}
               onChange={(e) => setText(e.target.value)}
             />
           </label>

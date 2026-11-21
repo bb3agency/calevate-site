@@ -17,6 +17,7 @@ import { hasKey } from "@/lib/lookup";
 
 import { ComplianceFloor } from "./BuildAgentForm";
 import { NEW_AGENT } from "../../_ui/copy";
+import { AGENT_NAME_MAX_CHARS } from "@/lib/textLimits";
 
 /**
  * STEP 1 OF A NEW AGENT: ITS NAME AND LANGUAGE (founder, 16 Nov 2026: name, voice, done).
@@ -132,7 +133,7 @@ export function NameStep({
               <input
                 {...control}
                 value={name}
-                maxLength={80}
+                maxLength={AGENT_NAME_MAX_CHARS}
                 onChange={(event) => setName(event.target.value)}
                 className={FIELD}
               />

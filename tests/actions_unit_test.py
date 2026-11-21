@@ -539,6 +539,11 @@ def _calendar_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     execution.reset_access_cache()
 
+    async def _english(session: Any, agent_id: Any) -> str | None:
+        return None
+
+    monkeypatch.setattr(execution, "_agent_language", _english)
+
     async def _public(host: str, port: int) -> tuple[str, ...]:
         return ("142.250.183.10",)
 

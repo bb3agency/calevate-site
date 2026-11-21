@@ -11,12 +11,12 @@ import { useState } from "react";
 import { FileDrop } from "@/components/fileDrop";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { NewCampaignSource } from "@/lib/api/campaignWorkspace";
+import { NOTE_MAX_CHARS } from "@/lib/textLimits";
 
 type Kind = NewCampaignSource["kind"];
 
 const SOURCE_ACCEPT = ".pdf,.docx,.txt,.md,.csv,.xlsx,.jpg,.jpeg,.png,.webp,.heic";
 const SOURCE_MAX_BYTES = 20 * 1024 * 1024;
-const NOTE_MAX = 4000;
 const NAME_MAX = 200;
 
 export const SOURCES_HINT = "What Pip reads to write this campaign's script.";
@@ -146,7 +146,7 @@ export function AddSourceForm({
           <textarea
             className={`${FIELD} mt-1 min-h-28 w-full resize-y`}
             value={note}
-            maxLength={NOTE_MAX}
+            maxLength={NOTE_MAX_CHARS}
             onChange={(e) => setNote(e.target.value)}
           />
         </label>

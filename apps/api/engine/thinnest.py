@@ -340,36 +340,26 @@ RING_SECONDS: Final = 30
 #: (founder decision F1, 12 Oct 2026, superseding D-720's "information only").
 SURFACE_NAMES: Final[dict[str, str]] = {"web": "website call button", "whatsapp": "WhatsApp"}
 #: How an agent takes turns and fills pauses, the same on every agent (founder decisions F3,
-#: F4, F10, 12 Oct 2026; greeting, filler delay and re-ask, founder 20 Oct 2026, D-835): sent
-#: on every publish, so a console change reads as drift and is repaired. No acknowledgement
-#: before every reply, and no end phrases,
-#: because the vendor matches them anywhere in what the caller says and a short one could end
-#: a call mid-sentence. How many words interrupt is the console's (`interrupt_words`).
+#: F4, F10, 12 Oct 2026; greeting and re-ask, founder 20 Oct 2026, D-835): sent on every
+#: publish, so a console change reads as drift and is repaired. No acknowledgement before
+#: every reply, and no end phrases, because the vendor matches them anywhere in what the
+#: caller says and a short one could end a call mid-sentence. How many words interrupt and
+#: the filler line's timing are the console's (`interrupt_words`, `thinking_delay_ms`,
+#: `thinking_repeat_ms`), stated beside these in `_agent_body`.
 #: The greeting plays to the end on a phone call (`greetingUninterruptible`, replacing F3's
 #: interruptible greeting): on the production call of 20 Oct 2026 the caller's pickup "hello"
 #: cut it off, so the AI notice it carries was never heard; what the caller said is answered
 #: next (snapshots/2026-10-19/pages/channels/voice.md:913-920). Only the greeting: the rest of
 #: the call stays interruptible (`neverInterrupt` false).
-#: The filler line waits 2,000 ms, not the vendor's 900: on the production call of 20 Oct 2026
-#: our model's first word came at about 937 ms, so 900 put a filler on almost every turn; at
-#: 2,000 it covers only a slow one. How soon an unanswered question is asked again is a call
-#: setting since D-907 (`reaskAfterSeconds`, `_agent_body`). Ranges: `thinkingDelayMs`
-#: 200-5000, `thinkingRepeatMs` 1000-10000, `interruptWords` 1-6, `endPhrases` up to 12
+#: How soon an unanswered question is asked again is a call setting since D-907
+#: (`reaskAfterSeconds`, `_agent_body`). `endPhrases` takes up to 12
 #: (snapshots/2026-10-19/pages/api-reference/agents/update-agent.md:1390-1399).
 PLATFORM_VOICE_VALUES: Final[dict[str, Any]] = {
     "neverInterrupt": False,
     "greetingUninterruptible": True,
     "thinkingAtTurnEnd": False,
-    "thinkingDelayMs": 2000,
-    "thinkingRepeatMs": 2500,
     "endPhrases": [],
 }
-#: How adventurous the wording is, 0-2, vendor default 0.3 (`temperature` on Create and
-#: Update Agent, thinnest-findings/mirror/snapshots/2026-10-28/openapi.json). Stated at that
-#: same 0.3 so a change of the vendor's default, or a console edit, cannot change how every
-#: agent words its replies; whether it reaches our own Gemini key is not documented (a
-#: question in THINNEST-INTEGRATION.md).
-AGENT_TEMPERATURE: Final = 0.3
 #: The Ear-only backchannel settings beside `acknowledgements` (same openapi.json,
 #: `AgentVoiceInput`), sent only under `ear`. `backchannelDetection` (default on) is what
 #: tells a caller's "haan ji" from an interruption, which `interruptWords` 2 relies on (D-862),
@@ -407,7 +397,6 @@ VOCABULARY_SOURCE: Final = "none"
 LANGUAGES_SOURCE: Final = "own_list"
 #: Every fixed agent value beyond `PLATFORM_VOICE_VALUES` that only a deploy changes.
 PLATFORM_AGENT_FIELDS: Final[dict[str, Any]] = {
-    "temperature": AGENT_TEMPERATURE,
     "recall": CUSTOMER_RECALL,
     "verifyByCode": VERIFY_BY_CODE,
     "vocabulary": VOCABULARY_SOURCE,
@@ -2527,6 +2516,10 @@ class ThinnestEngine:
             # answers (Rytu Khata call, 2 Nov 2026); anyone else's short words are still
             # answered.
             "holdShortSpeech": not cfg.caller_has_screen,
+            # The console's filler timing (`thinnest_thinking_delay_ms`/`_repeat_ms`), always
+            # stated so a console change reads as drift (`filler_timing`).
+            "thinkingDelayMs": cfg.thinking_delay_ms,
+            "thinkingRepeatMs": cfg.thinking_repeat_ms,
             **PLATFORM_VOICE_VALUES,
         }
         if cfg.engine_voice_id and cfg.engine_byok_voice_id:
@@ -2571,7 +2564,9 @@ class ThinnestEngine:
             # snapshots/2026-10-13/pages/api-reference/agents/update-agent.md:839-845,
             # create-agent.md:760-768). Always stated, so a console edit reads as drift.
             "maxReplyTokens": cfg.max_reply_tokens,
-            "temperature": AGENT_TEMPERATURE,
+            # The console's wording temperature (`thinnest_agent_temperature_tenths`), stated
+            # so a change of the vendor's 0.3 default cannot move it.
+            "temperature": cfg.temperature,
         }
         if cfg.engine_own_rules:
             # The vendor's lead, hand-over and call-back sentences left out; the prompt

@@ -16,7 +16,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import type { Agent } from "@/lib/api/agents";
 import {
-  RETRY_GAP_CHOICES,
+  useCampaignLimits,
   type CampaignNumber,
   type DltTemplate,
   type RetryPolicy,
@@ -25,7 +25,6 @@ import { Term } from "@/lib/glossary";
 
 import { BriefFields } from "./BriefFields";
 import {
-  CONCURRENCY_MAX,
   clampConcurrency,
   type CampaignFormState,
   type ScheduleFormState,
@@ -34,6 +33,9 @@ import {
 import { offeredClassifications } from "./choices";
 import { RepeatFields, StartAtFields } from "./ScheduleFields";
 import { describeRepeat } from "./scheduleCopy";
+import { MAIN_TASK_MAX_CHARS, charCount } from "@/lib/textLimits";
+import { clockWords } from "@/lib/clock";
+import { PLATFORM_WINDOW, windowWords } from "./callingWindow";
 
 /** A read a step is BUILT from: its failure is a dead picker, not an empty one. */
 export interface ListQuery<T> {
@@ -251,13 +253,11 @@ export function placementWords(
   return `${kind}, ${from}${form.templateId ? ", with your registered template" : ""}.`;
 }
 
-const TRIES = ["1", "2", "3", "4", "5"] as const;
-
 /**
- * HOW OFTEN TO TRY ONE PERSON (D-773): 1–5 tries, and a gap before each retry from the
- * server's fixed menu (`RETRY_GAP_CHOICES`). Changing the count keeps the gaps already
- * chosen and fills new ones with the last. Five values, so a segmented control: every
- * answer is visible and one tap away, where a stepper hid four of them.
+ * HOW OFTEN TO TRY ONE PERSON (D-773): 1 to the console's most tries, and a gap before each
+ * retry from the gaps it allows (`GET /v1/campaigns/limits`). Changing the count keeps the
+ * gaps already chosen and fills new ones with the last. A segmented control while every
+ * answer fits, so each is one tap away, where a stepper hid most of them.
  */
 export function RetryChoice({
   value,
@@ -266,10 +266,14 @@ export function RetryChoice({
   value: RetryPolicy;
   onChange: (value: RetryPolicy) => void;
 }) {
+  const { session } = useClientRealm();
+  const limits = useCampaignLimits(session);
+  const tries = Array.from({ length: limits.max_retry_attempts }, (_, i) => String(i + 1));
+  const firstGap = limits.retry_gap_choices.includes(30) ? 30 : (limits.retry_gap_choices[0] ?? 30);
   const gapList = value.gaps_minutes ?? [];
   const setAttempts = (attempts: number) => {
     const gaps = (value.gaps_minutes ?? []).slice(0, attempts - 1);
-    while (gaps.length < attempts - 1) gaps.push(gaps[gaps.length - 1] ?? 30);
+    while (gaps.length < attempts - 1) gaps.push(gaps[gaps.length - 1] ?? firstGap);
     onChange({ max_attempts: attempts, gaps_minutes: gaps });
   };
   return (
@@ -282,7 +286,7 @@ export function RetryChoice({
           label="Tries per person"
           className="mt-1.5"
           value={String(value.max_attempts)}
-          options={TRIES.map((n) => ({ value: n, label: n }))}
+          options={tries.map((n) => ({ value: n, label: n }))}
           onValueChange={(next) => setAttempts(Number(next))}
         />
         <p className={FIELD_HINT}>1 means no retries. Answered calls are never retried.</p>
@@ -301,7 +305,7 @@ export function RetryChoice({
                 }}
                 className={FIELD}
               >
-                {RETRY_GAP_CHOICES.map((choice) => (
+                {limits.retry_gap_choices.map((choice) => (
                   <option key={choice} value={choice}>
                     {gapWords(choice)}
                   </option>
@@ -377,11 +381,11 @@ function MainTaskField({ form }: { form: CampaignFormState }) {
         id={id}
         className={`${FIELD} mt-3 min-h-36 w-full resize-y bg-surface`}
         value={form.mainTask}
-        maxLength={4000}
+        maxLength={MAIN_TASK_MAX_CHARS}
         placeholder={MAIN_TASK_PLACEHOLDER}
         onChange={(e) => form.setMainTask(e.target.value)}
       />
-      <p className="mt-1 text-right text-meta text-ink-faint">{form.mainTask.length.toLocaleString("en-IN")} / 4,000</p>
+      <p className="mt-1 text-right text-meta text-ink-faint">{charCount(form.mainTask.length, MAIN_TASK_MAX_CHARS)}</p>
     </section>
   );
 }
@@ -577,7 +581,7 @@ export function StartChoice({ schedule }: { schedule: ScheduleFormState }) {
 }
 
 const HOURS = [
-  { value: "any", label: "9am to 9pm" },
+  { value: "any", label: windowWords() },
   { value: "set", label: "Set hours" },
 ] as const;
 
@@ -598,9 +602,11 @@ function PaceChoice({
   capUnknown: boolean;
 }) {
   const label = "Calls at the same time";
-  const value = clampConcurrency(form.concurrency, cap);
+  const { session } = useClientRealm();
+  const { max_concurrency: campaignMax } = useCampaignLimits(session);
+  const value = clampConcurrency(form.concurrency, cap, campaignMax);
   if (cap === undefined && !capUnknown) return <Skeleton rows={1} label="Checking how many calls your account can make at once" />;
-  const limit = cap ?? CONCURRENCY_MAX;
+  const limit = cap ?? campaignMax;
   const hint =
     cap === undefined
       ? "We couldn't check your account's limit. It still applies."
@@ -669,7 +675,9 @@ export function PaceFields({
             options={HOURS.map((h) => ({ ...h }))}
             onValueChange={(next) => form.setRestrictHours(next === "set")}
           />
-          <p className={FIELD_HINT}>Never before 9am or after 9pm IST. You can narrow it.</p>
+          <p className={FIELD_HINT}>
+            Never before {clockWords(PLATFORM_WINDOW.start)} or after {clockWords(PLATFORM_WINDOW.end)} IST. You can narrow it.
+          </p>
         </div>
         {form.restrictHours && (
           <div className="settings-enter grid max-w-xs grid-cols-2 gap-3">
@@ -717,7 +725,7 @@ export function rulesWords(
 ): string {
   const hours = form.restrictHours
     ? `Between ${form.windowStart || "…"} and ${form.windowEnd || "…"} IST`
-    : "Between 9am and 9pm IST";
+    : `Between ${windowWords(" and ")} IST`;
   return `${hours}, up to ${concurrency} at a time. ${describeRetry(form.retry)}.`;
 }
 

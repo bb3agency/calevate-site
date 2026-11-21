@@ -96,6 +96,7 @@ function followUp(overrides: Partial<FollowUpOut> = {}): FollowUpOut {
     counts: { running: 2, waiting: 3, done_30d: 10, goal_30d: 4 },
     problems: [],
     updated_at: "2026-10-30T05:00:00Z",
+    day_limit: 30,
     ...overrides,
   };
 }

@@ -64,6 +64,7 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { DIRECTIONS, DirectionPicker } from "./DirectionChoice";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
+import { AGENT_NAME_MAX_CHARS } from "@/lib/textLimits";
 
 export function AgentIdentity({ agent }: { agent: Agent }) {
   const session = useClientSession();
@@ -208,7 +209,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
             {...valid.field("name", "Give this agent a name.")}
             required
             minLength={2}
-            maxLength={80}
+            maxLength={AGENT_NAME_MAX_CHARS}
             value={name}
             onChange={(event) => setName(event.target.value)}
             className={FIELD}

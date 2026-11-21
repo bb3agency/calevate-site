@@ -34,8 +34,6 @@ const TITLES: Record<EditMode, string> = {
 
 /** The longest wait before a first call, in minutes (the server's own bound: 0..1440). */
 const CALL_WAIT_MAX_MINUTES = 1440;
-/** A wait step's bounds on the server: a minute to 30 days. */
-const WAIT_MAX_MINUTES = 30 * 1440;
 
 /** One unit, as the PATCH `wait` takes it (`{minutes?, hours?, days?}`). */
 function waitIn(unit: WaitUnit, amount: number): FollowUpWaitIn {
@@ -51,6 +49,7 @@ function waitIn(unit: WaitUnit, amount: number): FollowUpWaitIn {
  */
 export function StepEditDialog({
   step,
+  dayLimit,
   mode,
   pending,
   error,
@@ -58,6 +57,8 @@ export function StepEditDialog({
   onSave,
 }: {
   step: FollowUpStep;
+  /** A wait step's longest wait, in days (`FollowUpOut.day_limit`, the console's limit). */
+  dayLimit: number;
   mode: EditMode;
   pending: boolean;
   error: unknown;
@@ -98,7 +99,7 @@ export function StepEditDialog({
         }}
       >
         {mode === "wait" ? (
-          <WaitFields step={step} onChange={setValue} onInvalid={setInvalid} />
+          <WaitFields step={step} dayLimit={dayLimit} onChange={setValue} onInvalid={setInvalid} />
         ) : mode === "template" ? (
           <TemplateField step={step} onChange={setValue} />
         ) : (
@@ -120,10 +121,12 @@ export function StepEditDialog({
 
 function WaitFields({
   step,
+  dayLimit,
   onChange,
   onInvalid,
 }: {
   step: FollowUpStep;
+  dayLimit: number;
   onChange: (edit: FollowUpStepEditIn) => void;
   onInvalid: (message: string | null) => void;
 }) {
@@ -147,8 +150,8 @@ function WaitFields({
       onInvalid("Wait at most a day before the first call.");
       return;
     }
-    if (step.kind === "wait" && (minutes < 1 || minutes > WAIT_MAX_MINUTES)) {
-      onInvalid("Wait between a minute and 30 days.");
+    if (step.kind === "wait" && (minutes < 1 || minutes > dayLimit * 1440)) {
+      onInvalid(`Wait between a minute and ${dayLimit} days.`);
       return;
     }
     onInvalid(null);

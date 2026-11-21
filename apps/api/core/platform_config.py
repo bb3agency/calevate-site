@@ -468,6 +468,19 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     ),
     "pe_verification_max_age_days": AppliesRule(LIVE),  # compliance/registration, per check
     "campaign_delete_started": AppliesRule(LIVE),  # campaigns/archive, per delete
+    # Read by every write that is checked against them; what is already saved keeps running.
+    "follow_up_max_days": AppliesRule(
+        LIVE, "new edits and publishes are held to it; a published Follow-up keeps its own days"
+    ),
+    "campaign_max_concurrency": AppliesRule(
+        LIVE, "new edits are held to it; a campaign already set higher keeps its pace"
+    ),
+    "campaign_max_retry_attempts": AppliesRule(
+        LIVE, "new edits are held to it; a campaign already set higher keeps its tries"
+    ),
+    "campaign_retry_gap_max_minutes": AppliesRule(
+        LIVE, "new edits are held to it; a campaign already set longer keeps its gaps"
+    ),
     # Read on every outbound dial and every readiness read (D-941).
     "a2p_declaration_enforced_from": AppliesRule(LIVE),
     "self_serve_signup_enabled": AppliesRule(LIVE),  # tenancy/signup, per request
@@ -672,6 +685,16 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         LIVE_AGENTS, f"saving it moves every live agent onto it{_NOW}"
     ),
     "thinnest_interrupt_words": AppliesRule(
+        LIVE_AGENTS, f"saving it moves every live agent onto it{_NOW}"
+    ),
+    # Stated on every agent at publish (`agents/service._to_config`), like the interrupt words.
+    "thinnest_agent_temperature_tenths": AppliesRule(
+        LIVE_AGENTS, f"saving it moves every live agent onto it{_NOW}"
+    ),
+    "thinnest_thinking_delay_ms": AppliesRule(
+        LIVE_AGENTS, f"saving it moves every live agent onto it{_NOW}"
+    ),
+    "thinnest_thinking_repeat_ms": AppliesRule(
         LIVE_AGENTS, f"saving it moves every live agent onto it{_NOW}"
     ),
     # Read inside every ThinnestAI dial's intent transaction (`agents/service.dispatch_call`)

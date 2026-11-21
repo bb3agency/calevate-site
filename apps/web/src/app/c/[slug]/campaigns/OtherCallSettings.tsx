@@ -7,8 +7,8 @@
  * - When to call: the hours of the day it may call (inside the platform's 09:00-21:00 IST), and
  *   optionally a day and time to start (the existing Start later).
  * - If nobody answers: try again at the same time the next day until they are reached, on up to
- *   five days. Five is the retry policy's ceiling (`RetryPolicyIn.max_attempts`), and a daily gap
- *   is one of its allowed gaps (`RETRY_GAP_CHOICES` 1440), so this is the existing policy
+ *   as many days as the console's most tries (`GET /v1/campaigns/limits`), while a day's gap is
+ *   one of the gaps it allows, so this is the existing policy
  *   `max_attempts = days, gaps = [1440] * (days - 1)`. Unending retries are not offered: calling
  *   someone who never answers every day forever is the repeated-call pattern TRAI's rules exist for.
  * - Calls at once, held to the account's call lines; the number it calls from (a draft's
@@ -22,7 +22,12 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { FIELD, ProblemNotice, formatPhone } from "@/components/ui";
 import { Why } from "@/components/why";
 import { useMyCallLines } from "@/lib/api/callLines";
-import { useCampaignNumbers, useUpdateCampaign, type CampaignProgress } from "@/lib/api/campaigns";
+import {
+  useCampaignLimits,
+  useCampaignNumbers,
+  useUpdateCampaign,
+  type CampaignProgress,
+} from "@/lib/api/campaigns";
 import { useCampaignPurpose } from "@/lib/api/compliancePack";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -32,10 +37,9 @@ import { clampConcurrency, concurrencyCap } from "./campaignForm";
 
 import { FoldSection } from "./FoldSection";
 
-import { PLATFORM_WINDOW, windowRefusal } from "./callingWindow";
+import { PLATFORM_WINDOW, windowRefusal, windowWords } from "./callingWindow";
 
 const DAY_MINUTES = 1440;
-const MAX_DAYS = 5;
 
 function retryDays(policy: { max_attempts: number; gaps_minutes?: number[] }): number {
   const daily = (policy.gaps_minutes ?? []).every((g) => g === DAY_MINUTES);
@@ -72,9 +76,12 @@ export function OtherCallSettings({
   const feedback = useActionFeedback(update, { errorDisplay: "inline" });
   const [start, setStart] = useState(callingHours?.start ?? PLATFORM_WINDOW.start);
   const [end, setEnd] = useState(callingHours?.end ?? PLATFORM_WINDOW.end);
-  const [days, setDays] = useState(retryDays(retryPolicy) || MAX_DAYS);
+  const limits = useCampaignLimits(session);
+  // A try a day needs a day's gap on the menu; without one only a single try is offered.
+  const maxDays = limits.retry_gap_choices.includes(DAY_MINUTES) ? limits.max_retry_attempts : 1;
+  const [days, setDays] = useState(retryDays(retryPolicy) || maxDays);
   const callLines = useMyCallLines(session);
-  const cap = concurrencyCap(callLines.data?.call_lines);
+  const cap = concurrencyCap(callLines.data?.call_lines, limits.max_concurrency);
   const numbers = useCampaignNumbers(session);
   const purpose = useCampaignPurpose(session, campaignId).data?.purpose;
   const [atOnce, setAtOnce] = useState(progress.concurrency);
@@ -96,7 +103,7 @@ export function OtherCallSettings({
     feedback.run({
       calling_hours: platform ? null : { start, end },
       retry_policy: { max_attempts: days, gaps_minutes: Array(days - 1).fill(DAY_MINUTES) },
-      concurrency: clampConcurrency(atOnce, cap),
+      concurrency: clampConcurrency(atOnce, cap, limits.max_concurrency),
       ...(numberEditable ? { number_id: numberId || null } : {}),
     });
   };
@@ -111,14 +118,14 @@ export function OtherCallSettings({
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <div>
           <h3 className="text-body font-semibold text-ink">When to call</h3>
-          <p className="mt-0.5 text-meta text-ink-muted">Each day, in IST, from 9am to 9pm at most.</p>
+          <p className="mt-0.5 text-meta text-ink-muted">Each day, in IST, from {windowWords()} at most.</p>
           <div className="mt-2 flex items-end gap-2">
             <label className="text-meta font-medium text-ink">
               From
               <input
                 type="time"
-                min="09:00"
-                max="21:00"
+                min={PLATFORM_WINDOW.start}
+                max={PLATFORM_WINDOW.end}
                 className={`${FIELD} mt-1 block`}
                 value={start}
                 disabled={disabled}
@@ -129,8 +136,8 @@ export function OtherCallSettings({
               To
               <input
                 type="time"
-                min="09:00"
-                max="21:00"
+                min={PLATFORM_WINDOW.start}
+                max={PLATFORM_WINDOW.end}
                 className={`${FIELD} mt-1 block`}
                 value={end}
                 disabled={disabled}
@@ -156,14 +163,14 @@ export function OtherCallSettings({
               disabled={disabled}
               onChange={(e) => setDays(Number(e.target.value))}
             >
-              {Array.from({ length: MAX_DAYS }, (_, i) => i + 1).map((n) => (
+              {Array.from({ length: maxDays }, (_, i) => i + 1).map((n) => (
                 <option key={n} value={n}>
                   {n === 1 ? "1 day (no retry)" : `${n} days`}
                 </option>
               ))}
             </select>
           </label>
-          <p className="mt-1 text-meta text-ink-faint">At most {MAX_DAYS} days, so no one is called every day.</p>
+          <p className="mt-1 text-meta text-ink-faint">At most {maxDays} days, so no one is called every day.</p>
         </div>
       </div>
 
@@ -175,7 +182,7 @@ export function OtherCallSettings({
             Up to
             <select
               className={`${FIELD} mt-1 block`}
-              value={clampConcurrency(atOnce, cap)}
+              value={clampConcurrency(atOnce, cap, limits.max_concurrency)}
               disabled={disabled}
               onChange={(e) => setAtOnce(Number(e.target.value))}
             >

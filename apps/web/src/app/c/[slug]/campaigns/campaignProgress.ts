@@ -1,6 +1,7 @@
 import type { TaskStep, TaskStepHold } from "@/components/interior/task-steps";
 import { formatCount, formatIST } from "@/components/ui";
 import type { CampaignProgress } from "@/lib/api/campaigns";
+import { windowWords } from "./callingWindow";
 
 /**
  * WHERE A LAUNCHED CAMPAIGN IS, as steps (D-773, founder 15 Oct 2026: the steps stay on
@@ -142,7 +143,7 @@ export function runSentence(progress: CampaignProgress, run: CampaignRun): strin
 /** "9am–9pm IST", or the campaign's own narrower window. */
 export function callingHoursText(progress: Pick<CampaignProgress, "calling_hours">): string {
   const hours = progress.calling_hours;
-  return hours ? `${hours.start}–${hours.end} IST` : "9am–9pm IST";
+  return hours ? `${hours.start}–${hours.end} IST` : `${windowWords("–")} IST`;
 }
 
 /**

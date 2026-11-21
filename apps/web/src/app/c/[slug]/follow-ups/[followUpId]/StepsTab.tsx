@@ -174,6 +174,7 @@ export function StepsTab({ followUp, canEdit }: { followUp: FollowUpOut; canEdit
       {editing && (
         <StepEditDialog
           step={editing.step}
+          dayLimit={followUp.day_limit}
           mode={editing.mode}
           pending={edit.isPending}
           error={edit.error && !isFollowUpConflict(edit.error) ? edit.error : null}

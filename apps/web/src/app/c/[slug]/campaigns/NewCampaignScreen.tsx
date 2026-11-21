@@ -21,7 +21,7 @@ import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { isAssignable } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import { useMyCallLines } from "@/lib/api/callLines";
-import { useCreateCampaign } from "@/lib/api/campaigns";
+import { useCampaignLimits, useCreateCampaign } from "@/lib/api/campaigns";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -41,6 +41,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
   const queryClient = useQueryClient();
   const agents = useAgents(session);
   const callLines = useMyCallLines(session);
+  const limits = useCampaignLimits(session);
   const create = useCreateCampaign(session);
   useActionFeedback(create, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
@@ -60,7 +61,11 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
         agent_id: agent.id,
         name: nameFromGoal("New campaign"),
         classification: "service",
-        concurrency: clampConcurrency(DEFAULT_CONCURRENCY, concurrencyCap(callLines.data?.call_lines)),
+        concurrency: clampConcurrency(
+          DEFAULT_CONCURRENCY,
+          concurrencyCap(callLines.data?.call_lines, limits.max_concurrency),
+          limits.max_concurrency,
+        ),
       },
       {
         onSuccess: (made) => {

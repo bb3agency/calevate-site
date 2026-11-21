@@ -182,6 +182,20 @@ class WhatsAppConfig(BaseModel):
 
 #: A 24-hour clock time, zero-padded, so two values compare correctly as strings.
 HHMM_PATTERN = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
+#: Weekday keys in `business_profiles.hours` order (`agents/business_hours.DAYS`), Monday first.
+BookingDay = Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+BOOKING_DAYS: tuple[BookingDay, ...] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+class BookingWindow(BaseModel):
+    """One day's booking hours, India time, in the business profile's shape. `closes` at or
+    before `opens` runs past midnight into the next day (`agents/business_hours`), so
+    `18:00`-`02:00` is an evening into the night and `00:00`-`00:00` is the whole day."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    opens: str = Field(pattern=HHMM_PATTERN)
+    closes: str = Field(pattern=HHMM_PATTERN)
 
 
 class CalendarConfig(BaseModel):
@@ -202,9 +216,19 @@ class CalendarConfig(BaseModel):
     closes: str | None = Field(default=None, pattern=HHMM_PATTERN)
     #: ISO weekdays it takes bookings on (1 = Monday … 7 = Sunday); absent means every day.
     open_days: list[int] | None = Field(default=None, min_length=1, max_length=7)
+    #: Booking hours per weekday, in the business profile's `{"mon": {"opens", "closes"}}`
+    #: shape: a day that is absent or null takes no bookings. In place of `opens`, `closes`
+    #: and `open_days`, which actions saved before it keep, so one config carries one or the
+    #: other.
+    hours: dict[BookingDay, BookingWindow | None] | None = None
 
     @model_validator(mode="after")
     def _operation_fields(self) -> CalendarConfig:
+        if self.hours is not None:
+            if self.opens is not None or self.closes is not None or self.open_days is not None:
+                raise ValueError("give booking hours per day or as one window, not both")
+            if not any(window is not None for window in self.hours.values()):
+                raise ValueError("booking hours need at least one open day")
         if (self.opens is None) != (self.closes is None):
             raise ValueError("booking hours need both an opening and a closing time")
         if self.opens is not None and self.closes is not None and self.opens >= self.closes:

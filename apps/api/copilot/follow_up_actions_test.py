@@ -18,7 +18,11 @@ from tests.lead_columns_test import Tenant, _client, _lead, _tenant
 
 from apps.api.copilot import plans, undo, write_tools
 from apps.api.copilot.actions import ToolActor, WriteRefusedError
-from apps.api.copilot.follow_up_actions import FOLLOW_UP_READ, FOLLOW_UPS_LIST, FORMAT
+from apps.api.copilot.follow_up_actions import (
+    FOLLOW_UP_READ,
+    FOLLOW_UPS_LIST,
+    follow_up_format,
+)
 from apps.api.copilot.tools import ToolContext
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
 from apps.api.core.errors import ProblemError
@@ -86,7 +90,7 @@ async def test_the_list_names_starters_what_steps_may_use_and_the_format() -> No
     assert "No Follow-ups yet." in listed
     assert "missed_call_callback" in listed and "needs a published agent that makes calls" in listed
     assert f"agent [{t.agent_id}] Sales (answers only)" in listed
-    assert FORMAT in listed
+    assert follow_up_format() in listed
     follow_up_id = await _draft(t)
     listed = await _read(t, FOLLOW_UPS_LIST, {})
     assert f"[{follow_up_id}] Warm up · Draft · You start it for chosen leads" in listed

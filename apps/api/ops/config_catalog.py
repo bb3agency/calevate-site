@@ -433,6 +433,31 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         '"okay" never stop it.',
         _THINNEST,
     ),
+    "thinnest_agent_temperature_tenths": _m(
+        "voice-engine",
+        "thinnest",
+        "How adventurous agents' wording is",
+        "In tenths, 0 to 20. Lower keeps replies closer to the script; higher varies them.",
+        _THINNEST,
+        details="ThinnestAI's temperature; their default is 0.3. It reaches our own Gemini "
+        "key too (ThinnestAI, 28 Oct 2026).",
+    ),
+    "thinnest_thinking_delay_ms": _m(
+        "voice-engine",
+        "thinnest",
+        "Quiet before a filler line",
+        "How long a slow reply waits before the agent says a short filler.",
+        _THINNEST,
+        details="ThinnestAI's thinkingDelayMs, 200 to 5,000; their default is 900.",
+    ),
+    "thinnest_thinking_repeat_ms": _m(
+        "voice-engine",
+        "thinnest",
+        "Gap between filler lines",
+        "How long after one filler another may be said.",
+        _THINNEST,
+        details="ThinnestAI's thinkingRepeatMs, 1,000 to 10,000; their default is 2,500.",
+    ),
     "reply_time_typical_target_ms": _m(
         "voice-engine",
         "quality",
@@ -701,6 +726,34 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Lines kept free for inbound calls",
         "Lines outbound calls may not use. Unset: the automatic share below applies.",
         details="At least one line always stays free.",
+    ),
+    "campaign_max_concurrency": _m(
+        "calling-limits",
+        "limits",
+        "Most calls at once per campaign",
+        "The highest pace a client may set on one campaign. Their lines still cap it.",
+        details="At most 20, the concurrent calls ThinnestAI last stated for our account.",
+    ),
+    "campaign_max_retry_attempts": _m(
+        "calling-limits",
+        "limits",
+        "Most tries per person on a campaign",
+        "The most times a client may set a campaign to try one person.",
+        details="At most 10. Campaigns already set higher keep their tries.",
+    ),
+    "campaign_retry_gap_max_minutes": _m(
+        "calling-limits",
+        "limits",
+        "Longest gap between tries",
+        "The longest wait a client may choose between two tries on a campaign.",
+        details="At most a week. Clients pick from 15 minutes up to this.",
+    ),
+    "follow_up_max_days": _m(
+        "calling-limits",
+        "limits",
+        "How far a follow-up may reach",
+        "Longest a follow-up runs, waits, or starts before or after a date on the lead.",
+        details="At most 400 days. Published follow-ups keep their own days.",
     ),
     "inbound_reserve_ratio": _m(
         "calling-limits",
@@ -1870,6 +1923,19 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "thinnest_max_concurrent_calls": ControlHint(unit="calls at once"),
     "thinnest_reply_length": ControlHint(unit="tokens"),
     "thinnest_interrupt_words": ControlHint(unit="words"),
+    "thinnest_agent_temperature_tenths": ControlHint(unit="tenths", help="3 is 0.3."),
+    "thinnest_thinking_delay_ms": ControlHint(
+        kind="duration", unit="milliseconds", help="200 to 5,000."
+    ),
+    "thinnest_thinking_repeat_ms": ControlHint(
+        kind="duration", unit="milliseconds", help="1,000 to 10,000."
+    ),
+    "follow_up_max_days": ControlHint(unit="days", help="1 to 400."),
+    "campaign_max_concurrency": ControlHint(unit="calls at once", help="1 to 20."),
+    "campaign_max_retry_attempts": ControlHint(unit="tries", help="1 to 10."),
+    "campaign_retry_gap_max_minutes": ControlHint(
+        kind="duration", unit="minutes", help="15 to 10,080 (a week)."
+    ),
     "thinnest_opening_wait_ms": ControlHint(
         kind="duration",
         unit="milliseconds",

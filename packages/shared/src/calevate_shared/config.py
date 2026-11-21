@@ -9,7 +9,7 @@ from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Any, Literal, get_args
+from typing import Any, Final, Literal, get_args
 
 from pydantic import Field, ValidationError
 from pydantic.fields import FieldInfo
@@ -230,6 +230,32 @@ EngineName = Literal["fake", "thinnest"]
 #: several. It is a frozenset rather than the raw tuple so no caller can mutate the
 #: answer another caller is about to read.
 SELECTABLE_ENGINES: frozenset[str] = frozenset(get_args(EngineName))
+
+# HARD CEILINGS ON THE CLIENT LIMITS THE CONSOLE TUNES. Each limit below is a business
+# choice the operator moves (`follow_up_max_days`, `campaign_max_concurrency`,
+# `campaign_max_retry_attempts`, `campaign_retry_gap_max_minutes`); the ceiling is what no
+# console value may pass, held here so the domain modules and the settings bound agree.
+
+#: How far a Follow-up may reach, in days: open, waiting, or ahead of a lead's date. 400 is a
+#: year's renewal (366 days) plus a month's reminder lead time. It stays under the shortest
+#: default retention clock a run's copy of the number rides (`lead`, 1,095 days,
+#: `scripts/seed.DEFAULT_RETENTION_POLICIES`); every call and message a run places still
+#: passes the dial and messaging gates at the moment it goes out, so a long run never
+#: outlives the consent it calls on.
+FOLLOW_UP_DAYS_CEILING: Final = 400
+#: Calls one campaign may have at once. ThinnestAI refuses a dial over the workspace's
+#: concurrent-call allowance with 429 (`place-call.md:288-291`), and the last figure it
+#: stated for our account is 20 (VENDOR-STATED 23 Oct 2026,
+#: `docs/vendor/thinnest-replies-2026-10-12.md:1645`; "already increased" on 30 Oct with no
+#: figure, :2293). The dispatcher further holds every campaign to the plan's ceiling, the
+#: outbound pool and the account's lines (`campaigns/service.effective_concurrency`).
+CAMPAIGN_CONCURRENCY_CEILING: Final = 20
+#: Tries per person on a campaign. D-773 sets 5 as the default; past 10 unanswered calls a
+#: list is being chased, not reminded, whatever the console says.
+CAMPAIGN_RETRY_ATTEMPTS_CEILING: Final = 10
+#: The longest gap between two tries, in minutes: one week. A longer gap no longer belongs
+#: to one campaign run.
+CAMPAIGN_RETRY_GAP_CEILING_MINUTES: Final = 7 * 24 * 60
 
 
 class Settings(BaseSettings):
@@ -568,6 +594,24 @@ class Settings(BaseSettings):
     #: by the engine, which is what makes 2 safe (channels/voice.md:845-885, 19 Oct 2026
     #: snapshot). Saving it republishes every live agent.
     thinnest_interrupt_words: int = Field(default=2, ge=1, le=6)
+    #: How adventurous every agent's wording is, in tenths (`temperature`, 0 to 2, vendor
+    #: default 0.3; `update-agent.md:751-755` of the 12 Nov 2026 snapshot). Tenths so the
+    #: console edits a whole number. Stated on every agent at the vendor's own 0.3 so a
+    #: change of the vendor default cannot move it; it reaches our Gemini on both BYOK modes,
+    #: and an agent with none set runs at 0.8 (VENDOR-STATED 28 Oct 2026,
+    #: `docs/vendor/thinnest-replies-2026-10-12.md` §39). Saving it republishes every live
+    #: agent.
+    thinnest_agent_temperature_tenths: int = Field(default=3, ge=0, le=20)
+    #: Milliseconds of quiet before the filler line is said (`voice.thinkingDelayMs`, 200 to
+    #: 5,000, vendor default 900; same page :1424-1433). 2,000, not 900: on the production
+    #: call of 20 Oct 2026 our model's first word came at about 937 ms, so 900 put a filler
+    #: on almost every turn (founder, 20 Oct 2026, D-835). Saving it republishes every live
+    #: agent.
+    thinnest_thinking_delay_ms: int = Field(default=2000, ge=200, le=5000)
+    #: Milliseconds after one filler before another may be said (`voice.thinkingRepeatMs`,
+    #: 1,000 to 10,000, vendor default 2,500; same page :1434-1444). Saving it republishes
+    #: every live agent.
+    thinnest_thinking_repeat_ms: int = Field(default=2500, ge=1000, le=10_000)
     #: How long a caller should wait for a reply, in milliseconds, from the moment they stop
     #: speaking to the first word of the actual answer as the voice platform measures it per
     #: call (`CallQuality.answer_ms_*`; a filler line does not end it, D-902): the TYPICAL
@@ -1835,6 +1879,23 @@ class Settings(BaseSettings):
     # people can be deleted. Its calls, recordings, charges and ledgers are kept; its list of
     # people and its materials go. Turn off before launch: TRAI and billing want the record.
     campaign_delete_started: bool = True
+    # CLIENT LIMITS: business choices with a code ceiling each (the constants above
+    # `Settings`). A lower value refuses new edits beyond it; what is already saved keeps
+    # running as saved.
+    #
+    #: The furthest a Follow-up may reach, in days: how long a run stays open
+    #: (`settings.max_days`), the longest wait step, and how far before or after a lead's
+    #: date it may start.
+    follow_up_max_days: int = Field(default=30, ge=1, le=FOLLOW_UP_DAYS_CEILING)
+    #: The most calls one campaign may ask to have at once (its slider).
+    campaign_max_concurrency: int = Field(default=10, ge=1, le=CAMPAIGN_CONCURRENCY_CEILING)
+    #: The most tries a campaign may make per person (D-773).
+    campaign_max_retry_attempts: int = Field(default=5, ge=1, le=CAMPAIGN_RETRY_ATTEMPTS_CEILING)
+    #: The longest gap a campaign may leave between two tries, in minutes. The gaps offered
+    #: are `campaigns/service.RETRY_GAP_MENU` up to this.
+    campaign_retry_gap_max_minutes: int = Field(
+        default=1440, ge=15, le=CAMPAIGN_RETRY_GAP_CEILING_MINUTES
+    )
 
     # HOW LONG A PE REGISTRATION VERIFICATION STAYS GOOD FOR, in days.
     #

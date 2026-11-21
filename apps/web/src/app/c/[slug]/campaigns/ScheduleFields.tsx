@@ -11,6 +11,7 @@ import { FIELD, FIELD_HINT, FIELD_LABEL } from "@/components/ui";
 
 import { WEEKDAYS } from "./choices";
 import type { ScheduleFormState } from "./campaignForm";
+import { windowWords } from "./callingWindow";
 
 /**
  * The two schedule forms' fields, shared by the create flow (`StartChoice`) and an existing
@@ -117,7 +118,7 @@ export function RepeatFields({
           placeholder="Keeps repeating"
         />
       </div>
-      <p className={FIELD_HINT}>Pick a time between 9am and 9pm.</p>
+      <p className={FIELD_HINT}>Pick a time between {windowWords(" and ")}.</p>
     </div>
   );
 }

@@ -23,6 +23,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated, Any, Final
 from uuid import UUID
 
+from calevate_shared.config import CAMPAIGN_CONCURRENCY_CEILING, CAMPAIGN_RETRY_ATTEMPTS_CEILING
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -160,10 +161,10 @@ class _EditArgs(BaseModel):
     purpose: Annotated[str, Field(max_length=400)] | None = None
     goal: Annotated[str, Field(max_length=400)] | None = None
     agent_id: UUID | None = None
-    concurrency: Annotated[int, Field(ge=1, le=10)] | None = None
+    concurrency: Annotated[int, Field(ge=1, le=CAMPAIGN_CONCURRENCY_CEILING)] | None = None
     #: "HH:MM-HH:MM" IST, or "all" for the whole allowed window.
     hours: str | None = None
-    tries: Annotated[int, Field(ge=1, le=campaigns_service.MAX_RETRY_ATTEMPTS)] | None = None
+    tries: Annotated[int, Field(ge=1, le=CAMPAIGN_RETRY_ATTEMPTS_CEILING)] | None = None
     gaps_minutes: list[int] | None = None
 
 
@@ -228,15 +229,15 @@ def _edit_changes(parsed: _EditArgs, current: Mapping[str, Any]) -> dict[str, An
         if gaps is None:
             # Keeping the gaps already chosen, cut or padded with the last one, so "try
             # five times" needs no second question about the waits.
-            known = view["gaps_minutes"] or [campaigns_service.RETRY_GAP_CHOICES[2]]
+            known = view["gaps_minutes"] or [campaigns_service.retry_gap_choices()[:3][-1]]
             gaps = [known[min(i, len(known) - 1)] for i in range(tries - 1)]
         try:
             changes["retry_policy"] = campaigns_service.validated_retry_policy(tries, gaps)
         except ProblemError as exc:
             raise WriteRefusedError(
-                f"tries is 1 to {campaigns_service.MAX_RETRY_ATTEMPTS} and gaps_minutes has "
+                f"tries is 1 to {campaigns_service.max_retry_attempts()} and gaps_minutes has "
                 "one wait per retry, each one of "
-                + ", ".join(str(g) for g in campaigns_service.RETRY_GAP_CHOICES)
+                + ", ".join(str(g) for g in campaigns_service.retry_gap_choices())
             ) from exc
     if not changes:
         raise WriteRefusedError("name at least one setting to change")
@@ -375,7 +376,7 @@ CAMPAIGN_EDIT: Final = ActionTool(
             "agent_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
             "concurrency": {
                 "anyOf": [{"type": "integer"}, {"type": "null"}],
-                "description": "Calls at once, 1 to 10.",
+                "description": "Calls at once, from 1; a refusal names the most allowed.",
             },
             "hours": {
                 "anyOf": [{"type": "string"}, {"type": "null"}],
@@ -383,11 +384,11 @@ CAMPAIGN_EDIT: Final = ActionTool(
             },
             "tries": {
                 "anyOf": [{"type": "integer"}, {"type": "null"}],
-                "description": "Tries per person when nobody answers, 1 to 5.",
+                "description": "Tries per person if nobody answers; a refusal names the most.",
             },
             "gaps_minutes": {
                 "anyOf": [{"type": "array", "items": {"type": "integer"}}, {"type": "null"}],
-                "description": "One wait per retry: 15, 30, 60, 120, 240 or 1440.",
+                "description": "One wait per retry in minutes (30, 120, 1440...).",
             },
         },
     ),

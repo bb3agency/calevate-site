@@ -111,7 +111,7 @@ refusal that will never clear, e.g. `kyc_missing` is NOT one: it retries; `dnc` 
 | `new_lead` | `source_ids: [uuid] \| null` (null = any source) | `ingest_lead` stores a lead |
 | `call_ended` | `agent_ids: [uuid] \| null`, `calls: "inbound" \| "outbound" \| "both"`, `outcomes: ["missed", "answered", ...] \| null` | the post-call pipeline finishes a call (test calls never) |
 | `manual` | — | the client (or Pip, through an approved plan) starts picked leads, a leads lens or a campaign's contacts |
-| `lead_date` | `field` (a lead detail holding `YYYY-MM-DD`), `offset_days` (-30..30), `at` (`HH:MM` IST) | the date falls due; once per lead per date |
+| `lead_date` | `field` (a lead detail holding `YYYY-MM-DD`), `offset_days` (either side, up to `follow_up_max_days`), `at` (`HH:MM` IST) | the date falls due; once per lead per date |
 
 Only if: `only_if` (optional) narrows any trigger by lead status, lead source or a lead detail
 equal to a value.
@@ -136,7 +136,7 @@ and its own fields, and says where to go next. A step with no `next` ends the ru
 
 Each exit names a step id or `null` (end). Version 1 has no loops back to an earlier step
 except `call` retries, so a run always ends: the longest path is bounded by the step count,
-and `settings.max_days` (default 14, at most 30) ends anything still waiting.
+and `settings.max_days` (default 14, at most the console's `follow_up_max_days`, 30 by default, never past 400) ends anything still waiting.
 
 ### How a step runs
 
@@ -192,7 +192,7 @@ A run stops (`stopped`, with the reason) when:
 | `stop_on_reply` | true | |
 | `stop_on_won_lost` | true | |
 | `again` | `after_last` | `never` · `after_last` · `after_30_days`: can a lead go through it again |
-| `max_days` | 14 | 1..30 |
+| `max_days` | 14 | 1..`follow_up_max_days` (console, default 30, ceiling 400) |
 | `starts_per_hour` | NULL | a cap; the rest wait their turn |
 
 Calling hours are not a Follow-up setting: every call keeps to the platform window, the

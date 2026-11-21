@@ -394,7 +394,7 @@ DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
         "campaign_contacts.phone_e164+name+custom",
         # A Follow-up run's copy of the number it calls (D-940): the lead's number, on the
         # lead's clock, from when the run started. Settled runs only; an open one ends
-        # within `follow_ups/definition.MAX_DAYS_CAP` and is taken by the next sweep.
+        # within its own `max_days` (at most `FOLLOW_UP_DAYS_CEILING`) and is taken next sweep.
         "follow_up_runs.phone_e164",
     ),
 }
@@ -1534,8 +1534,8 @@ CALLBACK_EXPIRED_REASON = (
 #: A FOLLOW-UP RUN'S NUMBER, anonymized in place on the CRM clock (`DERIVED_COPIES`), with
 #: `_erase_follow_up_runs`' anonymization. Settled runs only, so an expiry never rewrites a
 #: run's status or `end_reason` (the client's record of what happened); an open run is at
-#: most `MAX_DAYS_CAP` days from settling. `started_at` is the clock: `updated_at` moves on
-#: every step the runner takes.
+#: most its own `max_days` (at most `FOLLOW_UP_DAYS_CEILING`) from settling. `started_at` is
+#: the clock: `updated_at` moves on every step the runner takes.
 _FOLLOW_UP_RUN_EXPIRE_SQL = """
 UPDATE follow_up_runs
 SET phone_e164 = :anon || right(replace(id::text, '-', ''), 12),

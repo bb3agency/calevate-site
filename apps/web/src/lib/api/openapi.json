@@ -13812,6 +13812,34 @@
         "title": "CampaignLeftOutOut",
         "type": "object"
       },
+      "CampaignLimitsOut": {
+        "additionalProperties": false,
+        "description": "What a campaign's settings may be, as the console sets it today.",
+        "properties": {
+          "max_concurrency": {
+            "title": "Max Concurrency",
+            "type": "integer"
+          },
+          "max_retry_attempts": {
+            "title": "Max Retry Attempts",
+            "type": "integer"
+          },
+          "retry_gap_choices": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Retry Gap Choices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "max_concurrency",
+          "max_retry_attempts",
+          "retry_gap_choices"
+        ],
+        "title": "CampaignLimitsOut",
+        "type": "object"
+      },
       "CampaignLinkIn": {
         "additionalProperties": false,
         "properties": {
@@ -22033,7 +22061,7 @@
           },
           "concurrency": {
             "default": 3,
-            "maximum": 10.0,
+            "maximum": 20.0,
             "minimum": 1.0,
             "title": "Concurrency",
             "type": "integer"
@@ -29724,6 +29752,10 @@
           "counts": {
             "$ref": "#/components/schemas/CountsOut"
           },
+          "day_limit": {
+            "title": "Day Limit",
+            "type": "integer"
+          },
           "has_unpublished_changes": {
             "title": "Has Unpublished Changes",
             "type": "boolean"
@@ -29879,7 +29911,8 @@
           "live_version",
           "counts",
           "problems",
-          "updated_at"
+          "updated_at",
+          "day_limit"
         ],
         "title": "FollowUpOut",
         "type": "object"
@@ -36303,8 +36336,8 @@
           },
           "offset_days": {
             "default": 0,
-            "maximum": 30.0,
-            "minimum": -30.0,
+            "maximum": 400.0,
+            "minimum": -400.0,
             "title": "Offset Days",
             "type": "integer"
           },
@@ -51551,18 +51584,18 @@
       },
       "RetryPolicyIn": {
         "additionalProperties": false,
-        "description": "How many times to try each person, and how long to wait between tries (D-773).\n\n`gaps_minutes` has one entry per retry (`max_attempts - 1`), each one of\n`service.RETRY_GAP_CHOICES`; the service refuses anything else by name.",
+        "description": "How many times to try each person, and how long to wait between tries (D-773).\n\n`gaps_minutes` has one entry per retry (`max_attempts - 1`), each one of\n`service.retry_gap_choices()`; the service refuses anything else by name, under the\nconsole's limits. The field bounds are the code ceilings.",
         "properties": {
           "gaps_minutes": {
             "items": {
               "type": "integer"
             },
-            "maxItems": 4,
+            "maxItems": 9,
             "title": "Gaps Minutes",
             "type": "array"
           },
           "max_attempts": {
-            "maximum": 5.0,
+            "maximum": 10.0,
             "minimum": 1.0,
             "title": "Max Attempts",
             "type": "integer"
@@ -54279,7 +54312,7 @@
           },
           "max_days": {
             "default": 14,
-            "maximum": 30.0,
+            "maximum": 400.0,
             "minimum": 1.0,
             "title": "Max Days",
             "type": "integer"
@@ -64564,7 +64597,7 @@
           "concurrency": {
             "anyOf": [
               {
-                "maximum": 10.0,
+                "maximum": 20.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -66896,7 +66929,7 @@
           "days": {
             "anyOf": [
               {
-                "maximum": 30.0,
+                "maximum": 400.0,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -66909,7 +66942,7 @@
           "hours": {
             "anyOf": [
               {
-                "maximum": 720.0,
+                "maximum": 9600.0,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -66922,7 +66955,7 @@
           "minutes": {
             "anyOf": [
               {
-                "maximum": 43200.0,
+                "maximum": 576000.0,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -66954,7 +66987,7 @@
           "days": {
             "anyOf": [
               {
-                "maximum": 30.0,
+                "maximum": 400.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -66967,7 +67000,7 @@
           "hours": {
             "anyOf": [
               {
-                "maximum": 720.0,
+                "maximum": 9600.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -66990,7 +67023,7 @@
           "minutes": {
             "anyOf": [
               {
-                "maximum": 43200.0,
+                "maximum": 576000.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -67014,8 +67047,8 @@
           },
           "offset_days": {
             "default": 0,
-            "maximum": 30.0,
-            "minimum": -30.0,
+            "maximum": 400.0,
+            "minimum": -400.0,
             "title": "Offset Days",
             "type": "integer"
           },
@@ -67057,7 +67090,7 @@
           "days": {
             "anyOf": [
               {
-                "maximum": 30.0,
+                "maximum": 400.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -67070,7 +67103,7 @@
           "hours": {
             "anyOf": [
               {
-                "maximum": 720.0,
+                "maximum": 9600.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -67093,7 +67126,7 @@
           "minutes": {
             "anyOf": [
               {
-                "maximum": 43200.0,
+                "maximum": 576000.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -67117,8 +67150,8 @@
           },
           "offset_days": {
             "default": 0,
-            "maximum": 30.0,
-            "minimum": -30.0,
+            "maximum": 400.0,
+            "minimum": -400.0,
             "title": "Offset Days",
             "type": "integer"
           },
@@ -88522,6 +88555,34 @@
           "campaigns"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/limits": {
+      "get": {
+        "operationId": "campaign_limits_v1_campaigns_limits_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignLimitsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The most calls at once, tries per person and gaps a campaign may choose",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
       }
     },
     "/v1/campaigns/numbers": {

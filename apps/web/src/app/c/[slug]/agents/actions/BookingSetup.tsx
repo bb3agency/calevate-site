@@ -10,12 +10,16 @@
  *    Hours      9 am – 6 pm
  *                          [ Turn on booking ]
  *
+ * A new job starts from the business profile's opening hours when it has them
+ * (`jobs.bookingDefaults`); days with different hours are kept exactly until the owner sets
+ * one time for every day. A closing hour at or before the opening one runs past midnight.
+ *
  * Behind the button it creates (or updates) the two calendar tools `jobs.bookingTools`
  * derives, and switches this agent's actions on if they were off — the button's label is
  * the consequence (doctrine §4), so "Turn on booking" has to leave booking on.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION } from "@/components/console/section";
@@ -27,6 +31,7 @@ import {
   useUpdateAction,
   type ActionTool,
 } from "@/lib/api/actions";
+import { useBusinessProfile } from "@/lib/api/businessProfile";
 import type { Session } from "@/lib/api/client";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -34,12 +39,14 @@ import { asText } from "@/lib/copilot/types";
 import { AccountRow } from "./AccountRow";
 import { useSwitchOnWithheld } from "./viewAsWithheld";
 import {
-  BOOKING_DEFAULTS,
+  CLOSE_HOUR_CHOICES,
   HOUR_CHOICES,
   LENGTH_CHOICES,
   WEEKDAYS,
+  bookingDefaults,
   bookingTools,
   hourLabel,
+  hoursLabel,
   lengthLabel,
   readBooking,
   uniqueName,
@@ -68,9 +75,23 @@ export function BookingSetup({
   onDone: () => void;
 }) {
   const editing = check !== undefined || book !== undefined;
-  const [draft, setDraft] = useState<BookingDraft>(() =>
-    editing ? readBooking(check, book) : { credentialId: "", ...BOOKING_DEFAULTS },
+  // Only a new job starts from the profile; a saved one keeps its own hours.
+  const profileHours = useBusinessProfile(session, { enabled: !editing }).data?.hours;
+  const [draft, setDraftState] = useState<BookingDraft>(() =>
+    editing ? readBooking(check, book) : { credentialId: "", ...bookingDefaults(profileHours) },
   );
+  // A new job follows the profile's hours until the owner changes a setting; the profile can
+  // arrive after the form opens.
+  const touched = useRef(editing);
+  const setDraft: typeof setDraftState = useCallback((next) => {
+    touched.current = true;
+    setDraftState(next);
+  }, []);
+  useEffect(() => {
+    if (!touched.current && profileHours) {
+      setDraftState((d) => ({ ...d, ...bookingDefaults(profileHours) }));
+    }
+  }, [profileHours]);
   const create = useCreateAction(session, agentId);
   const update = useUpdateAction(session, agentId);
   const setMaster = useSetMasterSwitch(session, agentId);
@@ -84,13 +105,14 @@ export function BookingSetup({
   useActionFeedback(setMaster, { errorDisplay: "inline" });
   const failure = create.error ?? update.error ?? setMaster.error;
   const setCredential = useCallback(
-    (credentialId: string) => setDraft((d) => ({ ...d, credentialId })),
+    (credentialId: string) => setDraftState((d) => ({ ...d, credentialId })),
     [],
   );
 
   // The form, declared so the assistant can read and fill it ("make bookings 30 minutes,
   // 10 to 5"). Nothing is saved until the owner presses the button.
   const hourOptions = HOUR_CHOICES.map((h) => ({ value: String(h), label: hourLabel(h) }));
+  const closeOptions = CLOSE_HOUR_CHOICES.map((h) => ({ value: String(h), label: hourLabel(h) }));
   useCopilotSurface({
     route: "/c/{slug}/agents/{id}",
     title: editing ? "Change booking" : "Set up booking",
@@ -104,36 +126,41 @@ export function BookingSetup({
         options: LENGTH_CHOICES.map((m) => ({ value: String(m), label: lengthLabel(m) })),
       },
       { id: "booking-from", label: "Bookings from (India time)", type: "select", value: String(draft.from), options: hourOptions },
-      { id: "booking-to", label: "Bookings until (India time)", type: "select", value: String(draft.to), options: hourOptions },
+      { id: "booking-to", label: "Bookings until (India time)", type: "select", value: String(draft.to), options: closeOptions },
       { id: "booking-calendar-id", label: "Which calendar", type: "text", value: draft.calendarId },
     ],
     facts: [
       { key: "calendar_connected", label: "A Google Calendar is chosen", value: draft.credentialId ? "yes" : "no" },
       { key: "booking_days", label: "Days it takes bookings", value: WEEKDAYS.filter((w) => draft.days.includes(w.day)).map((w) => w.long).join(", ") || "none" },
+      { key: "booking_hours", label: "Booking hours", value: hoursLabel(draft) },
     ],
     apply: (items) => {
       for (const item of items) {
         const raw = asText(item.value);
         const n = Number(raw);
         if (item.field_id === "booking-length" && LENGTH_CHOICES.includes(n)) setDraft((d) => ({ ...d, durationMin: n }));
-        if (item.field_id === "booking-from" && HOUR_CHOICES.includes(n)) setDraft((d) => ({ ...d, from: n }));
-        if (item.field_id === "booking-to" && HOUR_CHOICES.includes(n)) setDraft((d) => ({ ...d, to: n }));
+        if (item.field_id === "booking-from" && HOUR_CHOICES.includes(n)) setDraft((d) => ({ ...d, from: n, perDay: null }));
+        if (item.field_id === "booking-to" && CLOSE_HOUR_CHOICES.includes(n)) setDraft((d) => ({ ...d, to: n, perDay: null }));
         if (item.field_id === "booking-calendar-id" && raw.trim()) setDraft((d) => ({ ...d, calendarId: raw.trim() }));
       }
     },
   });
 
-  const hoursValid = draft.to > draft.from;
   const blocked = !draft.credentialId
     ? "Connect a Google Calendar first."
-    : !hoursValid
-      ? "The closing hour has to be after the opening hour."
-      : draft.days.length === 0
-        ? "Pick at least one day."
-        : null;
+    : draft.days.length === 0
+      ? "Pick at least one day."
+      : null;
+  const hoursHint =
+    draft.to % 24 === draft.from
+      ? "India time. Any time of the day."
+      : draft.to < draft.from
+        ? "India time. Runs past midnight into the next day."
+        : "India time. Times outside these are never offered or booked.";
   const toggleDay = (day: number) =>
     setDraft((d) => ({
       ...d,
+      perDay: null,
       days: d.days.includes(day) ? d.days.filter((x) => x !== day) : [...d.days, day].sort((a, b) => a - b),
     }));
 
@@ -190,56 +217,71 @@ export function BookingSetup({
               </select>
             }
           />
-          <SettingRow
-            label="Hours"
-            hint="India time. Times outside these are never offered or booked."
-            control={
-              <span className="flex items-center gap-2">
-                <select
-                  aria-label="Bookings from"
-                  className={SELECT}
-                  value={draft.from}
-                  onChange={(e) => setDraft({ ...draft, from: Number(e.target.value) })}
-                >
-                  {HOUR_CHOICES.map((h) => (
-                    <option key={h} value={h}>
-                      {hourLabel(h)}
-                    </option>
-                  ))}
-                </select>
-                <span aria-hidden className="text-ink-muted">
-                  –
-                </span>
-                <select
-                  aria-label="Bookings until"
-                  className={SELECT}
-                  value={draft.to}
-                  onChange={(e) => setDraft({ ...draft, to: Number(e.target.value) })}
-                >
-                  {HOUR_CHOICES.map((h) => (
-                    <option key={h} value={h}>
-                      {hourLabel(h)}
-                    </option>
-                  ))}
-                </select>
-              </span>
-            }
-          />
-          <SettingRow
-            label="Days"
-            control={
-              <span role="group" aria-label="Days it takes bookings" className="flex flex-wrap gap-1.5">
-                {WEEKDAYS.map((w) => (
-                  <FilterChip
-                    key={w.day}
-                    label={w.short}
-                    active={draft.days.includes(w.day)}
-                    onClick={() => toggleDay(w.day)}
-                  />
-                ))}
-              </span>
-            }
-          />
+          {draft.perDay ? (
+            <SettingRow
+              label="Hours"
+              hint="Your business hours, India time. Each day keeps its own."
+              value={hoursLabel(draft)}
+              action={
+                <button type="button" className={TEXT_ACTION} onClick={() => setDraft({ ...draft, perDay: null })}>
+                  Use one time every day
+                </button>
+              }
+            />
+          ) : (
+            <>
+              <SettingRow
+                label="Hours"
+                hint={hoursHint}
+                control={
+                  <span className="flex items-center gap-2">
+                    <select
+                      aria-label="Bookings from"
+                      className={SELECT}
+                      value={draft.from}
+                      onChange={(e) => setDraft({ ...draft, from: Number(e.target.value), perDay: null })}
+                    >
+                      {HOUR_CHOICES.map((h) => (
+                        <option key={h} value={h}>
+                          {hourLabel(h)}
+                        </option>
+                      ))}
+                    </select>
+                    <span aria-hidden className="text-ink-muted">
+                      –
+                    </span>
+                    <select
+                      aria-label="Bookings until"
+                      className={SELECT}
+                      value={draft.to}
+                      onChange={(e) => setDraft({ ...draft, to: Number(e.target.value), perDay: null })}
+                    >
+                      {CLOSE_HOUR_CHOICES.map((h) => (
+                        <option key={h} value={h}>
+                          {hourLabel(h)}
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                }
+              />
+              <SettingRow
+                label="Days"
+                control={
+                  <span role="group" aria-label="Days it takes bookings" className="flex flex-wrap gap-1.5">
+                    {WEEKDAYS.map((w) => (
+                      <FilterChip
+                        key={w.day}
+                        label={w.short}
+                        active={draft.days.includes(w.day)}
+                        onClick={() => toggleDay(w.day)}
+                      />
+                    ))}
+                  </span>
+                }
+              />
+            </>
+          )}
         </SettingRows>
 
         <Disclosure variant="inline" headingLevel={4} title="Advanced" className="mt-2">

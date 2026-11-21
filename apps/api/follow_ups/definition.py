@@ -22,9 +22,11 @@ from datetime import time
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
+from calevate_shared.config import FOLLOW_UP_DAYS_CEILING
 from pydantic import Field, TypeAdapter, ValidationError, model_validator
 
 from apps.api.core.schemas import Strict as _Strict
+from apps.api.core.settings import get_settings
 
 MAX_STEPS: Final = 30
 MAX_SOURCES: Final = 50
@@ -33,9 +35,12 @@ MAX_OUTCOMES: Final = 30
 MAX_VALUES: Final = 10
 MAX_WHY_CHARS: Final = 120
 MAX_TEXT_VALUE_CHARS: Final = 200
-#: The longest a run may stay open, and the default (docs/FOLLOW-UPS.md, Settings).
-MAX_DAYS_CAP: Final = 30
+#: The default for how long a run stays open (docs/FOLLOW-UPS.md, Settings). How far a run
+#: may reach is the console's `follow_up_max_days`, checked by `shape_problems` on every
+#: publish; the field bounds hold only the code ceiling, so a stored definition saved under a
+#: higher console value still loads after the value is lowered.
 MAX_DAYS_DEFAULT: Final = 14
+DAYS_CEILING: Final = FOLLOW_UP_DAYS_CEILING
 #: A call step's limits. `retry_minutes` keeps the old new-lead plan's floor of ten minutes,
 #: so every plan the migration carried over stays valid.
 CALL_WAIT_MAX_MINUTES: Final = 1440
@@ -43,8 +48,6 @@ CALL_WAIT_MAX_SECONDS: Final = 3600
 CALL_RETRIES_MAX: Final = 3
 RETRY_MINUTES_MIN: Final = 10
 RETRY_MINUTES_MAX: Final = 1440
-WAIT_MAX_DAYS: Final = 30
-OFFSET_DAYS_MAX: Final = 30
 
 StepId = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,15}$")]
 FieldKey = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")]
@@ -98,7 +101,7 @@ class LeadDateTrigger(_Strict):
     kind: Literal["lead_date"]
     #: A lead detail holding a date as `YYYY-MM-DD`.
     field: FieldKey
-    offset_days: int = Field(0, ge=-OFFSET_DAYS_MAX, le=OFFSET_DAYS_MAX)
+    offset_days: int = Field(0, ge=-DAYS_CEILING, le=DAYS_CEILING)
     #: IST wall clock.
     at: ClockTime = "10:00"
     only_if: OnlyIf | None = None
@@ -157,11 +160,11 @@ class DecideStep(_Strict):
 class WaitStep(_Strict):
     id: StepId
     kind: Literal["wait"]
-    minutes: int | None = Field(default=None, ge=1, le=WAIT_MAX_DAYS * 1440)
-    hours: int | None = Field(default=None, ge=1, le=WAIT_MAX_DAYS * 24)
-    days: int | None = Field(default=None, ge=1, le=WAIT_MAX_DAYS)
+    minutes: int | None = Field(default=None, ge=1, le=DAYS_CEILING * 1440)
+    hours: int | None = Field(default=None, ge=1, le=DAYS_CEILING * 24)
+    days: int | None = Field(default=None, ge=1, le=DAYS_CEILING)
     until_field: FieldKey | None = None
-    offset_days: int = Field(0, ge=-OFFSET_DAYS_MAX, le=OFFSET_DAYS_MAX)
+    offset_days: int = Field(0, ge=-DAYS_CEILING, le=DAYS_CEILING)
     at: ClockTime | None = None
     next: Target = None
 
@@ -250,7 +253,7 @@ class Settings(_Strict):
     stop_on_reply: bool = True
     stop_on_won_lost: bool = True
     again: Literal["never", "after_last", "after_30_days"] = "after_last"
-    max_days: int = Field(MAX_DAYS_DEFAULT, ge=1, le=MAX_DAYS_CAP)
+    max_days: int = Field(MAX_DAYS_DEFAULT, ge=1, le=DAYS_CEILING)
     #: At most this many runs start in any hour; the rest wait their turn.
     starts_per_hour: int | None = Field(default=None, ge=1, le=10_000)
 
@@ -355,11 +358,36 @@ def _needs_a_call(step: AnyStep) -> bool:
     return isinstance(step, DecideStep | TellTeamStep | ActionStep)
 
 
+def day_limit() -> int:
+    """How far a Follow-up may reach, in days: the console's `follow_up_max_days`."""
+    return get_settings().follow_up_max_days
+
+
+def _day_problems(trigger: AnyTrigger, steps: list[AnyStep], settings: Settings) -> list[Problem]:
+    limit = day_limit()
+    days = "a day" if limit == 1 else f"{limit} days"
+    problems: list[Problem] = []
+    if settings.max_days > limit:
+        problems.append(Problem(None, "too_many_days", f"A follow-up runs for at most {days}."))
+    if isinstance(trigger, LeadDateTrigger) and abs(trigger.offset_days) > limit:
+        problems.append(
+            Problem(None, "too_many_days", f"Start at most {days} before or after the date.")
+        )
+    for step in steps:
+        if not isinstance(step, WaitStep):
+            continue
+        minutes = (step.minutes or 0) + (step.hours or 0) * 60 + (step.days or 0) * 1440
+        if minutes > limit * 1440 or abs(step.offset_days) > limit:
+            problems.append(Problem(step.id, "too_many_days", f"Wait at most {days}."))
+    return problems
+
+
 def shape_problems(trigger: AnyTrigger, steps: list[AnyStep], settings: Settings) -> list[Problem]:
     """What is wrong with a definition before any database is asked."""
     problems: list[Problem] = []
     if not steps:
         return [Problem(None, "no_steps", "Add at least one step.")]
+    problems.extend(_day_problems(trigger, steps, settings))
     if len(steps) > MAX_STEPS:
         problems.append(Problem(None, "too_many_steps", f"Use at most {MAX_STEPS} steps."))
     position: dict[str, int] = {}
@@ -554,6 +582,7 @@ __all__ = [
     "WaitStep",
     "WhatsAppStep",
     "clock",
+    "day_limit",
     "dump_settings",
     "dump_steps",
     "dump_trigger",

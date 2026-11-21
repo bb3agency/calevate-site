@@ -168,13 +168,44 @@ TRANSACTIONAL_CAMPAIGN_REASON = (
 CLASSIFICATION_REFUSALS: dict[str, str] = {"transactional": TRANSACTIONAL_CAMPAIGN_REASON}
 
 DEFAULT_RETRY_POLICY: dict[str, Any] = {"max_attempts": 3, "backoff_minutes": [30, 120]}
-#: How many times a campaign may try one person (D-773). Five is the ceiling because a
-#: sixth unanswered call to someone on a consented list stops being a reminder.
-MAX_RETRY_ATTEMPTS = 5
-#: The gaps a client may choose between tries, in minutes. A fixed menu rather than a free
-#: number: a gap under fifteen minutes rings somebody back before they can reach the phone
-#: they just missed, and a day is the longest a gap can be and still belong to one campaign.
-RETRY_GAP_CHOICES: tuple[int, ...] = (15, 30, 60, 120, 240, 1440)
+#: Every gap a client may ever be offered between tries, in minutes, up to the code ceiling
+#: (`CAMPAIGN_RETRY_GAP_CEILING_MINUTES`, a week). A fixed menu rather than a free number: a
+#: gap under fifteen minutes rings somebody back before they can reach the phone they just
+#: missed. Which of them are offered is the console's `campaign_retry_gap_max_minutes`
+#: (`retry_gap_choices`).
+RETRY_GAP_MENU: Final[tuple[int, ...]] = (15, 30, 60, 120, 240, 1440, 2880, 4320, 10_080)
+
+
+def max_retry_attempts() -> int:
+    """How many times a campaign may try one person: the console's
+    `campaign_max_retry_attempts` (5 by default, D-773)."""
+    return get_settings().campaign_max_retry_attempts
+
+
+def retry_gap_choices() -> tuple[int, ...]:
+    """The gaps offered now: the menu up to the console's `campaign_retry_gap_max_minutes`
+    (a day by default). Never empty: the menu's first gap is the setting's floor."""
+    longest = get_settings().campaign_retry_gap_max_minutes
+    return tuple(gap for gap in RETRY_GAP_MENU if gap <= longest)
+
+
+def max_concurrency() -> int:
+    """The most calls at once a campaign may ask for: the console's
+    `campaign_max_concurrency` (10 by default)."""
+    return get_settings().campaign_max_concurrency
+
+
+def validated_concurrency(concurrency: int) -> int:
+    """`concurrency` if the console allows it, else a 422 naming the limit."""
+    limit = max_concurrency()
+    if not 1 <= concurrency <= limit:
+        raise ProblemError(
+            kind="validation",
+            code="campaign_concurrency_invalid",
+            title="Choose how many calls at once",
+            detail=f"Choose between 1 and {limit} calls at once.",
+        )
+    return concurrency
 
 
 def validated_retry_policy(max_attempts: int, gaps: list[int]) -> dict[str, Any]:
@@ -183,21 +214,23 @@ def validated_retry_policy(max_attempts: int, gaps: list[int]) -> dict[str, Any]
     `gaps` holds one entry per retry, so its length is `max_attempts - 1`; the dispatcher's
     `_record_failure` reads gap N after the Nth unanswered attempt.
     """
-    if not 1 <= max_attempts <= MAX_RETRY_ATTEMPTS:
+    attempts_max = max_retry_attempts()
+    if not 1 <= max_attempts <= attempts_max:
         raise ProblemError(
             kind="validation",
             code="campaign_retry_attempts_invalid",
             title="Choose how many tries",
-            detail=f"Choose between 1 and {MAX_RETRY_ATTEMPTS} tries per person.",
+            detail=f"Choose between 1 and {attempts_max} tries per person.",
         )
-    if len(gaps) != max_attempts - 1 or any(gap not in RETRY_GAP_CHOICES for gap in gaps):
+    choices = retry_gap_choices()
+    if len(gaps) != max_attempts - 1 or any(gap not in choices for gap in gaps):
         raise ProblemError(
             kind="validation",
             code="campaign_retry_gaps_invalid",
             title="Choose the gap between tries",
             detail=(
                 "Give one gap for each retry, each one of "
-                f"{', '.join(str(gap) for gap in RETRY_GAP_CHOICES)} minutes."
+                f"{', '.join(str(gap) for gap in choices)} minutes."
             ),
         )
     return {"max_attempts": max_attempts, "backoff_minutes": list(gaps)}
@@ -2230,11 +2263,10 @@ __all__ = [
     "CLASSIFICATION_REFUSALS",
     "DEFAULT_RETRY_POLICY",
     "DIALABLE_CAMPAIGN_CLASSIFICATIONS",
-    "MAX_RETRY_ATTEMPTS",
     "NO_PROVENANCE_REASON",
     "PAUSE_REASON_SQL",
     "PURCHASED_LIST_REASON",
-    "RETRY_GAP_CHOICES",
+    "RETRY_GAP_MENU",
     "START_NOT_READY_REASON",
     "START_NOT_READY_RULE",
     "TRANSACTIONAL_CAMPAIGN_REASON",
@@ -2256,6 +2288,8 @@ __all__ = [
     "launch_campaign",
     "launch_refusal_for_agent_status",
     "list_campaigns",
+    "max_concurrency",
+    "max_retry_attempts",
     "not_calling_reasons",
     "number_dial_refusal",
     "pause_campaigns_for_maintenance",
@@ -2263,10 +2297,12 @@ __all__ = [
     "record_dlt_registration",
     "register_dlt_template",
     "resume_campaigns_after_maintenance",
+    "retry_gap_choices",
     "retry_policy_view",
     "set_campaign_status",
     "set_template_status",
     "tenant_line_ceiling",
+    "validated_concurrency",
     "validated_retry_policy",
     "validated_window",
     "with_launch_blockers",

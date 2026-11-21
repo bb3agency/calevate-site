@@ -163,6 +163,14 @@ async def queue_live_apply(
 #: The reason a deploy that changed the platform's own prompt text records, followed by the
 #: text's revision (`platform_prompt_revision`).
 PLATFORM_PROMPT_REASON: Final = "platform_prompt"
+#: Console settings every agent is published with whose code default goes into
+#: `platform_prompt_revision`.
+ENGINE_CONSOLE_DEFAULT_KEYS: Final = (
+    "thinnest_interrupt_words",
+    "thinnest_agent_temperature_tenths",
+    "thinnest_thinking_delay_ms",
+    "thinnest_thinking_repeat_ms",
+)
 
 
 def platform_prompt_revision() -> str:
@@ -276,6 +284,12 @@ def platform_prompt_revision() -> str:
     from calevate_shared.engine import REPLY_TOKENS_DEFAULT
 
     parts.append(f"reply_tokens_default:{REPLY_TOKENS_DEFAULT}")
+    # Likewise the code defaults of the console's stated agent values: saving one republishes
+    # (`LIVE_AGENTS`), but a deploy that moves a default an unset console follows must too.
+    from calevate_shared.config import Settings
+
+    for key in ENGINE_CONSOLE_DEFAULT_KEYS:
+        parts.append(f"{key}:{Settings.model_fields[key].default}")
     # Which agents a platform run converges: widening it (ready agents, D-876) walks the fleet
     # once more, so agents a narrower walk skipped are brought onto this build's text.
     from apps.api.agents.models import PUBLISHED_STATUSES
