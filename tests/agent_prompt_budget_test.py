@@ -36,14 +36,16 @@ from calevate_shared.call_script import (
 from calevate_shared.engine import CALL_INSTRUCTIONS, AgentConfig, compose_engine_prompt
 
 #: Characters a starter leaves for what the owner adds: pinned facts at their ceiling plus
-#: 7,000 of the owner's own script. Lowering it is a founder decision.
-OWNER_RESERVE = MAX_PINNED_CHARS + 7_000
+#: 6,920 of the owner's own script (7,000 until D-1026, 22 Nov 2026: the founder gave 80 to the
+#: "Said first" line and rule on agents that place calls). Lowering it is a founder decision.
+OWNER_RESERVE = MAX_PINNED_CHARS + 6_920
 
 #: Characters the long script below must still leave free: room for its pinned facts to grow
-#: to their ceiling and 5,865 more of the owner's text (6,000 until D-979, 10 Nov 2026: the
+#: to their ceiling and 5,785 more of the owner's text (6,000 until D-979, 10 Nov 2026: the
 #: founder's "said so on this call or THIS CALL says so" is 21 characters longer on a placed
-#: call; 5,979 until D-1022, 19 Nov 2026, whose conversation rules are 114).
-LONG_MARGIN = MAX_PINNED_CHARS + 5_865
+#: call; 5,979 until D-1022, 19 Nov 2026, whose conversation rules are 114; 5,865 until
+#: D-1026, 22 Nov 2026, whose "Said first" line and rule are 77).
+LONG_MARGIN = MAX_PINNED_CHARS + 5_785
 
 COLLECT = [
     CollectField(label="Name", required=True),
@@ -153,8 +155,9 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 #: walk-through takes) must still leave: pinned facts at their ceiling and 2,265 more (2,500
 #: until F-5, 5 Nov 2026, whose written-form rule is 75 characters of new HOW TO SPEAK text;
 #: 2,400 until D-979, 10 Nov 2026, whose placed-call wording is 21 characters longer; 2,379
-#: until D-1022, 19 Nov 2026, whose conversation rules are 114).
-GUIDED_MARGIN = MAX_PINNED_CHARS + 2_265
+#: until D-1022, 19 Nov 2026, whose conversation rules are 114; 2,265 until D-1026, 22 Nov
+#: 2026, whose "Said first" line and rule are 77).
+GUIDED_MARGIN = MAX_PINNED_CHARS + 2_185
 
 
 def _guided(job: str) -> CallScript:

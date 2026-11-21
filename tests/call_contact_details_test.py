@@ -20,6 +20,7 @@ from calevate_shared.engine import (
     NAME_LINE,
     PHONE_LINE,
     REASON_LINE,
+    SAID_FIRST_LINE,
     THIS_CALL_HEADER,
     TODAY_LINE,
     AgentConfig,
@@ -104,7 +105,15 @@ def test_an_agent_that_places_calls_reads_the_number_details_and_reason() -> Non
     prompt = compose_engine_prompt(_cfg("outbound", callbacks=False))
     section = prompt[prompt.index(THIS_CALL_HEADER) :]
     assert section == "\n".join(
-        [THIS_CALL_HEADER, TODAY_LINE, NAME_LINE, PHONE_LINE, DETAILS_LINE, REASON_LINE]
+        [
+            THIS_CALL_HEADER,
+            TODAY_LINE,
+            NAME_LINE,
+            PHONE_LINE,
+            DETAILS_LINE,
+            REASON_LINE,
+            SAID_FIRST_LINE,
+        ]
     )
 
 

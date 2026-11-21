@@ -80,8 +80,8 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: with the point itself, never a reaction; registers name no trade; the agent's own language in
 #: English letters never switches it (21 Nov 2026).
 PINNED = (
-    "947815d3c86562875b29323711b637bb360a281dc87581841196463584e23720",
-    "7511141065403c78848ad6bc9a508ce107d9e13ede88d9f6507fcba417b35068",
+    "9a559c1caeff97300b95da82c037aab8b6e90e34d02980140a14fd9d9229f90a",
+    "d274588be8f5d653bd3f4ea2d94c17df58e9434c4daca406ec489f890294a34e",
 )
 
 

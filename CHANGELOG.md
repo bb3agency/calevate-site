@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.0 — 22-Nov-2026
+
+- On a campaign call that opens with the second opening or by checking the person's name,
+  the agent now knows those were its first words, so it does not repeat or contradict them.
+- An Inbound line keeps the opening it uses when it rings someone back.
+
 ## 0.4.99 — 21-Nov-2026
 
 - An agent that only places or only answers calls no longer carries the second opening of

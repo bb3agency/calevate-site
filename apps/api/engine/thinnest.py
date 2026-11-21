@@ -60,6 +60,7 @@ from calevate_shared.engine import (
     E164,
     NAME_VARIABLE,
     PHONE_VARIABLE,
+    PLATFORM_CALL_VARIABLES,
     REASON_VARIABLE,
     TODAY_VARIABLE,
     AccountKBListing,
@@ -93,6 +94,7 @@ from calevate_shared.engine import (
     compose_first_utterance,
     contact_call_variables,
     phone_value,
+    said_first_values,
     sends_our_call_rules,
     today_value,
 )
@@ -648,6 +650,22 @@ def _dial_variables(to: str, ctx: CallContext) -> dict[str, str]:
     room = CALL_VARIABLES_MAX - len(named)
     extra = [(key, value) for key, value in columns.items() if key not in named][:room]
     return {**dict(extra), **named}
+
+
+def _with_said_first(variables: dict[str, str], opening: str, ctx: CallContext) -> dict[str, str]:
+    """`variables` with the dial's own first words as `SAID_FIRST_LINE`'s values (D-1026),
+    room made by leaving out list columns last first, as `_dial_variables` does. A dial with
+    no words of its own sends none: the prompt's quoted greeting is what was said."""
+    said = said_first_values(opening)
+    if not said:
+        return variables
+    columns = [key for key in variables if key not in PLATFORM_CALL_VARIABLES | ctx.fields.keys()]
+    over = len(variables) + len(said) - CALL_VARIABLES_MAX
+    dropped = set(columns[len(columns) - over :]) if over > 0 else set()
+    kept = {key: value for key, value in variables.items() if key not in dropped}
+    if len(kept) + len(said) > CALL_VARIABLES_MAX:
+        return variables
+    return {**kept, **said}
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -3531,6 +3549,7 @@ class ThinnestEngine:
             log.warning("thinnest_call_opening_too_long", extra={"length": len(opening)})
             opening = ""
         purpose = opening or await self._outbound_opening(ref, variables)
+        variables = _with_said_first(variables, opening, ctx)
         body: dict[str, Any] = {
             "to": to,
             "purpose": purpose,

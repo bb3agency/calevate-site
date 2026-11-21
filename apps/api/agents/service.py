@@ -1009,16 +1009,18 @@ def _to_config(
     *,
     engine: VoiceEngine,
     handoff: HandoffSpec | None = None,
+    keep_placed_opening: bool = False,
 ) -> AgentConfig:
     settings = get_settings()
     hosted = _engine_voice_fields(agent, engine=engine)
     steps, body = _steps_for(
         engine, agent, _script_for(engine, _assert_has_a_script(agent)), handoff=handoff
     )
-    if agent["direction"] != "both":
+    if agent["direction"] != "both" and not keep_placed_opening:
         # This agent's calls open with its [OPENING] (`compose_first_utterance`), so a
         # placed-call opening in its script (kept from a time it was "both", or a campaign's
-        # from a "both" voice) is not composed in, where it would read as still to say.
+        # from a "both" voice) is not composed in, where it would read as still to say. A
+        # line keeps it: it places its voice's call-backs with that opening (D-1019 D2).
         body = without_placed_opening(body)
     config = AgentConfig(
         tenant_id=str(tenant_id),
@@ -4297,7 +4299,11 @@ async def line_config(
     off = set(line.actions_off or ())
     tools = await actions_service.declare(session, agent_id=agent_id, direction="inbound")
     return _to_config(
-        tenant_id, _line_agent_row(agent, script, body), engine=engine, handoff=handoff
+        tenant_id,
+        _line_agent_row(agent, script, body),
+        engine=engine,
+        handoff=handoff,
+        keep_placed_opening=True,
     ).model_copy(
         update={
             "holder": str(line_id),

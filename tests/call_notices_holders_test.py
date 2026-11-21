@@ -25,6 +25,7 @@ from apps.api.inbound import lines as inbound_lines
 from apps.workers import opening_line
 from apps.workers import opening_notices as weave_worker
 from calevate_shared.call_script import SCRIPT_SCHEMA_VERSION, CallScript
+from calevate_shared.invisible_text import plain_joins
 from calevate_shared.opening_notices import NONE_SAID, OpeningNotices, SaidNotices
 from sqlalchemy import text
 from tests.dispatch_budget_test import _dlt_rows, _tenant
@@ -212,7 +213,7 @@ async def test_a_campaigns_second_opening_follows_the_account_switch_on_every_di
             )
         return (
             agents_service.campaign_first_words(speaker, SECOND, call_is_recorded=True),
-            str(speaker["ai_disclosure_line"]).strip(),
+            plain_joins(str(speaker["ai_disclosure_line"]).strip()),
         )
 
     await _switch(tenant_id, ai=True)

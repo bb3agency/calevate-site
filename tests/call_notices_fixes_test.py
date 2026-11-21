@@ -33,6 +33,7 @@ from apps.workers import campaign_dispatch, opening_line
 from apps.workers import opening_notices as weave_worker
 from arq import Retry
 from calevate_shared.call_script import SCRIPT_SCHEMA_VERSION, CallScript
+from calevate_shared.invisible_text import plain_joins
 from calevate_shared.opening_notices import NONE_SAID
 from sqlalchemy import text
 from tests.call_notices_holders_test import PLAIN as HOLDER_PLAIN
@@ -268,7 +269,7 @@ async def test_a_campaign_call_says_the_first_words_our_rows_compose_now(
             words = await agents_service.held_greeting(
                 session, tenant_id=tenant_id, agent=agent, campaign_id=campaign_id
             )
-        return words, str(agent["ai_disclosure_line"]).strip()
+        return words, plain_joins(str(agent["ai_disclosure_line"]).strip())
 
     result = await campaign_dispatch._dispatch_for_campaign(
         tenant_id, campaign_id, 3, campaigns.DEFAULT_RETRY_POLICY

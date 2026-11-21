@@ -3554,6 +3554,18 @@ DETAILS_LINE: Final = f"Details: {{{{{DETAILS_VARIABLE}}}}}"
 REASON_VARIABLE: Final = "call_reason"
 REASON_LINE: Final = f"Why this call: {{{{{REASON_VARIABLE}}}}}"
 
+#: What a placed call actually opened with (D-1026). One engine agent serves every dial of a
+#: campaign or line, and its START OF THE CALL quotes one greeting, while a dial may open with
+#: the campaign's second opening or a name check instead; quoting the wrong words told the
+#: model it had said what the person never heard. The dial sends its words in two values,
+#: because an opening may be up to 300 characters and one value holds 150.
+SAID_FIRST_VARIABLE: Final = "said"
+SAID_FIRST_MORE_VARIABLE: Final = "said_2"
+SAID_FIRST_LINE: Final = (
+    f"Said first: {{{{{SAID_FIRST_VARIABLE}}}}} {{{{{SAID_FIRST_MORE_VARIABLE}}}}}"
+)
+SAID_FIRST_RULE: Final = " Said first, if filled, replaces that first turn."
+
 #: "Values cut to 150 characters" (place-call `variables`, read 27 Oct 2026). We cut first, on
 #: a whole item or word, so the vendor never cuts a word in half.
 CALL_VARIABLE_VALUE_MAX: Final = 150
@@ -3567,6 +3579,8 @@ PLATFORM_CALL_VARIABLES: Final = frozenset(
         DETAILS_VARIABLE,
         REASON_VARIABLE,
         CALLER_HIDDEN_VARIABLE,
+        SAID_FIRST_VARIABLE,
+        SAID_FIRST_MORE_VARIABLE,
     }
 )
 
@@ -3646,6 +3660,17 @@ def call_variable_value(value: str) -> str:
     return _clip(_one_line(value), CALL_VARIABLE_VALUE_MAX)
 
 
+def said_first_values(opening: str) -> dict[str, str]:
+    """`SAID_FIRST_LINE`'s two values for a dial's first words, split on a word; empty for a
+    dial that brings none (the engine agent's own greeting, which the prompt quotes)."""
+    words = _one_line(opening)
+    if not words:
+        return {}
+    head = _clip(words, CALL_VARIABLE_VALUE_MAX)
+    rest = _clip(words[len(head) :].strip(), CALL_VARIABLE_VALUE_MAX)
+    return {SAID_FIRST_VARIABLE: head, **({SAID_FIRST_MORE_VARIABLE: rest} if rest else {})}
+
+
 def call_reason_value(note: str | None) -> str:
     """`REASON_LINE`'s value: the dial's context note as one line, cut on a word."""
     return _clip(_one_line(note), CALL_VARIABLE_VALUE_MAX) if note else ""
@@ -3662,7 +3687,7 @@ def _this_call_section(cfg: AgentConfig) -> str:
     lines = [
         TODAY_LINE,
         NAME_LINE,
-        *([PHONE_LINE, DETAILS_LINE, REASON_LINE] if places_calls(cfg) else []),
+        *([PHONE_LINE, DETAILS_LINE, REASON_LINE, SAID_FIRST_LINE] if places_calls(cfg) else []),
         *([CALLER_HIDDEN_LINE] if cfg.forwarded_line else []),
     ]
     return "\n".join([THIS_CALL_HEADER, *lines])
@@ -4908,6 +4933,7 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
     """
     first_words = quoted_client_words(compose_first_utterance(cfg))
     reason = f"{CALL_REASON_RULE}{PLACED_CALL_PERMISSION_RULE}" if places_calls(cfg) else ""
+    said = SAID_FIRST_RULE if places_calls(cfg) else ""
     placed = compose_placed_call_first_words(cfg)
     if placed is not None:
         # A "both" agent's two first turns differ (D-920): quoting only the answering one
@@ -4916,7 +4942,8 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
         answered = f'on a call you answer, "{first_words}"; ' if first_words else ""
         return (
             f"{START_OF_CALL_HEADER}\nAlready said for you as your first turn: {answered}on a "
-            f'call you place, "{quoted_client_words(placed)}".{OPENING_CONTINUES_RULE}{reason}'
+            f'call you place, "{quoted_client_words(placed)}".{said}{OPENING_CONTINUES_RULE}'
+            f"{reason}"
         )
     if not first_words:
         return ""
@@ -4930,7 +4957,7 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
     )
     return (
         f'{START_OF_CALL_HEADER}\nAlready said for you as your first turn: "{first_words}".'
-        f"{test_call}{OPENING_CONTINUES_RULE}{reason}"
+        f"{said}{test_call}{OPENING_CONTINUES_RULE}{reason}"
     )
 
 
@@ -6944,6 +6971,10 @@ __all__ = [
     "REPLY_TOKENS_MAX",
     "REPLY_TOKENS_MIN",
     "ROLE_BUSINESS_MAX_CHARS",
+    "SAID_FIRST_LINE",
+    "SAID_FIRST_MORE_VARIABLE",
+    "SAID_FIRST_RULE",
+    "SAID_FIRST_VARIABLE",
     "SCREEN_CALL_INSTRUCTIONS",
     "TEST_CALL_OPENING_RULE",
     "THIS_CALL_HEADER",
@@ -7022,6 +7053,7 @@ __all__ = [
     "quoted_client_words",
     "role_sentence",
     "said_as_taught",
+    "said_first_values",
     "said_notices",
     "screen_steps_bullet",
     "sends_our_call_rules",
