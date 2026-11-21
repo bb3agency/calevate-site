@@ -88,7 +88,12 @@ from calevate_shared.spoken_guard import (
 from pydantic import ValidationError
 
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit
-from apps.api.agents.call_rules import OPENING_LINE_RULE, said_line_problem, writer_rules
+from apps.api.agents.call_rules import (
+    OPENING_LINE_RULE,
+    opening_redone_line_problems,
+    said_line_problem,
+    writer_rules,
+)
 from apps.api.agents.retired_lines import retired_line_problem
 from apps.api.agents.script_lint import (
     CapabilityManifest,
@@ -326,6 +331,7 @@ def language_problems(
             if text not in kept and (problem := english_problem(path, text))
         ]
     callers = caller_paths(script)
+    close = f"stages.{len(script.stages) - 1}." if script.stages else None
     if lint is not None:
         problems += [
             problem
@@ -346,7 +352,12 @@ def language_problems(
                 # example line is not the agent's to keep, and the owner's own line is theirs.
                 None
                 if path in callers or owners
-                else said_line_problem(path, text, opening=path in _OPENING_PATHS),
+                else said_line_problem(
+                    path,
+                    text,
+                    opening=path in _OPENING_PATHS,
+                    close=close is not None and path.startswith(close),
+                ),
                 # Every spoken line, not only the opening: a step's example line, a sample
                 # phrase or the example call in English letters teaches the in-call model to
                 # write them, and the voice then reads them (D-861).
@@ -373,11 +384,20 @@ def language_problems(
 
 
 def shape_problems(script: CallScript, before: CallScript | None = None) -> list[str]:
-    """What the model got wrong in the call's shape (`script_lint.flow_problems`), a step it
+    """What the model got wrong in the call's shape (`script_lint.flow_problems`), a step
+    whose line redoes the opening (`call_rules.opening_redone_line_problems`), a step it
     wrote with no line, and, in an edit, a close it took out. With `before` (an edit), a
     shape problem the owner's script already had is theirs and not the model's to fix."""
-    owned = set(flow_problems(before)) if before is not None else set()
-    problems = [problem for problem in flow_problems(script) if problem not in owned]
+    owned = (
+        {*flow_problems(before), *opening_redone_line_problems(before)}
+        if before is not None
+        else set()
+    )
+    problems = [
+        problem
+        for problem in (*flow_problems(script), *opening_redone_line_problems(script))
+        if problem not in owned
+    ]
     was = {stage.id: stage for stage in before.stages} if before is not None else {}
     problems += [
         f"stages.{i}.sounds_like: is empty; write one short line in the call language "

@@ -40,6 +40,7 @@ from calevate_shared.call_words import words as _word_list
 from calevate_shared.languages import find_language
 from calevate_shared.spoken_guard import (
     has_indic_letters,
+    honorific_count,
     latin_words,
     opens_with_greeting,
     textbook_note,
@@ -1314,7 +1315,7 @@ def greeted_midway(reply: str) -> str | None:
     return None
 
 
-def _reopened(reply: str, opening_questions: Sequence[str]) -> str | None:
+def asked_opening_again(reply: str, opening_questions: Sequence[str]) -> str | None:
     """Why a reply asks its opening's question again, or None (D-912). The opening's own
     question is the yardstick, so "can we talk now?" is caught in a language our phrase list
     does not cover too; the phrase list catches a reworded one. A close ("anything else?") is
@@ -1544,6 +1545,31 @@ def opener(reply: str) -> str | None:
     if not words or len(words) > _OPENER_MAX_WORDS:
         return None
     return " ".join(words)
+
+
+def reaction_lead(line: str) -> str | None:
+    """The reaction a written line opens with before going on to say something ("very good"
+    of "Very good. Now open the app."), lower case, or None.
+
+    For the script writer, not for live replies: on a call a reaction can rightly answer a
+    yes/no question, but a script line cannot see what it answers, and the in-call model
+    copies a step's line into every reply (the Varsha calls of 20-21 Nov 2026 opened nearly
+    every turn with one). A line that is only a reaction is `only_reaction`'s; a head that
+    is only an honorific ("Sir, ...") is an address, and a line that says goodbye is a close,
+    where thanks before the goodbye is the turn."""
+    flat = " ".join(line.replace(chr(0x2019), "'").split())
+    parts = _OPENER_END.split(flat, maxsplit=1)
+    if len(parts) < 2:
+        return None
+    head, rest = _words(parts[0]), _words(parts[1])
+    if not head or not rest or _GOODBYE.search(line):
+        return None
+    reaction = _ACKNOWLEDGEMENT()
+    if reaction.fullmatch(" ".join(head)) is None or reaction.fullmatch(" ".join(rest)):
+        return None
+    if honorific_count(parts[0]) == len(head):
+        return None
+    return " ".join(head)
 
 
 def _stock_opener(replies: Sequence[str]) -> tuple[str, int] | None:
@@ -1829,7 +1855,7 @@ def conversation_problems(
         restarted = (
             (None if previous_reply else opened_again(reply))
             or greeted_midway(reply)
-            or _reopened(reply, opening_questions)
+            or asked_opening_again(reply, opening_questions)
         )
         if restarted:
             found.setdefault("opened_again", TurnProblem("opened_again", restarted))
@@ -2106,6 +2132,7 @@ __all__ = [
     "TurnProblem",
     "answers_in_english",
     "asked_again",
+    "asked_opening_again",
     "asks_name",
     "asks_question",
     "asks_to_repeat",
@@ -2123,6 +2150,7 @@ __all__ = [
     "offers_more",
     "only_reaction",
     "opened_again",
+    "reaction_lead",
     "same_reply",
     "says_goodbye",
     "sentences",
