@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.93 — 21-Nov-2026
+
+- Each agent is set as Selling or Helping customers, on its Settings or through Pip. A
+  happy caller is marked interested only by a selling agent; existing agents stay Selling.
+- When every agent of an account helps customers, the screens, emails and daily summary say
+  callers instead of leads.
+
 ## 0.4.92 — 21-Nov-2026
 
 - Pip writes an outbound opening that says who is calling, from which business and why,

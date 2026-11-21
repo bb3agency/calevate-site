@@ -21,6 +21,7 @@ from apps.api.copilot.write_tools_test import _audit, _confirm, _outbox_jobs, _p
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
+from apps.workers.campaign_script_ask import INSTRUCTION_MAX
 
 
 async def _agent_of(tenant_id: UUID) -> UUID:
@@ -299,8 +300,8 @@ async def test_the_draft_refusals_the_model_can_act_on() -> None:
     assert "no main task" in no_task.value.reason
 
     with pytest.raises(WriteRefusedError) as long:
-        await _propose_draft(tenant_id, token, {"holder_id": str(bare), "instruction": "x" * 301})
-    assert "at most 300 characters" in long.value.reason
+        await _propose_draft(tenant_id, token, {"holder_id": str(bare), "instruction": "x" * (INSTRUCTION_MAX + 1)})
+    assert f"at most {INSTRUCTION_MAX} characters" in long.value.reason
     assert "never drop a change" in long.value.reason
 
 
