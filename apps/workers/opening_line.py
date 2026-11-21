@@ -32,7 +32,6 @@ from calevate_shared.opening_notices import (
     OpeningNotices,
     SaidNotices,
     WovenNotices,
-    opening_max_chars,
     unwoven_notice_problems,
     woven_notice_problems,
 )
@@ -51,7 +50,16 @@ from calevate_shared.spoken_guard import (
     unintroduced_opening_problem,
 )
 
-from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS, said_line_problem
+from apps.api.agents.call_rules import (
+    OPENING_CEILING_CHARS,
+    OPENING_LINE_MAX_CHARS,
+    PLACED_OPENING_MAX_CHARS,
+    PLACED_OPENING_RULE,
+    PLACED_REASON_RULE,
+    opening_most,
+    placed_opening_problems,
+    said_line_problem,
+)
 from apps.api.agents.script_lint import NAME_PLACEMENT_RULE, LintContext, spoken_line_problems
 from apps.api.core.logging import get_logger
 from apps.api.tenancy.business_copy import provider_problem
@@ -74,9 +82,11 @@ OPENING_WRITER_INSTRUCTION: Final = (
     "it says first on a call, spoken word for word. Make it about THIS business. An agent "
     "that answers calls names what callers of this business usually want, taken from the "
     "owner's description, documents, answers and facts in the brief, and asks about it as "
-    "one short question, so the caller hears at once they reached the right place; an agent "
-    "that only places calls says which business is calling and what about, and asks whether "
-    "now is a good time to talk, nothing else. Never a line any business could use, never a "
+    "one short question, so the caller hears at once they reached the right place; on a call "
+    "the agent places it says who is calling and from which business, then the one reason "
+    "for the call (the campaign's main task or the agent's outbound purpose in the brief), "
+    "then asks whether now is a good time to talk, nothing else. Never a line any business "
+    "could use, never a "
     "list of products, an offer, a discount or a figure the owner's facts do not give, never "
     "that the person enquired, asked or showed interest, or already has or uses something "
     "(only the call's own data may say that), and about being an AI or the call being "
@@ -111,10 +121,11 @@ _FORMAT: Final[dict[str, object]] = {
 }
 
 
-def length_problem(where: str, text: str) -> str | None:
-    """Too long, with the room a notice said in the line earns (D-971)."""
+def length_problem(where: str, text: str, *, placed: bool = False) -> str | None:
+    """Too long, with the room a notice said in the line earns (D-971) and, on a call the
+    agent places, the room its name and reason take (`call_rules.opening_most`)."""
     size = len(text.strip())
-    most = opening_max_chars(OPENING_MAX_CHARS, text)
+    most = opening_most(text, placed=placed)
     if size <= most:
         return None
     return f"{where}: {size} characters; keep it to at most {most} characters"
@@ -129,6 +140,9 @@ def opening_problems(
     where: str = OPENING_PATH,
     woven: WovenNotices | None = None,
     said: SaidNotices | None = None,
+    placed: bool = False,
+    agent_name: str = "",
+    business_name: str = "",
 ) -> list[str]:
     """Every rule an opening line breaks, each as the sentence a model is sent to repair it:
     at most `OPENING_MAX_CHARS` (plus the room a notice said in it earns), ending on a
@@ -138,7 +152,10 @@ def opening_problems(
     says who is calling. With `woven`, it says the notices switched on in its own words and
     no other (D-971); an opening that says it is an AI is said first, as the introduction.
     `said`: the words of `line` named as saying each notice; without it the notices are
-    judged by word only, a hint to the writer that never drops a stored sentence."""
+    judged by word only, a hint to the writer that never drops a stored sentence.
+    `placed`: the line opens a call the agent places, so it also says `agent_name` and the
+    reason for the call (`call_rules.placed_opening_problems`), in the longer room that
+    takes."""
     clean = line.strip()
     if not clean:
         return [f"{where}: is empty; write the line"]
@@ -150,8 +167,15 @@ def opening_problems(
         if said is None
         else unwoven_notice_problems(where, clean, woven, said)
     )
+    who_and_why = (
+        placed_opening_problems(
+            where, clean, agent_name=agent_name, business_name=business_name, introduced=introduced
+        )
+        if placed
+        else []
+    )
     found = (
-        length_problem(where, clean),
+        length_problem(where, clean, placed=placed),
         question_end_problem(where, clean),
         textbook_problem(where, clean, language),
         latin_word_problem(where, clean, language, names=names),
@@ -159,7 +183,7 @@ def opening_problems(
         if introduced
         else unintroduced_opening_problem(where, clean, names=names),
     )
-    return [*(problem for problem in found if problem), *notices]
+    return [*(problem for problem in found if problem), *who_and_why, *notices]
 
 
 def opening_rules(
@@ -168,15 +192,19 @@ def opening_rules(
     names: Sequence[str] = (),
     introduced: bool = False,
     woven: WovenNotices | None = None,
+    placed: bool = False,
+    agent_name: str = "",
 ) -> str:
     """`opening_problems`' rules as the writer is told them, in the same words."""
     kept = [name.strip() for name in names if name.strip()]
     introduced = introduced and not (woven is not None and woven.ai)
-    most = OPENING_MAX_CHARS
+    most = PLACED_OPENING_MAX_CHARS if placed else OPENING_MAX_CHARS
     if woven is not None:
         most += (WOVEN_AI_CHARS if woven.ai else 0) + (
             WOVEN_RECORDING_CHARS if woven.recording else 0
         )
+    if placed:
+        most = min(most, OPENING_CEILING_CHARS)
     rules = [
         f"at most {most} characters",
         QUESTION_END_RULE,
@@ -191,6 +219,13 @@ def opening_rules(
         rules += [f"no greeting: {INTRODUCED_GREETING_RULE}", INTRODUCED_NAMES_RULE]
     else:
         rules.append(UNINTRODUCED_RULE)
+    if placed:
+        rules.append(
+            f"on this call the agent places, {PLACED_REASON_RULE}, then the question"
+            if introduced
+            else f"on this call the agent places, the line {PLACED_OPENING_RULE}"
+            + (f"; the agent's name is {agent_name.strip()}" if agent_name.strip() else "")
+        )
     if woven is not None:
         rules += woven.rules()
     return "\n".join(f"- {rule}" for rule in rules)
@@ -204,9 +239,11 @@ def _writer_problems(
     said: SaidNotices,
     *,
     placed: bool = False,
+    placed_rules: bool = False,
 ) -> list[str]:
     """`opening_problems`, plus the checks the script writer holds every spoken line to: no
-    provider's name (D-679), no claim of a done order (D-849), the script lint (D-945)."""
+    provider's name (D-679), no claim of a done order (D-849), the script lint (D-945).
+    `placed_rules`: held to the placed-call opening's who and why too."""
     extra = (
         provider_problem(OPENING_PATH, line),
         said_line_problem(OPENING_PATH, line),
@@ -219,6 +256,9 @@ def _writer_problems(
             introduced=brief.introduced,
             woven=brief.woven,
             said=said,
+            placed=placed_rules,
+            agent_name=brief.agent_name,
+            business_name=brief.business_name,
         ),
         *(problem for problem in extra if problem),
         # The opening of the calls a "both" agent places is held to the placed-call rules.
@@ -231,18 +271,24 @@ def _writer_problems(
 #: write the answering kind of line.
 PLACED_TASK: Final = (
     "This opening_line is the one the agent says on a call it PLACES: it rang the person, so "
-    "it says which business is calling and what about, never that the person enquired or "
-    "asked, or has or uses something the call's own data does not say, and asks whether now "
-    "is a good time to talk. If it names the person, "
+    "it says who is calling, from which business and the one reason for the call, never that "
+    "the person enquired or asked, or has or uses something the call's own data does not "
+    "say, and asks whether now is a good time to talk. If it names the person, "
     f"{NAME_PLACEMENT_RULE}. "
 )
 
 
 def opening_request(
-    brief: ScriptBrief, *, line: str = "", problems: Sequence[str] = (), placed: bool = False
+    brief: ScriptBrief,
+    *,
+    line: str = "",
+    problems: Sequence[str] = (),
+    placed: bool = False,
+    placed_rules: bool = False,
 ) -> str:
     """What the writer reads: the brief, the rules, and the line to repair with its problems
-    when there is one. `placed` asks for the opening of the calls a "both" agent places."""
+    when there is one. `placed` asks for the opening of the calls a "both" agent places;
+    `placed_rules` states the placed-call opening's who and why among the rules."""
     names = (brief.business_name, brief.agent_name)
     task = (PLACED_TASK if placed else "") + (
         f"This opening_line was written for the agent and cannot be used: “{line.strip()}”. "
@@ -251,11 +297,15 @@ def opening_request(
         if line.strip() and problems
         else "Write the opening_line for this agent."
     )
-    return (
-        f"{brief.user_message()}\n\nRules for opening_line:\n"
-        + opening_rules(brief.language, names=names, introduced=brief.introduced, woven=brief.woven)
-        + f"\n\n{task}"
+    rules = opening_rules(
+        brief.language,
+        names=names,
+        introduced=brief.introduced,
+        woven=brief.woven,
+        placed=placed_rules,
+        agent_name=brief.agent_name,
     )
+    return f"{brief.user_message()}\n\nRules for opening_line:\n{rules}\n\n{task}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,11 +334,15 @@ async def write_opening(
     tenant_leg: TenantModelLeg | None = None,
     quota_exhausted: bool = False,
     placed: bool = False,
+    placed_rules: bool = False,
 ) -> JsonAnswer[WrittenOpening]:
     """An opening line for the agent `brief` describes that keeps every rule, or the ladder's
     refusal (a `ProblemError`, a `SpentRefusalError` when a leg answered and must be
     metered). With `line` and its `problems`, the line is repaired; without, written.
-    `placed`: the opening of the calls a "both" agent places, held to the same rules."""
+    `placed`: the opening of the calls a "both" agent places, held to the same rules.
+    `placed_rules`: the line opens a call the agent places and is held to its who and why
+    (`call_rules.placed_opening_problems`); off for a caller that only re-weaves notices
+    into a line it keeps (`opening_notices`), whose checks stay its own."""
     names = (brief.business_name, brief.agent_name)
     lint = brief.lint_context()
 
@@ -306,7 +360,9 @@ async def write_opening(
             if brief.woven is not None
             else SaidNotices()
         )
-        found = _writer_problems(written, brief, names, lint, said, placed=placed)
+        found = _writer_problems(
+            written, brief, names, lint, said, placed=placed, placed_rules=placed_rules
+        )
         if found:
             # Counts only: the line is the business's words (hard rule 6).
             log.info("opening_line_sent_back", extra={"problems": len(found)})
@@ -314,7 +370,9 @@ async def write_opening(
         return WrittenOpening(line=written, said=said)
 
     return await ask_json(
-        opening_request(brief, line=line, problems=problems, placed=placed),
+        opening_request(
+            brief, line=line, problems=problems, placed=placed, placed_rules=placed_rules
+        ),
         OPENING_WRITER_INSTRUCTION,
         parse=parse,
         azure_format=_FORMAT,

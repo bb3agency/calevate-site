@@ -373,21 +373,27 @@ def test_the_published_script_shows_the_shape_problems() -> None:
 
 
 def test_the_budget_carries_the_platforms_own_ceiling() -> None:
-    from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
+    from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS, PLACED_OPENING_MAX_CHARS
     from apps.api.agents.engine_limits import greeting_budget
     from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
     from calevate_shared.engine import DisclosurePosture
 
-    budget = greeting_budget(
-        FakeEngine(name="thinnest", capabilities=DICTATED_SPEECH_CAPABILITIES),
-        posture=DisclosurePosture(
-            ai_disclosure_line="I am an AI.",
-            ai_disclosure_enabled=False,
-            recording_notice_line="This call is recorded.",
-            recording_notice_enabled=False,
-        ),
-        opening="Hello, can we talk now?",
-        direction="outbound",
-        language="en-IN",
-    )
-    assert budget is not None and budget.opening_advised == OPENING_LINE_MAX_CHARS
+    def advised(direction: str) -> int:
+        budget = greeting_budget(
+            FakeEngine(name="thinnest", capabilities=DICTATED_SPEECH_CAPABILITIES),
+            posture=DisclosurePosture(
+                ai_disclosure_line="I am an AI.",
+                ai_disclosure_enabled=False,
+                recording_notice_line="This call is recorded.",
+                recording_notice_enabled=False,
+            ),
+            opening="Hello, can we talk now?",
+            direction=direction,
+            language="en-IN",
+        )
+        assert budget is not None
+        return budget.opening_advised
+
+    assert advised("inbound") == OPENING_LINE_MAX_CHARS
+    # A placed call's opening also carries the agent's name and the reason for the call.
+    assert advised("outbound") == PLACED_OPENING_MAX_CHARS

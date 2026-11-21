@@ -120,7 +120,13 @@ def openings_kept(script: CallScript, base: CallScript) -> CallScript:
 
 
 async def _opening_repaired(
-    tenant_id: UUID, agent_id: UUID, proposal: script_proposals.ScriptProposal, script: CallScript
+    tenant_id: UUID,
+    agent_id: UUID,
+    proposal: script_proposals.ScriptProposal,
+    script: CallScript,
+    *,
+    direction: str | None = None,
+    purpose: str = "",
 ) -> tuple[CallScript, list[JsonAnswer[WrittenOpening] | ProblemError]]:
     """The draft's script with each opening line the model wrote that breaks the opening
     rule repaired by the opening writer (`opening_line.write_opening`), and what the repairs
@@ -142,14 +148,23 @@ async def _opening_repaired(
         context = await script_proposals.brief_for(session, tenant_id, agent_id)
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
+    if direction is not None:
+        context = replace(context, direction=direction)
+    if purpose.strip():
+        # The reason a placed call's opening gives (`call_rules.PLACED_OPENING_RULE`).
+        context = replace(context, description=purpose)
     spends: list[JsonAnswer[WrittenOpening] | ProblemError] = []
     for field, placed, line in judged:
+        dialled = placed or context.direction == "outbound"
         problems = opening_problems(
             line,
             context.language,
             names=(context.business_name, context.agent_name),
             introduced=context.introduced,
             woven=context.woven,
+            placed=dialled,
+            agent_name=context.agent_name,
+            business_name=context.business_name,
         )
         if not problems:
             continue
@@ -161,6 +176,7 @@ async def _opening_repaired(
                 tenant_leg=tenant_leg,
                 quota_exhausted=quota.at_ceiling or quota.platform_paused,
                 placed=placed,
+                placed_rules=dialled,
             )
         except ProblemError as refused:
             log.info(
@@ -394,11 +410,16 @@ async def finish_written(
     proposal: script_proposals.ScriptProposal,
     drafted: CallScript,
     started: float,
+    *,
+    direction: str | None = None,
+    purpose: str = "",
 ) -> Finished:
     """What every script Pip writes goes through before an owner reviews it, a line's, a
     campaign's and a fix alike: the call-mistake checks and their repair (D-989), then the
     opening rule and its repair (D-957). Each step's failure keeps what is already written,
-    since it is paid for and must be stored and metered."""
+    since it is paid for and must be stored and metered. `direction` and `purpose`: how the
+    holder's calls go when that is not the agent's own (a campaign only places calls, for
+    the reason its main task gives), for the opening repair."""
     repairs: list[ScriptDraft | ProblemError] = []
     left_out: list[LeftOut] = []
     if not drafted.raw_override:
@@ -410,7 +431,9 @@ async def finish_written(
         drafted, repairs = checked.script, checked.spends
         left_out = script_proposals.fix_left(checked.left, drafted)
     try:
-        script, opening_spends = await _opening_repaired(tenant_id, agent_id, proposal, drafted)
+        script, opening_spends = await _opening_repaired(
+            tenant_id, agent_id, proposal, drafted, direction=direction, purpose=purpose
+        )
     except Exception:
         # Not left `drafting` until it goes stale: stored as drafted, for the owner to review.
         log.exception("script_proposal_opening_crashed", extra={"agent_id": str(agent_id)})
