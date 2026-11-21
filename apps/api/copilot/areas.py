@@ -259,7 +259,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "agent_tests_fix",
         "agents",
-        "fixes for failed tests; what calls say is on its Inbound line or campaign",
+        "fixes for failed tests; to rewrite what calls say: script_draft",
     ),
     AreaEntry(
         "knowledge_teach",
@@ -291,8 +291,8 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "agent_settings",
         "agents",
-        "one part of an agent's set-up with ids; part script: its own script, read only, "
-        "and the lines and campaigns where what calls say is changed",
+        "one part of an agent's set-up with ids; part script: its current script, never a "
+        "change, and its lines and campaigns; to rewrite one: script_draft",
     ),
     AreaEntry(
         "billing_settings",
@@ -453,6 +453,11 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("follow_up_resume", "leads", "turn a paused or off Follow-up on"),
     AreaEntry("follow_up_turn_off", "leads", "turn a Follow-up off; its leads stop"),
     AreaEntry("follow_up_start", "leads", "put leads on a Follow-up, by `lens` or lead_ids"),
+    AreaEntry(
+        "script_draft",
+        "agents",
+        "rewrite what an Inbound line or campaign says; a draft reviewed on its page",
+    ),
 )
 
 AREA_OF: Final[dict[str, Area]] = {entry.tool: entry.area for entry in ENTRIES}

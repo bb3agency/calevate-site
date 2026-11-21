@@ -154,6 +154,77 @@ async def test_the_tone_and_instruction_reach_the_writer_and_the_sources_ground_
     assert MAIN_TASK in first["brief"].lint_context().facts
 
 
+async def test_an_inbound_lines_draft_reads_the_tone_and_instruction_it_was_asked_with(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: an Inbound line's draft drops what the owner asked for, so Pip's chat
+    request (`copilot.script_actions.script_draft`) writes a draft that ignores it."""
+    from apps.api.inbound import lines
+
+    monkeypatch.setattr(get_settings(), "script_mistake_repair_passes", 0)
+    tenant_id, campaign_id = await _campaign(_script(ONE_QUESTION))
+    async with tenant_session(tenant_id) as session:
+        agent_id = (
+            await session.execute(
+                text("SELECT agent_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar_one()
+        line_id = await lines.create_line(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Front desk",
+            main_task=MAIN_TASK,
+            script=_script(ONE_QUESTION),
+            created_by=None,
+        )
+        requested = await lines.request_proposal(
+            session,
+            tenant_id=tenant_id,
+            line_id=line_id,
+            requested_by=None,
+            ask={"tone": "warm", "instruction": "Ask their name before anything else."},
+        )
+    calls: list[dict[str, Any]] = []
+
+    async def write(brief: Any, **kwargs: Any) -> Any:
+        calls.append({"brief": brief, **kwargs})
+        return _answer(_script(ONE_QUESTION))
+
+    async def review_pass(*_args: Any, **_kwargs: Any) -> Any:
+        return _review({})
+
+    async def size(*_args: Any) -> PromptSize | None:
+        return None
+
+    async def lint_context(*_args: Any, **_kwargs: Any) -> LintContext:
+        return LINT
+
+    async def openings(_t: UUID, _a: UUID, _p: Any, script: CallScript) -> Any:
+        return script, []
+
+    async def nothing(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(campaign_script, "draft_script", write)
+    monkeypatch.setattr(campaign_script, "ask_json", review_pass)
+    monkeypatch.setattr(campaign_script, "_size", size)
+    monkeypatch.setattr(proposal_worker, "draft_script", write)
+    monkeypatch.setattr(proposal_worker, "lint_context_for", lint_context)
+    monkeypatch.setattr(proposal_worker, "_opening_repaired", openings)
+    monkeypatch.setattr(crm_assist, "meter_assist", nothing)
+    monkeypatch.setattr(crm_assist, "meter_earlier", nothing)
+    payload = {
+        "tenant_id": str(tenant_id),
+        "line_id": str(line_id),
+        "proposal_id": str(requested.id),
+    }
+    assert await campaign_script.draft_line_script({}, payload) == "ready"
+    [first] = calls
+    assert "TONE: every line the agent says is friendly and warm" in first["change"]
+    assert "THE OWNER ASKS: Ask their name before anything else." in first["change"]
+
+
 async def test_the_review_writes_why_notes_and_warns_of_an_unsourced_claim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

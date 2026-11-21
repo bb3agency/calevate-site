@@ -1,5 +1,5 @@
-"""Pip's fixes for failed tests, held to `docs/COPILOT-CONTRACT.md` §5: `agent_tests_fix`'s
-planner and confirm, and the neighbour's agent refused."""
+"""Pip's script actions, held to `docs/COPILOT-CONTRACT.md` §5: `agent_tests_fix`'s and
+`script_draft`'s planner and confirm, and the neighbour's agent or campaign refused."""
 
 from __future__ import annotations
 
@@ -13,11 +13,13 @@ from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 
 from apps.api.agents import test_conversations
+from apps.api.campaigns import workspace as campaign_workspace
 from apps.api.copilot import script_actions, write_tools
 from apps.api.copilot.actions import WriteRefusedError
 from apps.api.copilot.schemas import CopilotProposalEvent
 from apps.api.copilot.write_tools_test import _audit, _confirm, _outbox_jobs, _principal, _user_of
 from apps.api.core.errors import ProblemError
+from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 
 
@@ -161,3 +163,156 @@ async def test_with_several_lines_pip_asks_which_one_gets_the_script_fixes() -> 
     assert "the Inbound line “After hours”" in proposal.summary
     outcome = await _confirm(tenant_id, _user_of(token), proposal.token)
     assert outcome.applied and outcome.queued is True
+
+
+# --- script_draft: a page's Generate, asked from chat ---------------------------------------
+
+
+async def _campaign_of(tenant_id: UUID, agent_id: UUID, *, main_task: str | None) -> UUID:
+    campaign_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, "
+                "main_task) VALUES (:id, :t, :a, 'Renewals', 'service', :m)"
+            ),
+            {"id": campaign_id, "t": tenant_id, "a": agent_id, "m": main_task},
+        )
+    return campaign_id
+
+
+async def _propose_draft(
+    tenant_id: UUID, token: str, args: dict[str, Any], *, role: str = "owner"
+) -> CopilotProposalEvent:
+    return await write_tools.plan_write(
+        "script_draft",
+        json.dumps(args),
+        actor=write_tools.actor_for(_principal(tenant_id, _user_of(token), role=role)),
+    )
+
+
+async def test_a_campaign_draft_is_asked_with_the_owners_words_and_waits_on_its_page() -> None:
+    """FAILS IF: Pip in chat cannot ask a campaign's own writer for a draft, the owner's
+    request does not reach it, or it is recorded under another action than the page's."""
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    campaign_id = await _campaign_of(tenant_id, agent_id, main_task="Renew every policy.")
+    asked = "Open with their name and drop the second question."
+    proposal = await _propose_draft(
+        tenant_id, token, {"holder_id": str(campaign_id), "instruction": asked}
+    )
+    assert proposal.tool == "script_draft"
+    assert proposal.proposed == asked
+    assert "the campaign “Renewals”" in proposal.summary
+    assert "under Campaigns" in proposal.summary
+    assert proposal.cost is not None and "AI help allowance" in proposal.cost
+
+    outcome = await _confirm(tenant_id, _user_of(token), proposal.token)
+    assert outcome.applied and outcome.queued is True
+    assert "Nothing changes on calls until you keep it" in outcome.detail
+    assert (await _outbox_jobs(tenant_id)).count(campaign_workspace.CAMPAIGN_SCRIPT_JOB) == 1
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT script_proposal FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar_one()
+    assert stored["status"] == "drafting"
+    assert stored["ask"] == {"instruction": asked}
+    assert ("campaign.script_requested", "agent", str(agent_id)) in await _audit(tenant_id)
+
+    with pytest.raises(WriteRefusedError) as again:
+        await _propose_draft(tenant_id, token, {"holder_id": str(campaign_id)})
+    assert "already writing a draft" in again.value.reason
+
+
+async def test_an_agents_only_inbound_line_gets_the_draft_with_its_tone() -> None:
+    from apps.api.inbound import lines
+
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        line_id = await lines.create_line(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Front desk",
+            main_task="Book visits.",
+            created_by=None,
+        )
+    proposal = await _propose_draft(
+        tenant_id,
+        token,
+        {"agent_id": str(agent_id), "tone": "warm", "instruction": "Shorter steps."},
+    )
+    assert "the Inbound line “Front desk”" in proposal.summary
+    assert "under Inbound" in proposal.summary
+    outcome = await _confirm(tenant_id, _user_of(token), proposal.token)
+    assert outcome.applied and outcome.queued is True
+    assert (await _outbox_jobs(tenant_id)).count(lines.LINE_SCRIPT_JOB) == 1
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT script_proposal FROM inbound_lines WHERE id = :l"), {"l": line_id}
+            )
+        ).scalar_one()
+    assert stored["ask"] == {"tone": "warm", "instruction": "Shorter steps."}
+    assert ("inbound_line.script_requested", "agent", str(agent_id)) in await _audit(tenant_id)
+
+
+async def test_with_a_line_and_a_campaign_pip_asks_which_one_to_rewrite() -> None:
+    """FAILS IF: Pip guesses which of an agent's scripts to rewrite."""
+    from apps.api.inbound import lines
+
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    campaign_id = await _campaign_of(tenant_id, agent_id, main_task="Renew every policy.")
+    async with tenant_session(tenant_id) as session:
+        line_id = await lines.create_line(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Front desk",
+            main_task="Book visits.",
+            created_by=None,
+        )
+    with pytest.raises(WriteRefusedError) as asked:
+        await _propose_draft(tenant_id, token, {"agent_id": str(agent_id)})
+    assert "ask the person which one" in asked.value.reason
+    assert str(line_id) in asked.value.reason and str(campaign_id) in asked.value.reason
+    proposal = await _propose_draft(
+        tenant_id, token, {"agent_id": str(agent_id), "holder_id": str(line_id)}
+    )
+    assert "the Inbound line “Front desk”" in proposal.summary
+
+
+async def test_the_draft_refusals_the_model_can_act_on() -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    with pytest.raises(WriteRefusedError) as none:
+        await _propose_draft(tenant_id, token, {"agent_id": str(agent_id)})
+    assert "no Inbound line or campaign" in none.value.reason
+
+    bare = await _campaign_of(tenant_id, agent_id, main_task=None)
+    with pytest.raises(WriteRefusedError) as no_task:
+        await _propose_draft(tenant_id, token, {"holder_id": str(bare)})
+    assert "no main task" in no_task.value.reason
+
+    with pytest.raises(WriteRefusedError) as long:
+        await _propose_draft(tenant_id, token, {"holder_id": str(bare), "instruction": "x" * 301})
+    assert "at most 300 characters" in long.value.reason
+    assert "never drop a change" in long.value.reason
+
+
+async def test_staff_and_a_neighbours_campaign_get_no_draft() -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    neighbour, _, _ = await _make_tenant()
+    theirs = await _campaign_of(neighbour, await _agent_of(neighbour), main_task="Renew.")
+    with pytest.raises(WriteRefusedError) as missing:
+        await _propose_draft(tenant_id, token, {"holder_id": str(theirs)})
+    assert "not an Inbound line or campaign of this account" in missing.value.reason
+
+    ours = await _campaign_of(tenant_id, await _agent_of(tenant_id), main_task="Renew.")
+    with pytest.raises(WriteRefusedError) as refused:
+        await _propose_draft(tenant_id, token, {"holder_id": str(ours)}, role="staff")
+    assert "role may not" in refused.value.reason

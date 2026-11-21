@@ -21,7 +21,12 @@ from tests.conftest import accept_agreements, business_contact
 
 from apps.api.agents import script_builder
 from apps.api.copilot import write_tools
-from apps.api.copilot.agent_reads import AGENT_SETTINGS_READ, PARTS, script_text
+from apps.api.copilot.agent_reads import (
+    AGENT_SETTINGS_READ,
+    CURRENT_WORDING,
+    PARTS,
+    script_text,
+)
 from apps.api.copilot.tools import READ_TOOLS, ToolContext
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
 from apps.api.core.errors import ProblemError
@@ -506,7 +511,8 @@ async def test_agent_settings_script_prints_the_script_tab_copy_and_says_whether
 
 async def test_agent_settings_script_is_read_only_and_names_the_jobs_where_calls_change() -> None:
     """FAILS IF: Pip, asked to change an agent's script, has no way to know that nobody edits
-    it (D-1005) and which Inbound line or campaign to send the owner to instead (D-1009)."""
+    it (D-1005), which Inbound line or campaign holds what calls say (D-1009), or that
+    `script_draft` is how that is rewritten."""
     from apps.api.inbound import lines
 
     tenant_id, _slug, _token = await _make_tenant()
@@ -515,7 +521,6 @@ async def test_agent_settings_script_is_read_only_and_names_the_jobs_where_calls
     args = {"agent_id": str(agent_id), "part": "script"}
     async with tenant_session(tenant_id) as session:
         without = await AGENT_SETTINGS_READ.run(session, context, args)
-    assert "read only" in without
     assert "no Inbound line or campaign yet" in without
 
     async with tenant_session(tenant_id) as session:
@@ -525,7 +530,34 @@ async def test_agent_settings_script_is_read_only_and_names_the_jobs_where_calls
     async with tenant_session(tenant_id) as session:
         named = await AGENT_SETTINGS_READ.run(session, context, args)
     assert f"Inbound line “Front desk” (inbound_line {line_id})" in named
-    assert "send the owner to that line on Inbound" in named
+    assert "call `script_draft` with that line or campaign" in named
+
+
+async def test_a_printed_script_is_labelled_the_current_wording_never_the_changes() -> None:
+    """FAILS IF: the script this read prints reaches the model without being called the
+    current, unchanged wording ahead of it — the gap through which Pip, asked for a rewrite,
+    printed the existing script and offered it as the changes (20 Nov 2026)."""
+    tenant_id, _slug, _token = await _make_tenant()
+    agent_id = await _agent(tenant_id)
+    context = ToolContext(tenant_id=tenant_id, role="owner")
+    async with tenant_session(tenant_id) as session:
+        await script_builder.save_agent_script(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            script=_two_step_script("Saved opening."),
+            notes="saved",
+            created_by=None,
+        )
+    async with tenant_session(tenant_id) as session:
+        printed = await AGENT_SETTINGS_READ.run(
+            session, context, {"agent_id": str(agent_id), "part": "script"}
+        )
+    assert CURRENT_WORDING in printed
+    assert printed.index(CURRENT_WORDING) < printed.index("Opening line: Saved opening.")
+    assert "the script, current wording, unchanged" in printed
+    for said in ("CURRENT wording", "nothing in it is a change", "`script_draft`"):
+        assert said in CURRENT_WORDING
 
 
 async def test_agent_settings_tests_says_which_practice_tests_did_not_pass_and_who_fixes_them() -> (

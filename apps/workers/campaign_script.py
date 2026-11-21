@@ -418,7 +418,14 @@ async def draft_line_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         context = await script_proposals.brief_for(session, tenant_id, line.agent_id)
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
+        asked = (
+            await session.execute(
+                text("SELECT script_proposal->'ask' FROM inbound_lines WHERE id = :l"),
+                {"l": line_id},
+            )
+        ).scalar()
     base = line.proposal.base_script if line.proposal is not None else line.script
+    tone, instruction = _asked(asked)
     inputs = _Inputs(
         agent_id=line.agent_id,
         main_task=line.main_task,
@@ -428,6 +435,8 @@ async def draft_line_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         context=context,
         tenant_leg=tenant_leg,
         quota_exhausted=quota.at_ceiling or quota.platform_paused,
+        tone=tone,
+        instruction=instruction,
         budget=await _budget(tenant_id, line.agent_id, base),
     )
     return await _write(holder, inputs, LINE_ASK, started)

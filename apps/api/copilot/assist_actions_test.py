@@ -40,6 +40,7 @@ from apps.api.copilot.pin_actions import PIN_ACTIONS
 from apps.api.copilot.question_actions import TRAINING_ACTIONS
 from apps.api.copilot.routine_actions import ROUTINE_ACTIONS
 from apps.api.copilot.schemas import CopilotProposalEvent
+from apps.api.copilot.script_actions import SCRIPT_DRAFT_ACTIONS
 from apps.api.copilot.set_actions import SET_ACTIONS
 from apps.api.copilot.write_tools_test import _audit, _confirm, _outbox_jobs, _principal, _user_of
 from apps.api.core.errors import ProblemError
@@ -100,6 +101,8 @@ def test_each_is_on_its_buttons_permission_and_only_the_form_filler_skips_the_cl
         + len(FOLLOW_UP_ACTIONS)
         # F-10: campaign archive and restore APPEND.
         + len(CAMPAIGN_ARCHIVE_ACTIONS)
+        # The script draft APPENDS.
+        + len(SCRIPT_DRAFT_ACTIONS)
     )
     assert write_tools.WRITE_TOOLS[-count - after : -after] == assist_actions.ASSIST_ACTIONS
 

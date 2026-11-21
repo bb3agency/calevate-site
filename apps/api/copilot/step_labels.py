@@ -195,6 +195,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
         "Preparing the people to take off", "Prepared the people to take off"
     ),
     "campaign_consent_set": _l("Preparing the list's permission", "Prepared the list's permission"),
+    "script_draft": _l("Preparing a new script draft", "Prepared a new script draft"),
     # D-938: coverage.
     "help_lookup": _l("Looking up how", "Looked up how"),
     "connection_check": _l("Checking the connection", "Checked the connection"),

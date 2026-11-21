@@ -327,6 +327,8 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         # F-10: archive and restore a campaign APPEND.
         "campaign_archive",
         "campaign_restore",
+        # The script draft APPENDS.
+        "script_draft",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]
