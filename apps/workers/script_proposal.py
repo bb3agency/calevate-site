@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any, Final
@@ -187,6 +188,34 @@ def refusal_note(refused: ProblemError, trace: AskTrace) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class Noted:
+    """A finding the review pass made (`campaign_script.review_findings`), as a script check
+    finding ("<path>: <problem>"), with the text of every line of its part when it was made
+    (a step's instruction and its line). Code cannot check it again, and a second paid review
+    is not run, so it stands while the part is unchanged and counts as cleared once a repair
+    rewrote any line of it."""
+
+    finding: str
+    said: tuple[tuple[str, str], ...]
+
+    def stands(self, script: CallScript) -> bool:
+        return all(text_at(script, path) == text for path, text in self.said)
+
+
+def text_at(script: CallScript, path: str) -> str | None:
+    """The string at a script check path (`stages.3.sounds_like`, `ending`), or None."""
+    node: Any = script.model_dump(mode="json")
+    for part in path.split("."):
+        if isinstance(node, list) and part.isdigit() and int(part) < len(node):
+            node = node[int(part)]
+        elif isinstance(node, dict) and part in node:
+            node = node[part]
+        else:
+            return None
+    return node if isinstance(node, str) else None
+
+
+@dataclass(frozen=True, slots=True)
 class _Fix:
     """What a fix is checked against, and the findings it was asked to clear, found on the
     script it was made from."""
@@ -202,12 +231,17 @@ class _Fix:
     #: None: every call-mistake check, the check of Pip's own writing (D-989), whose other
     #: rules the writer's refusals already hold it to.
     mistake_kind: str | None = None
+    #: The review's findings on Pip's own writing, repaired in the same rounds as the
+    #: call-mistake findings rather than by a loop of their own.
+    noted: tuple[Noted, ...] = ()
 
     def problems(self, script: CallScript) -> list[str]:
         """What the check this fix answers finds on `script`."""
         if self.mistake_kind is not None:
-            return mistake_findings(script, self.lint, self.mistake_kind)
-        return script_mistakes(script, self.lint)
+            found = mistake_findings(script, self.lint, self.mistake_kind)
+        else:
+            found = script_mistakes(script, self.lint)
+        return [*found, *(n.finding for n in self.noted if n.stands(script))]
 
     def targeted(self, script: CallScript) -> list[str]:
         """The findings on `script` at a place the fix was asked to clear."""
@@ -338,12 +372,14 @@ async def _mistakes_checked(
     proposal: script_proposals.ScriptProposal,
     script: CallScript,
     started: float,
+    noted: Sequence[Noted] = (),
 ) -> _Repaired:
     """Pip's script checked with every call-mistake check before it is offered (D-989), and
     the lines they find rewritten by the same targeted repair a fix uses, at most
     `script_mistake_repair_passes` rounds. Only what Pip wrote is judged: in an edit a
     finding the owner's script already had is theirs, and a fix may change only the lines
     it was asked for. Never the openings or their notices (`mistake_lints.fixable_findings`).
+    `noted`, the review's findings on lines Pip wrote, join the same rounds.
     What is still found after the rounds is returned for the owner to read."""
     async with tenant_session(tenant_id) as session:
         context = await lint_context_for(session, tenant_id=tenant_id, agent_id=agent_id)
@@ -354,6 +390,10 @@ async def _mistakes_checked(
         if proposal.paths or proposal.mode == "change"
         else set()
     )
+    repairable = tuple(
+        n for n in noted if mistake_fixes.fix_paths([n.finding]) and n.stands(script)
+    )
+    check = replace(check, noted=repairable)
     written = [p for p in check.problems(script) if _finding_at(p, script) not in had]
     if proposal.paths:
         allowed = set(proposal.paths)
@@ -394,21 +434,29 @@ async def finish_written(
     proposal: script_proposals.ScriptProposal,
     drafted: CallScript,
     started: float,
+    *,
+    noted: Sequence[Noted] = (),
 ) -> Finished:
     """What every script Pip writes goes through before an owner reviews it, a line's, a
-    campaign's and a fix alike: the call-mistake checks and their repair (D-989), then the
-    opening rule and its repair (D-957). Each step's failure keeps what is already written,
-    since it is paid for and must be stored and metered."""
+    campaign's and a fix alike: the call-mistake checks and their repair (D-989), with the
+    review's findings on repairable lines (`noted`) in the same rounds, then the opening rule
+    and its repair (D-957). Each step's failure keeps what is already written, since it is
+    paid for and must be stored and metered."""
     repairs: list[ScriptDraft | ProblemError] = []
     left_out: list[LeftOut] = []
     if not drafted.raw_override:
         try:
-            checked = await _mistakes_checked(tenant_id, agent_id, proposal, drafted, started)
+            checked = await _mistakes_checked(
+                tenant_id, agent_id, proposal, drafted, started, noted
+            )
         except Exception:
             log.exception("script_mistake_check_crashed", extra={"agent_id": str(agent_id)})
-            checked = _Repaired(drafted, [], [])
+            checked = _Repaired(drafted, [], [n.finding for n in noted])
         drafted, repairs = checked.script, checked.spends
-        left_out = script_proposals.fix_left(checked.left, drafted)
+        # One warning per part and rule: a step's finding names its line and its instruction.
+        left_out = list(
+            {(p.part, p.rule): p for p in script_proposals.fix_left(checked.left, drafted)}.values()
+        )
     try:
         script, opening_spends = await _opening_repaired(tenant_id, agent_id, proposal, drafted)
     except Exception:
@@ -634,7 +682,9 @@ __all__ = [
     "PROPOSAL_MAX_TOKENS",
     "PROPOSAL_REQUEST_TIMEOUT_S",
     "Finished",
+    "Noted",
     "draft_mistake_fix",
     "finish_written",
     "refusal_note",
+    "text_at",
 ]

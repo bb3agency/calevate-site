@@ -129,7 +129,17 @@ def test_the_review_is_kept_to_its_keys_cut_and_never_names_a_provider() -> None
             {"part": "faqs", "why": "Written by Gemini from the price list."},
             {"part": "stages.s1", "why": "w" * 400},
         ],
-        "unsourced": [{"part": "stages.s1", "claim": "a free gift"}, {"part": "x", "claim": "y"}],
+        "claims": [
+            {
+                "part": "stages.s1",
+                "claim": "a free gift",
+                "evidence": "",
+                "about_person": False,
+                "asked": False,
+            },
+            {"part": "x", "claim": "y", "evidence": "", "about_person": False, "asked": False},
+        ],
+        "problems": [],
     }
     review = ask.parsed_review(raw, ["opening_line", "faqs", "stages.s1"])
     assert review is not None
@@ -145,9 +155,10 @@ def test_the_review_is_kept_to_its_keys_cut_and_never_names_a_provider() -> None
 
 def test_the_review_message_lists_each_part_by_its_key() -> None:
     message = ask.review_request(
-        ask.reviewed_parts(_script(), None), "Book visits.", "DOCS", ("Open 9 to 5",)
+        ask.reviewed_parts(_script(), None),
+        ask.review_sources("Book visits.", "DOCS", ("Open 9 to 5",)),
     )
-    assert message.startswith("MAIN TASK:\nBook visits.")
+    assert message.startswith("SOURCES:\nMAIN TASK:\nBook visits.")
     assert "- Open 9 to 5" in message and "DOCS" in message
     assert "[stages.s1] Step: Ask: Ask. Says: Which day?" in message
 

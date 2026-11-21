@@ -13,6 +13,7 @@ call (hard rule 5, `engine.compose_engine_prompt`).
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
@@ -134,6 +135,27 @@ TURN_RULE: Final = (
     "person answers one thing at a time."
 )
 
+#: A claim about the person is asked, never told (Rytu Khata, 9 and 20-21 Nov 2026: a line
+#: telling a farmer their name was "in our records" was not recognised). The list may be wrong
+#: and the person may not remember, so even a sourced fact is put as a question they can
+#: answer (docs/evidence/script-generation-2026-11-21/GROUNDING.md rows 8-9).
+PERSON_RULE: Final = (
+    "Anything the agent says about the person called (what they did, registered, bought or "
+    "gave, or what the business's records hold about them) comes only from the main task, the "
+    "campaign or the sources, and is asked as one short question they can answer, never told "
+    "to them as a fact: the list may be wrong and the person may not remember. Nothing about "
+    "the person that those do not give is said at all."
+)
+
+#: A stock line that fits any business's call is what the person on the Rytu Khata call did
+#: not recognise (GROUNDING.md row 8).
+SPECIFIC_RULE: Final = (
+    "Write for this call only: every step serves the main task and says it with what the main "
+    "task, the campaign and the sources give (the business, what it offers, who the people are "
+    "and why they are called). No stock line that could be pasted into another business's "
+    "call, and nothing said twice across steps."
+)
+
 CAMPAIGN_ASK: Final = (
     "Write this campaign's call script. Every call this agent places for the campaign follows "
     "it. The campaign's main task, in the owner's words, says what the calls must achieve; the "
@@ -142,7 +164,8 @@ CAMPAIGN_ASK: Final = (
     "quick facts (the faqs list: a question people ask and a short spoken answer, at most "
     "eight), the objections people raise with how to answer, and how the call ends. Where a "
     "note or document says how the agent should handle the call, follow it. "
-    f"{CALL_KINDS_TEXT} {OBJECTIONS_RULE} {GROUNDING_RULE} {TURN_RULE}"
+    f"{CALL_KINDS_TEXT} {OBJECTIONS_RULE} {GROUNDING_RULE} {PERSON_RULE} {SPECIFIC_RULE} "
+    f"{TURN_RULE}"
 ) + CLOSING_STEP
 
 #: An inbound line's ask (D-997): the calls are answered, not placed, so it has no call kinds.
@@ -153,7 +176,7 @@ LINE_ASK: Final = (
     "that get to the main task one at a time, quick facts (the faqs list: a question callers "
     "ask and a short spoken answer, at most eight), the objections callers raise with how to "
     "answer, and how the call ends. Where a source says how the agent should handle the "
-    f"call, follow it. {GROUNDING_RULE} {TURN_RULE}"
+    f"call, follow it. {GROUNDING_RULE} {PERSON_RULE} {SPECIFIC_RULE} {TURN_RULE}"
 ) + CLOSING_STEP
 
 EDIT_TAIL: Final = (
@@ -165,7 +188,7 @@ PART_ASK: Final = (
     "Rewrite only this part of the campaign's call script: {part}. Write it in {language}, as "
     "it should be spoken on the call. Leave every other part of the script exactly as it is. "
     "The main task and the owner's notes below say what the part must cover. "
-    f"{GROUNDING_RULE}"
+    f"{GROUNDING_RULE} {PERSON_RULE}"
 )
 
 #: The part name the Script section's "Let Pip map the scenarios" sends (`CampaignFlow`).
@@ -180,7 +203,8 @@ FLOW_ASK: Final = (
     "step number and in next the stages it can go on to (0 to end the call), so a step's "
     "scenarios lead to the scenarios of a later step. Name each scenario for what happens. "
     "Write each instruction in plain English and its sounds-like line in {language}. Keep "
-    "to 12 stages in all. Leave every other part of the script exactly as it is."
+    "to 12 stages in all. Leave every other part of the script exactly as it is. "
+    f"{PERSON_RULE}"
 ) + CLOSING_STEP
 
 Tone = Literal["warm", "respectful", "brief"]
@@ -224,6 +248,46 @@ def length_line(budget: int | None) -> str:
     )
 
 
+#: How the business has the people's numbers, by the campaign's declared consent source
+#: (`campaigns.models.CONSENT_SOURCES`). `purchased_list` is refused at launch and has none.
+_HOW_THEY_CAME: Final[dict[str, str]] = {
+    "existing_customer": "they are the business's existing customers",
+    "inbound_enquiry": "they contacted the business: called, messaged or filled its enquiry form",
+    "web_form_optin": "they ticked a box on the business's web form to be contacted",
+    "offline_form_optin": "they signed up on a paper form, at an event or in the shop",
+}
+
+
+def situation_block(
+    *,
+    agent_name: str = "",
+    holder_name: str = "",
+    purpose: str = "",
+    goal: str = "",
+    consent_source: str | None = None,
+    inbound: bool = False,
+) -> str:
+    """The campaign's or line's own settings, so every line is written for this call and the
+    review can check a claim against them: its name, why these people are called, what a good
+    call ends with, how the business has their numbers, and the agent's name. "" when none."""
+    rows = [
+        (("Phone line: " if inbound else "Campaign name: "), holder_name),
+        ("Why these people are called: ", purpose),
+        ("A good call ends with: ", goal),
+        ("The agent's name: ", agent_name),
+    ]
+    lines = [f"{label}{value.strip()}" for label, value in rows if value.strip()]
+    came = _HOW_THEY_CAME.get(consent_source or "")
+    if came:
+        lines.append(
+            f"How the business has their numbers: {came}. The agent may say so when asked how "
+            "it got their number; it never tells the person what they did."
+        )
+    if not lines:
+        return ""
+    return ("THE LINE:\n" if inbound else "THE CAMPAIGN:\n") + "\n".join(lines) + "\n"
+
+
 def owners_words(main_task: str, notes: str, instruction: str = "") -> str:
     """The campaign in the owner's own words: a line Pip took from them word for word is
     theirs, and is not judged by the opening rule (`finish_written`)."""
@@ -241,14 +305,15 @@ def campaign_change(
     tone: str | None = None,
     instruction: str | None = None,
     budget: int | None = None,
+    situation: str = "",
 ) -> str:
     """What the script is written from: the ask, the owner's tone and instruction, the length
-    it may take, the main task, the notes and the documents. A one-part rewrite replaces the
-    whole ask, edit tail included."""
+    it may take, the main task, the campaign's own settings (`situation_block`), the notes and
+    the documents. A one-part rewrite replaces the whole ask, edit tail included."""
     lead = part_ask if part_ask is not None else f"{ask}{EDIT_TAIL if edit else ''}"
     change = (
         f"{lead}\n{tone_line(tone)}{instruction_line(instruction)}{length_line(budget)}"
-        f"MAIN TASK:\n{main_task.strip()}\n"
+        f"MAIN TASK:\n{main_task.strip()}\n{situation}"
     )
     if notes:
         change += f"OWNER'S NOTES AND LINKS:\n{notes}\n"
@@ -281,28 +346,63 @@ TOO_LONG_RULE: Final = (
 )
 
 
-#: The review pass: one short "why" per part, and the lines that say something the sources do
-#: not give (D-1004). A second read, not the writer's own, because a writer asked to judge
-#: itself in the same answer passes what it just wrote; a grounding check against the
-#: retrieved text is what voice-agent guides propose for high-stakes lines
-#: (simbavoice.ai/resources/how-to-stop-a-voice-agent-from-hallucinating, read 16 Nov 2026).
+#: The review pass (D-1004): a "why" per part, and a binary rubric over every part Pip wrote.
+#: A second read, not the writer's own: a model rarely finds its own errors in the answer it
+#: just gave (arxiv.org/abs/2310.01798). Each claim carries a word-for-word `evidence` quote
+#: that `parsed_review` looks up in the sources itself, so the judge's leniency on sourcing
+#: is overruled by text (platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/
+#: reduce-hallucinations "Verify with citations"); the checks are yes/no rather than a score
+#: (docs/evidence/script-generation-2026-11-21/GROUNDING.md rows 1, 5, 6).
 REVIEW_INSTRUCTION: Final = (
     "You review a call script an assistant just wrote for a small business, before the owner "
-    "reads it. You are given the owner's main task, their sources and each part of the script "
-    "with its key. For each part, write `why`: one plain English sentence of at most 20 words "
-    "telling the owner why the part says what it says, naming the main task or the source it "
-    "comes from by its title. Never name an AI company or model. Then list in `unsourced` "
-    "every part whose spoken words state a price, amount, date, time, place, offer, discount, "
-    "guarantee or other claim that neither the main task, the sources nor the owner's facts "
-    "give; `claim` names it in a few plain English words. A greeting, a question or a polite "
-    "phrase is never unsourced. Use only the keys given. Return ONLY JSON."
+    "reads it. You are given the SOURCES (the owner's main task, the campaign, the owner's "
+    "facts and documents) and each part of the script with its key. Judge only against the "
+    "SOURCES, never your own knowledge.\n"
+    "1. notes: for each part, `why`: one plain English sentence of at most 20 words telling "
+    "the owner why the part says what it says, naming the main task or the source it comes "
+    "from by its title. Never name an AI company or model.\n"
+    "2. claims: every statement of fact in a part: a price, amount, date, time, place, offer, "
+    "discount, guarantee, rule, or anything about the person called (what they did, "
+    "registered, bought or gave, or what records hold about them). `claim` names it in a few "
+    "plain English words. `evidence` copies, word for word, the shortest passage of the "
+    "SOURCES that states it, or is empty when no passage does. `about_person` is true when it "
+    "is about the person called. `asked` is true when the line asks it as a question rather "
+    "than telling it. A greeting, a question that states nothing, or a polite phrase is not a "
+    "claim.\n"
+    "3. problems: a part that clearly fails one of these, with `kind` and a few plain English "
+    "words in `detail`: off_task (it does not help reach the main task); generic (it names "
+    "nothing from this campaign, business, sources or the people called, and would fit any "
+    "business's call; a greeting, a permission question and the close are never generic); "
+    "repeats (it says what another part already says; `detail` names that part's key). Most "
+    "parts fail none.\n"
+    "Use only the keys given. Return ONLY JSON."
 )
 WHY_MAX: Final = 200
 CLAIM_MAX: Final = 120
-REVIEW_MAX_TOKENS: Final = 2_000
-UNSOURCED_RULE: Final = (
-    "Says {claim}, which your main task and sources do not give. Check it, or add it to a source."
+#: A ceiling, not a target: billing follows the tokens used. Notes, claims with their quotes
+#: and problems for a twelve-step script run past the old 2,000.
+REVIEW_MAX_TOKENS: Final = 4_000
+#: Claims named per part in one finding; more only lengthens the repair's ask.
+_CLAIMS_PER_PART: Final = 3
+
+#: What each rubric failure says, in the shape of a script check finding's problem
+#: ("<path>: <problem>"), so the targeted repair is asked with it and the owner reads it
+#: (`script_proposals.fix_change`, `fix_left`). No brackets: `owner_rule` drops an aside.
+UNSOURCED_PROBLEM: Final = (
+    "says {claim}, which the main task and sources do not give; say only what they give, or "
+    "leave it out"
 )
+ASSERTED_PROBLEM: Final = (
+    "tells the person as a fact that {claim}; ask it as one short question they can answer, "
+    "or leave it out"
+)
+WEAK_PROBLEMS: Final[dict[str, str]] = {
+    "off_task": "does not help reach the main task: {detail}; make it serve the main task, or "
+    "leave it out",
+    "generic": "is a stock line that would fit any business's call: {detail}; say it with what "
+    "this campaign is about",
+    "repeats": "says again what another part already says: {detail}; say it once",
+}
 
 _REVIEW_ROW: Final[dict[str, object]] = {
     "type": "object",
@@ -310,19 +410,36 @@ _REVIEW_ROW: Final[dict[str, object]] = {
     "required": ["part", "why"],
     "additionalProperties": False,
 }
-_UNSOURCED_ROW: Final[dict[str, object]] = {
+_CLAIM_ROW: Final[dict[str, object]] = {
     "type": "object",
-    "properties": {"part": {"type": "string"}, "claim": {"type": "string"}},
-    "required": ["part", "claim"],
+    "properties": {
+        "part": {"type": "string"},
+        "claim": {"type": "string"},
+        "evidence": {"type": "string"},
+        "about_person": {"type": "boolean"},
+        "asked": {"type": "boolean"},
+    },
+    "required": ["part", "claim", "evidence", "about_person", "asked"],
+    "additionalProperties": False,
+}
+_PROBLEM_ROW: Final[dict[str, object]] = {
+    "type": "object",
+    "properties": {
+        "part": {"type": "string"},
+        "kind": {"type": "string", "enum": sorted(WEAK_PROBLEMS)},
+        "detail": {"type": "string"},
+    },
+    "required": ["part", "kind", "detail"],
     "additionalProperties": False,
 }
 REVIEW_SCHEMA: Final[dict[str, object]] = {
     "type": "object",
     "properties": {
         "notes": {"type": "array", "items": _REVIEW_ROW},
-        "unsourced": {"type": "array", "items": _UNSOURCED_ROW},
+        "claims": {"type": "array", "items": _CLAIM_ROW},
+        "problems": {"type": "array", "items": _PROBLEM_ROW},
     },
-    "required": ["notes", "unsourced"],
+    "required": ["notes", "claims", "problems"],
     "additionalProperties": False,
 }
 REVIEW_FORMAT: Final[dict[str, object]] = {
@@ -378,56 +495,144 @@ def reviewed_parts(script: CallScript, base: CallScript | None) -> list[Reviewed
     return parts
 
 
-def review_request(
-    parts: Sequence[ReviewedPart], main_task: str, documents: str, facts: Sequence[str]
+def review_sources(
+    main_task: str,
+    documents: str,
+    facts: Sequence[str],
+    *,
+    situation: str = "",
+    instruction: str = "",
+    business_name: str = "",
 ) -> str:
-    """The review pass's message: what the script was written from, then its parts by key."""
+    """Everything a spoken claim may come from, as the review reads it: the main task, the
+    owner's ask for this draft, the campaign's settings, the business's name and facts, and
+    the documents. A claim's evidence quote is looked up in exactly this text."""
     lines = [f"MAIN TASK:\n{main_task.strip()}"]
+    said = instruction_line(instruction)
+    if said:
+        lines.append(said.rstrip("\n"))
+    if situation:
+        lines.append(situation.rstrip("\n"))
+    if business_name.strip():
+        lines.append(f"Business name: {business_name.strip()}")
     if facts:
         lines.append("THE OWNER'S FACTS:\n" + "\n".join(f"- {fact}" for fact in facts))
     if documents:
         lines.append(documents)
-    lines.append("THE SCRIPT'S PARTS:")
+    return "\n".join(lines)
+
+
+def review_request(parts: Sequence[ReviewedPart], sources: str) -> str:
+    """The review pass's message: the sources (`review_sources`), then the parts by key."""
+    lines = [f"SOURCES:\n{sources}", "THE SCRIPT'S PARTS:"]
     lines += [f"[{part.key}] {part.label}: {part.text}" for part in parts]
     return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
 class Review:
-    """What the review pass found: a note per part key, and the unsourced claims by key."""
+    """What the review pass found, by part key: a note, the claims no source backs, the claims
+    about the person told rather than asked, and the parts that fail the rest of the rubric
+    (each its problem sentence, `WEAK_PROBLEMS`)."""
 
     notes: dict[str, str] = field(default_factory=dict)
     unsourced: dict[str, str] = field(default_factory=dict)
+    asserted: dict[str, str] = field(default_factory=dict)
+    weak: dict[str, str] = field(default_factory=dict)
+
+    def problems(self, key: str) -> list[str]:
+        """The rubric's findings on one part, as problem sentences."""
+        found = []
+        if key in self.unsourced:
+            found.append(UNSOURCED_PROBLEM.format(claim=self.unsourced[key]))
+        if key in self.asserted:
+            found.append(ASSERTED_PROBLEM.format(claim=self.asserted[key]))
+        if key in self.weak:
+            found.append(self.weak[key])
+        return found
+
+    def flagged(self) -> list[str]:
+        """Every part key with a finding, in a stable order."""
+        return sorted({*self.unsourced, *self.asserted, *self.weak})
 
 
-def parsed_review(raw: dict[str, Any], keys: Sequence[str], *, allowed: str = "") -> Review | None:
+def _plain(text: str) -> str:
+    """`text` with case, punctuation and spacing gone, in any script: letters, marks (Telugu
+    vowel signs are marks) and digits kept, so a quote copied with other spacing still
+    matches."""
+    kept = (
+        ch if unicodedata.category(ch)[0] in "LMN" else " "
+        for ch in unicodedata.normalize("NFC", text.casefold())
+    )
+    return " ".join("".join(kept).split())
+
+
+def quoted_in(evidence: str, sources: str) -> bool:
+    """Whether `evidence` is a passage of `sources`, word for word up to case, punctuation and
+    spacing. A paraphrase does not count: the point is that the code, not the judge, decides
+    a claim is sourced."""
+    said = _plain(evidence)
+    return bool(said) and f" {said} " in f" {_plain(sources)} "
+
+
+def parsed_review(
+    raw: dict[str, Any], keys: Sequence[str], *, allowed: str = "", sources: str = ""
+) -> Review | None:
     """The review's JSON, kept to the keys it was given and cut to the screen's lengths; None
-    when it holds nothing usable, which the ladder counts as no answer. A note that names a
-    technology company the owner did not is dropped: the owner reads it (D-679)."""
+    when it holds no note, which the ladder counts as no answer. Text that names a technology
+    company the owner did not is dropped: the owner reads it (D-679). A claim is unsourced
+    unless its evidence is found in `sources` (`quoted_in`), whatever the review said."""
     known = set(keys)
     theirs = provider_words(allowed)
 
-    def rows(name: str, text_key: str, limit: int) -> dict[str, str]:
-        found: dict[str, str] = {}
-        value = raw.get(name)
-        for row in value if isinstance(value, list) else []:
-            if not isinstance(row, dict):
-                continue
-            key, said = row.get("part"), row.get(text_key)
-            if not (isinstance(key, str) and key in known and isinstance(said, str)):
-                continue
-            said = " ".join(said.split())[:limit]
-            if said and not provider_words(said) - theirs:
-                found.setdefault(key, said)
-        return found
+    def clean(said: object, limit: int) -> str:
+        if not isinstance(said, str):
+            return ""
+        said = " ".join(said.split())[:limit]
+        return said if said and not provider_words(said) - theirs else ""
 
-    notes = rows("notes", "why", WHY_MAX)
+    def rows(name: str) -> list[tuple[str, dict[str, Any]]]:
+        value = raw.get(name)
+        return [
+            (row["part"], row)
+            for row in (value if isinstance(value, list) else [])
+            if isinstance(row, dict) and isinstance(row.get("part"), str) and row["part"] in known
+        ]
+
+    notes: dict[str, str] = {}
+    for key, row in rows("notes"):
+        if why := clean(row.get("why"), WHY_MAX):
+            notes.setdefault(key, why)
     if not notes:
         return None
-    return Review(notes=notes, unsourced=rows("unsourced", "claim", CLAIM_MAX))
+    unsourced: dict[str, list[str]] = {}
+    asserted: dict[str, list[str]] = {}
+    for key, row in rows("claims"):
+        claim = clean(row.get("claim"), CLAIM_MAX)
+        if not claim:
+            continue
+        evidence = row.get("evidence")
+        if not (isinstance(evidence, str) and quoted_in(evidence, sources)):
+            unsourced.setdefault(key, []).append(claim)
+        if row.get("about_person") is True and row.get("asked") is not True:
+            asserted.setdefault(key, []).append(claim)
+    weak: dict[str, str] = {}
+    for key, row in rows("problems"):
+        shape = WEAK_PROBLEMS.get(str(row.get("kind")))
+        detail = clean(row.get("detail"), CLAIM_MAX)
+        if shape is not None and detail:
+            weak.setdefault(key, shape.format(detail=detail.rstrip(".;")))
+
+    def joined(found: dict[str, list[str]]) -> dict[str, str]:
+        return {
+            key: " and ".join(dict.fromkeys(said[:_CLAIMS_PER_PART])) for key, said in found.items()
+        }
+
+    return Review(notes=notes, unsourced=joined(unsourced), asserted=joined(asserted), weak=weak)
 
 
 __all__ = [
+    "ASSERTED_PROBLEM",
     "CALL_KINDS",
     "CAMPAIGN_ASK",
     "CLOSING_STEP",
@@ -438,12 +643,15 @@ __all__ = [
     "LINE_ASK",
     "OBJECTIONS_RULE",
     "PART_ASK",
+    "PERSON_RULE",
     "REVIEW_FORMAT",
     "REVIEW_INSTRUCTION",
     "SHORTEN_ASK",
+    "SPECIFIC_RULE",
     "TONES",
     "TOO_LONG_RULE",
-    "UNSOURCED_RULE",
+    "UNSOURCED_PROBLEM",
+    "WEAK_PROBLEMS",
     "Review",
     "ReviewedPart",
     "Tone",
@@ -453,7 +661,10 @@ __all__ = [
     "length_line",
     "owners_words",
     "parsed_review",
+    "quoted_in",
     "review_request",
+    "review_sources",
     "reviewed_parts",
+    "situation_block",
     "tone_line",
 ]

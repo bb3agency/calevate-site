@@ -10,13 +10,15 @@ exists gets an edit of it, so the owner's own wording survives wherever the sour
 change it. Documents are read
 the way onboarding reads them (`first_run.documents_block`: redacted, fenced, one word budget).
 
-What Pip wrote is shortened once when it would not fit the engine's box, then goes through
-what every Pip script does before an owner reviews it (`script_proposal.finish_written`): the
-call-mistake checks and their repair (D-989), then the opening rule and its repair (D-957).
-A last review pass writes a "why" note per part and flags lines the sources do not back
-(D-1004). Every pass is metered with the draft. Every write back is a compare-and-set on the
-proposal id, so a draft the owner stopped or replaced is never resurrected. What Pip is told
-lives in `workers/campaign_script_ask`.
+What Pip wrote is shortened once when it would not fit the engine's box, then read by one
+review pass (D-1004): a "why" note per part, and a rubric (each claim quoted from the sources,
+anything about the person asked rather than told, each part serving the main task, no stock
+line, nothing repeated). Then it goes through what every Pip script does before an owner
+reviews it (`script_proposal.finish_written`): the call-mistake checks and their repair
+(D-989), the review's findings on steps, goal and ending repaired in the same rounds, then the
+opening rule and its repair (D-957). Every pass is metered with the draft. Every write back
+is a compare-and-set on the proposal id, so a draft the owner stopped or replaced is never
+resurrected. What Pip is told lives in `workers/campaign_script_ask`.
 """
 
 from __future__ import annotations
@@ -57,14 +59,15 @@ from apps.workers.campaign_script_ask import (
     SHORTEN_ASK,
     TONES,
     TOO_LONG_RULE,
-    UNSOURCED_RULE,
     Review,
     budget_of,
     campaign_change,
     owners_words,
     parsed_review,
     review_request,
+    review_sources,
     reviewed_parts,
+    situation_block,
 )
 from apps.workers.extraction import ASSIST_LADDER_LEGS
 from apps.workers.first_run import documents_block
@@ -82,8 +85,10 @@ from apps.workers.script_assist import (
 from apps.workers.script_proposal import (
     PROPOSAL_MAX_TOKENS,
     PROPOSAL_REQUEST_TIMEOUT_S,
+    Noted,
     finish_written,
     refusal_note,
+    text_at,
 )
 
 log = get_logger(__name__)
@@ -299,6 +304,8 @@ class _Inputs:
     instruction: str = ""
     #: The characters the script may take in the engine's box, or None when unmeasured.
     budget: int | None = None
+    #: The holder's own settings (`campaign_script_ask.situation_block`), or "".
+    situation: str = ""
 
 
 def _asked(raw: Any) -> tuple[str | None, str]:
@@ -352,11 +359,12 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
         space = await workspace.read_workspace(session, campaign_id)
         words = await knowledge_words(session, only=space.sources) if space.sources else []
         # Written in the campaign's main language when it sets one over the agent's.
-        main_language, focus, asked = (
+        main_language, focus, asked, name, purpose, goal, consent_source = (
             await session.execute(
                 text(
                     "SELECT settings_overrides->>'language_primary', script_proposal->'focus', "
-                    "script_proposal->'ask' FROM campaigns WHERE id = :c"
+                    "script_proposal->'ask', name, purpose, goal, consent_source "
+                    "FROM campaigns WHERE id = :c"
                 ),
                 {"c": campaign_id},
             )
@@ -383,6 +391,13 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
         tone=tone,
         instruction=instruction,
         budget=await _budget(tenant_id, space.agent_id, base),
+        situation=situation_block(
+            agent_name=context.agent_name,
+            holder_name=str(name or ""),
+            purpose=str(purpose or ""),
+            goal=str(goal or ""),
+            consent_source=consent_source,
+        ),
     )
     language_name = LANGUAGE_LABELS.get(str(part_language), str(part_language))
     is_flow = isinstance(focus, dict) and focus.get("part") == FLOW_PART
@@ -438,6 +453,9 @@ async def draft_line_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         tone=tone,
         instruction=instruction,
         budget=await _budget(tenant_id, line.agent_id, base),
+        situation=situation_block(
+            agent_name=context.agent_name, holder_name=line.name, inbound=True
+        ),
     )
     return await _write(holder, inputs, LINE_ASK, started)
 
@@ -501,18 +519,31 @@ async def _shortened(
 async def _reviewed(
     inputs: _Inputs, tenant_id: UUID, script: CallScript, documents: str, started: float
 ) -> tuple[Review, JsonAnswer[Review] | ProblemError | None]:
-    """The "why" notes and the unsourced claims for the parts Pip wrote (D-1004), and what
-    the pass cost. Its failure only leaves the notes out: the script is already paid for."""
+    """The "why" notes and the rubric's findings for the parts Pip wrote (D-1004), and what
+    the pass cost. Its failure only leaves them out: the script is already paid for."""
     parts = reviewed_parts(script, inputs.base)
     timeout_s = _late_timeout(started)
     if not parts or timeout_s is None:
         return Review(), None
     owners = owners_words(inputs.main_task, inputs.notes, inputs.instruction)
+    sources = review_sources(
+        inputs.main_task,
+        documents,
+        inputs.context.facts,
+        situation=inputs.situation,
+        instruction=inputs.instruction,
+        business_name=inputs.context.business_name,
+    )
     try:
         answer = await ask_json(
-            review_request(parts, inputs.main_task, documents, inputs.context.facts),
+            review_request(parts, sources),
             REVIEW_INSTRUCTION,
-            parse=partial(parsed_review, keys=[part.key for part in parts], allowed=owners),
+            parse=partial(
+                parsed_review,
+                keys=[part.key for part in parts],
+                allowed=owners,
+                sources=sources,
+            ),
             azure_format=REVIEW_FORMAT,
             tenant_leg=inputs.tenant_leg,
             quota_exhausted=inputs.quota_exhausted,
@@ -530,13 +561,63 @@ async def _reviewed(
     return answer.value, answer
 
 
-def unsourced_left(review: Review, script: CallScript) -> list[LeftOut]:
-    """Each claim the review found no source for, as a warning on its part."""
+#: The parts outside the steps a repair may rewrite. The openings never (hard rule 5,
+#: `mistake_fixes.PROTECTED_PARTS`); quick facts and objections are reviewed as one part each,
+#: so a finding there cannot name the one entry to rewrite and stays a warning.
+_REPAIRABLE_FIELDS: Final = frozenset({"goal", "ending"})
+
+
+def _repair_paths(key: str, script: CallScript) -> list[str]:
+    """The script check paths a review part covers that the repair may rewrite: a step's
+    instruction and line, the goal or the ending; [] for any other part."""
+    if key in _REPAIRABLE_FIELDS:
+        return [key]
+    head, _, stage_id = key.partition(".")
+    if head != "stages":
+        return []
+    for index, stage in enumerate(script.stages):
+        if stage.id == stage_id:
+            return [
+                f"stages.{index}.{name}"
+                for name in ("instruction", "sounds_like")
+                if getattr(stage, name).strip()
+            ]
+    return []
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewFindings:
+    #: Findings on lines the repair may rewrite, for `finish_written`'s repair rounds.
+    noted: list[Noted]
+    #: Findings on the other parts, each a warning with the text it was made on.
+    warned: list[tuple[LeftOut, str]]
+
+
+def review_findings(review: Review, script: CallScript) -> ReviewFindings:
+    """The review's findings on `script` (the draft it read): each repairable one at every
+    line of its part, the rest as warnings."""
     names = {f"stages.{stage.id}": stage.name for stage in script.stages}
-    return [
-        LeftOut(key, names.get(key, ""), UNSOURCED_RULE.format(claim=claim), unfixed=True)
-        for key, claim in review.unsourced.items()
-    ]
+    said = {part.key: part.text for part in reviewed_parts(script, None)}
+    noted: list[Noted] = []
+    warned: list[tuple[LeftOut, str]] = []
+    for key in review.flagged():
+        paths = _repair_paths(key, script)
+        for problem in review.problems(key):
+            if paths:
+                part = tuple((path, text_at(script, path) or "") for path in paths)
+                noted += [Noted(f"{path}: {problem}", part) for path in paths]
+            else:
+                warned.append(
+                    (LeftOut(key, names.get(key, ""), problem, unfixed=True), said.get(key, ""))
+                )
+    return ReviewFindings(noted, warned)
+
+
+def still_warned(findings: ReviewFindings, script: CallScript) -> list[LeftOut]:
+    """The warnings on parts `script` still says as the review read them: an opening the
+    opening repair rewrote afterwards is no longer the line the warning was about."""
+    said = {part.key: part.text for part in reviewed_parts(script, None)}
+    return [left for left, text in findings.warned if said.get(left.part) == text]
 
 
 def too_long_left(size: PromptSize | None) -> list[LeftOut]:
@@ -568,6 +649,7 @@ async def _write(
         tone=inputs.tone,
         instruction=inputs.instruction,
         budget=inputs.budget,
+        situation=inputs.situation,
     )
     owners = owners_words(inputs.main_task, notes, inputs.instruction)
     proposal = _proposal(holder.proposal_id, base, owners)
@@ -619,12 +701,17 @@ async def _write(
         await _ready_made_if_asked(holder)
         return "failed"
 
-    # Shortened before the checks, so the mistake and opening repairs read what is offered.
+    # Shortened before the checks, so the review and the repairs read what is offered. The
+    # review runs before the call-mistake repair so its findings join those rounds: one
+    # repair loop, not a second one after the review.
     written, shortening = await _shortened(
         tenant_id, inputs, context, draft.script, started, owners
     )
-    finished = await finish_written(tenant_id, inputs.agent_id, proposal, written, started)
-    review, reviewing = await _reviewed(inputs, tenant_id, finished.script, documents, started)
+    review, reviewing = await _reviewed(inputs, tenant_id, written, documents, started)
+    found = review_findings(review, written)
+    finished = await finish_written(
+        tenant_id, inputs.agent_id, proposal, written, started, noted=found.noted
+    )
     spends: list[Spent] = [
         draft,
         *shortening,
@@ -636,7 +723,7 @@ async def _write(
         *trace.left_out,
         *finished.left_out,
         *too_long_left(await _size(tenant_id, inputs.agent_id, finished.script)),
-        *unsourced_left(review, finished.script),
+        *still_warned(found, finished.script),
     ]
     update = {
         "status": "ready",
@@ -685,6 +772,8 @@ async def _write(
             "shortened": bool(shortening),
             "notes": len(review.notes),
             "unsourced": len(review.unsourced),
+            "asserted": len(review.asserted),
+            "weak": len(review.weak),
         },
     )
     return "ready" if stored else "not_pending"
@@ -698,6 +787,7 @@ __all__ = [
     "draft_campaign_script",
     "draft_line_script",
     "owners_words",
+    "review_findings",
+    "still_warned",
     "too_long_left",
-    "unsourced_left",
 ]
