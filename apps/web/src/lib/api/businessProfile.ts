@@ -21,7 +21,6 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
-import { LANGUAGE_CHOICES } from "@/lib/agentState";
 import { STEPS_MODE } from "@/lib/businessProfileMode";
 import { normalizePhone } from "@/lib/phoneNumber";
 
@@ -458,6 +457,3 @@ export function stepStates(profile: BusinessProfile): Record<StepId, StepState> 
   for (const step of profile.setup.steps) out[step.id] = step.state;
   return out;
 }
-
-/** The languages a business can choose, with their one set of names. */
-export { LANGUAGE_CHOICES as PROFILE_LANGUAGES };

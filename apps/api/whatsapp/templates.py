@@ -32,6 +32,7 @@ from calevate_shared import spoken_lines
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.languages import client_language_tags
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -45,9 +46,18 @@ log = get_logger(__name__)
 #: The languages Calevate's own templates are submitted in, as Meta codes them
 #: (templates/supported-languages.md: Telugu `te`, Hindi `hi`, English `en`).
 STANDARD_LANGUAGES: Final = ("te", "hi", "en")
-#: Languages a client may write a template in. Meta supports many more; these are the ones
-#: our agents speak (`agents/languages.OFFERED_LANGUAGE_IDS`).
-CLIENT_LANGUAGES: Final = ("te", "hi", "en", "en_US", "en_GB", "en_IN")
+#: The regional English codes Meta lists beside plain `en` (templates/supported-languages.md).
+ENGLISH_VARIANTS: Final = ("en_US", "en_GB", "en_IN")
+
+
+def client_template_languages(tenant_id: UUID | None = None) -> tuple[str, ...]:
+    """Languages a client may write a template in: the ones its agents may speak
+    (`agents/languages.client_language_tags`), as Meta codes them, plus Meta's regional
+    Englishes. Meta's code for each language we sell is its base tag (`te`, `ta`, `mr`)."""
+    bases = dict.fromkeys(tag.split("-")[0] for tag in client_language_tags(tenant_id))
+    return (*bases, *ENGLISH_VARIANTS)
+
+
 #: How many blanks one template may have. Meta states no number; ten keeps a voice agent's
 #: message short and well inside "too many variable parameters relative to the length".
 MAX_VARIABLES: Final = 10
@@ -164,10 +174,10 @@ def check_template(
             "A template name uses only small letters, numbers and underscores.",
             "For example: order_ready or price_list.",
         )
-    if language not in CLIENT_LANGUAGES:
+    if language not in client_template_languages():
         raise template_refusal(
             "whatsapp_template_language",
-            "Choose Telugu, Hindi or English.",
+            "Choose one of your agents' languages.",
             "Pick a language from the list.",
         )
     if category not in TEMPLATE_CATEGORIES:
@@ -438,7 +448,7 @@ async def apply_status_update(
 
 
 __all__ = [
-    "CLIENT_LANGUAGES",
+    "ENGLISH_VARIANTS",
     "MAX_TEMPLATES_PER_ACCOUNT",
     "MAX_VARIABLES",
     "META_STATUS",
@@ -450,6 +460,7 @@ __all__ = [
     "apply_status_update",
     "blanks",
     "check_template",
+    "client_template_languages",
     "insert_template",
     "map_meta_status",
     "seed_standard",

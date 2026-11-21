@@ -51,8 +51,9 @@ from sqlalchemy import text
 
 from apps.api.admin.capability_overrides import apply_overrides
 from apps.api.agents.assist_leg import google_assist_leg
+from apps.api.agents.languages import platform_default_language
 from apps.api.agents.lead_fields import agents_with_fields
-from apps.api.agents.starters import CATALOGUE, LINE_SETS, STARTER_LANGUAGE, vertical_of
+from apps.api.agents.starters import CATALOGUE, LINE_SETS, vertical_of
 from apps.api.billing.ai_quota import (
     new_assist_ref,
     platform_brake_tripped,
@@ -645,7 +646,7 @@ async def gather_inputs(tenant_id: UUID) -> Inputs:
         language = (
             (await session.execute(text(_MAIN_LANGUAGE))).scalar()
             or (await session.execute(text(_PROFILE_LANGUAGE), {"tid": tenant_id})).scalar()
-            or STARTER_LANGUAGE
+            or platform_default_language(tenant_id)
         )
         pinned = (await session.execute(text(_PINNED), {"limit": MAX_PINNED_FACTS})).all()
         agents = await agents_with_fields(session)

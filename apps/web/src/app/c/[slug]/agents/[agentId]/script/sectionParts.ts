@@ -1,4 +1,5 @@
 import type { ScriptContext } from "@/lib/api/script";
+import { languageName as baseLanguageName } from "@/lib/languageNames";
 
 import { CALL_BACK, END, HAND_OVER, type Section } from "./scriptModel";
 
@@ -42,19 +43,7 @@ export function targetOptions(
   ];
 }
 
-/** The call's language in words, from the agent's language code. */
+/** The call's language in words, from the agent's language code (`lib/languageNames`). */
 export function languageName(code: string | undefined): string {
-  const base = (code ?? "").toLowerCase().split(/[-_]/)[0];
-  const names: Record<string, string> = {
-    te: "Telugu",
-    hi: "Hindi",
-    ta: "Tamil",
-    kn: "Kannada",
-    ml: "Malayalam",
-    mr: "Marathi",
-    bn: "Bengali",
-    gu: "Gujarati",
-    en: "English",
-  };
-  return names[base] ?? "your callers' language";
+  return baseLanguageName(code) ?? "your callers' language";
 }

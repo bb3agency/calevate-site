@@ -49,18 +49,18 @@ from collections.abc import Mapping
 from typing import Any, Final
 from uuid import UUID
 
-from calevate_shared.languages import offered_language_tags
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import lifecycle
-from apps.api.agents.languages import LANGUAGE_LABELS, OfferedLanguage
+from apps.api.agents.languages import BUILT_LANGUAGES, LANGUAGE_LABELS, OfferedLanguage
 from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection
 from apps.api.agents.starters import JOB_DIRECTION, STARTER_JOBS, StarterJob
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot.actions import (
     DOES_IT,
+    LANGUAGE_CHOICE_NOTE,
     PROPOSES_ONLY,
     ActionTool,
     Executed,
@@ -435,14 +435,13 @@ AGENT_CREATE: Final = ActionTool(
             },
             "language_primary": {
                 "type": "string",
-                "enum": list(offered_language_tags()),
-                # COMPOSED, not typed: this sentence is the model's only statement of what
-                # the tags mean, and a hand-written one is the copy that keeps a retired
-                # language on offer to the assistant after every screen has dropped it.
+                # Every BUILT language, not this account's: the tool list is the same bytes
+                # for every caller (`write_tools.write_tool_schemas`, the prompt cache), so
+                # the account's own set is enforced when the card is planned, by
+                # `OfferedLanguage` reading `client_language_tags` for the acting account.
+                "enum": list(BUILT_LANGUAGES),
                 "description": (
-                    "The language it mainly speaks to callers in: "
-                    + ", ".join(f"{tag} {LANGUAGE_LABELS[tag]}" for tag in offered_language_tags())
-                    + "."
+                    "The language it mainly speaks to callers in. " + LANGUAGE_CHOICE_NOTE
                 ),
             },
             "job": {

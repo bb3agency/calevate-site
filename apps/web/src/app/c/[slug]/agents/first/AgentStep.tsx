@@ -8,10 +8,11 @@ import { CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { ClientEngineVoices } from "@/components/engineCatalogueList";
 import { FIELD, ProblemNotice } from "@/components/ui";
 import { defaultExtraLanguages } from "@/lib/agentState";
+import { useAgentLanguages } from "@/lib/api/agentLanguages";
 import type { Agent } from "@/lib/api/agents";
 import { useSaveFirstAgent, type FirstRun } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
-import { LANGUAGES, languageGlyph, languageShortLabel } from "@/lib/firstAgent";
+import { languageGlyph, languageShortLabel } from "@/lib/firstAgent";
 
 import { ChipChoice, StepScreen } from "./shell";
 import { FIRST } from "../../_ui/copy";
@@ -43,12 +44,15 @@ export function AgentStep({
 }) {
   const session = useClientSession();
   const save = useSaveFirstAgent(session);
+  // The server's list for this account (D-855): a staged language switched on for it is a
+  // tile here like the three every account has. The parent renders this step once it is in.
+  const languages = useAgentLanguages(session);
   const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const nameId = useId();
   const [name, setName] = useState(agent?.name ?? run.default_agent.name);
   const [primary, setPrimary] = useState(agent?.language_primary ?? run.language_primary ?? defaultLanguage);
   const [extra, setExtra] = useState<string[]>(
-    agent?.reply_languages.slice(1) ?? (run.language_primary ? run.languages_extra : defaultExtraLanguages(defaultLanguage)),
+    agent?.reply_languages.slice(1) ?? (run.language_primary ? run.languages_extra : defaultExtraLanguages(defaultLanguage, languages.tags)),
   );
   const trimmed = name.trim();
   const changed =
@@ -109,12 +113,12 @@ export function AgentStep({
         <legend className="text-heading text-ink">Which language does it speak first?</legend>
         <p className="text-meta text-ink-muted">{FIRST.languageHint}</p>
         <div className="mt-2 grid grid-cols-3 gap-2">
-          {LANGUAGES.map((language) => (
+          {languages.choices.map((language) => (
             <LanguageTile
-              key={language.tag}
-              tag={language.tag}
-              checked={primary === language.tag}
-              onChange={() => choosePrimary(language.tag)}
+              key={language.value}
+              tag={language.value}
+              checked={primary === language.value}
+              onChange={() => choosePrimary(language.value)}
             />
           ))}
         </div>
@@ -126,22 +130,22 @@ export function AgentStep({
           It also speaks
         </span>
         <div className="flex flex-wrap gap-2">
-          {LANGUAGES.filter((language) => language.tag !== primary).map((language) => (
+          {languages.choices.filter((language) => language.value !== primary).map((language) => (
             <ChipChoice
-              key={language.tag}
+              key={language.value}
               type="checkbox"
               name="also"
-              value={language.tag}
+              value={language.value}
               size="sm"
-              checked={extra.includes(language.tag)}
+              checked={extra.includes(language.value)}
               onChange={(on) =>
-                setExtra((current) => (on ? [...current, language.tag] : current.filter((tag) => tag !== language.tag)))
+                setExtra((current) => (on ? [...current, language.value] : current.filter((tag) => tag !== language.value)))
               }
             >
-              <span lang={language.tag} aria-hidden className="font-semibold">
-                {languageGlyph(language.tag)}
+              <span lang={language.value} aria-hidden className="font-semibold">
+                {languageGlyph(language.value)}
               </span>
-              {languageShortLabel(language.tag)}
+              {languageShortLabel(language.value)}
             </ChipChoice>
           ))}
         </div>

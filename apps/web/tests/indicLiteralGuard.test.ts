@@ -15,10 +15,7 @@ import { describe, expect, it } from "vitest";
 
 const SRC = resolve(__dirname, "../src");
 
-const ROUTED: Readonly<Record<string, number>> = {
-  // Unicode ranges that tell which script a reply is in (a detector, not words).
-  "app/c/[slug]/agents/[agentId]/test/testCopy.ts": 4,
-};
+const ROUTED: Readonly<Record<string, number>> = {};
 
 const INDIC_LETTER =
   /[\p{Script=Devanagari}\p{Script=Bengali}\p{Script=Gurmukhi}\p{Script=Gujarati}\p{Script=Oriya}\p{Script=Tamil}\p{Script=Telugu}\p{Script=Kannada}\p{Script=Malayalam}]/u;

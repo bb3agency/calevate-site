@@ -715,6 +715,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # Read when a new account's first agent is made; existing agents keep their own.
     "default_agent_name": AppliesRule(LIVE),
     "default_agent_voice_id": AppliesRule(LIVE),
+    # Read when an agent is made and when a picker is drawn; existing agents keep theirs.
+    "default_agent_language": AppliesRule(LIVE),
     "paid_test_copy_idle_days": AppliesRule(LIVE),
     # A paying account's test-call limits (D-859, D-904), read on every test call and panel.
     "paid_test_daily_call_cap": AppliesRule(LIVE),

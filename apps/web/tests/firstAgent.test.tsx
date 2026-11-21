@@ -284,10 +284,14 @@ describe("the pieces and where an owner resumes", () => {
     expect(firstAgentOf([agent({ status: "archived" })], built())).toBeNull();
   });
 
-  it("starts in the profile's first language we sell, else Telugu", () => {
-    expect(defaultLanguage(["hi-IN", "en-IN"])).toBe("hi-IN");
-    expect(defaultLanguage(["ta-IN"])).toBe("te-IN");
-    expect(defaultLanguage(undefined)).toBe("te-IN");
+  it("starts in the profile's first language the server offers, else the server's first", () => {
+    const offered = ["te-IN", "hi-IN", "en-IN"];
+    expect(defaultLanguage(["hi-IN", "en-IN"], offered)).toBe("hi-IN");
+    expect(defaultLanguage(["ta-IN"], offered)).toBe("te-IN");
+    expect(defaultLanguage(undefined, offered)).toBe("te-IN");
+    expect(defaultLanguage(["ta-IN"], [...offered, "ta-IN"])).toBe("ta-IN");
+    expect(defaultLanguage(undefined, ["ta-IN", "en-IN"])).toBe("ta-IN");
+    expect(defaultLanguage(undefined, [])).toBeNull();
   });
 
   it("says what a test call costs from the server's figures, calls rounded down", () => {

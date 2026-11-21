@@ -2,8 +2,8 @@
 
 import { FieldMessage } from "@/components/formValidation";
 import { FIELD } from "@/components/ui";
+import type { LanguageChoice } from "@/lib/api/agentLanguages";
 import {
-  PROFILE_LANGUAGES,
   blankBranch,
   blankContact,
   blankFaq,
@@ -15,6 +15,7 @@ import {
   type ProfileWording,
   type StepId,
 } from "@/lib/api/businessProfile";
+import { LANGUAGE_NAMES } from "@/lib/languageNames";
 
 import { Field, RowList } from "./fields";
 import { HoursEditor, hoursProblems } from "./HoursEditor";
@@ -40,6 +41,7 @@ export function SectionEditor({
   disabled,
   errorAt,
   wording,
+  languages,
 }: {
   step: StepId;
   draft: ProfileDraft;
@@ -47,6 +49,8 @@ export function SectionEditor({
   disabled: boolean;
   errorAt: (path: string) => string | undefined;
   wording: ProfileWording;
+  /** The languages the server offers this account (`useAgentLanguageChoices`). */
+  languages: readonly LanguageChoice[];
 }) {
   const eg = wording.examples;
   const example = (value: string | null | undefined) => value ?? undefined;
@@ -251,7 +255,7 @@ export function SectionEditor({
       return (
         <fieldset className="space-y-2">
           <legend className="sr-only">Languages</legend>
-          {PROFILE_LANGUAGES.map((option) => {
+          {profileLanguageChoices(languages, draft.languages).map((option) => {
             const checked = draft.languages.includes(option.value);
             return (
               <label key={option.value} className="flex items-center gap-2 text-body text-ink touch:min-h-11">
@@ -277,6 +281,19 @@ export function SectionEditor({
         </fieldset>
       );
   }
+}
+
+/** The languages the profile offers: the server's list for this account, plus any the
+ *  profile already holds that it no longer offers (a staged language switched off), so the
+ *  owner can see and untick it rather than have it kept out of sight. */
+export function profileLanguageChoices(
+  offered: readonly LanguageChoice[],
+  held: readonly LanguageChoice["value"][],
+): LanguageChoice[] {
+  const extra = held
+    .filter((tag) => !offered.some((choice) => choice.value === tag))
+    .map((tag) => ({ value: tag, label: LANGUAGE_NAMES[tag] }));
+  return [...offered, ...extra];
 }
 
 /** A label as it reads mid-sentence: "Plan" becomes "plan", an acronym ("SIM plan") stays. */

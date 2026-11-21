@@ -21,6 +21,7 @@ import {
   type CampaignSettingsInput,
   type CampaignSettingsValues,
 } from "@/lib/api/campaignWorkspace";
+import { useAgentLanguageChoices } from "@/lib/api/agentLanguages";
 import { useClientRealm } from "@/lib/api/session";
 
 import { notesTakeEffect } from "./CampaignNotes";
@@ -139,6 +140,9 @@ export function CampaignVoiceSettings({
   const { session } = useClientRealm();
   const settings = useCampaignSettings(session, campaignId, agentId);
   const save = useSaveCampaignSettings(session, campaignId);
+  // The languages the server offers this account; a value already saved that it no longer
+  // offers is kept on the list, so the select shows what is set.
+  const offered = useAgentLanguageChoices(session);
   useActionFeedback(save, { errorDisplay: "inline" });
   const [draft, setDraft] = useState<Draft | null>(null);
 
@@ -172,11 +176,16 @@ export function CampaignVoiceSettings({
       return (
         <select {...common} onChange={(e) => set(key, e.target.value)}>
           <option value="">Same as the agent</option>
-          {Object.entries(LANGUAGE_NAMES).map(([code, name]) => (
-            <option key={code} value={code}>
-              {name}
+          {offered.map((choice) => (
+            <option key={choice.value} value={choice.value}>
+              {choice.label}
             </option>
           ))}
+          {draft.language_primary && !offered.some((choice) => choice.value === draft.language_primary) ? (
+            <option value={draft.language_primary}>
+              {lookup(LANGUAGE_NAMES, draft.language_primary) ?? draft.language_primary}
+            </option>
+          ) : null}
         </select>
       );
     if (key === "ambience")

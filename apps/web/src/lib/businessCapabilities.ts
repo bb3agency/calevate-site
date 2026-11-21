@@ -1,9 +1,10 @@
 "use client";
 
-import { LANGUAGE_NAMES } from "@/lib/agentState";
+import { useAgentLanguages } from "@/lib/api/agentLanguages";
 import type { AgentLanguage } from "@/lib/api/agents";
 import { useBusinessCopy, type BusinessCopy } from "@/lib/api/businessCopy";
 import { useClientSession } from "@/lib/api/session";
+import { baseOf } from "@/lib/languageNames";
 
 /**
  * What this business does with its callers, as the client screens use it: the capability
@@ -106,25 +107,28 @@ export function goAheadLabel(caps: BusinessCapabilities): string | null {
 }
 
 /**
- * The platform's starting language when nothing about the business says otherwise (BRD §1):
- * the browser's copy of `calevate_shared.engine.DEFAULT_PRIMARY_LANGUAGE`, the one server
- * default (G7-1); `businessCapabilities.test.ts` keeps the two equal.
- */
-export const FALLBACK_LANGUAGE: AgentLanguage = "te-IN";
-
-/**
  * The language a new agent or a first-run step starts in: the business's own main call
- * language from its copy (`BusinessCopyOut.language`, BCP-47, any region), else the
- * platform's starting one. A language this build cannot speak falls back too.
+ * language from its copy (`BusinessCopyOut.language`, BCP-47, any region) when the server
+ * offers it to this account, else the account's starting language, the first the server
+ * offers (`offered`, from `useAgentLanguages`, the platform default first). Null only when
+ * nothing is offered, which is before the server has answered.
  */
-export function businessLanguage(copyLanguage: string | null | undefined): AgentLanguage {
-  const base = (copyLanguage ?? "").toLowerCase().split(/[-_]/)[0];
-  const known = (Object.keys(LANGUAGE_NAMES) as AgentLanguage[]).find((code) => code.split("-")[0] === base);
-  return base && known ? known : FALLBACK_LANGUAGE;
+export function businessLanguage(
+  copyLanguage: string | null | undefined,
+  offered: readonly AgentLanguage[],
+): AgentLanguage | null {
+  const base = baseOf(copyLanguage);
+  const own = base ? offered.find((code) => baseOf(code) === base) : undefined;
+  return own ?? offered[0] ?? null;
 }
 
-export function useBusinessLanguage(): AgentLanguage {
-  return businessLanguage(useBusinessCopy(useClientSession()).data?.language);
+/** `businessLanguage` for this account, or null until the server's language list has been
+ *  read (on a failed read, from the three every account has). */
+export function useBusinessLanguage(): AgentLanguage | null {
+  const session = useClientSession();
+  const copy = useBusinessCopy(session);
+  const languages = useAgentLanguages(session);
+  return languages.settled ? businessLanguage(copy.data?.language, languages.tags) : null;
 }
 
 /** A plural for the copy's singular caller noun: "user" → "users", "family" → "families". */

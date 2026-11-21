@@ -25,16 +25,18 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
 } from "@/components/ui";
+import { useAgentLanguages } from "@/lib/api/agentLanguages";
 import type { Session } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import {
-  LANGUAGE_LABELS,
   PURPOSE_LABELS,
   TEMPLATE_REVIEW_HOURS,
   fillTemplate,
   rejectionReason,
   templateBlanks,
+  templateLanguageLabel,
+  templateLanguages,
   templateNameFrom,
   templateState,
   useCreateTemplate,
@@ -43,8 +45,6 @@ import {
   type WhatsAppAccount,
   type WhatsAppTemplate,
 } from "@/lib/api/whatsapp";
-
-const LANGUAGES = ["te", "hi", "en"] as const;
 
 function titleOf(t: WhatsAppTemplate): string {
   return lookup(PURPOSE_LABELS, t.purpose) ?? t.name.replaceAll("_", " ");
@@ -148,7 +148,7 @@ export function Templates({
                   <div className="min-w-0">
                     <p className="text-body font-medium text-ink [overflow-wrap:anywhere]">{titleOf(t)}</p>
                     <p className="text-meta text-ink-muted">
-                      {lookup(LANGUAGE_LABELS, t.language) ?? t.language} ·{" "}
+                      {templateLanguageLabel(t.language)} ·{" "}
                       {t.category === "UTILITY" ? "About something they asked for" : "Marketing"}
                       {t.origin === "calevate" ? " · Written by Calevate" : ""}
                     </p>
@@ -214,7 +214,9 @@ function TemplateForm({
   const eg = useVerticalExamples();
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<"UTILITY" | "MARKETING">("UTILITY");
+  // English, which every account is offered, until the owner picks another of its languages.
   const [language, setLanguage] = useState<string>("en");
+  const languages = templateLanguages(useAgentLanguages(session).tags);
   const [body, setBody] = useState("");
   const [labels, setLabels] = useState<string[]>([]);
   const [examples, setExamples] = useState<string[]>([]);
@@ -293,9 +295,9 @@ function TemplateForm({
       <label className="block">
         <span className={FIELD_LABEL}>Language</span>
         <select className={FIELD} value={language} onChange={(e) => setLanguage(e.target.value)}>
-          {LANGUAGES.map((l) => (
+          {languages.map((l) => (
             <option key={l} value={l}>
-              {LANGUAGE_LABELS[l]}
+              {templateLanguageLabel(l)}
             </option>
           ))}
         </select>

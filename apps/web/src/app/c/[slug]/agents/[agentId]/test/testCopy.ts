@@ -26,6 +26,7 @@ import type {
   TestSetting,
   TestStanding,
 } from "@/lib/api/script";
+import { INDIAN_SCRIPTS, scriptLanguageName } from "@/lib/languageNames";
 import { lookup } from "@/lib/lookup";
 
 /** How each place a test can sit reads to the owner, with its status tone. */
@@ -370,23 +371,22 @@ export function oursNote(run: Pick<TestRun, "results" | "sounds">): { line: stri
   return { line, details };
 }
 
-const SCRIPTS: readonly { name: string; pattern: RegExp }[] = [
-  { name: "Telugu", pattern: /[ఀ-౿]/g },
-  { name: "Hindi", pattern: /[ऀ-ॿ]/g },
-  { name: "Tamil", pattern: /[஀-௿]/g },
-  { name: "Kannada", pattern: /[ಀ-೿]/g },
-  { name: "Malayalam", pattern: /[ഀ-ൿ]/g },
-];
+/** Each Indian script as a Unicode script property, so this file holds no Indian letters. */
+const SCRIPTS: readonly { script: string; pattern: RegExp }[] = INDIAN_SCRIPTS.map((script) => ({
+  script,
+  pattern: new RegExp(`\\p{Script=${script}}`, "gu"),
+}));
 
 /**
  * The language a line is written in, from its letters: an Indian script names its language,
  * Latin letters read as English. A code-mixed Telugu line ("ఈ call record అవుతుందా?") is
- * Telugu, because the Telugu letters are what an English line would never have. Empty or
- * symbol-only text names nothing.
+ * Telugu, because the Telugu letters are what an English line would never have. A script
+ * several languages share is read against the agent's own languages (`spoken`): Devanagari
+ * is Marathi for a Marathi agent and Hindi otherwise. Empty or symbol-only text names nothing.
  */
-export function languageOf(text: string): string | null {
-  for (const { name, pattern } of SCRIPTS) {
-    if ((text.match(pattern) ?? []).length >= 2) return name;
+export function languageOf(text: string, spoken: readonly string[] = []): string | null {
+  for (const { script, pattern } of SCRIPTS) {
+    if ((text.match(pattern) ?? []).length >= 2) return scriptLanguageName(script, spoken);
   }
   return /[A-Za-z]{2,}/.test(text) ? "English" : null;
 }

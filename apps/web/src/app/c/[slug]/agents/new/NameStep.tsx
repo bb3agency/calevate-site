@@ -6,7 +6,8 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Field } from "@/components/arc/field";
 import { TEXT_ACTION } from "@/components/console/section";
 import { FIELD, FIELD_LABEL, ProblemNotice, RestrictionNote } from "@/components/ui";
-import { LANGUAGE_CHOICES, LANGUAGE_NAMES } from "@/lib/agentState";
+import { LANGUAGE_NAMES } from "@/lib/agentState";
+import { useAgentLanguageChoices } from "@/lib/api/agentLanguages";
 import { useCreateAgent, type AgentLanguage } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
@@ -45,6 +46,9 @@ export function NameStep({
   onCreated: (agent: CreatedAgent) => void;
 }) {
   const session = useClientSession();
+  // The languages the server offers this account, and its starting one (null until they
+  // are in, so the picker never settles on a language the account was not offered).
+  const languageChoices = useAgentLanguageChoices(session);
   const startLanguage = useBusinessLanguage();
   const [picked, setLanguage] = useState<AgentLanguage | null>(null);
   const language = picked ?? startLanguage;
@@ -74,8 +78,8 @@ export function NameStep({
         id: "new-agent-language",
         label: "Language",
         type: "select",
-        value: language,
-        options: LANGUAGE_CHOICES.map(({ value, label }) => ({ value, label })),
+        value: language ?? "",
+        options: languageChoices.map(({ value, label }) => ({ value, label })),
       },
     ],
     facts: [
@@ -98,7 +102,7 @@ export function NameStep({
   const submit = () => {
     setTried(true);
     // A created agent moves the flow on to its voice: a second press would make a second one.
-    if (!write.allowed || nameProblem || create.isPending || create.isSuccess) return;
+    if (!write.allowed || nameProblem || language === null || create.isPending || create.isSuccess) return;
     create.mutate(
       { name: trimmed, direction: "both", language_primary: language },
       { onSuccess: (agent) => onCreated({ id: agent.id, name: agent.name }) },
@@ -142,13 +146,13 @@ export function NameStep({
             <span className={FIELD_LABEL}>Language</span>
             <select
               id="new-agent-language"
-              value={language}
+              value={language ?? ""}
               onChange={(event) => {
                 if (hasKey(LANGUAGE_NAMES, event.target.value)) setLanguage(event.target.value);
               }}
               className={FIELD}
             >
-              {LANGUAGE_CHOICES.map((choice) => (
+              {languageChoices.map((choice) => (
                 <option key={choice.value} value={choice.value}>
                   {choice.label}
                 </option>
@@ -162,7 +166,7 @@ export function NameStep({
           <ActionButton
             type="submit"
             status={createFeedback.status}
-            disabled={!write.allowed || create.isSuccess}
+            disabled={!write.allowed || language === null || create.isSuccess}
             pendingLabel="Creating…"
             successLabel="Created"
           >

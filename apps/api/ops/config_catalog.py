@@ -586,6 +586,16 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "The name a new account's first agent is given: the free trial's and paid plans' starter.",
         details="Agents already made keep their own name. The owner can rename theirs.",
     ),
+    "default_agent_language": _m(
+        "speech",
+        "languages",
+        "Starting language for new agents",
+        "The language a new agent starts in when its business names none; first in every picker.",
+        details=(
+            "Only a language every client is offered can be chosen. A business profile that "
+            "names its languages still decides its own agents; agents already made keep theirs."
+        ),
+    ),
     "default_agent_voice_id": _m(
         "speech",
         "default-agent",
@@ -1704,6 +1714,8 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     # Options filled from `healer/playbooks.PLAYBOOKS` by `config_controls`.
     "healer_paused_playbooks": ControlHint(kind="multi_select", multiple=True),
     "staged_agent_languages_enabled": ControlHint(kind="multi_select", multiple=True),
+    # Options filled from `agents/languages` by `config_controls`.
+    "default_agent_language": ControlHint(kind="select"),
     "staged_language_test_tenant_ids": ControlHint(
         kind="entity_picker", source="tenants", multiple=True
     ),

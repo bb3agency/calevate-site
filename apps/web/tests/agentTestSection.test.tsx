@@ -628,6 +628,9 @@ describe("test copy", () => {
     expect(languageOf("ఈ call record అవుతుందా?")).toBe("Telugu");
     expect(languageOf("क्या ये call record हो रही है?")).toBe("Hindi");
     expect(languageOf("Is this call recorded?")).toBe("English");
+    // Devanagari is the agent's own language where it speaks one that uses it.
+    expect(languageOf("\u0915\u094d\u092f\u093e call", ["mr-IN", "en-IN"])).toBe("Marathi");
+    expect(languageOf("\u0995\u09bf call")).toBe("Bengali");
     expect(languageOf("…")).toBeNull();
   });
 

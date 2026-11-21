@@ -3067,7 +3067,10 @@ _REGISTER_BULLET: Final = (
 #:   punctuation for pauses and every sentence ended with ".", "?" or "!" (docs.cartesia.ai/
 #:   build-with-cartesia/sonic-3/prompting-tips, read 19 Nov 2026).
 _WRITTEN_FORM_BULLET: Final = f"- {WRITTEN_FORM_RULE}\n"
-#: The agent's default call language (`AgentConfig.language_primary`).
+#: The language `VOICE_STYLE_GUIDANCE`'s amounts bullet is written for, and the default of
+#: an `AgentConfig` built without one (every app path passes the agent's own). Not what a
+#: new agent starts in: that is the console's `default_agent_language`
+#: (`apps/api/agents/languages.platform_default_language`), which this package cannot read.
 DEFAULT_PRIMARY_LANGUAGE: Final = "te-IN"
 
 #: How amounts are said is the language's own rule (D-915): Telugu says prices the English way

@@ -3,7 +3,7 @@ import { act, render, type RenderResult } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { expect, vi } from "vitest";
 
-import { LANGUAGE_CHOICES } from "@/lib/agentState";
+import { LANGUAGE_NAMES } from "@/lib/languageNames";
 import type { CallingNumberDeclaration } from "@/lib/api/autodialerNotice";
 import { clearImpersonationGrants } from "@/lib/api/admin";
 import { dismissStepUpPrompt } from "@/lib/authn/stepUpPrompt";
@@ -435,9 +435,10 @@ export function stubApi(routes: Routes): ApiCall[] {
   return calls;
 }
 
-/** `GET /v1/agents/languages` with nothing staged switched on. See `stubApi`. */
+/** `GET /v1/agents/languages` with nothing staged switched on and the platform default
+ *  (Telugu) first, as the server answers. See `stubApi`. */
 export const DEFAULT_AGENT_LANGUAGES = {
-  languages: LANGUAGE_CHOICES.map(({ value, label }) => ({ tag: value, name: label })),
+  languages: (["te-IN", "hi-IN", "en-IN"] as const).map((tag) => ({ tag, name: LANGUAGE_NAMES[tag] })),
 };
 
 /** A live, fully authenticated session per realm. See the fallback in `stubApi`. */

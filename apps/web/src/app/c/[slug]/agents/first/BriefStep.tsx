@@ -8,6 +8,7 @@ import { TEXT_ACTION } from "@/components/console/section";
 import { PipMark } from "@/components/illustration/pip";
 import { FIELD, ProblemNotice } from "@/components/ui";
 import { VoiceButton } from "@/components/voiceButton";
+import { useAgentLanguages } from "@/lib/api/agentLanguages";
 import { useBusinessCopy } from "@/lib/api/businessCopy";
 import {
   isRecordingBusy,
@@ -74,6 +75,7 @@ export function BriefStep({
   const session = useClientSession();
   const examples = useVerticalExamples();
   const copy = useBusinessCopy(session).data;
+  const offered = useAgentLanguages(session).tags;
   const ownBrief = copy?.placeholders?.script_brief?.trim() || null;
   const save = useSaveBrief(session);
   const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
@@ -88,7 +90,8 @@ export function BriefStep({
   const [hearing, setHearing] = useState(false);
   const waitingFor = briefWaitingFor({ documents: run.documents, sending, hearing });
   const text = brief ?? ownBrief ?? "";
-  const language = run.language_primary ?? businessLanguage(copy?.language);
+  // `offered` is never empty (the three every account has while the server's list loads).
+  const language = run.language_primary ?? businessLanguage(copy?.language, offered) ?? "";
 
   return (
     <StepScreen

@@ -11,12 +11,17 @@
  * the call-translation worker. So each bubble names its language and nothing more.
  */
 
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
 
 import type { TestTry, TestTurn } from "@/lib/api/script";
 import { lookup } from "@/lib/lookup";
 
 import { ACTION_LABEL, languageOf } from "./testCopy";
+
+/** The agent's own languages (BCP-47, main first), so a bubble in a script several
+ *  languages share is named as the one the agent speaks (`languageOf`). Provided by the
+ *  test section; empty, a shared script reads as its most common language. */
+export const AgentLanguagesContext = createContext<readonly string[]>([]);
 
 const TRY_WORD: Record<TestTry["verdict"], { said: string; dot: string }> = {
   passed: { said: "OK", dot: "bg-brand-strong" },
@@ -107,7 +112,8 @@ function Bubble({
   side: "left" | "right";
   actions?: NonNullable<TestTurn["actions"]>;
 }) {
-  const language = text ? languageOf(text) : null;
+  const spoken = useContext(AgentLanguagesContext);
+  const language = text ? languageOf(text, spoken) : null;
   const right = side === "right";
   return (
     <div className={`flex ${right ? "justify-end" : "justify-start"}`}>
