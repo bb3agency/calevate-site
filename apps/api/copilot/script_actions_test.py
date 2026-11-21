@@ -300,7 +300,8 @@ async def test_the_draft_refusals_the_model_can_act_on() -> None:
     assert "no main task" in no_task.value.reason
 
     with pytest.raises(WriteRefusedError) as long:
-        await _propose_draft(tenant_id, token, {"holder_id": str(bare), "instruction": "x" * (INSTRUCTION_MAX + 1)})
+        too_long = "x" * (INSTRUCTION_MAX + 1)
+        await _propose_draft(tenant_id, token, {"holder_id": str(bare), "instruction": too_long})
     assert f"at most {INSTRUCTION_MAX} characters" in long.value.reason
     assert "never drop a change" in long.value.reason
 

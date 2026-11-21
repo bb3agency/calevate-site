@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.94 — 21-Nov-2026
+
+- Operators set the calling limits in the console: how long a follow-up stays open, calls at
+  once per campaign, tries per person and the longest gap between tries. Every default is
+  the value used before.
+- The agent's wording variety and the pause before a filler line are console settings too.
+- Booking hours follow the business's hours for each weekday, including overnight hours.
+
 ## 0.4.93 — 21-Nov-2026
 
 - Each agent is set as Selling or Helping customers, on its Settings or through Pip. A
