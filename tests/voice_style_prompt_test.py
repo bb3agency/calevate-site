@@ -117,9 +117,11 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     assert "never the same way twice" in react and "often not." in react
     # The voice starts on the first comma after three words (D-901), so a reply opens with a
     # short whole sentence with no comma: the first piece is a whole sentence (D-986, 20 Nov 2026).
-    assert bullet("- Open with one short whole sentence").startswith(
-        "- Open with one short whole sentence, no comma; one or two short sentences, then wait"
-    )
+    # That sentence is the point itself, never a reaction (21 Nov 2026: "very good" opened
+    # every reply when the rule only asked for a short sentence).
+    opening = bullet("- Open with the point itself")
+    assert "in one short sentence with no comma" in opening
+    assert "No reaction to open with." in opening
     # The words it overused are not named: a named word can come back more often.
     for stock in ("సంతోషం", "మంచిది", "సరే"):
         assert stock not in VOICE_STYLE_GUIDANCE

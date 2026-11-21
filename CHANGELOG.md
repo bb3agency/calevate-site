@@ -3,6 +3,19 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.92 — 21-Nov-2026
+
+- Pip writes an outbound opening that says who is calling, from which business and why,
+  then asks if now is a good time; the steps start from the person's yes, ask about their
+  situation instead of assuming it, and close on one next step.
+- Pip knows the campaign's purpose, goal, audience and how the business got the numbers,
+  and its review checks every claim against a word-for-word quote from the sources; a line
+  that tells a person what they did is rewritten as a question.
+- Outbound scripts plan a way out at each step: busy (call back), wrong person or not
+  interested (polite close), "who is this" (who and why, then ask again), and for app
+  set-up calls already installed, a different phone or stuck.
+- Outbound openings may be up to 160 characters, so who, why and the question fit.
+
 ## 0.4.91 — 21-Nov-2026
 
 - Pip in the chat can change what a campaign or an Inbound line says: it asks that page's
