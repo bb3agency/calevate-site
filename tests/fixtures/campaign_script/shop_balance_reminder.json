@@ -8,7 +8,7 @@
   "answer": {
     "opening_line": "Hello {{lead_name}}, I am calling from Lakshmi Stores about your khata. Is this a good time?",
     "stages": [
-      {"name": "Due", "instruction": "Say a balance is pending and ask when they can pay.", "sounds_like": "When can you pay? Will it be today? Or tomorrow?"},
+      {"name": "Due", "instruction": "Say a balance is pending and ask when they can pay.", "sounds_like": "When can you pay? Will it be today? Or tomorrow?", "ways_out": [{"when": "They are busy now or say they will talk later", "to": "call_back"}, {"when": "It is the wrong person", "to": "end"}]},
       {"name": "Finalise the call", "instruction": "Read back the day they gave.", "sounds_like": "Thank you, see you at the shop."}
     ]
   },

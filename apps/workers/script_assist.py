@@ -44,7 +44,9 @@ from typing import TYPE_CHECKING, Any, Final
 
 import httpx
 from calevate_shared.call_script import (
+    CALL_BACK,
     END_OF_CALL,
+    HAND_OVER,
     MAX_EXAMPLE_TURNS,
     MAX_PROCEDURE_STEPS,
     MAX_PRONUNCIATIONS,
@@ -141,6 +143,47 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+#: Ways out for what people really say, chosen by the kind of call (the Rytu Khata calls of
+#: 20-21 Nov 2026: "I don't remember registering" and "nothing for now, later" met a script
+#: with no exit, and the agent pushed on). A way out ROUTES to platform behaviour rather than
+#: describing it: `call_back` compiles to the account's call-back offer, or to "the business
+#: will get back to them" where call backs are off (`call_script._target_action`), and the
+#: composed rules say how to book it (`engine.CALL_BACK_TIME_RULE`). Asking for a person,
+#: never calling again, AI and recording questions and off-topic questions are handled by the
+#: composed rules at any point, so they get no branch and the six a step holds go to what only
+#: the script knows. Sources and the decisions: docs/evidence/script-generation-2026-11-21/
+#: BRANCHES.md.
+WAYS_OUT_RULE: Final = (
+    "Ways out: plan, for every stage that asks the person something or asks them to do "
+    "something, what they may say that does not go on, and give each its way out. A way "
+    "out is a condition in plain English saying what the person says (for example: They "
+    "are busy now or say they will do it later) and where the call goes: call_back, end, "
+    "hand_over, or another stage. In a new script these are a stage's ways_out "
+    '(each {"when", "to"}, to being "call_back", "end", "hand_over" or a stage number '
+    'counting from 1); in an edit they are a stage\'s branches (each {"when", "target"}, '
+    f"target being call_back, end, hand_over or a section id). At most {MAX_STAGE_BRANCHES} "
+    f"ways out a stage and {MAX_SCRIPT_STAGES} stages in all, so prefer a way out to "
+    "call_back or end over a new stage. "
+    "On a call the agent places, cover at least: busy now or later (to call_back, on the "
+    "first stage and on any stage that asks them to do something; never push the steps "
+    "on someone who said not now); wrong person or wrong number (to end); not interested "
+    "or not relevant to them, after at most one short answer (to end). The person who does "
+    "not remember it or asks who is calling gets a stage of its own at the same step (it may "
+    "take the stages past 6): its "
+    "sounds_like says in one sentence who is calling and why, as the main task gives it, "
+    "and asks the step's question again; it never insists they did something. Then add "
+    "only what this kind of call meets: a call that helps someone set something up or do "
+    "something on their phone covers already done (on to the stage after it), using a "
+    "different phone or device than expected, and stuck on an action after trying it one "
+    "other way (to call_back); a booking, reminder or collection call covers no time "
+    "suiting them or not able now (to call_back or a stage that finds a new date); a sales "
+    "or news call covers already having one or bought elsewhere (to end). Write no way out "
+    "for asking for a person, asking never to be called again, being an AI, recording, or "
+    "a question off the topic: the platform handles those at any point, and an off-topic "
+    "question is answered from the knowledge and the same stage goes on. A way out's "
+    "condition never says call back or transfer; where it goes says that."
+)
+
 #: The instruction that turns the owner's answers into a v2 call script (first live call
 #: review, 10 Oct 2026: founder decision 3). Instructions in English; only the words the
 #: agent SAYS (opening, sample phrases, example call) are in the call's language, spoken and
@@ -196,6 +239,7 @@ _SYSTEM_INSTRUCTION = (
     "phrases. pronunciations only for names a voice might misread. code_mix is light, "
     "natural or heavy. business_line is one line under 200 characters on what the business "
     "is.\n"
+    f"{WAYS_OUT_RULE}\n"
     "Return ONLY JSON matching the schema."
 )
 
@@ -257,7 +301,9 @@ EDIT_INSTRUCTION = (
     "words, never their formal forms; its number and punctuation rules). What you write "
     f"keeps the rules the agent's tests check: {writer_rules()} {OPENING_LINE_RULE} Outside "
     "the opening lines do not write about being an AI or recording, and nowhere about call "
-    "backs, transfers or do-not-call. Return ONLY JSON."
+    "backs, transfers or do-not-call. "
+    f"When the change adds or rewrites steps, keep to this: {WAYS_OUT_RULE} "
+    "Return ONLY JSON."
 )
 
 Parser = Callable[[dict[str, Any]], "CallScript | None"]
@@ -380,6 +426,8 @@ def language_problems(
             problems += woven_notice_problems(path, text, woven)
     if lint is not None:
         problems += shape_problems(script, before)
+        if lint.places_calls:
+            problems += way_out_problems(script, before)
     return problems
 
 
@@ -414,6 +462,47 @@ def shape_problems(script: CallScript, before: CallScript | None = None) -> list
                 "thanks them and ends the call."
             )
     return problems
+
+
+#: The two ways out every placed call needs (`WAYS_OUT_RULE`). Neither is waived for a
+#: platform rule: `CALL_BACK_TIME_RULE` and "Offer once, then close politely" say how to
+#: answer, after the script, but a step with no exit still leads on to the next step, which
+#: is what the agent followed on the 20-21 Nov 2026 calls. Judged by target, not by the
+#: wording of `when`, so no word list decides it.
+NOT_NOW_WAY_OUT: Final = (
+    "stages: no step has a way out for a person who is busy now or says later; give the "
+    "first step (and any step asking them to do something) one whose condition says so, "
+    "going to call_back, with no words about a call back in any line."
+)
+NOT_INTERESTED_WAY_OUT: Final = (
+    "stages: no step before the last has a way out that ends the call for a person who is "
+    "not interested, for whom it is not relevant, or who is the wrong person; give the step "
+    "where they would say so one whose condition says so, going to end."
+)
+
+
+def way_out_problems(script: CallScript, before: CallScript | None = None) -> list[str]:
+    """What a script for placed calls lacks of the ways out every such call needs: one to
+    the call-back for "not now" and one that ends the call before the close for "not
+    interested" or "wrong person". Every placed call asks something of the person (its
+    opening asks whether they can talk), so none is exempt. With `before` (an edit), only a
+    way out the model removed is a problem: a script that never had one is the owner's."""
+    stages = script.stages
+    if script.raw_override or len(stages) < 2:
+        return []
+
+    def exits(stage: ConversationStage) -> set[str]:
+        return {stage.otherwise, *(b.target for b in stage.branches)}
+
+    found: list[str] = []
+    if not any(CALL_BACK in exits(stage) for stage in stages):
+        found.append(NOT_NOW_WAY_OUT)
+    if not any(END_OF_CALL in exits(stage) for stage in stages[:-1]):
+        found.append(NOT_INTERESTED_WAY_OUT)
+    if before is not None:
+        had = way_out_problems(before) if len(before.stages) >= 2 else found
+        found = [problem for problem in found if problem not in had]
+    return found
 
 
 def drafted_script(
@@ -766,6 +855,13 @@ def _array_of(properties: dict[str, object]) -> dict[str, object]:
     }
 
 
+#: Where a drafted way out goes (`WAYS_OUT_RULE`): a platform target or a stage number as
+#: text, enumerated so Structured Outputs cannot return a target the script lacks a name for.
+_WAY_OUT_TO: Final[dict[str, object]] = {
+    "type": "string",
+    "enum": [CALL_BACK, END_OF_CALL, HAND_OVER, *(str(n) for n in range(1, MAX_SCRIPT_STAGES + 1))],
+}
+
 _DRAFT_PROPERTIES: Final[dict[str, object]] = {
     "business_line": _STR,
     "identity": _STR,
@@ -787,6 +883,7 @@ _DRAFT_PROPERTIES: Final[dict[str, object]] = {
             "procedure": _array_of({"action": _STR, "wait_for": _STR}),
             "step": {"type": "integer"},
             "next": {"type": "array", "items": {"type": "integer"}},
+            "ways_out": _array_of({"when": _STR, "to": _WAY_OUT_TO}),
         }
     ),
     "objections": _array_of({"objection": _STR, "response": _STR}),
@@ -885,6 +982,13 @@ class ScriptBrief:
     #: change carries a campaign's main task and sources, and without this a figure from them
     #: read as one no fact gives (D-1004).
     grounding: str = ""
+    #: Whether the script is said on calls the agent places: a campaign's always, an inbound
+    #: line's never. None reads it from `direction`, where only an outbound agent's is; a
+    #: "both" agent's own script also serves the calls it answers.
+    placed_calls: bool | None = None
+
+    def places_calls(self) -> bool:
+        return self.placed_calls if self.placed_calls is not None else self.direction == "outbound"
 
     def lint_context(self) -> LintContext:
         """What the draft's lines are checked against (`agents/script_lint`)."""
@@ -900,6 +1004,7 @@ class ScriptBrief:
             ),
             agent_name=self.agent_name,
             business_name=self.business_name,
+            places_calls=self.places_calls(),
         )
 
     def user_message(self) -> str:
@@ -1003,6 +1108,29 @@ def _next_branches(value: object, rows: list[dict[str, Any]], own: int) -> list[
     return list({b.target: b for b in out}.values())
 
 
+def _ways_out(value: object, count: int, own: int) -> list[StageBranch]:
+    """A stage's drafted `ways_out` (`WAYS_OUT_RULE`) as branches: a platform target as it
+    is, a stage number as that stage's id; one with no condition, or to itself or a stage the
+    draft lacks, is dropped."""
+    if not isinstance(value, list):
+        return []
+    out: list[StageBranch] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        when = _text(item, "when", 300)
+        to = _text(item, "to", 40)
+        if to.isdigit() and 1 <= int(to) <= count and int(to) != own:
+            target = f"s{int(to)}"
+        elif to in SPECIAL_TARGETS:
+            target = to
+        else:
+            continue
+        if when:
+            out.append(StageBranch(when=when, target=target))
+    return list({(b.when, b.target): b for b in out}.values())
+
+
 def _steps_in_order(stages: list[ConversationStage]) -> list[ConversationStage]:
     """Stages sorted by step when the model numbered every one, so the call order is step by
     step; otherwise as written, with no steps (each its own step)."""
@@ -1055,10 +1183,14 @@ def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
                 name=name,
                 instruction=_text(row, "instruction", room),
                 sounds_like=sounds_like,
-                branches=(
-                    _next_branches(row.get("next"), rows, i)
-                    or ([StageBranch(when=exit_when, target=target)] if exit_when else [])
-                ),
+                # The specific ways out first, as the compiled step reads them in order.
+                branches=[
+                    *_ways_out(row.get("ways_out"), len(rows), i),
+                    *(
+                        _next_branches(row.get("next"), rows, i)
+                        or ([StageBranch(when=exit_when, target=target)] if exit_when else [])
+                    ),
+                ][:MAX_STAGE_BRANCHES],
                 procedure=procedure,
                 step=step if isinstance(step, int) and 1 <= step <= MAX_SCRIPT_STAGES else None,
             )
@@ -2015,10 +2147,13 @@ __all__ = [
     "ANSWER_UNUSABLE_CODE",
     "CONVERT_INSTRUCTION",
     "EDIT_INSTRUCTION",
+    "NOT_INTERESTED_WAY_OUT",
+    "NOT_NOW_WAY_OUT",
     "OWNER_QUESTIONS",
     "REPAIR_NOTE",
     "SHAPE_PROBLEM",
     "TARGETED_REPAIR_NOTE",
+    "WAYS_OUT_RULE",
     "AskTrace",
     "JsonAnswer",
     "LeftOut",
@@ -2037,6 +2172,7 @@ __all__ = [
     "salvaged_edit",
     "shape_problems",
     "targeted_note",
+    "way_out_problems",
     "ways_to_kept_steps",
     "without_placeholder_steps",
 ]

@@ -656,7 +656,8 @@ async def _write(
     feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
     trace = AskTrace()
     # The holder's own words are what a spoken figure may come from, an edit's included.
-    context = replace(inputs.context, grounding=change)
+    # A campaign's calls are placed whatever the agent's direction; a line's are answered.
+    context = replace(inputs.context, grounding=change, placed_calls=holder.table == "campaigns")
     write = partial(
         draft_script,
         tenant_leg=inputs.tenant_leg,
