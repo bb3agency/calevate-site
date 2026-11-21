@@ -12,7 +12,7 @@ why. Here:
 
 OUR DEVELOPER WORKSPACE holds free-trial calls and every client's calls from before its own
 workspace (D-693). No retention setting exists for that data as a whole, so it gets the
-platform defaults of every new tenant (`scripts/seed.DEFAULT_RETENTION_POLICIES`): the
+platform defaults of every new tenant (`retention_defaults.DEFAULT_RETENTION_POLICIES`): the
 shortest promise any tenant there was made at sign-up. What it confirms, the period and the
 plan's window, is recorded on `platform_state` (D-809), where `workers/recording_watch`
 reads when the platform deletes a call held there.
@@ -27,8 +27,8 @@ from uuid import UUID
 
 from arq import Retry
 from calevate_shared.backoff import ladder_delay_s
-from scripts.seed import DEFAULT_RETENTION_POLICIES
 
+from apps.api.compliance.retention_defaults import DEFAULT_RETENTION_POLICIES
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger

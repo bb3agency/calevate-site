@@ -61,13 +61,13 @@ const OPERATOR = {
   permissions: ["org:read", "agents:read", "agents:write", "admin:tenants"],
 };
 
-function fillName(value = "Sunrise Clinic") {
+async function fillName(value = "Sunrise Clinic"): Promise<void> {
   // No business type is chosen for the operator (any trade may be next), so the name's
   // placeholder is the neutral one until a type is picked.
   fireEvent.change(screen.getByPlaceholderText("Sri Traders"), {
     target: { value },
   });
-  fireEvent.click(screen.getByRole("radio", { name: /^Clinic/ }));
+  fireEvent.click(await screen.findByRole("radio", { name: /^Clinic/ }));
   // The owner's email is required on step 1: the invite goes to it.
   fireEvent.change(screen.getByPlaceholderText("owner@business.com"), {
     target: { value: "owner@sunrise.example" },
@@ -85,7 +85,7 @@ describe("creating the account", () => {
       [UNFINISHED]: [],
     });
 
-    fillName();
+    await fillName();
     fireEvent.click(screen.getByRole("button", { name: "Create and invite" }));
 
     await screen.findByText("That slug already belongs to another client.");
@@ -114,7 +114,7 @@ describe("creating the account", () => {
       [UNFINISHED]: [],
     });
 
-    fillName();
+    await fillName();
     fireEvent.click(screen.getByRole("button", { name: "Create and invite" }));
 
     await screen.findByText("Choose another web address, for example 'sunrise-clinic-2'.");
@@ -141,7 +141,7 @@ describe("creating the account", () => {
       [UNFINISHED]: [],
     });
 
-    fillName();
+    await fillName();
     fireEvent.click(screen.getByRole("button", { name: "Create and invite" }));
 
     await screen.findByText("Account created and owner invited");
@@ -173,7 +173,7 @@ describe("creating the account", () => {
       [UNFINISHED]: [],
     });
 
-    fillName();
+    await fillName();
     fireEvent.click(screen.getByRole("button", { name: "Create and invite" }));
 
     await screen.findByText("You do not have permission to do this.");

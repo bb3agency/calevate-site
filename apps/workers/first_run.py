@@ -139,7 +139,9 @@ QUESTIONS_INSTRUCTION: Final = (
     "kind has options []. maps_to names the business profile section the answer belongs "
     "in, or null: trade (choices or single_choice about what kinds of thing they offer), "
     "location (address), offer (services), hours (hours), booking (text about how a "
-    "booking is made). address, services and hours must use their section. "
+    "booking is made), facts (text: one more fact callers must know that no other section "
+    "holds, such as the areas served, who qualifies or the documents to bring; facts may be "
+    "used for more than one question). address, services and hours must use their section. "
     "Never use a section listed as already known. Return ONLY JSON: "
     '{"questions": [{"prompt": "...", "hint": "...", "kind": "...", "options": [...], '
     '"maps_to": ... }]}.'

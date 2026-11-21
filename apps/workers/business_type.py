@@ -33,8 +33,8 @@ from __future__ import annotations
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared import verticals
 from calevate_shared.extraction import ExtractionField
-from scripts.seed import BUSINESS_TYPE_LABELS
 from sqlalchemy import text
 
 from apps.api.admin.business_type import CLINIC, CLINIC_DEFAULT_KEYS, record_suggestion
@@ -67,7 +67,7 @@ MAX_REASON_CHARS: Final = 200
 SUGGEST_INSTRUCTION: Final = (
     "You read what one small Indian business says about itself and choose the ONE business "
     "type that fits it best, from this list (key: meaning): "
-    + "; ".join(f"{key}: {label}" for key, label in BUSINESS_TYPE_LABELS.items())
+    + "; ".join(f"{key}: {label}" for key, label in verticals.labels().items())
     + ". Choose from what the business sells and does, never from a guess about its name "
     "alone. If the description says too little to tell, choose custom. Give a reason of one "
     "short sentence naming what in the description decided it. "
@@ -82,7 +82,7 @@ _SUGGEST_SCHEMA: Final[dict[str, object]] = {
         "schema": {
             "type": "object",
             "properties": {
-                "business_type": {"type": "string", "enum": list(BUSINESS_TYPE_LABELS)},
+                "business_type": {"type": "string", "enum": list(verticals.all_keys())},
                 "reason": {"type": "string"},
             },
             "required": ["business_type", "reason"],
@@ -95,7 +95,7 @@ _SUGGEST_SCHEMA: Final[dict[str, object]] = {
 def suggestion_from_model(raw: dict[str, Any]) -> tuple[str, str] | None:
     """The model's answer as (type, reason), or None when it named no type we offer."""
     business_type = str(raw.get("business_type", "")).strip()
-    if business_type not in BUSINESS_TYPE_LABELS:
+    if not verticals.is_known(business_type):
         return None
     reason = " ".join(str(raw.get("reason", "")).split())[:MAX_REASON_CHARS]
     return business_type, reason

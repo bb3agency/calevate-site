@@ -27,7 +27,6 @@ from hashlib import sha256
 from typing import Any, Final, Literal
 from uuid import UUID
 
-from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +37,7 @@ from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import get_balance, to_paise
 from apps.api.billing.trials import read_trial
 from apps.api.billing.wallet import tier_minutes
+from apps.api.compliance.retention_defaults import DEFAULT_RETENTION_POLICIES
 from apps.api.compliance.service import SELF_SERVE_TIERS, spend_capped
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger

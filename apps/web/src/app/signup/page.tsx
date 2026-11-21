@@ -26,8 +26,8 @@ import { CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuth
 import { ClientSessionProvider, useClientSession } from "@/lib/authn/clientSession";
 import { lookup } from "@/lib/lookup";
 import { SIGNUP_CONTACT_EMAIL } from "@/lib/signupConfig";
+import { useBusinessTypes } from "@/lib/businessTypes";
 import {
-  SIGNUP_VERTICALS,
   isSignupClosed,
   isSignupDeferred,
   isSignupUnverified,
@@ -292,6 +292,7 @@ function SignupForm() {
   // No default (founder, REDESIGN-2): the trade shapes every agent, script and lead column
   // this business gets, so it is a choice the person makes, never one we make for them.
   const [vertical, setVertical] = useState<string>("");
+  const businessTypes = useBusinessTypes();
   const [email, setEmail] = useState("");
 
   const derived = slug || previewSlug(businessName);
@@ -545,7 +546,13 @@ function SignupForm() {
             id={FIELD_IDS.vertical_template}
             label="Kind of business"
             hint="Shapes your agent's questions and lead columns."
-            error={valid.message("vertical_template") ?? fieldMessage(fields, "vertical_template")}
+            error={
+              valid.message("vertical_template") ??
+              fieldMessage(fields, "vertical_template") ??
+              (businessTypes.isError
+                ? "Could not load the list. Reload the page."
+                : undefined)
+            }
           >
             {(props) => (
               <select
@@ -557,9 +564,9 @@ function SignupForm() {
                 className={FIELD}
               >
                 <option value="" disabled>
-                  Choose one
+                  {businessTypes.data ? "Choose one" : "Loading the kinds of business…"}
                 </option>
-                {SIGNUP_VERTICALS.map((option) => (
+                {businessTypes.data?.choices.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>

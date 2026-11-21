@@ -34,11 +34,11 @@ from calevate_shared.lead_fields import (
     clean_core_labels,
     core_fields,
 )
+from calevate_shared.verticals import BusinessTypeKey
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.admin.routes import Vertical
 from apps.api.admin.service import tenant_exists
 from apps.api.agents import lead_fields as service
 from apps.api.agents import lead_fields_writes as writes
@@ -131,7 +131,7 @@ class ReplaceIn(BaseModel):
 class AdminReplaceIn(ReplaceIn):
     #: Take another type's standard set instead of this business's own type's. Lets an
     #: operator move an account to a new type and its fields in two deliberate steps.
-    business_type: Vertical | None = None
+    business_type: BusinessTypeKey | None = None
 
 
 class ReplaceOut(_Out):

@@ -1,0 +1,492 @@
+{
+  "about": "PLATFORM-OWNED. The business types (verticals) every picker offers, in picker order (it does not start with a clinic: no type is anybody's default). Read by calevate_shared/verticals.py, which every server reader and the business-types endpoint go through. Adding a type is an edit here and nowhere else: key (lower_snake_case, never reused or renamed, because accounts store it), label (what a picker shows), hint (what choosing the type does), health (true only for a business that gives health or medical care: cross-call memory is refused for it, compliance/caller_memory), fields (the lead details its agents start with, in the ExtractionField shape; an empty list means the business's own fields are drafted by AI from its details, as custom's are), starter (the words a ready-made agent uses until the business's own are written, agents/starters.Trade: capture must stay within fields plus the core every lead carries), and optionally examples (the placeholders the admin console shows while it creates an account of this type; a type without them shows custom's neutral ones). custom must stay: it is the type any business that fits none runs as. A field's note is for the reader of this file and is sent nowhere.",
+  "types": [
+    {
+      "key": "retail",
+      "label": "Shop, food or produce",
+      "hint": "Product, quantity, pickup or delivery",
+      "health": false,
+      "fields": [
+        {
+          "key": "product",
+          "label": "Product",
+          "type": "text",
+          "reason": "The product or item the caller asked about, as they named it ('green chilli', 'basmati rice', 'school shoes').",
+          "required": true
+        },
+        {
+          "key": "quantity",
+          "label": "Quantity",
+          "type": "text",
+          "reason": "How much they want, with the unit they used ('2 kg', 'one dozen').",
+          "required": false
+        },
+        {
+          "key": "fulfilment",
+          "label": "Pickup or delivery",
+          "type": "enum",
+          "enum_values": [
+            "Pickup",
+            "Home delivery",
+            "Will visit the store"
+          ],
+          "reason": "How the caller wants to get it. Only what the caller chose.",
+          "required": false
+        },
+        {
+          "key": "delivery_area",
+          "label": "Delivery area",
+          "type": "text",
+          "reason": "The locality to deliver to, only when the caller wants delivery.",
+          "required": false
+        },
+        {
+          "key": "asked_price",
+          "label": "Asked the price",
+          "type": "bool",
+          "reason": "true if the caller asked what something costs.",
+          "required": false
+        }
+      ],
+      "starter": {
+        "receptionist_name": "Shop counter",
+        "caller_name": "Order follow-up",
+        "topics": "what is in stock, prices, timings or delivery",
+        "booking": "an order",
+        "capture": "what they want to buy, how much, whether they will pick it up or want it delivered, and the area to deliver to",
+        "caution": "Never confirm stock, a price or a delivery time you have not been told; take the order details for the shop to confirm."
+      },
+      "examples": {
+        "org_name": "Green Basket Organics",
+        "org_slug": "green-basket-organics",
+        "knowledge_title": "This week's price list",
+        "knowledge_answer": "Free home delivery on orders above ₹500 within 5 km.",
+        "extraction_reason": "so we can pack the order before the customer arrives",
+        "script_brief": "We sell organic vegetables, fruits and groceries in Hyderabad. Callers ask what is in stock and the price, and place orders for pickup or delivery. Take the order and a call-back time.",
+        "extraction_label": "Product",
+        "extraction_options": "Pickup, Home delivery",
+        "end_call_rules": "Never promise stock or a delivery time without checking.\nAlways offer a call-back if unsure.",
+        "lead_search": "green chilli for Saturday",
+        "booking_job_title": "Take orders",
+        "booking_job_line": "Your agent can check your Google Calendar and book pickup times for callers."
+      }
+    },
+    {
+      "key": "local_services",
+      "label": "Salon or local service",
+      "hint": "Service wanted, at the shop or at home, preferred staff",
+      "health": false,
+      "fields": [
+        {
+          "key": "service_wanted",
+          "label": "Service wanted",
+          "type": "text",
+          "reason": "The service the caller asked for, in their words ('haircut', 'bridal makeup', 'AC repair', 'pest control').",
+          "required": true
+        },
+        {
+          "key": "service_at",
+          "label": "Where",
+          "type": "enum",
+          "enum_values": [
+            "At the shop",
+            "At home"
+          ],
+          "reason": "Whether the caller will come in or wants someone to come to them.",
+          "required": false
+        },
+        {
+          "key": "service_area",
+          "label": "Area",
+          "type": "text",
+          "reason": "The locality for a home visit, only when the caller wants one.",
+          "required": false
+        },
+        {
+          "key": "preferred_staff",
+          "label": "Preferred staff",
+          "type": "text",
+          "reason": "A stylist or technician the caller asked for by name.",
+          "required": false
+        },
+        {
+          "key": "slot_agreed",
+          "label": "Slot agreed",
+          "type": "bool",
+          "reason": "true ONLY if the caller agreed to a specific day and time.",
+          "required": false
+        }
+      ],
+      "starter": {
+        "receptionist_name": "Front desk",
+        "caller_name": "Customer follow-up",
+        "topics": "the services, prices, timings or location",
+        "booking": "a slot",
+        "capture": "the service they want, whether they will come in or want someone to come to them, the area for a home visit, anyone they ask for by name, and the day and time they prefer",
+        "caution": "Never promise a slot or a person's availability without checking; take the details for the team to confirm."
+      },
+      "examples": {
+        "org_name": "Glow Studio",
+        "org_slug": "glow-studio",
+        "knowledge_title": "Service menu",
+        "knowledge_answer": "Bridal packages start at ₹8,000, including a trial session.",
+        "extraction_reason": "so we can send the right stylist",
+        "script_brief": "We are a salon in Madhapur. Callers ask about prices and book haircuts, facials and bridal makeup, at the studio or at home. Book a slot and take a call-back time.",
+        "extraction_label": "Service wanted",
+        "extraction_options": "At the shop, At home",
+        "end_call_rules": "Never promise a stylist or a slot without checking.\nAlways offer a call-back if unsure.",
+        "lead_search": "bridal makeup in December",
+        "booking_job_title": "Book slots",
+        "booking_job_line": "Your agent can check your Google Calendar and book callers into a free slot."
+      }
+    },
+    {
+      "key": "automobile",
+      "label": "Automobile or repairs",
+      "hint": "Vehicle, work needed, registration, pickup",
+      "health": false,
+      "fields": [
+        {
+          "key": "vehicle",
+          "label": "Vehicle",
+          "type": "text",
+          "reason": "The make and model the caller named ('Activa', 'Swift 2019').",
+          "required": true
+        },
+        {
+          "key": "vehicle_kind",
+          "label": "Vehicle type",
+          "type": "enum",
+          "enum_values": [
+            "Two-wheeler",
+            "Car",
+            "Auto or commercial"
+          ],
+          "required": false
+        },
+        {
+          "key": "work_needed",
+          "label": "Work needed",
+          "type": "text",
+          "reason": "The service, repair or purchase the caller asked about ('general service', 'brake noise', 'new tyres', 'test drive').",
+          "required": false
+        },
+        {
+          "key": "vehicle_reg",
+          "label": "Registration",
+          "type": "text",
+          "reason": "The vehicle's registration plate as the caller read it out.",
+          "required": false,
+          "note": "Not 'registration number': a label or reason holding 'number' makes the field a phone field (calevate_shared.extraction.is_phone_field), and every plate would then be flagged as not a standard Indian mobile."
+        },
+        {
+          "key": "pickup_needed",
+          "label": "Pickup needed",
+          "type": "bool",
+          "reason": "true ONLY if the caller asked for the vehicle to be collected.",
+          "required": false
+        }
+      ],
+      "starter": {
+        "receptionist_name": "Service desk",
+        "caller_name": "Service follow-up",
+        "topics": "servicing, repairs, spare parts, prices or timings",
+        "booking": "a service slot",
+        "capture": "the vehicle and its model, what work it needs, the registration if they have it, whether they want it picked up, and the day that suits them",
+        "caution": "Never quote a repair cost or a delivery date before the vehicle is inspected; offer an inspection instead."
+      },
+      "examples": {
+        "org_name": "Sai Ram Motors",
+        "org_slug": "sai-ram-motors",
+        "knowledge_title": "Service price list",
+        "knowledge_answer": "Pickup and drop is free within 5 km for a general service.",
+        "extraction_reason": "so the workshop can plan the day's jobs",
+        "script_brief": "We are a two-wheeler and car service centre in Kukatpally. Callers book services, ask about repair costs and spare parts, and ask for pickup. Book a service slot and take the vehicle details.",
+        "extraction_label": "Vehicle",
+        "extraction_options": "Two-wheeler, Car, Auto or commercial",
+        "end_call_rules": "Never quote a repair cost before inspection.\nAlways offer a call-back if unsure.",
+        "lead_search": "Activa service on Monday",
+        "booking_job_title": "Book service slots",
+        "booking_job_line": "Your agent can check your Google Calendar and book vehicles in."
+      }
+    },
+    {
+      "key": "clinic",
+      "label": "Clinic or health",
+      "hint": "Reason for the visit, urgency, preferred doctor",
+      "health": true,
+      "fields": [
+        {
+          "key": "symptom",
+          "label": "Symptom / reason",
+          "type": "text",
+          "reason": "What the caller says is wrong",
+          "required": true
+        },
+        {
+          "key": "preferred_doctor",
+          "label": "Preferred doctor",
+          "type": "text",
+          "reason": "Named doctor if the caller asks for one",
+          "required": false
+        },
+        {
+          "key": "urgency",
+          "label": "Urgency",
+          "type": "enum",
+          "enum_values": [
+            "emergency",
+            "same_day",
+            "this_week",
+            "routine"
+          ],
+          "required": true
+        },
+        {
+          "key": "preferred_slot",
+          "label": "Preferred slot",
+          "type": "text",
+          "reason": "Day/time the caller wants",
+          "required": false
+        },
+        {
+          "key": "insurance",
+          "label": "Insurance",
+          "type": "text",
+          "reason": "Insurer or cash payment",
+          "required": false
+        }
+      ],
+      "starter": {
+        "receptionist_name": "Clinic receptionist",
+        "caller_name": "Patient follow-up",
+        "topics": "the doctors, timings, consultation fees or location",
+        "booking": "an appointment",
+        "capture": "the reason for the visit, how soon they need to be seen, the day and time they prefer, any doctor they ask for, and whether they will use insurance",
+        "caution": "Never give medical advice or a diagnosis. If it sounds like an emergency, ask them to go to the nearest hospital or call emergency services straight away."
+      },
+      "examples": {
+        "org_name": "Sunrise Clinic",
+        "org_slug": "sunrise-clinic",
+        "knowledge_title": "Clinic hours",
+        "knowledge_answer": "Our consultation fee is ₹500, adjusted against any treatment on the same day.",
+        "extraction_reason": "so we can route urgent cases to a doctor first",
+        "script_brief": "We are a dental clinic in Hyderabad. Callers usually want to book a check-up or ask about teeth cleaning prices. Book appointments and take a callback number.",
+        "extraction_label": "Reason for visit",
+        "extraction_options": "New, Follow-up, Emergency",
+        "end_call_rules": "Never promise a same-day appointment.\nAlways offer a callback if unsure.",
+        "lead_search": "teeth cleaning on Saturday",
+        "booking_job_title": "Book appointments",
+        "booking_job_line": "Your agent can check your Google Calendar and book callers in."
+      }
+    },
+    {
+      "key": "real_estate",
+      "label": "Real estate",
+      "hint": "Budget, locality, size, site visit",
+      "health": false,
+      "fields": [
+        {
+          "key": "budget_lakhs",
+          "label": "Budget (lakhs)",
+          "type": "number",
+          "reason": "Budget in LAKHS of rupees: '50 lakhs' is 50, '2 crore' is 200. Two numbers before one unit are a range, never a decimal: 'one two crores' and '1-2 crore' mean one to two crore, so 200; 'two three lakhs' is 3. A decimal needs a point or a half: 'one point two crore' or '1.2 crore' is 120, 'one and a half crore' is 150. Never rupees; take the upper figure of a range; leave it empty if they state none. The caller may say it in any language.",
+          "required": true,
+          "note": "Key budget_lakhs, not budget: hard rule 7 money is NUMERIC INR, and a bare '50' in a column called Budget is fifty rupees to one reader and fifty lakhs to the next, so the unit is in the key, the label and the reason (the reason is the extraction model's instruction, TRD 7). Spoken Indian budgets run two numbers into one unit ('one two crores') to mean a range; with only a decimal example the model read that as 1.2 crore and saved 120 for a 1-2 crore buyer (production call, 24 Oct 2026), so the range and decimal forms are both spelled out. Migration b3d7e2a9c461 refreshes agents still carrying the previous wording. The per-vertical regression cases are the re_* cases in tests/fixtures/golden_transcripts.json; tests/vertical_real_estate_test.py fails when a field here has no fixture."
+        },
+        {
+          "key": "preferred_location",
+          "label": "Location",
+          "type": "text",
+          "reason": "Area or locality the CALLER wants, in their own words. Never a locality only the agent named.",
+          "required": true
+        },
+        {
+          "key": "bhk_size",
+          "label": "BHK",
+          "type": "enum",
+          "enum_values": [
+            "1BHK",
+            "2BHK",
+            "3BHK",
+            "4BHK",
+            "5BHK+"
+          ],
+          "reason": "Number of bedrooms the caller asked for, as they counted it, in any language: 'two BHK' or 'double bedroom' is 2BHK, 'four bedroom' is 4BHK, 'five' or more is 5BHK+. Never round to a nearer size. Not one the agent offered, and not one they rejected.",
+          "required": false,
+          "note": "One value per bedroom count up to five. With '4BHK+' as the top value, a caller who said 'Five' was saved as 3BHK on a production call of 25 Oct 2026: a count the list does not name was mapped to a neighbouring value instead of the open bucket. Migration c8e2f4a6b913 moves agents still holding the previous field."
+        },
+        {
+          "key": "timeline",
+          "label": "Timeline",
+          "type": "text",
+          "reason": "When they intend to buy or need possession, in the caller's own words ('in six months', 'next year') — never resolved to a date.",
+          "required": false
+        },
+        {
+          "key": "site_visit_interest",
+          "label": "Site visit",
+          "type": "bool",
+          "reason": "true ONLY if the caller agreed to a site visit. A refusal ('not now', 'no need') is not a yes, and neither is the agent offering one.",
+          "required": false
+        }
+      ],
+      "starter": {
+        "receptionist_name": "Property enquiries",
+        "caller_name": "Buyer follow-up",
+        "topics": "the projects, prices, locations or loan approvals",
+        "booking": "a site visit",
+        "capture": "the area they want, the size of home (how many BHK), their budget, and when they plan to buy",
+        "caution": "Never quote a final price or promise that a unit is still available; offer a site visit instead."
+      },
+      "examples": {
+        "org_name": "Skyline Properties",
+        "org_slug": "skyline-properties",
+        "knowledge_title": "Site visit timings",
+        "knowledge_answer": "The 2 BHK units in Gachibowli start at ₹85 lakh, and the price on the phone is indicative until a site visit.",
+        "extraction_reason": "so we can call back the buyers whose budget matches an available unit",
+        "script_brief": "We are a property office in Hyderabad. Callers usually ask about available flats, price and location. Book site visits and take a budget and a callback number.",
+        "extraction_label": "Budget",
+        "extraction_options": "Ready to move, Under construction, Plot",
+        "end_call_rules": "Never quote a final price on the phone.\nAlways offer a site visit if unsure.",
+        "lead_search": "3BHK in Gachibowli",
+        "booking_job_title": "Book site visits",
+        "booking_job_line": "Your agent can check your Google Calendar and book site visits for callers."
+      }
+    },
+    {
+      "key": "insurance",
+      "label": "Insurance",
+      "hint": "Policy type, cover, renewal date",
+      "health": false,
+      "fields": [
+        {
+          "key": "policy_type",
+          "label": "Policy type",
+          "type": "enum",
+          "enum_values": [
+            "health",
+            "life",
+            "motor",
+            "other"
+          ],
+          "required": true
+        },
+        {
+          "key": "sum_assured",
+          "label": "Sum assured",
+          "type": "number",
+          "reason": "Cover amount in LAKHS of rupees: '5 lakhs' is 5, '1 crore' is 100. Two numbers before one unit are a range, take the upper figure: 'ten fifteen lakhs' is 15, in whatever language it is said. A decimal needs a point or a half: '1.5 crore' is 150. Never rupees; leave it empty if they state none.",
+          "required": false,
+          "note": "The same spoken-range rule as real_estate budget_lakhs (D-881)."
+        },
+        {
+          "key": "renewal_due",
+          "label": "Renewal due",
+          "type": "date",
+          "reason": "Existing policy renewal date if mentioned",
+          "required": false
+        },
+        {
+          "key": "existing_insurer",
+          "label": "Existing insurer",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "starter": {
+        "receptionist_name": "Policy desk",
+        "caller_name": "Policy follow-up",
+        "topics": "the policies, premiums, renewals or claims",
+        "booking": "a conversation with an advisor",
+        "capture": "the kind of policy they want, the cover amount they have in mind, when their renewal is due, and who insures them today",
+        "caution": "Never confirm a premium, a cover amount or a claim outcome on the phone; take the details for an advisor."
+      },
+      "examples": {
+        "org_name": "Sujatha Insurance Services",
+        "org_slug": "sujatha-insurance",
+        "knowledge_title": "Renewal documents",
+        "knowledge_answer": "A term life renewal needs the policy number and a current address proof; the premium is confirmed once we pull up the policy.",
+        "extraction_reason": "so we can call back the policies that are closest to lapsing first",
+        "script_brief": "We are an insurance agency in Vijayawada. Callers usually ask about renewals, premiums and claims. Take the policy number and book an advisor callback.",
+        "extraction_label": "Policy type",
+        "extraction_options": "New policy, Renewal, Claim",
+        "end_call_rules": "Never confirm a premium without the policy number.\nAlways offer an advisor callback if unsure.",
+        "lead_search": "renewal due this month",
+        "booking_job_title": "Book meetings",
+        "booking_job_line": "Your agent can check your Google Calendar and book callers a meeting with you."
+      }
+    },
+    {
+      "key": "education",
+      "label": "Education or coaching",
+      "hint": "Course, class or year, demo class",
+      "health": false,
+      "fields": [
+        {
+          "key": "course_interest",
+          "label": "Course",
+          "type": "text",
+          "reason": "Course or stream the caller asked about",
+          "required": true
+        },
+        {
+          "key": "student_class",
+          "label": "Class / year",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "fee_concern",
+          "label": "Fee concern",
+          "type": "bool",
+          "reason": "Whether cost was raised as a blocker",
+          "required": false
+        },
+        {
+          "key": "demo_booked",
+          "label": "Demo booked",
+          "type": "bool",
+          "required": false
+        }
+      ],
+      "starter": {
+        "receptionist_name": "Admissions desk",
+        "caller_name": "Admissions follow-up",
+        "topics": "the courses, batch timings, fees or admissions",
+        "booking": "a counselling session",
+        "capture": "the course they are interested in, the student's class or year, any concern about fees, and whether they would like a demo class",
+        "caution": "Never promise a seat, a scholarship or a result; offer a counselling session instead."
+      },
+      "examples": {
+        "org_name": "Vidya Coaching Centre",
+        "org_slug": "vidya-coaching",
+        "knowledge_title": "Batch timings",
+        "knowledge_answer": "The NEET crash course is ₹45,000 for the weekend batch, and the fee can be paid in two instalments.",
+        "extraction_reason": "so we can call back the parents whose child is closest to an exam date",
+        "script_brief": "We are a coaching centre in Guntur. Callers usually ask about courses, batch timings and fees. Book counselling sessions and take the student's class and a callback number.",
+        "extraction_label": "Course",
+        "extraction_options": "Enquiry, Demo booked, Admitted",
+        "end_call_rules": "Never promise a seat in a batch that is full.\nAlways offer a callback if unsure.",
+        "lead_search": "NEET weekend batch",
+        "booking_job_title": "Book counselling sessions",
+        "booking_job_line": "Your agent can check your Google Calendar and book counselling sessions for callers."
+      }
+    },
+    {
+      "key": "custom",
+      "label": "Something else",
+      "hint": "Details drafted once from the business's own details",
+      "health": false,
+      "fields": [],
+      "starter": {
+        "receptionist_name": "Receptionist",
+        "caller_name": "Lead follow-up",
+        "topics": "what you offer, prices, timings or location",
+        "booking": "a booking",
+        "capture": "what they need and the day or time that suits them",
+        "caution": "Never promise a price, a delivery date or availability without checking; say the team will confirm."
+      }
+    }
+  ]
+}

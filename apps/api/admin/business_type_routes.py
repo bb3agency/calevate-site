@@ -18,12 +18,11 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
+from calevate_shared import verticals
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict
-from scripts.seed import BUSINESS_TYPE_LABELS
 
 from apps.api.admin import business_type as service
-from apps.api.admin.routes import Vertical
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
@@ -64,16 +63,16 @@ class BusinessTypeOut(_Out):
     business_type: str | None
     business_type_label: str | None
     unconfirmed: UnconfirmedOut | None
-    #: Every type, in picker order (`scripts/seed.BUSINESS_TYPE_LABELS`).
+    #: Every type, in picker order (`calevate_shared/verticals.json`).
     choices: list[BusinessTypeChoiceOut]
 
 
 class ConfirmBusinessTypeIn(_Out):
-    business_type: Vertical
+    business_type: verticals.BusinessTypeKey
 
 
 def _label(value: str | None) -> str | None:
-    return None if value is None else BUSINESS_TYPE_LABELS.get(value, value)
+    return None if value is None else verticals.labels().get(value, value)
 
 
 def _out(tenant_id: UUID, state: service.BusinessTypeState) -> BusinessTypeOut:
@@ -92,7 +91,7 @@ def _out(tenant_id: UUID, state: service.BusinessTypeState) -> BusinessTypeOut:
             reason=pending.reason,
             suggested_at=pending.suggested_at,
         ),
-        choices=[BusinessTypeChoiceOut(value=k, label=v) for k, v in BUSINESS_TYPE_LABELS.items()],
+        choices=[BusinessTypeChoiceOut(value=k, label=v) for k, v in verticals.labels().items()],
     )
 
 

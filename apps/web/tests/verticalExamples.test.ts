@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { examplesFor, type VerticalExamples } from "@/lib/verticalExamples";
+import type { VerticalExamples } from "@/lib/verticalExamples";
+
+import { HEALTH_TYPE_KEYS, SHIPPED_TYPE_KEYS, TYPES_WITH_EXAMPLES, examplesOf } from "./businessTypesFixture";
 
 /**
  * Client setup must describe the client's trade, not a dental clinic.
@@ -16,33 +18,23 @@ import { examplesFor, type VerticalExamples } from "@/lib/verticalExamples";
  * the one here; what was here is a form that instructs forty times in the wrong trade.
  */
 
-const VERTICALS = [
-  "retail",
-  "local_services",
-  "automobile",
-  "clinic",
-  "real_estate",
-  "insurance",
-  "education",
-  "custom",
-] as const;
 
 /** Words that belong to a clinic and to nothing else we sell to. */
 const CLINICAL =
   /doctor|patient|dentist|dental|consultation|walk-in|clinic|hospital|prescription|appointment/i;
 
 describe("every vertical gets its own examples", () => {
-  it.each(VERTICALS)("%s fills every field", (vertical) => {
-    const eg = examplesFor(vertical);
+  it.each(SHIPPED_TYPE_KEYS)("%s fills every field", (vertical) => {
+    const eg = examplesOf(vertical);
     for (const [field, value] of Object.entries(eg) as [keyof VerticalExamples, string][]) {
       expect(value.trim().length, `${vertical}.${field} is empty`).toBeGreaterThan(0);
     }
   });
 
-  it.each(VERTICALS.filter((v) => v !== "clinic"))(
+  it.each(SHIPPED_TYPE_KEYS.filter((v) => !HEALTH_TYPE_KEYS.includes(v)))(
     "%s says nothing clinical",
     (vertical) => {
-      const offenders = Object.entries(examplesFor(vertical))
+      const offenders = Object.entries(examplesOf(vertical))
         .filter(([, value]) => CLINICAL.test(String(value)))
         .map(([field]) => field);
       expect(
@@ -56,8 +48,8 @@ describe("every vertical gets its own examples", () => {
   it("gives each trade DIFFERENT examples rather than one set with a label", () => {
     // The cheap wrong fix is a table whose rows are all the clinic's. Compare the field
     // an operator reads first — what the business sells.
-    const services = VERTICALS.map((v) => examplesFor(v).scriptBrief);
-    expect(new Set(services).size).toBe(VERTICALS.length);
+    const services = TYPES_WITH_EXAMPLES.map((v) => examplesOf(v).scriptBrief);
+    expect(new Set(services).size).toBe(TYPES_WITH_EXAMPLES.length);
   });
 });
 
@@ -67,16 +59,16 @@ describe("an unknown vertical", () => {
     // quietly describe a dental practice. `custom`'s examples read as instructions, so a
     // fallback looks like a fallback instead of looking like a business.
     for (const value of [null, undefined, "", "chiropractor", "toString"]) {
-      expect(examplesFor(value)).toEqual(examplesFor("custom"));
-      expect(CLINICAL.test(examplesFor(value).knowledgeTitle)).toBe(false);
+      expect(examplesOf(value)).toEqual(examplesOf("custom"));
+      expect(CLINICAL.test(examplesOf(value).knowledgeTitle)).toBe(false);
     }
   });
 
   it("is not fooled by a prototype key", () => {
     // `key in table` walks the prototype chain, so `constructor` would report as present
     // and the read would yield the `Object` function. The vertical comes off the wire.
-    const eg = examplesFor("constructor");
+    const eg = examplesOf("constructor");
     expect(typeof eg.knowledgeTitle).toBe("string");
-    expect(eg).toEqual(examplesFor("custom"));
+    expect(eg).toEqual(examplesOf("custom"));
   });
 });

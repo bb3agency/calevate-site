@@ -49,11 +49,11 @@ from apps.api.compliance.deletion import (
 from apps.api.compliance.deletion_proof import certificate
 from apps.api.compliance.deletion_routes import ErasureProofOut
 from apps.api.compliance.export import subject_ref
+from apps.api.compliance.retention_defaults import DEFAULT_RETENTION_POLICIES
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.workers import retention
 from apps.workers.retention import apply_retention, execute_deletion_request, sweep_tenant
-from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import text
 from tests.conftest import create_org_with_receptionist
 

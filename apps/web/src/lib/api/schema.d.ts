@@ -14460,6 +14460,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/public/business-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every business type a picker offers
+         * @description The business types in picker order, each with its label, what choosing it does and the examples the admin console shows for it. The same list `POST /v1/auth/signup` and the admin account forms accept.
+         */
+        get: operations["list_business_types_v1_public_business_types_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/public/rate-card": {
         parameters: {
             query?: never;
@@ -15610,7 +15630,7 @@ export interface components {
             /** Agent Ids */
             agent_ids?: string[] | null;
             /** Business Type */
-            business_type?: ("retail" | "local_services" | "automobile" | "clinic" | "real_estate" | "insurance" | "education" | "custom") | null;
+            business_type?: string | null;
         };
         /** AdminWhatsAppAccountOut */
         AdminWhatsAppAccountOut: {
@@ -17649,6 +17669,49 @@ export interface components {
             /** Value */
             value: string;
         };
+        /**
+         * BusinessTypeExamplesOut
+         * @description The placeholders the admin console shows while it creates an account of this type
+         *     (`calevate_shared.verticals.EXAMPLE_KEYS`).
+         */
+        BusinessTypeExamplesOut: {
+            /** Booking Job Line */
+            booking_job_line?: string | null;
+            /** Booking Job Title */
+            booking_job_title?: string | null;
+            /** End Call Rules */
+            end_call_rules?: string | null;
+            /** Extraction Label */
+            extraction_label?: string | null;
+            /** Extraction Options */
+            extraction_options?: string | null;
+            /** Extraction Reason */
+            extraction_reason?: string | null;
+            /** Knowledge Answer */
+            knowledge_answer?: string | null;
+            /** Knowledge Title */
+            knowledge_title?: string | null;
+            /** Lead Search */
+            lead_search?: string | null;
+            /** Org Name */
+            org_name?: string | null;
+            /** Org Slug */
+            org_slug?: string | null;
+            /** Script Brief */
+            script_brief?: string | null;
+        };
+        /** BusinessTypeOptionOut */
+        BusinessTypeOptionOut: {
+            examples: components["schemas"]["BusinessTypeExamplesOut"] | null;
+            /** Has Standard Set */
+            has_standard_set: boolean;
+            /** Hint */
+            hint: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+        };
         /** BusinessTypeOut */
         BusinessTypeOut: {
             /** Business Type */
@@ -17663,6 +17726,13 @@ export interface components {
              */
             tenant_id: string;
             unconfirmed: components["schemas"]["UnconfirmedOut"] | null;
+        };
+        /** BusinessTypesOut */
+        BusinessTypesOut: {
+            /** Choices */
+            choices: components["schemas"]["BusinessTypeOptionOut"][];
+            /** Custom */
+            custom: string;
         };
         /**
          * BuyNumberIn
@@ -21256,11 +21326,8 @@ export interface components {
         };
         /** ConfirmBusinessTypeIn */
         ConfirmBusinessTypeIn: {
-            /**
-             * Business Type
-             * @enum {string}
-             */
-            business_type: "retail" | "local_services" | "automobile" | "clinic" | "real_estate" | "insurance" | "education" | "custom";
+            /** Business Type */
+            business_type: string;
         };
         /** ConnectOut */
         ConnectOut: {
@@ -22621,11 +22688,8 @@ export interface components {
             owner: components["schemas"]["OwnerIn"];
             /** Slug */
             slug?: string | null;
-            /**
-             * Vertical Template
-             * @enum {string}
-             */
-            vertical_template: "retail" | "local_services" | "automobile" | "clinic" | "real_estate" | "insurance" | "education" | "custom";
+            /** Vertical Template */
+            vertical_template: string;
         };
         /** CreateOrgOut */
         CreateOrgOut: {
@@ -23771,7 +23835,7 @@ export interface components {
             /** Name */
             name?: string | null;
             /** Vertical Template */
-            vertical_template?: ("retail" | "local_services" | "automobile" | "clinic" | "real_estate" | "insurance" | "education" | "custom") | null;
+            vertical_template?: string | null;
         };
         /** EditTenantOut */
         EditTenantOut: {
@@ -32174,7 +32238,7 @@ export interface components {
              */
             kind: "choices" | "single_choice" | "text" | "address" | "services" | "hours";
             /** Maps To */
-            maps_to: ("trade" | "location" | "offer" | "hours" | "booking") | null;
+            maps_to: ("trade" | "location" | "offer" | "hours" | "booking" | "facts") | null;
             /** Options */
             options: string[];
             /** Prompt */
@@ -66402,6 +66466,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PerformanceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_business_types_v1_public_business_types_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessTypesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -9,7 +9,7 @@ import { MockStage } from "./stage";
  *
  * Drawn from the console: the list is `app/c/[slug]/leads` (search placeholder, the
  * "What did they ask for?" box, Columns, the CSV export, Owner); the captured columns are
- * the real-estate template's (`scripts/seed.py`: "Budget (lakhs)", "Location", "BHK",
+ * the real-estate template's (`calevate_shared/verticals.json`: "Budget (lakhs)", "Location", "BHK",
  * "Site visit"); the opened lead is `leads/[leadId]` — "Stage", "Owner", and a "History"
  * whose event titles are the ones `apps/api/crm/service.py` writes ("Call placed",
  * "Moved to hot", "Assigned to …"). Here a person moves the lead to hot; a call whose outcome

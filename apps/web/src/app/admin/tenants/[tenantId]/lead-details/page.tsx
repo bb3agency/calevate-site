@@ -9,7 +9,13 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
 import { LeadDetailsView } from "@/components/leadFields/LeadDetailsView";
 import { FIELD, FIELD_LABEL, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
-import { BUSINESS_TYPES, businessTypeLabel, type BusinessType } from "@/lib/businessTypes";
+import {
+  businessTypeLabel,
+  businessTypeOption,
+  useBusinessTypes,
+  type BusinessType,
+  type BusinessTypes,
+} from "@/lib/businessTypes";
 import {
   useAdminDraftLeadFields,
   useAdminLeadFields,
@@ -38,6 +44,7 @@ export default function TenantLeadDetailsPage({
 }) {
   const { tenantId } = use(params);
   const fields = useAdminLeadFields(tenantId);
+  const businessTypes = useBusinessTypes();
   const write = useAdminAccess("admin:tenants", "change a client's lead details");
   const save = useAdminSaveAgentLeadFields(tenantId);
   const draft = useAdminDraftLeadFields(tenantId);
@@ -97,10 +104,15 @@ export default function TenantLeadDetailsPage({
             canWrite={write.allowed}
             writeReason={write.reason}
             writes={writes}
-            eg={examplesFor(fields.data.business_type)}
+            eg={examplesFor(businessTypeOption(businessTypes.data, fields.data.business_type))}
           />
-          {write.allowed && fields.data.agents.length > 0 && (
-            <ReplaceAll data={fields.data} replace={replace} status={replaceFeedback.status} />
+          {write.allowed && fields.data.agents.length > 0 && businessTypes.data && (
+            <ReplaceAll
+              data={fields.data}
+              types={businessTypes.data}
+              replace={replace}
+              status={replaceFeedback.status}
+            />
           )}
         </>
       )}
@@ -110,17 +122,20 @@ export default function TenantLeadDetailsPage({
 
 function ReplaceAll({
   data,
+  types,
   replace,
   status,
 }: {
   data: LeadFields;
+  types: BusinessTypes;
   replace: ReturnType<typeof useAdminReplaceLeadFields>;
   status: FeedbackStatus;
 }) {
-  const offered = BUSINESS_TYPES.filter((option) => option.value !== "custom");
+  const offered = types.choices.filter((option) => option.has_standard_set);
   const current = offered.find((option) => option.value === data.business_type)?.value;
-  const [type, setType] = useState<BusinessType>(current ?? offered[0].value);
+  const [type, setType] = useState<BusinessType>(current ?? offered[0]?.value ?? "");
   const [confirming, setConfirming] = useState(false);
+  if (offered.length === 0) return null;
   return (
     <Section
       className="max-w-3xl"
@@ -134,7 +149,7 @@ function ReplaceAll({
             className={`${FIELD} w-full sm:w-72`}
             value={type}
             onChange={(event) => {
-              const next = BUSINESS_TYPES.find((option) => option.value === event.target.value);
+              const next = offered.find((option) => option.value === event.target.value);
               if (next) setType(next.value);
               resetIfSettled(replace);
             }}
@@ -166,7 +181,7 @@ function ReplaceAll({
       )}
       {confirming && (
         <ConfirmDialog
-          title={`Replace every agent's details with the ${businessTypeLabel(type).toLowerCase()} set?`}
+          title={`Replace every agent's details with the ${businessTypeLabel(types, type).toLowerCase()} set?`}
           confirmLabel="Replace details"
           pendingLabel="Replacing…"
           status={status}
@@ -182,7 +197,7 @@ function ReplaceAll({
         >
           <p>
             {data.agents.length} agent{data.agents.length === 1 ? "" : "s"} will write down the
-            standard {businessTypeLabel(type).toLowerCase()} details from the next call. The
+            standard {businessTypeLabel(types, type).toLowerCase()} details from the next call. The
             client is not told; their Lead details screen shows the new list.
           </p>
           <p>Answers already captured stay on their leads and calls, under their old names.</p>

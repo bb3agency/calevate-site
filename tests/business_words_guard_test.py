@@ -48,7 +48,7 @@ TRADE_WORDS = re.compile(
     re.IGNORECASE,
 )
 
-#: The business types whose own rows may hold their words (`scripts/seed.BUSINESS_TYPE_LABELS`).
+#: The business types whose own rows may hold their words (`calevate_shared/verticals.json`).
 BUSINESS_TYPES = frozenset(
     {
         "retail",

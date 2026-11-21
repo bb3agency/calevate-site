@@ -8,7 +8,7 @@ import { founderLine } from "@/lib/founderLines";
  * "Transcript" card with "Agent"/"Caller" turns, and the "Captured details" and "Summary"
  * cards beside it.
  *
- * `captured` uses the trade's `VERTICAL_TEMPLATES` labels from `scripts/seed.py`, all of
+ * `captured` uses the trade's field labels from `calevate_shared/verticals.json`, all of
  * them and in the seed's order (`tests/industryMockups.test.ts` diffs them against
  * `lib/marketing/industries.ts`, which `publicLanding.test.tsx` diffs against the seed).
  * Values are what the console prints: an enum's words rather than its snake_case value, a

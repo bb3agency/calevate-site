@@ -27,7 +27,6 @@
 import { useMutation } from "@tanstack/react-query";
 
 import { clientRealmSession } from "@/lib/authn/realmSessions";
-import { BUSINESS_TYPES } from "@/lib/businessTypes";
 
 import { ApiProblem, apiRequest, type Session } from "./client";
 import type { components } from "./schema";
@@ -48,10 +47,6 @@ export type SignupOut = Schemas["SignupOut"];
 export function signupSession(): Session {
   return clientRealmSession("");
 }
-
-/** The business types (`lib/businessTypes.ts`, the one list). The API refuses anything else
- * with `unknown_vertical_template`, so this stays a list and never a free text. */
-export const SIGNUP_VERTICALS = BUSINESS_TYPES;
 
 /** Mirrors `admin_service.slugify` closely enough to PREVIEW the URL. The server
  * derives, validates, reserves and de-collides the real one — and the slug is

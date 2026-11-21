@@ -4,8 +4,8 @@ import { copyUnder } from "./copyScan";
 
 /**
  * Calevate serves every kind of small business, so text written for ANY client never
- * assumes a clinic. Examples that belong to one trade live in `lib/verticalExamples.ts`,
- * keyed by the client's business type, and `verticalExamples.test.ts` keeps the other
+ * assumes a clinic. Examples that belong to one trade live in `calevate_shared/verticals.json`,
+ * served by business type, and `verticalExamples.test.ts` keeps the other
  * trades' rows free of clinic words.
  *
  * Marketing pages are not read: there a clinic is one named industry among several.
@@ -32,26 +32,14 @@ const EXEMPT = [
   "src/lib/marketing",
   "src/lib/legal",
   "src/lib/api/schema.d.ts",
-  // Per-trade examples; the clinic row is the clinic's own.
-  "src/lib/verticalExamples.ts",
 ];
 
 const CLINIC_ONLY =
   /\b(?:clinics?|hospitals?|patients?|doctors?|dentists?|dental|appointments?|symptoms?|prescriptions?|OPD)\b/i;
 
-/** Places where the word names the clinic business type itself, with the reason. */
-const ALLOWED: ReadonlyArray<{ file: string; text: RegExp; reason: string }> = [
-  {
-    file: "src/lib/businessTypes.ts",
-    text: /^Clinic or health$/,
-    reason: "the clinic business type's own label, in the one list every picker reads",
-  },
-  {
-    file: "src/lib/businessTypes.ts",
-    text: /^Reason for the visit, urgency, preferred doctor$/,
-    reason: "the lead details the clinic business type seeds, shown only beside that type",
-  },
-];
+/** Places where the word names the clinic business type itself, with the reason. The type's
+ * own label and hint come from the server (`calevate_shared/verticals.json`), not from here. */
+const ALLOWED: ReadonlyArray<{ file: string; text: RegExp; reason: string }> = [];
 
 /**
  * Files owned by other work that still carry the wording; reported for routing. Each

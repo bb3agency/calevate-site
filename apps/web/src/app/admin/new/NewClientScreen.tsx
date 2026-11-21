@@ -10,16 +10,17 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
 import { ADMIN_PAGE, sentenceCase } from "@/components/admin/kit";
 import { Section } from "@/components/console/section";
-import { FIELD, FIELD_HINT, FIELD_LABEL, MonoValue, NoticeBox, ProblemNotice } from "@/components/ui";
+import { FIELD, FIELD_HINT, FIELD_LABEL, MonoValue, NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
 import { useCreateTenant, type CreateOrgIn } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
 import { previewSlug, slugIsDerivable } from "@/lib/api/signup";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
+import { businessTypeOption, useBusinessTypes } from "@/lib/businessTypes";
 import { examplesFor } from "@/lib/verticalExamples";
 
 import { NextSteps } from "./NextSteps";
-import { VERTICALS, refusalReason, type OwnerDetails } from "./shared";
+import { refusalReason, type OwnerDetails } from "./shared";
 
 const SLUG_REFUSAL_ID = "new-client-slug-refusal";
 
@@ -35,6 +36,9 @@ export function NewClientScreen() {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [vertical, setVertical] = useState<CreateOrgIn["vertical_template"] | null>(null);
+  const businessTypes = useBusinessTypes();
+  const typeChoices = businessTypes.data?.choices;
+  const examples = examplesFor(businessTypeOption(businessTypes.data, vertical));
   const [owner, setOwner] = useState<OwnerDetails>({ name: "", email: "", phone: "" });
   const [created, setCreated] = useState<{ id: string; slug: string; status: string; email: string } | null>(null);
 
@@ -71,7 +75,7 @@ export function NewClientScreen() {
               label: "Business type",
               type: "select",
               value: vertical ?? "",
-              options: VERTICALS.map((option) => ({ value: option.value, label: option.label })),
+              options: typeChoices?.map((option) => ({ value: option.value, label: option.label })) ?? null,
             },
             { id: "new-client-owner-name", label: "Owner's name", type: "text", value: owner.name, personal: "name" },
             { id: "new-client-email", label: "Owner's email", type: "text", value: owner.email, personal: "email" },
@@ -86,7 +90,7 @@ export function NewClientScreen() {
               else if (item.field_id === "new-client-email") ownerField("email")(value);
               else if (item.field_id === "new-client-owner-phone") ownerField("phone")(value);
               else if (item.field_id === "new-client-vertical") {
-                const option = VERTICALS.find((row) => row.value === item.value);
+                const option = typeChoices?.find((row) => row.value === item.value);
                 if (option) {
                   setVertical(option.value);
                   setTypeMissing(false);
@@ -161,7 +165,7 @@ export function NewClientScreen() {
                 minLength={2}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder={examplesFor(vertical).orgName}
+                placeholder={examples.orgName}
                 className={FIELD}
               />
               {valid.error("name")}
@@ -181,7 +185,7 @@ export function NewClientScreen() {
                 minLength={mustChooseSlug ? 3 : undefined}
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
-                placeholder={previewSlug(name) || examplesFor(vertical).orgSlug}
+                placeholder={previewSlug(name) || examples.orgSlug}
                 autoComplete="off"
                 autoCapitalize="none"
                 autoCorrect="off"
@@ -213,8 +217,15 @@ export function NewClientScreen() {
                   lead columns.
                 </InfoTip>
               </legend>
+              {businessTypes.error || !typeChoices ? (
+                businessTypes.error ? (
+                  <ProblemNotice error={businessTypes.error} onRetry={() => void businessTypes.refetch()} />
+                ) : (
+                  <Skeleton rows={2} label="Loading the business types" />
+                )
+              ) : (
               <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {VERTICALS.map((option) => (
+                {typeChoices.map((option) => (
                   <label
                     key={option.value}
                     className={`${CHOICE_CARD} ${vertical === option.value ? CHOICE_ON : CHOICE_OFF}`}
@@ -238,6 +249,7 @@ export function NewClientScreen() {
                   </label>
                 ))}
               </div>
+              )}
               {typeMissing && (
                 <FieldMessage id="new-client-vertical-error">Choose the business type.</FieldMessage>
               )}

@@ -14,7 +14,7 @@ import { Building2, GraduationCap, Stethoscope, Umbrella } from "lucide-react";
  *
  * ## `fields` IS THE SEED, LABEL FOR LABEL
  *
- * Copied verbatim and in order from `VERTICAL_TEMPLATES` in `scripts/seed.py`, and
+ * Copied verbatim and in order from the fields in `calevate_shared/verticals.json`, and
  * `publicLanding.test.tsx` reads them back out of the rendered DOM and diffs them against
  * that file. The value of this list to a buyer is that it is the actual first screen of
  * their agent; a prettier label here is a small lie that only shows up on the day they log
@@ -37,7 +37,7 @@ export interface Industry {
   readonly id: string;
   readonly icon: typeof Stethoscope;
   readonly name: string;
-  /** The `VERTICAL_TEMPLATES` labels, verbatim and in the seed's order. */
+  /** The `calevate_shared/verticals.json` field labels, verbatim and in the seed's order. */
   readonly fields: readonly string[];
   /** Whether a golden-transcript suite exists for this vertical today. */
   readonly suite: boolean;

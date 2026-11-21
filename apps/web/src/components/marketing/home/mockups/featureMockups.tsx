@@ -20,7 +20,7 @@ import { founderLine } from "@/lib/founderLines";
  *
  * An illustrative dental clinic in Hyderabad, so this section shows a different trade from
  * the hero's coaching centre; the captured fields are the clinic template's
- * (`scripts/seed.py`).
+ * (`calevate_shared/verticals.json`).
  */
 const CLINIC_TURNS: readonly CallTurn[] = [
   {
@@ -247,7 +247,7 @@ export function QualifiedMini() {
 /**
  * Information you can act on: calls as rows and columns, and the CSV export. An
  * illustrative appliance shop, so its columns are the starting fields every business
- * outside the named trades gets (`scripts/seed.py` CUSTOM_EXTRACTION_FIELDS).
+ * outside the named trades gets (`calevate_shared/verticals.json`, `custom`).
  */
 export function RowsMini() {
   const rows = [

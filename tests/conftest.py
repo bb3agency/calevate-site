@@ -56,10 +56,10 @@ async def add_receptionist_for_tests(
     from apps.api.agents.lifecycle import create_agent
     from apps.api.db.base import uuid7
     from apps.api.db.session import tenant_session
-    from scripts.seed import CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
+    from calevate_shared import verticals
 
     schema_id = uuid7()
-    fields = VERTICAL_TEMPLATES.get(vertical_template, CUSTOM_EXTRACTION_FIELDS)
+    fields = verticals.of(vertical_template).field_dicts()
     async with tenant_session(tenant_id) as session:
         agent_id = await create_agent(
             session,

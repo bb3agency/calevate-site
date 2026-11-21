@@ -1716,7 +1716,7 @@ retention_policies(id, tenant_id,
                      caller_memory],
   ttl_days INT CHECK (ttl_days >= 90 WHERE data_category='recording'),   -- TRAI 90-day floor
   action ENUM[delete,anonymize])
-  -- SEEDED defaults (`scripts/seed.DEFAULT_RETENTION_POLICIES`): recording 90/delete,
+  -- SEEDED defaults (`compliance/retention_defaults.DEFAULT_RETENTION_POLICIES`): recording 90/delete,
   -- transcript 365/anonymize, lead 1095/anonymize, consent_log 2555/anonymize,
   -- engine_payload 90/delete, kb 365/delete, copilot_memory 180/delete,
   -- caller_memory 180/delete (D-507). These

@@ -11,13 +11,13 @@
  * without a longer page — one panel visible, three a keypress away.
  *
  * All four are written to the same depth on purpose (the founder's decision, 5 Sep 2026):
- * clinics is first in reading order because it is first in `scripts/seed.py`, and it gets
+ * clinics is first in reading order, and it gets
  * no richer example, no default styling and no editorial promotion over the other three.
  *
  * ## The content lives in `lib/marketing/industries.ts`
  *
  * One copy, shared with `/industries`, which renders the same four at full length. That
- * module's header carries the rules the data is held to — `fields` is `scripts/seed.py`'s
+ * module's header carries the rules the data is held to — `fields` is `calevate_shared/verticals.json`'s
  * own labels in the seed's own order, `suite` is stated on every vertical in both
  * directions, and the example lead is captioned as an illustration wherever it renders.
  *

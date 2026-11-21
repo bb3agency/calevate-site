@@ -10,17 +10,21 @@ yet**. The locks on this route are a verified first-party session with no member
 The business logic lives in `tenancy/signup.py`; this file is the boundary: shapes in,
 shapes out, and the order the checks run in.
 
-NOT mounted here — the integrator wires this router into `main.py`.
+`public_router` serves `GET /v1/public/business-types`, the list every business-type picker
+renders (signup, the admin console's new-client form and its type screens), so the web holds
+no copy of it.
+
+NOT mounted here — the integrator wires these routers into `main.py`.
 """
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Final
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from calevate_shared import verticals
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from scripts.seed import VERTICAL_TEMPLATES
 
 from apps.api.core.auth import client_request_ip, current_identity
 from apps.api.core.errors import ProblemError
@@ -38,8 +42,87 @@ from apps.api.tenancy.signup import (
 log = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/auth", tags=["signup"])
+# `/v1/public/` is the prefix the RBAC registry skips (`core/rbac.PUBLIC_PREFIXES`): signup
+# renders the list before its caller has an organization.
+public_router = APIRouter(prefix="/v1/public", tags=["public"])
+
+#: The list changes only with a deploy, and is the same for every reader.
+BUSINESS_TYPES_CACHE_CONTROL: Final = "public, max-age=300"
 
 Identity = Annotated[UUID, Depends(current_identity)]
+
+
+class BusinessTypeExamplesOut(BaseModel):
+    """The placeholders the admin console shows while it creates an account of this type
+    (`calevate_shared.verticals.EXAMPLE_KEYS`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    org_name: str | None = None
+    org_slug: str | None = None
+    knowledge_title: str | None = None
+    knowledge_answer: str | None = None
+    extraction_reason: str | None = None
+    script_brief: str | None = None
+    extraction_label: str | None = None
+    extraction_options: str | None = None
+    end_call_rules: str | None = None
+    lead_search: str | None = None
+    booking_job_title: str | None = None
+    booking_job_line: str | None = None
+
+
+class BusinessTypeOptionOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: str
+    label: str
+    #: What choosing the type does: the details every lead of that business captures.
+    hint: str
+    #: Whether the type has its own starting lead details; without them a business's own
+    #: are drafted by AI from its details, as `custom`'s are.
+    has_standard_set: bool
+    #: None for a type the file gives no examples, which shows the neutral ones.
+    examples: BusinessTypeExamplesOut | None
+
+
+class BusinessTypesOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Every type, in picker order; `custom` is the one for a business that fits none.
+    choices: list[BusinessTypeOptionOut]
+    custom: str
+
+
+def business_types_out() -> BusinessTypesOut:
+    return BusinessTypesOut(
+        choices=[
+            BusinessTypeOptionOut(
+                value=row.key,
+                label=row.label,
+                hint=row.hint,
+                has_standard_set=bool(row.fields),
+                examples=BusinessTypeExamplesOut(**row.examples) if row.examples else None,
+            )
+            for row in verticals.all_types()
+        ],
+        custom=verticals.CUSTOM,
+    )
+
+
+@public_router.get(
+    "/business-types",
+    response_model=BusinessTypesOut,
+    summary="Every business type a picker offers",
+    description=(
+        "The business types in picker order, each with its label, what choosing it does and "
+        "the examples the admin console shows for it. The same list `POST /v1/auth/signup` "
+        "and the admin account forms accept."
+    ),
+)
+async def list_business_types(response: Response) -> BusinessTypesOut:
+    response.headers["Cache-Control"] = BUSINESS_TYPES_CACHE_CONTROL
+    return business_types_out()
 
 
 class SignupIn(BaseModel):
@@ -106,7 +189,7 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
     # `custom` is a business that fits none of the templates; it starts with the core lead
     # details only and its own are drafted once from its business details
     # (`agents/lead_fields`), as the operator wizard does.
-    if payload.vertical_template not in {*VERTICAL_TEMPLATES, "custom"}:
+    if not verticals.is_known(payload.vertical_template):
         # A value from outside the list is a client bug or a probe, not a business type;
         # refusing it beats silently seating the business on the neutral set.
         raise ProblemError(
@@ -118,7 +201,7 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
                 {
                     "field": "vertical_template",
                     "rule": "enum",
-                    "message": f"one of: {', '.join(sorted({*VERTICAL_TEMPLATES, 'custom'}))}",
+                    "message": f"one of: {', '.join(sorted(verticals.all_keys()))}",
                 }
             ],
         )
@@ -154,4 +237,4 @@ async def signup(payload: SignupIn, request: Request, user_id: Identity) -> Sign
     )
 
 
-__all__ = ["router"]
+__all__ = ["public_router", "router"]

@@ -51,9 +51,11 @@ import contextlib
 import functools
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from types import MappingProxyType
 from typing import Any, Final, Literal, get_args
 from uuid import UUID
 
+from calevate_shared import verticals
 from calevate_shared.call_script import (
     END_OF_CALL,
     MAX_SCRIPT_OBJECTIONS,
@@ -69,7 +71,6 @@ from calevate_shared.call_script import (
 from calevate_shared.engine import DEFAULT_PRIMARY_LANGUAGE
 from calevate_shared.languages import get_language
 from calevate_shared.spoken_style import opening_in
-from scripts.seed import CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -150,7 +151,7 @@ LINES_OF_JOB: Final[Mapping[StarterJob, LineSet]] = {
 
 #: The business type an account with no template, or an unknown one, is treated as; never
 #: the clinic.
-NEUTRAL_VERTICAL: Final = "custom"
+NEUTRAL_VERTICAL: Final = verticals.CUSTOM
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,127 +173,16 @@ class Trade:
     caution: str
 
 
-TRADES: Final[Mapping[str, Trade]] = {
-    "clinic": Trade(
-        receptionist_name="Clinic receptionist",
-        caller_name="Patient follow-up",
-        topics="the doctors, timings, consultation fees or location",
-        booking="an appointment",
-        capture=(
-            "the reason for the visit, how soon they need to be seen, the day and time "
-            "they prefer, any doctor they ask for, and whether they will use insurance"
-        ),
-        caution=(
-            "Never give medical advice or a diagnosis. If it sounds like an emergency, ask "
-            "them to go to the nearest hospital or call emergency services straight away."
-        ),
-    ),
-    "real_estate": Trade(
-        receptionist_name="Property enquiries",
-        caller_name="Buyer follow-up",
-        topics="the projects, prices, locations or loan approvals",
-        booking="a site visit",
-        capture=(
-            "the area they want, the size of home (how many BHK), their budget, and when "
-            "they plan to buy"
-        ),
-        caution=(
-            "Never quote a final price or promise that a unit is still available; offer a "
-            "site visit instead."
-        ),
-    ),
-    "insurance": Trade(
-        receptionist_name="Policy desk",
-        caller_name="Policy follow-up",
-        topics="the policies, premiums, renewals or claims",
-        booking="a conversation with an advisor",
-        capture=(
-            "the kind of policy they want, the cover amount they have in mind, when their "
-            "renewal is due, and who insures them today"
-        ),
-        caution=(
-            "Never confirm a premium, a cover amount or a claim outcome on the phone; take "
-            "the details for an advisor."
-        ),
-    ),
-    "education": Trade(
-        receptionist_name="Admissions desk",
-        caller_name="Admissions follow-up",
-        topics="the courses, batch timings, fees or admissions",
-        booking="a counselling session",
-        capture=(
-            "the course they are interested in, the student's class or year, any concern "
-            "about fees, and whether they would like a demo class"
-        ),
-        caution=(
-            "Never promise a seat, a scholarship or a result; offer a counselling session instead."
-        ),
-    ),
-    # The three types of founder decision 10. `capture` stays within each type's fields
-    # plus the core every lead carries (`scripts/seed.VERTICAL_TEMPLATES`,
-    # `calevate_shared.lead_fields`).
-    "retail": Trade(
-        receptionist_name="Shop counter",
-        caller_name="Order follow-up",
-        topics="what is in stock, prices, timings or delivery",
-        booking="an order",
-        capture=(
-            "what they want to buy, how much, whether they will pick it up or want it "
-            "delivered, and the area to deliver to"
-        ),
-        caution=(
-            "Never confirm stock, a price or a delivery time you have not been told; take "
-            "the order details for the shop to confirm."
-        ),
-    ),
-    "local_services": Trade(
-        receptionist_name="Front desk",
-        caller_name="Customer follow-up",
-        topics="the services, prices, timings or location",
-        booking="a slot",
-        capture=(
-            "the service they want, whether they will come in or want someone to come to "
-            "them, the area for a home visit, anyone they ask for by name, and the day and "
-            "time they prefer"
-        ),
-        caution=(
-            "Never promise a slot or a person's availability without checking; take the "
-            "details for the team to confirm."
-        ),
-    ),
-    "automobile": Trade(
-        receptionist_name="Service desk",
-        caller_name="Service follow-up",
-        topics="servicing, repairs, spare parts, prices or timings",
-        booking="a service slot",
-        capture=(
-            "the vehicle and its model, what work it needs, the registration if they have "
-            "it, whether they want it picked up, and the day that suits them"
-        ),
-        caution=(
-            "Never quote a repair cost or a delivery date before the vehicle is inspected; "
-            "offer an inspection instead."
-        ),
-    ),
-    NEUTRAL_VERTICAL: Trade(
-        receptionist_name="Receptionist",
-        caller_name="Lead follow-up",
-        topics="what you offer, prices, timings or location",
-        booking="a booking",
-        capture="what they need and the day or time that suits them",
-        caution=(
-            "Never promise a price, a delivery date or availability without checking; say the "
-            "team will confirm."
-        ),
-    ),
-}
+#: Each business type's words: the `starter` entry of `calevate_shared/verticals.json`, in
+#: picker order.
+TRADES: Final[Mapping[str, Trade]] = MappingProxyType(
+    {row.key: Trade(**row.starter) for row in verticals.all_types()}
+)
 
 
 def vertical_of(vertical_template: str | None) -> str:
     """The catalogue row for an account's business type, falling back to the neutral one."""
-    if vertical_template is not None and vertical_template in TRADES:
-        return vertical_template
-    return NEUTRAL_VERTICAL
+    return verticals.of(vertical_template).key
 
 
 def _either(parts: Sequence[str]) -> str:
@@ -360,7 +250,7 @@ def captured_fields(vertical: str) -> list[dict[str, Any]]:
 
     A business type with no template, or an unknown one, gets the neutral set.
     """
-    return VERTICAL_TEMPLATES.get(vertical, CUSTOM_EXTRACTION_FIELDS)
+    return verticals.of(vertical).field_dicts()
 
 
 @dataclass(frozen=True, slots=True)

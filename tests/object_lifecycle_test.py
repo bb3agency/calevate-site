@@ -48,10 +48,10 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import pytest
+from apps.api.compliance.retention_defaults import DEFAULT_RETENTION_POLICIES
 from apps.workers import storage
 from apps.workers.retention import RECORDING_FLOOR_DAYS
 from apps.workers.storage import delivery_body_key, kb_object_key, payload_key, recording_key
-from scripts.seed import DEFAULT_RETENTION_POLICIES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INFRA = REPO_ROOT / "infra" / "object-lifecycle"

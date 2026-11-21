@@ -5,7 +5,7 @@ Three sources can fill an agent's business fields, and every one ends as an ordi
 `extraction_schemas` version written by `extraction_routes.write_schema`, so history and
 "leads render by the version they were captured under" hold for all of them:
 
-* **A known business type's standard set** (`scripts/seed.VERTICAL_TEMPLATES`), at account
+* **A known business type's standard set** (`calevate_shared/verticals.json`), at account
   creation, at agent creation, or when an operator moves the account to another type and
   chooses to replace the fields (`replace_business_fields`; never as a side effect of the
   type change itself). Since 5 Nov 2026 it is only the starting point and the draft's seed:
@@ -30,9 +30,9 @@ from datetime import datetime
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared import verticals
 from calevate_shared.extraction import ExtractionField
 from calevate_shared.lead_fields import business_only, clean_core_labels
-from scripts.seed import BUSINESS_TYPE_LABELS, CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,21 +46,20 @@ from apps.api.tenancy.core_labels import core_labels
 #: The ARQ job that drafts the fields (`apps/workers/lead_fields_draft.JOB_NAME`).
 DRAFT_JOB: Final = "draft_lead_fields"
 
-CUSTOM: Final = "custom"
+CUSTOM: Final = verticals.CUSTOM
 
 
 def business_type_label(vertical: str | None) -> str:
-    return BUSINESS_TYPE_LABELS.get(vertical or CUSTOM, BUSINESS_TYPE_LABELS[CUSTOM])
+    return verticals.label_of(vertical)
 
 
 def has_standard_set(vertical: str | None) -> bool:
     """A known type with its own standard fields. Anything else is drafted by AI."""
-    return vertical is not None and vertical in VERTICAL_TEMPLATES
+    return bool(verticals.of(vertical).fields)
 
 
 def standard_fields(vertical: str | None) -> list[ExtractionField]:
-    raw = VERTICAL_TEMPLATES.get(vertical or CUSTOM, CUSTOM_EXTRACTION_FIELDS)
-    return [ExtractionField.model_validate(f) for f in raw]
+    return [ExtractionField.model_validate(f) for f in verticals.of(vertical).field_dicts()]
 
 
 # ------------------------------------------------------------------------ the draft row

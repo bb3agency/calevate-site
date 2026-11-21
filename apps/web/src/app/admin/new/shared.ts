@@ -1,17 +1,4 @@
 import { ApiProblem } from "@/lib/api/client";
-import type { CreateOrgIn } from "@/lib/api/admin";
-import { BUSINESS_TYPES } from "@/lib/businessTypes";
-
-/**
- * The business types, with what choosing one DOES: it picks the lead details every call of
- * that business writes down, on top of the ones every business gets. One list, shared with
- * signup and the client's own screens (`lib/businessTypes.ts`).
- */
-export const VERTICALS: readonly {
-  value: NonNullable<CreateOrgIn["vertical_template"]>;
-  label: string;
-  hint: string;
-}[] = BUSINESS_TYPES;
 
 /**
  * A refusal already received, as a reason to stop offering the control. Only 403: any

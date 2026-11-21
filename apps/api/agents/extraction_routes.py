@@ -89,7 +89,7 @@ Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin")
 #: projection the retrieval store embeds field by field (`crm/lead_projection.py`).
 #:
 #: The numbers are generous against the real thing: the largest vertical template in
-#: `scripts/seed.py::VERTICAL_TEMPLATES` is 7 variables with reasons under 200 characters.
+#: `calevate_shared/verticals.json` is 7 variables with reasons under 200 characters.
 #: They are ceilings on a mistake, not a product limit anyone will meet.
 MAX_EXTRACTION_FIELDS = 50
 MAX_LABEL_LEN = 80

@@ -163,7 +163,7 @@ SCENARIO_LABELS: dict[int, str] = {
 }
 
 #: Verticals a case can belong to — the unit "50-100 scenarios per client" is counted
-#: in. One shipped template per entry (`scripts/seed.py` VERTICAL_TEMPLATES); the suite
+#: in. One shipped template per entry (`calevate_shared/verticals.json`); the suite
 #: runs one union schema across all of them, so a field another vertical declares is a
 #: free restraint assertion on every case that never mentions it.
 VERTICALS = ("clinic", "real_estate")

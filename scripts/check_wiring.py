@@ -532,7 +532,7 @@ def unwired_columns(
 # D-412, recovered from an abandoned branch. The docstring at the top of this file refuses
 # a GENERAL enum-reachability check and that refusal still stands: an enum member is
 # legitimately produced by a DB row, a vendor payload or client input, so "nothing
-# produces it" is not statically decidable for `KB_STATUSES` or `Vertical`.
+# produces it" is not statically decidable for `KB_STATUSES` or the business types.
 #
 # `FailureStage` is the exception, and it is decidable because of a property of the
 # VOCABULARY rather than a heuristic: NOTHING OUTSIDE THIS REPOSITORY CAN PRODUCE A STAGE.

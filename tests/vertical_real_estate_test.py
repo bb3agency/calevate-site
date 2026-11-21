@@ -3,7 +3,7 @@
 ROADMAP §3's last bullet asks for "vertical template #2 fully dressed". Read against
 the docs, a dressed template is TWO artefacts, not one:
 
-1. **The extraction schema** — `scripts/seed.py` VERTICAL_TEMPLATES["real_estate"],
+1. **The extraction schema** — `calevate_shared/verticals.json` real_estate fields,
    which onboarding copies into the tenant's `extraction_schemas` row (FLOWS §1 step 4)
    and which then drives the leads columns, filters, export and hot-lead rules with no
    per-client code (TRD §7). This existed already.
@@ -38,7 +38,7 @@ from typing import Any, ClassVar
 import apps.workers.extraction as extraction_module
 import scripts.eval as ev
 from calevate_shared.extraction import ExtractionSchemaSpec
-from scripts.seed import VERTICAL_TEMPLATES
+from calevate_shared.verticals import templates as vertical_templates
 
 #: The real-estate suite, by scenario (OPERATIONS §3's mandatory five, in this
 #: vertical's own vocabulary) plus the two hazards specific to a property call: a
@@ -78,7 +78,7 @@ def _cases() -> dict[str, dict[str, Any]]:
 def test_the_real_estate_template_declares_the_fields_a_property_call_produces() -> None:
     """Budget, locality, size, possession, site visit — BRD §4's launch vertical, and
     the five things a Hyderabad property caller actually says."""
-    fields = {f["key"]: f for f in VERTICAL_TEMPLATES["real_estate"]}
+    fields = {f["key"]: f for f in vertical_templates()["real_estate"]}
     assert set(fields) == RE_FIELD_KEYS
 
 
@@ -88,7 +88,7 @@ def test_the_budget_field_names_its_unit_in_the_key_the_label_and_the_reason() -
     call nor the caller's tone of voice — only the number. The unit therefore has to
     survive into the leads table (label), the CSV export (key) and the extraction
     prompt (reason, which TRD §7 makes the model's instruction verbatim)."""
-    budget = next(f for f in VERTICAL_TEMPLATES["real_estate"] if f["key"] == "budget_lakhs")
+    budget = next(f for f in vertical_templates()["real_estate"] if f["key"] == "budget_lakhs")
     assert budget["type"] == "number"
     assert "lakh" in budget["key"].lower()
     assert "lakh" in budget["label"].lower()
@@ -103,13 +103,13 @@ def test_the_golden_suite_scores_the_template_we_actually_ship() -> None:
     real-estate cases, and a clinic call missing `budget_lakhs` is not a validation
     failure — it is a different vertical.
     """
-    shipped = {f["key"]: f for f in VERTICAL_TEMPLATES["real_estate"]}
+    shipped = {f["key"]: f for f in vertical_templates()["real_estate"]}
     fixture = {f["key"]: f for f in _fixtures()["schema"] if f["key"] in RE_FIELD_KEYS}
     assert set(fixture) == RE_FIELD_KEYS, "the suite does not cover every template field"
     for key, field in fixture.items():
         for attribute in ("label", "type", "enum_values", "reason"):
             assert field.get(attribute) == shipped[key].get(attribute), (
-                f"{key}.{attribute} has drifted from scripts/seed.py"
+                f"{key}.{attribute} has drifted from calevate_shared/verticals.json"
             )
 
 

@@ -12,7 +12,7 @@ import { Chip, Panel, StatusPill, Waveform } from "./kit";
 /**
  * Step 01: the agent's capture list, as the console's editor draws it ("What it writes
  * down", the type names from `agents/panels/extractionDraft.ts`, "Add variable"), filled
- * with the education template from `scripts/seed.py`, for the hero's coaching centre.
+ * with the education template from `calevate_shared/verticals.json`, for the hero's coaching centre.
  */
 export function FieldListMock() {
   const fields = [

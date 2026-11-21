@@ -161,7 +161,7 @@ class DemoCall:
 # Six calls: two hot leads, one resolved, one follow-up, one transfer, one dropped — so the
 # "needs attention" queue, the funnel and the outcome breakdown all have something in them
 # rather than each needing its own hand-made row later. The extraction keys are the real
-# estate type's lead fields (`scripts/seed.py` VERTICAL_TEMPLATES).
+# estate type's lead fields (`calevate_shared/verticals.json`).
 DEMO_CALLS: tuple[DemoCall, ...] = (
     DemoCall(
         minutes_ago=35,

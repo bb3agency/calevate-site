@@ -22,6 +22,7 @@ from __future__ import annotations
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared import verticals
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
@@ -164,7 +165,7 @@ async def write_profile_wording(ctx: dict[str, Any], payload: dict[str, Any]) ->
         return "superseded"
     try:
         description, vertical = await business_context(tenant_id)
-        clinic = vertical == "clinic"
+        clinic = verticals.of(vertical).health
         async with tenant_session(tenant_id) as session:
             tenant_leg = await account_assist_leg(session)
         try:

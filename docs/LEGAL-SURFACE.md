@@ -554,7 +554,7 @@ gap belonged to everyone who never filed one — which, against DPDP §8(7), is 
 and not a tidiness issue.
 
 **Closed by D-179.** Migration `c4d1f7b83e26` adds `engine_payload` to the category enum;
-`scripts/seed.DEFAULT_RETENTION_POLICIES` installs it at 90 days, which is not a new number
+`compliance/retention_defaults.DEFAULT_RETENTION_POLICIES` installs it at 90 days, which is not a new number
 — it is the period `infra/object-lifecycle/policy.json` already assigned that prefix, now
 enforced by a mechanism that runs. The sweep arm pages expired calls into the SAME
 `_erase_engine_payloads` the erasure uses, so there is one definition of destroying a
@@ -642,7 +642,7 @@ founder on 28 Oct 2026, D-921).
 Already an open question in `docs/SECURITY-COMPLIANCE.md` §4, restated here because it is now
 a *published* commitment:
 
-| Category | SEC-COMP §4 says | `scripts/seed.DEFAULT_RETENTION_POLICIES` installs | What `/legal/privacy` §9 now publishes |
+| Category | SEC-COMP §4 says | `compliance/retention_defaults.DEFAULT_RETENTION_POLICIES` installs | What `/legal/privacy` §9 now publishes |
 |---|---|---|---|
 | Recording | 90 days (the TRAI floor; D-668) | **90 days** | 90 days |
 | Transcript | 24 months (730 d) | **365 days** | 365 days |
@@ -654,7 +654,7 @@ not honour is the worse of the two errors in both directions (a transcript delet
 the promised age, a lead kept at 1.5×).
 
 **The conflict is now RESOLVED as to which numbers are authoritative — conservatively, and
-without inventing a fourth set.** The **`scripts/seed.DEFAULT_RETENTION_POLICIES` figures
+without inventing a fourth set.** The **`compliance/retention_defaults.DEFAULT_RETENTION_POLICIES` figures
 (90 / 365 / 1095) are the enforced source of truth**, because they are the numbers the
 nightly sweep actually applies (`apps/workers/retention.py` reads the seeded
 `retention_policies` rows) AND the numbers `/legal/privacy` §9 publishes to callers — the

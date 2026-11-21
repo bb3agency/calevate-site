@@ -6,7 +6,7 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { ProblemNotice } from "@/components/ui";
 import { useAdminReplaceLeadFields, type ReplaceOut } from "@/lib/api/leadFields";
-import { businessTypeLabel, type BusinessType } from "@/lib/businessTypes";
+import { businessTypeOption, useBusinessTypes, type BusinessType } from "@/lib/businessTypes";
 
 /**
  * After an operator moves a client to another business type: the offer to move its agents'
@@ -16,8 +16,9 @@ import { businessTypeLabel, type BusinessType } from "@/lib/businessTypes";
  *
  * Changing the type rewrites no agent, so the copy says the agents KEEP what they have
  * rather than that they still collect "the old details": an account with no agents, or one
- * whose agents already use this type's set, has nothing old to keep. "Something else" has
- * no standard set to offer, and its one AI draft is no way out either: it is made at most
+ * whose agents already use this type's set, has nothing old to keep. A type with no standard
+ * set ("Something else") has nothing to offer, and its one AI draft is no way out either: it
+ * is made at most
  * once per business and lands only on agents with no business details of their own
  * (`agents/lead_fields.review_draft`, `only_empty=True`).
  */
@@ -30,10 +31,12 @@ export function BusinessTypeMoved({
 }) {
   const replace = useAdminReplaceLeadFields(tenantId);
   const replaceFeedback = useActionFeedback(replace, { errorDisplay: "inline" });
-  const label = businessTypeLabel(vertical).toLowerCase();
+  const option = businessTypeOption(useBusinessTypes().data, vertical);
+  const label = (option?.label ?? "").toLowerCase();
   const leadDetails = `/admin/tenants/${tenantId}/lead-details`;
 
-  if (vertical === "custom") {
+  if (!option) return null;
+  if (!option.has_standard_set) {
     return (
       <p className="mt-2">
         Its agents keep the lead details they have now. This business type has no standard

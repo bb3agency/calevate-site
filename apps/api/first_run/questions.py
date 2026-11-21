@@ -29,9 +29,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.starters import TRADES, vertical_of
 from apps.api.tenancy.business_profile import Profile
 
-#: The business-profile section an answer lands in.
-ProfileTopic = Literal["trade", "location", "offer", "hours", "booking"]
+#: The business-profile section an answer lands in. `facts` is the open one: a fact callers
+#: must know that no other section holds (the areas served, who qualifies, the documents to
+#: bring), kept as one of the profile's FAQs with the question as asked. Only the model asks
+#: it, and it may ask more than one; there is no fixed question for it.
+ProfileTopic = Literal["trade", "location", "offer", "hours", "booking", "facts"]
 PROFILE_TOPICS: Final[tuple[ProfileTopic, ...]] = get_args(ProfileTopic)
+#: Sections a run may ask about more than once.
+REPEATABLE_TOPICS: Final[frozenset[ProfileTopic]] = frozenset({"facts"})
 
 #: `choices` = tick all that apply; `single_choice` = pick one.
 QuestionKind = Literal["choices", "single_choice", "text", "address", "services", "hours"]
@@ -46,6 +51,7 @@ TOPIC_KINDS: Final[Mapping[ProfileTopic, frozenset[str]]] = {
     "offer": frozenset({"services"}),
     "hours": frozenset({"hours"}),
     "booking": frozenset({"text"}),
+    "facts": frozenset({"text"}),
 }
 KIND_NEEDS_TOPIC: Final[Mapping[str, ProfileTopic]] = {
     "address": "location",
@@ -104,7 +110,7 @@ class QuestionWords:
 
     A capability is False only when judged so (`business_copy.Capabilities`); None keeps the
     question. So a free app that has no premises, takes no bookings and quotes no prices is
-    never asked "Where are you?", "How does someone book?" or for a price.
+    never asked "Where are you?", "How does someone book?", for a price or when it is open.
     """
 
     #: The profile's booking step heading and line (`profile_wording.ProfileWording`), once
@@ -115,6 +121,16 @@ class QuestionWords:
     quotes_prices: bool | None = None
     #: False only when the business neither takes bookings nor takes orders.
     goes_ahead: bool | None = None
+
+    @property
+    def keeps_hours(self) -> bool | None:
+        """Whether opening hours mean anything to its callers: False only when they neither
+        come to a place nor book or order anything, as for a helpline or an app's support
+        line, where "When are you open?" has no answer the agent could use. Derived from the
+        two judgements rather than judged on its own, so it costs no new model field."""
+        if self.has_premises is False and self.goes_ahead is False:
+            return False
+        return None
 
 
 async def question_words(session: AsyncSession, *, tenant_id: UUID) -> QuestionWords:
@@ -187,6 +203,17 @@ def fixed_question(
             maps_to="offer",
         )
     if topic == "hours":
+        if words.keeps_hours is False:
+            return None
+        if words.has_premises is False:
+            # No door to open: the hours are when the business answers or takes bookings.
+            return Question(
+                question_id,
+                "What are your working hours?",
+                "Your agent tells callers, and never offers a time outside them.",
+                "hours",
+                maps_to="hours",
+            )
         return Question(
             question_id,
             "When are you open?",
@@ -194,6 +221,8 @@ def fixed_question(
             "hours",
             maps_to="hours",
         )
+    if topic == "facts":
+        return None
     if words.goes_ahead is False:
         return None
     return Question(
@@ -246,12 +275,15 @@ def answered_topics(
 
 def closed_topics(profile: Profile, words: QuestionWords) -> frozenset[ProfileTopic]:
     """The sections never asked about: already answered, or not part of this business (no
-    place callers come to, no way to book or order)."""
+    place callers come to, no way to book or order, no hours that mean anything to callers).
+    The model is told these as already known, so it does not ask them either."""
     closed = set(answered_topics(profile, quotes_prices=words.quotes_prices))
     if words.has_premises is False:
         closed.add("location")
     if words.goes_ahead is False:
         closed.add("booking")
+    if words.keeps_hours is False:
+        closed.add("hours")
     return frozenset(closed)
 
 
@@ -333,8 +365,8 @@ def written_questions(
     raw: Sequence[object], profile: Profile, words: QuestionWords | None = None
 ) -> list[Question]:
     """The model's questions that pass every rule, in its order, at most `MAX_WRITTEN`, each
-    profile section asked about once and none about a section this business does not have.
-    Ids are ours (`q1`..), never the model's."""
+    profile section asked about once (the open `facts` section excepted) and none about a
+    section this business does not have. Ids are ours (`q1`..), never the model's."""
     closed = set(closed_topics(profile, words or QuestionWords()))
     out: list[Question] = []
     for item in raw:
@@ -345,7 +377,7 @@ def written_questions(
             continue
         if question.prompt.casefold() in {q.prompt.casefold() for q in out}:
             continue
-        if question.maps_to is not None:
+        if question.maps_to is not None and question.maps_to not in REPEATABLE_TOPICS:
             closed.add(question.maps_to)
         out.append(question)
     return out
@@ -394,6 +426,7 @@ __all__ = [
     "PROFILE_TOPICS",
     "PROMPT_MAX",
     "QUESTION_KINDS",
+    "REPEATABLE_TOPICS",
     "TOPIC_KINDS",
     "ProfileTopic",
     "Question",

@@ -19,7 +19,7 @@ import { relPosix } from "./repoPaths";
  *
  * Plus one rule of their own: every trade's opened call writes its captured details under
  * that trade's real column labels, all of them and in the seed's order — the same list
- * `publicLanding.test.tsx` diffs against `scripts/seed.py`. A mockup that invented a
+ * `publicLanding.test.tsx` diffs against `calevate_shared/verticals.json`. A mockup that invented a
  * prettier column would show a buyer a first screen their agent does not have.
  */
 

@@ -502,7 +502,8 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/lead-fields": BoundedByConstruction(
         by=(
             "the fixed core (`calevate_shared.lead_fields.CORE_LEAD_FIELDS`), one type's "
-            "standard set from `scripts/seed`, the draft's at most `MAX_DRAFTED_FIELDS`, and "
+            "standard set from `calevate_shared/verticals.json`, the draft's at most "
+            "`MAX_DRAFTED_FIELDS`, and "
             "agents capped by `agents.lead_fields.MAX_AGENTS` in the LIMIT, each holding at "
             "most `extraction_routes.MAX_EXTRACTION_FIELDS` fields (refused on write)."
         )
@@ -964,7 +965,8 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/agents/starters": BoundedByConstruction(
         by=(
             "`agents/starters.STARTER_JOBS` (three jobs), each with the constant steps of its "
-            "catalogue row and the one vertical template's fields from `scripts/seed.py`."
+            "catalogue row and the one vertical template's fields from "
+            "`calevate_shared/verticals.json`."
         )
     ),
     "GET /v1/integrations/events": BoundedByConstruction(
@@ -984,11 +986,15 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     ),
     "GET /v1/admin/tenants/{tenant_id}/profile": BoundedByConstruction(
         by=(
-            "`verticals` is `get_args(admin/routes.Vertical)` — the same closed `Literal` "
-            "the PATCH validates against, currently five members. It grows only when "
-            "somebody edits that type, never with a client's data, and it is DERIVED from "
-            "the type rather than retyped so the dropdown and the 422 cannot disagree."
+            "`verticals` is every key of `calevate_shared/verticals.json` — the list the "
+            "PATCH validates against. It grows only when somebody edits that file, never "
+            "with a client's data, and it is read from the file rather than retyped so the "
+            "dropdown and the 422 cannot disagree."
         )
+    ),
+    "GET /v1/public/business-types": BoundedByConstruction(
+        by="`choices` is one row per `calevate_shared/verticals.json` type, a fixed "
+        "product list whose size is a product decision."
     ),
     "GET /v1/admin/tenants/{tenant_id}/feature-flags": BoundedByConstruction(
         by="the flag registry in `flags/service.py` — one row per DECLARED flag."
@@ -1195,15 +1201,15 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     ),
     # D-722: `choices` is every business type, a static seed table, never a row count.
     "GET /v1/admin/tenants/{tenant_id}/business-type": BoundedByConstruction(
-        by="`choices` is one row per `scripts/seed.BUSINESS_TYPE_LABELS` entry, a fixed "
+        by="`choices` is one row per `calevate_shared/verticals.json` type, a fixed "
         "product list whose size is a product decision."
     ),
     "POST /v1/admin/tenants/{tenant_id}/business-type/confirm": BoundedByConstruction(
-        by="`choices` is one row per `scripts/seed.BUSINESS_TYPE_LABELS` entry, a fixed "
+        by="`choices` is one row per `calevate_shared/verticals.json` type, a fixed "
         "product list whose size is a product decision."
     ),
     "POST /v1/admin/tenants/{tenant_id}/business-type/suggest": BoundedByConstruction(
-        by="`choices` is one row per `scripts/seed.BUSINESS_TYPE_LABELS` entry, a fixed "
+        by="`choices` is one row per `calevate_shared/verticals.json` type, a fixed "
         "product list whose size is a product decision."
     ),
     # D-946: the comparison set-up answers its readiness, whose only list is the steps left.

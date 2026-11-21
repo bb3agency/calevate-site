@@ -26,10 +26,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Annotated, Any, Final, Literal, get_args
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER, RecordableNumberProvider
+from calevate_shared.verticals import BusinessTypeKey
+from calevate_shared.verticals import all_keys as business_type_keys
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import (
     BaseModel,
@@ -95,24 +97,11 @@ GlobalSession = Annotated[AsyncSession, Depends(global_db)]
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 TenantSession = Annotated[AsyncSession, Depends(db)]
 
-#: The business types (`scripts/seed.BUSINESS_TYPE_LABELS`, in picker order).
-#: `tests/lead_fields_test.py` holds this Literal to that dict's keys.
-Vertical = Literal[
-    "retail",
-    "local_services",
-    "automobile",
-    "clinic",
-    "real_estate",
-    "insurance",
-    "education",
-    "custom",
-]
-
 #: The two account columns the directory may be narrowed by, as the wire spells them.
 #:
 #: Written out rather than derived from `tenancy.models.ORG_STATUSES` / `PLAN_TIERS`
-#: because a `Literal` cannot be built from a runtime tuple and still be a type — the
-#: same trade `Vertical` above makes. `tests/admin_account_management_test.py` asserts each
+#: because a `Literal` cannot be built from a runtime tuple and still be a type.
+#: `tests/admin_account_management_test.py` asserts each
 #: of these IS the corresponding tuple, so a status added to the check constraint and not
 #: to the filter fails a test rather than silently becoming unsearchable.
 OrgStatusFilter = Literal["prospect", "onboarding", "active", "suspended", "churned"]
@@ -284,7 +273,7 @@ class CreateOrgIn(BaseModel):
     slug: str | None = Field(default=None, max_length=40)
     #: REQUIRED, with no default (D-722): a default is how a chilli shop became a clinic.
     #: "Something else" (`custom`) is a choice like any other.
-    vertical_template: Vertical
+    vertical_template: BusinessTypeKey
     billing_email: EmailStr | None = None
     #: REQUIRED (D-695): an account is created together with its owner's invitation, in one
     #: transaction, so no account can exist that nobody was invited into.
@@ -537,17 +526,18 @@ class EditTenantIn(BaseModel):
     #: WHICH TEMPLATE THIS BUSINESS IS. It picks the extraction schema a new agent is born
     #: with, decides whether subscriber KYC applies through
     #: `compliance/service`, and — the one an operator will not guess —
-    #: `compliance/caller_memory.SPDI_REFUSED_VERTICALS` refuses cross-call memory for a
-    #: `clinic`, so moving a client ONTO clinic can withdraw a capability their agents are
-    #: using today. That is why the route names the consequence rather than saving quietly.
+    #: `compliance/caller_memory.spdi_refuses_memory` refuses cross-call memory for a
+    #: health type such as `clinic`, so moving a client ONTO one can withdraw a capability
+    #: their agents are using today. That is why the route names the consequence rather
+    #: than saving quietly.
     #:
-    #: The SAME `Vertical` literal `CreateOrgIn` takes, not a second list: a value outside
+    #: The SAME `BusinessTypeKey` `CreateOrgIn` takes, not a second list: a value outside
     #: it is a 422 that names the ones allowed, which is the refusal an operator can act on,
-    #: and one enum means the wizard and the correction cannot disagree about what a
+    #: and one list means the wizard and the correction cannot disagree about what a
     #: vertical is. It does NOT retro-fit existing agents' extraction schemas — those are
     #: per-agent rows an operator edits on the agent, and rewriting them from here would
     #: destroy fields a client has been collecting into.
-    vertical_template: Vertical | None = None
+    vertical_template: BusinessTypeKey | None = None
 
     @model_validator(mode="after")
     def _something_must_change(self) -> EditTenantIn:
@@ -771,9 +761,8 @@ class TenantProfileOut(BaseModel):
     status: str
     billing_email: str | None
     vertical_template: str | None
-    #: The verticals this account may be moved to, so the form's options and the API's
-    #: `Literal` cannot drift — a console offering a sixth vertical would otherwise learn
-    #: about the 422 from an operator.
+    #: The verticals this account may be moved to: the list the PATCH validates against
+    #: (`calevate_shared/verticals.json`), so the form's options and the 422 cannot drift.
     verticals: list[str]
 
 
@@ -814,9 +803,8 @@ async def read_tenant_profile(
         status=profile.status,
         billing_email=profile.billing_email,
         vertical_template=profile.vertical_template,
-        # DERIVED from the `Literal` the PATCH validates against, never retyped (D-104):
-        # a vertical added there appears here in the same edit or in neither.
-        verticals=list(get_args(Vertical)),
+        # The list the PATCH validates against, never retyped (D-104).
+        verticals=list(business_type_keys()),
     )
 
 

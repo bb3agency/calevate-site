@@ -25,7 +25,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.workers.field_reason_refresh import JOB_NAME, refresh_field_reason
 from calevate_shared.extraction import ExtractionField
-from scripts.seed import VERTICAL_TEMPLATES
+from calevate_shared.verticals import templates as vertical_templates
 from sqlalchemy import create_engine, text
 from tests.conftest import create_org_with_receptionist
 
@@ -47,7 +47,7 @@ def _refresh(key: str) -> tuple[str, str]:
 
 
 def _shipped(key: str) -> dict[str, Any]:
-    return next(f for fields in VERTICAL_TEMPLATES.values() for f in fields if f["key"] == key)
+    return next(f for fields in vertical_templates().values() for f in fields if f["key"] == key)
 
 
 def test_the_migration_refreshes_a_real_change() -> None:

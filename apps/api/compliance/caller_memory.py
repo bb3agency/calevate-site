@@ -18,8 +18,12 @@ from __future__ import annotations
 
 from typing import Final
 
+from calevate_shared import verticals
+
 #: Verticals where a note about a caller is SENSITIVE PERSONAL DATA by construction, and
 #: where cross-call memory is therefore refused however the agent's switch is set (D-507(b)).
+#: They are the types marked `health` in `calevate_shared/verticals.json` (today `clinic`),
+#: so a health type added there is refused without a code change.
 #:
 #: THE QUESTION WAS "IS 'ASKED ABOUT IVF PRICING' HEALTH DATA?" and the honest answer is
 #: that it depends on who the business is, which no classifier over free text can be
@@ -44,7 +48,7 @@ from typing import Final
 #: STARTED from, so a fertility clinic onboarded as `real_estate` is not caught. It is
 #: kept because it is the only structured signal that exists and it errs toward refusing;
 #: the per-tenant attestation below is the instrument on the enable path.
-SPDI_REFUSED_VERTICALS: Final[frozenset[str]] = frozenset({"clinic"})
+SPDI_REFUSED_VERTICALS: Final[frozenset[str]] = verticals.health_keys()
 
 
 def spdi_refuses_memory(vertical_template: str | None) -> bool:

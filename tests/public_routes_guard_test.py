@@ -211,8 +211,13 @@ class TestWiring:
         RAISED 54 -> 55 for `POST /v1/auth/client/mobile-number` (D-976): a client user's
         own mobile number. It needs the client session cookie and changes only the row of
         the person whose session sent it, so like /password/change it has no permission to
-        gate, and an operator's view-as session holds no client cookie to reach it."""
-        assert len(exempt) <= 55, sorted(exempt)
+        gate, and an operator's view-as session holds no client cookie to reach it.
+
+        RAISED 55 -> 56 for `GET /v1/public/business-types`, a third credential-less read
+        beside the rate card and the status page: signup renders the business-type list
+        before its caller has an organization. Its body is `calevate_shared/verticals.json`
+        as shipped, identical for everyone, and nothing about the caller is read."""
+        assert len(exempt) <= 56, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

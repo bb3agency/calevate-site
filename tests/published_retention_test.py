@@ -7,7 +7,7 @@ call. The one place it was missing was the retention table on `/legal/privacy`, 
 the document the caller themselves reads. It is also the only category on that page whose
 subject IS the caller rather than the client's staff, so it was the one omission that
 mattered most, and nothing in the tree could see it: the periods lived in
-`scripts/seed.DEFAULT_RETENTION_POLICIES` as data and in `privacy.ts` as prose, and prose
+`retention_defaults.DEFAULT_RETENTION_POLICIES` as data and in `privacy.ts` as prose, and prose
 does not fail a build.
 
 **SO THIS IS AN EQUALITY, NOT A SUBSET.** A category seeded and not published is an
@@ -36,7 +36,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from scripts.seed import DEFAULT_RETENTION_POLICIES
+from apps.api.compliance.retention_defaults import DEFAULT_RETENTION_POLICIES
 
 PRIVACY_TS = (
     Path(__file__).resolve().parents[1] / "apps" / "web" / "src" / "lib" / "legal" / "privacy.ts"
