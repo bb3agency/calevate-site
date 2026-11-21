@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { relPosix } from "./repoPaths";
-import { ApiProblem } from "@/lib/api/client";
+import { ApiProblem, TransportProblem } from "@/lib/api/client";
 import { queryRetryDelay, shouldRetryQuery, untilRefused } from "@/lib/api/queryRetry";
 import { livePoll } from "@/lib/live/liveStatus";
 
@@ -33,6 +33,35 @@ describe("the read retry policy", () => {
     expect(shouldRetryQuery(2, failure)).toBe(false);
     expect(queryRetryDelay(0, failure)).toBe(1000);
     expect(queryRetryDelay(1, failure)).toBe(2000);
+  });
+
+  // A read dropped while the API restarts reached the Sources box as "This did not load"
+  // after two tries in three seconds; it now waits out about fifteen.
+  it("waits out a read that never reached the server, four tries on a doubling backoff", () => {
+    const dropped = new TransportProblem(new TypeError("Failed to fetch"), {
+      method: "GET",
+      path: "/v1/kb/notes",
+      correlationId: "c0ffee",
+    });
+    expect([0, 1, 2, 3].map((n) => shouldRetryQuery(n, dropped))).toEqual([true, true, true, true]);
+    expect(shouldRetryQuery(4, dropped)).toBe(false);
+    expect([0, 1, 2, 3].map((n) => queryRetryDelay(n, dropped))).toEqual([1000, 2000, 4000, 8000]);
+  });
+
+  it("gives a dropped read sent as a POST only the usual two tries", () => {
+    const dropped = new TransportProblem(new TypeError("Failed to fetch"), {
+      method: "POST",
+      path: "/v1/x",
+      correlationId: "c0ffee",
+    });
+    expect(shouldRetryQuery(1, dropped)).toBe(true);
+    expect(shouldRetryQuery(2, dropped)).toBe(false);
+  });
+
+  it("does not stretch a refusal the server sent", () => {
+    const busy = new ApiProblem(503, { retryable: true });
+    expect(shouldRetryQuery(2, busy)).toBe(false);
+    expect(shouldRetryQuery(0, new ApiProblem(404, { retryable: false }))).toBe(false);
   });
 });
 

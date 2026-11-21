@@ -191,7 +191,11 @@ TONES: Final[dict[str, str]] = {
     "guide gives",
     "brief": "short and direct, every line as few words as it can be",
 }
-INSTRUCTION_MAX: Final = 300
+#: The owner's note for one draft, in characters. Real rewrite notes (who the agent is, what
+#: it says first, which English words stay, what it never claims) run 600 to 900 (founder,
+#: 21 Nov 2026), so 1,000. The note is folded onto one line, so however long it is it stays
+#: inside "THE OWNER ASKS:" and cannot start a heading of its own.
+INSTRUCTION_MAX: Final = 1000
 
 
 def tone_line(tone: str | None) -> str:

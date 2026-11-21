@@ -18,7 +18,7 @@ from calevate_shared.call_script import CallScript
 from calevate_shared.extraction import ExtractionField
 from calevate_shared.lead_fields import core_fields
 from fastapi import APIRouter, Depends, File, Request, UploadFile
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -455,6 +455,15 @@ class CampaignProposalIn(BaseModel):
     tone: Tone | None = None
     #: What the owner wants changed, in their words ("make the opening warmer").
     instruction: str | None = Field(default=None, max_length=INSTRUCTION_MAX)
+
+    @field_validator("instruction", mode="before")
+    @classmethod
+    def _note_fits(cls, value: object) -> object:
+        # Ahead of `max_length`, whose generic sentence would name the field "Instruction";
+        # the owner typed it into "Note for Pip".
+        if isinstance(value, str) and len(value) > INSTRUCTION_MAX:
+            raise ValueError(f"Keep the note for Pip to {INSTRUCTION_MAX:,} characters or fewer.")
+        return value
 
 
 @router.post(

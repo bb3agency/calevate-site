@@ -155,7 +155,7 @@ export function useAddCampaignSource(session: Session, campaignId: string) {
 export type ScriptAsk = Schemas["CampaignProposalIn"];
 
 /** The longest instruction the server takes (`campaign_script_ask.INSTRUCTION_MAX`). */
-export const INSTRUCTION_MAX = 300;
+export const INSTRUCTION_MAX = 1000;
 
 export function useRequestCampaignScript(session: Session, campaignId: string) {
   return useWorkspaceMutation(session, campaignId, (asked?: ScriptAsk) =>

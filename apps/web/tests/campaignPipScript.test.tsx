@@ -76,6 +76,34 @@ describe("Pip writing a campaign's script", () => {
     );
   });
 
+  it("takes a long note in a box that grows, counts what is left, and sends it whole", async () => {
+    const rendered = await render({ [`POST ${base}/script/proposal`]: ready({ status: "drafting", script: null }) });
+    fireEvent.click(await screen.findByRole("button", { name: "Add a note for Pip" }));
+    const box = screen.getByLabelText("Note for Pip");
+    expect(box.tagName).toBe("TEXTAREA");
+    expect(box.getAttribute("maxLength")).toBe("1000");
+    const note = "The agent is Priya from Sunrise Homes. Keep the words EMI and loan in English. ".repeat(11).trim();
+    expect(note.length).toBeGreaterThan(800);
+    fireEvent.change(box, { target: { value: note } });
+    expect(screen.getByText(`${1000 - note.length} characters left`)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    await waitFor(() => expect(posted(rendered.calls)).toEqual([{ instruction: note }]));
+  });
+
+  it("keeps Generate open when the sources list did not load", async () => {
+    const down = problem(503, { title: "This did not load", status: 503, retryable: true });
+    const rendered = await render({
+      "/v1/kb/notes": down,
+      "/v1/kb/uploads": down,
+      [`POST ${base}/script/proposal`]: ready({ status: "drafting", script: null }),
+    });
+    const generate = await screen.findByRole("button", { name: "Generate" });
+    await waitFor(() => expect(rendered.calls.some((c) => c.path === "/v1/kb/notes")).toBe(true));
+    expect(generate.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(generate);
+    await waitFor(() => expect(posted(rendered.calls)).toHaveLength(1));
+  });
+
   it("says when no sources are picked, with a button to pick them", async () => {
     await render({ [`${base}/workspace`]: workspaceFixture() });
     expect(await screen.findByText("No sources picked. Pip uses only the main task.")).toBeTruthy();

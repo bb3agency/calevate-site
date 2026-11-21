@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * HOW THE OWNER WANTS PIP TO WRITE THE SCRIPT (D-1004): a tone beside Generate, a short note
- * behind "Add a note for Pip", and a pointer to Sources when none are picked, since Pip then
- * has only the main task to work from and leaves out what it cannot back.
+ * HOW THE OWNER WANTS PIP TO WRITE THE SCRIPT (D-1004): a tone beside Generate, a note
+ * behind "Add a note for Pip" (up to 1,000 characters), and a pointer to Sources when none
+ * are picked, since Pip then has only the main task to work from and leaves out what it
+ * cannot back.
  *
  * The tone and note go with this one request; nothing is saved on the campaign.
  */
@@ -13,6 +14,8 @@ import { useEffect, useRef, useState } from "react";
 import { TEXT_ACTION } from "@/components/console/section";
 import { FIELD, SECONDARY_BUTTON_SM } from "@/components/ui";
 import { INSTRUCTION_MAX, type ScriptAsk } from "@/lib/api/campaignWorkspace";
+
+import { RoomCounter } from "../agents/panels/openingLineFix";
 
 export type Tone = NonNullable<ScriptAsk["tone"]>;
 
@@ -55,7 +58,7 @@ export function TonePick({
   );
 }
 
-/** "Add a note for Pip": one line the owner wants this script to follow. */
+/** "Add a note for Pip": what the owner wants this script to follow, in their own words. */
 export function PipNote({
   value,
   onChange,
@@ -66,7 +69,7 @@ export function PipNote({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(value !== "");
-  const box = useRef<HTMLInputElement>(null);
+  const box = useRef<HTMLTextAreaElement>(null);
   // Focused when the owner opens it, never when the page loads with a note already there.
   const mounted = useRef(false);
   useEffect(() => {
@@ -81,31 +84,37 @@ export function PipNote({
     );
   }
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <label htmlFor="pip-script-note" className="text-meta font-medium text-ink">
-        Note for Pip
-      </label>
-      <input
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <label htmlFor="pip-script-note" className="text-meta font-medium text-ink">
+          Note for Pip
+        </label>
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_SM}
+          onClick={() => {
+            onChange("");
+            setOpen(false);
+          }}
+        >
+          Remove
+        </button>
+      </div>
+      {/* A real note runs several sentences (who the agent is, what it says first, which
+          words stay in English), so the box grows with it where the browser can. */}
+      <textarea
         id="pip-script-note"
         ref={box}
-        type="text"
+        rows={3}
         maxLength={INSTRUCTION_MAX}
+        aria-describedby="pip-script-note-room"
         placeholder="For example: keep every line short"
-        className={`${FIELD} min-w-0 flex-1`}
+        className={`${FIELD} mt-1 [field-sizing:content] min-h-16 max-h-72`}
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
       />
-      <button
-        type="button"
-        className={SECONDARY_BUTTON_SM}
-        onClick={() => {
-          onChange("");
-          setOpen(false);
-        }}
-      >
-        Remove
-      </button>
+      <RoomCounter id="pip-script-note-room" text={value} room={INSTRUCTION_MAX} />
     </div>
   );
 }
