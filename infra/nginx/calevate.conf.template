@@ -597,26 +597,29 @@ server {
     # Uploads the app reads bounded in memory, so nginx buffers them as it does any body.
     # Exact matches win over `/`, so each widens its one route and nothing else. Sizes are
     # the app's limit plus its 64 KiB multipart room, in KiB.
+    # Each keeps its zone's `location /` burst. The zone is one bucket per address, so after a
+    # page load the excess is already past a smaller burst, and nginx's 429 has no CORS header:
+    # the GET of the same path (the Sources list) read as a network failure until it drained.
     location = /v1/kb/uploads {
-        limit_req zone=client_api burst=10 nodelay;
+        limit_req zone=client_api burst=120 nodelay;
         client_max_body_size 20544k;
         proxy_pass http://calevate_api;
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
     location = /v1/compliance/kyc/documents {
-        limit_req zone=client_api burst=10 nodelay;
+        limit_req zone=client_api burst=120 nodelay;
         client_max_body_size 5184k;
         proxy_pass http://calevate_api;
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
     location = /v1/kb/teach/upload {
-        limit_req zone=client_api burst=10 nodelay;
+        limit_req zone=client_api burst=120 nodelay;
         client_max_body_size 3136k;
         proxy_pass http://calevate_api;
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
     location = /v1/first-run/recordings {
-        limit_req zone=client_api burst=10 nodelay;
+        limit_req zone=client_api burst=120 nodelay;
         client_max_body_size 3136k;
         proxy_pass http://calevate_api;
         include /etc/nginx/snippets/calevate-proxy.conf;
@@ -625,7 +628,7 @@ server {
     # campaign id, so it needs a regex; the longest prefix here is the plain `/`, so nginx
     # tries it.
     location ~ ^/v1/campaigns/[^/]+/sources/upload$ {
-        limit_req zone=client_api burst=10 nodelay;
+        limit_req zone=client_api burst=120 nodelay;
         client_max_body_size 20544k;
         proxy_pass http://calevate_api;
         include /etc/nginx/snippets/calevate-proxy.conf;
@@ -639,7 +642,7 @@ server {
     # timeouts apply unchanged: they bound the gap between two writes or two reads, and a
     # streaming upload keeps writing; `client_body_timeout` bounds a client that stalls.
     location = /v1/copilot/uploads {
-        limit_req zone=client_api burst=10 nodelay;
+        limit_req zone=client_api burst=120 nodelay;
         client_max_body_size 20m;
         client_body_timeout 60s;
         proxy_request_buffering off;
@@ -647,7 +650,7 @@ server {
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
     location = /v1/admin/copilot/uploads {
-        limit_req zone=admin_api burst=10 nodelay;
+        limit_req zone=admin_api burst=120 nodelay;
         client_max_body_size 20m;
         client_body_timeout 60s;
         proxy_request_buffering off;
@@ -684,7 +687,7 @@ server {
         # Dispute evidence: 5 files of 5 MiB plus multipart room. Nested, because `^~` on
         # the parent stops nginx from trying any top-level regex location for this path.
         location ~ ^/v1/admin/payments/disputes/[^/]+/contest$ {
-            limit_req zone=admin_api burst=10 nodelay;
+            limit_req zone=admin_api burst=120 nodelay;
             client_max_body_size 25664k;
             proxy_pass http://calevate_api;
             include /etc/nginx/snippets/calevate-proxy.conf;

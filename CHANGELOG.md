@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.97 — 21-Nov-2026
+
+- A campaign's Sources list, the knowledge list and file uploads load at once instead of
+  after several seconds of retrying.
+
 ## 0.4.96 — 21-Nov-2026
 
 - A caller speaking the agent's own language in English letters ("Naa phone Android andi")
