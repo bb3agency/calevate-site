@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.95 — 21-Nov-2026
+
+- Languages follow the account: any language switched on for it can be picked in onboarding,
+  new agents, the business profile, Pip and WhatsApp templates.
+- Business types come from one list; the first questions follow what the business does.
+- Platform wording names no trade, and health rules follow what the business really does.
+
 ## 0.4.94 — 21-Nov-2026
 
 - Operators set the calling limits in the console: how long a follow-up stays open, calls at
