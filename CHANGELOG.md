@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.98 — 21-Nov-2026
+
+- A captured detail is kept only when the caller said it: a short reply answers only the
+  question just asked, and nothing is copied from the agent's own lines or the business's
+  wording.
+- A call that finished what it set out to do gets no made-up next step or Needs you.
+- Test calls never book a call back or count toward the needs-a-person nudge.
+
 ## 0.4.97 — 21-Nov-2026
 
 - A campaign's Sources list, the knowledge list and file uploads load at once instead of
