@@ -24,6 +24,7 @@ from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS, COVERAGE_READS
 from apps.api.copilot.follow_up_actions import FOLLOW_UP_ACTIONS
 from apps.api.copilot.help import GLOSSARY
 from apps.api.copilot.pin_actions import PIN_ACTIONS
+from apps.api.copilot.script_actions import SCRIPT_DRAFT_ACTIONS
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
@@ -67,9 +68,17 @@ async def _agent_of(tenant_id: UUID) -> UUID:
 def test_the_coverage_actions_are_appended_last_and_each_has_an_area() -> None:
     names = [tool.name for tool in write_tools.WRITE_TOOLS]
     mine = [tool.name for tool in COVERAGE_ACTIONS]
-    # D-934's pin actions, D-940's Follow-up actions and F-10's campaign archive actions are
-    # appended after these.
-    after = [tool.name for tool in (*PIN_ACTIONS, *FOLLOW_UP_ACTIONS, *CAMPAIGN_ARCHIVE_ACTIONS)]
+    # D-934's pin actions, D-940's Follow-up actions, F-10's campaign archive actions and
+    # the script draft are appended after these.
+    after = [
+        tool.name
+        for tool in (
+            *PIN_ACTIONS,
+            *FOLLOW_UP_ACTIONS,
+            *CAMPAIGN_ARCHIVE_ACTIONS,
+            *SCRIPT_DRAFT_ACTIONS,
+        )
+    ]
     later = len(after)
     assert names[-len(mine) - later : -later] == mine
     assert names[-later:] == after

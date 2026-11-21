@@ -273,6 +273,15 @@ def test_the_fill_job_is_told_to_draft_rather_than_interrogate() -> None:
     assert "fabricate a FACT" in prompt_module.SYSTEM_PROMPT
 
 
+def test_wording_a_lookup_returned_is_never_offered_as_the_changes() -> None:
+    """FAILS IF: the prompt stops saying that a script Pip read is what is there now, or
+    stops naming the one action that rewrites one. Asked for a rewrite with neither said,
+    Pip printed the current script and asked "do these changes suit you?" (20 Nov 2026)."""
+    assert "it is what is there now" in prompt_module.SYSTEM_PROMPT
+    assert "agents_do script_draft" in prompt_module.SYSTEM_PROMPT
+    assert "never changes" in prompt_module.CLOSING_RULES
+
+
 def test_a_missing_number_sends_the_model_to_a_tool_not_to_an_apology() -> None:
     """THE SENTENCE THAT PRODUCED THE REPORTED BUG (D-497), PINNED THE RIGHT WAY ROUND.
 

@@ -228,6 +228,9 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | campaign | Restore from Archived (paused or draft, never running) | campaigns_do:campaign_restore | confirm | BUILT (F-10) |
 | campaign | Confirm the complaint review | screen only | - | NEVER (legal attestation by a human) |
 | campaign | "Results per contact / opt-outs" | campaigns_find:campaign_detail | read | COVERED |
+| campaign | Generate or rewrite the script (tone, what to change); the draft waits on the page for review | agents_do:script_draft | confirm | BUILT |
+| inbound line | Generate or rewrite the line's script (tone, what to change); the draft waits on the page for review | agents_do:script_draft | confirm | BUILT |
+| campaign, inbound line | Rewrite one part in one language | (none) | confirm | MISSING |
 
 ### Knowledge `/knowledge`
 

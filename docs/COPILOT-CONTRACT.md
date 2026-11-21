@@ -495,6 +495,20 @@ one moved; `agent_script_suggest` is its tool.
   fixes are written as a Pip draft on that line or campaign (`agents/test_fixes`, the
   healer's holder-draft shape, D-1005) and reviewed on its page; facts are kept on the
   Training tab (`ImprovementReview`). Nothing writes the agent's own script.
+* **`script_draft`** is a campaign's or Inbound line's Generate, asked from chat: confirm
+  tier, `leads:dispatch` (the campaign route's; the planner also asks `org:manage`, the line
+  route's, of a line), audited under the page's own `campaign.script_requested` /
+  `inbound_line.script_requested` with ids only (the typed instruction stays out, as on the
+  page). Arguments `holder_id` (the line or campaign) or `agent_id` (its only one; an agent
+  with several and no `holder_id` is refused naming each, so Pip asks which), `instruction`
+  (every change the person asked for, at most `campaign_script_ask.INSTRUCTION_MAX`
+  characters) and `tone`. The planner refuses a holder with no main task or a draft already
+  being written, says when a waiting draft would be replaced, then asks the allowance; the
+  executor calls the route's own `campaigns.workspace.request_proposal` /
+  `inbound.lines.request_proposal` with `ask`, so the draft is written by the same job and
+  reviewed on the same page. The `agent_settings` script part labels what it prints as the
+  CURRENT wording (`agent_reads.CURRENT_WORDING`) and names `script_draft` as the only way to
+  rewrite it.
 
 ## 11. The remaining helpers (`copilot/assist_actions.py`, D-821)
 

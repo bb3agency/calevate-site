@@ -148,7 +148,7 @@ from apps.api.copilot.schemas import (
     CopilotConfirmOut,
     CopilotProposalEvent,
 )
-from apps.api.copilot.script_actions import SCRIPT_ACTIONS
+from apps.api.copilot.script_actions import SCRIPT_ACTIONS, SCRIPT_DRAFT_ACTIONS
 from apps.api.copilot.set_actions import SET_ACTIONS
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
@@ -982,6 +982,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *FOLLOW_UP_ACTIONS,
     # F-10: archive and restore a campaign, through the service the screen buttons use.
     *CAMPAIGN_ARCHIVE_ACTIONS,
+    # A new draft of what an Inbound line or campaign says, through its page's Generate.
+    *SCRIPT_DRAFT_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}

@@ -349,12 +349,16 @@ async def request_proposal(
     line_id: UUID,
     requested_by: UUID | None,
     auto_save: bool = False,
+    ask: dict[str, str] | None = None,
 ) -> ScriptProposal:
     """Ask Pip for the line's script. Needs a main task; replaces a ready draft; refused
     while one is still being written, so a second click does not spend twice.
 
     `auto_save`: the draft becomes the line's script as soon as it is written, with no
-    review, while the line has none (the first run's line, Phase 3b)."""
+    review, while the line has none (the first run's line, Phase 3b).
+
+    `ask` (`{"tone": ..., "instruction": ...}`, either may be absent) is how the owner wants
+    this draft written, stored as a campaign's is (`campaigns.workspace.request_proposal`)."""
     row = await _lock(session, line_id)
     if not (row.main_task or "").strip():
         raise _invalid(
@@ -378,6 +382,8 @@ async def request_proposal(
         "requested_by": None if requested_by is None else str(requested_by),
         "base_script": row.script,
     }
+    if ask:
+        record["ask"] = ask
     if auto_save:
         record["auto_save"] = True
     await session.execute(

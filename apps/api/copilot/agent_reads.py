@@ -8,7 +8,8 @@ Each part reads what its screen reads, through the same services:
 * `script` — the agent's own script, read only (no screen shows or edits it since D-1005):
   the whole of it (the autosaved working copy when there is one, else the saved version),
   whether callers hear it, the versions, and the Inbound lines and campaigns where what
-  calls say is changed (D-1009).
+  calls say is changed (D-1009), with the sentence that it is the current wording and that
+  a rewrite is `script_draft`'s.
 * `handover` — the Hand-over list by name, and the business contacts that may be added.
   Never a phone number: they are staff mobiles (hard rule 6), and Pip names people.
 * `actions` — the Actions tab: the master switch, each action, and the connections made.
@@ -290,9 +291,20 @@ def _script_lines(script: CallScript, direction: str) -> list[str]:
     return lines
 
 
+#: Said before a script this read prints. Asked to rewrite a script it could not edit, the
+#: model printed this read's script back and offered it as the changes (20 Nov 2026), so the
+#: read names what it returns and where a rewrite comes from.
+CURRENT_WORDING: Final = (
+    "What follows is the CURRENT wording, exactly as stored and read only: nothing in it is "
+    "a change, a suggestion or a draft. Never show it, or any part of it, as changes the "
+    "person asked for; a rewrite is made only by `script_draft`."
+)
+
+
 async def _where_scripts_change(session: AsyncSession, agent_id: UUID) -> str:
-    """Where a change to what calls say is made. Owners no longer edit an agent's own script
-    (D-1005), so Pip sends them to the line or campaign whose script callers hear."""
+    """How a change to what calls say is made. Nobody edits an agent's own script (D-1005);
+    callers hear the line's or campaign's, which `script_draft` asks that page's writer to
+    redraft."""
     # A deleted agent never gets here: `script_builder.read_draft` has already refused it.
     jobs = (await agent_jobs(session, agent_id)).jobs
     named = "; ".join(
@@ -301,14 +313,15 @@ async def _where_scripts_change(session: AsyncSession, agent_id: UUID) -> str:
         for job in jobs
     )
     return (
-        "This script is read only: nobody edits it, and you cannot change it. Callers hear "
-        "the script of the Inbound line or campaign the call is on, so to change what calls "
-        "say, send the owner to that line on Inbound or that campaign on Campaigns, where "
-        "Pip writes a draft they keep. "
+        "Callers hear the script of the Inbound line or campaign the call is on. To change "
+        "what calls say, call `script_draft` with that line or campaign and every change the "
+        "person asked for; Pip writes a new draft that waits on its page for them to review "
+        "and keep. "
         + (
             f"This agent's jobs: {named}."
             if named
-            else "This agent has no Inbound line or campaign yet; the owner gives it one there."
+            else "This agent has no Inbound line or campaign yet; the owner gives it one on "
+            "Inbound or Campaigns."
         )
     )
 
@@ -353,7 +366,14 @@ async def _script_part(session: AsyncSession, agent_id: UUID) -> list[str]:
         state = f"Its own script is version {loaded.version}; {heard}."
         shown = loaded.script
     body = script_text(shown, direction=str(direction))
-    lines = [state, change, "--- the script ---", *body, "--- end of the script ---"]
+    lines = [
+        state,
+        CURRENT_WORDING,
+        change,
+        "--- the script, current wording, unchanged ---",
+        *body,
+        "--- end of the script ---",
+    ]
     if sum(len(line) for line in body) > _PRINT_IN_PARTS:
         lines.append(
             "This is long: asked to print it, print it up to the end of the steps, then "
@@ -605,7 +625,8 @@ AGENT_SETTINGS_READ: Final = ReadTool(
     name="agent_settings",
     description=(
         "One part of an agent's set-up: `settings` (voice, call handling, longest call, AI "
-        "model, caller memory), `script` (the whole script, to show or print), `handover` "
+        "model, caller memory), `script` (its current script, to show or print), "
+        "`handover` "
         "(who it hands callers to, and contacts), `actions` (in-call actions and "
         "connections), `lead_fields` (what it writes down and suggestions), `tests` (latest "
         "practice "
@@ -624,4 +645,4 @@ AGENT_SETTINGS_READ: Final = ReadTool(
     run=_agent_settings,
 )
 
-__all__ = ["AGENT_SETTINGS_READ", "PARTS", "script_text"]
+__all__ = ["AGENT_SETTINGS_READ", "CURRENT_WORDING", "PARTS", "script_text"]
