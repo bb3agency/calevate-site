@@ -11,7 +11,7 @@ import type { Stats } from "@/lib/api/analytics";
 import type { CampaignSummary } from "@/lib/api/campaigns";
 import type { Dashboard } from "@/lib/api/client";
 import { activeTrial, walletState, type Wallet } from "@/lib/api/wallet";
-import { useBusinessCapabilities } from "@/lib/businessCapabilities";
+import { useAccountCapabilities } from "@/lib/businessCapabilities";
 import { canDialOut, isAnsweringNow, isDeleted } from "@/lib/agentState";
 
 import { statItems } from "./analyticsFigures";
@@ -117,7 +117,7 @@ function WeekFigures({ data, stats }: { data: Dashboard; stats: UseQueryResult<S
 }
 
 function WeekBand({ data, stats }: { data: Dashboard; stats: Stats }) {
-  const caps = useBusinessCapabilities();
+  const caps = useAccountCapabilities();
   return (
     <StatsBand
       label="The last 7 days, not counting your test calls"

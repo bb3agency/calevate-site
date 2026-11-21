@@ -26,7 +26,8 @@ import { useMe } from "@/lib/api/hooks";
 import { seatLabel } from "@/lib/api/members";
 import { BELL_ROWS, unseenAttention, useNotifications } from "@/lib/api/notifications";
 import { useClientRealm } from "@/lib/api/session";
-import { clientNavigation, type NavGroup, type NavItem } from "@/lib/clientNav";
+import { useLeadNouns } from "@/lib/businessCapabilities";
+import { clientNavigation, inAccountWords, type NavGroup, type NavItem } from "@/lib/clientNav";
 import { currentNavItem } from "@/lib/nav";
 
 /**
@@ -76,7 +77,7 @@ export function ClientSidebar({
   // opening the bell or the queue marks them seen and the badge drops. Unresolved problems
   // stay listed on the screen itself.
   const waiting = unseenAttention(useNotifications(session, BELL_ROWS).data);
-  const groups = clientNavigation(slug).map((group) => ({
+  const groups = inAccountWords(clientNavigation(slug), slug, useLeadNouns()).map((group) => ({
     ...group,
     items: group.items.map((item): NavItem =>
       item.href.endsWith("/agreements")

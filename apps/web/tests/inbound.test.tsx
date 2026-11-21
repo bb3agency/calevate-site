@@ -50,6 +50,7 @@ function agent(id: string, name: string): Agent {
     caller_memory_enabled: false,
     caller_memory_paused: false,
     caller_has_screen: false,
+    purpose: "sales",
     recording_notice_enabled: true,
     opening_line: "Namaskaram, this is an AI assistant for Sri Clinic. This call is being recorded.",
     script_opening_line: "",

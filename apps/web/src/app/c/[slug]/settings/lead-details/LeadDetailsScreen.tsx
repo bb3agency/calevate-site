@@ -6,6 +6,7 @@ import { LeadDetailsView } from "@/components/leadFields/LeadDetailsView";
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { useCallOutcomes, useDraftCallOutcomes, useSaveCallOutcomes } from "@/lib/api/callOutcomes";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { useLeadNouns } from "@/lib/businessCapabilities";
 import {
   useReviewLeadFieldsDraft,
   useLeadFields,
@@ -29,6 +30,7 @@ export function LeadDetailsScreen() {
   const fields = useLeadFields(session);
   const write = useWriteAccess(session, "org:manage", "change the lead details");
   const eg = useVerticalExamples();
+  const nouns = useLeadNouns();
   const outcomes = useCallOutcomes(session);
   const saveOutcomes = useSaveCallOutcomes(session);
   const draftOutcomes = useDraftCallOutcomes(session);
@@ -54,7 +56,7 @@ export function LeadDetailsScreen() {
 
   useCopilotSurface({
     route: "/c/{slug}/settings/lead-details",
-    title: "Lead details",
+    title: nouns.LeadDetails,
     realm: "client",
     fields: [],
     facts: fields.data
@@ -96,7 +98,7 @@ export function LeadDetailsScreen() {
     apply: noFill,
   });
 
-  if (fields.isPending) return <Skeleton rows={8} label="Loading the lead details" />;
+  if (fields.isPending) return <Skeleton rows={8} label={`Loading the ${nouns.lead} details`} />;
   if (fields.isError)
     return <ProblemNotice error={fields.error} onRetry={() => void fields.refetch()} />;
   return (

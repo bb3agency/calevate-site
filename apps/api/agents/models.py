@@ -59,6 +59,13 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 AgentDirection = Literal["inbound", "outbound", "both"]
 AGENT_DIRECTIONS: tuple[AgentDirection, ...] = get_args(AgentDirection)
 
+#: What an agent is for (founder, 21 Nov 2026). A `support` agent never moves a lead to
+#: `interested` on the caller's tone alone (`workers/pipeline.after_call_status`), and an
+#: account whose agents are all `support` reads "callers" where it read "leads"
+#: (`tenancy/caller_words`). The lead ladder underneath is the same for both.
+AgentPurpose = Literal["sales", "support"]
+AGENT_PURPOSES: tuple[AgentPurpose, ...] = get_args(AgentPurpose)
+
 #: WHERE AN AGENT IS IN ITS LIFE, as a type, for the reason `AgentDirection` above is one:
 #: this vocabulary is compared against, stored, filtered on and returned to a browser, and
 #: it spent its whole life as a bare tuple of strings that nothing could check.
@@ -380,6 +387,7 @@ class Agent(PKMixin, TimestampMixin, Base):
     __tablename__ = "agents"
     __table_args__ = (
         CheckConstraint(f"direction IN {AGENT_DIRECTIONS!r}", name="direction_enum"),
+        CheckConstraint(f"purpose IN {AGENT_PURPOSES!r}", name="purpose_enum"),
         # WHICH LANGUAGE THE AGENT SPEAKS, bounded at last (migration c7a41e8b52d9).
         #
         # It was a bare `Text` with a server default and NOTHING else: no FK, no CHECK. So
@@ -644,6 +652,9 @@ class Agent(PKMixin, TimestampMixin, Base):
     # The caller follows the agent's steps on a screen of their own (D-906): the owner's
     # switch, off by default, read into the composed prompt at publish.
     caller_has_screen: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Selling or helping customers (`AgentPurpose`). Existing agents were backfilled `sales`;
+    # a new one takes it from the business at creation (`lifecycle.create_agent`).
+    purpose: Mapped[str] = mapped_column(String, nullable=False, server_default="sales")
     # The client's voice settings (F3, F9): the silence prompt, hanging up after silence,
     # filler lines and the background sound. NULL inherits the account's, then Calevate's.
     nudge_after_seconds: Mapped[int | None] = mapped_column(Integer)

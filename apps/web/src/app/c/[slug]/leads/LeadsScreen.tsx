@@ -13,6 +13,7 @@ import { PlanCard } from "@/components/copilot/PlanCard";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
+import { useLeadNouns } from "@/lib/businessCapabilities";
 import { useClientRealm } from "@/lib/api/session";
 import { useActAccess, useMe, useWriteAccess } from "@/lib/api/hooks";
 import {
@@ -93,8 +94,9 @@ export function LeadsScreen() {
   const facets = useLeadFacets(session, lens);
   const savedViews = useSavedViews(session);
   const exportLeads = useExportLeads(session);
+  const nouns = useLeadNouns();
   // The file arriving is the success; the button's tick says the export ran.
-  const exporting = useActionFeedback(exportLeads, { errorTitle: "Could not export these leads" });
+  const exporting = useActionFeedback(exportLeads, { errorTitle: `Could not export these ${nouns.leads}` });
   const members = useMembers(session);
   /** One mutation for every inline edit, with each failure kept against its lead. */
   const rows = useLeadRowEdit(session);
@@ -314,8 +316,8 @@ export function LeadsScreen() {
           <AskAssistant
             prompt={
               selection.wholeQuery || selection.ids.length > 0
-                ? "Summarise the leads I've ticked and tell me who to call first."
-                : "Summarise the leads on this screen and tell me who to call first."
+                ? `Summarise the ${nouns.leads} I've ticked and tell me who to call first.`
+                : `Summarise the ${nouns.leads} on this screen and tell me who to call first.`
             }
           />
           {/* No count until there IS one: "0 leads" while loading is a statement about the
@@ -328,7 +330,7 @@ export function LeadsScreen() {
                 <p>
                   {narrowedBeyondStatus(lens)
                     ? "Stage counts follow your other filters."
-                    : "Stage counts cover every lead."}
+                    : `Stage counts cover every ${nouns.lead}.`}
                 </p>
                 <p>Columns follow what your agent captures.</p>
               </InfoTip>
@@ -339,9 +341,9 @@ export function LeadsScreen() {
 
       {f.campaignId && (
         <div role="group" aria-label="Campaign filter" className="flex flex-wrap items-center gap-2">
-          <FilterChip label="One campaign's leads" active onClick={() => f.setCampaignId(undefined)} />
+          <FilterChip label={`One campaign's ${nouns.leads}`} active onClick={() => f.setCampaignId(undefined)} />
           <button type="button" className={TEXT_ACTION} onClick={() => f.setCampaignId(undefined)}>
-            Show all leads
+            Show all {nouns.leads}
           </button>
         </div>
       )}
@@ -466,7 +468,7 @@ export function LeadsScreen() {
           failed REFETCH and those rows are real, so the guard is on data, not on error. */}
       {leads.isLoading ? (
         <div className="border-y border-line py-4">
-          <Skeleton rows={6} label="Loading your leads" />
+          <Skeleton rows={6} label={`Loading your ${nouns.leads}`} />
         </div>
       ) : !leads.data ? null : (
         <LeadTable

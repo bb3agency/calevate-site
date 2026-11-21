@@ -9,6 +9,7 @@ import { RowMenu } from "@/components/arc/menu";
 import { copyText } from "@/components/interior/copy-button";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import type { Lead } from "@/lib/api/leads";
+import { useLeadNouns } from "@/lib/businessCapabilities";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
 import { LeadsPhoneList } from "./LeadsPhoneList";
@@ -32,6 +33,7 @@ const PHONE = "(max-width: 639px)";
  * share. The ⋯ menu carries the same actions wherever there is a mouse or a keyboard.
  */
 export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?: string }) {
+  const nouns = useLeadNouns();
   const {
     items, columns, canCall, maySelect, ticked, setTicked,
     renderCell, rowFailure, callCell,
@@ -93,7 +95,7 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
           rows={items}
           columns={tableColumns}
           getRowId={(lead) => lead.id}
-          label="Leads"
+          label={nouns.Leads}
           partialNote={partialNote}
           // THE HEADER CHECKBOX IS PAGE-SCOPED; extending to the whole filtered query is a
           // separate, named act on the bulk bar (PatternFly, Helios).

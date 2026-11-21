@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict
 
 from apps.api.agents.languages import Language
 from apps.api.agents.llm_models import LlmModelSource
-from apps.api.agents.models import AgentDirection, AgentStatus
+from apps.api.agents.models import AgentDirection, AgentPurpose, AgentStatus
 
 
 class GreetingBudgetOut(BaseModel):
@@ -110,6 +110,9 @@ class AgentOut(BaseModel):
     caller_memory_statement: str | None = None
     #: The caller follows the agent's steps on a screen of their own (D-906).
     caller_has_screen: bool = False
+    #: What the agent is for: `sales` (selling) or `support` (helping customers). A support
+    #: agent never marks a caller interested on their tone alone.
+    purpose: AgentPurpose
     #: The NOTICES this agent says after its opening line, composed by the server from the
     #: two switches. Empty string = both off: the agent volunteers neither and opens on its
     #: opening line. Composed here rather than left to the screen because a UI that

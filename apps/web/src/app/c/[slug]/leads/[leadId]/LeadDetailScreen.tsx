@@ -23,6 +23,7 @@ import { CopyButton } from "@/components/interior/copy-button";
 import { PageHeader } from "@/components/console/pageHeader";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
+import { useLeadNouns } from "@/lib/businessCapabilities";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { useEditLead, useLead, useLeadTimeline, useMembers } from "@/lib/api/leads";
 import { useClientRealm } from "@/lib/api/session";
@@ -91,6 +92,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
   const editingField = editLead.variables?.edit.status !== undefined ? "status" : "owner";
   const me = useMe(session);
   const agents = useAgents(session);
+  const nouns = useLeadNouns();
   const dialer = agents.data?.find(canDialOut);
   const followUp = useFollowUpActions(session, {
     dialerFor: () => (dialer ? { id: dialer.id, name: dialer.name } : null),
@@ -131,7 +133,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
    */
   useCopilotSurface({
     route: "/c/{slug}/leads/{leadId}",
-    title: "Lead",
+    title: nouns.Lead,
     realm: "client",
     saves: "immediate",
     fields: [
@@ -231,7 +233,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
       {lead.isLoading ? (
         <Skeleton rows={3} />
       ) : lead.data ? (
-        <section aria-label="Lead">
+        <section aria-label={nouns.Lead}>
           {/* IN FULL (D-436) and as text, never an `href` (hard rule 6); the copy button
               copies the E.164 form. */}
           <PageHeader

@@ -58,6 +58,8 @@ import {
 } from "lucide-react";
 
 import { PipIcon } from "@/components/illustration/pip";
+import type { LeadNouns } from "@/lib/businessCapabilities";
+import { lookup } from "@/lib/lookup";
 
 export interface NavItem {
   href: string;
@@ -215,5 +217,27 @@ export function clientNavigation(slug: string): NavGroup[] {
       ],
     },
   ];
+}
+
+/** Labels an account whose agents all help customers reads (`useLeadNouns`), by path. */
+const NAV_LABEL_FOR_CALLERS: Readonly<Record<string, keyof LeadNouns>> = {
+  leads: "Leads",
+  "settings/lead-details": "LeadDetails",
+};
+
+/**
+ * The navigation in this account's words: the leads entries renamed with `nouns`, paths kept.
+ * Applied by the readers that render a label (`ClientSidebar`, `clientPageTitle`), so the list
+ * above stays the one literal `screens_test.py` parses.
+ */
+export function inAccountWords(groups: NavGroup[], slug: string, nouns: LeadNouns): NavGroup[] {
+  const prefix = `/c/${slug}/`;
+  return groups.map((group) => ({
+    ...group,
+    items: group.items.map((item) => {
+      const key = item.href.startsWith(prefix) ? lookup(NAV_LABEL_FOR_CALLERS, item.href.slice(prefix.length)) : undefined;
+      return key ? { ...item, label: nouns[key] } : item;
+    }),
+  }));
 }
 

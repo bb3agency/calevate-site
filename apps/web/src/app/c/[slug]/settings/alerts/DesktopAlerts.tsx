@@ -4,7 +4,7 @@ import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { SECONDARY_BUTTON } from "@/components/ui";
 import { useClientSession } from "@/lib/api/session";
-import { leadWords, useBusinessCapabilities } from "@/lib/businessCapabilities";
+import { leadWords, useAccountCapabilities } from "@/lib/businessCapabilities";
 import { turnOffDesktopAlerts, turnOnDesktopAlerts, useDesktopAlertState } from "@/lib/desktopAlerts";
 
 /**
@@ -15,7 +15,7 @@ import { turnOffDesktopAlerts, turnOnDesktopAlerts, useDesktopAlertState } from 
 export function DesktopAlerts() {
   const session = useClientSession();
   const state = useDesktopAlertState(session.orgSlug);
-  const top = leadWords(useBusinessCapabilities()).hotLeads;
+  const top = leadWords(useAccountCapabilities()).hotLeads;
 
   return (
     <Section

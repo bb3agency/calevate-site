@@ -6,6 +6,7 @@ import { Metric } from "@/components/console/metric";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { ProblemNotice, Skeleton, StatusBadge, formatCount, formatDuration, formatINR } from "@/components/ui";
 import type { CampaignResults as Results, ContactOutcome } from "@/lib/api/campaigns";
+import { useLeadNouns } from "@/lib/businessCapabilities";
 import { outcomeLabel } from "@/lib/callReview";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -141,6 +142,7 @@ export function CampaignResults({
   results: ResultsRead;
 }) {
   const { href } = useClientRealm();
+  const nouns = useLeadNouns();
   if (results.isLoading) return <Skeleton rows={3} />;
   if (!results.data) {
     return (
@@ -195,12 +197,12 @@ export function CampaignResults({
 
       {r.recent_leads.length > 0 && (
         <Section
-          title="Leads from this campaign"
+          title={`${nouns.Leads} from this campaign`}
           headingLevel={3}
           action={
             <span className="flex flex-wrap gap-x-4 gap-y-1">
               <Link href={href(`/c/${slug}/leads?campaign_id=${campaignId}`)} className={TEXT_ACTION}>
-                All its leads
+                All its {nouns.leads}
               </Link>
               <Link href={href(`/c/${slug}/calls?campaign_id=${campaignId}`)} className={TEXT_ACTION}>
                 All its calls

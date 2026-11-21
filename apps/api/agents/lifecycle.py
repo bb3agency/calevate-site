@@ -80,7 +80,13 @@ from apps.api.agents.languages import (
     default_primary_language,
     published_extra_languages,
 )
-from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection, AgentStatus, is_published
+from apps.api.agents.models import (
+    AGENT_DIRECTIONS,
+    AgentDirection,
+    AgentPurpose,
+    AgentStatus,
+    is_published,
+)
 from apps.api.agents.own_model import refuse_own_model_choice
 from apps.api.agents.service import (
     INBOUND_SILENCE_TRUTHFUL_ANSWER,
@@ -112,6 +118,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.transition import transition_status
 from apps.api.engine import get_engine
+from apps.api.tenancy.business_copy import Capabilities, capabilities_for
 from apps.api.tenancy.lifecycle import assert_account_open
 
 log = get_logger(__name__)
@@ -265,6 +272,16 @@ class LifecycleResult:
     numbers_released: int
 
 
+def purpose_for_business(caps: Capabilities) -> AgentPurpose:
+    """A new agent's purpose: `support` only for a business judged to sell nothing to its
+    callers (a free app helping its registered users, a helpline); otherwise `sales`.
+
+    Unjudged reads `sales`, by the capability profile's UNKNOWN rule: `support` withdraws the
+    tone-only move to `interested`, and only a judged False withdraws anything.
+    """
+    return "support" if caps.sells.applies is False else "sales"
+
+
 async def create_agent(
     session: AsyncSession,
     *,
@@ -368,6 +385,7 @@ async def create_agent(
     # omitting it here is an IntegrityError on every create — which is how this was found.
     memory_line = caller_memory_notice_for(language=language_primary)
     refuse_call_cap_out_of_range(max_call_duration_s)
+    purpose = purpose_for_business(await capabilities_for(session, tenant_id))
     agent_id = uuid7()
     await session.execute(
         text(
@@ -375,9 +393,9 @@ async def create_agent(
             "languages_extra, "
             "disclosure_line, ai_disclosure_line, recording_notice_line, "
             "caller_memory_notice_line, "
-            "max_call_duration_s, opening_waits_for_caller, "
+            "max_call_duration_s, opening_waits_for_caller, purpose, "
             "status, engine, created_at, updated_at) VALUES (:id, :tid, :name, :dir, :lang, "
-            ":extra, :bundle, :ai_line, :rec_line, :mem_line, :cap, :waits, "
+            ":extra, :bundle, :ai_line, :rec_line, :mem_line, :cap, :waits, :purpose, "
             "'draft', :engine, now(), now())"
         ),
         {
@@ -404,6 +422,7 @@ async def create_agent(
             "cap": max_call_duration_s,
             # By direction (D-871); the owner changes it on the agent's Settings.
             "waits": opening_waits_default(direction),
+            "purpose": purpose,
             "engine": get_settings().engine,
         },
     )
@@ -433,6 +452,7 @@ async def create_agent(
             "tenant_id": str(tenant_id),
             "direction": direction,
             "language_primary": language_primary,
+            "purpose": purpose,
             "starter": None if starter is None else list(starter_jobs(starter)),
         },
     )
@@ -525,6 +545,7 @@ async def update_agent(
     set_engine_voice_id: bool = False,
     engine_model_id: str | None = None,
     set_engine_model_id: bool = False,
+    purpose: AgentPurpose | None = None,
 ) -> None:
     """Edit the fields that describe WHAT an agent is.
 
@@ -557,6 +578,10 @@ async def update_agent(
     indistinguishable. `set_llm_model` is what separates them, and it is a separate
     parameter rather than a sentinel value because a sentinel would have to travel through
     `AgentUpdateIn` and into the OpenAPI document as a type no generated client can spell.
+
+    `purpose` is the one field the voice platform never sees: it is read after the call
+    (`workers/pipeline.after_call_status`) and by the screens' wording, so changing only it
+    republishes nothing.
     """
     # COLUMN NAMES, not a name->value map, which is what this was: nothing has ever read
     # the values (the log line prints `sorted(supplied)` and the emptiness check reads the
@@ -569,6 +594,7 @@ async def update_agent(
             ("direction", direction),
             ("language_primary", language_primary),
             ("languages_extra", languages_extra),
+            ("purpose", purpose),
         )
         if value is not None
     ]
@@ -591,7 +617,7 @@ async def update_agent(
             title="Nothing to change",
             detail=(
                 "Change at least one thing — the name, the direction, the main "
-                "language, the language model or the voice."
+                "language, the language model, the voice or what the agent is for."
             ),
         )
 
@@ -615,7 +641,7 @@ async def update_agent(
         raise ProblemError.not_found("Agent")
     if str(row[0]) == "archived":
         raise archived_refusal("edited")
-    republish = is_published(row[0])
+    republish = is_published(row[0]) and supplied != ["purpose"]
     # The screen sends the whole reply-language list whenever any of it moved, so a main
     # language that arrives is not necessarily a new one.
     language_changed = language_primary is not None and language_primary != str(row[4])
@@ -644,6 +670,7 @@ async def update_agent(
         text(
             "UPDATE agents SET name = coalesce(:name, name), "
             "direction = coalesce(:direction, direction), "
+            "purpose = coalesce(:purpose, purpose), "
             "language_primary = coalesce(:language_primary, language_primary), "
             # The reply languages after the main one. Sent: replaced. Not sent: kept, less a
             # new main language, which is never also an extra one.
@@ -679,6 +706,7 @@ async def update_agent(
         {
             "name": name,
             "direction": direction,
+            "purpose": purpose,
             "language_primary": language_primary,
             "set_languages_extra": languages_extra is not None,
             "languages_extra": (

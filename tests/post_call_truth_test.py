@@ -15,6 +15,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from apps.api.agents.models import AGENT_PURPOSES, AgentPurpose
 from apps.api.callbacks import service as callbacks
 from apps.api.compliance.trial_access import (
     TRIAL_CALLBACK_REASON,
@@ -199,24 +200,56 @@ def test_the_call_language_is_read_from_the_script() -> None:
 
 
 def test_lead_status_moves_by_rules() -> None:
-    assert (
-        after_call_status(
-            outcome="call_back_booked", connected=True, callback_requested=False, sentiment=None
+    for purpose in AGENT_PURPOSES:
+        assert (
+            after_call_status(
+                outcome="call_back_booked",
+                connected=True,
+                callback_requested=False,
+                sentiment=None,
+                purpose=purpose,
+            )
+            == "interested"
         )
-        == "interested"
-    )
-    assert (
-        after_call_status(
-            outcome="answered", connected=True, callback_requested=False, sentiment="neutral"
+        assert (
+            after_call_status(
+                outcome="answered",
+                connected=True,
+                callback_requested=False,
+                sentiment="neutral",
+                purpose=purpose,
+            )
+            == "contacted"
         )
-        == "contacted"
-    )
-    assert (
-        after_call_status(
-            outcome="missed", connected=False, callback_requested=False, sentiment=None
+        assert (
+            after_call_status(
+                outcome="missed",
+                connected=False,
+                callback_requested=False,
+                sentiment=None,
+                purpose=purpose,
+            )
+            is None
         )
-        is None
+
+
+def test_a_pleased_caller_is_interested_only_on_a_sales_agent() -> None:
+    def moved(purpose: AgentPurpose, **extra: Any) -> str | None:
+        return after_call_status(
+            outcome="answered",
+            connected=True,
+            callback_requested=False,
+            sentiment="positive",
+            purpose=purpose,
+            **extra,
+        )
+
+    assert moved("sales") == "interested"
+    assert moved("support") == "contacted", "a helped caller is not an interested buyer"
+    assert moved("support", business_move="interested") == "interested", (
+        "the owner's own outcome still moves a support agent's caller"
     )
+    assert moved("support", business_move="hot") == "hot"
 
 
 # --- 5. the pipeline, end to end --------------------------------------------------------
@@ -310,6 +343,31 @@ async def test_a_call_with_a_booked_call_back_reads_call_back_booked_everywhere(
     assert lead.next_callback_at is not None
     assert lead.last_call_headline == "Caller asked if chilli is in stock."
     assert lead.last_call_outcome == "call_back_booked"
+
+
+async def test_the_lead_move_is_read_with_the_agents_purpose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _with_engine_summary(monkeypatch, None)
+    tenant_id, execution_id, call_id = await _completed_call("purpose1")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE agents SET purpose = 'support' "
+                "WHERE id = (SELECT agent_id FROM calls WHERE id = :c)"
+            ),
+            {"c": call_id},
+        )
+    seen: list[str] = []
+    real = pipeline.after_call_status
+
+    def spy(**kwargs: Any) -> str | None:
+        seen.append(kwargs["purpose"])
+        return real(**kwargs)
+
+    monkeypatch.setattr(pipeline, "after_call_status", spy)
+    await _run_pipeline(tenant_id, call_id, execution_id)
+    assert seen == ["support"]
 
 
 async def test_a_person_set_status_is_never_moved_by_a_call(

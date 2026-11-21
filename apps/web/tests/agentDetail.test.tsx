@@ -139,6 +139,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     caller_memory_enabled: false,
     caller_memory_paused: false,
     caller_has_screen: false,
+    purpose: "sales",
     recording_notice_enabled: true,
     opening_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
@@ -2073,6 +2074,27 @@ describe("changing what an agent is", () => {
     const patched = calls.find((call) => call.method === "PATCH");
     expect(patched?.path).toBe("/v1/agents/agent-1");
     expect(JSON.parse(patched?.body ?? "{}")).toEqual({ name: "Front desk" });
+  });
+
+  it("marks the agent as one that helps customers (founder, 21 Nov 2026)", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({ "PATCH /v1/agents/agent-1": agent({ purpose: "support" }) }),
+    );
+
+    await screen.findByText("Reception");
+    const panel = card("What it is");
+    const purpose = within(panel).getByRole("group", { name: "What this agent is for" });
+    expect(within(purpose).getByRole("radio", { name: /Selling/ })).toHaveProperty("checked", true);
+    await act(async () => {
+      fireEvent.click(within(purpose).getByRole("radio", { name: /Helping customers/ }));
+    });
+    await act(async () => {
+      fireEvent.click(await pressable(panel, /Save changes/));
+    });
+
+    const patched = calls.find((call) => call.method === "PATCH");
+    expect(JSON.parse(patched?.body ?? "{}")).toEqual({ purpose: "support" });
   });
 
   it("sends the languages it replies in, its main language first (D-815)", async () => {

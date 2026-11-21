@@ -62,6 +62,7 @@ import { hasKey, lookup } from "@/lib/lookup";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { DIRECTIONS, DirectionPicker } from "./DirectionChoice";
+import { PURPOSES, PurposePicker, type AgentPurpose } from "./PurposeChoice";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
@@ -94,6 +95,8 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
      rejected here rather than pre-selected. */
   const [directionEdit, setDirection] = useState<AgentDirection | null>(null);
   const direction = directionEdit ?? agent.direction;
+  const [purposeEdit, setPurpose] = useState<AgentPurpose | null>(null);
+  const purpose = purposeEdit ?? agent.purpose;
   /* `AgentOut.language_primary` is a bare `str` on the wire while `AgentUpdateIn` accepts
      a closed union, so the stored value is NARROWED on the way in. `null` means "the agent
      speaks a language this build cannot offer" — its own code is still shown as the
@@ -110,6 +113,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
   const clearEdits = () => {
     setName(null);
     setDirection(null);
+    setPurpose(null);
     setLanguage(null);
     setExtras(null);
   };
@@ -140,6 +144,14 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
               value: language ?? agent.language_primary,
               options: languageChoices.map((c) => ({ value: c.value, label: c.label })),
             },
+            {
+              id: "agent-purpose",
+              label: "What this agent is for",
+              type: "select",
+              value: purpose,
+              options: PURPOSES.map((p) => ({ value: p.value, label: p.label })),
+              help: "A helping agent never marks a caller interested from their tone alone.",
+            },
           ],
           facts: [{ key: "agent_id", label: "Agent id", value: agent.id }],
           apply: (items) => {
@@ -149,6 +161,8 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
               const dir = DIRECTIONS.find((d) => d.value === value);
               if (item.field_id === "agent-direction" && dir) setDirection(dir.value);
               if (item.field_id === "agent-language" && hasKey(LANGUAGE_NAMES, value)) setLanguage(value);
+              const aim = PURPOSES.find((p) => p.value === value);
+              if (item.field_id === "agent-purpose" && aim) setPurpose(aim.value);
             }
           },
         },
@@ -163,6 +177,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
   const patch: AgentUpdateIn = {};
   if (name.trim() && name !== agent.name) patch.name = name.trim();
   if (direction !== agent.direction) patch.direction = direction;
+  if (purpose !== agent.purpose) patch.purpose = purpose;
   const languagesMoved =
     mainLanguage !== agent.language_primary || shownExtras.join() !== storedExtras.join();
   if (languagesMoved) patch.reply_languages = [mainLanguage, ...shownExtras];
@@ -226,6 +241,11 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
         <p className={FIELD_HINT}>
           On a live agent, this changes which numbers it answers.
         </p>
+      </fieldset>
+
+      <fieldset>
+        <legend className={FIELD_LABEL}>What this agent is for</legend>
+        <PurposePicker name={`purpose-${agent.id}`} value={purpose} onChange={setPurpose} />
       </fieldset>
 
       <label className="block max-w-sm">

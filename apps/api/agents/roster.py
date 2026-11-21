@@ -111,7 +111,9 @@ AGENT_ROSTER_SQL = (
     "a.caller_has_screen, "
     # The business a "both" agent's composed opening for the calls it places names (D-920),
     # appended for the reason above.
-    "o.name "
+    "o.name, "
+    # Selling or helping customers, appended for the reason above.
+    "a.purpose "
     "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
     "LEFT JOIN organizations o ON o.id = a.tenant_id "
     "LEFT JOIN prompt_versions pv ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -191,6 +193,7 @@ def agent_out(r: Any) -> AgentOut:
         caller_memory_paused=paused,
         caller_memory_statement=CALLER_MEMORY_ATTESTATION if paused else None,
         caller_has_screen=bool(r[25]),
+        purpose=r[27],
         archived_at=r[13],
         inbound_number_count=int(r[14]),
         llm_tier=tier_of_model(r[15]),

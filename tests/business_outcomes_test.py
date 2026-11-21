@@ -197,6 +197,7 @@ def test_a_business_outcome_moves_the_lead_up_and_never_down() -> None:
             connected=True,
             callback_requested=False,
             sentiment="neutral",
+            purpose="sales",
             business_move="interested",
         )
         == "interested"
@@ -207,6 +208,7 @@ def test_a_business_outcome_moves_the_lead_up_and_never_down() -> None:
             connected=True,
             callback_requested=True,
             sentiment="neutral",
+            purpose="sales",
             business_move="contacted",
         )
         == "interested"
@@ -217,6 +219,7 @@ def test_a_business_outcome_moves_the_lead_up_and_never_down() -> None:
             connected=False,
             callback_requested=False,
             sentiment=None,
+            purpose="sales",
             business_move="hot",
         )
         is None

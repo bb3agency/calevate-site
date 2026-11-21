@@ -24,6 +24,7 @@ import { isDeleted } from "@/lib/agentState";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useSetExtractionSchema, type Agent } from "@/lib/api/agents";
 import { ApiProblem } from "@/lib/api/client";
+import { useLeadNouns } from "@/lib/businessCapabilities";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -63,6 +64,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
   const session = useClientSession();
   // This tenant's trade, not a clinic's — see `lib/verticalExamples.ts`.
   const eg = useVerticalExamples();
+  const nouns = useLeadNouns();
   const save = useSetExtractionSchema(session, agent.id);
   const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "change what this agent captures");
@@ -265,9 +267,9 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
         className="mt-2"
         items={[
           "The agent fills these in from the conversation. It never reads out a form.",
-          "Required ones are asked on every call. A call without one still becomes a lead.",
+          `Required ones are asked on every call. A call without one still becomes a ${nouns.lead}.`,
           "The optional reason helps the agent fill the column more accurately.",
-          "The standard details, such as the name, are always written down. Rename them in Settings, Lead details.",
+          `The standard details, such as the name, are always written down. Rename them in Settings, ${nouns.LeadDetails}.`,
         ]}
       />
 
@@ -310,7 +312,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
       >
         {rows.length === 0 ? (
           <p className="text-sm text-ink-muted">
-            No extra details yet. Leads get name, number, summary.
+            No extra details yet. {nouns.Leads} get name, number, summary.
           </p>
         ) : (
           <ul className="divide-y divide-line border-y border-line">
