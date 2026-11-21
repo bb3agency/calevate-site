@@ -12,6 +12,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { baseOf, languageLabel } from "@/lib/languageNames";
 import { lookup } from "@/lib/lookup";
 
 import { adminSession } from "./admin";
@@ -41,14 +42,22 @@ export const whatsappKeys = {
 /** Meta reviews a template in "up to 24 hours" (templates/template-review.md, 15 Oct 2026). */
 export const TEMPLATE_REVIEW_HOURS = 24;
 
-export const LANGUAGE_LABELS: Record<string, string> = {
-  te: "Telugu",
-  hi: "Hindi",
-  en: "English",
-  en_US: "English (US)",
-  en_GB: "English (UK)",
-  en_IN: "English (India)",
-};
+/** A template language's name, Meta's code read through the one names table
+ *  (`lib/languageNames`): "te" is Telugu, "en_GB" English (UK). */
+export function templateLanguageLabel(code: string): string {
+  return languageLabel(code);
+}
+
+/**
+ * The Meta codes a client may write a template in: the base code of each language the
+ * server offers this account (`useAgentLanguages`), each once, in its order. Meta codes
+ * Telugu `te`, Hindi `hi`, English `en`, Tamil `ta`, Kannada `kn`, Malayalam `ml`, Marathi
+ * `mr` (developers.facebook.com/docs/whatsapp/business-management-api/message-templates/
+ * supported-languages, read 21 Nov 2026).
+ */
+export function templateLanguages(offered: readonly string[]): string[] {
+  return [...new Set(offered.map(baseOf).filter(Boolean))];
+}
 
 /** What each of Calevate's own templates is for, in the owner's words. */
 export const PURPOSE_LABELS: Record<string, string> = {

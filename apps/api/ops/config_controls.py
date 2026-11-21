@@ -26,7 +26,11 @@ from calevate_shared.config import Settings
 from calevate_shared.engine import LLM_MODEL_NAMES
 from calevate_shared.languages import staged_language_tags
 
-from apps.api.agents.languages import LANGUAGE_LABELS, readiness_note
+from apps.api.agents.languages import (
+    LANGUAGE_LABELS,
+    every_client_language_tags,
+    readiness_note,
+)
 from apps.api.core.platform_config import ConfigField
 from apps.api.engine.thinnest_customers import PLAN_CUSTOMER_CAPS
 from apps.api.healer.playbooks import PLAYBOOKS
@@ -258,6 +262,10 @@ def choices_for(field: ConfigField) -> list[Choice]:
         return [
             Choice(tag, LANGUAGE_LABELS[tag], readiness_note(tag)) for tag in staged_language_tags()
         ]
+    if field.key == "default_agent_language":
+        # Only what every client is offered: a default some account may not choose would
+        # be skipped for that account rather than honoured.
+        return [Choice(tag, LANGUAGE_LABELS[tag], None) for tag in every_client_language_tags()]
     values = list(field.options) if field.options else [option.value for option in hint.options]
     out: list[Choice] = []
     for value in values:

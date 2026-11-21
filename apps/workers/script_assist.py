@@ -73,7 +73,6 @@ from calevate_shared.call_script import (
     procedure_pointer,
 )
 from calevate_shared.engine import (
-    DEFAULT_PRIMARY_LANGUAGE,
     SARVAM_DEFAULT_LLM,
     azure_openai_base_url,
     google_openai_compat_base_url,
@@ -97,6 +96,7 @@ from apps.api.agents.call_rules import (
     said_line_problem,
     writer_rules,
 )
+from apps.api.agents.languages import platform_default_language
 from apps.api.agents.retired_lines import retired_line_problem
 from apps.api.agents.script_lint import (
     CapabilityManifest,
@@ -981,7 +981,7 @@ class ScriptBrief:
     direction: str = "inbound"
     #: The agent's main language (`script_proposals.brief_for` always sets it); the platform
     #: default only for a bare description, which has no agent.
-    language: str = DEFAULT_PRIMARY_LANGUAGE
+    language: str = field(default_factory=platform_default_language)
     register: str = ""
     collect: tuple[str, ...] = ()
     knowledge_titles: tuple[str, ...] = ()

@@ -42,6 +42,7 @@ import { ImprovementReview, holderName } from "../script/ImprovementReview";
 import { HolderPicker } from "./HolderPicker";
 import { scriptsHome } from "../sections/agentSections";
 import { CALL_HANDLING_ANCHOR } from "../sections/settingsTab";
+import { AgentLanguagesContext } from "./TestConversation";
 import { Results } from "./TestResults";
 import { FirstRun, Running, Stopped, Verdict } from "./TestSummary";
 import { NOTHING_CHANGED_CODE, SETTING_LINK, countsOf, isFixable, oursNote } from "./testCopy";
@@ -58,7 +59,7 @@ export function TestSection({
   slug,
   declare = true,
 }: {
-  agent: Pick<Agent, "id" | "direction">;
+  agent: Pick<Agent, "id" | "direction"> & Partial<Pick<Agent, "reply_languages">>;
   slug: string;
   /** Whether this panel is on screen and so the one the assistant should see. */
   declare?: boolean;
@@ -253,20 +254,22 @@ export function TestSection({
             />
           )}
           {markWrong.error && <ProblemNotice error={markWrong.error} />}
-          <Results
-            run={done}
-            actions={{
-              canFix: write.allowed && !improving,
-              onFix: (key) => askForFixes(key),
-              canMarkWrong: write.allowed,
-              onMarkWrong: (key) => {
-                if (!markWrong.isPending) markWrong.mutate({ runId: done.id, key });
-              },
-              markWrongStatus: (key) =>
-                markWrong.variables?.key === key ? markWrongFeedback.status : "idle",
-              links,
-            }}
-          />
+          <AgentLanguagesContext.Provider value={agent.reply_languages ?? []}>
+            <Results
+              run={done}
+              actions={{
+                canFix: write.allowed && !improving,
+                onFix: (key) => askForFixes(key),
+                canMarkWrong: write.allowed,
+                onMarkWrong: (key) => {
+                  if (!markWrong.isPending) markWrong.mutate({ runId: done.id, key });
+                },
+                markWrongStatus: (key) =>
+                  markWrong.variables?.key === key ? markWrongFeedback.status : "idle",
+                links,
+              }}
+            />
+          </AgentLanguagesContext.Provider>
         </>
       )}
     </div>

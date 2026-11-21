@@ -41456,6 +41456,25 @@
         "title": "NotesOut",
         "type": "object"
       },
+      "NoticeLanguageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name"
+        ],
+        "title": "NoticeLanguageOut",
+        "type": "object"
+      },
       "NoticeNeedsRoomOnAgent": {
         "allOf": [
           {
@@ -54450,13 +54469,15 @@
             "type": "string"
           },
           "language": {
-            "enum": [
-              "en",
-              "te",
-              "hi"
-            ],
             "title": "Language",
             "type": "string"
+          },
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/NoticeLanguageOut"
+            },
+            "title": "Languages",
+            "type": "array"
           },
           "notice_markdown": {
             "title": "Notice Markdown",
@@ -54466,7 +54487,8 @@
         "required": [
           "language",
           "disclaimer",
-          "notice_markdown"
+          "notice_markdown",
+          "languages"
         ],
         "title": "ShortNoticeOut",
         "type": "object"
@@ -91419,7 +91441,7 @@
     },
     "/v1/compliance/caller-notice/short": {
       "get": {
-        "description": "A one-page notice built from the same settings as the full draft, to put on your website or send to a customer. The Telugu and Hindi are machine-drafted; have them checked. Not legal advice.",
+        "description": "A one-page notice built from the same settings as the full draft, to put on your website or send to a customer. Every language but English is machine-drafted; have it checked. Not legal advice. `languages` lists the languages it can be read in.",
         "operationId": "read_short_notice_v1_compliance_caller_notice_short_get",
         "parameters": [
           {
@@ -91428,11 +91450,7 @@
             "required": false,
             "schema": {
               "default": "en",
-              "enum": [
-                "en",
-                "te",
-                "hi"
-              ],
+              "maxLength": 8,
               "title": "Language",
               "type": "string"
             }
@@ -91456,7 +91474,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The short privacy notice for your callers, in English, Telugu or Hindi",
+        "summary": "The short privacy notice for your callers, in English or another language",
         "tags": [
           "compliance"
         ],

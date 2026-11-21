@@ -14,17 +14,18 @@ import {
   PRIMARY_BUTTON,
   ToggleSwitch,
 } from "@/components/ui";
-import { LANGUAGE_CHOICES } from "@/lib/agentState";
 import { MAX_SAMPLE_BYTES, useCloneVoice } from "@/lib/api/opsHostedVoices";
+import { AGENT_LANGUAGES, LANGUAGE_NAMES } from "@/lib/languageNames";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 /** The formats the clone route accepts. The server checks again; this only filters the picker. */
 const SAMPLE_ACCEPT = "audio/wav,audio/x-wav,audio/mpeg,audio/mp4,audio/x-m4a,audio/webm,.wav,.mp3,.m4a,.webm";
 
-/** This product's languages, as the tags the clone route takes. */
+/** Every language an agent can be stored in, staged ones included, as the tags the clone
+ *  route takes: an operator clones a voice for a language before clients are offered it. */
 const LANGUAGES: readonly { value: string; label: string }[] = [
   { value: "", label: "Not specified" },
-  ...LANGUAGE_CHOICES,
+  ...AGENT_LANGUAGES.map((value) => ({ value, label: LANGUAGE_NAMES[value] })),
 ];
 
 const NAME_MAX = 40;
@@ -48,7 +49,7 @@ export function CloneVoiceDrawer({ onClose }: { onClose: () => void }) {
   const [sample, setSample] = useState<File | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [language, setLanguage] = useState<string>(LANGUAGE_CHOICES[0]?.value ?? "");
+  const [language, setLanguage] = useState<string>(AGENT_LANGUAGES[0] ?? "");
   const [removeNoise, setRemoveNoise] = useState(true);
   const [ownVoice, setOwnVoice] = useState(false);
   const [noImpersonation, setNoImpersonation] = useState(false);

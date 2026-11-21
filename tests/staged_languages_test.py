@@ -56,8 +56,10 @@ READY = StagedLanguageReadiness(
 
 
 def _with_tamil_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The founder's Tamil do-not-call phrases, as `spoken_lines.json` would hold them."""
+    """The founder's Tamil do-not-call phrases and privacy notice lines, as the data files
+    would hold them."""
     monkeypatch.setattr(languages, "opt_out_phrases_recorded", lambda tag: True)
+    monkeypatch.setattr(languages, "privacy_notice_recorded", lambda tag: True)
 
 
 @pytest.fixture
@@ -93,19 +95,41 @@ def test_no_staged_language_is_ready_today() -> None:
     for tag in staged_language_tags():
         record = STAGED_LANGUAGE_READINESS[tag]
         assert not record.ready and not record.testable, tag
-        assert len(record.missing()) == 4, tag
+        assert len(record.missing()) == 5, tag
         assert "its do-not-call phrases recorded" in record.missing(), tag
+        assert "its caller privacy notice lines recorded" in record.missing(), tag
 
 
-def test_a_language_without_do_not_call_phrases_is_never_ready() -> None:
+def test_a_language_without_do_not_call_phrases_is_never_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """G5-2: a Tamil caller's "don't call me" must reach the do-not-call ledger before a
     Tamil agent may call anyone. Everything else on record is not enough."""
+    monkeypatch.setattr(languages, "privacy_notice_recorded", lambda tag: True)
     assert READY.missing() == ("its do-not-call phrases recorded",)
     assert not READY.ready
     assert languages.opt_out_phrases_recorded("te-IN")
     assert languages.opt_out_phrases_recorded("hi-IN")
     assert languages.opt_out_phrases_recorded("en-IN")
     assert not languages.opt_out_phrases_recorded(TAMIL)
+
+
+def test_a_language_without_privacy_notice_lines_is_never_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DPDP §5(3): a caller may read the notice in their own language, so a language whose
+    short notice has no lines (`compliance/privacy_notice`) cannot be switched on. The lines
+    are data a native speaker writes; the check reads which languages have them."""
+    monkeypatch.setattr(languages, "opt_out_phrases_recorded", lambda tag: True)
+    assert READY.missing() == ("its caller privacy notice lines recorded",)
+    assert languages.privacy_notice_recorded("te-IN")
+    assert languages.privacy_notice_recorded("hi-IN")
+    assert languages.privacy_notice_recorded("en-IN")
+    assert not languages.privacy_notice_recorded(TAMIL)
+    with pytest.raises(ProblemError) as refused:
+        monkeypatch.setitem(languages.STAGED_LANGUAGE_READINESS, TAMIL, READY)  # type: ignore[arg-type]
+        assert_staged_languages_may_switch_on(TAMIL)
+    assert "privacy notice" in refused.value.detail
 
 
 @pytest.mark.usefixtures("tamil_switched_on")

@@ -16,6 +16,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { AGENT_LANGUAGES, LANGUAGE_NAMES, baseOf, languageLabel } from "@/lib/languageNames";
 import { lookup } from "@/lib/lookup";
 import {
   MAX_PAIRS,
@@ -179,10 +180,24 @@ function NewRoundCard({
   onStarted: (id: string) => void;
 }) {
   const voices = useComparisonVoices(enabled);
-  const defaults = useComparisonSentences(enabled);
+  // Any language an agent can be stored in, staged ones included: an operator compares
+  // voices for a language before any client is offered it. No admin route lists them, so
+  // they are the generated union's, named from the one table.
+  const [language, setLanguage] = useState<string>(AGENT_LANGUAGES[0] ?? "te-IN");
+  const defaults = useComparisonSentences(enabled, language);
 
   return (
     <Card title="New round">
+      <label className="mb-5 block max-w-xs">
+        <span className={FIELD_LABEL}>Language</span>
+        <select className={FIELD} value={language} onChange={(event) => setLanguage(event.target.value)}>
+          {AGENT_LANGUAGES.map((tag) => (
+            <option key={tag} value={tag}>
+              {LANGUAGE_NAMES[tag]}
+            </option>
+          ))}
+        </select>
+      </label>
       {voices.isError ? (
         <ProblemNotice
           error={voices.error}
@@ -197,6 +212,9 @@ function NewRoundCard({
         <Skeleton rows={4} label="Loading the voices" />
       ) : (
         <NewRoundForm
+          // A new language fills the sentence box afresh with its own default lines.
+          key={language}
+          language={language}
           voices={voices.data}
           defaultSentences={defaults.data.sentences}
           onStarted={onStarted}
@@ -207,10 +225,12 @@ function NewRoundCard({
 }
 
 function NewRoundForm({
+  language,
   voices,
   defaultSentences,
   onStarted,
 }: {
+  language: string;
   voices: ComparisonVoices;
   defaultSentences: string[];
   onStarted: (id: string) => void;
@@ -239,7 +259,7 @@ function NewRoundForm({
             start.mutate(
               {
                 title,
-                language: "te-IN",
+                language,
                 cartesia_voice_ids: cartesia,
                 sarvam_voice_ids: sarvam,
                 sentences: lines,
@@ -279,8 +299,8 @@ function NewRoundForm({
           <label className="block">
             <span className={FIELD_LABEL}>Sentences, one per line</span>
             <span className={FIELD_HINT}>
-              From our Telugu spoken style. Up to 20, each at most 200
-              characters.
+              From our spoken style for {languageLabel(language)}. Up to 20, each at
+              most 200 characters.
             </span>
             <textarea
               className={`${FIELD} min-h-48 resize-y`}
@@ -488,11 +508,14 @@ function ScoreChoice({
 
 function PairCard({
   roundId,
+  language,
   trial,
   total,
   onSaved,
 }: {
   roundId: string;
+  /** The round's language (BCP-47), for the sentence's `lang` and so its script's font. */
+  language: string;
   trial: ComparisonTrial;
   total: number;
   onSaved: () => void;
@@ -512,7 +535,7 @@ function PairCard({
         Pair {trial.position} of {total}
       </h3>
       <p
-        lang="te"
+        lang={baseOf(language) || undefined}
         className="break-words rounded-md bg-ink/[0.03] p-3 text-transcript"
       >
         {trial.sentence}
@@ -643,6 +666,7 @@ function RoundPanel({
             <PairCard
               key={current.id}
               roundId={roundId}
+              language={data.language}
               trial={current}
               total={data.pairs}
               onSaved={() => {

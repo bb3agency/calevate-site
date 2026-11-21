@@ -29,7 +29,11 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any, Final
 
-from calevate_shared.extraction import ExtractionField
+from calevate_shared.extraction import (
+    CALLER_LANGUAGE_KEY,
+    CALLER_LANGUAGE_REASON,
+    ExtractionField,
+)
 
 #: The fixed core, in display order. Every `reason` is the instruction the extraction model
 #: reads (`build_extraction_prompt`). None is required: a wrong-number or silent call
@@ -69,14 +73,13 @@ CORE_LEAD_FIELDS: Final[tuple[ExtractionField, ...]] = (
             "they gave none or meant the number they called from."
         ),
     ),
+    # Names no language here: `build_extraction_prompt` gives it the agent's own as examples
+    # (`extraction.caller_language_reason`), so no language is the only one a caller can be.
     ExtractionField(
-        key="language",
+        key=CALLER_LANGUAGE_KEY,
         label="Language",
         type="text",
-        reason=(
-            "The language the caller spoke, named in English: Telugu, Hindi, English, or "
-            "two of them joined with 'and' when they mixed."
-        ),
+        reason=CALLER_LANGUAGE_REASON,
     ),
     ExtractionField(
         key="notes",

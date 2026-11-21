@@ -5,6 +5,7 @@ import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
 import { printableClone } from "@/components/noticeDocument";
 import type { CallerNotice } from "@/lib/api/callerNotice";
 import type { Me } from "@/lib/api/client";
+import { endonym } from "@/lib/languageNames";
 
 import { expectNoA11yViolations } from "./a11y";
 import { problem, renderClientPage } from "./harness";
@@ -103,6 +104,10 @@ const SHORT_NOTICE = {
   language: "en",
   disclaimer: "DRAFT — not legal advice.",
   notice_markdown: "# {{YOUR REGISTERED BUSINESS NAME}}: your information\n\nTo ask: {{YOUR CONTACT FOR DATA QUESTIONS — NAME, EMAIL, PHONE}}\n",
+  languages: [
+    { code: "en", name: "English" },
+    { code: "ta", name: "Tamil" },
+  ],
 };
 const ROUTES = {
   "/v1/me": OWNER,
@@ -120,6 +125,17 @@ describe("the caller-notice draft", () => {
     expect(screen.getByText(/So we can call you back about your enquiry\./)).toBeTruthy();
     expect(screen.getByText("Call recordings: 90 days")).toBeTruthy();
     expect(screen.getByText("Lead records: 365 days")).toBeTruthy();
+  });
+
+  it("offers the short notice in each language the server has it in", async () => {
+    await renderClientPage(<CallerNoticePage />, ROUTES);
+
+    const tamil = await screen.findByRole("radio", { name: endonym("ta") ?? "Tamil" });
+    expect(tamil).toBeTruthy();
+    expect(screen.getAllByRole("radio").map((radio) => radio.textContent)).toEqual([
+      "English",
+      endonym("ta") ?? "Tamil",
+    ]);
   });
 
   it("keeps the draft warning both beside the document and inside it", async () => {

@@ -75,6 +75,7 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.languages import BUILT_LANGUAGES, LANGUAGE_LABELS, LanguageRefusedError
 from apps.api.copilot.prompt import function_tool
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.context import Principal
@@ -85,6 +86,18 @@ from apps.api.db.ownership import assert_visible
 # owner's per-account switch. Imported rather than re-derived so the assistant and the
 # Add-Knowledge form cannot come to disagree about one person (see `may_act`).
 from apps.api.kb.curation import CURATE_PERMISSION, may_curate_knowledge
+
+#: What a language argument's tags mean, for every action that takes one. The enum beside
+#: it is every built language because the tool list is the same bytes for every caller
+#: (`write_tools.write_tool_schemas`); which of them THIS account may choose is checked when
+#: the card is planned (`agents.languages.OfferedLanguage`), and the refusal names them.
+#: COMPOSED, not typed: a hand-written list is the copy that drifts from the screens.
+LANGUAGE_CHOICE_NOTE: Final = (
+    "The language, by tag: "
+    + ", ".join(f"{tag} {LANGUAGE_LABELS[tag]}" for tag in BUILT_LANGUAGES)
+    + ". Only the languages this account is offered are accepted; any other is refused "
+    "with the ones it may choose."
+)
 
 #: The permission the CLIENT assistant's four routes declare. Named here because
 #: `assistant_closed_to` asks the view-as registry about it from a non-route caller.
@@ -504,6 +517,17 @@ def account_code(verb: str) -> Callable[[Mapping[str, Any]], str]:
     return template
 
 
+def language_refusal_in(exc: ValidationError) -> str | None:
+    """The `OfferedLanguage` refusal inside a validation failure, if there is one: our own
+    sentence, naming the languages this account may choose and no caller data, so it may
+    reach the model where pydantic's own messages may not."""
+    for error in exc.errors():
+        refusal = (error.get("ctx") or {}).get("error")
+        if isinstance(refusal, LanguageRefusedError):
+            return str(refusal)
+    return None
+
+
 def parse_args[M: BaseModel](model: type[M], args: Mapping[str, Any]) -> M:
     """Tool arguments as a typed object, or a refusal the model can act on.
 
@@ -519,6 +543,9 @@ def parse_args[M: BaseModel](model: type[M], args: Mapping[str, Any]) -> M:
     try:
         return model.model_validate(filled | dict(args))
     except ValidationError as exc:
+        refusal = language_refusal_in(exc)
+        if refusal is not None:
+            raise WriteRefusedError(refusal) from exc
         # The whole path (`fields.2.type`), so the model can mend the one item it got wrong
         # rather than resend the list blind; still names only, never a value.
         paths = sorted(

@@ -37,11 +37,16 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.caller_notice import DRAFT_WARNING, build_caller_notice
-from apps.api.compliance.privacy_notice import DISCLAIMER as SHORT_DISCLAIMER
-from apps.api.compliance.privacy_notice import NoticeLanguage, build_short_notice
+from apps.api.compliance.privacy_notice import (
+    NOTICE_LANGUAGES,
+    build_short_notice,
+    disclaimer,
+    notice_language_name,
+)
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
+from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 
 router = APIRouter(prefix="/v1/compliance/caller-notice", tags=["compliance"])
@@ -123,34 +128,59 @@ async def read_caller_notice(session: Session, principal: NoticeReader) -> Calle
     )
 
 
+class NoticeLanguageOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The base language code the notice is keyed by ("en", "te").
+    code: str
+    #: Its English name ("Telugu").
+    name: str
+
+
 class ShortNoticeOut(BaseModel):
     """The short notice in one language (D-943). Same blanks as the full draft."""
 
     model_config = ConfigDict(extra="forbid")
 
-    language: NoticeLanguage
+    language: str
     disclaimer: str
     notice_markdown: str
+    #: Every language the short notice can be read in, English first.
+    languages: list[NoticeLanguageOut]
 
 
 @router.get(
     "/short",
     response_model=ShortNoticeOut,
     openapi_extra=permission_meta("org:read"),
-    summary="The short privacy notice for your callers, in English, Telugu or Hindi",
+    summary="The short privacy notice for your callers, in English or another language",
     description=(
         "A one-page notice built from the same settings as the full draft, to put on your "
-        "website or send to a customer. The Telugu and Hindi are machine-drafted; have them "
-        "checked. Not legal advice."
+        "website or send to a customer. Every language but English is machine-drafted; have "
+        "it checked. Not legal advice. `languages` lists the languages it can be read in."
     ),
 )
 async def read_short_notice(
     session: Session,
     principal: NoticeReader,
-    language: Annotated[NoticeLanguage, Query()] = "en",
+    language: Annotated[str, Query(max_length=8)] = "en",
 ) -> ShortNoticeOut:
     assert principal.tenant_id is not None
+    if language not in NOTICE_LANGUAGES:
+        raise ProblemError.business_rule(
+            "notice_language_unavailable",
+            "The short notice is not written in that language yet.",
+            remediation="Choose one of: "
+            + ", ".join(notice_language_name(code) for code in NOTICE_LANGUAGES)
+            + ".",
+        )
     body = await build_short_notice(session, tenant_id=principal.tenant_id, language=language)
     return ShortNoticeOut(
-        language=language, disclaimer=SHORT_DISCLAIMER[language], notice_markdown=body
+        language=language,
+        disclaimer=disclaimer(language),
+        notice_markdown=body,
+        languages=[
+            NoticeLanguageOut(code=code, name=notice_language_name(code))
+            for code in NOTICE_LANGUAGES
+        ],
     )

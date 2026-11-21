@@ -129,13 +129,15 @@ def test_the_labels_are_the_declarations_own_names() -> None:
     assert {row.bcp47: row.english_name for row in built_languages()} == LANGUAGE_LABELS
 
 
-def test_the_copilot_offers_the_assistant_exactly_what_the_api_accepts() -> None:
-    """The tool schema is what the model may emit. Wider than the route and every
-    suggestion it makes is a 422 the person reads as a broken assistant."""
+def test_the_copilot_names_every_built_language_and_the_account_narrows_it() -> None:
+    """The tool schema is the same bytes for every caller (the prompt cache), so it carries
+    every BUILT language and a staged one switched on for an account can be chosen; the
+    account's own set is enforced when the card is planned, and that refusal names the
+    languages it may choose (`tests/dynamic_languages_test.py`)."""
     parameters = AGENT_CREATE.schema["function"]["parameters"]
     schema = parameters["properties"]["language_primary"]
-    assert tuple(schema["enum"]) == offered_language_tags()
-    for tag in offered_language_tags():
+    assert tuple(schema["enum"]) == built_language_tags()
+    for tag in built_language_tags():
         assert f"{tag} {LANGUAGE_LABELS[tag]}" in schema["description"], (
             "the tool's description must name each tag it offers, composed from the "
             "labels rather than typed beside them"
@@ -225,10 +227,15 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "what a caller actually said. A fact about writing systems keyed by tag, not a "
         "list of languages we sell"
     ),
-    "apps/web/src/lib/agentState.ts": (
+    "apps/web/src/lib/languageNames.ts": (
         "the console's one table of language NAMES, `Record<AgentLanguage, string>` over "
         "the generated union — exhaustive by the type checker, so the keys are the built "
-        "set and cannot silently grow; plus the staged set its static picker leaves out"
+        "set and cannot silently grow"
+    ),
+    "apps/web/src/lib/api/agentLanguages.ts": (
+        "what a picker shows while `GET /v1/agents/languages` loads or if it fails: the "
+        "three every account is offered, never wider than the server accepts and never "
+        "taken as a default (`defaultTag` stays null until the server answers)"
     ),
 }
 

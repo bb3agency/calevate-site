@@ -378,7 +378,8 @@ class AgentLanguageOut(BaseModel):
 
 
 class AgentLanguagesOut(BaseModel):
-    #: In the order a picker shows them: Telugu, Hindi, English, then any switched on.
+    #: In the order a picker shows them: the platform's starting language (what a new agent
+    #: starts in), then the rest of Telugu, Hindi, English and any switched on.
     languages: list[AgentLanguageOut]
 
 
@@ -508,7 +509,8 @@ class AgentCreateIn(BaseModel):
     language_primary: OfferedLanguage | None = None
     #: The languages the agent replies in, in order, at most four; the first is its main
     #: language and the one it falls back to. Omitted: the business profile's languages, else
-    #: the main language, then Telugu and English (`languages.default_extra_languages`).
+    #: the main language, then the platform's starting language and English
+    #: (`languages.default_extra_languages`).
     reply_languages: list[OfferedLanguage] | None = Field(
         default=None, json_schema_extra=_REPLY_LANGUAGES_SCHEMA
     )

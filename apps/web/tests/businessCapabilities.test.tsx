@@ -94,11 +94,20 @@ describe("the capability profile, read", () => {
     expect(callersWord({ ...UNKNOWN_CAPABILITIES, callerNoun: "class coach" })).toBe("class coaches");
   });
 
-  it("starts in the business's own language, and in the platform's when it has none this build speaks", () => {
-    expect(businessLanguage("hi-IN")).toBe("hi-IN");
-    expect(businessLanguage("en")).toBe("en-IN");
-    expect(businessLanguage(null)).toBe("te-IN");
-    expect(businessLanguage("fr-FR")).toBe("te-IN");
+  it("starts in the business's own language when the server offers it, else in the account's first", () => {
+    const offered = ["te-IN", "hi-IN", "en-IN"] as const;
+    expect(businessLanguage("hi-IN", offered)).toBe("hi-IN");
+    expect(businessLanguage("en", offered)).toBe("en-IN");
+    expect(businessLanguage(null, offered)).toBe("te-IN");
+    expect(businessLanguage("fr-FR", offered)).toBe("te-IN");
+    // Tamil is not offered to this account, so it is not started in.
+    expect(businessLanguage("ta-IN", offered)).toBe("te-IN");
+  });
+
+  it("starts a Tamil business in Tamil once the server offers it, and follows the server's default", () => {
+    expect(businessLanguage("ta", ["te-IN", "hi-IN", "en-IN", "ta-IN"])).toBe("ta-IN");
+    expect(businessLanguage(null, ["ta-IN", "en-IN"])).toBe("ta-IN");
+    expect(businessLanguage(null, [])).toBeNull();
   });
 });
 

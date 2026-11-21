@@ -58,6 +58,7 @@ function show(step: StepId, wording: ProfileWording, services?: ProfileDraft["se
       disabled={false}
       errorAt={() => undefined}
       wording={wording}
+      languages={[]}
     />,
   );
   return Array.from(container.querySelectorAll("input, textarea"))

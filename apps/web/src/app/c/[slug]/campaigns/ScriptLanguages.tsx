@@ -12,12 +12,12 @@
 
 import { problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { FIELD } from "@/components/ui";
-import { LANGUAGE_NAMES } from "@/lib/agentState";
 import { useCampaignSettings, useSaveCampaignSettings } from "@/lib/api/campaignWorkspace";
 import { useClientRealm } from "@/lib/api/session";
+import { languageLabel } from "@/lib/languageNames";
 
 export function languageName(tag: string): string {
-  return LANGUAGE_NAMES[tag as keyof typeof LANGUAGE_NAMES] ?? tag;
+  return languageLabel(tag);
 }
 
 export function ScriptLanguagePick({

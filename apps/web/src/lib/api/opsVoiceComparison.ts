@@ -62,7 +62,7 @@ export const voiceComparisonKeys = {
   all: ["admin", "ops", "voice-comparison"] as const,
   setup: ["admin", "ops", "voice-comparison", "setup"] as const,
   voices: ["admin", "ops", "voice-comparison", "voices"] as const,
-  sentences: ["admin", "ops", "voice-comparison", "sentences"] as const,
+  sentences: (language: string) => ["admin", "ops", "voice-comparison", "sentences", language] as const,
   rounds: ["admin", "ops", "voice-comparison", "rounds"] as const,
   round: (id: string) =>
     ["admin", "ops", "voice-comparison", "rounds", id] as const,
@@ -96,12 +96,15 @@ export function useComparisonVoices(
   });
 }
 
+/** The default sentences for a round in `language` (BCP-47), from that language's spoken style. */
 export function useComparisonSentences(
   enabled: boolean,
+  language: string,
 ): UseQueryResult<ComparisonSentences> {
   return useQuery({
-    queryKey: voiceComparisonKeys.sentences,
-    queryFn: () => get<ComparisonSentences>(COMPARISON_SENTENCES_PATH),
+    queryKey: voiceComparisonKeys.sentences(language),
+    queryFn: () =>
+      get<ComparisonSentences>(`${COMPARISON_SENTENCES_PATH}?language=${encodeURIComponent(language)}`),
     enabled,
   });
 }

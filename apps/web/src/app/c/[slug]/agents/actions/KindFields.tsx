@@ -20,7 +20,7 @@ import { SheetChooser } from "@/components/sheetChooser";
 import { Why } from "@/components/why";
 import { useCredentials, type ActionTool } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
-import { LANGUAGE_LABELS, PURPOSE_LABELS, useWhatsApp, useWhatsAppTemplates } from "@/lib/api/whatsapp";
+import { PURPOSE_LABELS, templateLanguageLabel, useWhatsApp, useWhatsAppTemplates } from "@/lib/api/whatsapp";
 import { lookup } from "@/lib/lookup";
 
 import { spreadsheetId, type DraftParam, type Kind, type Provider } from "./params";
@@ -641,7 +641,7 @@ function MetaTemplateFields({
           {approved.map((t) => (
             <option key={t.id} value={`${t.name}|${t.language}`}>
               {lookup(PURPOSE_LABELS, t.purpose) ?? t.name.replaceAll("_", " ")} ·{" "}
-              {lookup(LANGUAGE_LABELS, t.language) ?? t.language}
+              {templateLanguageLabel(t.language)}
             </option>
           ))}
         </select>

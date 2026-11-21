@@ -28,12 +28,10 @@ import {
 } from "lucide-react";
 
 import { formatCallCap } from "@/components/ui";
-import { LANGUAGE_CHOICES, LANGUAGE_NAMES } from "@/lib/agentState";
-import { FALLBACK_LANGUAGE } from "@/lib/businessCapabilities";
 import type { Agent } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
 import type { FirstRun, FirstRunDocument, FirstRunJob } from "@/lib/api/firstRun";
-import { founderLine } from "@/lib/founderLines";
+import { endonym, languageLabel } from "@/lib/languageNames";
 import { lookup } from "@/lib/lookup";
 
 export type PieceId = "account" | "about" | "name" | "voice" | "work" | "script" | "call";
@@ -181,23 +179,13 @@ export function callIntroFor(jobs: readonly FirstRunJob[], business: string): st
   return jobCard(sortJobs(jobs)[0])?.callIntro(business) ?? "It rings you and talks to you as it would to a caller.";
 }
 
-/** The languages a client may choose today, from the one table in `agentState`. */
-export const LANGUAGES: readonly { tag: string; label: string }[] = LANGUAGE_CHOICES.map(({ value, label }) => ({
-  tag: value,
-  label,
-}));
-
 /** Each language's mark: the first letter of its own name in its own script, so an owner
- *  finds theirs by sight. The names are the founder's data (`founderLines.json`); English,
- *  whose name is not in another script, reads "En". */
+ *  finds theirs by sight. The names are the founder's data (`languageNames.endonym`);
+ *  English, whose name is not in another script, reads "En". */
 export function languageGlyph(tag: string): string {
   if (tag.startsWith("en")) return "En";
-  let name: string;
-  try {
-    name = founderLine(`language.endonym.${tag}`);
-  } catch {
-    return tag.slice(0, 2);
-  }
+  const name = endonym(tag);
+  if (!name) return tag.slice(0, 2);
   const first = new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(name)[Symbol.iterator]().next();
   return first.done ? tag.slice(0, 2) : first.value.segment;
 }
@@ -207,17 +195,17 @@ export function languageShortLabel(tag: string): string {
   return languageLabel(tag).replace(/\s*\(.*\)$/, "");
 }
 
-export function languageLabel(tag: string | null | undefined): string {
-  // A language outside the everyday picker (one the console switched on for this account,
-  // D-855) is named from the full table, and an unknown tag by itself: never as Telugu.
-  if (!tag) return "";
-  return LANGUAGE_NAMES[tag as keyof typeof LANGUAGE_NAMES] ?? tag;
-}
+export { languageLabel };
 
-/** The main language a new agent starts in: the business profile's first one we sell, else
- *  the platform default (`FALLBACK_LANGUAGE`, Telugu-first). */
-export function defaultLanguage(profileLanguages: readonly string[] | undefined): string {
-  return profileLanguages?.find((tag) => LANGUAGES.some((language) => language.tag === tag)) ?? FALLBACK_LANGUAGE;
+/** The main language a new agent starts in: the business profile's first language the
+ *  server offers this account, else the account's starting language (the server's first,
+ *  the platform default). `offered` is `useAgentLanguages().tags`, read once loaded; null
+ *  only when it is empty. */
+export function defaultLanguage(
+  profileLanguages: readonly string[] | undefined,
+  offered: readonly string[],
+): string | null {
+  return profileLanguages?.find((tag) => offered.includes(tag)) ?? offered[0] ?? null;
 }
 
 /** The agent this screen is building: the first run's own, else none. */

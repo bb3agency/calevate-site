@@ -685,6 +685,28 @@ def _plain_name(language: Language) -> str:
     return language.english_name.split(" (")[0]
 
 
+#: The core lead field that names the caller's language (`lead_fields.CORE_LEAD_FIELDS`).
+#: Its stored reason names no language; the prompt gives it the agent's own.
+CALLER_LANGUAGE_KEY: Final = "language"
+
+CALLER_LANGUAGE_REASON: Final = (
+    "The language the caller spoke, named in English, or two of them joined with 'and' when "
+    "they mixed."
+)
+
+
+def caller_language_reason(languages: Sequence[str]) -> str:
+    """The core `language` field's instruction, with the agent's own languages (then
+    English) as the examples, so a Tamil agent's caller is not offered only Telugu, Hindi
+    or English to be named as. Examples, not a closed list: a caller may speak another."""
+    rows = _known_languages(languages) or _known_languages([DEFAULT_EXTRACTION_LANGUAGE])
+    names = list(dict.fromkeys([*map(_plain_name, rows), "English"]))
+    return (
+        f"The language the caller spoke, named in English (such as {', '.join(names)}), or "
+        "two of them joined with 'and' when they mixed."
+    )
+
+
 def build_extraction_prompt(
     spec: ExtractionSchemaSpec,
     transcript: str,
@@ -747,7 +769,12 @@ def build_extraction_prompt(
         # The optional reason, folded in as the model's hint. When absent, the line carries
         # only the key/label/constraint — the founder's rule that a variable with no reason
         # is processed from its name alone.
-        hint = f" — {field.reason}" if field.reason else ""
+        reason = (
+            caller_language_reason(languages)
+            if field.key == CALLER_LANGUAGE_KEY and field.reason == CALLER_LANGUAGE_REASON
+            else field.reason
+        )
+        hint = f" — {reason}" if reason else ""
         lines.append(f'- "{field.key}": {field.label}{constraint} [{requirement}]{hint}')
 
     return f"""You are extracting structured data from a phone call transcript.
@@ -1435,6 +1462,8 @@ def corrected_moment_kind(kind: str, label: str) -> str | None:
 
 __all__ = [
     "BUYING_MOMENT_KINDS",
+    "CALLER_LANGUAGE_KEY",
+    "CALLER_LANGUAGE_REASON",
     "DEFAULT_EXTRACTION_LANGUAGE",
     "GOAL_REASON_MAX",
     "GOAL_VERDICTS",
@@ -1469,6 +1498,7 @@ __all__ = [
     "build_extraction_prompt",
     "callback_clock",
     "callback_day",
+    "caller_language_reason",
     "clean_moment_candidates",
     "clean_unlisted",
     "clip_headline",

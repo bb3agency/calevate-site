@@ -8075,8 +8075,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The short privacy notice for your callers, in English, Telugu or Hindi
-         * @description A one-page notice built from the same settings as the full draft, to put on your website or send to a customer. The Telugu and Hindi are machine-drafted; have them checked. Not legal advice.
+         * The short privacy notice for your callers, in English or another language
+         * @description A one-page notice built from the same settings as the full draft, to put on your website or send to a customer. Every language but English is machine-drafted; have it checked. Not legal advice. `languages` lists the languages it can be read in.
          */
         get: operations["read_short_notice_v1_compliance_caller_notice_short_get"];
         put?: never;
@@ -29706,6 +29706,13 @@ export interface components {
             /** Notes */
             notes: components["schemas"]["NoteOut"][];
         };
+        /** NoticeLanguageOut */
+        NoticeLanguageOut: {
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+        };
         /**
          * NoticeNeedsRoomOnAgent
          * @description Switching a notice on for the account was refused: these first words have no room for
@@ -34411,11 +34418,10 @@ export interface components {
         ShortNoticeOut: {
             /** Disclaimer */
             disclaimer: string;
-            /**
-             * Language
-             * @enum {string}
-             */
-            language: "en" | "te" | "hi";
+            /** Language */
+            language: string;
+            /** Languages */
+            languages: components["schemas"]["NoticeLanguageOut"][];
             /** Notice Markdown */
             notice_markdown: string;
         };
@@ -54658,7 +54664,7 @@ export interface operations {
     read_short_notice_v1_compliance_caller_notice_short_get: {
         parameters: {
             query?: {
-                language?: "en" | "te" | "hi";
+                language?: string;
             };
             header?: never;
             path?: never;

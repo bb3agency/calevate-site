@@ -176,7 +176,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
               id: "new-agent-language",
               label: "What language does it speak?",
               type: "select",
-              value: language,
+              value: language ?? "",
               options: languageChoices.map(({ value, label }) => ({ value, label })),
             },
             {
@@ -236,7 +236,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
         status={createFeedback.status}
         error={create.error ? <ProblemNotice error={create.error} /> : undefined}
         onSubmit={() => {
-          if (!write.allowed) return;
+          if (!write.allowed || language === null) return;
           create.mutate(
             {
               name: trimmed,
@@ -260,7 +260,9 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
             validate: () =>
               trimmed.length < 2
                 ? "Give this agent a name of at least two characters."
-                : callCapProblem(lanes, capMinutes),
+                : language === null
+                  ? "Its languages are still loading."
+                  : callCapProblem(lanes, capMinutes),
             content: (
               <div className="space-y-5">
                 <label className="block max-w-sm">
@@ -280,7 +282,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
                   <span className={FIELD_LABEL}>Language</span>
                   <select
                     id="new-agent-language"
-                    value={language}
+                    value={language ?? ""}
                     // Narrowed by `hasKey`, never cast: the value is a string and the field
                     // is a closed union.
                     onChange={(event) => {
@@ -308,7 +310,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
               <dl className="divide-y divide-line border-y border-line text-sm">
                 <ReviewRow label="Does">{lookup(DIRECTION_COPY, direction)?.label ?? direction}</ReviewRow>
                 <ReviewRow label="Name">{trimmed}</ReviewRow>
-                <ReviewRow label="Speaks">{lookup(LANGUAGE_NAMES, language) ?? language}</ReviewRow>
+                <ReviewRow label="Speaks">{language ? (lookup(LANGUAGE_NAMES, language) ?? language) : ""}</ReviewRow>
               </dl>
               <ComplianceFloor />
               <p className="text-xs text-ink-muted">{NEW_AGENT.createdOff}</p>

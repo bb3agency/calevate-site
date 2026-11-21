@@ -57,7 +57,6 @@ from typing import Annotated, Final, Literal, get_args
 from uuid import UUID
 
 from calevate_shared import call_words
-from calevate_shared.engine import DEFAULT_PRIMARY_LANGUAGE
 from calevate_shared.languages import (
     built_languages,
     find_language,
@@ -75,19 +74,24 @@ log = get_logger(__name__)
 
 __all__ = [
     "BUILT_LANGUAGES",
-    "DEFAULT_REPLY_LANGUAGES",
+    "FALLBACK_REPLY_LANGUAGE",
     "LANGUAGE_LABELS",
     "MAX_REPLY_LANGUAGES",
     "STAGED_LANGUAGE_READINESS",
     "Language",
+    "LanguageRefusedError",
     "OfferedLanguage",
     "StagedLanguageReadiness",
+    "assert_default_language_offered",
     "assert_staged_languages_may_switch_on",
     "client_language_tags",
     "default_extra_languages",
     "default_primary_language",
+    "default_reply_languages",
     "enabled_staged_tags",
+    "every_client_language_tags",
     "language_refusal",
+    "platform_default_language",
     "published_extra_languages",
     "readiness_note",
     "refuse_unoffered_language",
@@ -149,6 +153,8 @@ class StagedLanguageReadiness:
         gaps: list[str] = []
         if not opt_out_phrases_recorded(self.tag):
             gaps.append("its do-not-call phrases recorded")
+        if not privacy_notice_recorded(self.tag):
+            gaps.append("its caller privacy notice lines recorded")
         if not (self.sentences_reviewed_by and self.sentences_reviewed_on):
             gaps.append("a native speaker's review of its spoken sentences")
         if self.test_call_checked_on is None:
@@ -181,6 +187,16 @@ def opt_out_phrases_recorded(tag: str) -> bool:
     opt-out in it would never reach the do-not-call ledger (G5-2, TRAI)."""
     base = tag.split("-")[0].lower()
     return base == "en" or bool(call_words.table("optout.patterns").get(base))
+
+
+def privacy_notice_recorded(tag: str) -> bool:
+    """Whether the short caller privacy notice (`compliance/privacy_notice`) has lines in
+    this language. A language without them would leave its clients' callers no notice they
+    can read in it (DPDP §5(3)), so it may not be switched on until they are written."""
+    # Imported here: the notice module reaches the agent models, which import this one.
+    from apps.api.compliance.privacy_notice import has_notice_lines
+
+    return has_notice_lines(tag)
 
 
 def _chosen(raw: str) -> list[str]:
@@ -236,7 +252,45 @@ def client_language_tags(tenant_id: UUID | None = None) -> tuple[str, ...]:
             for tag in staged_language_tags()
             if tag in enabled or STAGED_LANGUAGE_READINESS[tag].testable
         )
-    return offered_language_tags() + enabled
+    return _default_first(offered_language_tags() + enabled)
+
+
+def every_client_language_tags() -> tuple[str, ...]:
+    """The languages every client may choose, whoever is asking: the test accounts' extra
+    staged languages left out. In declaration order."""
+    return offered_language_tags() + enabled_staged_tags()
+
+
+def _default_first(tags: tuple[str, ...]) -> tuple[str, ...]:
+    """`tags` with the console's starting language moved to the front, so the first
+    language a picker shows is the one a new agent starts in. With the default setting
+    (Telugu) the order is the declaration's, unchanged."""
+    chosen = get_settings().default_agent_language
+    if chosen not in tags:
+        return tags
+    return (chosen, *(tag for tag in tags if tag != chosen))
+
+
+def platform_default_language(tenant_id: UUID | None = None) -> str:
+    """The language a new agent starts in when nothing about its business names one: the
+    console's `default_agent_language`, or, when this account may not choose it (a staged
+    language switched off after it was set), the first language the account may."""
+    return client_language_tags(tenant_id)[0]
+
+
+def assert_default_language_offered(raw: str | None) -> None:
+    """Refuse a console write of a starting language some client may not choose: it would
+    be skipped for them rather than honoured, which reads as the setting not working."""
+    allowed = every_client_language_tags()
+    if raw in allowed:
+        return
+    raise ProblemError.business_rule(
+        "default_agent_language_not_offered",
+        f"{raw} is not a language every client is offered.",
+        remediation="Choose from "
+        + ", ".join(f"{tag} ({LANGUAGE_LABELS[tag]})" for tag in allowed)
+        + ".",
+    )
 
 
 def readiness_note(tag: str) -> str:
@@ -315,8 +369,13 @@ def _offered(value: object) -> object:
     is ours. A `BeforeValidator`: after the Literal has rejected the value no field
     validator runs. Non-strings pass through to the Literal, which refuses them."""
     if isinstance(value, str) and value not in client_language_tags():
-        raise ValueError(language_refusal(value))
+        raise LanguageRefusedError(language_refusal(value))
     return value
+
+
+class LanguageRefusedError(ValueError):
+    """`OfferedLanguage`'s refusal: a sentence written for the person, so a reader that
+    otherwise hides validation messages (the copilot's `parse_args`) may pass it on."""
 
 
 #: THE TYPE EVERY CLIENT WIRE FIELD THAT TAKES A LANGUAGE USES. Same OpenAPI enum as
@@ -352,10 +411,17 @@ def refuse_unoffered_language(language_primary: str, *, tenant_id: UUID) -> None
 #: update-agent.md:754-768).
 MAX_REPLY_LANGUAGES: Final = 4
 
-#: What a new agent replies in when its creator names nothing else: Telugu, then English
-#: (founder decision, 18 Oct 2026). The main language always comes first, because the
-#: first language is the one the agent falls back to and the one its notices are written in.
-DEFAULT_REPLY_LANGUAGES: Final[tuple[Language, ...]] = ("te-IN", "en-IN")
+#: The language every new agent can also reply in when its creator names nothing else,
+#: after the platform's starting language (founder decision, 18 Oct 2026: Telugu, then
+#: English, with Telugu as that starting language).
+FALLBACK_REPLY_LANGUAGE: Final[Language] = "en-IN"
+
+
+def default_reply_languages(tenant_id: UUID | None = None) -> tuple[str, ...]:
+    """What a new agent replies in when neither its creator nor its business names any:
+    the platform's starting language, then English. The main language always comes first
+    at publish, because it is the one the agent falls back to and its notices are in."""
+    return tuple(dict.fromkeys((platform_default_language(tenant_id), FALLBACK_REPLY_LANGUAGE)))
 
 
 def default_primary_language(
@@ -364,14 +430,14 @@ def default_primary_language(
     """The main language of a new agent whose creator named none.
 
     The first of the business profile's languages this account may choose right now, so a
-    Hindi-speaking business is not handed a Telugu agent; else the platform default. A
-    profile language that is staged and switched off is skipped rather than refused,
-    because nobody chose it for this agent."""
+    Hindi-speaking business is not handed a Telugu agent; else the platform's starting
+    language. A profile language that is staged and switched off is skipped rather than
+    refused, because nobody chose it for this agent."""
     allowed = client_language_tags(tenant_id)
     for tag in business or ():
         if tag in allowed:
             return tag
-    return DEFAULT_PRIMARY_LANGUAGE
+    return platform_default_language(tenant_id)
 
 
 def default_extra_languages(
@@ -382,9 +448,10 @@ def default_extra_languages(
     The business profile's languages when it lists any (`business_profiles.languages`, the
     starting list for agents created from now on), else the default pair; either way after
     the main language, each once, at most `MAX_REPLY_LANGUAGES` in all. Without a business
-    list a Telugu agent replies in Telugu then English, an English one in English then
-    Telugu, a Hindi one in Hindi, Telugu and English."""
-    source = business if business else DEFAULT_REPLY_LANGUAGES
+    list, and with Telugu as the starting language, a Telugu agent replies in Telugu then
+    English, an English one in English then Telugu, a Hindi one in Hindi, Telugu and
+    English."""
+    source = business if business else default_reply_languages(tenant_id)
     return published_extra_languages(primary, source, tenant_id=tenant_id)[
         : MAX_REPLY_LANGUAGES - 1
     ]

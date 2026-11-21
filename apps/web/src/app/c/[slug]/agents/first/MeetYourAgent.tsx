@@ -13,6 +13,7 @@ import { CopilotPanel } from "@/components/copilot/CopilotPanel";
 import { focusMain } from "@/components/copilot/workspace/AssistantWorkspace";
 import { ProgressBar } from "@/components/interior/progress-bar";
 import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
+import { useAgentLanguages } from "@/lib/api/agentLanguages";
 import { agentKeys, useAgents, type Agent } from "@/lib/api/agents";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
 import type { CallSummary } from "@/lib/api/client";
@@ -91,6 +92,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const run = useFirstRun(session, write.allowed);
   const agents = useAgents(session);
   const profile = useBusinessProfile(session);
+  const languages = useAgentLanguages(session);
   const consent = usePipConsent(session);
   const dismiss = useDismissFirstRun(session);
   // Skipping leaves this screen whatever the answer (onSettled below), so a refusal goes to
@@ -139,10 +141,12 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const step = stage === null ? 0 : stepIndexOf(stage);
   const call = lastCall ?? calls.data?.[0] ?? null;
 
-  // The name step seeds its language from the profile once, on mount; drawn before the
-  // profile arrives it would keep Telugu for an account that chose another language. A
-  // failed profile read falls back to Telugu rather than holding the step.
-  const agentWaitsForProfile = stage === "agent" && profile.isPending;
+  // The name step seeds its language once, on mount, from the profile and the languages the
+  // server offers this account; drawn before either arrives it would keep a language the
+  // account did not choose. A failed read of either starts from what is there rather than
+  // holding the step.
+  const startLanguage = defaultLanguage(profile.data?.languages, languages.tags);
+  const agentWaitsForProfile = stage === "agent" && (profile.isPending || !languages.settled || startLanguage === null);
 
   let body: React.ReactNode;
   if (!write.unknown && !write.allowed) body = <RestrictionNote reason={write.reason} />;
@@ -190,7 +194,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
           <AgentStep
             run={data}
             agent={agent}
-            defaultLanguage={defaultLanguage(profile.data?.languages)}
+            defaultLanguage={startLanguage ?? ""}
             onBack={() => setStage("questions")}
             onDone={() => setStage(work?.ready ? "hear" : "work")}
           />

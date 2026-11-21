@@ -655,6 +655,10 @@ async def _gated_value(session: AsyncSession, key: str, stored: Any) -> Any:
         from apps.api.agents.languages import assert_staged_languages_may_switch_on
 
         assert_staged_languages_may_switch_on(stored)
+    if key == "default_agent_language":
+        from apps.api.agents.languages import assert_default_language_offered
+
+        assert_default_language_offered(stored)
     # THE SHARED TRIAL NUMBER must be one the developer workspace holds and no client has
     # recorded (D-697), read live from the voice platform; the console offers only those.
     if key == "trial_caller_number":

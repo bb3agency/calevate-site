@@ -11,6 +11,7 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { SegmentedControl, type SegmentedOption } from "@/components/interior/segmented-control";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { useAgentLanguageChoices } from "@/lib/api/agentLanguages";
 import {
   STEPS_MODE,
   draftFromProfile,
@@ -172,6 +173,7 @@ function Profile({
   // being typed in the other sections.
   const [draft, setDraft] = useState<ProfileDraft>(() => draftFromProfile(profile));
   const saved = draftFromProfile(profile);
+  const languages = useAgentLanguageChoices(useClientRealm().session);
 
   return (
     <div className="max-w-3xl space-y-5">
@@ -220,6 +222,7 @@ function Profile({
               disabled={!canWrite}
               errorAt={errorAt}
               wording={profile.wording}
+              languages={languages}
             />
           )}
         />

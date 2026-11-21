@@ -723,6 +723,13 @@ class Settings(BaseSettings):
     #: a new account gets the best woman's voice for its language, Studio first
     #: (`agents/voice_pick`). A write naming a voice not on offer is refused.
     default_agent_voice_id: str | None = Field(default=None, min_length=1, max_length=255)
+    #: The language a new agent starts in when nothing about the business names one, and the
+    #: first language every picker shows (`agents/languages.platform_default_language`). A
+    #: write naming a language not offered to every client is refused. Telugu by default
+    #: (BRD §1); `agents.language_primary`'s server default stays the literal "te-IN".
+    default_agent_language: str = Field(
+        default="te-IN", min_length=5, max_length=5, pattern=r"^[a-z]{2}-IN$"
+    )
     #: Days a paying client's developer-workspace test copy of an agent may sit unused before
     #: the hourly sweep retires it (D-859, option A); the next test call recreates it. Each
     #: copy holds one of the developer workspace's agent slots.

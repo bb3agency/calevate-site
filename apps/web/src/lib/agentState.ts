@@ -115,66 +115,18 @@ export const DIRECTION_COPY: Record<string, { label: string; hint: string }> = {
   },
 };
 
-/**
- * Every language an agent can be stored in, in the words a client reads.
- *
- * `Record<AgentLanguage, string>` over the GENERATED union, not `Record<string, string>`:
- * a fourth language on the server is then a type error here rather than an unnamed option
- * in a picker. Every screen in BOTH realms reads its language names from this table — the
- * admin wizard and the signup form used to carry their own, which is how one language had
- * three names in one product.
- *
- * The names match the server's (`calevate_shared.languages`, `english_name`), which is
- * what the copilot's confirmation cards now render: a card that says "speaking English
- * (India)" and a picker that offered "Indian English" are the same choice, and the person
- * approving should not have to work that out.
- *
- * `AgentOut.language_primary` is now the same union rather than a bare string — the column
- * carries a CHECK (migration c7a41e8b52d9) and the response model is typed — so the
- * fallback arms at the call sites below are for the value a screen holds MID-EDIT, not for
- * a stored language this table has never heard of.
- */
-export const LANGUAGE_NAMES: Record<AgentLanguage, string> = {
-  "te-IN": "Telugu",
-  "hi-IN": "Hindi",
-  "en-IN": "English (India)",
-  // Built and held back from clients until the console switches each on (D-855).
-  "ta-IN": "Tamil",
-  "kn-IN": "Kannada",
-  "ml-IN": "Malayalam",
-  "mr-IN": "Marathi",
-};
+/** Language names live in `lib/languageNames`, the one table; re-exported for the many
+ *  screens that read them from here. Which languages an account may choose is the server's
+ *  list (`lib/api/agentLanguages`). */
+export { LANGUAGE_NAMES } from "@/lib/languageNames";
 
-/** The staged languages (D-855): never in a static picker; `useAgentLanguageChoices` adds
- * the ones the server says this account may choose. */
-const STAGED_LANGUAGES: ReadonlySet<AgentLanguage> = new Set<AgentLanguage>([
-  "ta-IN",
-  "kn-IN",
-  "ml-IN",
-  "mr-IN",
-]);
-
-/**
- * The three every account is offered, in the same order (Telugu first — BRD §1 and the
- * column's server default), for every picker that renders options rather than looking one
- * up. A picker that should also show a switched-on staged language reads
- * `lib/api/agentLanguages.useAgentLanguageChoices`.
- *
- * Derived from the table above so an option list cannot go stale against the names beside
- * it. `Object.keys` is typed back to the union because that is what it holds: TypeScript
- * widens it to `string[]` for soundness reasons about extra properties that a `Record`
- * literal of a closed union does not have.
- */
-export const LANGUAGE_CHOICES: { value: AgentLanguage; label: string }[] = (
-  Object.keys(LANGUAGE_NAMES) as AgentLanguage[]
-)
-  .filter((value) => !STAGED_LANGUAGES.has(value))
-  .map((value) => ({ value, label: LANGUAGE_NAMES[value] }));
-
-/** The language a new agent also speaks by default: English beside any other main
- *  language, Telugu beside English. */
-export function defaultExtraLanguages(primary: string): AgentLanguage[] {
-  return [primary === "en-IN" ? "te-IN" : "en-IN"];
+/** The languages a new agent also speaks by default: English beside any other main
+ *  language; beside English, the first other language the server offers this account
+ *  (`offered`, in the server's order, its default first). */
+export function defaultExtraLanguages(primary: string, offered: readonly AgentLanguage[]): AgentLanguage[] {
+  if (primary !== "en-IN") return ["en-IN"];
+  const other = offered.find((tag) => tag !== "en-IN");
+  return other ? [other] : [];
 }
 
 export const STATUS_COPY: Record<string, { label: string; hint: string }> = {

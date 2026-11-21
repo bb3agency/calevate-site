@@ -14,6 +14,7 @@
 import { formatPhone } from "@/components/ui";
 import type { CallDetail, CallSummary } from "@/lib/api/client";
 import { GOAL_STAGE } from "@/lib/goalStage";
+import { languageName as baseLanguageName } from "@/lib/languageNames";
 import { lookup } from "@/lib/lookup";
 
 export type CallOutcome = NonNullable<CallSummary["outcome_tag"]>;
@@ -483,26 +484,11 @@ export function callStillFillingIn(call: CallDetail | undefined): boolean {
   return call.summary_state === "pending" || call.translation_state === "pending";
 }
 
-const LANGUAGE_NAMES: Record<string, string> = {
-  te: "Telugu",
-  hi: "Hindi",
-  en: "English",
-  ta: "Tamil",
-  kn: "Kannada",
-  ml: "Malayalam",
-  mr: "Marathi",
-  bn: "Bengali",
-  gu: "Gujarati",
-  pa: "Punjabi",
-  ur: "Urdu",
-  or: "Odia",
-};
-
-/** "te-IN" → "Telugu". An unknown tag is shown as the tag rather than guessed at. */
+/** "te-IN" → "Telugu", from the one names table. An unknown tag is shown as the tag
+ *  rather than guessed at. */
 export function languageName(tag: string | null | undefined): string | null {
   if (!tag) return null;
-  const base = tag.split(/[-_]/)[0]?.toLowerCase() ?? "";
-  return lookup(LANGUAGE_NAMES, base) ?? tag;
+  return baseLanguageName(tag) ?? tag;
 }
 
 /** The `lang` attribute for a BCP-47 tag, so the browser picks the right script font. */

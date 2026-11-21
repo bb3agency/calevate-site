@@ -14,6 +14,7 @@ import {
   SECONDARY_BUTTON,
   Skeleton,
 } from "@/components/ui";
+import { useAgentLanguageChoices } from "@/lib/api/agentLanguages";
 import { ApiProblem } from "@/lib/api/client";
 import {
   draftFromProfile,
@@ -120,6 +121,7 @@ function Wizard({
   const router = useRouter();
   const params = useSearchParams();
   const save = useSaveBusinessProfile(session);
+  const languages = useAgentLanguageChoices(session);
   const setup = useSetupAction(session);
   // Both show their failure in the ProblemNotice under the step, so neither toasts.
   const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
@@ -267,6 +269,7 @@ function Wizard({
                     disabled={!canWrite}
                     errorAt={(path) => fieldMessage(fields, path)}
                     wording={profile.wording}
+                    languages={languages}
                   />
                 </fieldset>
                 {problem && (

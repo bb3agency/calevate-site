@@ -66,7 +66,6 @@ from calevate_shared.call_script import (
     SpeakingStyle,
     StageBranch,
 )
-from calevate_shared.engine import DEFAULT_PRIMARY_LANGUAGE
 from calevate_shared.languages import get_language
 from calevate_shared.spoken_style import opening_in
 from scripts.seed import CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
@@ -75,6 +74,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit, business_fit
 from apps.api.agents.extraction_routes import validate_fields, write_schema
+from apps.api.agents.languages import platform_default_language
 from apps.api.agents.lead_fields import starting_business_fields
 from apps.api.agents.models import AgentDirection
 from apps.api.agents.script_builder import rewrite_script, save_agent_script
@@ -89,11 +89,10 @@ from apps.api.tenancy.business_copy import read_state as read_business_copy
 StarterJob = Literal["answer_calls", "call_new_leads", "call_leads"]
 STARTER_JOBS: Final[tuple[StarterJob, ...]] = get_args(StarterJob)
 
-#: A starter preview greets in English; a starter agent starts in the platform's one default
-#: call language (`engine.DEFAULT_PRIMARY_LANGUAGE`, G7-1) when its caller passes none: the
+#: A starter preview greets in English; a starter agent starts in the platform's starting
+#: language (`languages.platform_default_language`, G7-1) when its caller passes none: the
 #: callers that know the business pass its own first language.
 PREVIEW_LANGUAGE: Final = get_language("english_india").bcp47
-STARTER_LANGUAGE: Final = DEFAULT_PRIMARY_LANGUAGE
 
 #: Each job's calling direction. An agent given an answering job and a calling one is `both`
 #: (`direction_of_jobs`): the owner ticked both, which is the deliberate choice.
@@ -431,7 +430,7 @@ class Starter:
         template = opening_in(language, direction, introduced=introduced) or self.opening_line
         return template.replace("{business}", business)
 
-    def call_script(self, *, business: str, language: str = STARTER_LANGUAGE) -> CallScript:
+    def call_script(self, *, business: str, language: str | None = None) -> CallScript:
         """The structured script the agent is created with. Validated by `CallScript`. It
         carries no example call: one written for every business of a type is a line any
         business could use (D-962); the script writer writes the business's own."""
@@ -441,7 +440,7 @@ class Starter:
             identity=self.identity.replace("{business}", business),
             goal=self.goal,
             outbound_purpose=self.outbound_purpose.replace("{business}", business),
-            opening_line=self.opening_for(business, language),
+            opening_line=self.opening_for(business, language or platform_default_language()),
             style=SpeakingStyle(tone=self.tone),
             stages=self.sections(),
             objections=[Objection(objection=o, response=r) for o, r in self.objections],
@@ -724,7 +723,7 @@ def starter_opening(
     job: JobChoice,
     *,
     business: str,
-    language: str = STARTER_LANGUAGE,
+    language: str | None = None,
     introduced: bool = False,
     fit: BusinessFit = UNKNOWN,
 ) -> str:
@@ -734,7 +733,9 @@ def starter_opening(
     calling_only = "answer_calls" not in jobs and len(jobs) > 1
     source = jobs[-1] if calling_only else jobs[0]
     starter = build_starter(vertical_of(vertical_template), source, fit)
-    return starter.opening_for(business, language, introduced=introduced)
+    return starter.opening_for(
+        business, language or platform_default_language(), introduced=introduced
+    )
 
 
 def starter_script(
@@ -742,7 +743,7 @@ def starter_script(
     job: JobChoice,
     *,
     business: str,
-    language: str = STARTER_LANGUAGE,
+    language: str | None = None,
     plans: Mapping[str, Plan] | None = None,
     fit: BusinessFit = UNKNOWN,
 ) -> CallScript:
@@ -810,7 +811,7 @@ async def apply_starter(
     vertical_template: str | None,
     business: str,
     created_by: UUID | None,
-    language: str = STARTER_LANGUAGE,
+    language: str | None = None,
 ) -> int:
     """Write the starter as the agent's first script version and set its captured details.
 
@@ -862,13 +863,14 @@ async def ready_made_script(
     job: JobChoice,
     vertical_template: str | None,
     business: str,
-    language: str = STARTER_LANGUAGE,
+    language: str | None = None,
 ) -> CallScript:
     """The ready-made script fitted to this business: its written step plans, what it is
     judged to do, and its AI-written example lines where it has them. Its opening is the
     starter's own, which a caller of `apply_starter` replaces with one written for the
     business."""
     jobs = starter_jobs(job)
+    language = language or platform_default_language(tenant_id)
     plans = await stored_plans(session, tenant_id=tenant_id, shapes=JOB_STEP_COUNTS)
     fit = await business_fit(session, tenant_id)
     return await _with_business_lines(
