@@ -380,8 +380,9 @@ class GeneratedCopy(_Strict):
 #: the guard imports this pattern, so the two cannot drift. Allowed in AI-written text only
 #: for a health business or in the owner's own words (`health_words_problem`).
 #: The words themselves, singular, for the copy run's instruction: "medical words" alone does
-#: not tell a model that "appointment" is one, and an answer refused for a rule the model was
-#: never told cannot be repaired.
+#: not tell a model which words are on the list, and an answer refused for a rule the model
+#: was never told cannot be repaired.
+#: "appointment" is not on it: salons, garages, CAs, lawyers and tutors book appointments too.
 CLINIC_WORD_LIST: Final[tuple[str, ...]] = (
     "clinic",
     "hospital",
@@ -389,7 +390,6 @@ CLINIC_WORD_LIST: Final[tuple[str, ...]] = (
     "doctor",
     "dentist",
     "dental",
-    "appointment",
     "symptom",
     "prescription",
     "healthcare",
@@ -794,6 +794,22 @@ async def capabilities_for(session: AsyncSession, tenant_id: UUID) -> Capabiliti
     return copy.capabilities
 
 
+def is_health_business(vertical: str | None, capabilities: Capabilities) -> bool:
+    """Listed as a clinic, or judged by the copy run to give health care: a pharmacy, lab or
+    physio filed under another type is one too. Unjudged reads as the listed type alone.
+
+    One predicate for both readings: the medical words a health business may use, and the
+    caller-memory refusal (`compliance/caller_memory`), which only ever widens with it."""
+    return vertical == "clinic" or capabilities.health_business.applies is True
+
+
+async def health_business_for(
+    session: AsyncSession, tenant_id: UUID, *, vertical: str | None
+) -> bool:
+    """`is_health_business` for an account, reading its judged capabilities."""
+    return is_health_business(vertical, await capabilities_for(session, tenant_id))
+
+
 # --- queueing -------------------------------------------------------------------------------
 
 
@@ -868,7 +884,9 @@ __all__ = [
     "copy_problems",
     "explain_problem",
     "health_allowed",
+    "health_business_for",
     "health_words_problem",
+    "is_health_business",
     "missing_placeholders",
     "parse_stored",
     "profile_problems",

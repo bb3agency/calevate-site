@@ -974,7 +974,9 @@ def _script_and_number_problems(
     said = in_words or _DIGIT_UNIT.search(reply)
     if said:
         how = (
-            _say("turn_checks._script_and_number_problems") if in_words else "in words, as shops do"
+            _say("turn_checks._script_and_number_problems")
+            if in_words
+            else "in words, as people say them"
         )
         found.append(
             TurnProblem(

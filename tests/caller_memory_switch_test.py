@@ -20,6 +20,7 @@ none of them can move without the others.
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -44,6 +45,7 @@ from calevate_shared.engine import (
     compose_opening_line,
 )
 from sqlalchemy import text
+from tests.business_copy_test import copy_dict
 from tests.conftest import _owner_of, create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
@@ -295,6 +297,53 @@ async def test_a_clinic_cannot_attest_its_way_past_the_refusal() -> None:
         )
     assert refusal.value.code == "caller_memory_refused_for_vertical"
     assert await _column(tenant_id, agent_id) is False
+
+
+async def _judged(tenant_id: uuid.UUID, *, health: bool) -> None:
+    raw = copy_dict()
+    raw["capabilities"]["health_business"] = {"reason": "Judged for the test.", "applies": health}
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO business_copies (id, tenant_id, generated) "
+                "VALUES (:id, :t, CAST(:g AS jsonb))"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "g": json.dumps(raw)},
+        )
+
+
+async def test_a_business_judged_to_give_health_care_is_refused_under_any_type() -> None:
+    """FAILS IF: a pharmacy or lab filed as retail switches memory on because only the
+    listed type was read (D-507(b))."""
+    tenant_id, agent_id, owner = await _tenant(vertical="retail")
+    await _judged(tenant_id, health=True)
+    with pytest.raises(ProblemError) as refusal:
+        await set_caller_memory(
+            tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner
+        )
+    assert refusal.value.code == "caller_memory_refused_for_vertical"
+    assert await _column(tenant_id, agent_id) is False
+
+
+async def test_a_business_judged_not_to_give_health_care_may_switch_it_on() -> None:
+    """FAILS IF: the judgement refuses a business it found gives no health care."""
+    tenant_id, agent_id, owner = await _tenant(vertical="retail")
+    await _judged(tenant_id, health=False)
+    on = await set_caller_memory(
+        tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner
+    )
+    assert on.enabled is True
+
+
+async def test_a_clinic_judged_otherwise_is_still_refused() -> None:
+    """FAILS IF: the judgement lifts the listed-type refusal; it may only add one."""
+    tenant_id, agent_id, owner = await _tenant(vertical="clinic")
+    await _judged(tenant_id, health=False)
+    with pytest.raises(ProblemError) as refusal:
+        await set_caller_memory(
+            tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner
+        )
+    assert refusal.value.code == "caller_memory_refused_for_vertical"
 
 
 async def test_switching_it_off_needs_no_attestation_and_is_idempotent() -> None:

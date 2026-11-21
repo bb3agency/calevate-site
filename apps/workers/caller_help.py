@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.business_frame import BUSINESS_FRAME
 from sqlalchemy import text
 
 from apps.api.agents import agent_pass
@@ -62,7 +63,7 @@ BUSINESS_CHARS: Final = 1500
 CAMPAIGNS: Final = 5
 
 SYSTEM_PROMPT: Final = (
-    "You look at ONE phone agent of a small Indian business and answer two questions about "
+    f"You look at ONE phone agent of {BUSINESS_FRAME} and answer two questions about "
     "the people it talks to, from what the agent's script and campaigns say it does on the "
     "call.\n"
     "screen_guide: during the call, does the agent walk the person through something on "

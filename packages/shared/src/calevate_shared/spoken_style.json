@@ -677,7 +677,7 @@
         {
           "id": "prices",
           "words": "english",
-          "text": "Prices the English way, as shop people say them: 120 rupees is \"one twenty rupees\", 250 is \"two fifty rupees\", 1,500 is \"fifteen hundred rupees\". Never the rupee sign or digits."
+          "text": "Prices the English way, as people say them: 120 rupees is \"one twenty rupees\", 250 is \"two fifty rupees\", 1,500 is \"fifteen hundred rupees\". Never the rupee sign or digits."
         },
         {
           "id": "lakhs",
@@ -727,7 +727,7 @@
         },
         {
           "id": "scripts",
-          "text": "Telugu words in Telugu letters, English words in English letters as written in English: delivery, call, app."
+          "text": "Telugu words in Telugu letters, English words in English letters as written in English: call, app, time."
         },
         {
           "id": "choices",
@@ -797,7 +797,7 @@
         "note": "D-830 language pack: the one platform block for how an agent speaks Telugu, full when Telugu is the primary language, compact (the first say_english, avoid and exchanges) when it is an extra. AI-drafted, measured by scripts/register_eval (--variants pack-en,pack-native,...); no prompt reads it until review is founder_approved and ship names the form the eval chose, e.g. {\"form\": \"native\", \"avoid\": \"none\"}. avoid lists the list words the 19 Oct 2026 production eval saw most, most frequent first.",
         "ship": null,
         "talk_en": "Everyday spoken Telugu as people talk on the phone, neutral for Telangana and Andhra, in Telugu script, never bookish or newsreader Telugu. అండి and గారు by situation, not in every sentence.",
-        "say_english": ["details", "price", "rate", "thanks", "sorry", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment", "fix", "date", "time"],
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "information", "quality", "help", "payment", "fix", "date", "time"],
         "say_spoken": [["ఉంది", "available"], ["ఇప్పుడు", "now"], ["ఇంకా", "and"], ["కావాలి", "need"], ["చేస్తాం", "we will do"]],
         "avoid": ["వివరాలు", "మరియు", "ధర", "ధన్యవాదాలు", "క్షమించండి", "దయచేసి", "ప్రస్తుతం", "సమాచారం", "అందుబాటులో ఉంది", "ఉత్పత్తులు", "నాణ్యత", "సహాయం", "పరిమాణం", "అవసరం", "యొక్క", "ఖరారు"],
         "native": {
@@ -839,7 +839,7 @@
       "written_form": "",
       "register_name": "Everyday spoken Hindi (Hindustani)",
       "spelled_address": "बी, सी, डी, डॉट कॉम",
-      "register": "Everyday spoken Hindi, never shuddh or bookish, every word in Devanagari, English words too: ऑर्डर, डिलीवरी, कॉल. Polite with जी and आप; prefer we forms, like बताते हैं, so no gender is assumed.",
+      "register": "Everyday spoken Hindi, never shuddh or bookish, every word in Devanagari, English words too. Polite with जी and आप; prefer we forms, like बताते हैं, so no gender is assumed.",
       "examples": {
         "_default": [
           [
@@ -1159,7 +1159,7 @@
         {
           "id": "prices",
           "words": "native_or_english",
-          "text": "Prices and quantities in words, the way shop people say them on the phone, in Hindi or English words, written in Devanagari: \"एक सौ बीस रुपये\" or \"वन ट्वेंटी\", \"एक किलो\". Never the rupee sign or digits."
+          "text": "Prices and quantities in words, the way people say them on the phone, in Hindi or English words, written in Devanagari: \"एक सौ बीस रुपये\" or \"वन ट्वेंटी\", \"एक किलो\". Never the rupee sign or digits."
         },
         {
           "id": "times",
@@ -1250,7 +1250,7 @@
         "note": "D-830 language pack for Hindi, full when Hindi is the primary language and compact when it is an extra (a Telugu agent's Hindi caller). AI-drafted, measured by scripts/register_eval; no prompt reads it until review is founder_approved and ship names the form the eval chose. avoid lists the list words the 19 Oct 2026 production eval saw first, then the rest of the prompt swaps.",
         "ship": null,
         "talk_en": "Everyday spoken Hindi as people talk on the phone, in Devanagari, never shuddh or bookish. Polite with जी and आप; prefer we forms (बताते हैं) so no gender is assumed.",
-        "say_english": ["details", "price", "rate", "thank you", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"],
+        "say_english": ["details", "price", "rate", "thank you", "sorry", "available", "information", "quality", "help", "payment"],
         "say_spoken": [["ज़रूरत", "need"], ["और", "and"], ["अभी", "now"]],
         "avoid": ["जानकारी", "उपलब्ध है", "धन्यवाद", "क्षमा करें", "कृपया", "आवश्यकता", "मूल्य", "उत्पाद", "सहायता", "भुगतान", "तथा"],
         "native": {
@@ -1327,7 +1327,7 @@
       "written_form": "",
       "register_name": "Indian English, spoken",
       "spelled_address": "B, C, D, dot com",
-      "register": "Simple, warm Indian English as people speak on the phone. Sir or madam once, not every line. Mix in Hindi or Telugu words if the caller does.",
+      "register": "Simple, warm Indian English as people speak on the phone. Sir or madam once, not every line. Use words from the caller's language if they do.",
       "examples": {
         "_default": [
           [
@@ -1582,7 +1582,7 @@
       },
       "written_form": "",
       "register_name": "Everyday spoken Tamil",
-      "register": "Everyday spoken Tamil in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
+      "register": "Everyday spoken Tamil in its own script, as people talk on the phone, with the English words people use for this business. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1601,7 +1601,7 @@
         "drafted_on": "2026-10-19",
         "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
         "ship": null,
-        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "quality", "help", "payment"]
       }
     },
     "kn-IN": {
@@ -1612,7 +1612,7 @@
       },
       "written_form": "",
       "register_name": "Everyday spoken Kannada (Bengaluru)",
-      "register": "Everyday spoken Kannada in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
+      "register": "Everyday spoken Kannada in its own script, as people talk on the phone, with the English words people use for this business. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1631,7 +1631,7 @@
         "drafted_on": "2026-10-19",
         "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
         "ship": null,
-        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "quality", "help", "payment"]
       }
     },
     "ml-IN": {
@@ -1642,7 +1642,7 @@
       },
       "written_form": "",
       "register_name": "Everyday spoken Malayalam",
-      "register": "Everyday spoken Malayalam in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
+      "register": "Everyday spoken Malayalam in its own script, as people talk on the phone, with the English words people use for this business. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1661,7 +1661,7 @@
         "drafted_on": "2026-10-19",
         "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
         "ship": null,
-        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "quality", "help", "payment"]
       }
     },
     "mr-IN": {
@@ -1672,7 +1672,7 @@
       },
       "written_form": "",
       "register_name": "Everyday spoken Marathi",
-      "register": "Everyday spoken Marathi in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
+      "register": "Everyday spoken Marathi in its own script, as people talk on the phone, with the English words people use for this business. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1691,7 +1691,7 @@
         "drafted_on": "2026-10-19",
         "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
         "ship": null,
-        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "quality", "help", "payment"]
       }
     },
     "bn-IN": {
@@ -1702,7 +1702,7 @@
       },
       "written_form": "",
       "register_name": "Everyday spoken Bengali",
-      "register": "Everyday spoken Bengali in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
+      "register": "Everyday spoken Bengali in its own script, as people talk on the phone, with the English words people use for this business. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1717,7 +1717,7 @@
         "drafted_on": "2026-10-19",
         "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
         "ship": null,
-        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "quality", "help", "payment"]
       }
     },
     "gu-IN": {
@@ -1728,7 +1728,7 @@
       },
       "written_form": "",
       "register_name": "Everyday spoken Gujarati",
-      "register": "Everyday spoken Gujarati in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
+      "register": "Everyday spoken Gujarati in its own script, as people talk on the phone, with the English words people use for this business. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1743,7 +1743,7 @@
         "drafted_on": "2026-10-19",
         "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
         "ship": null,
-        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "quality", "help", "payment"]
       }
     },
     "pa-IN": {
@@ -1754,7 +1754,7 @@
       },
       "written_form": "",
       "register_name": "Everyday spoken Punjabi",
-      "register": "Everyday spoken Punjabi in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
+      "register": "Everyday spoken Punjabi in its own script, as people talk on the phone, with the English words people use for this business. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1769,7 +1769,7 @@
         "drafted_on": "2026-10-19",
         "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
         "ship": null,
-        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "quality", "help", "payment"]
       }
     },
     "or-IN": {
@@ -1780,7 +1780,7 @@
       },
       "written_form": "",
       "register_name": "Everyday spoken Odia",
-      "register": "Everyday spoken Odia in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
+      "register": "Everyday spoken Odia in its own script, as people talk on the phone, with the English words people use for this business. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1795,7 +1795,7 @@
         "drafted_on": "2026-10-19",
         "note": "D-830 minimal pack: the English loanwords only, in English instructions. No native-language instructions, words to avoid or example exchanges until a native speaker drafts them; not measured.",
         "ship": null,
-        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "products", "quality", "quantity", "help", "order", "delivery", "stock", "payment"]
+        "say_english": ["details", "price", "rate", "thanks", "sorry", "available", "information", "quality", "help", "payment"]
       }
     }
   }

@@ -143,6 +143,7 @@ from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.api.engine import engine_capabilities, get_engine
 from apps.api.engine.hosted_platform import hosted_agent_limits
+from apps.api.tenancy.business_copy import capabilities_for
 
 log = get_logger(__name__)
 
@@ -2104,13 +2105,16 @@ async def set_caller_memory(
         attested_by_name: str | None = None if row[10] is None else str(row[10])
         attested_version: int | None = None if row[11] is None else int(row[11])
 
-        if enabled and spdi_refuses_memory(vertical):
+        if enabled and spdi_refuses_memory(
+            vertical,
+            judged_health=(await capabilities_for(session, tenant_id)).health_business.applies,
+        ):
             raise ProblemError.business_rule(
                 "caller_memory_refused_for_vertical",
                 "Agents on this kind of business cannot remember callers between calls.",
                 remediation=(
                     "A note about what a caller asked is information about their health "
-                    "when the business is a clinic, and Indian law requires written "
+                    "when the business gives health care, and Indian law requires written "
                     "consent for that — which a phone call cannot give. Nothing needs to "
                     "be changed here; the feature is not available for this account."
                 ),

@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.business_frame import BUSINESS_KIND
 from calevate_shared.extraction import ExtractionField
 from calevate_shared.lead_fields import CORE_KEYS, OUTPUT_KEYS
 from calevate_shared.lead_fields import CORE_LEAD_FIELDS as CORE_FIELDS
@@ -90,7 +91,7 @@ UNLISTED_PER_FIELD: Final = 10
 NEW_FIELD_CHOICES: Final = (2, 12)
 
 SYSTEM_PROMPT: Final = (
-    "You keep one phone agent's lead details in step with the small Indian business it works "
+    f"You keep one phone agent's lead details in step with the {BUSINESS_KIND} it works "
     "for. Lead details are what the agent records about each CALLER after a call: what they "
     "asked for and told us about themselves. A choice detail has a fixed list of choices. "
     "You are given the business's own description, the agent's script, its quick facts, the "

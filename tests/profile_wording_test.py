@@ -15,6 +15,7 @@ What is under test:
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -31,6 +32,7 @@ from apps.workers.script_assist import JsonAnswer
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.agent_starters_test import _tenant
+from tests.business_copy_test import copy_dict
 
 
 def _raw(**over: Any) -> dict[str, Any]:
@@ -224,3 +226,29 @@ async def test_one_business_never_reads_anothers_words(monkeypatch: pytest.Monke
     assert await worker.write_profile_wording({}, {"tenant_id": str(tenant_a), "known": known})
     wording = (await _profile(token_b))["wording"]
     assert wording["drafted"] is False and wording["offer_label"] == NEUTRAL.offer_label
+
+
+@pytest.mark.rls
+async def test_a_business_judged_to_give_health_care_may_use_medical_words(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: a pharmacy or lab filed under another type loses "doctor" from its wording
+    because only the listed type was read."""
+    tenant_id, token = await _tenant("custom", "Sai Diagnostics")
+    known = await _describe(tenant_id, '[{"name": "Blood tests"}]')
+    judged = copy_dict()
+    judged["capabilities"]["health_business"] = {"reason": "A lab.", "applies": True}
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO business_copies (id, tenant_id, generated) "
+                "VALUES (:id, :t, CAST(:g AS jsonb))"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "g": json.dumps(judged)},
+        )
+    raw = _raw()
+    raw["examples"]["contact_name"] = "Doctor's desk"
+    monkeypatch.setattr(worker, "ask_json", _answer(raw))
+    payload = {"tenant_id": str(tenant_id), "known": known}
+    assert await worker.write_profile_wording({}, payload) == "written"
+    assert (await _profile(token))["wording"]["examples"]["contact_name"] == "Doctor's desk"

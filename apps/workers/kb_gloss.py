@@ -91,6 +91,7 @@ from uuid import UUID
 import httpx
 from arq import Retry
 from calevate_shared.backoff import jittered_delay_s
+from calevate_shared.business_frame import BUSINESS_FRAME
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -170,7 +171,7 @@ GLOSS_TIMEOUT_S: Final = 30.0
 #: fact would put that invention in the retrieval index for a client's own knowledge base,
 #: findable by a question none of their approved text answers.
 _SYSTEM_PROMPT: Final = (
-    "You translate a short passage of Indian small-business knowledge into plain English. "
+    f"You translate a short passage of {BUSINESS_FRAME}'s knowledge into plain English. "
     "Keep every fact, number, time, day, price, brand name and person's name exactly as "
     "given; transliterate proper nouns rather than translating them. Do not add anything, "
     "do not explain, do not summarise, and do not comment on the text. Reply with the "

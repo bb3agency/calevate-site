@@ -577,8 +577,7 @@ CodeMix = Literal["light", "natural", "heavy"]
 CODE_MIX_SENTENCES: Final[dict[str, str]] = {
     "light": "Use mostly the caller's language, with an English word only where people "
     "would not know another one.",
-    "natural": "Mix in the English words people use every day (order, delivery, price, "
-    "booking, time), the way callers here talk.",
+    "natural": "Mix in the English words your callers use every day, the way callers here talk.",
     "heavy": "Mix English freely into every sentence, the way young city callers talk.",
 }
 

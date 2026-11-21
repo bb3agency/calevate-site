@@ -31,6 +31,7 @@ from typing import Any, Final
 from uuid import UUID
 
 import httpx
+from calevate_shared.business_frame import BUSINESS_FRAME
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -127,7 +128,7 @@ _JOB_CONTEXT: Final[dict[str, str]] = {
 }
 
 QUESTIONS_INSTRUCTION: Final = (
-    "A small Indian business owner has described the phone agent they want. Write "
+    f"The owner of {BUSINESS_FRAME} has described the phone agent they want. Write "
     f"{MIN_WRITTEN} to {MAX_WRITTEN} short follow-up questions that would help the agent "
     "serve THIS business and that the description does NOT already answer, most useful "
     "first. Plain English only: no links, no markdown, no emoji, no other script. Each "

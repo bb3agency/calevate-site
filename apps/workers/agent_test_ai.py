@@ -29,6 +29,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Final
 
+from calevate_shared.business_frame import BUSINESS_FRAME
 from calevate_shared.call_script import MAX_SCRIPT_STAGES, CallScript
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
 from calevate_shared.spoken_guard import (
@@ -200,7 +201,7 @@ def brief_text(brief: AgentBrief, *, history: bool = True, script: bool = True) 
 # --- 1. write the test callers ----------------------------------------------------------
 
 GENERATE_INSTRUCTION: Final = (
-    "You write test callers for the AI phone agent of a small Indian business, to find "
+    f"You write test callers for the AI phone agent of {BUSINESS_FRAME}, to find "
     "where it goes wrong before real callers do. You are given the business, whether the "
     "agent answers or places calls, its call steps, the facts it holds, its knowledge "
     "titles, the details it collects, the call language and how people speak it, where it "
@@ -393,7 +394,7 @@ async def generate_scenarios(
 # --- 2. judge the answers ------------------------------------------------------------
 
 JUDGE_INSTRUCTION: Final = (
-    "You check the test conversations of a small Indian business's AI phone agent and say "
+    f"You check the test conversations of {BUSINESS_FRAME}'s AI phone agent and say "
     "for each whether it did right. You are given what the agent knows and may do: its "
     "pinned facts (in its instructions, so it needs no lookup for them), the titles of the "
     "knowledge it can look up, its call steps and objection lines, whether a person can "
@@ -622,7 +623,7 @@ async def judge_conversations(
 # --- 3. propose the fixes -------------------------------------------------------------
 
 IMPROVE_INSTRUCTION: Final = (
-    "You fix the call script of a small Indian business's AI phone agent, from the tests it "
+    f"You fix the call script of {BUSINESS_FRAME}'s AI phone agent, from the tests it "
     "failed. You are given the agent's facts, the actions it takes during a call, its "
     "current script (steps with their ids, objection lines and parts), and each failed test "
     "with a good answer and why it failed.\n"

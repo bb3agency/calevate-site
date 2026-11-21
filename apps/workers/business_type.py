@@ -34,6 +34,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared import verticals
+from calevate_shared.business_frame import BUSINESS_KIND
 from calevate_shared.extraction import ExtractionField
 from sqlalchemy import text
 
@@ -65,7 +66,7 @@ JOB_NAME: Final = "apply_business_type"
 MAX_REASON_CHARS: Final = 200
 
 SUGGEST_INSTRUCTION: Final = (
-    "You read what one small Indian business says about itself and choose the ONE business "
+    f"You read what one {BUSINESS_KIND} says about itself and choose the ONE business "
     "type that fits it best, from this list (key: meaning): "
     + "; ".join(f"{key}: {label}" for key, label in verticals.labels().items())
     + ". Choose from what the business sells and does, never from a guess about its name "
