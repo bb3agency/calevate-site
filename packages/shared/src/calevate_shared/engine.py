@@ -3079,8 +3079,8 @@ _DEFAULT_AMOUNTS: Final = amounts_rule(DEFAULT_PRIMARY_LANGUAGE) or _NEUTRAL_AMO
 
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
-    "- Open with one short whole sentence, no comma; one or two short sentences, then wait. "
-    "Never a reaction alone: add a question or next step, unless closing.\n"
+    "- Open with the point itself, the answer, step or question, in one short sentence with no "
+    "comma; one or two short sentences, then wait. No reaction to open with.\n"
     '- Asked something? Lead with the answer to it, never your last point again or "do you '
     'want to know". Told something? '
     "React only if it fits what they said, never the same way twice in a call, often not.\n"

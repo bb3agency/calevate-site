@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.89 — 21-Nov-2026
+
+- Agents open a reply with the point itself, the answer, step or question, instead of a
+  reaction such as "చాలా మంచిది అండి" on every turn.
+- Pip's Telugu example lines no longer open with "సరే అండి." or "మంచిది అండి." where it
+  added nothing, so the scripts it writes stop doing it too.
+
 ## 0.4.88 — 21-Nov-2026
 
 - Telugu agents are told to talk as friends do on the phone: the English words people use,
