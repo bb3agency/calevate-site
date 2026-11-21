@@ -497,6 +497,24 @@ async def test_a_goal_reached_only_on_the_owners_test_call_is_not_on_the_list() 
     assert queue["counts"] == {"lead_hot": 1}
 
 
+async def test_a_lead_that_reached_its_goal_long_ago_does_not_come_back_when_touched() -> None:
+    """Every call touches the lead row; the 21 Nov test calls to a number that reached the
+    goal on 5 Nov brought it back as a new Goal reached item each time."""
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
+                "status_set_at, created_at, updated_at) VALUES (:i, :t, :a, '+919876543211', "
+                "'Old', 'inbound_call', 'hot', now() - interval '60 days', "
+                "now() - interval '60 days', now())"
+            ),
+            {"i": uuid7(), "t": tenant_id, "a": agent_id},
+        )
+        queue = await attention_queue(session)
+    assert "lead_hot" not in queue["counts"]
+
+
 async def test_a_needs_you_call_appears_until_it_is_marked_handled() -> None:
     """L3-03: a call that ended asking the business to act reaches the queue and the bell;
     one marked handled, and the owner's own test call, do not."""

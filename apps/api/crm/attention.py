@@ -730,14 +730,19 @@ async def hot_leads(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> Att
     the same item becomes a desktop notification that can show on a locked screen."""
     # Through `BECAME_LEADS_SQL`, the set the dashboard's `hot_leads_open` counts: a lead whose
     # only moves into the band were the owner's own test calls is not someone to follow up.
+    # Dated by when the lead reached the stage (`status_set_at`), not `updated_at`: every call
+    # touches the lead row, so a test call to a number that reached the goal weeks ago brought
+    # it back as a new Goal reached item dated that minute.
     rows = (
         await session.execute(
             text(
-                "SELECT l.id, l.name, l.updated_at, count(*) OVER () AS matching "
+                "SELECT l.id, l.name, COALESCE(l.status_set_at, l.updated_at) AS reached_at, "
+                "count(*) OVER () AS matching "
                 f"FROM leads l JOIN {BECAME_LEADS_SQL} AS bl ON bl.id = l.id "
                 "WHERE l.status = 'hot' AND l.deleted_at IS NULL "
-                "  AND l.updated_at > now() - make_interval(days => :window) "
-                "ORDER BY l.updated_at DESC, l.id LIMIT :limit"
+                "  AND COALESCE(l.status_set_at, l.updated_at) "
+                "    > now() - make_interval(days => :window) "
+                "ORDER BY reached_at DESC, l.id LIMIT :limit"
             ),
             {"window": WINDOW_DAYS, "limit": limit},
         )

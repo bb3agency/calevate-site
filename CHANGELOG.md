@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.90 — 21-Nov-2026
+
+- A lead that reached its goal weeks ago no longer comes back as a new Goal reached item
+  every time it gets another call. Goal reached items are dated by when the lead reached
+  the goal.
+
 ## 0.4.89 — 21-Nov-2026
 
 - Agents open a reply with the point itself, the answer, step or question, instead of a
