@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.96 — 21-Nov-2026
+
+- A caller speaking the agent's own language in English letters ("Naa phone Android andi")
+  keeps the call in that language; only a request or two full sentences in another switch it.
+
 ## 0.4.95 — 21-Nov-2026
 
 - Languages follow the account: any language switched on for it can be picked in onboarding,

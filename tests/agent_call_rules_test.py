@@ -142,7 +142,7 @@ def test_hello_after_a_telugu_greeting_answered_in_english_is_caught() -> None:
 def test_every_prompt_says_a_greeting_is_no_switch(pack: bool) -> None:
     cfg, choice = _cfg(pack=pack)
     speak = dict(engine_prompt_layers(cfg, pack=choice))["how_to_speak"]
-    assert "even in English letters, never switch" in speak
+    assert "or your language in English letters never switch" in speak
     assert "two full sentences running" in speak
     assert "Keep the language you greeted in" in speak
 

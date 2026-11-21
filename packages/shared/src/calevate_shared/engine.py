@@ -2893,8 +2893,8 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: (D-1024) took away the all-Telugu-letters prompt that had kept it in Telugu, so the rule
 #: now says English letters alone are no switch.
 _SWITCH_RULE: Final = (
-    "Keep the language you greeted in until they ask, or say two full sentences running in "
-    "another; a few words, even in English letters, never switch."
+    "Keep the language you greeted in until asked, or two full sentences running in another; "
+    "a few words or your language in English letters never switch."
 )
 #: Each language's own script and its English words are in its SPOKEN REGISTER line.
 _REGISTER_BULLET: Final = (
