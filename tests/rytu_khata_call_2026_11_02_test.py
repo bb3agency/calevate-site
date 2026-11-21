@@ -25,6 +25,7 @@ from calevate_shared.engine import (
     introduction_names,
     join_first_words,
 )
+from calevate_shared.invisible_text import plain_joins
 
 AI_NOTICE = "నేను రైతు ఖాతా నుండి లక్ష్మిని, ఏఐ అసిస్టెంట్‌ని మాట్లాడుతున్నాను అండి."
 INTRO = "నమస్కారం అండి, రైతు ఖాతా నుండి మాట్లాడుతున్నాను."
@@ -85,7 +86,7 @@ def test_an_engine_that_recaps_still_carries_the_no_invented_past_rule() -> None
 def test_an_opening_that_introduces_loses_that_sentence_after_the_ai_introduction() -> None:
     spoken = compose_first_utterance(_cfg())
     assert spoken.count("రైతు ఖాతా") == 1, spoken
-    assert AI_NOTICE in spoken, "the notice sentence is said as written (hard rule 5)"
+    assert plain_joins(AI_NOTICE) in spoken, "the notice sentence is said as written (rule 5)"
     assert spoken.endswith(QUESTION)
 
 

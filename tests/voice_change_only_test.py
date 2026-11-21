@@ -22,6 +22,7 @@ from apps.api.agents import lifecycle, prompts
 from apps.api.agents.service import _load_agent, dial_first_words, publish_agent
 from apps.api.db.session import tenant_session
 from calevate_shared.engine import AgentConfig, KBSourceRef
+from calevate_shared.invisible_text import plain_joins
 from sqlalchemy import text
 from tests.hosted_voice_fakes import CatalogueRows, HostingEngine, selected
 from tests.thinnest_engine_seams_test import (  # noqa: F401 - pytest fixtures
@@ -161,5 +162,5 @@ async def test_a_voice_change_sends_only_the_voice(
     assert now.ai_notice and now.ai_notice in now.opening_line
     assert (await engine.get_agent(ref)).greeting == held.greeting
     assert await _placed_call_opening(tenant_id, agent_id, engine) == opening
-    assert sent.ai_notice in opening
+    assert plain_joins(sent.ai_notice) in opening
     assert await _pointers(tenant_id, agent_id) == pointers, "the staged edit still waits"

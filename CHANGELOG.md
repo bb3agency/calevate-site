@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.88 — 21-Nov-2026
+
+- Telugu agents are told to talk as friends do on the phone: the English words people use,
+  everyday verbs with spoken endings, never written Telugu, and అండి or గారు at most once
+  a reply.
+- Pip sends back a script line that says అండి, గారు, ji or sir more than once.
+
 ## 0.4.87 — 20-Nov-2026
 
 - Telugu agents stay in Telugu when a caller's Telugu reaches them written in English

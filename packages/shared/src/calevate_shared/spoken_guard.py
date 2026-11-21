@@ -228,6 +228,23 @@ def _greeting_head() -> str:
 _GREETING_HEAD: Final = _LivePattern(_greeting_head, re.IGNORECASE)
 
 
+def _honorifics() -> str:
+    return _extend("ji|andi|garu|sir|madam", "spoken_guard._GREETING_HEAD.honorifics")
+
+
+_HONORIFIC: Final = _LivePattern(lambda: rf"(?:{_honorifics()})(?=[\s,.!?।]|$)", re.IGNORECASE)
+
+#: How many honorifics one spoken line may carry. A Varsha line said అండి four times in two
+#: sentences and the founder heard a robot (21 Nov 2026); the guide already says "by situation,
+#: not in every sentence", and nothing held a written line to it.
+HONORIFICS_PER_LINE: Final = 1
+
+
+def honorific_count(text: str) -> int:
+    """How many honorifics (అండి, గారు, जी, sir...) `text` says as words of their own."""
+    return sum(1 for m in _HONORIFIC.finditer(text) if _starts_word(text, m.start()))
+
+
 def opens_with_greeting(text: str) -> bool:
     return bool(_GREETING_HEAD.search(text))
 
@@ -299,6 +316,7 @@ def generation_guidance(
 
 
 __all__ = [
+    "HONORIFICS_PER_LINE",
     "INTRODUCED_GREETING_RULE",
     "INTRODUCED_NAMES_RULE",
     "OWN_LETTERS_RULE",
@@ -312,6 +330,7 @@ __all__ = [
     "english_problem",
     "generation_guidance",
     "has_indic_letters",
+    "honorific_count",
     "introduced_opening_problem",
     "latin_word_problem",
     "latin_words",

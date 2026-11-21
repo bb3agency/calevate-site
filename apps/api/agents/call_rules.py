@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from calevate_shared.opening_notices import opening_max_chars
+from calevate_shared.spoken_guard import HONORIFICS_PER_LINE, honorific_count
 
 from apps.api.agents.script_lint import NAME_FIELD, NAME_PLACEMENT_RULE
 from apps.api.agents.turn_checks import claims_done, claims_said_before
@@ -275,6 +276,11 @@ def said_line_problem(where: str, text: str, *, opening: bool = False) -> str | 
         )
     if claims_said_before(text):
         return f'{where}: says "as I said"; the agent has said nothing before this line.'
+    if (count := honorific_count(text)) > HONORIFICS_PER_LINE:
+        return (
+            f"{where}: says an honorific (andi, garu, ji, sir) {count} times; at most once in a "
+            "line, where it fits, never at the end of every sentence."
+        )
     most = opening_max_chars(OPENING_LINE_MAX_CHARS, text)
     if opening and len(text.strip()) > most:
         return (

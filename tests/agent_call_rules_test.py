@@ -260,6 +260,18 @@ def test_every_writer_and_the_judge_read_the_same_rules() -> None:
         assert OPENING_LINE_RULE in writer
 
 
+def test_a_line_with_an_honorific_in_every_sentence_is_sent_back() -> None:
+    """At most one honorific in a written line: a Varsha line said one at the end of every
+    sentence and the founder heard a robot (21 Nov 2026)."""
+    robot = "Avuna andi. Mee phone Android aa andi? Cheppandi andi."
+    problem = said_line_problem("stages[0].sounds_like", robot)
+    assert problem is not None and "3 times" in problem
+    assert said_line_problem("stages[0].sounds_like", "Avuna andi. Mee phone Android aa?") is None
+    # A word that only starts like one is not one, and "sir" counts in English too.
+    assert said_line_problem("x", "Sure sir. Shall I book it, sir?") is not None
+    assert said_line_problem("x", "Andhra lo undi, sir.") is None
+
+
 def test_the_173_character_greeting_is_sent_back_to_the_writer() -> None:
     assert len(GREETING) > OPENING_LINE_MAX_CHARS
     problem = said_line_problem("opening_line", GREETING, opening=True)

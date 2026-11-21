@@ -886,7 +886,7 @@ _HI_NUMBER: Final = _Live(lambda: _say("turn_checks._HI_NUMBER"))
 #: Telugu's does ("six hundred rupees", as shops in Hyderabad say it, D-744), Hindi's allows
 #: "एक सौ बीस रुपये".
 #: Telugu's also catches a big amount in Telugu number words ("రెండు కోట్ల"), which its
-#: `lakhs` rule says the English way, in English letters ("two crores"). A
+#: `lakhs` rule says the English way, in English letters ("five thousand"). A
 #: time in Telugu number words ("రెండు గంటలకు") is how people say a time and is not flagged.
 _NATIVE_PRICE: Final[dict[str, _LivePattern]] = {
     "te": _LivePattern(

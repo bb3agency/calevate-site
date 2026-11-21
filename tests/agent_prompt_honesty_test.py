@@ -92,7 +92,7 @@ def test_telugu_keeps_english_words_and_amounts_in_english_letters() -> None:
     assert "Telugu words in Telugu letters, English words in English letters" in register
     assert "English words too" not in register
     assert "పొద్దున వీలవుతుందా, సాయంత్రమా?" in register
-    assert '"one twenty rupees", "two crores"' in VOICE_STYLE_GUIDANCE
+    assert '"one twenty rupees", "five thousand"' in VOICE_STYLE_GUIDANCE
 
 
 def test_an_answering_agent_is_told_its_test_call_opens_another_way() -> None:

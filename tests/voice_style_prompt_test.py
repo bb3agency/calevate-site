@@ -164,7 +164,7 @@ def test_amounts_follow_the_agents_own_language() -> None:
     """Telugu says prices the English way in English words; Hindi allows its own number
     words and English has no rule, so neither may carry the Telugu examples (D-915)."""
     telugu = compose_engine_prompt(_config("Call leads."))
-    assert '"one twenty rupees", "two crores"' in telugu
+    assert '"one twenty rupees", "five thousand"' in telugu
     for language in ("hi-IN", "en-IN"):
         cfg = _config("Call leads.").model_copy(update={"language_primary": language})
         prompt = compose_engine_prompt(cfg)

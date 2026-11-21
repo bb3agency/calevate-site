@@ -72,8 +72,8 @@ def test_every_agent_gives_one_step_a_turn_and_never_asks_did_you_understand() -
 
 
 def test_numbers_are_read_digit_by_digit_in_two_fives_from_the_first_time() -> None:
-    assert "first time too: digit by digit, a comma after each" in VOICE_STYLE_GUIDANCE
-    assert "a mobile five, full stop, five; offer to repeat" in VOICE_STYLE_GUIDANCE
+    assert "first time too: digit by digit, a mobile five, a comma, five" in VOICE_STYLE_GUIDANCE
+    assert "a comma, five; offer to repeat" in VOICE_STYLE_GUIDANCE
 
 
 # --- 4. later means a day, a time and a booked call back ----------------------------------
