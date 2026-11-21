@@ -35,7 +35,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "campaign_script"
 def test_the_ask_names_every_kind_of_call_and_the_rules_it_writes_by() -> None:
     """FAILS IF: a kind of call loses its shape, or the ask stops grounding figures in the
     sources, writing objections or closing on one next step."""
-    for name, _shape in ask.CALL_KINDS:
+    for name in (kind.name for kind in ask.CALL_KINDS):
         assert f"A {name} call is" in ask.CAMPAIGN_ASK
     for rule in (ask.GROUNDING_RULE, ask.OBJECTIONS_RULE, ask.TURN_RULE):
         assert rule in ask.CAMPAIGN_ASK
@@ -43,7 +43,7 @@ def test_the_ask_names_every_kind_of_call_and_the_rules_it_writes_by() -> None:
     # An inbound line answers calls: no kinds of placed call, the same grounding.
     assert "A booking call is" not in ask.LINE_ASK and ask.GROUNDING_RULE in ask.LINE_ASK
     # A collection call never says the amount to the wrong person, nor threatens.
-    collection = dict(ask.CALL_KINDS)["collection"]
+    collection = next(kind.shape for kind in ask.CALL_KINDS if kind.name == "collection")
     assert "before any amount" in collection and "no threat" in collection
 
 
@@ -182,7 +182,7 @@ def test_golden_fixture_is_checked_as_the_writer_checks_it(case: str) -> None:
         tone=fixture["tone"],
         instruction=fixture["instruction"],
     )
-    for name, _shape in ask.CALL_KINDS:
+    for name in (kind.name for kind in ask.CALL_KINDS):
         assert f"A {name} call is" in change
     if fixture["tone"]:
         assert ask.TONES[fixture["tone"]] in change

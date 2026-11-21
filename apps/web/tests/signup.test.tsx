@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+import { BUSINESS_TYPES_PATH } from "@/lib/businessTypes";
+
 import { problem, stillLoading, stubApi, type ApiCall } from "./harness";
 
 /**
@@ -82,6 +84,8 @@ async function mount(): Promise<void> {
   });
   // Two reads decide what renders: the session restore and whether signing up is open.
   await screen.findByRole("button", { name: "Create workspace" });
+  // The kinds of business arrive from the server (`GET /v1/public/business-types`).
+  await screen.findByRole("option", { name: "Clinic or health" });
 }
 
 async function submit(routes: Record<string, unknown>): Promise<ApiCall[]> {
@@ -302,10 +306,11 @@ describe("what a prospect types", () => {
       expect(made.url).not.toContain("owner@srisai.example");
       expect(made.url).not.toContain("Sri%20Sai");
     }
-    // THREE calls: the session restore and the sign-up switch on mount, then the signup.
+    // FOUR calls: the session restore, the sign-up switch and the business types on mount,
+    // then the signup.
     // Named rather than counted away, so a fourth call still fails this the way it should.
     expect(calls.map((c) => c.path).sort()).toEqual(
-      ["/v1/auth/client/session", "/v1/auth/client/sign-in-options", SIGNUP].sort(),
+      ["/v1/auth/client/session", "/v1/auth/client/sign-in-options", BUSINESS_TYPES_PATH, SIGNUP].sort(),
     );
     const call = calls.find((c) => c.path === SIGNUP)!;
     expect(call.method).toBe("POST");
@@ -319,10 +324,10 @@ describe("what a prospect types", () => {
     const calls = stubApi({});
     await mount();
     fill();
-    // The session restore and the sign-up switch are the calls a mount may make, and
-    // neither is "what a prospect typed" — nothing this screen collects has been sent.
+    // The session restore, the sign-up switch and the business types are the calls a mount
+    // may make, and none is "what a prospect typed" — nothing this screen collects has been sent.
     expect(calls.map((c) => c.path).sort()).toEqual(
-      ["/v1/auth/client/session", "/v1/auth/client/sign-in-options"].sort(),
+      ["/v1/auth/client/session", "/v1/auth/client/sign-in-options", BUSINESS_TYPES_PATH].sort(),
     );
   });
 });

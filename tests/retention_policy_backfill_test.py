@@ -3,7 +3,7 @@
 **THE DEFECT.** `c4d1f7b83e26` (D-179) added `engine_payload` and `kb` to
 `ck_retention_policies_category_enum` and gave `apps/workers/retention.py` a sweep arm for
 each. It wrote no rows. `admin/service._create_tenant_root` writes the full
-`scripts/seed.DEFAULT_RETENTION_POLICIES` set for every organisation created AFTER that
+`retention_defaults.DEFAULT_RETENTION_POLICIES` set for every organisation created AFTER that
 migration, so the gap is invisible on a freshly migrated database and lands on exactly the
 tenants that had been accumulating the data longest.
 
@@ -36,11 +36,11 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from apps.api.compliance.retention_defaults import DEFAULT_RETENTION_POLICIES
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers import storage
 from apps.workers.retention import sweep_tenant
-from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import text
 from tests.conftest import FakeS3, create_org_with_receptionist
 
@@ -89,7 +89,7 @@ def test_every_seeded_category_added_after_the_first_migration_has_a_backfill() 
     seeded = {str(policy["data_category"]) for policy in DEFAULT_RETENTION_POLICIES}
     missing = sorted(seeded - _ORIGINAL_CATEGORIES - set(_BACKFILLED_BY))
     assert not missing, (
-        f"{missing} is shipped by `scripts.seed.DEFAULT_RETENTION_POLICIES` and no entry "
+        f"{missing} is shipped by `retention_defaults.DEFAULT_RETENTION_POLICIES` and no entry "
         "here names the migration that writes its row for the organisations that already "
         "existed. Without one, `retention.sweep_tenant` never applies that category to a "
         "tenant created before the migration that added it — the store it governs is "

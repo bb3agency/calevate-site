@@ -5,7 +5,7 @@ This file is the answer to each, written so a compliance reviewer can read the t
 and the assertion message and know what the platform actually does.
 
 **1. Which TTLs are real?** SEC-COMP §4 once promised one set of numbers (180 / 730 / 730)
-while `scripts/seed.DEFAULT_RETENTION_POLICIES` shipped another (90 / 365 / 1095). The
+while `retention_defaults.DEFAULT_RETENTION_POLICIES` shipped another (90 / 365 / 1095). The
 running code obeys the *rows*, the rows come from the seed, and `/legal/privacy` §9
 published the seed's numbers — so the document's §4 table was the only outlier. **D-462
 reconciled it**: §4 now states the enforced-and-published defaults, so doc, seed and notice
@@ -39,6 +39,7 @@ from typing import Any
 
 import pytest
 from apps.api.compliance.export import subject_ref
+from apps.api.compliance.retention_defaults import DEFAULT_RETENTION_POLICIES
 from apps.api.db.session import get_engine, tenant_session
 from apps.workers import retention
 from apps.workers.retention import (
@@ -49,7 +50,6 @@ from apps.workers.retention import (
     sweep_tenant,
 )
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec, validate_extraction
-from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import event, text
 from tests.conftest import FakeS3, accept_agreements, create_org_with_receptionist
 

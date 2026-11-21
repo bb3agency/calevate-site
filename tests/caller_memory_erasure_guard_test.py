@@ -46,9 +46,9 @@ import inspect
 from pathlib import Path
 
 from apps.api.compliance.models import DATA_CATEGORIES
+from apps.api.compliance.retention_defaults import DEFAULT_RETENTION_POLICIES
 from apps.api.retrieval.caller_erasure import MEMORY_RETENTION_CATEGORY
 from apps.workers import retention
-from scripts.seed import DEFAULT_RETENTION_POLICIES
 
 #: The `subject_kind` value under guard. Spelled as a literal rather than imported from
 #: the migration: a test that imports its subject from the thing it is testing cannot

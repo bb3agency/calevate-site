@@ -166,7 +166,7 @@ _CATEGORY_LABELS: dict[str, str] = {
     #: sentence the agent speaks (`disclosure.CALLER_MEMORY_NOTICE_TEMPLATES`) — never "a
     #: distilled fact" and never anything naming a vector.
     #:
-    #: PRINTED ONLY FOR A TENANT THAT ACTUALLY KEEPS NOTES. `scripts/seed.py` writes this
+    #: PRINTED ONLY FOR A TENANT THAT ACTUALLY KEEPS NOTES. `retention_defaults` gives this
     #: row for EVERY organisation, so an unconditional line would tell every client's
     #: callers how long notes about them are kept on an account that keeps none —
     #: `_CATEGORY_LABELS`' own `consent_log` lesson pointed the other way. The filter is

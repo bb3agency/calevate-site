@@ -2209,16 +2209,8 @@
           "business_type": {
             "anyOf": [
               {
-                "enum": [
-                  "retail",
-                  "local_services",
-                  "automobile",
-                  "clinic",
-                  "real_estate",
-                  "insurance",
-                  "education",
-                  "custom"
-                ],
+                "maxLength": 40,
+                "minLength": 1,
                 "type": "string"
               },
               {
@@ -8554,6 +8546,186 @@
         "title": "BusinessTypeChoiceOut",
         "type": "object"
       },
+      "BusinessTypeExamplesOut": {
+        "additionalProperties": false,
+        "description": "The placeholders the admin console shows while it creates an account of this type\n(`calevate_shared.verticals.EXAMPLE_KEYS`).",
+        "properties": {
+          "booking_job_line": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Job Line"
+          },
+          "booking_job_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Job Title"
+          },
+          "end_call_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Call Rules"
+          },
+          "extraction_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extraction Label"
+          },
+          "extraction_options": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extraction Options"
+          },
+          "extraction_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extraction Reason"
+          },
+          "knowledge_answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Answer"
+          },
+          "knowledge_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Title"
+          },
+          "lead_search": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Search"
+          },
+          "org_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Name"
+          },
+          "org_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Org Slug"
+          },
+          "script_brief": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Script Brief"
+          }
+        },
+        "title": "BusinessTypeExamplesOut",
+        "type": "object"
+      },
+      "BusinessTypeOptionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "examples": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BusinessTypeExamplesOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "has_standard_set": {
+            "title": "Has Standard Set",
+            "type": "boolean"
+          },
+          "hint": {
+            "title": "Hint",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label",
+          "hint",
+          "has_standard_set",
+          "examples"
+        ],
+        "title": "BusinessTypeOptionOut",
+        "type": "object"
+      },
       "BusinessTypeOut": {
         "additionalProperties": false,
         "properties": {
@@ -8610,6 +8782,28 @@
           "choices"
         ],
         "title": "BusinessTypeOut",
+        "type": "object"
+      },
+      "BusinessTypesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "choices": {
+            "items": {
+              "$ref": "#/components/schemas/BusinessTypeOptionOut"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
+          "custom": {
+            "title": "Custom",
+            "type": "string"
+          }
+        },
+        "required": [
+          "choices",
+          "custom"
+        ],
+        "title": "BusinessTypesOut",
         "type": "object"
       },
       "BuyNumberIn": {
@@ -18970,16 +19164,8 @@
         "additionalProperties": false,
         "properties": {
           "business_type": {
-            "enum": [
-              "retail",
-              "local_services",
-              "automobile",
-              "clinic",
-              "real_estate",
-              "insurance",
-              "education",
-              "custom"
-            ],
+            "maxLength": 40,
+            "minLength": 1,
             "title": "Business Type",
             "type": "string"
           }
@@ -22496,16 +22682,8 @@
             "title": "Slug"
           },
           "vertical_template": {
-            "enum": [
-              "retail",
-              "local_services",
-              "automobile",
-              "clinic",
-              "real_estate",
-              "insurance",
-              "education",
-              "custom"
-            ],
+            "maxLength": 40,
+            "minLength": 1,
             "title": "Vertical Template",
             "type": "string"
           }
@@ -25262,16 +25440,8 @@
           "vertical_template": {
             "anyOf": [
               {
-                "enum": [
-                  "retail",
-                  "local_services",
-                  "automobile",
-                  "clinic",
-                  "real_estate",
-                  "insurance",
-                  "education",
-                  "custom"
-                ],
+                "maxLength": 40,
+                "minLength": 1,
                 "type": "string"
               },
               {
@@ -48934,7 +49104,8 @@
                   "location",
                   "offer",
                   "hours",
-                  "booking"
+                  "booking",
+                  "facts"
                 ],
                 "type": "string"
               },
@@ -107867,6 +108038,34 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/public/business-types": {
+      "get": {
+        "description": "The business types in picker order, each with its label, what choosing it does and the examples the admin console shows for it. The same list `POST /v1/auth/signup` and the admin account forms accept.",
+        "operationId": "list_business_types_v1_public_business_types_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessTypesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every business type a picker offers",
+        "tags": [
+          "public"
+        ]
       }
     },
     "/v1/public/rate-card": {

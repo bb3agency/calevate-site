@@ -513,6 +513,32 @@ async def test_the_answers_land_in_the_business_profile_merged() -> None:
     assert profile.booking_rules == "We confirm site visits on WhatsApp within an hour."
 
 
+async def test_a_facts_answer_becomes_one_faq_however_often_it_is_sent() -> None:
+    tenant_id = await _tenant()
+    headers = await _owner(tenant_id)
+    area = questions.Question("q1", "Which areas do you serve?", "", "text", maps_to="facts")
+    await _asked(tenant_id, [area])
+    async with _client() as http:
+        for said in ("Kondapur and Gachibowli.", "Kondapur, Gachibowli and Madhapur."):
+            sent = await http.post(
+                "/v1/first-run/answers",
+                headers=headers,
+                json={"answers": [{"id": "q1", "text": said}]},
+            )
+            assert sent.status_code == 200, sent.text
+        too_long = await http.post(
+            "/v1/first-run/answers",
+            headers=headers,
+            json={"answers": [{"id": "q1", "text": "x" * 1001}]},
+        )
+    assert too_long.status_code == 422, too_long.text
+    async with tenant_session(tenant_id) as session:
+        profile = await load_profile(session, tenant_id=tenant_id)
+    assert [(f.question, f.answer) for f in profile.faqs] == [
+        ("Which areas do you serve?", "Kondapur, Gachibowli and Madhapur.")
+    ]
+
+
 async def test_the_address_answer_sent_again_keeps_one_main_branch() -> None:
     """The screen sends the answers again whenever "Build my agent" is pressed again (after a
     refused build) or the questions are answered again after Back. Each send used to append
@@ -817,6 +843,45 @@ def test_questions_already_answered_are_not_asked() -> None:
         "hours",
         "booking",
     ]
+
+
+def test_hours_are_asked_only_where_they_mean_something() -> None:
+    """FAILS IF: a helpline or an app's support line (no place to come to, nothing to book or
+    order) is asked "When are you open?", or a business with no premises that does take
+    bookings is asked about a door it does not have."""
+    from apps.api.tenancy.business_profile import Profile
+
+    empty = Profile(tenant_id=uuid.uuid4())
+    helpline = questions.QuestionWords(has_premises=False, goes_ahead=False)
+    assert "hours" in questions.closed_topics(empty, helpline)
+    asked = questions.fallback_questions(empty, "custom", limit=5, words=helpline)
+    assert "hours" not in [q.maps_to for q in asked]
+    assert questions.fixed_question("hours", "custom", question_id="q1", words=helpline) is None
+
+    field_team = questions.QuestionWords(has_premises=False)
+    hours = questions.fixed_question("hours", "custom", question_id="q1", words=field_team)
+    assert hours is not None and hours.prompt == "What are your working hours?"
+    assert "hours" not in questions.closed_topics(empty, field_team)
+
+    shop = questions.fixed_question("hours", "retail", question_id="q1")
+    assert shop is not None and shop.prompt == "When are you open?"
+
+
+def test_other_facts_have_a_section_the_model_may_ask_more_than_once() -> None:
+    from apps.api.tenancy.business_profile import Profile
+
+    def item(prompt: str, kind: str = "text") -> dict[str, object]:
+        return {"prompt": prompt, "hint": "", "kind": kind, "options": [], "maps_to": "facts"}
+
+    written = questions.written_questions(
+        [item("Which areas do you serve?"), item("Who can apply?"), item("Pick", "hours")],
+        Profile(tenant_id=uuid.uuid4()),
+    )
+    assert [(q.prompt, q.maps_to) for q in written] == [
+        ("Which areas do you serve?", "facts"),
+        ("Who can apply?", "facts"),
+    ]
+    assert questions.fixed_question("facts", "custom", question_id="q1") is None
 
 
 def _voice(

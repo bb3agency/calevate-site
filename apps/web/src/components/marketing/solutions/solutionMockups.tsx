@@ -185,7 +185,7 @@ export function FollowUpMock() {
 
 /**
  * Qualification — "Leads" (`app/c/[slug]/leads`: the search placeholder, the six status
- * words, the property template's columns from `scripts/seed.py`) beside the performance
+ * words, the property template's columns from `calevate_shared/verticals.json`) beside the performance
  * screen's funnel card "From calls to customers" (`performance/PerformanceCharts.tsx`).
  * Counts only, no rate: the console's own rate tiles are left out of a public page.
  */

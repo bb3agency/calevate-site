@@ -287,6 +287,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.tenancy.profile_routes import admin_router as business_profile_admin_router
     from apps.api.tenancy.profile_routes import router as business_profile_router
     from apps.api.tenancy.routes import router as tenancy_router
+    from apps.api.tenancy.signup_routes import public_router as public_business_types_router
     from apps.api.tenancy.signup_routes import router as signup_router
     from apps.api.whatsapp.admin_routes import router as admin_whatsapp_router
     from apps.api.whatsapp.hook_routes import router as whatsapp_hook_router
@@ -561,6 +562,8 @@ def _mount_routers(application: FastAPI) -> None:
     # exactly as the compliance package owns `whatsapp_alert_optin_ledger`.
     application.include_router(feature_flags_router)
     application.include_router(signup_router)
+    # The business types every picker renders, read before an account exists.
+    application.include_router(public_business_types_router)
     # Both are literal paths under `/v1/billing` and neither carries a `{param}` at
     # that position, so declaration order is not load-bearing between them — but caps
     # goes first so that a future `/v1/billing/{something}` router added below cannot

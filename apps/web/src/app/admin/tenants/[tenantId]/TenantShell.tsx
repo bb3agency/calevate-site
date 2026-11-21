@@ -20,7 +20,7 @@ import { useClosure } from "@/lib/api/closure";
 import { useAdminBusinessProfile } from "@/lib/api/businessProfile";
 import { useOwnerStatus } from "@/lib/api/onboarding";
 import { viewAsHref } from "@/lib/api/session";
-import { businessTypeLabel } from "@/lib/businessTypes";
+import { useBusinessTypeLabel } from "@/lib/businessTypes";
 import { lookup } from "@/lib/lookup";
 
 import {
@@ -118,6 +118,8 @@ function ErasedClientShell({ tenantId, children }: { tenantId: string; children:
   );
 }
 function TenantHeader({ tenant }: { tenant: TenantSummary }) {
+  const labelOf = useBusinessTypeLabel();
+  const typeLabel = tenant.vertical_template ? labelOf(tenant.vertical_template) : "";
   return (
     <header className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
       <div className="min-w-0 flex-1 basis-64">
@@ -131,7 +133,7 @@ function TenantHeader({ tenant }: { tenant: TenantSummary }) {
         </div>
         <p className="mt-1 text-meta text-ink-muted">
           /c/{tenant.slug} · {planLabel(tenant.plan_tier)}
-          {tenant.vertical_template ? ` · ${businessTypeLabel(tenant.vertical_template)}` : ""}
+          {typeLabel ? ` · ${typeLabel}` : ""}
         </p>
         {tenant.status === "onboarding" && <OnboardingNote tenantId={tenant.id} />}
         {/* Credit left on every page of the client, minutes first (founder, 10 Oct 2026):

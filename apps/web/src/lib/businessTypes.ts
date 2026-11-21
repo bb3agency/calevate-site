@@ -1,55 +1,62 @@
+"use client";
+
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+
+import { apiRequest, type Session } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
-import { lookup } from "@/lib/lookup";
 
 /**
- * THE BUSINESS TYPES, as every picker names them — the one list (founder decisions 10 and
- * 15, 10 Oct 2026).
- *
- * The values are the API's own enum (`admin/routes.Vertical`), so a type the server stops
- * accepting fails the build here. The labels are the server's too
- * (`scripts/seed.BUSINESS_TYPE_LABELS`, the order included); `tests/businessTypes.test.ts`
- * holds the two to each other's order, and the order does not start with a clinic because
- * no trade is anybody's default.
+ * THE BUSINESS TYPES, as every picker names them, read from the server
+ * (`GET /v1/public/business-types`, built from `calevate_shared/verticals.json`). The web
+ * keeps no copy: adding a type is an edit to that file, and every picker, label and example
+ * follows. The order is the server's, and it does not start with a clinic because no trade
+ * is anybody's default.
  *
  * `hint` says what choosing the type DOES: it picks the details every lead of that
  * business captures on top of the ones every business gets.
  */
-export type BusinessType = NonNullable<components["schemas"]["CreateOrgIn"]["vertical_template"]>;
+export type BusinessTypes = components["schemas"]["BusinessTypesOut"];
+export type BusinessTypeOption = components["schemas"]["BusinessTypeOptionOut"];
+/** A type's key: any value the server's list holds. */
+export type BusinessType = BusinessTypeOption["value"];
 
-export interface BusinessTypeOption {
-  value: BusinessType;
-  label: string;
-  hint: string;
+export const BUSINESS_TYPES_PATH = "/v1/public/business-types";
+export const BUSINESS_TYPES_QUERY_KEY = ["public", "business-types"] as const;
+
+/** The route reads nothing about its caller, so it is asked as nobody. */
+const NOBODY: Session = { orgSlug: "" };
+
+export function useBusinessTypes(): UseQueryResult<BusinessTypes> {
+  return useQuery({
+    queryKey: BUSINESS_TYPES_QUERY_KEY,
+    queryFn: () => apiRequest<BusinessTypes>(NOBODY, BUSINESS_TYPES_PATH),
+    // The list changes only with a deploy; the server caches it for five minutes too.
+    staleTime: 5 * 60_000,
+  });
 }
 
-export const BUSINESS_TYPES: readonly BusinessTypeOption[] = [
-  { value: "retail", label: "Shop, food or produce", hint: "Product, quantity, pickup or delivery" },
-  {
-    value: "local_services",
-    label: "Salon or local service",
-    hint: "Service wanted, at the shop or at home, preferred staff",
-  },
-  {
-    value: "automobile",
-    label: "Automobile or repairs",
-    hint: "Vehicle, work needed, registration, pickup",
-  },
-  { value: "clinic", label: "Clinic or health", hint: "Reason for the visit, urgency, preferred doctor" },
-  { value: "real_estate", label: "Real estate", hint: "Budget, locality, size, site visit" },
-  { value: "insurance", label: "Insurance", hint: "Policy type, cover, renewal date" },
-  { value: "education", label: "Education or coaching", hint: "Course, class or year, demo class" },
-  {
-    value: "custom",
-    label: "Something else",
-    hint: "Details drafted once from the business's own details",
-  },
-];
+/** The option for a stored type; an absent or unknown one is the list's `custom`. */
+export function businessTypeOption(
+  types: BusinessTypes | undefined,
+  value: string | null | undefined,
+): BusinessTypeOption | undefined {
+  if (!types) return undefined;
+  return (
+    types.choices.find((option) => option.value === value) ??
+    types.choices.find((option) => option.value === types.custom)
+  );
+}
 
-const LABELS: Readonly<Record<BusinessType, string>> = Object.fromEntries(
-  BUSINESS_TYPES.map((option) => [option.value, option.label]),
-) as Record<BusinessType, string>;
+/** How a stored type reads, or "" while the list is loading. */
+export function businessTypeLabel(
+  types: BusinessTypes | undefined,
+  value: string | null | undefined,
+): string {
+  return businessTypeOption(types, value)?.label ?? "";
+}
 
-/** How a stored business type reads; an absent or unknown one reads as "Something else". */
-export function businessTypeLabel(value: string | null | undefined): string {
-  return lookup(LABELS, value) ?? LABELS.custom;
+/** `businessTypeLabel` bound to the loaded list, for screens that name several types. */
+export function useBusinessTypeLabel(): (value: string | null | undefined) => string {
+  const types = useBusinessTypes().data;
+  return (value) => businessTypeLabel(types, value);
 }

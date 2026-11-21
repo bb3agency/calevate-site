@@ -12,7 +12,9 @@ import { API_BASE } from "@/lib/api/client";
 import { ClientRealmProvider } from "@/lib/api/session";
 import { adminAuthn } from "@/lib/authn/adminAuthn";
 import { clientAuthn } from "@/lib/authn/clientAuthn";
+import { BUSINESS_TYPES_PATH } from "@/lib/businessTypes";
 
+import { BUSINESS_TYPES_FIXTURE } from "./businessTypesFixture";
 import { recordUnanswered } from "./unansweredRoutes";
 
 export { allowUnansweredRoutes } from "./unansweredRoutes";
@@ -335,6 +337,9 @@ export function stubApi(routes: Routes): ApiCall[] {
         // per-trade table every existing assertion was written against. A test about the
         // generated examples names the route itself.
         if (scoped === "GET /v1/business-copy") return jsonResponse(NO_BUSINESS_COPY);
+        // THE BUSINESS TYPES (`calevate_shared/verticals.json`), answered as shipped: every
+        // business-type picker and label reads them. A test about the list names the route.
+        if (scoped === `GET ${BUSINESS_TYPES_PATH}`) return jsonResponse(BUSINESS_TYPES_FIXTURE);
         // PIP'S NOTES (D-936), answered "nothing noticed" by default: the dashboard reads them.
         // A test about the notes names the route itself.
         if (scoped === "GET /v1/copilot/notes") {

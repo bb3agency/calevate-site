@@ -8,7 +8,7 @@ import type { LegalDocument } from "./types";
  * template:
  *
  * 1. **Nothing is claimed that the code does not do.** The retention periods are the
- *    numbers `scripts/seed.DEFAULT_RETENTION_POLICIES` actually installs and
+ *    numbers `compliance/retention_defaults.DEFAULT_RETENTION_POLICIES` actually installs and
  *    `apps/workers/retention.py` actually enforces — NOT the numbers
  *    SECURITY-COMPLIANCE §4 quotes, which differ. Where the two disagree the notice
  *    states the enforced number and the disagreement is a finding, not a rounding.
@@ -68,7 +68,7 @@ import type { LegalDocument } from "./types";
  *
  * `category` is the `retention_policies.data_category` the row describes, and it is the
  * whole reason this is a typed array: `tests/published_retention_test.py` asserts that the
- * set of categories here EQUALS the set `scripts/seed.DEFAULT_RETENTION_POLICIES` installs,
+ * set of categories here EQUALS the set `compliance/retention_defaults.DEFAULT_RETENTION_POLICIES` installs,
  * and that each `period` states that category's seeded number. So a category that gains a
  * clock in code and never reaches this page fails the suite, which is exactly how the
  * caller-memory row below came to be missing for as long as it was: it was seeded, it was

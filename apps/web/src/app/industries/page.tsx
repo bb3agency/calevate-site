@@ -32,11 +32,11 @@ import { INDUSTRIES } from "@/lib/marketing/industries";
  * ALL FOUR ARE WRITTEN TO THE SAME DEPTH, which is the founder's decision of 5 Sep 2026
  * and is enforced by the shape of the data: `lib/marketing/industries.ts` gives every
  * vertical the same fields, and `industries/industryCall.tsx` gives every vertical one call
- * of the same shape. Clinics leads because it leads `scripts/seed.py`; it gets no default
+ * of the same shape. Clinics is listed first; it gets no default
  * styling and no editorial promotion for it.
  *
  * `fields` is the seed's own labels in the seed's own order, rendered as the
- * `data-seed-fields` list and diffed against `scripts/seed.py` by `publicLanding.test.tsx`;
+ * `data-seed-fields` list and diffed against `calevate_shared/verticals.json` by `publicLanding.test.tsx`;
  * the mockup's "Captured details" use the same labels (`tests/industryMockups.test.ts`).
  *
  * The page may not repeat the homepage band's lede (UX-DOCTRINE §5): the intro keeps only

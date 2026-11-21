@@ -16,8 +16,8 @@ import {
 } from "@/app/c/[slug]/agents/actions/jobs";
 import type { ActionTool, ActionsSettings, IntegrationCredential } from "@/lib/api/actions";
 import { useClientSession } from "@/lib/api/session";
-import { examplesFor } from "@/lib/verticalExamples";
 
+import { examplesOf } from "./businessTypesFixture";
 import { OWNER_ME } from "./fixtures/sharedReads";
 import { noReply, renderClientPage } from "./harness";
 
@@ -156,12 +156,12 @@ describe("the values the guided flow derives", () => {
 
   it("names the booking job in each trade's own word, and neutrally for anyone else", () => {
     const booking = JOBS.find((j) => j.id === "booking")!;
-    expect(jobTitle(booking, examplesFor("clinic"))).toBe("Book appointments");
-    expect(jobTitle(booking, examplesFor("real_estate"))).toBe("Book site visits");
-    expect(jobTitle(booking, examplesFor("education"))).toBe("Book counselling sessions");
-    expect(jobTitle(booking, examplesFor("insurance"))).toBe("Book meetings");
+    expect(jobTitle(booking, examplesOf("clinic"))).toBe("Book appointments");
+    expect(jobTitle(booking, examplesOf("real_estate"))).toBe("Book site visits");
+    expect(jobTitle(booking, examplesOf("education"))).toBe("Book counselling sessions");
+    expect(jobTitle(booking, examplesOf("insurance"))).toBe("Book meetings");
     for (const v of ["custom", undefined, "something-new"]) {
-      expect(jobTitle(booking, examplesFor(v))).toBe("Take bookings");
+      expect(jobTitle(booking, examplesOf(v))).toBe("Take bookings");
     }
   });
 

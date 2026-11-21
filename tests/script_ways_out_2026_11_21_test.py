@@ -13,6 +13,7 @@ from typing import Any, cast
 
 from apps.api.agents.script_lint import LintContext
 from apps.workers import script_assist
+from apps.workers.campaign_script_ask import CALL_KINDS
 from apps.workers.script_assist import (
     EDIT_INSTRUCTION,
     NOT_INTERESTED_WAY_OUT,
@@ -100,6 +101,15 @@ def test_the_checklist_follows_the_kind_of_call() -> None:
         assert words in WAYS_OUT_RULE
     assert f"At most {MAX_STAGE_BRANCHES} ways out a stage" in WAYS_OUT_RULE
     assert f"{MAX_SCRIPT_STAGES} stages in all" in WAYS_OUT_RULE
+
+
+def test_the_kinds_of_call_are_listed_once() -> None:
+    """FAILS IF: the ways out a kind of call meets are written beside the rule again, so a
+    kind added to the campaign writer's list (`CALL_KINDS`) is missing from the ways out."""
+    for kind in CALL_KINDS:
+        if kind.ways_out:
+            assert kind.name in WAYS_OUT_RULE
+            assert kind.ways_out in WAYS_OUT_RULE
 
 
 def test_a_draft_can_name_a_platform_target() -> None:

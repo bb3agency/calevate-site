@@ -1,35 +1,28 @@
 import type { components } from "@/lib/api/schema";
-import { lookup } from "@/lib/lookup";
+import type { BusinessTypeOption } from "@/lib/businessTypes";
 
 /**
- * The example text every client-setup form shows, PER VERTICAL.
+ * The example text every client-setup form shows.
  *
- * ## The defect this replaces
+ * Every placeholder across onboarding once described a dental clinic, so an operator
+ * onboarding a property office or a coaching centre read examples that were wrong about the
+ * business in front of them. A placeholder is the fastest instruction on a form, and forty
+ * fields of clinic vocabulary teach an operator to describe a real-estate office as if it had
+ * patients.
  *
- * Every placeholder across onboarding described a dental clinic: "Consultation", "₹500",
- * "Dr Lakshmi Prasad", "Dentist", "Do you take walk-ins?", "Slots every 20 minutes …
- * never promise a specific doctor without checking", and a helper sentence about "a
- * mispronounced doctor's name". Five verticals ship (`admin/new/page.tsx::VERTICALS`) and
- * four of them are not clinics, so an operator onboarding a property office or a coaching
- * centre read examples that were wrong about the business in front of them.
+ * Two sources, neither of them a list of trades kept here:
  *
- * They were only ever `placeholder=` — nothing was pre-filled and nothing could be
- * submitted unchanged, which is worth stating because that is the sharper version of the
- * bug and it is not the one that was here. What WAS here is worse than cosmetic: a
- * placeholder is the fastest instruction on a form, and forty fields of clinic vocabulary
- * teach an operator to describe a real-estate office as if it had patients.
+ * - The admin console's new-account form, where the business type is all there is, shows
+ *   that type's examples as the server sends them (`GET /v1/public/business-types`, from
+ *   `calevate_shared/verticals.json`). A type the file gives none shows the neutral set.
+ * - A client's own screens show the account's AI-written examples (`withGeneratedCopy`) over
+ *   the neutral set.
  *
- * ## Why a table rather than a prop per field
- *
- * The alternative is threading twenty strings through two components. The vertical is ONE
- * fact and the examples are a function of it, so it is one lookup at the top of each form
- * and every field reads from the same row. Adding a vertical means adding a row here and
- * the type stops the build until every field in it is filled — which is the point: a
- * sixth vertical cannot ship with a clinic's examples by omission.
+ * The neutral set (`CUSTOM`) is the fallback everywhere, never a trade's: an unknown or absent
+ * type must not silently describe a dental practice, and its examples read as instructions
+ * rather than as a business, so a fallback is visibly a fallback.
  */
 
-/** The API's own enum, so a template it stops accepting fails the build. */
-export type Vertical = components["schemas"]["CreateOrgIn"]["vertical_template"];
 
 export interface VerticalExamples {
   /** The business itself — the wizard's first two fields. */
@@ -117,137 +110,10 @@ const NEUTRAL_UNTIL_GENERATED = {
   outcomeMeaning: "The caller wants to take the next step with us.",
 } as const satisfies Partial<VerticalExamples>;
 
-const CLINIC: VerticalExamples = {
-  orgName: "Sunrise Clinic",
-  orgSlug: "sunrise-clinic",
-  knowledgeTitle: "Clinic hours",
-  knowledgeAnswer:
-    "Our consultation fee is ₹500, adjusted against any treatment on the same day.",
-  extractionReason: "so we can route urgent cases to a doctor first",
-  scriptBrief:
-    "We are a dental clinic in Hyderabad. Callers usually want to book a check-up or ask about teeth cleaning prices. Book appointments and take a callback number.",
-  extractionLabel: "Reason for visit",
-  extractionOptions: "New, Follow-up, Emergency",
-  endCallRules: "Never promise a same-day appointment.\nAlways offer a callback if unsure.",
-  leadSearch: "teeth cleaning on Saturday",
-  bookingJobTitle: "Book appointments",
-  bookingJobLine: "Your agent can check your Google Calendar and book callers in.",
-  ...NEUTRAL_UNTIL_GENERATED,
-};
-
-const REAL_ESTATE: VerticalExamples = {
-  orgName: "Skyline Properties",
-  orgSlug: "skyline-properties",
-  knowledgeTitle: "Site visit timings",
-  knowledgeAnswer:
-    "The 2 BHK units in Gachibowli start at ₹85 lakh, and the price on the phone is indicative until a site visit.",
-  extractionReason: "so we can call back the buyers whose budget matches an available unit",
-  scriptBrief:
-    "We are a property office in Hyderabad. Callers usually ask about available flats, price and location. Book site visits and take a budget and a callback number.",
-  extractionLabel: "Budget",
-  extractionOptions: "Ready to move, Under construction, Plot",
-  endCallRules: "Never quote a final price on the phone.\nAlways offer a site visit if unsure.",
-  leadSearch: "3BHK in Gachibowli",
-  bookingJobTitle: "Book site visits",
-  bookingJobLine: "Your agent can check your Google Calendar and book site visits for callers.",
-  ...NEUTRAL_UNTIL_GENERATED,
-};
-
-const INSURANCE: VerticalExamples = {
-  orgName: "Sujatha Insurance Services",
-  orgSlug: "sujatha-insurance",
-  knowledgeTitle: "Renewal documents",
-  knowledgeAnswer:
-    "A term life renewal needs the policy number and a current address proof; the premium is confirmed once we pull up the policy.",
-  extractionReason: "so we can call back the policies that are closest to lapsing first",
-  scriptBrief:
-    "We are an insurance agency in Vijayawada. Callers usually ask about renewals, premiums and claims. Take the policy number and book an advisor callback.",
-  extractionLabel: "Policy type",
-  extractionOptions: "New policy, Renewal, Claim",
-  endCallRules:
-    "Never confirm a premium without the policy number.\nAlways offer an advisor callback if unsure.",
-  leadSearch: "renewal due this month",
-  bookingJobTitle: "Book meetings",
-  bookingJobLine: "Your agent can check your Google Calendar and book callers a meeting with you.",
-  ...NEUTRAL_UNTIL_GENERATED,
-};
-
-const EDUCATION: VerticalExamples = {
-  orgName: "Vidya Coaching Centre",
-  orgSlug: "vidya-coaching",
-  knowledgeTitle: "Batch timings",
-  knowledgeAnswer:
-    "The NEET crash course is ₹45,000 for the weekend batch, and the fee can be paid in two instalments.",
-  extractionReason: "so we can call back the parents whose child is closest to an exam date",
-  scriptBrief:
-    "We are a coaching centre in Guntur. Callers usually ask about courses, batch timings and fees. Book counselling sessions and take the student's class and a callback number.",
-  extractionLabel: "Course",
-  extractionOptions: "Enquiry, Demo booked, Admitted",
-  endCallRules: "Never promise a seat in a batch that is full.\nAlways offer a callback if unsure.",
-  leadSearch: "NEET weekend batch",
-  bookingJobTitle: "Book counselling sessions",
-  bookingJobLine: "Your agent can check your Google Calendar and book counselling sessions for callers.",
-  ...NEUTRAL_UNTIL_GENERATED,
-};
-
-const RETAIL: VerticalExamples = {
-  orgName: "Green Basket Organics",
-  orgSlug: "green-basket-organics",
-  knowledgeTitle: "This week's price list",
-  knowledgeAnswer: "Free home delivery on orders above ₹500 within 5 km.",
-  extractionReason: "so we can pack the order before the customer arrives",
-  scriptBrief:
-    "We sell organic vegetables, fruits and groceries in Hyderabad. Callers ask what is in stock and the price, and place orders for pickup or delivery. Take the order and a call-back time.",
-  extractionLabel: "Product",
-  extractionOptions: "Pickup, Home delivery",
-  endCallRules:
-    "Never promise stock or a delivery time without checking.\nAlways offer a call-back if unsure.",
-  leadSearch: "green chilli for Saturday",
-  bookingJobTitle: "Take orders",
-  bookingJobLine: "Your agent can check your Google Calendar and book pickup times for callers.",
-  ...NEUTRAL_UNTIL_GENERATED,
-};
-
-const LOCAL_SERVICES: VerticalExamples = {
-  orgName: "Glow Studio",
-  orgSlug: "glow-studio",
-  knowledgeTitle: "Service menu",
-  knowledgeAnswer: "Bridal packages start at ₹8,000, including a trial session.",
-  extractionReason: "so we can send the right stylist",
-  scriptBrief:
-    "We are a salon in Madhapur. Callers ask about prices and book haircuts, facials and bridal makeup, at the studio or at home. Book a slot and take a call-back time.",
-  extractionLabel: "Service wanted",
-  extractionOptions: "At the shop, At home",
-  endCallRules: "Never promise a stylist or a slot without checking.\nAlways offer a call-back if unsure.",
-  leadSearch: "bridal makeup in December",
-  bookingJobTitle: "Book slots",
-  bookingJobLine: "Your agent can check your Google Calendar and book callers into a free slot.",
-  ...NEUTRAL_UNTIL_GENERATED,
-};
-
-const AUTOMOBILE: VerticalExamples = {
-  orgName: "Sai Ram Motors",
-  orgSlug: "sai-ram-motors",
-  knowledgeTitle: "Service price list",
-  knowledgeAnswer: "Pickup and drop is free within 5 km for a general service.",
-  extractionReason: "so the workshop can plan the day's jobs",
-  scriptBrief:
-    "We are a two-wheeler and car service centre in Kukatpally. Callers book services, ask about repair costs and spare parts, and ask for pickup. Book a service slot and take the vehicle details.",
-  extractionLabel: "Vehicle",
-  extractionOptions: "Two-wheeler, Car, Auto or commercial",
-  endCallRules:
-    "Never quote a repair cost before inspection.\nAlways offer a call-back if unsure.",
-  leadSearch: "Activa service on Monday",
-  bookingJobTitle: "Book service slots",
-  bookingJobLine: "Your agent can check your Google Calendar and book vehicles in.",
-  ...NEUTRAL_UNTIL_GENERATED,
-};
-
 /**
- * `custom` is the "build the fields by hand" template, so its examples are deliberately
- * TRADE-NEUTRAL rather than borrowed from one of the four above. An operator who chose
- * custom told us the business does not fit a template; showing them a clinic would be the
- * original bug with an extra step.
+ * The neutral set: `custom`'s examples and every fallback. An operator who chose custom told
+ * us the business does not fit a template; showing them a clinic would be the original bug
+ * with an extra step.
  */
 const CUSTOM: VerticalExamples = {
   orgName: "Sri Traders",
@@ -267,27 +133,38 @@ const CUSTOM: VerticalExamples = {
   ...NEUTRAL_UNTIL_GENERATED,
 };
 
-const BY_VERTICAL: Readonly<Record<NonNullable<Vertical>, VerticalExamples>> = {
-  retail: RETAIL,
-  local_services: LOCAL_SERVICES,
-  automobile: AUTOMOBILE,
-  clinic: CLINIC,
-  real_estate: REAL_ESTATE,
-  insurance: INSURANCE,
-  education: EDUCATION,
-  custom: CUSTOM,
+/** A type's examples as the server sends them. */
+export type ServedExamples = components["schemas"]["BusinessTypeExamplesOut"];
+
+/** Each served key, in the table's spelling. */
+const FROM_SERVED: Readonly<Record<keyof ServedExamples, keyof VerticalExamples>> = {
+  org_name: "orgName",
+  org_slug: "orgSlug",
+  knowledge_title: "knowledgeTitle",
+  knowledge_answer: "knowledgeAnswer",
+  extraction_reason: "extractionReason",
+  script_brief: "scriptBrief",
+  extraction_label: "extractionLabel",
+  extraction_options: "extractionOptions",
+  end_call_rules: "endCallRules",
+  lead_search: "leadSearch",
+  booking_job_title: "bookingJobTitle",
+  booking_job_line: "bookingJobLine",
 };
 
 /**
- * The examples for one vertical, falling back to the trade-neutral set.
- *
- * The fallback is `custom` and NOT `clinic`, which is the whole point of this module: an
- * unknown or absent vertical must not silently describe a dental practice. `custom`'s
- * examples read as instructions ("The main thing you sell") rather than as a business, so
- * a fallback is visibly a fallback instead of quietly being wrong.
+ * The examples for one business type: the server's for that type laid over the neutral set,
+ * or the neutral set alone for a type with none, an unknown type, or before the list loads.
  */
-export function examplesFor(vertical: string | null | undefined): VerticalExamples {
-  return lookupExamples(vertical);
+export function examplesFor(option: BusinessTypeOption | null | undefined): VerticalExamples {
+  const served = option?.examples;
+  if (!served) return CUSTOM;
+  const merged: { -readonly [K in keyof VerticalExamples]: string } = { ...CUSTOM };
+  for (const from of Object.keys(FROM_SERVED) as (keyof ServedExamples)[]) {
+    const value = served[from];
+    if (typeof value === "string" && value.trim()) merged[FROM_SERVED[from]] = value;
+  }
+  return merged;
 }
 
 /** The account's AI-written placeholders (D-827), as the server sends them. */
@@ -362,12 +239,4 @@ export function withGeneratedCopy(
     if (typeof value === "string" && value.trim()) merged[FROM_GENERATED[from]] = value;
   }
   return merged;
-}
-
-function lookupExamples(vertical: string | null | undefined): VerticalExamples {
-  // `lookup`, not `key in table` — the house rule, and it is right about this one: `in`
-  // walks the prototype chain, so a wire value of `constructor` would report as present
-  // and hand this form the `Object` function to read placeholders off. The vertical
-  // arrives from an API response, which is exactly the untrusted-key case.
-  return lookup(BY_VERTICAL, vertical) ?? CUSTOM;
 }

@@ -32,14 +32,14 @@ from apps.api.tenancy.signup_routes import SignupIn
 from apps.workers import business_type as worker
 from apps.workers.script_assist import JsonAnswer
 from calevate_shared.extraction import ExtractionField
+from calevate_shared.verticals import templates as vertical_templates
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
-from scripts.seed import VERTICAL_TEMPLATES
 from sqlalchemy import text
 from tests.conftest import create_org_with_receptionist
 
-CLINIC_KEYS = [f["key"] for f in VERTICAL_TEMPLATES["clinic"]]
-RETAIL_KEYS = [f["key"] for f in VERTICAL_TEMPLATES["retail"]]
+CLINIC_KEYS = [f["key"] for f in vertical_templates()["clinic"]]
+RETAIL_KEYS = [f["key"] for f in vertical_templates()["retail"]]
 
 
 # --- 1. no default ----------------------------------------------------------------------
@@ -87,7 +87,7 @@ def test_a_suggestion_names_a_type_we_offer_or_nothing() -> None:
 
 
 def test_the_suggestion_prompt_offers_every_type_and_no_default() -> None:
-    for key in VERTICAL_TEMPLATES:
+    for key in vertical_templates():
         assert key in worker.SUGGEST_INSTRUCTION
     assert "custom" in worker.SUGGEST_INSTRUCTION
 

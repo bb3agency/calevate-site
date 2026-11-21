@@ -33,6 +33,7 @@ CLOSING_STEP: Final = (
     "nothing thanks them and closes. A booking, where one fits, is a step of its own before it."
 )
 
+
 #: The kinds of call a campaign makes, each with the shape its steps take. The model names
 #: the kind from the main task, because the owner writes it in their own words and language.
 #: - Every placed call opens with who, from where and why, then permission
@@ -46,58 +47,116 @@ CLOSING_STEP: Final = (
 #: - Qualifying: only the questions that matter, each its own step (docs.telli.com/prompt-best-
 #:   practices, cited at `call_rules.SCRIPT_FLOW_RULE`).
 #: - Guiding: one action, then wait for what shows it is done (`SCRIPT_FLOW_RULE`).
-CALL_KINDS: Final[tuple[tuple[str, str], ...]] = (
-    (
+#: Each kind also names the ways out only that kind meets, which `script_assist.WAYS_OUT_RULE`
+#: reads from here, so a kind is added in this one place for both the step shape and the ways
+#: out. The ways out are from the calls of 20-21 Nov 2026 (docs/evidence/
+#: script-generation-2026-11-21/BRANCHES.md).
+@dataclass(frozen=True, slots=True)
+class CallKind:
+    name: str
+    #: What the call is for, read after "A <name> call is" and after "a call".
+    purpose: str
+    #: The shape its steps take.
+    steps: str
+    #: What the person may say on this kind of call that needs its own way out, and where it
+    #: goes; empty when the ways out every placed call has are enough.
+    ways_out: str = ""
+
+    @property
+    def shape(self) -> str:
+        return f"{self.purpose}: {self.steps}"
+
+
+_NOT_NOW: Final = (
+    "no time suiting them or not able now (to call_back or a stage that finds a new date)"
+)
+_HAS_ONE: Final = "already having one or bought elsewhere (to end)"
+
+CALL_KINDS: Final[tuple[CallKind, ...]] = (
+    CallKind(
         "booking",
-        "to book a visit, meeting, demo or test: confirm the right person; one question "
-        "to learn what they need; one fact from the sources that answers it; ask which day "
-        "or time suits them; collect what the booking needs, one detail per step.",
+        "to book a visit, meeting, demo or test",
+        "confirm the right person; one question to learn what they need; one fact from the "
+        "sources that answers it; ask which day or time suits them; collect what the booking "
+        "needs, one detail per step.",
+        _NOT_NOW,
     ),
-    (
+    CallKind(
         "reminder",
-        "to remind or confirm something already arranged: say what it is about and when in "
-        "one sentence; ask whether it still suits them; if not, a step that finds a new time "
-        "or takes the reason for the team; never argue.",
+        "to remind or confirm something already arranged",
+        "say what it is about and when in one sentence; ask whether it still suits them; if "
+        "not, a step that finds a new time or takes the reason for the team; never argue.",
+        _NOT_NOW,
     ),
-    (
+    CallKind(
         "collection",
-        "about a payment or renewal due: confirm the right person before any amount is said; "
-        "say what is due and by when, only as the sources give it; ask when they can pay; "
-        "someone who cannot pay now is asked for a date that suits them, with no pressure, "
-        "no threat and no penalty the sources do not state.",
+        "about a payment or renewal due",
+        "confirm the right person before any amount is said; say what is due and by when, "
+        "only as the sources give it; ask when they can pay; someone who cannot pay now is "
+        "asked for a date that suits them, with no pressure, no threat and no penalty the "
+        "sources do not state.",
+        _NOT_NOW,
     ),
-    (
+    CallKind(
         "feedback",
-        "to ask how something went: one short rating question first, then one open question "
-        "on why; a complaint is listened to and taken for the team, never argued with.",
+        "to ask how something went",
+        "one short rating question first, then one open question on why; a complaint is "
+        "listened to and taken for the team, never argued with.",
     ),
-    (
+    CallKind(
         "qualifying",
-        "to learn whether a lead still needs what the business offers: the two or three "
-        "questions the main task says matter, each its own step; then one fact from the "
-        "sources that answers what they said; then the next step the main task names.",
+        "to learn whether a lead still needs what the business offers",
+        "the two or three questions the main task says matter, each its own step; then one "
+        "fact from the sources that answers what they said; then the next step the main task "
+        "names.",
+        _HAS_ONE,
     ),
-    (
+    CallKind(
         "guiding",
-        "to help the person do something on their phone or at home: the actions one by one in "
-        "the step's procedure, each with what shows it is done; check it worked before the "
-        "close.",
+        "to help the person do something on their phone or at home",
+        "the actions one by one in the step's procedure, each with what shows it is done; "
+        "check it worked before the close.",
+        "already done (on to the stage after it), using a different phone or device than "
+        "expected, and stuck on an action after trying it one other way (to call_back)",
     ),
-    (
+    CallKind(
         "news",
-        "to tell people about something new the sources describe: say it in one sentence; "
-        "ask one question on whether it is useful to them; answer from the sources; then the "
-        "next step or a polite close.",
+        "to tell people about something new the sources describe",
+        "say it in one sentence; ask one question on whether it is useful to them; answer "
+        "from the sources; then the next step or a polite close.",
+        _HAS_ONE,
     ),
 )
 
 CALL_KINDS_TEXT: Final = (
     "First decide which kind of call the main task asks for, and shape the steps by it: "
-    + " ".join(f"A {name} call is {shape}" for name, shape in CALL_KINDS)
+    + " ".join(f"A {kind.name} call is {kind.shape}" for kind in CALL_KINDS)
     + " A main task that fits none gets the steps it needs, in the order their answers "
     "become possible. Where a step plan below differs from the kind of call, keep only its "
     "steps that serve the main task."
 )
+
+
+def _or_list(parts: Sequence[str]) -> str:
+    return parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])} or {parts[-1]}"
+
+
+def kind_ways_out() -> str:
+    """The ways out each kind of call meets, kinds that meet the same ones named together:
+    "a booking or reminder call covers ...; a guiding call, to help ..., covers ...". A kind
+    alone in its group carries its purpose, because the agent-script writer that reads this
+    (`script_assist.WAYS_OUT_RULE`) is not given `CALL_KINDS_TEXT`, which defines the names."""
+    grouped: dict[str, list[CallKind]] = {}
+    for kind in CALL_KINDS:
+        if kind.ways_out:
+            grouped.setdefault(kind.ways_out, []).append(kind)
+    clauses: list[str] = []
+    for ways, kinds in grouped.items():
+        names = _or_list([kind.name for kind in kinds])
+        who = f"{names} call" if len(kinds) > 1 else f"{names} call, {kinds[0].purpose},"
+        clauses.append(f"a {who} covers {ways}")
+    return "; ".join(clauses)
+
 
 #: Objections from the business's own facts: acknowledge, answer with a fact, one question or
 #: a small next step, and a firm no ends the call (the `let_go` call rule). Sales guides agree
@@ -653,12 +712,14 @@ __all__ = [
     "TOO_LONG_RULE",
     "UNSOURCED_PROBLEM",
     "WEAK_PROBLEMS",
+    "CallKind",
     "Review",
     "ReviewedPart",
     "Tone",
     "budget_of",
     "campaign_change",
     "instruction_line",
+    "kind_ways_out",
     "length_line",
     "owners_words",
     "parsed_review",

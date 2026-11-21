@@ -28,7 +28,7 @@ import { founderLine } from "@/lib/founderLines";
  * as UNMEASURED until task #87 scores it, and `TESTED_SCENARIOS` publishes the LIST of test
  * calls with no rating of any kind. The paragraph that says so is kept verbatim.
  *
- * The vertical field lists are read from `scripts/seed.py`'s `VERTICAL_TEMPLATES` by
+ * The vertical field lists are read from `calevate_shared/verticals.json`'s fields by
  * `industryTabs.tsx`, and `publicLanding.test.tsx` matches the rendered chips against the
  * seed's own labels — so a page advertising a column the product stopped shipping fails
  * rather than ships.

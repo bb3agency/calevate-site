@@ -133,7 +133,7 @@ export function DialRulesMock() {
 /**
  * "They come back sorted, not just recorded": a voicemail — a recording somebody still has
  * to play — above the row the same enquiry becomes in Calevate. The lead uses the
- * real-estate template's own columns (`scripts/seed.py`: "Budget (lakhs)", "Location",
+ * real-estate template's own columns (`calevate_shared/verticals.json`: "Budget (lakhs)", "Location",
  * "BHK") for an illustrative Vijayawada property office.
  */
 export function RecordedVsSortedMock() {

@@ -35,7 +35,7 @@
     "  - `vertical` — which client's suite it counts towards (`clinic`, `real_estate`).",
     "    The `schema` below is the UNION of both column sets, so a field a case never",
     "    mentions is a restraint assertion for free. The real-estate half is copied",
-    "    verbatim from scripts/seed.py VERTICAL_TEMPLATES['real_estate'] and",
+    "    verbatim from calevate_shared/verticals.json (real_estate fields) and",
     "    tests/vertical_real_estate_test.py fails if the two drift apart.",
     "  - `scenario` — 1..5 are OPERATIONS §3's mandatory five (happy path, barge-in,",
     "    tool-call correctness, out-of-scope, compliance); 6 is the red-team class.",

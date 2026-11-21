@@ -14,8 +14,9 @@ import type { AdminBusinessCopy, BusinessCopy, GeneratedPlaceholders } from "@/l
 import { useClientSession } from "@/lib/api/session";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 import { sameLanguage, useBusinessSuggestions, useVerticalExamples } from "@/lib/useVerticalExamples";
-import { examplesFor, withGeneratedCopy } from "@/lib/verticalExamples";
+import { withGeneratedCopy } from "@/lib/verticalExamples";
 
+import { examplesOf } from "./businessTypesFixture";
 import { OWNER_ME } from "./fixtures/sharedReads";
 import { NO_BUSINESS_COPY, renderClientPage } from "./harness";
 
@@ -50,20 +51,20 @@ const LANDED: BusinessCopy = {
 
 describe("the generated copy is laid over the per-trade table", () => {
   it("keeps the table when nothing has landed", () => {
-    expect(withGeneratedCopy(examplesFor("clinic"), null)).toEqual(examplesFor("clinic"));
+    expect(withGeneratedCopy(examplesOf("clinic"), null)).toEqual(examplesOf("clinic"));
   });
 
   it("replaces every generated key and keeps the two shown before an account exists", () => {
-    const merged = withGeneratedCopy(examplesFor("clinic"), PLACEHOLDERS);
+    const merged = withGeneratedCopy(examplesOf("clinic"), PLACEHOLDERS);
     expect(merged.knowledgeTitle).toBe("This week's oil prices");
     expect(merged.bookingJobTitle).toBe("Take orders");
     expect(merged.endCallRules).toBe("Never promise stock.\nAlways offer a call back.");
-    expect(merged.orgName).toBe(examplesFor("clinic").orgName);
+    expect(merged.orgName).toBe(examplesOf("clinic").orgName);
   });
 
   it("falls back key by key on a blank value", () => {
-    const merged = withGeneratedCopy(examplesFor("retail"), { ...PLACEHOLDERS, lead_search: "  " });
-    expect(merged.leadSearch).toBe(examplesFor("retail").leadSearch);
+    const merged = withGeneratedCopy(examplesOf("retail"), { ...PLACEHOLDERS, lead_search: "  " });
+    expect(merged.leadSearch).toBe(examplesOf("retail").leadSearch);
   });
 
   it("matches a language whatever the region", () => {
@@ -91,8 +92,8 @@ describe("useVerticalExamples reads the stored copy", () => {
       "/v1/me": { ...OWNER_ME, organization: { ...OWNER_ME.organization, vertical_template: "retail" } },
     });
     // G2-1: an app filed as a shop read a grocery's examples until its copy landed.
-    expect((await screen.findByTestId("service")).textContent).toBe(examplesFor(undefined).knowledgeTitle);
-    expect(screen.getByTestId("service").textContent).not.toBe(examplesFor("retail").knowledgeTitle);
+    expect((await screen.findByTestId("service")).textContent).toBe(examplesOf(undefined).knowledgeTitle);
+    expect(screen.getByTestId("service").textContent).not.toBe(examplesOf("retail").knowledgeTitle);
     expect(screen.getByTestId("question").textContent).toBe("none");
   });
 
@@ -141,7 +142,7 @@ describe("the teach box's example is the account's own", () => {
     await renderClientPage(<TeachBox allowed reason={null} />, { ...TEACH_READS, "/v1/business-copy": LANDED });
     const examples = await screen.findByRole("list", { name: "Start with" });
     const shown = examples.textContent ?? "";
-    expect(shown).not.toContain(examplesFor(null).teachNote.split(".")[0]);
+    expect(shown).not.toContain(examplesOf(null).teachNote.split(".")[0]);
     expect(shown).not.toMatch(/₹|chilli/i);
     fireEvent.click(screen.getByRole("button", { name: "Our prices:" }));
     expect((teachBox() as HTMLTextAreaElement).value).toBe("Our prices: ");
@@ -161,7 +162,7 @@ describe("the teach box's example is the account's own", () => {
 
   it("is the same neutral example for every trade until the copy lands", () => {
     for (const vertical of ["clinic", "retail", "real_estate", "custom"]) {
-      expect(examplesFor(vertical).teachNote).toBe(examplesFor(null).teachNote);
+      expect(examplesOf(vertical).teachNote).toBe(examplesOf(null).teachNote);
     }
   });
 });

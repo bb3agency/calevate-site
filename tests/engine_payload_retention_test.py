@@ -25,11 +25,11 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from apps.api.compliance.retention_defaults import DEFAULT_RETENTION_POLICIES
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers import storage
 from apps.workers.retention import sweep_tenant
-from scripts.seed import DEFAULT_RETENTION_POLICIES
 from sqlalchemy import text
 from tests.conftest import FakeS3, create_org_with_receptionist
 

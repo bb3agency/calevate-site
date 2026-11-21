@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any, get_args
+from typing import Any
 
 import pytest
-from apps.api.admin.routes import CreateOrgIn, Vertical
+from apps.api.admin.routes import CreateOrgIn
 from apps.api.agents import lead_fields, starters
 from apps.api.agents.extraction_routes import validate_fields, write_schema
 from apps.api.agents.lead_fields_routes import router as lead_fields_router
@@ -36,6 +36,7 @@ from apps.workers.extraction import (
     assist_unavailable,
 )
 from apps.workers.script_assist import JsonAnswer
+from calevate_shared import verticals
 from calevate_shared.extraction import ExtractionField, is_phone_field
 from calevate_shared.lead_fields import (
     CORE_KEYS,
@@ -47,7 +48,7 @@ from calevate_shared.lead_fields import (
 )
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from scripts.seed import BUSINESS_TYPE_LABELS, VERTICAL_TEMPLATES
+from pydantic import ValidationError
 from sqlalchemy import text
 from tests.conftest import accept_agreements, create_org_with_receptionist
 
@@ -85,18 +86,22 @@ def test_the_core_names_what_the_caller_wants_and_requires_nothing() -> None:
 
 
 def test_one_list_of_business_types_and_no_clinic_default() -> None:
-    assert list(get_args(Vertical)) == list(BUSINESS_TYPE_LABELS)
-    assert set(BUSINESS_TYPE_LABELS) == {*VERTICAL_TEMPLATES, "custom"}
-    assert next(iter(BUSINESS_TYPE_LABELS)) != "clinic"
+    assert set(verticals.all_keys()) == {*verticals.templates(), "custom"}
+    assert verticals.all_keys()[0] != "clinic"
     # Required, with no default at all (D-722): a default is how a shop became a clinic.
     assert CreateOrgIn.model_fields["vertical_template"].is_required()
+    owner = {"name": "Owner", "email": "owner@example.com"}
+    for key in verticals.all_keys():
+        CreateOrgIn.model_validate({"name": "Shop", "vertical_template": key, "owner": owner})
+    with pytest.raises(ValidationError):
+        CreateOrgIn.model_validate({"name": "Shop", "vertical_template": "bakery", "owner": owner})
     for new in ("retail", "local_services", "automobile"):
-        assert new in VERTICAL_TEMPLATES
+        assert new in verticals.templates()
 
 
-@pytest.mark.parametrize("vertical", sorted(VERTICAL_TEMPLATES))
+@pytest.mark.parametrize("vertical", sorted(verticals.templates()))
 def test_every_standard_set_is_its_own_and_collides_with_nothing(vertical: str) -> None:
-    fields = [ExtractionField.model_validate(f) for f in VERTICAL_TEMPLATES[vertical]]
+    fields = [ExtractionField.model_validate(f) for f in verticals.templates()[vertical]]
     keys = {f.key for f in fields}
     assert not keys & CORE_KEYS, "a standard set repeats the core"
     assert not keys & FIXED_KEYS
@@ -408,7 +413,7 @@ async def test_a_known_business_type_is_drafted_from_its_standard_set_as_a_seed(
     """Every business is drafted (5 Nov 2026): the type's standard set is the starting point
     the model is shown, and the kept draft replaces it on an agent nobody edited."""
     tenant_id, token = await _tenant("retail")
-    standard = [f["key"] for f in VERTICAL_TEMPLATES["retail"]]
+    standard = [f["key"] for f in verticals.templates()["retail"]]
     assert await _business_keys(tenant_id) == [standard]
     code, body = await _call("GET", "/v1/lead-fields", token)
     assert body["can_draft"] is True and body["has_standard_set"] is True
@@ -461,7 +466,7 @@ async def test_moving_a_clinic_set_up_shop_keeps_its_old_answers_readable() -> N
     # The clinic's field, labelled as it was captured, and marked as no longer captured.
     assert by_key["symptom"].label == "Symptom / reason" and by_key["symptom"].current is False
     assert by_key["gone_key"].label == "Gone key"
-    assert await _business_keys(tenant_id) == [[f["key"] for f in VERTICAL_TEMPLATES["retail"]]]
+    assert await _business_keys(tenant_id) == [[f["key"] for f in verticals.templates()["retail"]]]
 
 
 @pytest.mark.rls

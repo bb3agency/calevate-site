@@ -19,7 +19,7 @@ import { Avatar, Chip, MaskedPhone, Panel, StatusPill, Tag, Waveform, type LeadS
  * The spoken lines are the founder's, in `demoCall.json` beside this file: no Indian-language
  * words are hand-written in code. This module only lays them out.
  *
- * Field names are the education template's own (`scripts/seed.py` VERTICAL_TEMPLATES):
+ * Field names are the education template's own (`calevate_shared/verticals.json`):
  * "Course", "Class / year", "Fee concern", "Demo booked". Speakers are labelled "Agent" and
  * "Caller", as the console's transcript labels them.
  */

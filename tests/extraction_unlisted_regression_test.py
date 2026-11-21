@@ -41,13 +41,13 @@ from calevate_shared.extraction import (
     ExtractionSchemaSpec,
     build_extraction_prompt,
 )
-from scripts.seed import VERTICAL_TEMPLATES
+from calevate_shared.verticals import templates as vertical_templates
 from tests.call_moments_ai_test import attested as attested
 from tests.pipeline_audit_test import _completed_call, _run_pipeline, _scalar
 from tests.pipeline_audit_test import _stub_storage as _stub_storage
 
 SPEC = ExtractionSchemaSpec(
-    fields=[ExtractionField.model_validate(f) for f in VERTICAL_TEMPLATES["real_estate"]]
+    fields=[ExtractionField.model_validate(f) for f in vertical_templates()["real_estate"]]
 )
 
 TURNS: tuple[tuple[str, str], ...] = (
@@ -217,7 +217,7 @@ async def test_the_site_visit_call_reads_needs_you_with_its_details(
         tenant_id,
         "UPDATE extraction_schemas SET fields = CAST(:f AS jsonb) WHERE tenant_id = :t "
         "RETURNING id",
-        f=json.dumps(VERTICAL_TEMPLATES["real_estate"]),
+        f=json.dumps(vertical_templates()["real_estate"]),
         t=tenant_id,
     )
 
@@ -251,7 +251,7 @@ async def _filed_empty(
         tenant_id,
         "UPDATE extraction_schemas SET fields = CAST(:f AS jsonb) WHERE tenant_id = :t "
         "RETURNING id",
-        f=json.dumps(VERTICAL_TEMPLATES["real_estate"]),
+        f=json.dumps(vertical_templates()["real_estate"]),
         t=tenant_id,
     )
 

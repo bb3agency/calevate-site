@@ -6,9 +6,10 @@ import { LeadDetailsScreen } from "@/app/c/[slug]/settings/lead-details/LeadDeta
 import { DRAFT_REQUEST } from "@/components/leadFields/LeadDetailsView";
 import type { CallOutcomes } from "@/lib/api/callOutcomes";
 import type { LeadFields } from "@/lib/api/leadFields";
-import { BUSINESS_TYPES, businessTypeLabel } from "@/lib/businessTypes";
+import { businessTypeLabel } from "@/lib/businessTypes";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
+import { BUSINESS_TYPES_FIXTURE } from "./businessTypesFixture";
 import { renderClientPage } from "./harness";
 
 /**
@@ -91,20 +92,12 @@ const DRAFTED: NonNullable<LeadFields["draft"]> = {
 
 describe("the business types", () => {
   it("are one list that does not start with a clinic", () => {
-    expect(BUSINESS_TYPES[0].value).not.toBe("clinic");
-    expect(BUSINESS_TYPES.map((t) => t.value)).toEqual([
-      "retail",
-      "local_services",
-      "automobile",
-      "clinic",
-      "real_estate",
-      "insurance",
-      "education",
-      "custom",
-    ]);
-    expect(businessTypeLabel("retail")).toBe("Shop, food or produce");
-    expect(businessTypeLabel(null)).toBe("Something else");
-    expect(businessTypeLabel("constructor")).toBe("Something else");
+    expect(BUSINESS_TYPES_FIXTURE.choices[0].value).not.toBe("clinic");
+    expect(businessTypeLabel(BUSINESS_TYPES_FIXTURE, "retail")).toBe("Shop, food or produce");
+    expect(businessTypeLabel(BUSINESS_TYPES_FIXTURE, null)).toBe("Something else");
+    expect(businessTypeLabel(BUSINESS_TYPES_FIXTURE, "constructor")).toBe("Something else");
+    // Before the list arrives a label is empty, never another type's.
+    expect(businessTypeLabel(undefined, "retail")).toBe("");
   });
 });
 

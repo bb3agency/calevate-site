@@ -49,7 +49,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { holdRule } from "@/lib/api/holds";
 import { viewAsHref } from "@/lib/api/session";
-import { businessTypeLabel } from "@/lib/businessTypes";
+import { useBusinessTypeLabel } from "@/lib/businessTypes";
 import { lookup } from "@/lib/lookup";
 
 import { NoOwnerAccounts } from "./NoOwnerAccounts";
@@ -486,6 +486,8 @@ const ROW_GRID =
  * identifies a person.
  */
 function ClientRow({ tenant }: { tenant: TenantSummary }) {
+  const labelOf = useBusinessTypeLabel();
+  const typeLabel = tenant.vertical_template ? labelOf(tenant.vertical_template) : "";
   return (
     <li
       className={`grid items-center gap-x-3 px-2 py-3 ${ROW_GRID} ${ROW_HOVER}`}
@@ -499,7 +501,7 @@ function ClientRow({ tenant }: { tenant: TenantSummary }) {
         </Link>
         <div className="text-meta text-ink-muted [overflow-wrap:anywhere]">
           /c/{tenant.slug}
-          {tenant.vertical_template ? ` · ${businessTypeLabel(tenant.vertical_template)}` : ""}
+          {typeLabel ? ` · ${typeLabel}` : ""}
           {/* What the default and "oldest" sorts order by. Without it a newest-first list
               reads as unsorted against the columns on the row. */}
           {addedOn(tenant.created_at) ? ` · added ${addedOn(tenant.created_at)}` : ""}

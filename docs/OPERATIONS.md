@@ -583,7 +583,7 @@ differently:
 - **`audit_log` (and every other append-only ledger in `db/registry.APPEND_ONLY_TABLES`)
   — retained indefinitely, never expired, by construction.** These tables are INSERT-only
   under a DB trigger (hard rule 4), no nightly sweep touches them, and the retention-policy
-  table (`scripts/seed.DEFAULT_RETENTION_POLICIES`) has no row that reaches them. So the
+  table (`compliance/retention_defaults.DEFAULT_RETENTION_POLICIES`) has no row that reaches them. So the
   security-event trail satisfies the "retained one year" leg of DPDP Rule 6 with margin:
   its floor is ≥1 year because its actual retention is unbounded. This is a deliberate
   property, not an oversight — a shrinking audit trail is the wrong shape for the thing an

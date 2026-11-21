@@ -48,9 +48,9 @@ from calevate_shared.engine import (
     compose_engine_prompt,
 )
 from calevate_shared.lead_fields import CORE_LEAD_FIELDS
+from calevate_shared.verticals import templates as vertical_templates
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from scripts.seed import VERTICAL_TEMPLATES
 from sqlalchemy import text
 from tests.conftest import accept_agreements, create_org_with_receptionist
 
@@ -79,7 +79,7 @@ DISCLOSURE_WORDS = re.compile(
     r"\b(?:AI|artificial|robot|bot|recorded|recording|human being)\b", re.IGNORECASE
 )
 
-ALL_VERTICALS = {*VERTICAL_TEMPLATES, starters.NEUTRAL_VERTICAL}
+ALL_VERTICALS = {*vertical_templates(), starters.NEUTRAL_VERTICAL}
 
 
 # --- 1 and 2: the catalogue ------------------------------------------------------------
@@ -289,7 +289,7 @@ async def test_creating_with_a_starter_writes_a_draft_script_and_captured_detail
     ]
     assert stored_body == compile_call_script(expected, collect=collect)
     assert "[WHAT TO COLLECT]" in stored_body
-    assert [f["key"] for f in fields] == [f["key"] for f in VERTICAL_TEMPLATES["real_estate"]]
+    assert [f["key"] for f in fields] == [f["key"] for f in vertical_templates()["real_estate"]]
 
 
 @pytest.mark.rls
@@ -359,7 +359,7 @@ async def test_the_preview_is_the_callers_own_business_type() -> None:
     assert receptionist["step_titles"][3] == "Agree the next step"
     assert receptionist["captured_details"] == [
         *(f.label for f in CORE_LEAD_FIELDS),
-        *(f["label"] for f in VERTICAL_TEMPLATES["real_estate"]),
+        *(f["label"] for f in vertical_templates()["real_estate"]),
     ]
 
     code, one = await _starters(token, "?job=call_leads")

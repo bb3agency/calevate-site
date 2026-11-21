@@ -24,7 +24,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.workers.field_reason_refresh import JOB_NAME, refresh_field_reason
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec, validate_extraction
-from scripts.seed import VERTICAL_TEMPLATES
+from calevate_shared.verticals import templates as vertical_templates
 from sqlalchemy import create_engine, text
 from tests.conftest import create_org_with_receptionist
 
@@ -41,7 +41,7 @@ def _revision() -> ModuleType:
 
 
 def _shipped() -> dict[str, Any]:
-    return next(f for f in VERTICAL_TEMPLATES["real_estate"] if f["key"] == "bhk_size")
+    return next(f for f in vertical_templates()["real_estate"] if f["key"] == "bhk_size")
 
 
 def test_the_migrations_new_field_is_the_shipped_template() -> None:
@@ -62,7 +62,7 @@ def test_every_size_up_to_five_is_its_own_choice_and_five_is_spelled_out() -> No
 
 
 def _spec() -> ExtractionSchemaSpec:
-    return ExtractionSchemaSpec(version=1, fields=VERTICAL_TEMPLATES["real_estate"])
+    return ExtractionSchemaSpec(version=1, fields=vertical_templates()["real_estate"])
 
 
 def test_a_five_bedroom_answer_validates_and_the_old_top_value_does_not() -> None:

@@ -173,7 +173,7 @@ describe("D1-05/06 the new-client success box says the status in words and the n
       "/v1/admin/onboarding/unfinished": [],
     });
     fireEvent.change(screen.getByPlaceholderText("Sri Traders"), { target: { value: "Sunrise Clinic" } });
-    fireEvent.click(screen.getByRole("radio", { name: /^Clinic/ }));
+    fireEvent.click(await screen.findByRole("radio", { name: /^Clinic/ }));
     fireEvent.change(screen.getByPlaceholderText("owner@business.com"), {
       target: { value: "owner@sunrise.example" },
     });

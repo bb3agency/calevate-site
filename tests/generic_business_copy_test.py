@@ -11,7 +11,7 @@ import re
 from apps.api.actions import in_call
 from apps.api.actions import service as actions_service
 from apps.api.agents.starters import captured_fields
-from scripts.seed import CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
+from calevate_shared import verticals
 
 CLINICAL = re.compile(
     r"\b(?:clinic|hospital|patients?|doctors?|dentists?|dental|appointments?|symptoms?)\b", re.I
@@ -20,15 +20,15 @@ CLINICAL = re.compile(
 
 def test_custom_business_starts_with_neutral_fields() -> None:
     fields = captured_fields("custom")
-    assert fields == CUSTOM_EXTRACTION_FIELDS
-    assert fields is not VERTICAL_TEMPLATES["clinic"]
+    assert fields == []
+    assert captured_fields("no-such-type") == []
     for field in fields:
         assert not CLINICAL.search(f"{field['key']} {field['label']} {field.get('reason', '')}")
 
 
 def test_each_template_keeps_its_own_fields() -> None:
-    for vertical, fields in VERTICAL_TEMPLATES.items():
-        assert captured_fields(vertical) is fields
+    for vertical, fields in verticals.templates().items():
+        assert captured_fields(vertical) == fields
 
 
 def test_in_call_booking_guidance_names_no_clinic() -> None:

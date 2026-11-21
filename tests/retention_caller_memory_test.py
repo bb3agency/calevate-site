@@ -493,7 +493,7 @@ async def test_the_repair_gives_an_old_tenant_the_copilot_memory_row_its_migrati
 
     assert row is not None, "the repair did not reach an organisation that predates it"
     assert (int(row[0]), str(row[1])) == (180, "delete"), (
-        "the repair must write the same pair `scripts/seed.DEFAULT_RETENTION_POLICIES` "
+        "the repair must write the same pair `retention_defaults.DEFAULT_RETENTION_POLICIES` "
         "declares, or a repaired tenant runs on a clock no seeded tenant runs on"
     )
 
@@ -504,7 +504,7 @@ def test_the_repair_pair_matches_the_seed_it_restores() -> None:
     This is the cost of that copy, paid: the two are read and compared, so a change to the
     seed that leaves the repair behind fails here instead of silently splitting old tenants
     from new ones onto different clocks."""
-    from scripts.seed import DEFAULT_RETENTION_POLICIES
+    from apps.api.compliance.retention_defaults import DEFAULT_RETENTION_POLICIES
 
     seeded = {
         policy["data_category"]: (policy["ttl_days"], policy["action"])

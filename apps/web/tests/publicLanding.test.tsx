@@ -385,28 +385,24 @@ describe("the landing page's claims", () => {
 
 /**
  * The verticals grid shows the field list a new agent REALLY starts with, so the page
- * and `scripts/seed.py` have to agree — and the way that agreement dies is a seed edit
- * nobody carries over, leaving a landing page advertising a column the product stopped
- * shipping. The chips are read back out of the rendered DOM and matched against the
- * seed's own labels rather than against a second copy in this file, which would only
+ * and `calevate_shared/verticals.json` have to agree — and the way that agreement dies is
+ * a data edit nobody carries over, leaving a landing page advertising a column the product
+ * stopped shipping. The chips are read back out of the rendered DOM and matched against
+ * the file's own labels rather than against a second copy in this file, which would only
  * move the drift one file along.
  */
-const SEED = readFileSync(
-  resolve(process.cwd(), "..", "..", "scripts", "seed.py"),
-  "utf8",
-);
+const SHIPPED_TYPES = JSON.parse(
+  readFileSync(
+    resolve(process.cwd(), "..", "..", "packages", "shared", "src", "calevate_shared", "verticals.json"),
+    "utf8",
+  ),
+) as { types: { key: string; fields: { label: string }[] }[] };
 
-/** Every `"label": "…"` inside one vertical's list in `VERTICAL_TEMPLATES`, in order. */
+/** Every field label of one type's starting lead details, in order. */
 function seedLabels(vertical: string): string[] {
-  const templates = SEED.slice(SEED.indexOf("VERTICAL_TEMPLATES: dict"));
-  const start = templates.indexOf(`    "${vertical}": [`);
-  expect(start, `seed.py has no ${vertical} template`).toBeGreaterThan(-1);
-  // The list ends at the next entry's indentation — `    ],` on its own line.
-  const body = templates.slice(
-    start,
-    start + templates.slice(start).indexOf("\n    ],"),
-  );
-  return [...body.matchAll(/"label": "([^"]+)"/g)].map((m) => m[1]);
+  const row = SHIPPED_TYPES.types.find((type) => type.key === vertical);
+  expect(row, `verticals.json has no ${vertical} type`).toBeDefined();
+  return (row?.fields ?? []).map((field) => field.label);
 }
 
 /** The card heading on the page → the key it is describing in the seed. */

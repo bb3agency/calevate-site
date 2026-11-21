@@ -1145,11 +1145,11 @@ async def test_a_second_policy_for_the_same_category_is_refused() -> None:
 
 
 async def test_the_seeded_defaults_are_the_ones_a_new_tenant_actually_gets() -> None:
-    """The onboarding flow and `scripts.seed.DEFAULT_RETENTION_POLICIES` are two places
+    """The onboarding flow and `retention_defaults.DEFAULT_RETENTION_POLICIES` are two places
     that must agree, and the DPA quotes a third (SEC-COMP §4, whose numbers differ — an
     open founder decision recorded there and pinned by
     `tests/dpdp_known_gaps_test.py`)."""
-    from scripts.seed import DEFAULT_RETENTION_POLICIES
+    from apps.api.compliance.retention_defaults import DEFAULT_RETENTION_POLICIES
 
     tenant_id, _ = await _tenant()
     async with tenant_session(tenant_id) as session:

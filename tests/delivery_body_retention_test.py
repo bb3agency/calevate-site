@@ -387,7 +387,7 @@ async def _age_delivery(tenant_id: uuid.UUID, delivery_id: uuid.UUID, *, days: i
 async def _lead_policy(tenant_id: uuid.UUID, *, ttl_days: int) -> None:
     """Shorten the tenant's OWN `lead` policy rather than adding a second one.
 
-    Onboarding already wrote the row (`scripts/seed.DEFAULT_RETENTION_POLICIES`, lead =
+    Onboarding already wrote the row (`retention_defaults.DEFAULT_RETENTION_POLICIES`, lead =
     1095 days), and a second row for one category would make the probe return two and
     the sweep run its arm twice — a test artefact that would hide a real double-sweep.
     """

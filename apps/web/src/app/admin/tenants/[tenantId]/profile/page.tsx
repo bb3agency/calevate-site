@@ -22,7 +22,7 @@ import {
   useTenantProfile,
   type EditTenantIn,
 } from "@/lib/api/tenantProfile";
-import { businessTypeLabel } from "@/lib/businessTypes";
+import { useBusinessTypeLabel } from "@/lib/businessTypes";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -171,6 +171,7 @@ function EditForm({
   write: ReturnType<typeof useAdminAccess>;
 }) {
   const editFeedback = useActionFeedback(edit, { errorDisplay: "inline" });
+  const businessTypeLabel = useBusinessTypeLabel();
   const [name, setName] = useState(profile.name);
   const [email, setEmail] = useState(profile.billing_email ?? "");
   const [vertical, setVertical] = useState(profile.vertical_template ?? "");
@@ -303,11 +304,11 @@ function EditForm({
                 className={`${FIELD_INLINE} w-full sm:w-72`}
               >
                 {/* The options come from the API, not from a list retyped here: a vertical
-                    added to the server's `Literal` appears without an edit. */}
+                    added to the server's list appears without an edit. */}
                 {profile.vertical_template == null && <option value="">Not set</option>}
                 {profile.verticals.map((choice) => (
                   <option key={choice} value={choice}>
-                    {businessTypeLabel(choice)}
+                    {businessTypeLabel(choice) || choice}
                   </option>
                 ))}
               </select>

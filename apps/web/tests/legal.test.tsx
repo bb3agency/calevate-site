@@ -1104,7 +1104,7 @@ describe("what each document must contain", () => {
       /keeps a record of what you asked it and what it answered/,
     );
     expect(privacy).toMatch(/recognises identifiers and\s+not names/i);
-    // The PERIOD (privacy §9) — the number `scripts/seed.py` installs for `copilot_memory`,
+    // The PERIOD (privacy §9) — the number `compliance/retention_defaults` installs for `copilot_memory`,
     // stated in the same table as every other category rather than in a footnote.
     expect(privacy).toMatch(/What the in-app assistant remembers/);
     expect(privacy).toMatch(/180 days/);

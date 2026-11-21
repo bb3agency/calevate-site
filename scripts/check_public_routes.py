@@ -573,6 +573,15 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
             "nothing, its own `public_read` rate profile and a 60s public cache."
         )
     ),
+    "GET /v1/public/business-types": PublicRoute(
+        why=(
+            "The business types every picker renders, read by signup before its caller has "
+            "an organization. GENUINELY OPEN: the body is `calevate_shared/verticals.json` "
+            "as shipped (keys, labels, hints and example placeholders), identical for "
+            "everyone; no tenant, principal or setting is read. Writes nothing, its own "
+            "`public_read` rate profile and a 300s public cache."
+        )
+    ),
     "GET /v1/public/status": PublicRoute(
         why=(
             "The public status page at status.calevate.tech (D-701): whether phone calls, "

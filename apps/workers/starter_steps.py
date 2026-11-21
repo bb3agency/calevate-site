@@ -24,6 +24,7 @@ from __future__ import annotations
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared import verticals
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
@@ -115,7 +116,7 @@ def _kept(job: StarterJob, plan: Plan, *, trade: str) -> Plan | None:
     (`business_copy.screen_text_problems`) put back: a title to the platform's for that step,
     a focus to none. One "appointment" in a property office's seventeen steps costs that one
     title, not the whole answer. None when a put-back title collides with another."""
-    clinic = trade == "clinic"
+    clinic = verticals.of(trade).health
     ours = CATALOGUE[(trade, job)].steps
     kept: list[PlanStep] = []
     for i, (step, platform) in enumerate(zip(plan, ours, strict=True)):

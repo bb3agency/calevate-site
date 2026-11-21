@@ -25,7 +25,7 @@ from datetime import datetime
 from typing import Final
 from uuid import UUID
 
-from scripts.seed import BUSINESS_TYPE_LABELS, VERTICAL_TEMPLATES
+from calevate_shared import verticals
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,7 +40,7 @@ APPLY_JOB: Final = "apply_business_type"
 #: The keys the clinic type seeds. An agent whose business fields are a subset of these on
 #: an account that is not a clinic is carrying the old default, not a choice.
 CLINIC: Final = "clinic"
-CLINIC_DEFAULT_KEYS: Final = frozenset(str(f["key"]) for f in VERTICAL_TEMPLATES[CLINIC])
+CLINIC_DEFAULT_KEYS: Final = frozenset(str(f["key"]) for f in verticals.of(CLINIC).fields)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,7 +134,7 @@ async def confirm(session: AsyncSession, *, tenant_id: UUID, business_type: str)
     apply job in the caller's transaction. Re-confirming the type already on file is
     allowed and re-queues the apply, which is idempotent.
     """
-    if business_type not in BUSINESS_TYPE_LABELS:
+    if not verticals.is_known(business_type):
         raise ProblemError.business_rule(
             "unknown_business_type", "That business type is not one we offer."
         )

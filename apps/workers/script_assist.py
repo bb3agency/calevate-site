@@ -116,6 +116,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.tenancy.business_copy import provider_problem
 from apps.workers import chat
+from apps.workers.campaign_script_ask import kind_ways_out
 from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
     ASSIST_LADDER_LEGS,
@@ -152,7 +153,9 @@ log = get_logger(__name__)
 #: composed rules say how to book it (`engine.CALL_BACK_TIME_RULE`). Asking for a person,
 #: never calling again, AI and recording questions and off-topic questions are handled by the
 #: composed rules at any point, so they get no branch and the six a step holds go to what only
-#: the script knows. Sources and the decisions: docs/evidence/script-generation-2026-11-21/
+#: the script knows. The ways out only one kind of call meets are that kind's
+#: (`campaign_script_ask.CALL_KINDS`), so the kinds are listed once. Sources and the
+#: decisions: docs/evidence/script-generation-2026-11-21/
 #: BRANCHES.md.
 WAYS_OUT_RULE: Final = (
     "Ways out: plan, for every stage that asks the person something or asks them to do "
@@ -173,12 +176,7 @@ WAYS_OUT_RULE: Final = (
     "take the stages past 6): its "
     "sounds_like says in one sentence who is calling and why, as the main task gives it, "
     "and asks the step's question again; it never insists they did something. Then add "
-    "only what this kind of call meets: a call that helps someone set something up or do "
-    "something on their phone covers already done (on to the stage after it), using a "
-    "different phone or device than expected, and stuck on an action after trying it one "
-    "other way (to call_back); a booking, reminder or collection call covers no time "
-    "suiting them or not able now (to call_back or a stage that finds a new date); a sales "
-    "or news call covers already having one or bought elsewhere (to end). Write no way out "
+    f"only what this kind of call meets: {kind_ways_out()}. Write no way out "
     "for asking for a person, asking never to be called again, being an AI, recording, or "
     "a question off the topic: the platform handles those at any point, and an off-topic "
     "question is answered from the knowledge and the same stage goes on. A way out's "

@@ -91,13 +91,11 @@ def test_spoken_lines_are_written_for_a_voice(tag: str) -> None:
 
 
 def test_every_business_type_has_a_telugu_example() -> None:
-    from typing import get_args
-
-    from apps.api.admin.routes import Vertical
+    from calevate_shared import verticals
 
     style = style_for(TE)
     assert style is not None
-    for vertical in get_args(Vertical):
+    for vertical in verticals.all_keys():
         assert example_exchange(TE, vertical), vertical
     # A custom business falls back to the neutral set.
     assert example_exchange(TE, "custom") == style.examples["_default"]

@@ -55,7 +55,16 @@ from apps.api.first_run.questions import (
     with_one_thing,
 )
 from apps.api.reliability.service import enqueue_outbox
-from apps.api.tenancy.business_profile import DAYS, Branch, DayHours, ServiceItem, load_profile
+from apps.api.tenancy.business_profile import (
+    DAYS,
+    FAQ_ANSWER_MAX,
+    MAX_FAQS,
+    Branch,
+    DayHours,
+    Faq,
+    ServiceItem,
+    load_profile,
+)
 from apps.api.tenancy.profile_service import ProfilePatch, save_profile
 
 #: The worker jobs (`workers/first_run.py`).
@@ -537,6 +546,25 @@ class Answers:
     offer: tuple[ServiceItem, ...] = ()
     hours: OpenHours | None = None
     booking: str | None = None
+    #: The open `facts` answers, each as the FAQ it becomes: the question as asked, the
+    #: owner's answer.
+    facts: tuple[Faq, ...] = ()
+
+
+def _merged_faqs(existing: list[Faq], added: tuple[Faq, ...]) -> list[Faq]:
+    """The profile's FAQs with the answers added. A question already on file takes the new
+    answer, so an answer sent again is not kept twice; a full list takes no more."""
+    out = list(existing)
+    for item in added:
+        index = next(
+            (i for i, f in enumerate(out) if f.question.casefold() == item.question.casefold()),
+            None,
+        )
+        if index is not None:
+            out[index] = item
+        elif len(out) < MAX_FAQS:
+            out.append(item)
+    return out
 
 
 def _merged_services(
@@ -602,6 +630,8 @@ async def save_answers(
         ]
     if answers.booking:
         patch["booking_rules"] = answers.booking.strip()
+    if answers.facts:
+        patch["faqs"] = _merged_faqs(profile.faqs, answers.facts)
     if not patch:
         return set()
     steps, _updated = await save_profile(
@@ -660,6 +690,9 @@ def _checked(index: int, answer: GivenAnswer, question: Question) -> None:
             raise _mismatch(index, "pick exactly one")
     if kind == "address" and answer.text is not None and len(answer.text) > MAX_ADDRESS_CHARS:
         raise _mismatch(index, f"at most {MAX_ADDRESS_CHARS} characters")
+    facts = question.maps_to == "facts"
+    if facts and answer.text is not None and len(answer.text.strip()) > FAQ_ANSWER_MAX:
+        raise _mismatch(index, f"at most {FAQ_ANSWER_MAX} characters")
     if answer.text is not None and not answer.text.strip():
         raise _mismatch(index, "empty")
 
@@ -675,6 +708,11 @@ def _profile_part(pairs: Sequence[tuple[GivenAnswer, Question]]) -> Answers:
         offer=offer.services if offer else (),
         hours=hours.hours if hours else None,
         booking=booking.text if booking else None,
+        facts=tuple(
+            Faq(question=question.prompt, answer=answer.text.strip())
+            for answer, question in pairs
+            if question.maps_to == "facts" and answer.text
+        ),
     )
 
 
