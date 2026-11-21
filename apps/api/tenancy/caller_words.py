@@ -9,7 +9,8 @@ copy names one.
 
 UNKNOWN IS NEUTRAL (audit of 5 Nov 2026, G1-1): until the copy run has judged the business,
 `sells` is None and the words are the neutral ones ("interested caller"), true of every
-business. Only `sells is True` brings the sales words.
+business. Only `sells is True` brings the sales words, and not for an account whose agents
+are all support agents (`agents.purpose`, founder 21 Nov 2026).
 
 The web twin is `callersWord` / `leadWords` in `apps/web/src/lib/businessCapabilities.ts`.
 """
@@ -20,6 +21,7 @@ from dataclasses import dataclass
 from typing import Final
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.tenancy.business_copy import Capabilities, copy_for
@@ -46,6 +48,14 @@ class CallerWords:
     sells: bool | None = None
     #: What the business calls its callers ("customer", "user"), or None when not written.
     caller_noun: str | None = None
+    #: Every working agent of the account is a support agent (`agents.purpose`): its callers
+    #: are helped, not sold to, whatever the business sells elsewhere.
+    all_support: bool = False
+
+    @property
+    def sales_words(self) -> bool:
+        """Whether "lead" is the word: a business judged to sell, with a sales agent."""
+        return self.sells is True and not self.all_support
 
     @property
     def caller(self) -> str:
@@ -59,28 +69,41 @@ class CallerWords:
     def lead(self) -> str:
         """One lead, as a noun phrase: "lead" for a business judged to sell, else "interested
         caller" (a lead is a person who showed interest, `crm/lead_definition`)."""
-        return "lead" if self.sells is True else f"interested {self.caller}"
+        return "lead" if self.sales_words else f"interested {self.caller}"
 
     @property
     def leads(self) -> str:
-        return "leads" if self.sells is True else f"interested {self.callers}"
+        return "leads" if self.sales_words else f"interested {self.callers}"
 
     @property
     def new_lead(self) -> str:
-        return "new lead" if self.sells is True else f"interested {self.caller}"
+        return "new lead" if self.sales_words else f"interested {self.caller}"
 
     @property
     def new_leads(self) -> str:
-        return "new leads" if self.sells is True else f"interested {self.callers}"
+        return "new leads" if self.sales_words else f"interested {self.callers}"
 
     @property
     def hot_lead(self) -> str:
         """The top of the ladder: "hot lead", or "most interested caller"."""
-        return "hot lead" if self.sells is True else f"most interested {self.caller}"
+        return "hot lead" if self.sales_words else f"most interested {self.caller}"
 
     @property
     def hot_leads(self) -> str:
-        return "hot leads" if self.sells is True else f"most interested {self.callers}"
+        return "hot leads" if self.sales_words else f"most interested {self.callers}"
+
+
+#: True when the account has working agents and every one is a support agent. Archived and
+#: erased agents take no calls, so they do not count either way. The web twin is
+#: `allSupport` in `apps/web/src/lib/businessCapabilities.ts`, read off the same roster.
+ALL_SUPPORT_SQL: Final = (
+    "SELECT coalesce(bool_and(purpose = 'support'), false) FROM agents "
+    "WHERE tenant_id = :tid AND deleted_at IS NULL AND status <> 'archived'"
+)
+
+
+async def all_support(session: AsyncSession, tenant_id: UUID) -> bool:
+    return bool((await session.execute(text(ALL_SUPPORT_SQL), {"tid": tenant_id})).scalar())
 
 
 async def caller_words_for(session: AsyncSession, tenant_id: UUID) -> CallerWords:
@@ -88,7 +111,11 @@ async def caller_words_for(session: AsyncSession, tenant_id: UUID) -> CallerWord
     if copy is None:
         return CallerWords()
     caps = copy.capabilities or Capabilities.unknown()
-    return CallerWords(sells=caps.sells.applies, caller_noun=copy.caller_noun)
+    return CallerWords(
+        sells=caps.sells.applies,
+        caller_noun=copy.caller_noun,
+        all_support=await all_support(session, tenant_id),
+    )
 
 
-__all__ = ["DEFAULT_CALLER", "CallerWords", "caller_words_for", "plural"]
+__all__ = ["DEFAULT_CALLER", "CallerWords", "all_support", "caller_words_for", "plural"]

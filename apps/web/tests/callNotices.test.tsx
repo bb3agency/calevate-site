@@ -54,6 +54,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     caller_memory_enabled: false,
     caller_memory_paused: false,
     caller_has_screen: false,
+    purpose: "sales",
     opening_line: "",
     script_opening_line: LONG,
     first_words: LONG,

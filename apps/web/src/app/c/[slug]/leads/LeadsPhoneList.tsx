@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { SwipeActions } from "@/components/arc/swipe-actions";
 import { MonoValue, StageDot, formatIST, formatPhone } from "@/components/ui";
+import { useLeadNouns } from "@/lib/businessCapabilities";
 import { needsAttention, outcomeWords } from "@/lib/callReview";
 import { leadNextStep } from "@/lib/leadLabels";
 
@@ -22,8 +23,9 @@ import type { LeadRowKit } from "./leadRowKit";
 export function LeadsPhoneList({ kit }: { kit: LeadRowKit }) {
   const { items, columns, rowFailure, hrefFor, readAhead, followUp, targetOf } = kit;
   const captured = columns.filter((column) => column.kind !== "fixed");
+  const nouns = useLeadNouns();
   return (
-    <ul aria-label="Leads" className="divide-y divide-line">
+    <ul aria-label={nouns.Leads} className="divide-y divide-line">
       {items.map((lead) => {
         const target = targetOf(lead);
         const { primary, secondary } = followUp.actionsFor(target);

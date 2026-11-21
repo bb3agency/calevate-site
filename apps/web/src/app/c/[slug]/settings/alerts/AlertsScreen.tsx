@@ -22,7 +22,7 @@ import {
 import { ApiProblem } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { ADD_MOBILE_NUMBER_PATH } from "@/lib/authn/mobileNumber";
-import { leadWords, useBusinessCapabilities } from "@/lib/businessCapabilities";
+import { leadWords, useAccountCapabilities } from "@/lib/businessCapabilities";
 import { useClientRealm } from "@/lib/api/session";
 import { useMyAlertOptIn, useRecordMyAlertOptIn } from "@/lib/api/whatsappAlerts";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -61,7 +61,7 @@ function needsANumber(error: unknown): boolean {
 export function AlertsScreen() {
   const { session, href } = useClientRealm();
   // "hot leads" only for a business that sells; otherwise its own words (G6).
-  const words = leadWords(useBusinessCapabilities());
+  const words = leadWords(useAccountCapabilities());
   const heading = `Who hears about ${words.hotLeads}`;
   const state = useMyAlertOptIn(session);
   const record = useRecordMyAlertOptIn(session);

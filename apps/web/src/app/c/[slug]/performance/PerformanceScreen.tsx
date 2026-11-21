@@ -36,7 +36,7 @@ import {
 import { useMe } from "@/lib/api/hooks";
 import { usePerformance } from "@/lib/api/performance";
 import { useClientSession } from "@/lib/api/session";
-import { callersWord, useBusinessCapabilities } from "@/lib/businessCapabilities";
+import { callersWord, useAccountCapabilities } from "@/lib/businessCapabilities";
 import { endingLabel } from "@/lib/callReview";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -89,7 +89,7 @@ export function clampRange(next: DateRange): DateRange {
 export function PerformanceScreen() {
   const session = useClientSession();
   const me = useMe(session);
-  const caps = useBusinessCapabilities();
+  const caps = useAccountCapabilities();
   const callers = callersWord(caps, "customers");
   const [range, setRange] = useState<DateRange>(defaultRange);
   const [testCalls, setTestCalls] = useState(false);

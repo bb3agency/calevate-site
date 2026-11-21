@@ -29,6 +29,7 @@ import {
 } from "@/lib/api/notifications";
 import { useClientRealm } from "@/lib/api/session";
 import { creditLeftPhrase, useWallet, walletState } from "@/lib/api/wallet";
+import { useLeadNouns } from "@/lib/businessCapabilities";
 import { clientPageTitle } from "@/lib/clientPageTitle";
 import { useDesktopAlerts } from "@/lib/desktopAlerts";
 
@@ -51,7 +52,7 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
   const pathname = usePathname();
   const { session, href } = useClientRealm();
   const attention = useAttention(session);
-  const title = clientPageTitle(slug, pathname);
+  const title = clientPageTitle(slug, pathname, useLeadNouns());
 
   // New attention items also become desktop notifications, once turned on in Alerts.
   useDesktopAlerts(slug, attention.data, href);

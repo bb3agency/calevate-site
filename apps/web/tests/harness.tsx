@@ -343,6 +343,10 @@ export function stubApi(routes: Routes): ApiCall[] {
         // account is offered: every language picker reads them. A test about a staged
         // language being switched on names the route itself.
         if (scoped === "GET /v1/agents/languages") return jsonResponse(DEFAULT_AGENT_LANGUAGES);
+        // THE WORKING ROSTER, answered "no agents" by default: the client shell reads it for
+        // whether every agent helps customers (`useLeadNouns`), and none keeps the lead words
+        // every existing assertion was written against. A test about agents names the route.
+        if (scoped === "GET /v1/agents") return jsonResponse([]);
         // TODAY'S TEST CALLS (D-885), answered "none today" by default: every trial card
         // reads them. A test about the card's calls names the route itself.
         if (scoped === "GET /v1/trial/calls") return jsonResponse([]);

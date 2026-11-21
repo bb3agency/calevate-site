@@ -52,6 +52,7 @@ from apps.api.agents.llm_tiers import (
     tier_of_model,
 )
 from apps.api.agents.models import (
+    AGENT_PURPOSES,
     CALL_CAP_DEFAULT_S,
     CALL_CAP_MAX_S,
     CALL_CAP_MIN_S,
@@ -286,10 +287,15 @@ Setting = Literal[
     "ai_model",
     "caller_memory",
     "caller_has_screen",
+    "purpose",
 ]
 SETTINGS: Final[tuple[str, ...]] = get_args(Setting)
 #: Settings with no account default: each agent's own, on or off.
 _PER_AGENT_SWITCHES: Final = frozenset({"opening_waits_for_caller", "caller_has_screen"})
+#: Every setting with no account default, which `scope` `all_agents` cannot carry.
+_PER_AGENT_ONLY: Final = _PER_AGENT_SWITCHES | {"purpose"}
+#: How the card reads an agent's purpose (`agents.models.AgentPurpose`).
+_PURPOSE_WORDS: Final[dict[str, str]] = {"sales": "selling", "support": "helping customers"}
 VOICE_SETTINGS: Final = frozenset({"speed", "volume", "emotion"})
 HANDLING_SETTINGS: Final = frozenset(
     {*call_handling.SETTING_FIELDS, *call_handling.AGENT_ONLY_FIELDS}
@@ -315,6 +321,7 @@ _LABELS: Final[dict[str, str]] = {
     "ai_model": "AI model",
     "caller_memory": "remembers returning callers",
     "caller_has_screen": "guides callers through their screen",
+    "purpose": "what the agent is for",
 }
 
 _ON: Final = frozenset({"on", "yes", "true"})
@@ -347,7 +354,7 @@ def _for_all(parsed: _SettingsArgs) -> bool:
     """Refuses the one call-handling setting that has no account default."""
     if parsed.scope != "all_agents":
         return False
-    own = next((c.setting for c in parsed.changes if c.setting in _PER_AGENT_SWITCHES), None)
+    own = next((c.setting for c in parsed.changes if c.setting in _PER_AGENT_ONLY), None)
     if own is not None:
         raise WriteRefusedError(f"`{own}` is set per agent; send it with `scope` `this_agent`")
     return True
@@ -391,9 +398,13 @@ def _parse(setting: str, raw: str) -> Any:
     """One change's value in the shape its writer takes; `default` follows the account's
     or the voice's own value (None)."""
     value = strip_invisible(raw.strip())
-    defaultable = setting not in (*_PER_AGENT_SWITCHES, "caller_memory")
+    defaultable = setting not in (*_PER_AGENT_ONLY, "caller_memory")
     if defaultable and value.lower() == _DEFAULT:
         return None
+    if setting == "purpose":
+        if value.lower() not in AGENT_PURPOSES:
+            raise WriteRefusedError("`purpose` is `sales` or `support`")
+        return value.lower()
     if setting in (*_PER_AGENT_SWITCHES, "end_call_on_finish", "caller_memory"):
         return _switch(setting, value)
     if setting in ("speed", "volume"):
@@ -452,6 +463,8 @@ def _shown(setting: str, value: Any) -> str:
         return f"{int(value) // 60} min"
     if setting == "ai_model":
         return LLM_TIER_LABELS.get(value, str(value))
+    if setting == "purpose":
+        return _PURPOSE_WORDS[value]
     if setting == "filler_lines":
         return " | ".join(value) if value else "the standard ones"
     if setting == "nudge_phrase":
@@ -472,6 +485,7 @@ class _Current:
     caller_memory: bool
     attested: bool
     caller_has_screen: bool
+    purpose: str
 
 
 async def _current(session: AsyncSession, agent_id: UUID) -> _Current:
@@ -479,7 +493,7 @@ async def _current(session: AsyncSession, agent_id: UUID) -> _Current:
         await session.execute(
             text(
                 "SELECT a.max_call_duration_s, a.llm_model, a.caller_memory_enabled, "
-                "a.caller_has_screen, "
+                "a.caller_has_screen, a.purpose, "
                 # Attested to the CURRENT statement (D-900): an older acceptance is asked again.
                 "o.caller_memory_attested_at IS NOT NULL AND COALESCE("
                 "o.caller_memory_attestation_version, 0) >= :statement FROM agents a "
@@ -498,7 +512,8 @@ async def _current(session: AsyncSession, agent_id: UUID) -> _Current:
         model=None if row[1] is None else str(row[1]),
         caller_memory=bool(row[2]),
         caller_has_screen=bool(row[3]),
-        attested=bool(row[4]),
+        purpose=str(row[4]),
+        attested=bool(row[5]),
     )
 
 
@@ -516,6 +531,8 @@ def _current_value(current: _Current, setting: str) -> Any:
         return tier_of_model(current.model) if current.model is not None else None
     if setting == "caller_has_screen":
         return current.caller_has_screen
+    if setting == "purpose":
+        return current.purpose
     return current.caller_memory
 
 
@@ -709,6 +726,17 @@ async def _execute_settings(
         )
         if before_model != model:
             moved.append("ai_model")
+    if "purpose" in values:
+        before_purpose = (
+            await session.execute(
+                text("SELECT purpose FROM agents WHERE id = :aid"), {"aid": agent_id}
+            )
+        ).scalar()
+        if before_purpose != values["purpose"]:
+            await lifecycle.update_agent(
+                session, tenant_id=actor.tenant_id, agent_id=agent_id, purpose=values["purpose"]
+            )
+            moved.append("purpose")
     return Executed(
         applied=bool(moved),
         detail=(
@@ -799,7 +827,9 @@ AGENT_SETTINGS_SET: Final = ActionTool(
         "ambience (off, office, office-quiet), ambience_volume_pct, longest_call_minutes, "
         "ai_model (standard, plus, pro), caller_memory (on/off), caller_has_screen (on/off: "
         "on when the calls walk the person through something on their phone or computer, "
-        "such as installing an app, a website or a form; ask the owner first). `scope` "
+        "such as installing an app, a website or a form; ask the owner first), purpose "
+        "(sales: selling, a pleased caller counts as interested; support: helping customers, "
+        "only the agent's outcomes and booked call-backs mark a caller interested). `scope` "
         "`all_agents` puts "
         "the call-handling settings (pause, hang-up, quiet caller, filler lines, background "
         "sound) on every agent of the account, replacing any agent's own; `default` then "

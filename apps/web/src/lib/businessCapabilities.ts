@@ -1,7 +1,7 @@
 "use client";
 
 import { LANGUAGE_NAMES } from "@/lib/agentState";
-import type { AgentLanguage } from "@/lib/api/agents";
+import { useAgents, type Agent, type AgentLanguage } from "@/lib/api/agents";
 import { useBusinessCopy, type BusinessCopy } from "@/lib/api/businessCopy";
 import { useClientSession } from "@/lib/api/session";
 
@@ -170,7 +170,8 @@ export interface LeadWords {
 /**
  * "lead" and "hot lead" only for a business judged to sell; otherwise the caller as the
  * business names them ("interested user", "most interested users"), or "caller" until its copy
- * names one. The web twin of `tenancy/caller_words.CallerWords`, word for word.
+ * names one. The web twin of `tenancy/caller_words.CallerWords`, word for word: pass
+ * `useAccountCapabilities()` so an account whose agents all help customers reads callers.
  */
 export function leadWords(caps: BusinessCapabilities): LeadWords {
   if (caps.sells === true) {
@@ -185,4 +186,60 @@ export function leadWords(caps: BusinessCapabilities): LeadWords {
     hotLead: `most interested ${one}`,
     hotLeads: `most interested ${many}`,
   };
+}
+
+/**
+ * Whether every working agent is a support agent (`purpose: "support"`, founder 21 Nov 2026):
+ * the account then reads "Callers" where it read "Leads". Archived agents are not on the
+ * roster and take no calls. An empty or unread roster is `false`, so the screens keep the
+ * words they had. The server twin is `tenancy/caller_words.ALL_SUPPORT_SQL`.
+ */
+export function allSupportAgents(agents: readonly Pick<Agent, "purpose">[] | undefined): boolean {
+  return !!agents && agents.length > 0 && agents.every((agent) => agent.purpose === "support");
+}
+
+export function useAllSupport(): boolean {
+  return allSupportAgents(useAgents(useClientSession()).data);
+}
+
+/**
+ * The capabilities the console's sales words read: `sells` reads false when every working
+ * agent helps customers, because nothing is sold on this account's calls. The server twin is
+ * `CallerWords.sales_words`. Not for what an agent may offer: that is the business's own.
+ */
+export function accountCapabilities(caps: BusinessCapabilities, allSupport: boolean): BusinessCapabilities {
+  return allSupport && caps.sells === true ? { ...caps, sells: false } : caps;
+}
+
+export function useAccountCapabilities(): BusinessCapabilities {
+  return accountCapabilities(useBusinessCapabilities(), useAllSupport());
+}
+
+/**
+ * The names of the leads screens and things, for headings and labels: "Leads" unless every
+ * working agent helps customers. Routes and API fields keep the word "lead" either way.
+ */
+export interface LeadNouns {
+  readonly Leads: string;
+  readonly Lead: string;
+  readonly leads: string;
+  readonly lead: string;
+  readonly LeadDetails: string;
+}
+
+const LEAD_NOUNS: LeadNouns = { Leads: "Leads", Lead: "Lead", leads: "leads", lead: "lead", LeadDetails: "Lead details" };
+const CALLER_NOUNS: LeadNouns = {
+  Leads: "Callers",
+  Lead: "Caller",
+  leads: "callers",
+  lead: "caller",
+  LeadDetails: "Caller details",
+};
+
+export function leadNouns(allSupport: boolean): LeadNouns {
+  return allSupport ? CALLER_NOUNS : LEAD_NOUNS;
+}
+
+export function useLeadNouns(): LeadNouns {
+  return leadNouns(useAllSupport());
 }

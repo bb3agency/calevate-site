@@ -81,6 +81,7 @@ from apps.api.agents import call_outcomes as agent_outcomes
 from apps.api.agents.field_suggestions import queue_on_repeat
 from apps.api.agents.lead_fields import business_type_label
 from apps.api.agents.llm_models import resolve_llm_model
+from apps.api.agents.models import AgentPurpose
 from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX, unconfirmed_engine_call_id
 from apps.api.agents.turn_checks import claims_done
 from apps.api.agents.voices import voice_tier
@@ -3509,17 +3510,25 @@ def after_call_status(
     connected: bool,
     callback_requested: bool,
     sentiment: str | None,
+    purpose: AgentPurpose,
     business_move: LeadMove | None = None,
 ) -> str | None:
-    """Where one call moves its lead: `interested` on a booked or requested call back or a
-    caller who sounded keen; `contacted` on any call that reached somebody; else nowhere.
+    """Where one call moves its lead: `interested` on a booked or requested call back or, for
+    a sales agent, a caller who sounded keen; `contacted` on any call that reached somebody;
+    else nowhere.
 
-    `business_move` is how far the agent's own outcome for this call moves it (D-836): the
-    higher of it and the rules above wins, and only on a call that connected.
+    A support agent's caller sounding pleased is a helped caller, not an interested buyer
+    (founder, 21 Nov 2026), so tone alone moves nobody there. `business_move` is how far the
+    agent's own outcome for this call moves it (D-836), for either purpose: the higher of it
+    and the rules above wins, and only on a call that connected.
     """
     if outcome == "call_back_booked" or callback_requested:
         target: str | None = "interested"
-    elif sentiment == "positive" and outcome in ("answered", "needs_you", "transferred"):
+    elif (
+        purpose == "sales"
+        and sentiment == "positive"
+        and outcome in ("answered", "needs_you", "transferred")
+    ):
         target = "interested"
     else:
         target = "contacted" if connected else None
@@ -3838,8 +3847,10 @@ async def _upsert_lead(
         call_row = (
             await session.execute(
                 text(
-                    "SELECT trial_call, campaign_id, forwarding_test_id IS NOT NULL, "
-                    "caller_id_hidden FROM calls WHERE id = :cid AND tenant_id = :tid"
+                    "SELECT c.trial_call, c.campaign_id, c.forwarding_test_id IS NOT NULL, "
+                    "c.caller_id_hidden, a.purpose FROM calls c "
+                    "LEFT JOIN agents a ON a.id = c.agent_id "
+                    "WHERE c.id = :cid AND c.tenant_id = :tid"
                 ),
                 {"cid": call_id, "tid": tenant_id},
             )
@@ -3964,6 +3975,7 @@ async def _upsert_lead(
                 connected=snapshot.status == "completed",
                 callback_requested=reading.callback_requested if reading else False,
                 sentiment=reading.sentiment if reading else None,
+                purpose="support" if call_row is not None and call_row[4] == "support" else "sales",
                 business_move=business_move,
             )
             if target is not None:

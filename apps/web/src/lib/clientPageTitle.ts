@@ -5,7 +5,8 @@
  * headed "Dashboard" (e2e audit OB-9).
  */
 
-import { clientNavigation } from "./clientNav";
+import type { LeadNouns } from "./businessCapabilities";
+import { clientNavigation, inAccountWords } from "./clientNav";
 import { lookup } from "./lookup";
 import { currentNavItem } from "./nav";
 
@@ -14,10 +15,12 @@ const UNLISTED: Readonly<Record<string, string>> = {
   "go-live": "Go live",
 };
 
-export function clientPageTitle(slug: string, pathname: string): string {
+/** `nouns` names the leads screens in the account's words (`useLeadNouns`); omitted: "Leads". */
+export function clientPageTitle(slug: string, pathname: string, nouns?: LeadNouns): string {
   const segment = pathname.slice(`/c/${slug}/`.length).split("/")[0] ?? "";
   const unlisted = pathname.startsWith(`/c/${slug}/`) ? lookup(UNLISTED, segment) : undefined;
   if (unlisted !== undefined) return unlisted;
-  const items = clientNavigation(slug).flatMap((group) => group.items);
+  const groups = clientNavigation(slug);
+  const items = (nouns ? inAccountWords(groups, slug, nouns) : groups).flatMap((group) => group.items);
   return currentNavItem(items, pathname)?.label ?? "Dashboard";
 }

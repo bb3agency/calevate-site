@@ -42,6 +42,7 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { SettingsLayout } from "@/components/console/settingsLayout";
 import { isDeleted } from "@/lib/agentState";
 import { useAgent, type Agent } from "@/lib/api/agents";
+import { useLeadNouns } from "@/lib/businessCapabilities";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -143,13 +144,14 @@ export function AgentWorkspace({ slug, agentId }: { slug: string; agentId: strin
 }
 
 function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
+  const nouns = useLeadNouns();
   const { href } = useClientRealm();
   const leadsLink = (
     <Link
       href={href(`/c/${slug}/leads`)}
       className="font-medium underline underline-offset-2 hover:text-ink"
     >
-      Leads
+      {nouns.Leads}
     </Link>
   );
 

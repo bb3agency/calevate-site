@@ -3874,6 +3874,8 @@ export interface paths {
          *
          *     `engine_voice_id` and `engine_model_id` choose from the voice platform's own list (`GET /v1/agents/engine-catalogue`, whose model ids are opaque) where it supplies one; `null` clears a choice that has not yet been published. An entry that list marks unavailable is refused with its reason.
          *
+         *     `purpose` is what the agent is for: `sales` (selling) or `support` (helping customers). A support agent never marks a caller interested on their tone alone; the outcomes you set still move callers as you set them. Changing only `purpose` does not republish the agent.
+         *
          *     An archived agent is refused: restore it first.
          */
         patch: operations["update_agent_route_v1_agents__agent_id__patch"];
@@ -16219,6 +16221,11 @@ export interface components {
             opening_line: string;
             /** Published */
             published: boolean;
+            /**
+             * Purpose
+             * @enum {string}
+             */
+            purpose: "sales" | "support";
             /** Recording Notice Enabled */
             recording_notice_enabled: boolean;
             /** Recording Notice Line */
@@ -16606,6 +16613,8 @@ export interface components {
             llm_tier?: ("standard" | "plus" | "pro") | null;
             /** Name */
             name?: string | null;
+            /** Purpose */
+            purpose?: ("sales" | "support") | null;
             /** Reply Languages */
             reply_languages?: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN")[] | null;
         };

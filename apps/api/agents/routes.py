@@ -80,6 +80,7 @@ from apps.api.agents.models import (
     CALL_CAP_MAX_S,
     CALL_CAP_MIN_S,
     AgentDirection,
+    AgentPurpose,
     AgentStatus,
 )
 from apps.api.agents.publishing import (
@@ -584,6 +585,8 @@ class AgentUpdateIn(BaseModel):
     #: clears the choice, with `llm_tier`'s tri-state; checked by `agents/engine_choice.py`.
     engine_voice_id: str | None = Field(default=None, min_length=1, max_length=128)
     engine_model_id: str | None = Field(default=None, min_length=1, max_length=128)
+    #: What the agent is for: `sales` or `support`. Changing only this republishes nothing.
+    purpose: AgentPurpose | None = None
 
     @property
     def main_language(self) -> OfferedLanguage | None:
@@ -619,13 +622,14 @@ class AgentUpdateIn(BaseModel):
             self.name is None
             and self.direction is None
             and self.main_language is None
+            and self.purpose is None
             and not self.set_llm_tier
             and not self.set_engine_voice_id
             and not self.set_engine_model_id
         ):
             raise ValueError(
                 "send at least one of name, direction, language_primary, reply_languages, "
-                "llm_tier, engine_voice_id, engine_model_id"
+                "llm_tier, engine_voice_id, engine_model_id, purpose"
             )
         return self
 
@@ -775,6 +779,10 @@ async def create_agent_route(
         "supplies one; `null` clears a "
         "choice that has not yet been published. An entry that list marks unavailable is "
         "refused with its reason.\n\n"
+        "`purpose` is what the agent is for: `sales` (selling) or `support` (helping "
+        "customers). A support agent never marks a caller interested on their tone alone; "
+        "the outcomes you set still move callers as you set them. Changing only `purpose` "
+        "does not republish the agent.\n\n"
         "An archived agent is refused: restore it first."
     ),
 )
@@ -809,6 +817,7 @@ async def update_agent_route(
         set_engine_voice_id=payload.set_engine_voice_id,
         engine_model_id=engine_model_id,
         set_engine_model_id=payload.set_engine_model_id,
+        purpose=payload.purpose,
     )
     await write_audit(
         session,

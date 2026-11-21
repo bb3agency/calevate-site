@@ -106,7 +106,7 @@ export function SettingsTab({
         <Section
           headingLevel={3}
           title="What it is"
-          description="Name, call direction and language."
+          description="Name, call direction, what it is for and language."
           info={<p>Changing which way its calls go can stop it answering your numbers.</p>}
         >
           <AgentIdentity agent={agent} />

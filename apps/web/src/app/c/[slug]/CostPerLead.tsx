@@ -7,7 +7,7 @@ import { ProblemNotice, Skeleton, formatCount, formatINR } from "@/components/ui
 import type { Session } from "@/lib/api/client";
 import { useMe } from "@/lib/api/hooks";
 import { useCostPerResult, type CostWindow } from "@/lib/api/proof";
-import { useBusinessCapabilities, type BusinessCapabilities } from "@/lib/businessCapabilities";
+import { useAccountCapabilities, type BusinessCapabilities } from "@/lib/businessCapabilities";
 
 import { MoneyRowPending } from "./moneyRow";
 
@@ -64,7 +64,7 @@ export function CostPerLead({ session, href }: { session: Session; href: string 
   const me = useMe(session);
   const allowed = me.data?.permissions.includes("billing:read") === true;
   const cost = useCostPerResult(session, { enabled: allowed });
-  const caps = useBusinessCapabilities();
+  const caps = useAccountCapabilities();
   const pendingLabel = caps.sells === false ? "Cost per result, 7 days" : LEAD_LABEL;
   if (!allowed) return null;
   // Only with nothing to show: a failed refresh keeps the figure it had, under the notice.

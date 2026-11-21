@@ -299,6 +299,27 @@ async def test_the_screen_guide_is_a_confirmed_per_agent_switch() -> None:
     assert "set per agent" in refused.value.reason
 
 
+async def test_pip_reads_and_changes_what_an_agent_is_for() -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent(tenant_id)
+    with pytest.raises(write_tools.WriteRefusedError) as wrong:
+        await _propose(tenant_id, token, "agent_settings_set", _settings(agent_id, purpose="x"))
+    assert "`sales` or `support`" in wrong.value.reason
+    proposal = await _propose(
+        tenant_id, token, "agent_settings_set", _settings(agent_id, purpose="support")
+    )
+    assert "what the agent is for: helping customers" in proposal.proposed
+    assert "what the agent is for: selling" in proposal.current
+    done = await _confirm(tenant_id, _user_of(token), proposal.token)
+    assert done.applied is True
+    row = await _one(tenant_id, "SELECT purpose FROM agents WHERE id = :a", a=agent_id)
+    assert row[0] == "support"
+    args = {**_settings(agent_id, purpose="sales"), "scope": "all_agents"}
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
+        await _propose(tenant_id, token, "agent_settings_set", args)
+    assert "set per agent" in refused.value.reason
+
+
 async def test_a_screen_guided_campaign_has_pip_ask_about_the_switch() -> None:
     """D-906: a campaign whose calls walk people through an app tells Pip to ask the owner;
     one that plainly does not, on an agent switched on, tells it to ask about switching off."""
