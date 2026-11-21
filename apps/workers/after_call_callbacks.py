@@ -157,13 +157,17 @@ async def number_to_ring(
     session: AsyncSession, call_id: UUID, network_number: str | None, data: dict[str, Any]
 ) -> str | None:
     """Whom the call back rings: the number the network showed, except on our own forwarding
-    test (nobody) and on a forwarded call that showed the business's own number (D-746),
-    where it is the call-back number the caller gave, or nobody. Ringing the network's
-    number there would dial the business itself and never reach the caller who asked."""
+    test and on the owner's own test call (nobody: there is no caller to follow up, the
+    same rule `crm.service.plan_callback` applies), and on a forwarded call that showed the
+    business's own number (D-746), where it is the call-back number the caller gave, or
+    nobody. Ringing the network's number there would dial the business itself and never
+    reach the caller who asked."""
     row = (
         await session.execute(
             text(
-                "SELECT caller_id_hidden, forwarding_test_id IS NOT NULL FROM calls WHERE id = :cid"
+                "SELECT caller_id_hidden, forwarding_test_id IS NOT NULL "
+                "  OR trial_call OR paid_test_call "
+                "FROM calls WHERE id = :cid"
             ),
             {"cid": call_id},
         )

@@ -60,8 +60,11 @@ _GAP_CALLS_SQL: Final = (
     "WHERE o.tenant_id = :tid AND g.status = 'open' AND o.created_at > :since "
     "GROUP BY g.topic_key"
 )
+#: A test call is the owner ringing their own agent, so it never needed a person
+#: (`crm/attention.calls_needing_you` leaves them out for the same reason).
 _NEEDS_YOU_SQL: Final = (
     "SELECT count(*) FROM calls WHERE tenant_id = :tid AND outcome_tag = 'needs_you' "
+    "AND NOT (trial_call OR paid_test_call) "
     "AND COALESCE(ended_at, created_at) > :since"
 )
 
