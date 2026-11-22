@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.7 — 22-Nov-2026
+
+- A script Pip writes when a campaign or Inbound line is made is now as good as one you ask
+  for later: Pip reads its first draft back against the same brief and improves it before
+  you see it.
+- Pip's scripts now ask for each detail on the campaign's or line's "What it notes" at the
+  right step, and never ask for what the call already knows.
+
 ## 0.5.6 — 22-Nov-2026
 
 - Suggested lead details now start from what each campaign or Inbound line is for, and skip
