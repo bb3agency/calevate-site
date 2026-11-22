@@ -3,6 +3,17 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.5 — 22-Nov-2026
+
+- Lead details now shows a card for each campaign and each Inbound line, the same "What it
+  notes" editor as on their own pages. Each card links to its campaign or line.
+- "New ones start with" shows the details a new campaign or line begins with. "Use on
+  campaigns and lines" puts them onto the ones you tick.
+- Keeping drafted details asks which campaigns and lines get them. Ones you never changed
+  are ticked for you.
+- Suggested changes now belong to each campaign and line, and come from its own calls.
+  They show on its card and on its What it notes.
+
 ## 0.5.4 — 22-Nov-2026
 
 - A file replaced in What your agents know is listed once in a campaign's or line's
