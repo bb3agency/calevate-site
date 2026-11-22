@@ -108,7 +108,9 @@ _ONE_PLAN = BoundedByConstruction(
 _LEAD_SUGGESTIONS = BoundedByConstruction(
     by=(
         "the open suggestions on ONE campaign or line, at most `MAX_FIELD_SUGGESTIONS` "
-        "(six), enforced by `workers/field_suggestions` when it writes them; a suggestion's "
+        "(six), enforced by `workers/field_suggestions` when it writes them (an accept-all's "
+        "`accepted` is a subset of them); "
+        "a suggestion's "
         "`values` are choices of one field, at most "
         "`agents/field_suggestions.MAX_CHOICES` (the model's `max_length`)."
     )
@@ -245,6 +247,14 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/inbound-lines/{line_id}/lead-suggestions/check": _LEAD_SUGGESTIONS,
     "POST /v1/inbound-lines/{line_id}/lead-suggestions/{suggestion_id}/accept": _LEAD_SUGGESTIONS,
     "POST /v1/inbound-lines/{line_id}/lead-suggestions/{suggestion_id}/dismiss": _LEAD_SUGGESTIONS,
+    "POST /v1/campaigns/{campaign_id}/lead-suggestions/accept": _LEAD_SUGGESTIONS,
+    "POST /v1/inbound-lines/{line_id}/lead-suggestions/accept": _LEAD_SUGGESTIONS,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions/accept"
+    ): _LEAD_SUGGESTIONS,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions/accept"
+    ): _LEAD_SUGGESTIONS,
     (
         "GET /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions"
     ): _LEAD_SUGGESTIONS,
