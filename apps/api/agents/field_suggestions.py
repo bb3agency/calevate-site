@@ -73,7 +73,7 @@ Kind = Literal["add_choices", "remove_choices", "new_field"]
 JobKind = Literal["campaign", "line"]
 #: `agents.models.FIELD_SUGGESTION_STATES`, plus `none` for a job no pass has run for.
 PassState = Literal["none", "queued", "running", "done", "failed", "skipped"]
-Source = Literal["script", "business", "facts", "calls"]
+Source = Literal["purpose", "script", "business", "facts", "calls"]
 
 
 class Suggestion(BaseModel):
@@ -222,6 +222,25 @@ async def queue_pass(
     return await agent_pass.queue(
         session, SLOTS[kind], tenant_id=tenant_id, row_id=job_id, force=force
     )
+
+
+async def queue_job(session: AsyncSession, kind: JobKind, job_id: UUID) -> bool:
+    """`queue_pass` for one job whose aim or script just changed, or that was just made: an
+    empty list gets its starting set suggested, a full one is checked against the new aim."""
+    sql = (
+        "SELECT tenant_id FROM campaigns WHERE id = :jid"
+        if kind == "campaign"
+        else "SELECT tenant_id FROM inbound_lines WHERE id = :jid"
+    )
+    tenant_id = (await session.execute(text(sql), {"jid": job_id})).scalar()
+    if tenant_id is None:
+        return False
+    tenant = UUID(str(tenant_id))
+    # Nobody pressed a button for this pass, so the account's content waits for Pip to be
+    # turned on (`account_content_may_reach_models`); "Check again" is the way without it.
+    if not await account_content_may_reach_models(session, tenant_id=tenant):
+        return False
+    return await queue_pass(session, tenant_id=tenant, kind=kind, job_id=job_id)
 
 
 #: Every open job, or those in one agent's voice. RLS scopes both tables to the tenant.

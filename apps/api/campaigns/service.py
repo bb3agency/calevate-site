@@ -950,6 +950,9 @@ async def create_campaign(
     if purpose or goal:
         # Why a campaign calls is part of what its agent does (`agents/caller_help`).
         await caller_help.queue_pass(session, tenant_id=tenant_id, agent_id=agent_id)
+    from apps.api.agents.field_suggestions import queue_job
+
+    await queue_job(session, "campaign", campaign_id)
     return campaign_id
 
 

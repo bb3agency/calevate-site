@@ -27,6 +27,7 @@ from calevate_shared.call_script import CallScript
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.field_suggestions import queue_job
 from apps.api.campaigns.notes import starting_fields
 from apps.api.campaigns.workspace import (
     MAIN_TASK_MAX,
@@ -241,6 +242,7 @@ async def create_line(
             "by": created_by,
         },
     )
+    await queue_job(session, "line", line_id)
     return line_id
 
 
@@ -293,6 +295,8 @@ async def update_line(
             text(f"UPDATE inbound_lines SET {', '.join(sets)}, updated_at = now() WHERE id = :lid"),
             params,
         )
+    if main_task is not None:
+        await queue_job(session, "line", line_id)
     return voice_changed
 
 
@@ -345,6 +349,7 @@ async def save_script(session: AsyncSession, line_id: UUID, script: CallScript) 
             {"s": script.model_dump_json(), "lid": line_id},
         )
     ).scalar_one()
+    await queue_job(session, "line", line_id)
     return int(version)
 
 

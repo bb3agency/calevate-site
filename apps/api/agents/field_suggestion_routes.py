@@ -67,7 +67,7 @@ class LeadSuggestionOut(_Out):
     field_type: Literal["text", "enum"] | None = None
     #: One sentence saying why, for the owner.
     reason: str
-    source: Literal["script", "business", "facts", "calls"]
+    source: Literal["purpose", "script", "business", "facts", "calls"]
     #: Recent calls on this job whose answer this would have caught.
     callers: int
 

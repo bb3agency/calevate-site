@@ -37952,6 +37952,7 @@
           },
           "source": {
             "enum": [
+              "purpose",
               "script",
               "business",
               "facts",

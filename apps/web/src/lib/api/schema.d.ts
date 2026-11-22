@@ -28609,7 +28609,7 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "script" | "business" | "facts" | "calls";
+            source: "purpose" | "script" | "business" | "facts" | "calls";
             /** Values */
             values: string[];
         };

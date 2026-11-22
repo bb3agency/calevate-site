@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.6 — 22-Nov-2026
+
+- Suggested lead details now start from what each campaign or Inbound line is for, and skip
+  questions the script asks only to guide the call. An empty list gets a full starting set,
+  with "Accept all".
+- A new campaign or line, and a change to its main task or script, checks its details again
+  on its own once Pip is on.
+
 ## 0.5.5 — 22-Nov-2026
 
 - Lead details now shows a card for each campaign and each Inbound line, the same "What it

@@ -279,7 +279,25 @@ async def _line_for(tenant_id: UUID, agent_id: UUID, fields: list[ExtractionFiel
             text("UPDATE inbound_lines SET extraction_fields = CAST(:f AS jsonb) WHERE id = :l"),
             {"f": json.dumps([f.model_dump(mode="json") for f in fields]), "l": line_id},
         )
+    await _settle("inbound_lines", tenant_id, line_id)
     return line_id
+
+
+async def _settle(table: str, tenant_id: UUID, job_id: UUID) -> None:
+    """As if the pass a new job queues for itself had already run, so a test starts from a
+    job with no pass waiting."""
+    sql = {
+        "inbound_lines": "UPDATE inbound_lines SET field_suggestions_state = NULL WHERE id = :j",
+        "campaigns": "UPDATE campaigns SET field_suggestions_state = NULL WHERE id = :j",
+    }[table]
+    key = "line_id" if table == "inbound_lines" else "campaign_id"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text(sql), {"j": job_id})
+    async with untenanted_session() as session:
+        await session.execute(
+            text("DELETE FROM outbox_messages WHERE job = :job AND payload->>:k = :j"),
+            {"job": field_suggestions.JOB, "k": key, "j": str(job_id)},
+        )
 
 
 async def _jobs(job: str, line_id: UUID) -> list[dict[str, Any]]:
@@ -632,6 +650,7 @@ async def test_a_campaign_has_its_own_suggestions() -> None:
     tenant_id, slug, token = await _make_tenant()
     agent_id = await _agent_of(tenant_id)
     campaign_id = await _campaign(tenant_id, agent_id)
+    await _settle("campaigns", tenant_id, campaign_id)
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE campaigns SET extraction_fields = CAST(:f AS jsonb) WHERE id = :c"),
@@ -824,3 +843,57 @@ def test_a_new_detail_must_quote_the_script_or_callers_it_claims_to_come_from() 
     assert _clean(_item("new_field", source="script", evidence="", **lot)) == []
     assert _clean(_item("new_field", source="calls", evidence="Penthouse", **lot)) != []
     assert _clean(_item("new_field", source="calls", evidence="Villa plots", **lot)) == []
+
+
+def test_a_new_detail_may_come_from_what_the_job_is_for_when_it_quotes_it() -> None:
+    """A Rytu Khata install campaign was offered "Phone Operating System" because its script
+    asks which phone to give the right steps; a detail must serve what the job is for."""
+    aimed = passer.Inputs(
+        description="d", fields=[], purpose="Get farmers to install the app and open a ledger."
+    )
+    done: dict[str, Any] = {"label": "App installed", "values": ["Yes", "No"], "hint": "Did they."}
+    got = _clean(
+        _item("new_field", source="purpose", evidence="install the app", **done), inputs=aimed
+    )
+    assert [s.field_label for s in got] == ["App installed"] and got[0].source == "purpose"
+    assert (
+        _clean(_item("new_field", source="purpose", evidence="sell tractors", **done), inputs=aimed)
+        == []
+    )
+
+
+async def test_a_pass_reads_what_the_campaign_is_for_and_says_an_empty_list_wants_a_start() -> None:
+    from tests.notes_per_job_test import _campaign
+
+    tenant_id, _slug, _token = await _make_tenant()
+    campaign_id = await _campaign(tenant_id, await _agent_of(tenant_id))
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE campaigns SET main_task = 'Get farmers to install the app', "
+                "extraction_fields = '[]'::jsonb WHERE id = :c"
+            ),
+            {"c": campaign_id},
+        )
+    inputs = await passer.gather(tenant_id, "campaign", campaign_id, dismissed=[])
+    assert "Get farmers to install the app" in inputs.purpose
+    assert inputs.description.startswith("What this campaign is for:")
+    assert "Propose the starting set" in inputs.description
+
+
+async def test_a_new_campaign_and_a_saved_main_task_queue_its_own_pass() -> None:
+    from apps.api.campaigns import workspace
+    from tests.notes_per_job_test import _campaign
+
+    tenant_id, _slug, _token = await _make_tenant()
+    await turn_pip_on_for_tests(tenant_id)
+    campaign_id = await _campaign(tenant_id, await _agent_of(tenant_id))
+    state = "SELECT field_suggestions_state FROM campaigns WHERE id = :c"
+    async with tenant_session(tenant_id) as session:
+        assert (await session.execute(text(state), {"c": campaign_id})).scalar() == "queued"
+        await session.execute(
+            text("UPDATE campaigns SET field_suggestions_state = 'done' WHERE id = :c"),
+            {"c": campaign_id},
+        )
+        await workspace.save_main_task(session, campaign_id, "Get farmers to install the app")
+        assert (await session.execute(text(state), {"c": campaign_id})).scalar() == "queued"

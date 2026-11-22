@@ -29,6 +29,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_proposals
+from apps.api.agents.field_suggestions import queue_job
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.kb.picks import CAMPAIGN_PICKS, add_pick, read_picks, replace_picks
@@ -185,6 +186,7 @@ async def save_main_task(session: AsyncSession, campaign_id: UUID, value: str) -
         text("UPDATE campaigns SET main_task = :t, updated_at = now() WHERE id = :cid"),
         {"t": task or None, "cid": campaign_id},
     )
+    await queue_job(session, "campaign", campaign_id)
     return task
 
 
@@ -199,6 +201,7 @@ async def save_script(session: AsyncSession, campaign_id: UUID, script: CallScri
         text("UPDATE campaigns SET script = CAST(:s AS jsonb), updated_at = now() WHERE id = :cid"),
         {"s": script.model_dump_json(), "cid": campaign_id},
     )
+    await queue_job(session, "campaign", campaign_id)
 
 
 async def _keep_before_pip(session: AsyncSession, campaign_id: UUID) -> None:

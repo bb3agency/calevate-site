@@ -16,10 +16,11 @@ import { useState } from "react";
 import { X } from "lucide-react";
 
 import { TEXT_ACTION } from "@/components/console/section";
-import { ProblemNotice, QUIET_ICON_BUTTON, SECONDARY_BUTTON_SM, formatISTStamp } from "@/components/ui";
+import { PRIMARY_BUTTON_SM, ProblemNotice, QUIET_ICON_BUTTON, SECONDARY_BUTTON_SM, formatISTStamp } from "@/components/ui";
 import type { LeadSuggestion, LeadSuggestionsApi } from "@/lib/api/leadSuggestions";
 
 const SOURCE: Readonly<Record<LeadSuggestion["source"], string>> = {
+  purpose: "What it's for",
   script: "Script",
   business: "Business details",
   facts: "Quick facts",
@@ -50,9 +51,27 @@ export function LeadSuggestions({
   audience: "client" | "operator";
 }) {
   const { query, accept, dismiss, check } = api;
+  const [acceptingAll, setAcceptingAll] = useState(false);
   const data = query.data;
   if (!data) return null;
-  const busy = accept.isPending || dismiss.isPending;
+  const busy = acceptingAll || accept.isPending || dismiss.isPending;
+  // One at a time: each accept saves the list whole under its digest, so they cannot race,
+  // and one the list has overtaken drops out of what the server returns.
+  const acceptAll = async () => {
+    setAcceptingAll(true);
+    try {
+      let left = data.suggestions.map((s) => s.id);
+      while (left.length > 0) {
+        const out = await accept.mutateAsync(left[0]);
+        const remaining = new Set(out.remaining.suggestions.map((s) => s.id));
+        left = left.slice(1).filter((id) => remaining.has(id));
+      }
+    } catch {
+      // `accept.error` says why under the list.
+    } finally {
+      setAcceptingAll(false);
+    }
+  };
   const reading = data.state === "queued" || data.state === "running";
   const suggestions = data.suggestions;
   const count = suggestions.length;
@@ -72,7 +91,7 @@ export function LeadSuggestions({
 
       <p role="status" aria-live="polite" className="mt-0.5 text-xs text-ink-muted">
         {reading ? (
-          <span className="text-shimmer">Checking the script and recent calls…</span>
+          <span className="text-shimmer">Checking what it's for, the script and recent calls…</span>
         ) : count ? (
           audience === "client" ? "Nothing changes until you accept." : "Nothing changes until one is accepted."
         ) : (
@@ -97,6 +116,13 @@ export function LeadSuggestions({
         </ul>
       )}
 
+      {canWrite && count > 1 && (
+        <div className="mt-3">
+          <button type="button" className={PRIMARY_BUTTON_SM} disabled={busy || dirty} onClick={() => void acceptAll()}>
+            {acceptingAll ? "Accepting…" : `Accept all ${count}`}
+          </button>
+        </div>
+      )}
       {dirty && count > 0 && canWrite && (
         <p className="mt-2 text-xs text-ink-muted">Save or undo the changes below to accept one.</p>
       )}

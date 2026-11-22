@@ -97,9 +97,15 @@ SYSTEM_PROMPT: Final = (
     f"You keep one phone agent's lead details in step with the {BUSINESS_KIND} it works "
     "for. Lead details are what the agent records about each CALLER after a call: what they "
     "asked for and told us about themselves. A choice detail has a fixed list of choices. "
-    "You are given the business's own description, the agent's script, its quick facts, the "
-    "agent's current lead details, and what callers recently asked for that none of a "
-    "detail's choices fitted, with how many callers said it.\n"
+    "You are given what this campaign or line is FOR, the business's own description, the "
+    "agent's script, its quick facts, the agent's current lead details, and what callers "
+    "recently asked for that none of a detail's choices fitted, with how many callers said "
+    "it.\n"
+    "A detail earns its place only if the owner would ACT on it after the call to reach what "
+    "this campaign or line is for: whether that aim was met, how interested the person is, "
+    "what stops them, what to follow up on, or what qualifies them. A question the script "
+    "asks only to steer the conversation (which device someone uses, so the agent can give "
+    "the right steps) is not a lead detail, unless the owner would act on the answer.\n"
     "Suggest only changes that make the details fit THIS business better, of three kinds:\n"
     "- add_choices: choices a choice detail lacks, for something the business sells or "
     "handles (named in its description, script or facts), or that at least 2 callers asked "
@@ -108,19 +114,22 @@ SYSTEM_PROMPT: Final = (
     "- remove_choices: only a choice for something this business plainly does not deal in "
     "at all. Never remove one because it is sold out or rare: the details record what "
     "callers want, which is worth knowing even when the business cannot supply it.\n"
-    "- new_field: only when the script asks callers for something no detail records, or "
-    "callers keep giving a detail the business would act on (source script or calls, never "
-    "business or facts alone). It must serve why this agent talks to callers, as its script "
-    "says. Never a detail for the "
+    "- new_field: a detail that serves what this campaign or line is for (source purpose), "
+    "that the script asks callers and the owner would act on (source script), or that "
+    "callers keep giving and the business would act on (source calls); never business or "
+    "facts alone. When the current lead details are EMPTY, propose the starting set: 3 to "
+    f"{MAX_FIELD_SUGGESTIONS} new details, the first recording whether the aim was met. "
+    "Never a detail for the "
     "caller's name, phone number, preferred time, language, notes or what they want: every "
     "lead already records those. Give a label of 2 to 4 plain words, choices when a short "
     f"fixed list fits ({NEW_FIELD_CHOICES[0]} to {NEW_FIELD_CHOICES[1]}) or none for free "
     "text, a hint: one sentence telling the note-taker what to record, and evidence: the "
-    "words of the script, or of the callers' answers, that ask for or give this detail, "
-    "copied exactly as they are written there. Any other suggestion leaves evidence empty.\n"
-    "For each, reason: one plain English sentence for the owner saying where it came from, "
-    "naming the script's own words or how many callers said it, and source: script, "
-    "business, facts or calls. Never invent products the inputs do not mention. "
+    "words of what it is for, of the script, or of the callers' answers, that this detail "
+    "serves, copied exactly as they are written there. Any other suggestion leaves evidence "
+    "empty.\n"
+    "For each, reason: one plain English sentence for the owner saying how it helps them act "
+    "on what this campaign or line is for, and source: purpose, script, business, facts or "
+    "calls. Never invent products the inputs do not mention. "
     "Name no company, brand or technology. At most "
     f"{MAX_FIELD_SUGGESTIONS} suggestions; none at all is a good answer when the details "
     "already fit. Return ONLY JSON: "
@@ -145,7 +154,10 @@ _ANSWER_SCHEMA: Final = {
                     "values": {"type": "array", "items": {"type": "string"}},
                     "hint": {"type": ["string", "null"]},
                     "reason": {"type": "string"},
-                    "source": {"type": "string", "enum": ["script", "business", "facts", "calls"]},
+                    "source": {
+                        "type": "string",
+                        "enum": ["purpose", "script", "business", "facts", "calls"],
+                    },
                     "evidence": {"type": "string"},
                 },
                 "required": [
@@ -178,6 +190,9 @@ class Inputs:
     #: The agent's script as the model read it (redacted), which a new detail's evidence
     #: must be found in when its source is the script.
     script: str = ""
+    #: What the campaign or line is for (redacted): its main task, purpose and goal, which a
+    #: new detail's evidence must be found in when its source is the purpose.
+    purpose: str = ""
     unlisted: dict[str, list[tuple[str, int]]] = field(default_factory=dict)
     captured: dict[str, dict[str, int]] = field(default_factory=dict)
     dismissed: frozenset[str] = frozenset()
@@ -265,14 +280,14 @@ def _one(
     kind = item.get("kind")
     source = item.get("source")
     reason = _clip(item.get("reason"), REASON_MAX)
-    if source not in ("script", "business", "facts", "calls") or not reason:
+    if source not in ("purpose", "script", "business", "facts", "calls") or not reason:
         return None
     values = _choices(item.get("values"))
     if kind == "new_field":
         # A new detail is a question the agent will ask every caller, so it must serve this
-        # agent's job: something its script asks or callers keep telling it. What the
+        # job: what it is for, something its script asks, or what callers keep telling it. The
         # business is in general is no reason to ask a caller of an agent that does not.
-        if source not in ("script", "calls") or not grounded(item, source, inputs):
+        if source not in ("purpose", "script", "calls") or not grounded(item, source, inputs):
             return None
         return _new_field(item, values, reason, source, inputs, taken)
     if kind not in ("add_choices", "remove_choices"):
@@ -321,6 +336,8 @@ def grounded(item: dict[str, Any], source: str, inputs: Inputs) -> bool:
     evidence = normalise(str(item.get("evidence") or ""))
     if len(evidence) < MIN_EVIDENCE_CHARS:
         return False
+    if source == "purpose":
+        return evidence in normalise(inputs.purpose)
     if source == "script":
         return evidence in normalise(inputs.script)
     return any(
@@ -410,6 +427,11 @@ def _table(kind: JobKind) -> str:
     return "campaigns" if kind == "campaign" else "inbound_lines"
 
 
+def _aims(kind: JobKind) -> str:
+    """What the job is for: a campaign's main task, purpose and goal; a line's main task."""
+    return "j.main_task, j.purpose, j.goal" if kind == "campaign" else "j.main_task, NULL, NULL"
+
+
 def _calls_of(kind: JobKind) -> str:
     return "c.campaign_id = :jid" if kind == "campaign" else "c.inbound_line_id = :jid"
 
@@ -417,12 +439,13 @@ def _calls_of(kind: JobKind) -> str:
 async def gather(tenant_id: UUID, kind: JobKind, job_id: UUID, *, dismissed: list[str]) -> Inputs:
     description, _vertical = await business_context(tenant_id)
     async with tenant_session(tenant_id) as session:
-        script = (
+        job = (
             await session.execute(
                 text(
                     # The job's own script, which its calls speak (D-997); a job with none
                     # yet reads its voice's latest saved script, staged or live.
-                    "SELECT COALESCE(j.script, pv.structured_script) "
+                    "SELECT COALESCE(j.script, pv.structured_script), "
+                    f"{_aims(kind)} "
                     f"FROM {_table(kind)} j JOIN agents a ON a.id = j.agent_id "
                     "LEFT JOIN prompt_versions pv "
                     "ON pv.id = COALESCE(a.system_prompt_id, a.live_prompt_id) "
@@ -430,7 +453,9 @@ async def gather(tenant_id: UUID, kind: JobKind, job_id: UUID, *, dismissed: lis
                 ),
                 {"jid": job_id},
             )
-        ).scalar()
+        ).one()
+        script = job[0]
+        aims = [str(aim) for aim in job[1:] if aim]
         facts = await list_pinned(session)
         fields = await current_fields(session, kind, job_id)
         choice_keys = [f.key for f in fields if f.type == "enum"]
@@ -471,7 +496,11 @@ async def gather(tenant_id: UUID, kind: JobKind, job_id: UUID, *, dismissed: lis
     captured: dict[str, dict[str, int]] = {}
     for key, value, count in captured_rows:
         captured.setdefault(str(key), {})[str(value)] = int(count)
-    parts = [description]
+    if isinstance(script, dict):
+        aims += [str(script[key]) for key in ("goal", "outbound_purpose") if script.get(key)]
+    purpose = "\n".join(" ".join(aim.split()) for aim in aims)
+    noun = "campaign" if kind == "campaign" else "line"
+    parts = [f"What this {noun} is for:\n{purpose or 'Not written yet.'}", description]
     body = script_text(script)
     if body:
         parts.append("The agent's script:\n" + body[:SCRIPT_CHARS])
@@ -484,6 +513,7 @@ async def gather(tenant_id: UUID, kind: JobKind, job_id: UUID, *, dismissed: lis
     return Inputs(
         description=redact("\n\n".join(parts)).text,
         script=redact(body[:SCRIPT_CHARS]).text if body else "",
+        purpose=redact(purpose).text,
         fields=fields,
         unlisted=unlisted,
         captured=captured,
@@ -511,7 +541,7 @@ def _aggregate(rows: Any, choice_keys: list[str]) -> dict[str, list[tuple[str, i
 
 def _fields_text(fields: list[ExtractionField]) -> str:
     if not fields:
-        return "(none beyond the details every lead carries)"
+        return "EMPTY: none beyond the details every lead carries. Propose the starting set."
     lines = []
     for f in fields:
         if f.type == "enum":
