@@ -46,7 +46,7 @@ writer or the composed call prompt already does it.
 | 14 | Opening with the reason for the call roughly doubles success; "Did I catch you at a bad time?" scores lowest; a permission opener that acknowledges the call works | gong.io/blog/cold-calling-tips; gong.io/blog/the-best-and-worst-cold-call-openers-backed-by-data-from-300m-calls (search snippets; figures differ between Gong's publications) | Vendor research, snippets only | Covered: `call_rules.PLACED_OPENING_RULE` (who, from where, the one reason, then whether they can talk). |
 | 15 | Code-mixed callers: keep the English terms people use (EMI, UPI), follow the caller's mix rather than forcing one language | exotel.com/blog/hinglish-conversational-ai-benchmarks-for-indian-banks; tatacommunications.com/knowledge-base/voice-ai/code-switching-voice-ai (search snippets) | Vendor blogs, snippets only | Covered by the founder-reviewed spoken-style guides (D-744) the writer follows. No source on Telugu-English mixing was found: UNKNOWN beyond our own reviewed guides. |
 | 16 | Generate, critique and refine improves output over one pass | arxiv.org/abs/2303.17651 (Self-Refine) | Academic | New: the refining edit of a first draft (`REFINE_TAIL`). The existing review stays a separate call, because a model rarely finds its own errors unprompted (arxiv.org/abs/2310.01798). |
-| 17 | Voicemail | not covered by any guide read here | - | Not built: we place single calls; the engine's voicemail message is a ThinnestAI campaign-builder feature (D-1004). |
+| 17 | Voicemail | see section 4 | Vendor blogs, engine docs | Answering-machine hang-up is built (client switch); a left message is not available on single calls (section 4). |
 
 Pipecat's own documentation was not found by search; the NVIDIA voice-agent docs that build on
 it (docs.nvidia.com/nemo/labs-voice-agent/build-voice-agents/configure/system-prompts, search
@@ -69,3 +69,30 @@ snippet) say TTS reads output verbatim, which is why markdown is forbidden; cove
 - **The composed call prompt already meets the guides** (rows 2-5, 7, 9-11): short turns, one
   question, read-back, digits, interruptions, unclear input, no markdown, grounding. Nothing
   was added there; the budget tests pin its size.
+
+## 4. Second pass: Telugu-English mixing and voicemail (22 Nov 2026)
+
+### Telugu-English mixing
+
+| Practice | Source | Where we stand |
+|---|---|---|
+| Write the language's own words in its own script, never romanised: it gives better pronunciation and keeps the language from being read as English | bolna.ai/docs/writing-prompts-in-non-english-languages; bolna.ai/docs/customizations/languages/telugu (read 22 Nov 2026) | Covered: Telugu words in Telugu letters (D-861, D-1024). Our instructions are in English with Telugu examples; Bolna writes the whole prompt in Telugu. Not adopted: D-1024's history is that an all-Telugu-letters prompt misspelt English words callers use. |
+| Keep the English words people use ("order", "OTP", "support ticket") in English letters inside Telugu text; never force a pure translation | same | Covered: the te-IN register line and D-1024 (English words and amounts in English letters, founder, 20 Nov 2026). |
+| Spell codes, OTPs and IDs character by character, in English, whatever the call language | same | Covered: the digit-by-digit rule in HOW TO SPEAK. |
+| "Never translate" one language's version into another; pre-write fixed lines per language | bolna.ai/docs/writing-prompts-in-non-english-languages | Covered: names never translated (`_NAMES_RULE`), openings and notices written per language. |
+| State the polite form explicitly (Telugu మీరు, not the informal singular); a generic "be polite" does not reliably produce it | bolna.ai/docs/customizations/languages/telugu | **Gap.** The te-IN register line names అండి / గారు but not the polite plural. The wording is the founder's (Ops > Spoken style), not hand-written here. |
+| Leave language switching to the platform, not the prompt | both Bolna pages | Ours differs on purpose: `_SWITCH_RULE` (D-849, D-988) exists because the recogniser turned Telugu callers' short English replies into language switches on real calls. |
+| A code-mix speech-to-text mode keeps English words in English letters inside Indic text; transcribers otherwise write them in the native script | docs.sarvam.ai (STT codemix mode); bolna.ai Telugu page | Engine side: ThinnestAI picks the recogniser. Our switch rule already treats Telugu in English letters as no switch. |
+
+No independent (non-vendor) study of Telugu-English mixing in phone agents was found; the
+linguistics sources the spoken-style guide already cites (Dutta and Rajeswari 2015; Sravani,
+Kameswari and Mamidi 2021) describe Tenglish speech, not agents.
+
+### Voicemail
+
+| Finding | Source | Where we stand |
+|---|---|---|
+| The engine can hang up on an answering machine (`voice.detectMachines`) | ThinnestAI update-agent docs, mirror 2026-10-29 `pages/api-reference/agents/update-agent.md:1265` | Built: each account's answering-machine switch, off by default (founder decision 14), sent on every publish (`engine/thinnest.py`). |
+| A voicemail MESSAGE (`voicemailMessage`, up to 600 characters) exists only on the engine's own campaigns, refused when no number can tell a machine answered | mirror 2026-11-12 `openapi.json` (create-campaign); place-call has no such field | Not available to us: we place single calls. Needs ThinnestAI to add it to Place Call. |
+| Voicemail is little used in India: Jio offers none; Airtel's must be switched on | third-party guides (beebom, amarujala, Truecaller support), not carrier docs | Why the switch defaults off: a missed detection costs a few seconds; a false one hangs up on a person. |
+| Treat uncertain detections as a person; wait for the beep before speaking; leave a message only on some attempts (first and third); follow up by SMS or WhatsApp | thoughtly.com, cekura.ai, roark.ai, vixi.agency blogs (vendor) | Retry already treats a machine as not reached (campaign retries). A spoken voicemail rule in the call prompt would change what an agent volunteers at the start of a call, which is the founder's decision (hard rule 5), so it is not added. |
