@@ -335,3 +335,26 @@ async def test_a_lines_script_asks_for_the_lines_list() -> None:
         config = await agents_service.line_config(session, tenant_id=tenant_id, line_id=line_id)
     assert "Budget" in config.system_prompt
     assert uuid.UUID(config.agent_id) == agent_id
+
+
+async def test_a_campaign_with_no_script_of_its_own_asks_for_the_campaigns_list() -> None:
+    tenant_id, agent_id, _ = await _tenant()
+    campaign_id = await _campaign(tenant_id, agent_id)
+    await _set_list(tenant_id, "campaigns", campaign_id, [BUDGET])
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET script = NULL WHERE id = :c"), {"c": campaign_id}
+        )
+        agent = dict(await agents_service._load_agent(session, tenant_id, agent_id))
+        agent["structured_script"] = CallScript(
+            schema_version=SCRIPT_SCHEMA_VERSION,
+            opening_line="Namaste, this is a quick follow-up call.",
+            goal="Book a visit.",
+        ).model_dump(mode="json")
+        row = await agents_service.campaign_agent_row(
+            session,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+            agent=agent,  # type: ignore[arg-type]
+        )
+    assert "Budget" in row["prompt"]

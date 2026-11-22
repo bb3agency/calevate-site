@@ -1333,6 +1333,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/compliance/caller-notice": BoundedByConstruction(
         by="one entry per declared collection purpose and retention class — both constants."
     ),
+    "GET /v1/compliance/caller-notice/short": BoundedByConstruction(
+        by="`languages` is `compliance/privacy_notice.NOTICE_LANGUAGES`, fixed at import."
+    ),
+    "GET /v1/campaigns/limits": BoundedByConstruction(
+        by="`retry_gap_choices` is a prefix of the constant `campaigns/service.RETRY_GAP_MENU`."
+    ),
     "GET /v1/campaigns/{campaign_id}/launch-check": BoundedByConstruction(
         by="`blockers` is at most one per launch-gate RULE, a fixed set."
     ),

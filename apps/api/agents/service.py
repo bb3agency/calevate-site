@@ -4742,8 +4742,8 @@ async def campaign_agent_row(
     (`campaigns/settings.apply_overrides`, D-994, D-1027), and calling out only. The
     one reader for the config, the dial's first words and the dial gate, so the three agree.
 
-    A campaign with no script of its own (made before D-992) speaks the agent's applied
-    script, as it always did."""
+    A campaign with no script of its own (made before D-992) speaks the agent's script,
+    asking for the campaign's own list."""
     from apps.api.agents.script_builder import campaign_collect_fields
     from apps.api.campaigns.settings import apply_overrides
 
@@ -4759,8 +4759,11 @@ async def campaign_agent_row(
     if agent is None:
         agent = await _load_agent(session, tenant_id, agent_id)
     row: AgentRow = agent
-    if camp.script:
-        script = CallScript.model_validate(camp.script)
+    # A campaign made before D-992 has no script of its own and speaks its agent's, compiled
+    # here with the campaign's list: the agent's own compile asks for nothing (D-1028).
+    own = camp.script or agent.get("structured_script")
+    if own:
+        script = CallScript.model_validate(own)
         collect = await campaign_collect_fields(session, campaign_id)
         body = compile_call_script(script, collect=collect)
         row = _line_agent_row(agent, script, body)
