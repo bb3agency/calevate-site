@@ -19,10 +19,12 @@ from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.business_outcomes import BusinessOutcome
+from calevate_shared.extraction import ExtractionField
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.call_outcomes import outcomes_in_use
+from apps.api.campaigns.notes import account_fields
 from apps.api.follow_ups import definition as d
 
 NIL: Final = UUID(int=0)
@@ -74,16 +76,10 @@ def interested_keys(outcomes: tuple[BusinessOutcome, ...]) -> list[str]:
     return keys if "interested" in keys else [*keys, "interested"]
 
 
-def _date_fields(rows: list[Any]) -> tuple[DateField, ...]:
-    seen: dict[str, DateField] = {}
-    for (fields,) in rows:
-        for item in fields if isinstance(fields, list) else []:
-            if not isinstance(item, dict) or item.get("type") != "date":
-                continue
-            key, label = item.get("key"), item.get("label")
-            if isinstance(key, str) and isinstance(label, str) and key not in seen:
-                seen[key] = DateField(key=key, label=" ".join(label.split()))
-    return tuple(seen.values())
+def _date_fields(fields: list[ExtractionField]) -> tuple[DateField, ...]:
+    return tuple(
+        DateField(key=f.key, label=" ".join(f.label.split())) for f in fields if f.type == "date"
+    )
 
 
 def _payment_field(fields: tuple[DateField, ...]) -> DateField | None:
@@ -112,20 +108,12 @@ async def _account(session: AsyncSession) -> _Account:
             text("SELECT business_outcomes FROM agents WHERE id = :aid"), {"aid": agent}
         )
     ).scalar()
-    fields = (
-        await session.execute(
-            text(
-                "SELECT es.fields FROM agents a "
-                "JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
-                "WHERE a.deleted_at IS NULL AND a.archived_at IS NULL "
-                "ORDER BY a.created_at, a.id LIMIT 50"
-            )
-        )
-    ).all()
+    # The dates the account's campaigns and lines note (D-1028).
+    noted = await account_fields(session)
     return _Account(
         agent=agent,
         outcomes=tuple(outcomes_in_use(raw_outcomes)[0]),
-        date_fields=_date_fields(list(fields)),
+        date_fields=_date_fields(noted),
         template=await _first(
             session,
             "SELECT id FROM whatsapp_templates WHERE status = 'approved' ORDER BY name LIMIT 1",

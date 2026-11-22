@@ -26,6 +26,7 @@ from apps.api.agents import service as agents_service
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
+from apps.api.campaigns import notes as job_notes
 from apps.api.campaigns import number_catalog
 from apps.api.campaigns.workspace import MAIN_TASK_MAX
 from apps.api.campaigns.workspace_routes import (
@@ -34,7 +35,10 @@ from apps.api.campaigns.workspace_routes import (
     CampaignTestCallIn,
     CampaignTestCallItem,
     CampaignTestCallOut,
+    JobNotesIn,
+    JobNotesOut,
     TestNumbersOut,
+    job_notes_out,
     remember_test_number,
     saved_test_numbers,
 )
@@ -297,6 +301,57 @@ async def set_actions(
         await lines.set_actions_off(session, line_id, payload.off)
     await _republish_if_live(tenant_id, line_id)
     return await _read(tenant_id, line_id)
+
+
+async def _line_notes_out(session: AsyncSession, line_id: UUID) -> JobNotesOut:
+    live = (await lines.read_line(session, line_id)).live
+    return await job_notes_out(session, "line", line_id, applied_now=live)
+
+
+@router.get(
+    "/{line_id}/notes",
+    response_model=JobNotesOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="What this line's calls note",
+)
+async def line_notes_read(line_id: UUID, session: Session, _: Reader) -> JobNotesOut:
+    return await _line_notes_out(session, line_id)
+
+
+@router.put(
+    "/{line_id}/notes",
+    response_model=JobNotesOut,
+    responses=SLOTS_FULL_RESPONSES,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Set what this line's calls note, and put a live line live again",
+)
+async def line_notes_save(
+    line_id: UUID, payload: JobNotesIn, request: Request, principal: Writer
+) -> JobNotesOut:
+    """The whole list under a compare-and-set on the digest the editor read (D-1028). What the
+    line asks callers for is compiled into its script, so a live line is put live again; a
+    draft line's list reaches its calls when it is put live."""
+    tenant_id = _tenant(principal)
+    async with tenant_session(tenant_id) as session:
+        changed = await job_notes.save_notes(
+            session, "line", line_id, payload.fields, expected_digest=payload.expected_digest
+        )
+        if changed:
+            await write_audit(
+                session,
+                action="inbound_line.notes_saved",
+                actor=principal,
+                tenant_id=tenant_id,
+                object_type="inbound_line",
+                object_id=str(line_id),
+                ip=client_request_ip(request),
+                # The keys, never a value: who changed which details is what is audited.
+                summary={"fields": [field.key for field in payload.fields]},
+            )
+    # Unchanged too: an unchanged save is the Save again a refused put-live asks for.
+    await _republish_if_live(tenant_id, line_id)
+    async with tenant_session(tenant_id) as session:
+        return await _line_notes_out(session, line_id)
 
 
 class InboundLineScriptIn(BaseModel):

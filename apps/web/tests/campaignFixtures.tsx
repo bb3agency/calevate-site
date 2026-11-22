@@ -10,7 +10,7 @@ import type {
 } from "@/lib/api/campaigns";
 import type {
   CampaignInsights,
-  CampaignNotes,
+  JobNotes,
   CampaignSettings,
   CampaignWorkspace,
 } from "@/lib/api/campaignWorkspace";
@@ -183,13 +183,12 @@ export function settingsFixture(over: Partial<CampaignSettings> = {}): CampaignS
   };
 }
 
-/** `GET /v1/campaigns/{id}/notes` (D-1003): no list of its own, following the agent's. */
-export function notesFixture(over: Partial<CampaignNotes> = {}): CampaignNotes {
+/** `GET /v1/campaigns/{id}/notes` (D-1028): an empty list. */
+export function notesFixture(over: Partial<JobNotes> = {}): JobNotes {
   return {
     agent_id: FIXTURE_AGENT_ID,
     agent_name: "Outbound follow-up",
     fields: [],
-    agent_fields: [],
     core_fields: [],
     digest: "empty",
     applied_now: false,

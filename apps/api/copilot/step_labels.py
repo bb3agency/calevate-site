@@ -92,10 +92,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "campaign_resume": _l("Resuming the campaign", "Resumed the campaign"),
     "agent_edit": _l("Changing the agent", "Changed the agent"),
     "agent_edit_live": _l("Changing the live agent", "Changed the live agent"),
-    "agent_capture_fields_set": _l("Changing what the agent captures", "Changed what it captures"),
-    "agent_capture_fields_set_live": _l(
-        "Changing what the live agent captures", "Changed what it captures"
-    ),
+    "notes_set": _l("Changing what it writes down", "Changed what it writes down"),
     "agent_changes_apply": _l("Applying the agent's changes", "Applied the agent's changes"),
     "agent_deactivate": _l("Switching the agent off", "Switched the agent off"),
     "agent_delete": _l("Deleting the agent", "Deleted the agent"),

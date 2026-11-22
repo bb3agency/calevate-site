@@ -81,7 +81,7 @@ const INVALIDATES: Record<string, readonly (readonly string[])[]> = {
   agent_rename: [["agents"], ["agent"]],
   // D-854: the first-agent card reads these from the agents list and the knowledge read.
   agent_edit: [["agents"], ["agent"]],
-  agent_capture_fields_set: [["agents"], ["agent"]],
+  notes_set: [["campaign-notes"], ["line-notes"]],
   business_faqs_add: [["business-profile"], ["readiness"]],
   // D-893 lane L5: the answer lands as a fact and closes the topic's gaps.
   knowledge_question_settle: [

@@ -4023,11 +4023,6 @@
             "title": "Extraction Fields",
             "type": "array"
           },
-          "extraction_schema_version": {
-            "default": 0,
-            "title": "Extraction Schema Version",
-            "type": "integer"
-          },
           "first_words": {
             "default": "",
             "title": "First Words",
@@ -14112,90 +14107,6 @@
           "note"
         ],
         "title": "CampaignNoteIn",
-        "type": "object"
-      },
-      "CampaignNotesIn": {
-        "additionalProperties": false,
-        "properties": {
-          "expected_digest": {
-            "anyOf": [
-              {
-                "maxLength": 64,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expected Digest"
-          },
-          "fields": {
-            "items": {
-              "$ref": "#/components/schemas/ExtractionField"
-            },
-            "maxItems": 50,
-            "title": "Fields",
-            "type": "array"
-          }
-        },
-        "required": [
-          "fields"
-        ],
-        "title": "CampaignNotesIn",
-        "type": "object"
-      },
-      "CampaignNotesOut": {
-        "additionalProperties": false,
-        "properties": {
-          "agent_fields": {
-            "items": {
-              "$ref": "#/components/schemas/ExtractionField"
-            },
-            "title": "Agent Fields",
-            "type": "array"
-          },
-          "agent_id": {
-            "format": "uuid",
-            "title": "Agent Id",
-            "type": "string"
-          },
-          "agent_name": {
-            "title": "Agent Name",
-            "type": "string"
-          },
-          "applied_now": {
-            "title": "Applied Now",
-            "type": "boolean"
-          },
-          "core_fields": {
-            "items": {
-              "$ref": "#/components/schemas/ExtractionField"
-            },
-            "title": "Core Fields",
-            "type": "array"
-          },
-          "digest": {
-            "title": "Digest",
-            "type": "string"
-          },
-          "fields": {
-            "items": {
-              "$ref": "#/components/schemas/ExtractionField"
-            },
-            "title": "Fields",
-            "type": "array"
-          }
-        },
-        "required": [
-          "agent_id",
-          "agent_name",
-          "fields",
-          "agent_fields",
-          "core_fields",
-          "digest",
-          "applied_now"
-        ],
-        "title": "CampaignNotesOut",
         "type": "object"
       },
       "CampaignPageOut": {
@@ -34683,6 +34594,83 @@
           "included_minutes"
         ],
         "title": "InvoiceUsageOut",
+        "type": "object"
+      },
+      "JobNotesIn": {
+        "additionalProperties": false,
+        "description": "A campaign's or an inbound line's whole \"What it notes\" list (D-1028).",
+        "properties": {
+          "expected_digest": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Digest"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "maxItems": 50,
+            "title": "Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "title": "JobNotesIn",
+        "type": "object"
+      },
+      "JobNotesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "applied_now": {
+            "title": "Applied Now",
+            "type": "boolean"
+          },
+          "core_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "title": "Core Fields",
+            "type": "array"
+          },
+          "digest": {
+            "title": "Digest",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ExtractionField"
+            },
+            "title": "Fields",
+            "type": "array"
+          }
+        },
+        "required": [
+          "agent_id",
+          "agent_name",
+          "fields",
+          "core_fields",
+          "digest",
+          "applied_now"
+        ],
+        "title": "JobNotesOut",
         "type": "object"
       },
       "KbDriftOut": {
@@ -74933,7 +74921,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": {
       "put": {
-        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).\n\nAt most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.",
+        "description": "The starting list of details a new campaign or inbound line in this agent's voice copies (D-1028); no call reads it. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version; campaigns and lines already made keep their own lists. A variable whose key is a built-in lead column, or a duplicate key, is refused.\n\nAt most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.",
         "operationId": "admin_set_extraction_schema_v1_admin_tenants__tenant_id__agents__agent_id__extraction_schema_put",
         "parameters": [
           {
@@ -74985,7 +74973,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Set the variables one client's agent captures",
+        "summary": "Set the lead details new jobs in one client agent's voice start with",
         "tags": [
           "admin"
         ],
@@ -81853,7 +81841,7 @@
     },
     "/v1/agents/{agent_id}/extraction-schema": {
       "get": {
-        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).\n\nAt most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.",
+        "description": "The starting list of details a new campaign or inbound line in this agent's voice copies (D-1028); no call reads it. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version; campaigns and lines already made keep their own lists. A variable whose key is a built-in lead column, or a duplicate key, is refused.\n\nAt most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.",
         "operationId": "get_extraction_schema_v1_agents__agent_id__extraction_schema_get",
         "parameters": [
           {
@@ -81885,14 +81873,14 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The variables this agent captures",
+        "summary": "The lead details a new campaign or line in this voice starts with",
         "tags": [
           "agents"
         ],
         "x-calevate-permission": "org:read"
       },
       "put": {
-        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).\n\nAt most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.",
+        "description": "The starting list of details a new campaign or inbound line in this agent's voice copies (D-1028); no call reads it. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version; campaigns and lines already made keep their own lists. A variable whose key is a built-in lead column, or a duplicate key, is refused.\n\nAt most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.",
         "operationId": "set_extraction_schema_v1_agents__agent_id__extraction_schema_put",
         "parameters": [
           {
@@ -81934,7 +81922,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Set the variables this agent captures",
+        "summary": "Set the lead details a new campaign or line in this voice starts with",
         "tags": [
           "agents"
         ],
@@ -89579,7 +89567,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CampaignNotesOut"
+                  "$ref": "#/components/schemas/JobNotesOut"
                 }
               }
             },
@@ -89592,14 +89580,14 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "What this campaign's calls note, and its agent's list it follows while empty",
+        "summary": "What this campaign's calls note",
         "tags": [
           "campaigns"
         ],
         "x-calevate-permission": "leads:read"
       },
       "put": {
-        "description": "Stored in its own transaction, then, when the campaign has its own engine agent, put\nlive on it so its calls ask for the new details (D-1003); otherwise they reach its calls\nat the next Start or test call. The agent's own list is never changed.",
+        "description": "Stored in its own transaction, then, when the campaign has its own engine agent, put\nlive on it so its calls ask for the new details (D-1003); otherwise they reach its calls\nat the next Start or test call.",
         "operationId": "campaign_notes_save_v1_campaigns__campaign_id__notes_put",
         "parameters": [
           {
@@ -89617,7 +89605,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CampaignNotesIn"
+                "$ref": "#/components/schemas/JobNotesIn"
               }
             }
           },
@@ -89628,7 +89616,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CampaignNotesOut"
+                  "$ref": "#/components/schemas/JobNotesOut"
                 }
               }
             },
@@ -89641,7 +89629,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Set what this campaign's calls note; an empty list follows its agent's",
+        "summary": "Set what this campaign's calls note",
         "tags": [
           "campaigns"
         ],
@@ -96766,6 +96754,109 @@
           "inbound"
         ],
         "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/notes": {
+      "get": {
+        "operationId": "line_notes_read_v1_inbound_lines__line_id__notes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobNotesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What this line's calls note",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "put": {
+        "description": "The whole list under a compare-and-set on the digest the editor read (D-1028). What the\nline asks callers for is compiled into its script, so a live line is put live again; a\ndraft line's list reaches its calls when it is put live.",
+        "operationId": "line_notes_save_v1_inbound_lines__line_id__notes_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobNotesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobNotesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EngineAgentAllowanceFull"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set what this line's calls note, and put a live line live again",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/inbound-lines/{line_id}/numbers": {

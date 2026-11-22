@@ -538,17 +538,21 @@ async def test_what_a_campaign_notes_is_its_own_saved_under_a_compare_and_set() 
     campaign_id = await _campaign(tenant_id, agent_id)
     field = ExtractionField(key="visit_day", label="Visit day", type="text")
     async with tenant_session(tenant_id) as session:
-        before = await notes.read_notes(session, campaign_id)
+        before = await notes.read_notes(session, "campaign", campaign_id)
         assert before.fields == ()
-        assert await notes.save_notes(session, campaign_id, [field], expected_digest=before.digest)
-        after = await notes.read_notes(session, campaign_id)
+        assert await notes.save_notes(
+            session, "campaign", campaign_id, [field], expected_digest=before.digest
+        )
+        after = await notes.read_notes(session, "campaign", campaign_id)
         assert [f.key for f in after.fields] == ["visit_day"]
         with pytest.raises(ProblemError) as stale:
-            await notes.save_notes(session, campaign_id, [], expected_digest=before.digest)
+            await notes.save_notes(
+                session, "campaign", campaign_id, [], expected_digest=before.digest
+            )
         assert stale.value.code == "campaign_notes_changed_elsewhere"
     async with tenant_session(other_tenant) as session:
         with pytest.raises(ProblemError) as missing:
-            await notes.read_notes(session, campaign_id)
+            await notes.read_notes(session, "campaign", campaign_id)
         assert missing.value.status == 404
         seen = (
             await session.execute(
@@ -566,7 +570,7 @@ async def test_the_pipeline_notes_the_campaigns_list_for_its_calls() -> None:
     field = ExtractionField(key="visit_day", label="Visit day", type="text")
     call_id = uuid7()
     async with tenant_session(tenant_id) as session:
-        await notes.save_notes(session, campaign_id, [field], expected_digest=None)
+        await notes.save_notes(session, "campaign", campaign_id, [field], expected_digest=None)
         await session.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, campaign_id, engine_call_id, "

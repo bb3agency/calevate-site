@@ -143,25 +143,6 @@ def _posture(row: Any) -> DisclosurePosture:
     )
 
 
-async def collect_fields(session: AsyncSession, agent_id: UUID) -> list[CollectField]:
-    """The details this agent asks for, from its current extraction schema (PROMPT-GUIDE §4).
-
-    Compiled into a v2 script at save; a schema edit is compiled in by `recompile_collect`,
-    queued by `extraction_routes.write_schema` (D-889). The builder shows them read-only
-    beside the script.
-    """
-    row = (
-        await session.execute(
-            text(
-                "SELECT es.fields FROM agents a JOIN extraction_schemas es "
-                "ON es.id = a.extraction_schema_id WHERE a.id = :aid"
-            ),
-            {"aid": agent_id},
-        )
-    ).first()
-    return _collect_of(list(row[0] or []) if row is not None else [])
-
-
 def _collect_of(fields: list[Any]) -> list[CollectField]:
     return [
         CollectField(
@@ -174,20 +155,26 @@ def _collect_of(fields: list[Any]) -> list[CollectField]:
     ]
 
 
-async def campaign_collect_fields(
-    session: AsyncSession, *, campaign_id: UUID, agent_id: UUID
-) -> list[CollectField]:
-    """The details a campaign's calls ask for (D-1003): its own "What it notes" when it has
-    one (`campaigns.extraction_fields`), else its agent's, so what the call asks and what
-    the post-call pipeline notes are the same list."""
+async def campaign_collect_fields(session: AsyncSession, campaign_id: UUID) -> list[CollectField]:
+    """The details a campaign's calls ask for: its "What it notes" (D-1028), the list the
+    post-call pipeline notes, so what the call asks and what is written down agree. An
+    agent's own script asks for none: a call with no job notes only the core."""
     own = (
         await session.execute(
             text("SELECT extraction_fields FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
         )
     ).scalar_one_or_none()
-    if own:
-        return _collect_of(list(own))
-    return await collect_fields(session, agent_id)
+    return _collect_of(list(own or []))
+
+
+async def line_collect_fields(session: AsyncSession, line_id: UUID) -> list[CollectField]:
+    """The details an inbound line's calls ask for: its "What it notes" (D-1028)."""
+    own = (
+        await session.execute(
+            text("SELECT extraction_fields FROM inbound_lines WHERE id = :lid"), {"lid": line_id}
+        )
+    ).scalar_one_or_none()
+    return _collect_of(list(own or []))
 
 
 async def call_backs_available(session: AsyncSession, tenant_id: UUID) -> bool:
@@ -342,7 +329,7 @@ async def save_agent_script(
             session, tenant_id=tenant_id, faqs=script.faqs, created_by=created_by
         )
         script = script.model_copy(update={"faqs": []})
-    body = compile_call_script(script, collect=await collect_fields(session, agent_id))
+    body = compile_call_script(script)
     body = await pinned_facts.spliced_body(session, body)
     facts = block_of(current.body)
     if facts is not None:
@@ -398,9 +385,7 @@ async def compiled_preview(session: AsyncSession, agent_id: UUID, script: CallSc
     serves only an agent a publish would refuse anyway, such as one with no script yet.
     """
     row = await _agent_or_404(session, agent_id)
-    body = compile_call_script(
-        script.model_copy(update={"faqs": []}), collect=await collect_fields(session, agent_id)
-    )
+    body = compile_call_script(script.model_copy(update={"faqs": []}))
     # The business's pinned facts, plus any quick facts this unsaved script still carries,
     # which a save would move into them (`save_agent_script`).
     pairs = pinned_facts.pairs_of(await pinned_facts.list_pinned(session))
@@ -486,15 +471,14 @@ async def refuse_if_too_long(session: AsyncSession, agent_id: UUID, script: Call
 async def recompile_collect(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
 ) -> int | None:
-    """Recompile the draft script after the agent's lead details changed (D-722).
+    """Recompile the agent's own script after its starting lead details changed (D-722).
 
-    "What to collect" is compiled from the extraction schema at save, so a schema change
-    otherwise reaches the call only at the owner's next script save, and an agent moved off
-    a wrong business type kept asking callers for the old type's details. Same doctrine as
-    `teach.pinned.recompile_agent`: a new immutable version, applied (and republished on a
-    live agent) unless a script edit is staged, in which case it rides with that edit.
-    A freeform script has no collect list and is left alone. Returns the new version, or
-    None when nothing changed.
+    Since D-1028 an agent's own script asks for no details (what a call notes is its job's
+    list), so this only takes out a "what to collect" list an older version still carries.
+    Same doctrine as `teach.pinned.recompile_agent`: a new immutable version, applied (and
+    republished on a live agent) unless a script edit is staged, in which case it rides with
+    that edit. A freeform script is left alone. Returns the new version, or None when nothing
+    changed.
     """
     return await rewrite_script(
         session,
@@ -606,7 +590,7 @@ async def rewrite_script(
     if script is None:
         script = CallScript.model_validate(row[4])
     script = script.model_copy(update={"faqs": []})
-    body = compile_call_script(script, collect=await collect_fields(session, agent_id))
+    body = compile_call_script(script)
     body = await pinned_facts.spliced_body(session, body)
     facts = block_of(str(row[3]))
     if facts is not None:
@@ -918,7 +902,6 @@ __all__ = [
     "call_backs_available",
     "clear_draft",
     "clear_example_lines",
-    "collect_fields",
     "compiled_preview",
     "list_versions",
     "load_agent_script",

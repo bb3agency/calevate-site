@@ -125,7 +125,6 @@ _IMMEDIATE = {
     "campaign_create": "a draft dials nobody; Undo cancels it while empty",
     "campaign_clone": "a draft copy without contacts; Undo cancels it while empty",
     "agent_edit": "refuses a live agent, so no caller hears it; prior settings restored",
-    "agent_capture_fields_set": "refuses a live agent, so no call reads it yet; list restored",
 }
 
 #: Every one that dials, spends, publishes, deletes, changes DNC or reaches a caller.
@@ -138,7 +137,7 @@ _MUST_CONFIRM = {
     "campaign_schedule",
     "campaign_resume",
     "agent_edit_live",
-    "agent_capture_fields_set_live",
+    "notes_set",
     "agent_changes_apply",
     "agent_deactivate",
     "agent_delete",
@@ -689,9 +688,23 @@ async def test_agent_edit_refuses_a_live_agent_and_the_live_twin_needs_a_click()
     ] == "en-IN"
 
 
-async def test_capture_fields_are_replaced_and_undo_restores_the_old_list() -> None:
-    tenant_id, slug, token = await _make_tenant()
-    agent_id = await _draft_agent(tenant_id)
+_LINE_NOTES_SQL = "SELECT extraction_fields FROM inbound_lines WHERE id = :l"
+
+
+async def _line_of(tenant_id: UUID) -> UUID:
+    from apps.api.inbound import lines
+
+    async with tenant_session(tenant_id) as session:
+        return await lines.create_line(
+            session, tenant_id=tenant_id, agent_id=await _agent_of(tenant_id), created_by=None
+        )
+
+
+async def test_notes_set_changes_a_lines_list_after_a_click() -> None:
+    """FAILS IF: Pip changes what a line's calls write down without the person confirming,
+    though the change applies from its next call."""
+    tenant_id, _slug, token = await _make_tenant()
+    line_id = await _line_of(tenant_id)
     field = {
         "key": "budget",
         "label": "Budget",
@@ -700,33 +713,20 @@ async def test_capture_fields_are_replaced_and_undo_restores_the_old_list() -> N
         "reason": "To quote",
         "required": False,
     }
-    receipt = await _run(
-        tenant_id, token, "agent_capture_fields_set", {"agent_id": str(agent_id), "fields": [field]}
-    )
-    assert receipt.applied is True
-    _status, _tier, prior, result = await _action_row(tenant_id, receipt.action_id)
-    assert [f["key"] for f in result["fields"]] == ["budget"]
-    async with _client() as http:
-        undone = await http.post(
-            f"/v1/copilot/actions/{receipt.action_id}/undo", headers=_headers(token, slug)
-        )
-    assert undone.status_code == 200, undone.text
-    fields = (
-        await _one(
-            tenant_id,
-            "SELECT s.fields FROM agents a JOIN extraction_schemas s "
-            "ON s.id = a.extraction_schema_id WHERE a.id = :a",
-            a=agent_id,
-        )
-    )[0]
-    assert [f["key"] for f in fields] == [f["key"] for f in prior["fields"]]
+    args = {"job": "line", "job_id": str(line_id), "fields": [field]}
+    proposal = await _propose(tenant_id, token, "notes_set", args)
+    assert "next call" in proposal.summary
+    done = await _confirm(tenant_id, _user_of(token), proposal.token)
+    assert done.applied is True
+    fields = (await _one(tenant_id, _LINE_NOTES_SQL, l=line_id))[0]
+    assert [f["key"] for f in fields] == ["budget"]
 
 
-async def test_capture_fields_named_only_by_label_are_taken() -> None:
+async def test_notes_named_only_by_label_are_taken() -> None:
     """Pip on Gemini (founder, Varsha, 3 Nov 2026) named the details by label with its own
     type words and nothing else, and every attempt was refused as the wrong shape."""
     tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _draft_agent(tenant_id)
+    line_id = await _line_of(tenant_id)
     fields = [
         {"label": "App installed", "type": "boolean"},
         {"label": "Using it", "type": "yes/no", "reason": "Whether they use the app now"},
@@ -734,12 +734,12 @@ async def test_capture_fields_named_only_by_label_are_taken() -> None:
         {"label": "Satisfied", "type": "select", "enum_values": ["Yes", "Somewhat", "No"]},
         {"label": "Suggestions"},
     ]
-    receipt = await _run(
-        tenant_id, token, "agent_capture_fields_set", {"agent_id": str(agent_id), "fields": fields}
+    proposal = await _propose(
+        tenant_id, token, "notes_set", {"job": "line", "job_id": str(line_id), "fields": fields}
     )
-    assert receipt.applied is True
-    _status, _tier, _prior, result = await _action_row(tenant_id, receipt.action_id)
-    assert [(f["key"], f["type"]) for f in result["fields"]] == [
+    await _confirm(tenant_id, _user_of(token), proposal.token)
+    stored = (await _one(tenant_id, _LINE_NOTES_SQL, l=line_id))[0]
+    assert [(f["key"], f["type"]) for f in stored] == [
         ("app_installed", "bool"),
         ("using_it", "bool"),
         ("purpose", "text"),
@@ -751,46 +751,14 @@ async def test_capture_fields_named_only_by_label_are_taken() -> None:
 def test_a_refusal_names_the_item_it_could_not_read() -> None:
     with pytest.raises(write_tools.WriteRefusedError) as refused:
         write_tools.parse_args(
-            console_actions._CaptureFieldsArgs,
-            {"agent_id": str(uuid.uuid4()), "fields": [{"label": "Ok"}, {"type": "text"}]},
+            console_actions._NotesArgs,
+            {
+                "job": "line",
+                "job_id": str(uuid.uuid4()),
+                "fields": [{"label": "Ok"}, {"type": "text"}],
+            },
         )
     assert "`fields.1.label`" in refused.value.reason
-
-
-async def test_a_live_agents_capture_fields_need_a_click() -> None:
-    """FAILS IF: Pip changes what a LIVE agent captures without the person confirming, though
-    the change applies from that agent's next call."""
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)  # `_make_tenant`'s agent is live
-    args = {
-        "agent_id": str(agent_id),
-        "fields": [
-            {
-                "key": "budget",
-                "label": "Budget",
-                "type": "text",
-                "enum_values": None,
-                "reason": "To quote",
-                "required": False,
-            }
-        ],
-    }
-    with pytest.raises(write_tools.WriteRefusedError) as refused:
-        await _run(tenant_id, token, "agent_capture_fields_set", args)
-    assert "agent_capture_fields_set_live" in refused.value.reason
-    proposal = await _propose(tenant_id, token, "agent_capture_fields_set_live", args)
-    assert "next call" in proposal.summary
-    done = await _confirm(tenant_id, _user_of(token), proposal.token)
-    assert done.applied is True
-    fields = (
-        await _one(
-            tenant_id,
-            "SELECT s.fields FROM agents a JOIN extraction_schemas s "
-            "ON s.id = a.extraction_schema_id WHERE a.id = :a",
-            a=agent_id,
-        )
-    )[0]
-    assert [f["key"] for f in fields] == ["budget"]
 
 
 async def test_agent_changes_apply_is_refused_when_nothing_is_waiting() -> None:

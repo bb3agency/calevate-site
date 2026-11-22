@@ -61,7 +61,7 @@ async def _campaign_call() -> tuple[UUID, UUID, UUID]:
             ),
             {"id": campaign_id, "t": tenant_id, "a": agent_id},
         )
-        await notes.save_notes(session, campaign_id, [VISIT_DAY], expected_digest=None)
+        await notes.save_notes(session, "campaign", campaign_id, [VISIT_DAY], expected_digest=None)
         await session.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, campaign_id, engine_call_id, "
@@ -130,8 +130,11 @@ async def test_a_campaigns_leads_offer_the_campaigns_own_details_as_columns() ->
     offered = {c.key for c in page.available_columns}
     assert "visit_day" in offered
     assert "insurance_plan" not in offered
-    # Without the campaign, the table keeps the agent's own list.
-    assert "insurance_plan" in {c.key for c in account.available_columns}
+    # Without the campaign, the table offers every job's details (D-1028); the agent's
+    # starting list is not one of them.
+    account_keys = {c.key for c in account.available_columns}
+    assert "visit_day" in account_keys
+    assert "insurance_plan" not in account_keys
 
 
 async def test_reading_a_campaign_call_again_asks_for_the_campaigns_own_list() -> None:

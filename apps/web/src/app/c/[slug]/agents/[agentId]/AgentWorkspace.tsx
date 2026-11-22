@@ -34,15 +34,13 @@
  */
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
-import { useEffect, type ReactNode } from "react";
+import { useEffect } from "react";
 
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { PageHeader } from "@/components/console/pageHeader";
 import { SettingsLayout } from "@/components/console/settingsLayout";
 import { isDeleted } from "@/lib/agentState";
 import { useAgent, type Agent } from "@/lib/api/agents";
-import { useLeadNouns } from "@/lib/businessCapabilities";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -144,16 +142,6 @@ export function AgentWorkspace({ slug, agentId }: { slug: string; agentId: strin
 }
 
 function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
-  const nouns = useLeadNouns();
-  const { href } = useClientRealm();
-  const leadsLink = (
-    <Link
-      href={href(`/c/${slug}/leads`)}
-      className="font-medium underline underline-offset-2 hover:text-ink"
-    >
-      {nouns.Leads}
-    </Link>
-  );
 
   if (isDeleted(agent)) {
     return (
@@ -162,15 +150,15 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
         <p className="max-w-prose text-sm text-ink-muted">
           Read-only while deleted. It comes back switched off.
         </p>
-        <DeletedAgentBody agent={agent} slug={slug} leadsLink={leadsLink} />
+        <DeletedAgentBody agent={agent} slug={slug} />
       </div>
     );
   }
 
-  return <LiveAgent agent={agent} slug={slug} leadsLink={leadsLink} />;
+  return <LiveAgent agent={agent} slug={slug} />;
 }
 
-function LiveAgent({ agent, slug, leadsLink }: { agent: Agent; slug: string; leadsLink: ReactNode }) {
+function LiveAgent({ agent, slug }: { agent: Agent; slug: string }) {
   const sections = useAgentSections(agent);
   usePrefetchTabs();
   return (
@@ -190,7 +178,7 @@ function LiveAgent({ agent, slug, leadsLink }: { agent: Agent; slug: string; lea
             case "actions":
               return <ActionsTab agentId={agent.id} />;
             case "settings":
-              return <SettingsTab agent={agent} slug={slug} leadsLink={leadsLink} />;
+              return <SettingsTab agent={agent} slug={slug} />;
             default:
               return <Overview agent={agent} slug={slug} />;
           }

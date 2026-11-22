@@ -46,6 +46,7 @@ from apps.api.billing.caps import read_spend_counters
 from apps.api.billing.models import LEDGER_KEY_SINCE_SQL
 from apps.api.callbacks.service import booked_by as callbacks_booked_by
 from apps.api.callbacks.service import time_from as callbacks_time_from
+from apps.api.campaigns.notes import account_fields
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
@@ -1025,42 +1026,22 @@ async def recording_ref_for(session: AsyncSession, call_id: UUID) -> RecordingRe
 # --- leads --------------------------------------------------------------------
 
 
-_AGENT_SCHEMA_SQL = (
-    "SELECT fields FROM extraction_schemas WHERE agent_id = :aid ORDER BY version DESC LIMIT 1"
-)
-_NEWEST_SCHEMA_SQL = (
-    "SELECT fields FROM extraction_schemas ORDER BY created_at DESC, id DESC LIMIT 1"
-)
-_CAMPAIGN_FIELDS_SQL = (
-    "SELECT NULLIF(extraction_fields, '[]'::jsonb) FROM campaigns WHERE id = :cid"
-)
+_CAMPAIGN_FIELDS_SQL = "SELECT extraction_fields FROM campaigns WHERE id = :cid"
 
 
 async def lead_columns(
     session: AsyncSession, agent_id: UUID | None = None, *, campaign_id: UUID | None = None
 ) -> list[ExtractionField]:
-    """The Leads table columns ARE the extraction schema (TRD §7). With no agent filter
-    we take the most recently published schema — a v1 tenant has exactly one agent, and
-    a mixed list is better served by the per-agent view.
+    """The Leads table columns are what the calls note (TRD §7, D-1028): one campaign's
+    leads (`campaign_id`) take that campaign's list; otherwise every detail the account's
+    campaigns and lines note, narrowed by `agent_id` to the jobs in that agent's voice.
 
-    One campaign's leads (`campaign_id`) take that campaign's own What it notes when it
-    has one (D-1003): its calls were captured under that list, not the agent's.
-
-    Two orderings, because `version` is a per-AGENT counter: across agents it measures how
-    often each one's variables were edited, not which schema is newest."""
+    The core every lead carries comes first (`calevate_shared.lead_fields`); its `name` is
+    the fixed Name column, which `crm/columns.available` keeps in its own place."""
     if campaign_id:
         own = (await session.execute(text(_CAMPAIGN_FIELDS_SQL), {"cid": campaign_id})).scalar()
-        if own:
-            return with_core(own, await core_labels(session))
-    if agent_id:
-        statement, params = _AGENT_SCHEMA_SQL, {"aid": agent_id}
-    else:
-        statement, params = _NEWEST_SCHEMA_SQL, {}
-    row = (await session.execute(text(statement), params)).first()
-    # The core every lead carries, then the agent's own fields (`calevate_shared.
-    # lead_fields`). The core's `name` is the fixed Name column, which
-    # `crm/columns.available` keeps in its own place.
-    return with_core(row[0] if row is not None else None, await core_labels(session))
+        return with_core(own or [], await core_labels(session))
+    return with_core(await account_fields(session, agent_id=agent_id), await core_labels(session))
 
 
 # The lead row's columns, in `_lead_out`'s order, and the join that names its owner.

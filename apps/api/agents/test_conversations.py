@@ -1308,9 +1308,8 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
             (str(f.id), f.question or "", f.answer) for f in await pinned_store.list_pinned(session)
         ),
         knowledge_titles=await _knowledge_titles(session),
-        lead_fields=tuple(
-            f.label for f in await script_builder.collect_fields(session, agent_id) if f.label
-        ),
+        # An agent's own script asks for no details: its jobs' lists do (D-1028).
+        lead_fields=(),
         hand_over=hand_over,
         call_backs=await script_builder.call_backs_available(session, row[4]),
         call_is_recorded=engine_capabilities().records_audio,

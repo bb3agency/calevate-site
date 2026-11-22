@@ -55,7 +55,6 @@ const FILES = [
   "panels/callerScreen.tsx",
   "panels/handover.tsx",
   "panels/teamAlerts.tsx",
-  "panels/extraction.tsx",
   "panels/extractionRow.tsx",
   "actions/Actions.tsx",
   "actions/ToolRow.tsx",

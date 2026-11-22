@@ -128,6 +128,27 @@ def _captured(value: Any) -> str:
 
 # --- agent_detail ----------------------------------------------------------------------
 
+#: The open campaigns and lines in one agent's voice, each with what it notes (D-1028).
+_JOBS_NOTING_SQL = (
+    "SELECT kind, id, name, fields FROM ("
+    "SELECT 'campaign' AS kind, id, name, extraction_fields AS fields, created_at "
+    "FROM campaigns WHERE agent_id = :aid AND archived_at IS NULL "
+    "UNION ALL SELECT 'line', id, name, extraction_fields, created_at FROM inbound_lines "
+    "WHERE agent_id = :aid AND archived_at IS NULL) jobs ORDER BY kind, created_at DESC LIMIT 20"
+)
+
+
+async def _jobs_noting(session: AsyncSession, agent_id: UUID) -> list[str]:
+    from calevate_shared.lead_fields import business_only
+
+    out: list[str] = []
+    for kind, job_id, name, raw in (
+        await session.execute(text(_JOBS_NOTING_SQL), {"aid": agent_id})
+    ).all():
+        noted = ", ".join(f"{f.label} ({f.key})" for f in business_only(raw or [])) or "core only"
+        out.append(f"{kind} {name} ({job_id}): {noted}")
+    return out
+
 
 async def _agent_detail(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
@@ -151,7 +172,7 @@ async def _agent_detail(
             {"aid": agent_id},
         )
     ).scalar()
-    fields = ", ".join(f"{field.label} ({field.key})" for field in agent.extraction_fields)
+    jobs = await _jobs_noting(session, agent_id)
     lines = [
         f"Agent {agent.name}: {agent.direction}, {agent.status}, "
         + ("published to the phone system" if agent.published else "not published yet")
@@ -171,7 +192,11 @@ async def _agent_detail(
         + (agent.script_opening_line or "none written yet")
         + ".",
         f"Callers hear first: {agent.first_words or 'nothing yet'}",
-        f"It captures: {fields}." if fields else "It captures no custom fields yet.",
+        (
+            "What its jobs write down (change one with `notes_set`): " + "; ".join(jobs) + "."
+            if jobs
+            else "It has no campaign or line yet, so its calls write down only the core."
+        ),
     ]
     if staged:
         lines.append(

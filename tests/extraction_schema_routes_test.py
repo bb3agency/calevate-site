@@ -216,23 +216,6 @@ async def test_a_save_from_a_stale_version_is_refused_and_keeps_the_newer_list()
         assert [f["key"] for f in after.json()["fields"]] == ["budget", "area"]
 
 
-async def test_the_roster_carries_the_version_the_editor_sends_back() -> None:
-    tenant_id, agent_id, token = await _tenant()
-    app = _app()
-    async with _client(app) as http:
-        saved = await http.put(
-            f"/v1/agents/{agent_id}/extraction-schema",
-            json={"fields": _TWO_FIELDS},
-            headers=_bearer(token),
-        )
-    from apps.api.agents.roster import agent_by_id
-
-    async with tenant_session(tenant_id) as session:
-        agent = await agent_by_id(session, agent_id)
-    assert agent is not None
-    assert agent.extraction_schema_version == saved.json()["version"]
-
-
 async def test_re_putting_the_same_list_changes_nothing() -> None:
     _tid, agent_id, token = await _tenant()
     app = _app()
@@ -536,37 +519,3 @@ async def test_too_many_choices_on_one_variable_are_refused() -> None:
     assert response.json()["type"].endswith(  # type: ignore[attr-defined]
         "/extraction_field_choices_invalid"
     )
-
-
-async def test_pips_confirmed_list_does_not_replace_one_changed_since_the_card() -> None:
-    """Pip's live-agent capture change is confirmed later. The card names the version it
-    showed, so a list changed on the Fields tab in between is not silently replaced."""
-    from apps.api.copilot import console_actions
-    from apps.api.core.errors import ProblemError
-
-    tenant_id, agent_id, token = await _tenant()
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET status = 'live' WHERE id = :a"), {"a": agent_id}
-        )
-        plan = await console_actions._plan_capture_fields_live(
-            session,
-            None,  # type: ignore[arg-type]
-            {"agent_id": str(agent_id), "fields": _TWO_FIELDS[:1]},
-        )
-    assert "expected_version" in plan.args
-    async with _client(_app()) as http:
-        moved = await http.put(
-            f"/v1/agents/{agent_id}/extraction-schema",
-            json={"fields": _TWO_FIELDS},
-            headers=_bearer(token),
-        )
-    assert moved.status_code == 200, moved.text
-    with pytest.raises(ProblemError) as refused:
-        async with tenant_session(tenant_id) as session:
-            await console_actions._execute_capture_fields(
-                session,
-                None,  # type: ignore[arg-type]
-                plan.args,
-            )
-    assert refused.value.code == "extraction_schema_changed_elsewhere"

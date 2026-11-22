@@ -9,7 +9,13 @@
  * agent, in its agent's voice (D-1003); the agent's own script is never touched.
  */
 
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type FetchQueryOptions,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import { useRef } from "react";
 
 import { apiRequest, apiUpload, type Session } from "./client";
@@ -334,25 +340,52 @@ export function useSaveCampaignSettings(session: Session, campaignId: string) {
   });
 }
 
-export type CampaignNotes = Schemas["CampaignNotesOut"];
-export type CampaignNotesInput = Schemas["CampaignNotesIn"];
-export const notesKey = (org: string, campaignId: string) => ["campaign-notes", org, campaignId] as const;
+/**
+ * "What it notes" (D-1028): the details a campaign's or an inbound line's calls write down.
+ * The list belongs to the job, never to the agent, and both jobs read and save it the same
+ * way: `GET`/`PUT .../notes`, the whole list under a compare-and-set on its digest.
+ */
+export type JobKind = "campaign" | "line";
+export type JobNotes = Schemas["JobNotesOut"];
+export type JobNotesInput = Schemas["JobNotesIn"];
+// One literal family per kind, so live updates (`lib/live/topics`) can name each.
+export const campaignNotesKey = (org: string, jobId: string) => ["campaign-notes", org, jobId] as const;
+export const lineNotesKey = (org: string, jobId: string) => ["line-notes", org, jobId] as const;
+export const jobNotesKey = (org: string, kind: JobKind, jobId: string) =>
+  kind === "campaign" ? campaignNotesKey(org, jobId) : lineNotesKey(org, jobId);
 
-/** What this campaign's calls note, and its agent's list it follows while empty (D-1003). */
-export function useCampaignNotes(session: Session, campaignId: string, agentId: string) {
-  return useQuery({
-    queryKey: [...notesKey(session.orgSlug, campaignId), agentId],
-    queryFn: () => apiRequest<CampaignNotes>(session, `${base(campaignId)}/notes`),
+export function jobNotesPath(kind: JobKind, jobId: string): string {
+  return kind === "campaign" ? `${base(jobId)}/notes` : `/v1/inbound-lines/${encodeURIComponent(jobId)}/notes`;
+}
+
+function jobNotesQuery(
+  session: Session,
+  kind: JobKind,
+  jobId: string,
+): FetchQueryOptions<JobNotes, Error, JobNotes, readonly string[]> {
+  const queryFn = () => apiRequest<JobNotes>(session, jobNotesPath(kind, jobId));
+  return kind === "campaign"
+    ? { queryKey: campaignNotesKey(session.orgSlug, jobId), queryFn }
+    : { queryKey: lineNotesKey(session.orgSlug, jobId), queryFn };
+}
+
+export function useJobNotes(session: Session, kind: JobKind, jobId: string) {
+  return useQuery(jobNotesQuery(session, kind, jobId));
+}
+
+export function useSaveJobNotes(session: Session, kind: JobKind, jobId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: JobNotesInput) =>
+      apiRequest<JobNotes>(session, jobNotesPath(kind, jobId), { method: "PUT", body: input }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: jobNotesKey(session.orgSlug, kind, jobId) }),
   });
 }
 
-export function useSaveCampaignNotes(session: Session, campaignId: string) {
+/** Another job's list, read once when the owner imports it into the editor. */
+export function useFetchJobNotes(session: Session, kind: JobKind) {
   const client = useQueryClient();
-  return useMutation({
-    mutationFn: (input: CampaignNotesInput) =>
-      apiRequest<CampaignNotes>(session, `${base(campaignId)}/notes`, { method: "PUT", body: input }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: notesKey(session.orgSlug, campaignId) }),
-  });
+  return (jobId: string) => client.fetchQuery(jobNotesQuery(session, kind, jobId));
 }
 
 /** An Excel sheet's first tab as CSV text, read on the server; nothing is stored. */

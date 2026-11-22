@@ -57,6 +57,7 @@ from apps.api.agents import (
 )
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns.contact_details import list_columns
+from apps.api.campaigns.notes import account_fields
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
@@ -177,7 +178,7 @@ class ScriptContextOut(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    #: The details the agent asks for, from its extraction schema (edited on its own screen).
+    #: The details its campaigns and lines note (D-1028), offered as "find out" suggestions.
     collect: list[CollectFieldOut]
     #: Can this account keep a call back right now? False on a free trial, where the agent
     #: never offers one whatever the script says (founder decision 1, 10 Oct 2026).
@@ -281,7 +282,7 @@ async def _context(session: AsyncSession, agent_id: UUID) -> ScriptContextOut:
     return ScriptContextOut(
         collect=[
             CollectFieldOut(label=f.label, reason=f.reason, required=f.required)
-            for f in await script_builder.collect_fields(session, agent_id)
+            for f in await account_fields(session, agent_id=agent_id)
         ],
         call_backs_available=await script_builder.call_backs_available(session, row[3]),
         hand_over_enabled=bool(row[2]),

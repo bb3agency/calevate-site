@@ -101,7 +101,7 @@
      "question": "let the agent book appointments in my Google Calendar", "expect": ["agents_find:agent_settings", "agents_do:agent_action_set"], "none_ok": true, "forbid": ["set_fields"]},
     {"id": "c-lead-suggestion", "realm": "client", "kind": "action", "route": "/c/sunrise/settings/lead-details", "title": "Lead details",
      "facts": [{"key": "agent_id", "label": "Agent id", "value": "0192f3a4-0000-7000-8000-0000000a9e01"}],
-     "question": "accept the suggestion to add 6BHK", "expect": ["agents_find:agent_settings", "agents_do:lead_suggestion_answer"], "forbid": ["agents_do:agent_capture_fields_set", "agents_do:agent_capture_fields_set_live"]},
+     "question": "accept the suggestion to add 6BHK", "expect": ["agents_find:agent_settings", "agents_do:lead_suggestion_answer"], "forbid": ["campaigns_do:notes_set"]},
     {"id": "c-lead-fields-reset", "realm": "client", "kind": "action", "route": "/c/sunrise/settings/lead-details", "title": "Lead details",
      "question": "start all my agents again from the standard lead details", "expect": ["agents_do:lead_fields_reset"], "forbid": ["set_fields"]},
     {"id": "c-teach-many", "realm": "client", "kind": "action", "route": "/c/sunrise/knowledge", "title": "Knowledge base",

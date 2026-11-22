@@ -60,13 +60,21 @@ async def _agent_with_schema(session, tenant: UUID) -> UUID:  # type: ignore[no-
     agent = await agent_lifecycle.create_agent(
         session, tenant_id=tenant, name="Desk", direction="inbound", language_primary="te-IN"
     )
-    fields = [{"key": "budget", "label": "Budget", "type": "string"}]
+    fields = [{"key": "budget", "label": "Budget", "type": "text"}]
     await session.execute(
         text(
             "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
             "created_at, updated_at) VALUES (:id, :tid, :aid, "
             "(SELECT COALESCE(MAX(version), 0) + 1 FROM extraction_schemas WHERE agent_id = :aid), "
             "CAST(:f AS jsonb), now(), now())"
+        ),
+        {"id": uuid7(), "tid": tenant, "aid": agent, "f": json.dumps(fields)},
+    )
+    # A binding may read what the agent's jobs note (D-1028): its one line notes these.
+    await session.execute(
+        text(
+            "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, extraction_fields) "
+            "VALUES (:id, :tid, 'Front desk', :aid, CAST(:f AS jsonb))"
         ),
         {"id": uuid7(), "tid": tenant, "aid": agent, "f": json.dumps(fields)},
     )

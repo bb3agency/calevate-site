@@ -222,15 +222,9 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     ),
     AreaEntry("agent_edit_live", "agents", "the same for a live agent; not live: agent_edit"),
     AreaEntry(
-        "agent_capture_fields_set",
-        "agents",
-        "the WHOLE list of details a draft or paused agent writes down; live: "
-        "agent_capture_fields_set_live",
-    ),
-    AreaEntry(
-        "agent_capture_fields_set_live",
-        "agents",
-        "the same for a live agent; not live: agent_capture_fields_set",
+        "notes_set",
+        "campaigns",
+        "the WHOLE list of details one campaign's or inbound line's calls write down",
     ),
     AreaEntry(
         "agent_changes_apply",

@@ -113,9 +113,8 @@ async def lint_context_for(
         agent_name=str(row[0] or ""),
         business_name=str(row[1] or ""),
         language=str(row[2] or ""),
-        collect=tuple(
-            field.label for field in await script_builder.collect_fields(session, agent_id)
-        ),
+        # An agent's own script asks for no details: its jobs' lists do (D-1028).
+        collect=(),
     )
 
 

@@ -97,10 +97,11 @@ export type CampaignNumber = Schemas["NumberOut"];
 export type DltTemplate = Schemas["TemplateOut"];
 export type CampaignSummary = Schemas["CampaignSummaryOut"];
 
-export function useCampaigns(session: Session): UseQueryResult<CampaignSummary[]> {
+export function useCampaigns(session: Session, enabled = true): UseQueryResult<CampaignSummary[]> {
   return useQuery({
     queryKey: ["campaigns", session.orgSlug],
     queryFn: () => apiRequest<CampaignSummary[]>(session, "/v1/campaigns"),
+    enabled,
   });
 }
 

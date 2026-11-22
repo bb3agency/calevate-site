@@ -269,7 +269,7 @@ class AssistSource:
 _TURNS_SQL = "SELECT speaker, text_redacted FROM transcript_turns WHERE call_id = :cid ORDER BY idx"
 
 _CALL_SQL = (
-    "SELECT c.agent_id, es.version, es.fields, a.language_primary, a.languages_extra "
+    "SELECT c.agent_id, es.version, a.language_primary, a.languages_extra "
     "FROM calls c "
     "JOIN agents a ON a.id = c.agent_id "
     "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
@@ -308,11 +308,11 @@ async def load_assist_source(session: AsyncSession, call_id: UUID) -> AssistSour
     row = (await session.execute(text(_CALL_SQL), {"cid": call_id})).first()
     if row is None:
         raise ProblemError.not_found("Call")
-    agent_id, version, fields = row[0], row[1], row[2]
-    # Read again under the list the call was captured with: its campaign's or line's own
-    # when it has one (D-1003), as the post-call pipeline chose.
-    fields = (await holder_fields(session, [call_id])).get(call_id) or fields
-    languages = (str(row[3]), *(str(code) for code in row[4] or ()))
+    agent_id, version = row[0], row[1]
+    # Read again under the list the call was captured with: its job's (D-1028), as the
+    # post-call pipeline chose. A call with no job reads only the core.
+    fields = (await holder_fields(session, [call_id])).get(call_id) or []
+    languages = (str(row[2]), *(str(code) for code in row[3] or ()))
 
     turns = (await session.execute(text(_TURNS_SQL), {"cid": call_id})).all()
     if not turns:

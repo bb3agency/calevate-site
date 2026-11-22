@@ -77,6 +77,7 @@ from apps.api.campaigns.models import (
     REFUSED_CONSENT_SOURCES,
     TEMPLATE_STATUSES,
 )
+from apps.api.campaigns.notes import starting_fields
 from apps.api.compliance import service as compliance_clock
 from apps.api.compliance.autodialer import a2p_dial_blocker
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
@@ -914,16 +915,21 @@ async def create_campaign(
     window = validated_window(calling_hours) if calling_hours is not None else None
     source, collected_at = _validated_provenance(consent_source, consent_collected_at)
     campaign_id = uuid7()
+    # A new campaign notes what its voice's starting list holds, so it never starts noting
+    # nothing; it is the campaign's own list from then on (D-1028).
+    notes = await starting_fields(session, tenant_id=tenant_id, agent_id=agent_id)
     await session.execute(
         text(
             "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, number_id, "
             "dlt_template_id, status, concurrency, retry_policy, calling_hours, "
-            "consent_source, consent_collected_at, kind, purpose, goal, created_at, updated_at) "
+            "consent_source, consent_collected_at, kind, purpose, goal, extraction_fields, "
+            "created_at, updated_at) "
             "VALUES (:id, :tid, :aid, :name, :cls, :nid, :dlt, 'draft', :conc, "
             "CAST(:retry AS jsonb), CAST(:window AS jsonb), :source, :collected, :kind, "
-            ":purpose, :goal, now(), now())"
+            ":purpose, :goal, CAST(:notes AS jsonb), now(), now())"
         ),
         {
+            "notes": json.dumps(notes),
             "purpose": purpose,
             "goal": goal,
             "source": source,

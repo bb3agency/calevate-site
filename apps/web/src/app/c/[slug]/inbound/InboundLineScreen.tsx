@@ -68,6 +68,7 @@ import { endingLabel } from "@/lib/callReview";
 import { LeftOutNotice } from "../agents/[agentId]/script/PipProposal";
 import { TestCallForm } from "../campaigns/CampaignBoosters";
 import { ScriptSummary } from "../campaigns/CampaignWorkspace";
+import { JobNotes, lineNotesTakeEffect } from "../campaigns/CampaignNotes";
 import { FoldGroup, FoldSection } from "../campaigns/FoldSection";
 import { TestCallRows } from "../campaigns/TestCallList";
 import { SlotsFullProblem, isSlotsFull } from "../campaigns/SlotHolders";
@@ -171,6 +172,14 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
         <MainTaskSection {...props} />
         <SourcesSection {...props} />
         <ScriptSection {...props} />
+        <JobNotes
+          kind="line"
+          jobId={data.id}
+          slug={slug}
+          canWrite={write.allowed}
+          refusal={refusal}
+          takeEffect={lineNotesTakeEffect}
+        />
         <ActionsSection {...props} slug={slug} />
         <OutsideHoursSection slug={slug} />
         <NumbersSection

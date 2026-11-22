@@ -363,21 +363,13 @@ def check_definition(
     )
 
 
-#: The agent's newest extraction schema — the same one its Leads columns and its next call's
-#: extraction use (`crm.service._AGENT_SCHEMA_SQL`). RLS scopes the row to this tenant.
-_AGENT_FIELDS_SQL = (
-    "SELECT fields FROM extraction_schemas WHERE agent_id = :aid ORDER BY version DESC LIMIT 1"
-)
-
-
 async def agent_field_keys(session: AsyncSession, *, agent_id: UUID) -> set[str]:
-    """The keys of the details this agent captures, for validating `field:<key>` bindings."""
-    raw = (await session.execute(text(_AGENT_FIELDS_SQL), {"aid": agent_id})).scalar_one_or_none()
-    stored = raw if isinstance(raw, list) else []
-    # The core every agent captures counts too (`calevate_shared.lead_fields`).
-    return set(CORE_KEYS) | {
-        str(f["key"]) for f in stored if isinstance(f, dict) and isinstance(f.get("key"), str)
-    }
+    """The keys of the details this agent's calls note, for validating `field:<key>`
+    bindings: what any campaign or line in its voice notes (D-1028), and the core every call
+    notes (`calevate_shared.lead_fields`). RLS scopes the read to this tenant."""
+    from apps.api.campaigns.notes import account_fields
+
+    return set(CORE_KEYS) | {f.key for f in await account_fields(session, agent_id=agent_id)}
 
 
 async def _assert_lead_fields(

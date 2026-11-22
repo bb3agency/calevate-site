@@ -1082,7 +1082,7 @@ async def _campaign_opening_body(
     ).scalar_one_or_none()
     if not raw:
         return None
-    collect = await campaign_collect_fields(session, campaign_id=campaign_id, agent_id=agent_id)
+    collect = await campaign_collect_fields(session, campaign_id)
     return compile_call_script(CallScript.model_validate(raw), collect=collect)
 
 

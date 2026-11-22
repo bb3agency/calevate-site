@@ -143,8 +143,8 @@ class LintContext:
     #: False where the D-943 promo warning already shows the promotional wording beside this
     #: lint (the put-live dialog), so the owner reads one promotional warning, not two.
     promo: bool = True
-    #: The labels of the lead details the agent collects (`script_builder.collect_fields`),
-    #: each of which some step should ask.
+    #: The labels of the lead details the script's job collects (a campaign's or a line's
+    #: "What it notes"; none for an agent's own script), each of which some step should ask.
     collect: tuple[str, ...] = ()
     #: The agent's call language, against which a line in English letters is found (D-861).
     #: Empty skips that check.

@@ -123,8 +123,7 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | settings | Remove an in-call action | agents_do:agent_action_remove | confirm | COVERED |
 | settings | Run an in-call action once with sample values | (none) | confirm | MISSING |
 | settings | What besides hot leads the agent tells the hot-lead list | agents_do:agent_team_alert_set | confirm | BUILT (D-938, D-967) |
-| delivery | Details it writes down (draft/paused) | agents_do:agent_capture_fields_set | now | COVERED |
-| delivery | Same for a live agent | agents_do:agent_capture_fields_set_live | confirm | COVERED |
+| delivery | What a campaign or line writes down | campaigns_do:notes_set | confirm | COVERED |
 | delivery | Accept / turn down a lead-detail suggestion | agents_do:lead_suggestion_answer | confirm | COVERED |
 | delivery | Call outcomes: AI draft / replace | (none) | confirm | MISSING |
 | known facts | Add, edit, pin, unpin, remove a fact | knowledge_do:knowledge_fact_change | confirm | COVERED |

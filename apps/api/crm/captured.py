@@ -24,6 +24,7 @@ from calevate_shared.lead_fields import CORE_KEYS, business_only, with_core
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.campaigns.notes import CALL_JOB_FIELDS_SQL, CALL_JOB_JOINS, CALL_JOB_SQL
 from apps.api.crm.schemas import CapturedFieldOut, UnclearFieldOut, UnclearKind
 from apps.api.tenancy.core_labels import core_labels
 
@@ -46,18 +47,10 @@ _ACCOUNT_VERSIONS_SQL: Final = (
 )
 
 
-#: What each call's holder asks to note (D-1003): the campaign that placed it, else the line
-#: that took it, when either has a list of its own. The same pick as the post-call
-#: pipeline's `_load_call_context`, so a call is read back under the list it was captured with.
+#: What each call's job asks to note (D-1028), the same pick as the post-call pipeline's
+#: `_load_call_context`, so a call is read back under the list it was captured with.
 _HOLDER_FIELDS_SQL: Final = (
-    "SELECT c.id, CASE WHEN jsonb_array_length(g.extraction_fields) > 0 THEN 'campaign' "
-    "WHEN jsonb_array_length(l.extraction_fields) > 0 THEN 'line' END, "
-    "CASE WHEN jsonb_array_length(g.extraction_fields) > 0 THEN g.id "
-    "WHEN jsonb_array_length(l.extraction_fields) > 0 THEN l.id END, "
-    "COALESCE(NULLIF(g.extraction_fields, '[]'::jsonb), "
-    "NULLIF(l.extraction_fields, '[]'::jsonb)) FROM calls c "
-    "LEFT JOIN campaigns g ON g.id = c.campaign_id "
-    "LEFT JOIN inbound_lines l ON l.id = c.inbound_line_id "
+    f"SELECT c.id, {CALL_JOB_SQL}, {CALL_JOB_FIELDS_SQL} FROM calls c {CALL_JOB_JOINS}"
     "WHERE c.id = ANY(:ids)"
 )
 

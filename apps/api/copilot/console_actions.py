@@ -2084,25 +2084,12 @@ class _CaptureField(BaseModel):
         return fixed
 
 
-class _CaptureFieldsArgs(BaseModel):
+class _NotesArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    agent_id: UUID
+    job: Literal["campaign", "line"]
+    job_id: UUID
     fields: Annotated[list[_CaptureField], Field(max_length=40)]
-
-
-async def _current_fields(session: AsyncSession, agent_id: UUID) -> list[dict[str, Any]]:
-    await assert_visible(session, "agent", agent_id)
-    row = (
-        await session.execute(
-            text(
-                "SELECT s.fields FROM agents a LEFT JOIN extraction_schemas s "
-                "ON s.id = a.extraction_schema_id WHERE a.id = :aid"
-            ),
-            {"aid": agent_id},
-        )
-    ).first()
-    return list(row[0] or []) if row is not None else []
 
 
 def _extraction_fields(raw: list[Any]) -> list[Any]:
@@ -2119,146 +2106,79 @@ def _extraction_fields(raw: list[Any]) -> list[Any]:
         ) from exc
 
 
-async def _plan_capture_fields_common(
-    session: AsyncSession, args: Mapping[str, Any], *, live: bool
-) -> Plan:
-    """A live agent's capture list is read on its next call, so the change is confirmed
-    first (`agent_capture_fields_set_live`), as `agent_edit_live` is; a draft or paused
-    agent's applies at once with an Undo."""
+async def _plan_notes_set(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
+    """What one campaign or line notes (D-1028). A job's list is read on its next call, so the
+    change is confirmed first and carries the digest of the list the card showed: a confirm
+    that lands after the list changed on the screen is refused rather than replacing it."""
+    del actor
     from apps.api.agents.extraction_routes import validate_fields
+    from apps.api.campaigns.notes import read_notes
 
-    parsed = parse_args(_CaptureFieldsArgs, args)
+    parsed = parse_args(_NotesArgs, args)
     fields = _extraction_fields([field.model_dump() for field in parsed.fields])
     validate_fields(fields)
-    name, status = await _agent_name_status(session, parsed.agent_id)
-    if live and status != "live":
-        raise WriteRefusedError(
-            "that agent is not live, so use `agent_capture_fields_set`, which applies at once "
-            "with an Undo"
-        )
-    if not live and status == "live":
-        raise WriteRefusedError(
-            "that agent is live, so this change would apply to its next call — use "
-            "`agent_capture_fields_set_live`, which the person confirms first"
-        )
-    current = await _current_fields(session, parsed.agent_id)
-    # The version the card shows as "current": a confirm that lands after the list changed on
-    # the What it notes tab is refused rather than replacing that newer list with this one.
-    shown_version = (
+    held = await read_notes(session, parsed.job, parsed.job_id)
+    name = (
         await session.execute(
             text(
-                "SELECT COALESCE(s.version, 0) FROM agents a LEFT JOIN extraction_schemas s "
-                "ON s.id = a.extraction_schema_id WHERE a.id = :aid"
+                "SELECT name FROM campaigns WHERE id = :jid"
+                if parsed.job == "campaign"
+                else "SELECT name FROM inbound_lines WHERE id = :jid"
             ),
-            {"aid": parsed.agent_id},
+            {"jid": parsed.job_id},
         )
     ).scalar_one()
-    proposed = ", ".join(field.label for field in fields) or "nothing"
+    noun = "campaign" if parsed.job == "campaign" else "line"
+    proposed = ", ".join(field.label for field in fields) or "only the core details"
     return Plan(
-        object_id=str(parsed.agent_id),
-        title="Change what this live agent captures" if live else "Change what this agent captures",
-        summary=f"“{name}” will capture: {proposed}. It applies from the next call.",
-        current=", ".join(str(item.get("label", item.get("key"))) for item in current) or "nothing",
+        object_id=str(parsed.job_id),
+        title=f"Change what this {noun} writes down",
+        summary=f"“{name}” will write down: {proposed}. It applies from its next call.",
+        current=", ".join(field.label for field in held.fields) or "only the core details",
         proposed=proposed,
         cost=None,
-        reversal=(
-            "Change the list back the same way. Calls already taken keep what they captured."
-            if live
-            else "Undo puts the previous list back. Calls already taken keep what they captured."
-        ),
+        reversal="Change the list back the same way. Calls already taken keep what they noted.",
         args={
-            "agent_id": str(parsed.agent_id),
+            "job": parsed.job,
+            "job_id": str(parsed.job_id),
             "fields": [field.model_dump(mode="json") for field in fields],
-            "expected_version": int(shown_version),
+            "expected_digest": held.digest,
         },
     )
 
 
-async def _plan_capture_fields(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Plan:
-    del actor
-    return await _plan_capture_fields_common(session, args, live=False)
-
-
-async def _plan_capture_fields_live(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Plan:
-    del actor
-    return await _plan_capture_fields_common(session, args, live=True)
-
-
-async def _execute_capture_fields(
+async def _execute_notes_set(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`validate_fields` then `write_schema` — `PUT /v1/agents/{id}/extraction-schema`'s two
-    steps, with the version the card showed as its CAS."""
+    """`campaigns/notes.save_notes`, the What it notes Save's own write, with the digest the
+    card showed as its compare-and-set. A campaign's or a live line's engine agent learns the
+    list at its next put-live (Start, a test call, Put it live)."""
     del actor
-    from apps.api.agents.extraction_routes import validate_fields, write_schema
+    from apps.api.campaigns.notes import save_notes
 
-    agent_id = UUID(str(args["agent_id"]))
+    job: Literal["campaign", "line"] = "campaign" if args["job"] == "campaign" else "line"
+    job_id = UUID(str(args["job_id"]))
     fields = _extraction_fields(list(args["fields"]))
-    validate_fields(fields)
-    shown = args.get("expected_version")
-    result = await write_schema(
-        session,
-        agent_id=agent_id,
-        fields=fields,
-        expected_version=None if shown is None else int(shown),
+    changed = await save_notes(
+        session, job, job_id, fields, expected_digest=args.get("expected_digest")
     )
     return Executed(
-        applied=bool(result.changed),
+        applied=changed,
         detail=(
-            f"The agent now captures {len(result.fields)} field(s)."
-            if result.changed
-            else "The agent already captured exactly those fields."
+            f"It now writes down {len(fields)} detail(s)."
+            if changed
+            else "It already wrote down exactly those details."
         ),
-        audit_summary={
-            "agent_id": str(agent_id),
-            "fields": len(result.fields),
-            "changed": result.changed,
-        },
+        audit_summary={"job": job, "job_id": str(job_id), "fields": len(fields)},
     )
-
-
-async def _capture_capture_fields(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> dict[str, Any]:
-    """The field DEFINITIONS (keys, labels, types) — the business's own configuration, never
-    a value any caller gave."""
-    del actor
-    return {"fields": await _current_fields(session, UUID(str(args["agent_id"])))}
-
-
-async def _invert_capture_fields(
-    session: AsyncSession, actor: ToolActor, record: UndoRecord
-) -> str:
-    del actor
-    from apps.api.agents.extraction_routes import write_schema
-
-    agent_id = UUID(str(record.args["agent_id"]))
-    status = (
-        await session.execute(
-            text("SELECT status FROM agents WHERE id = :aid FOR UPDATE"), {"aid": agent_id}
-        )
-    ).scalar_one_or_none()
-    if status == "live":
-        raise UndoRefusedError(
-            "that agent has gone live since, so changing its list back would apply to its next "
-            "call — change it on the agent's Settings tab instead"
-        )
-    if await _current_fields(session, agent_id) != list(record.result_state.get("fields", [])):
-        raise UndoRefusedError(
-            "those fields have been changed again since, so they were left alone"
-        )
-    await write_schema(
-        session, agent_id=agent_id, fields=_extraction_fields(list(record.prior_state["fields"]))
-    )
-    return "The agent captures the fields it captured before."
 
 
 _CAPTURE_FIELDS_PROPERTIES: Final[dict[str, Any]] = {
-    "agent_id": {"type": "string", "description": "The agent's id, never invented."},
+    "job": {"type": "string", "enum": ["campaign", "line"]},
+    "job_id": {
+        "type": "string",
+        "description": "The campaign's or inbound line's id from `agent_detail`, never invented.",
+    },
     "fields": {
         "type": "array",
         "items": {
@@ -2300,46 +2220,24 @@ _CAPTURE_FIELDS_PROPERTIES: Final[dict[str, Any]] = {
     },
 }
 
-_CAPTURE_FIELDS_WHAT: Final = (
-    "the WHOLE list of things an agent writes down from each call (for example budget, "
-    "preferred date). Send every field to keep, not only the new one — read the current list "
-    "with `agent_detail` first."
-)
-
-AGENT_CAPTURE_FIELDS_SET: Final = ActionTool(
-    name="agent_capture_fields_set",
-    tier="immediate",
-    undo=Undo(capture=_capture_capture_fields, invert=_invert_capture_fields),
-    permission="org:manage",
-    object_type="agent",
-    audit_action="agent.extraction_schema_set",
-    where="on the agent's Settings tab",
-    schema=action_schema(
-        "agent_capture_fields_set",
-        f"Set {_CAPTURE_FIELDS_WHAT} For a DRAFT or PAUSED agent; for a LIVE agent use "
-        "`agent_capture_fields_set_live`." + DOES_IT,
-        _CAPTURE_FIELDS_PROPERTIES,
-    ),
-    plan=_plan_capture_fields,
-    execute=_execute_capture_fields,
-)
-
-AGENT_CAPTURE_FIELDS_SET_LIVE: Final = ActionTool(
-    name="agent_capture_fields_set_live",
+NOTES_SET: Final = ActionTool(
+    name="notes_set",
     tier="confirm",
     undo=None,
     permission="org:manage",
-    object_type="agent",
-    audit_action="agent.extraction_schema_set",
-    where="on the agent's Settings tab",
+    object_type="campaign",
+    audit_action="notes.set",
+    where="on the campaign's or line's What it notes",
     schema=action_schema(
-        "agent_capture_fields_set_live",
-        f"Propose setting {_CAPTURE_FIELDS_WHAT} For a LIVE agent: it applies from its next "
-        "call. For a draft or paused agent use `agent_capture_fields_set`." + PROPOSES_ONLY,
+        "notes_set",
+        "Propose setting the WHOLE list of details one campaign's or one inbound line's calls "
+        "write down (for example budget, preferred date). Send every field to keep, not only "
+        "the new one: `agent_detail` lists each of the agent's campaigns and lines with what "
+        "it writes down now." + PROPOSES_ONLY,
         _CAPTURE_FIELDS_PROPERTIES,
     ),
-    plan=_plan_capture_fields_live,
-    execute=_execute_capture_fields,
+    plan=_plan_notes_set,
+    execute=_execute_notes_set,
 )
 
 
@@ -3326,8 +3224,7 @@ CONSOLE_ACTIONS: Final[tuple[ActionTool, ...]] = (
     CAMPAIGN_RESUME,
     AGENT_EDIT,
     AGENT_EDIT_LIVE,
-    AGENT_CAPTURE_FIELDS_SET,
-    AGENT_CAPTURE_FIELDS_SET_LIVE,
+    NOTES_SET,
     AGENT_CHANGES_APPLY,
     AGENT_DEACTIVATE,
     AGENT_DELETE,

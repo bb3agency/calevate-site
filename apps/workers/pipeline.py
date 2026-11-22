@@ -145,6 +145,7 @@ from apps.api.billing.tts_volume import (
     PLAN_BILLED_VOICE_TIER,
     bump_cartesia_volume,
 )
+from apps.api.campaigns.notes import CALL_JOB_FIELDS_SQL, CALL_JOB_JOINS
 from apps.api.compliance.call_notices import AI_NOTICE_SQL, RECORDING_NOTICE_SQL
 from apps.api.compliance.consent import record_recording_notice
 from apps.api.compliance.deletion import refile_erasure_for_late_records
@@ -3640,12 +3641,11 @@ async def _load_call_context(
                     # say and report a breach on every call. When the AI toggle itself is
                     # off the needle is the empty string, which `disclosure_spoken` turns
                     # into `None`: nothing was required, so nothing is certified.
-                    # WHAT IT NOTES IS THE CALL'S HOLDER'S (D-1003): the campaign that placed
-                    # it, else the line that took it, when either has its own list, else the
-                    # agent's. The version stays the agent's: it keys the agent's history.
+                    # WHAT IT NOTES IS THE CALL'S JOB'S (D-1028, `campaigns/notes`). A call with
+                    # no job notes only the core. The version stays the agent's: it keys the
+                    # labels of leads noted before D-1028.
                     "SELECT c.agent_id, c.direction, es.version, "
-                    "  COALESCE(NULLIF(g.extraction_fields, '[]'::jsonb), "
-                    "  NULLIF(l.extraction_fields, '[]'::jsonb), es.fields), "
+                    f"  {CALL_JOB_FIELDS_SQL}, "
                     f"  CASE WHEN {AI_NOTICE_SQL} THEN a.ai_disclosure_line ELSE '' END, "
                     # THE RECORDING SENTENCE, on the same toggle logic and for the same
                     # reason — an agent whose owner switched THIS notice off must not be
@@ -3658,8 +3658,7 @@ async def _load_call_context(
                     "FROM calls c "
                     "JOIN agents a ON a.id = c.agent_id "
                     "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
-                    "LEFT JOIN campaigns g ON g.id = c.campaign_id "
-                    "LEFT JOIN inbound_lines l ON l.id = c.inbound_line_id "
+                    f"{CALL_JOB_JOINS}"
                     "WHERE c.id = :cid AND c.tenant_id = :tid"
                 ),
                 {"cid": call_id, "tid": tenant_id},
@@ -3670,8 +3669,8 @@ async def _load_call_context(
     agent_id, direction, version, fields = row[0], str(row[1]), row[2], row[3]
     disclosure_line = str(row[4] or "")
     recording_notice_line = str(row[5] or "")
-    # The core every business captures, then this agent's own fields
-    # (`calevate_shared.lead_fields`). An agent with no schema still captures the core.
+    # The core every business captures, then the job's own fields
+    # (`calevate_shared.lead_fields`). A call with no job still captures the core.
     spec = ExtractionSchemaSpec(version=version or 1, fields=with_core(fields))
     return spec, spec.version, agent_id, direction, disclosure_line, recording_notice_line
 
@@ -5601,10 +5600,8 @@ PIPELINE_STALL_AFTER = timedelta(minutes=10)
 # need. Written once here rather than twice in two SQL strings, in the same style as
 # `billing.caps.over_cap_sql`: the caller supplies the joins, this supplies the rule.
 #
-# CONTRACT: the caller must alias `calls` as `c` and LEFT JOIN `extraction_schemas` as
-# `es` through the agent. LEFT, not inner — a call whose agent row was since removed
-# still had a transcript and is still owed an extraction, and an inner join would drop
-# it silently.
+# CONTRACT: the caller must alias `calls` as `c`; the rule needs no join, so a call whose
+# agent row was since removed still counts on its transcript alone.
 #
 # WHY IT MATTERS THAT IT IS THE SAME RULE: without it the stall alarm counted every
 # completed call with no `call_extractions` row, and a silent call on an agent with no
@@ -5614,10 +5611,11 @@ PIPELINE_STALL_AFTER = timedelta(minutes=10)
 # being read before the first real stall arrives.
 EXTRACTION_OWED_SQL = (
     "(EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id) "
-    "OR COALESCE(jsonb_array_length(es.fields), 0) > 0 "
-    # The call's holder's own list (D-1003), as `_load_call_context` picks it.
+    # The call's job's list (D-1028), as `_load_call_context` picks it.
     "OR EXISTS (SELECT 1 FROM campaigns g WHERE g.id = c.campaign_id "
     "AND jsonb_array_length(g.extraction_fields) > 0) "
+    "OR EXISTS (SELECT 1 FROM campaigns g WHERE c.campaign_id IS NULL "
+    "AND c.id = ANY (g.test_call_ids) AND jsonb_array_length(g.extraction_fields) > 0) "
     "OR EXISTS (SELECT 1 FROM inbound_lines l WHERE l.id = c.inbound_line_id "
     "AND jsonb_array_length(l.extraction_fields) > 0))"
 )
@@ -5806,8 +5804,6 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
                     f"    {subscribed_endpoint_sql('w')}) AS crm_fanout_owed, "
                     f"  {EXTRACTION_OWED_SQL} AS extraction_owed "
                     "FROM calls c "
-                    "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
-                    "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
                     "WHERE c.engine_call_id = :ecid AND c.tenant_id = :tid "
                     "AND c.status = 'completed' LIMIT 1"
                 ),

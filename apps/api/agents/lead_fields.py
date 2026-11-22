@@ -20,6 +20,11 @@ Three sources can fill an agent's business fields, and every one ends as an ordi
 * **The client's own edits**, through the per-agent editor, at any time.
 
 The core is never stored (`calevate_shared.lead_fields`).
+
+Since D-1028 no call reads an agent's list: a call notes its campaign's or line's own list.
+An agent's list is the starting list a new campaign or line copies, and a platform write
+here (through `extraction_routes.write_schema`) also reaches the agent's jobs that still hold
+exactly what they copied (`follow_onto_jobs`).
 """
 
 from __future__ import annotations
@@ -319,6 +324,46 @@ async def replace_business_fields(
     return written
 
 
+async def follow_onto_jobs(
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    previous: list[ExtractionField],
+    fields: list[ExtractionField],
+) -> None:
+    """Give `fields` to the agent's open campaigns and lines whose list is empty or still
+    exactly the agent's `previous` list, which is the list they copied and nobody changed
+    (D-1028). Calls read the job's list, not the agent's, so without this a finished draft
+    or a business-type move would reach no call; a job whose owner changed its list keeps
+    it. A live job's engine agent learns the list at its next put-live."""
+    from apps.api.campaigns.notes import JobKind, job_table
+
+    stored = json.dumps([f.model_dump(mode="json", exclude_none=True) for f in fields])
+    kinds: tuple[JobKind, ...] = ("campaign", "line")
+    for kind in kinds:
+        table = job_table(kind)
+        rows = (
+            await session.execute(
+                text(
+                    f"SELECT id, extraction_fields FROM {table} "
+                    "WHERE agent_id = :aid AND archived_at IS NULL FOR UPDATE"
+                ),
+                {"aid": agent_id},
+            )
+        ).all()
+        for job_id, raw in rows:
+            current = business_only(raw or [])
+            if current and not _same_fields(current, previous):
+                continue
+            await session.execute(
+                text(
+                    f"UPDATE {table} SET extraction_fields = CAST(:f AS jsonb), "
+                    "updated_at = now() WHERE id = :jid"
+                ),
+                {"f": stored, "jid": job_id},
+            )
+
+
 def _same_fields(own: list[ExtractionField], seed: list[ExtractionField] | None) -> bool:
     return seed is not None and [f.model_dump() for f in own] == [f.model_dump() for f in seed]
 
@@ -457,6 +502,7 @@ __all__ = [
     "agents_with_fields",
     "business_type_label",
     "core_labels",
+    "follow_onto_jobs",
     "has_business_fields",
     "has_standard_set",
     "maybe_name_core_details",

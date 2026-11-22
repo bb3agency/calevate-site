@@ -2014,10 +2014,10 @@ export interface paths {
         };
         get?: never;
         /**
-         * Set the variables one client's agent captures
-         * @description The variables this agent captures from a call and writes into its leads — the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
+         * Set the lead details new jobs in one client agent's voice start with
+         * @description The starting list of details a new campaign or inbound line in this agent's voice copies (D-1028); no call reads it. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
          *
-         *     Saving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).
+         *     Saving creates a new schema version; campaigns and lines already made keep their own lists. A variable whose key is a built-in lead column, or a duplicate key, is refused.
          *
          *     At most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.
          */
@@ -4370,19 +4370,19 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The variables this agent captures
-         * @description The variables this agent captures from a call and writes into its leads — the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
+         * The lead details a new campaign or line in this voice starts with
+         * @description The starting list of details a new campaign or inbound line in this agent's voice copies (D-1028); no call reads it. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
          *
-         *     Saving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).
+         *     Saving creates a new schema version; campaigns and lines already made keep their own lists. A variable whose key is a built-in lead column, or a duplicate key, is refused.
          *
          *     At most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.
          */
         get: operations["get_extraction_schema_v1_agents__agent_id__extraction_schema_get"];
         /**
-         * Set the variables this agent captures
-         * @description The variables this agent captures from a call and writes into its leads — the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
+         * Set the lead details a new campaign or line in this voice starts with
+         * @description The starting list of details a new campaign or inbound line in this agent's voice copies (D-1028); no call reads it. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
          *
-         *     Saving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).
+         *     Saving creates a new schema version; campaigns and lines already made keep their own lists. A variable whose key is a built-in lead column, or a duplicate key, is refused.
          *
          *     At most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.
          */
@@ -7319,13 +7319,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** What this campaign's calls note, and its agent's list it follows while empty */
+        /** What this campaign's calls note */
         get: operations["campaign_notes_read_v1_campaigns__campaign_id__notes_get"];
         /**
-         * Set what this campaign's calls note; an empty list follows its agent's
+         * Set what this campaign's calls note
          * @description Stored in its own transaction, then, when the campaign has its own engine agent, put
          *     live on it so its calls ask for the new details (D-1003); otherwise they reach its calls
-         *     at the next Start or test call. The agent's own list is never changed.
+         *     at the next Start or test call.
          */
         put: operations["campaign_notes_save_v1_campaigns__campaign_id__notes_put"];
         post?: never;
@@ -10304,6 +10304,29 @@ export interface paths {
         /** The calls this line took, newest first */
         get: operations["line_calls_v1_inbound_lines__line_id__calls_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What this line's calls note */
+        get: operations["line_notes_read_v1_inbound_lines__line_id__notes_get"];
+        /**
+         * Set what this line's calls note, and put a live line live again
+         * @description The whole list under a compare-and-set on the digest the editor read (D-1028). What the
+         *     line asks callers for is compiled into its script, so a live line is put live again; a
+         *     draft line's list reaches its calls when it is put live.
+         */
+        put: operations["line_notes_save_v1_inbound_lines__line_id__notes_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -16212,11 +16235,6 @@ export interface components {
              */
             extraction_fields: components["schemas"]["ExtractionField"][];
             /**
-             * Extraction Schema Version
-             * @default 0
-             */
-            extraction_schema_version: number;
-            /**
              * First Words
              * @default
              */
@@ -19525,33 +19543,6 @@ export interface components {
             note: string;
             /** Title */
             title?: string | null;
-        };
-        /** CampaignNotesIn */
-        CampaignNotesIn: {
-            /** Expected Digest */
-            expected_digest?: string | null;
-            /** Fields */
-            fields: components["schemas"]["ExtractionField"][];
-        };
-        /** CampaignNotesOut */
-        CampaignNotesOut: {
-            /** Agent Fields */
-            agent_fields: components["schemas"]["ExtractionField"][];
-            /**
-             * Agent Id
-             * Format: uuid
-             */
-            agent_id: string;
-            /** Agent Name */
-            agent_name: string;
-            /** Applied Now */
-            applied_now: boolean;
-            /** Core Fields */
-            core_fields: components["schemas"]["ExtractionField"][];
-            /** Digest */
-            digest: string;
-            /** Fields */
-            fields: components["schemas"]["ExtractionField"][];
         };
         /** CampaignPageOut */
         CampaignPageOut: {
@@ -27172,6 +27163,34 @@ export interface components {
             included_minutes: number;
             /** Minutes Used */
             minutes_used: string;
+        };
+        /**
+         * JobNotesIn
+         * @description A campaign's or an inbound line's whole "What it notes" list (D-1028).
+         */
+        JobNotesIn: {
+            /** Expected Digest */
+            expected_digest?: string | null;
+            /** Fields */
+            fields: components["schemas"]["ExtractionField"][];
+        };
+        /** JobNotesOut */
+        JobNotesOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string;
+            /** Applied Now */
+            applied_now: boolean;
+            /** Core Fields */
+            core_fields: components["schemas"]["ExtractionField"][];
+            /** Digest */
+            digest: string;
+            /** Fields */
+            fields: components["schemas"]["ExtractionField"][];
         };
         /**
          * KbDriftOut
@@ -53304,7 +53323,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CampaignNotesOut"];
+                    "application/json": components["schemas"]["JobNotesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -53329,7 +53348,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CampaignNotesIn"];
+                "application/json": components["schemas"]["JobNotesIn"];
             };
         };
         responses: {
@@ -53339,7 +53358,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CampaignNotesOut"];
+                    "application/json": components["schemas"]["JobNotesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -58818,6 +58837,81 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LineCallsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    line_notes_read_v1_inbound_lines__line_id__notes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobNotesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    line_notes_save_v1_inbound_lines__line_id__notes_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobNotesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobNotesOut"];
+                };
+            };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
                 };
             };
             /** @description RFC-9457 problem+json */

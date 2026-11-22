@@ -227,11 +227,13 @@ async def test_a_view_pinned_to_a_removed_field_degrades_and_names_what_it_lost(
         )
         assert created.status_code == 201, created.text
 
-    # An admin edits the capture list out from under the view (D-21: admin-only, so the
-    # client never sees it coming). `budget_band` is gone.
+    # The job's list is edited out from under the view (D-1028: the agent's line holds the
+    # columns). `budget_band` is gone.
     async with tenant_session(a.tenant_id) as session:
         await session.execute(
-            text("UPDATE extraction_schemas SET fields = CAST(:f AS jsonb) WHERE agent_id = :a"),
+            text(
+                "UPDATE inbound_lines SET extraction_fields = CAST(:f AS jsonb) WHERE agent_id = :a"
+            ),
             {"a": a.agent_id, "f": json.dumps([SCHEMA[1]])},
         )
 
@@ -258,7 +260,9 @@ async def test_the_row_is_not_rewritten_so_restoring_the_field_restores_the_view
         )
     async with tenant_session(a.tenant_id) as session:
         await session.execute(
-            text("UPDATE extraction_schemas SET fields = CAST(:f AS jsonb) WHERE agent_id = :a"),
+            text(
+                "UPDATE inbound_lines SET extraction_fields = CAST(:f AS jsonb) WHERE agent_id = :a"
+            ),
             {"a": a.agent_id, "f": json.dumps([SCHEMA[1]])},
         )
     async with _client() as http:
@@ -267,7 +271,9 @@ async def test_the_row_is_not_rewritten_so_restoring_the_field_restores_the_view
         ] == ["budget_band"]
     async with tenant_session(a.tenant_id) as session:
         await session.execute(
-            text("UPDATE extraction_schemas SET fields = CAST(:f AS jsonb) WHERE agent_id = :a"),
+            text(
+                "UPDATE inbound_lines SET extraction_fields = CAST(:f AS jsonb) WHERE agent_id = :a"
+            ),
             {"a": a.agent_id, "f": json.dumps(SCHEMA)},
         )
     async with _client() as http:

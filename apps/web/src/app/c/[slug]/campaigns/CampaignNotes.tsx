@@ -1,53 +1,47 @@
 "use client";
 
 /**
- * WHAT THIS CAMPAIGN'S CALLS NOTE (D-1003). Empty follows the agent's own list, so a campaign
- * notes what its agent notes until the owner gives it a list of its own. The rows are edited
- * with the agent's own editor row (`agents/panels/extractionRow`) and its draft arithmetic
- * (`agents/panels/extractionDraft`), so the two lists are written the same way and held to the
- * same rules. A save over a list changed elsewhere is refused (`campaign_notes_changed_elsewhere`)
- * and offers the current list.
+ * WHAT IT NOTES (D-1028): the details a campaign's or an inbound line's calls write down. The
+ * list belongs to the job, never to the agent, so the campaign page and the line page show
+ * this one editor. Rows are the shared field row (`agents/panels/extractionRow`) and draft
+ * arithmetic (`agents/panels/extractionDraft`). A save over a list changed elsewhere is
+ * refused (`<kind>_notes_changed_elsewhere`) and offers the current list. "Import from
+ * another ..." loads another job's list into the editor as an unsaved change; Save keeps it.
  */
 
 import { useMemo, useState } from "react";
-import { Plus, Save } from "lucide-react";
+import { ChevronDown, Download, Plus, Save } from "lucide-react";
 import Link from "next/link";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { Menu, type MenuItem } from "@/components/arc/menu";
+import { EmptyState } from "@/components/console/emptyState";
 import { useFormValidation } from "@/components/formValidation";
 import { ProblemNotice, SECONDARY_BUTTON, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
-import { useCampaignNotes, useSaveCampaignNotes, type CampaignNotes as Notes } from "@/lib/api/campaignWorkspace";
+import { useCampaigns } from "@/lib/api/campaigns";
+import {
+  useFetchJobNotes,
+  useJobNotes,
+  useSaveJobNotes,
+  type JobKind,
+  type JobNotes as Notes,
+} from "@/lib/api/campaignWorkspace";
+import { useInboundLines } from "@/lib/api/inboundLines";
 import { useClientRealm } from "@/lib/api/session";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
-import {
-  blankRow,
-  canonical,
-  clientValidationError,
-  toDraft,
-  toWireFields,
-  type DraftRow,
-} from "../agents/panels/extractionDraft";
+import { blankRow, canonical, clientValidationError, toDraft, toWireFields, type DraftRow } from "../agents/panels/extractionDraft";
 import { FieldEditorRow } from "../agents/panels/extractionRow";
 import { TEAM_ALERTS_ANCHOR } from "../agents/panels/teamAlerts";
+import { campaignStatusWord } from "./campaignStatus";
 import { FoldSection } from "./FoldSection";
 
-type Props = {
-  slug: string;
-  campaignId: string;
-  agentId: string;
-  /** The campaign's status, which says when a saved list reaches its calls. */
-  status?: string | null;
-  canWrite: boolean;
-  refusal?: string;
-};
-
 /**
- * When a saved list reaches the calls. `applied_now` is a held engine agent, put live on save;
- * a running or paused campaign without one gets one at its next dial (`engine_agent.dial_for`);
- * a stopped one at its next Start; a draft or a scheduled one at its first call.
+ * When a saved campaign list reaches the calls. `applied_now` is a held engine agent, put live
+ * on save; a running or paused campaign without one gets one at its next dial; a stopped one at
+ * its next Start; a draft or a scheduled one at its first call.
  */
 export function notesTakeEffect(appliedNow: boolean, status: string | null | undefined): string {
   if (appliedNow || status === "running" || status === "paused") return "From its next call.";
@@ -55,19 +49,34 @@ export function notesTakeEffect(appliedNow: boolean, status: string | null | und
   return "From its first call.";
 }
 
-const NOTES_INFO =
-  "The agent asks for these on this campaign's calls and writes them on the lead. Empty means it notes what the agent notes everywhere else.";
+/** When a saved line list reaches the calls: a live line is put live again on save. */
+export function lineNotesTakeEffect(appliedNow: boolean): string {
+  return appliedNow ? "From its next call." : "When you put it live.";
+}
 
-export function CampaignNotes(props: Props) {
+const NOUN: Record<JobKind, string> = { campaign: "campaign", line: "line" };
+
+type JobProps = {
+  kind: JobKind;
+  jobId: string;
+  slug: string;
+  canWrite: boolean;
+  refusal?: string;
+  /** When a saved list reaches the calls, from the server's `applied_now`. */
+  takeEffect: (appliedNow: boolean) => string;
+};
+
+export function JobNotes(props: JobProps) {
   const { session } = useClientRealm();
-  const notes = useCampaignNotes(session, props.campaignId, props.agentId);
+  const notes = useJobNotes(session, props.kind, props.jobId);
+  const noun = NOUN[props.kind];
   return (
     <FoldSection
-      id={`campaign-notes-${props.campaignId}`}
+      id={`${props.kind}-notes-${props.jobId}`}
       title="What it notes"
       tone="details"
       hint="The details its calls write down."
-      info={NOTES_INFO}
+      info={`The agent asks for these on this ${noun}'s calls and writes them on the lead.`}
     >
       {notes.error != null && <ProblemNotice error={notes.error} onRetry={() => notes.refetch()} />}
       {!notes.data && notes.error == null && <Skeleton rows={2} label="Loading what it notes" />}
@@ -78,29 +87,142 @@ export function CampaignNotes(props: Props) {
   );
 }
 
+type CampaignProps = {
+  slug: string;
+  campaignId: string;
+  /** The campaign's status, which says when a saved list reaches its calls. */
+  status?: string | null;
+  canWrite: boolean;
+  refusal?: string;
+};
+
+export function CampaignNotes({ campaignId, status, ...rest }: CampaignProps) {
+  return (
+    <JobNotes kind="campaign" jobId={campaignId} takeEffect={(now) => notesTakeEffect(now, status)} {...rest} />
+  );
+}
+
+/**
+ * The account's other open campaigns or lines, as the import menu offers them. Read only once
+ * the menu is asked for (`wanted`), so a page that never imports never lists them.
+ */
+function useOtherJobs(
+  kind: JobKind,
+  jobId: string,
+  wanted: boolean,
+): { items: { id: string; label: string; hint?: string }[]; loading: boolean; failed: boolean } {
+  const { session } = useClientRealm();
+  const campaigns = useCampaigns(session, wanted && kind === "campaign");
+  const lines = useInboundLines(session, wanted && kind === "line");
+  if (kind === "campaign") {
+    if (campaigns.error || !campaigns.data) {
+      return { items: [], loading: !campaigns.error, failed: campaigns.error != null };
+    }
+    const rows = campaigns.data.filter((c) => c.id !== jobId && !c.archived_at);
+    return {
+      loading: false,
+      failed: false,
+      items: rows.map((c) => ({ id: c.id, label: c.name, hint: campaignStatusWord(c.status) })),
+    };
+  }
+  if (lines.error || !lines.data) {
+    return { items: [], loading: !lines.error, failed: lines.error != null };
+  }
+  const rows = lines.data.filter((l) => l.id !== jobId);
+  return {
+    loading: false,
+    failed: false,
+    items: rows.map((l) => ({ id: l.id, label: l.name, hint: l.live ? "Live" : "Draft" })),
+  };
+}
+
+function ImportMenu({
+  kind,
+  jobId,
+  disabled,
+  title,
+  onImport,
+}: {
+  kind: JobKind;
+  jobId: string;
+  disabled: boolean;
+  title?: string;
+  onImport: (id: string, name: string) => void;
+}) {
+  const noun = NOUN[kind];
+  const [wanted, setWanted] = useState(false);
+  const others = useOtherJobs(kind, jobId, wanted);
+  const want = () => setWanted(true);
+  const items: MenuItem[] = others.items.length
+    ? others.items.map((job) => ({
+        id: job.id,
+        label: job.label,
+        hint: job.hint,
+        onSelect: () => onImport(job.id, job.label),
+      }))
+    : [
+        {
+          id: "none",
+          label: others.failed
+            ? `Could not load your ${noun}s. Reload the page to try again.`
+            : others.loading || !wanted
+              ? `Loading ${noun}s…`
+              : `No other active ${noun}s`,
+          disabled: true,
+        },
+      ];
+  return (
+    <Menu
+      label={`Import from another ${noun}`}
+      align="start"
+      items={items}
+      trigger={
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_SM}
+          disabled={disabled}
+          title={title}
+          onPointerDown={want}
+          onKeyDown={want}
+          onFocus={want}
+          onClick={want}
+        >
+          <Download aria-hidden className="h-4 w-4" />
+          Import from another {noun}
+          <ChevronDown aria-hidden className="h-4 w-4" />
+        </button>
+      }
+    />
+  );
+}
+
 function NotesEditor({
   data,
   onReload,
+  kind,
+  jobId,
   slug,
-  campaignId,
-  status,
   canWrite,
   refusal,
-}: Props & { data: Notes; onReload: () => void }) {
+  takeEffect,
+}: JobProps & { data: Notes; onReload: () => void }) {
   const { session, href } = useClientRealm();
   const eg = useVerticalExamples();
-  const save = useSaveCampaignNotes(session, campaignId);
+  const save = useSaveJobNotes(session, kind, jobId);
+  const fetchNotes = useFetchJobNotes(session, kind);
   const feedback = useActionFeedback(save, { errorDisplay: "inline" });
   const valid = useFormValidation();
   const [rows, setRows] = useState<DraftRow[]>(() => data.fields.map(toDraft));
-  const [own, setOwn] = useState(data.fields.length > 0);
+  const [imported, setImported] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<unknown>(null);
 
   const saved = useMemo(() => canonical(data.fields), [data.fields]);
-  const wire = own ? toWireFields(rows) : [];
+  const wire = toWireFields(rows);
   const dirty = canonical(wire) !== saved;
   useUnsavedGuard(dirty);
-  const clientError = own ? clientValidationError(rows) : null;
-  const conflict = save.error instanceof ApiProblem && save.error.code === "campaign_notes_changed_elsewhere";
+  const clientError = clientValidationError(rows);
+  const conflict = save.error instanceof ApiProblem && save.error.code === `${kind}_notes_changed_elsewhere`;
   const disabled = !canWrite || save.isPending;
 
   const patchRow = (uid: string, patch: Partial<DraftRow>) =>
@@ -113,60 +235,20 @@ function NotesEditor({
       [next[index], next[target]] = [next[target], next[index]];
       return next;
     });
-
-  if (!own) {
-    return (
-      <div className="space-y-3">
-        <p className="text-meta text-ink-muted">Same as {data.agent_name}.</p>
-        {save.error != null && <ProblemNotice error={save.error} />}
-        {data.agent_fields.length > 0 ? (
-          <ul className="divide-y divide-line border-y border-line">
-            {data.agent_fields.map((field) => (
-              <li key={field.key} className="py-2 text-meta text-ink">
-                {field.label}
-                {field.required && <span className="ml-2 text-ink-muted">Required</span>}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-meta text-ink-muted">Name, number and a summary only.</p>
-        )}
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={disabled}
-            title={refusal}
-            onClick={() => {
-              setRows(data.agent_fields.length > 0 ? data.agent_fields.map(toDraft) : [blankRow()]);
-              setOwn(true);
-            }}
-          >
-            Give it its own list
-          </button>
-          {dirty && (
-            <ActionButton
-              type="button"
-              status={feedback.status}
-              successLabel="Saved"
-              disabled={disabled}
-              onClick={() => save.mutate({ fields: [], expected_digest: data.digest })}
-            >
-              <Save aria-hidden className="h-4 w-4" />
-              Save
-            </ActionButton>
-          )}
-        </div>
-        <p className="text-xs text-ink-muted">
-          Change the agent&apos;s list on its{" "}
-          <Link className="underline" href={href(`/c/${slug}/agents/${data.agent_id}`)}>
-            page
-          </Link>
-          .
-        </p>
-      </div>
-    );
-  }
+  const importFrom = async (id: string, name: string) => {
+    setImporting(true);
+    setImportError(null);
+    try {
+      const other = await fetchNotes(id);
+      setRows(other.fields.map(toDraft));
+      setImported(name);
+      save.reset();
+    } catch (error) {
+      setImportError(error);
+    } finally {
+      setImporting(false);
+    }
+  };
 
   return (
     <form
@@ -174,7 +256,10 @@ function NotesEditor({
       noValidate
       onSubmit={valid.onSubmit(() => {
         if (disabled || !dirty || clientError) return;
-        save.mutate({ fields: wire, expected_digest: data.digest });
+        save.mutate(
+          { fields: wire, expected_digest: data.digest },
+          { onSuccess: () => setImported(null) },
+        );
       })}
     >
       {save.error != null && (
@@ -194,8 +279,18 @@ function NotesEditor({
           )}
         </div>
       )}
+      {importError != null && <ProblemNotice error={importError} />}
+      {imported && dirty && (
+        <p role="status" className="text-meta text-ink-muted">
+          Loaded from {imported}. Save to keep it.
+        </p>
+      )}
       {rows.length === 0 ? (
-        <p className="text-meta text-ink-muted">No details yet. Calls still note name, number and a summary.</p>
+        <EmptyState
+          align="start"
+          message="No details yet."
+          hint="Calls still note name, number and a summary."
+        />
       ) : (
         <ul className="divide-y divide-line border-y border-line">
           {rows.map((row, index) => (
@@ -228,9 +323,13 @@ function NotesEditor({
           <Plus aria-hidden className="h-4 w-4" />
           Add a detail
         </button>
-        <button type="button" className={SECONDARY_BUTTON_SM} disabled={disabled} onClick={() => setOwn(false)}>
-          Use {data.agent_name}&apos;s list
-        </button>
+        <ImportMenu
+          kind={kind}
+          jobId={jobId}
+          disabled={disabled || importing}
+          title={refusal}
+          onImport={(id, name) => void importFrom(id, name)}
+        />
       </div>
       <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
         <ActionButton
@@ -249,9 +348,7 @@ function NotesEditor({
           <span className="text-xs text-ink-muted">You have unsaved changes.</span>
         ) : null}
       </div>
-      <p className="text-xs text-ink-muted">
-        {notesTakeEffect(data.applied_now, status)} Old leads keep their values.
-      </p>
+      <p className="text-xs text-ink-muted">{takeEffect(data.applied_now)} Old leads keep their values.</p>
       {data.fields.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <p className="text-xs text-ink-muted">Want your team told about an answer?</p>

@@ -1,4 +1,11 @@
-"""Editing the extraction VARIABLES an agent captures — the client's own field list.
+"""An agent's STARTING list of lead details: what a new campaign or line in its voice copies.
+
+D-1028 (founder, 22 Nov 2026): what a call notes belongs to its job, so no call reads this
+list. A campaign or an inbound line keeps its own (`campaigns/notes.py`) and copies this one
+when it is made (`campaigns/notes.starting_fields`). The account's Lead details screen and the
+platform's business-type and AI-draft paths still write it, which is why these routes stay;
+the agent page no longer edits it. `extraction_schemas` is dropped in a later release (hard
+rule 8). The history below explains the versioned, whole-list shape, which is unchanged.
 
 WHAT CHANGED, AND THE DECISION BEHIND IT (D-460, superseding D-21's admin-only clause)
 --------------------------------------------------------------------------------------
@@ -330,8 +337,13 @@ async def _write_schema(
         text("UPDATE agents SET extraction_schema_id = :sid, updated_at = now() WHERE id = :aid"),
         {"sid": schema_id, "aid": str(agent_id)},
     )
-    # Every writer of an agent's fields comes through here (the client and admin saves, Pip,
-    # an accepted suggestion), so this is the one place the live agent learns of the change.
+    # Every writer of an agent's starting list comes through here, so this is the one place
+    # its jobs that still hold exactly the list they copied take the change (D-1028).
+    from apps.api.agents.lead_fields import follow_onto_jobs
+
+    await follow_onto_jobs(
+        session, agent_id=agent_id, previous=business_only(current_fields), fields=fields
+    )
     await queue_collect_rebuild(session, tenant_id=tenant_id, agent_id=agent_id)
     return ExtractionSchemaOut(
         fields=fields,
@@ -356,16 +368,16 @@ def _audit_summary(result: ExtractionSchemaOut) -> dict[str, object]:
 
 
 _DESCRIPTION = (
-    "The variables this agent captures from a call and writes into its leads — the Leads "
-    "column list. Send the WHOLE ordered list; it replaces what was there. Each variable "
-    "has a key (stored id), a label (shown), a type (text, number, bool, enum, date), "
+    "The starting list of details a new campaign or inbound line in this agent's voice "
+    "copies (D-1028); no call reads it. Send the WHOLE ordered list; it replaces what was "
+    "there. Each variable has a key (stored id), a label (shown), a type (text, number, "
+    "bool, enum, date), "
     "whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — "
     "why the variable is needed, which the AI reads to fill it more accurately. Leave the "
     "reason blank to have the AI work from the name alone.\n\n"
-    "Saving creates a new schema version used on the NEXT call's extraction; calls already "
-    "recorded keep the variables they were extracted with. A variable whose key is a "
-    "built-in lead column, or a duplicate key, is refused. Renaming or removing a "
-    "variable's key stops older leads from showing that column (their values are kept).\n\n"
+    "Saving creates a new schema version; campaigns and lines already made keep their own "
+    "lists. A variable whose key is a built-in lead column, or a duplicate key, is "
+    "refused.\n\n"
     f"At most {MAX_EXTRACTION_FIELDS} variables, each with a name of "
     f"{MAX_LABEL_LEN} characters or fewer, a reason of {MAX_REASON_LEN} or fewer, and at "
     f"most {MAX_ENUM_VALUES} choices."
@@ -376,7 +388,7 @@ _DESCRIPTION = (
     "/v1/agents/{agent_id}/extraction-schema",
     response_model=ExtractionSchemaOut,
     openapi_extra=permission_meta("org:read"),
-    summary="The variables this agent captures",
+    summary="The lead details a new campaign or line in this voice starts with",
     description=_DESCRIPTION,
 )
 async def get_extraction_schema(
@@ -410,7 +422,7 @@ async def get_extraction_schema(
     # `org:manage` — the OWNER's permission. Editing what every call captures is an owner's
     # decision, the same class as choosing the account's language model, not a staff read.
     openapi_extra=permission_meta("org:manage"),
-    summary="Set the variables this agent captures",
+    summary="Set the lead details a new campaign or line in this voice starts with",
     description=_DESCRIPTION,
 )
 async def set_extraction_schema(
@@ -448,7 +460,7 @@ admin_router = APIRouter(prefix="/v1/admin", tags=["admin"])
     "/tenants/{tenant_id}/agents/{agent_id}/extraction-schema",
     response_model=ExtractionSchemaOut,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="Set the variables one client's agent captures",
+    summary="Set the lead details new jobs in one client agent's voice start with",
     description=_DESCRIPTION,
 )
 async def admin_set_extraction_schema(
@@ -483,8 +495,8 @@ async def admin_set_extraction_schema(
         return result
 
 
-#: The client route's two steps under public names, for the assistant's
-#: `agent_capture_fields_set` (copilot/console_actions.py): it must validate and write
-#: exactly as the Save button does, so it calls these rather than a copy of them.
+#: The route's two steps under public names, for the platform's own writers of the starting
+#: list (`lead_fields`, `starters`, `field_suggestions`), so they validate and write exactly
+#: as the Save button does.
 validate_fields = _validate_fields
 write_schema = _write_schema

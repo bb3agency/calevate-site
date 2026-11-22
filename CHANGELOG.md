@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.3 — 22-Nov-2026
+
+- What a call writes down now belongs to the campaign or the Inbound line it is for. Each
+  campaign and each line has its own "What it notes" list, edited on its own page.
+- Every campaign and line starts with the list its agent used, so nothing notes less than
+  before. The agent's page no longer has "What it writes down".
+- "Import from another campaign" (or "another line") copies another list into the editor;
+  press Save to keep it.
+
 ## 0.5.2 — 22-Nov-2026
 
 - A campaign's Agent section now only picks the agent. Its voice and call settings are

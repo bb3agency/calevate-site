@@ -1166,31 +1166,43 @@ async def save_campaign_settings(
 # --- What it notes ----------------------------------------------------------------------------
 
 
-class CampaignNotesIn(BaseModel):
+class JobNotesIn(BaseModel):
+    """A campaign's or an inbound line's whole "What it notes" list (D-1028)."""
+
     model_config = ConfigDict(extra="forbid")
-    #: The campaign's whole list; empty follows its agent's.
     fields: list[ExtractionField] = Field(max_length=MAX_EXTRACTION_FIELDS)
     #: The `digest` of the list the editor was showing. Sent, a save over a list changed since
     #: is refused rather than dropping the other change, because the body is the whole list.
     expected_digest: str | None = Field(default=None, max_length=64)
 
 
-class CampaignNotesOut(_Out):
+class JobNotesOut(_Out):
     agent_id: UUID
     agent_name: str
-    #: The campaign's own list, in order; empty means its calls note what its agent notes.
+    #: The job's list, in order.
     fields: list[ExtractionField]
-    #: Its agent's list, which its calls note while `fields` is empty.
-    agent_fields: list[ExtractionField]
     #: The details every call notes whatever the list (name, number, summary...).
     core_fields: list[ExtractionField]
     digest: str
-    #: The campaign has its own engine agent now, so a save reaches its calls at once.
+    #: The job's own engine agent holds its script now, so a save reaches its calls at once.
     applied_now: bool
 
 
-async def _notes_out(session: AsyncSession, campaign_id: UUID) -> CampaignNotesOut:
-    held = await campaign_notes.read_notes(session, campaign_id)
+async def job_notes_out(
+    session: AsyncSession, kind: campaign_notes.JobKind, job_id: UUID, *, applied_now: bool
+) -> JobNotesOut:
+    held = await campaign_notes.read_notes(session, kind, job_id)
+    return JobNotesOut(
+        agent_id=held.agent_id,
+        agent_name=held.agent_name,
+        fields=list(held.fields),
+        core_fields=core_fields(await core_labels(session)),
+        digest=held.digest,
+        applied_now=applied_now,
+    )
+
+
+async def _notes_out(session: AsyncSession, campaign_id: UUID) -> JobNotesOut:
     live = (
         await session.execute(
             text(
@@ -1199,48 +1211,40 @@ async def _notes_out(session: AsyncSession, campaign_id: UUID) -> CampaignNotesO
             ),
             {"c": campaign_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
         )
-    ).scalar_one()
-    return CampaignNotesOut(
-        agent_id=held.agent_id,
-        agent_name=held.agent_name,
-        fields=list(held.fields),
-        agent_fields=list(held.agent_fields),
-        core_fields=core_fields(await core_labels(session)),
-        digest=held.digest,
-        applied_now=bool(live),
-    )
+    ).scalar()
+    return await job_notes_out(session, "campaign", campaign_id, applied_now=bool(live))
 
 
 @router.get(
     "/{campaign_id}/notes",
-    response_model=CampaignNotesOut,
+    response_model=JobNotesOut,
     openapi_extra=permission_meta("leads:read"),
-    summary="What this campaign's calls note, and its agent's list it follows while empty",
+    summary="What this campaign's calls note",
 )
-async def campaign_notes_read(campaign_id: UUID, session: Session, _: Reader) -> CampaignNotesOut:
+async def campaign_notes_read(campaign_id: UUID, session: Session, _: Reader) -> JobNotesOut:
     return await _notes_out(session, campaign_id)
 
 
 @router.put(
     "/{campaign_id}/notes",
-    response_model=CampaignNotesOut,
+    response_model=JobNotesOut,
     openapi_extra=permission_meta("leads:dispatch"),
-    summary="Set what this campaign's calls note; an empty list follows its agent's",
+    summary="Set what this campaign's calls note",
 )
 async def campaign_notes_save(
     campaign_id: UUID,
-    payload: CampaignNotesIn,
+    payload: JobNotesIn,
     session: Session,
     request: Request,
     principal: Dispatcher,
-) -> CampaignNotesOut:
+) -> JobNotesOut:
     """Stored in its own transaction, then, when the campaign has its own engine agent, put
     live on it so its calls ask for the new details (D-1003); otherwise they reach its calls
-    at the next Start or test call. The agent's own list is never changed."""
+    at the next Start or test call."""
     assert principal.tenant_id is not None
     async with tenant_session(principal.tenant_id) as own:
         changed = await campaign_notes.save_notes(
-            own, campaign_id, payload.fields, expected_digest=payload.expected_digest
+            own, "campaign", campaign_id, payload.fields, expected_digest=payload.expected_digest
         )
         if changed:
             await write_audit(

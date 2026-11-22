@@ -152,7 +152,7 @@ describe("a campaign's What it notes", () => {
   const notesPath = `/v1/campaigns/${FIXTURE_CAMPAIGN_ID}/notes`;
   const render = (notes: ReturnType<typeof notesFixture>) =>
     renderClientPage(
-      <CampaignNotes slug="acme" campaignId={FIXTURE_CAMPAIGN_ID} agentId={FIXTURE_AGENT_ID} canWrite />,
+      <CampaignNotes slug="acme" campaignId={FIXTURE_CAMPAIGN_ID} canWrite />,
       routes({ [notesPath]: notes }),
     );
 
@@ -170,9 +170,4 @@ describe("a campaign's What it notes", () => {
     expect(link.getAttribute("href")).toBe(`/c/acme/agents/${FIXTURE_AGENT_ID}?section=settings#team-alerts`);
   });
 
-  it("offers no alerts link while it follows the agent's list", async () => {
-    await render(notesFixture());
-    expect(await screen.findByText(/Same as/)).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "Set alerts" })).toBeNull();
-  });
 });

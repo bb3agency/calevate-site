@@ -188,11 +188,10 @@ _INBOUND_LINE = BoundedByConstruction(
         "numbers, which a client cannot mint (see `GET /v1/campaigns/numbers`)."
     )
 )
-_CAMPAIGN_NOTES = BoundedByConstruction(
+_JOB_NOTES = BoundedByConstruction(
     by=(
-        "ONE campaign's lists: its own and its agent's at most MAX_EXTRACTION_FIELDS (50) each, "
-        "held there on every write (`agents/extraction_routes.ExtractionSchemaIn`, "
-        "`campaigns/workspace_routes.CampaignNotesIn`), and the fixed core list."
+        "ONE campaign's or line's list, at most MAX_EXTRACTION_FIELDS (50), held there on "
+        "every write (`campaigns/workspace_routes.JobNotesIn`), and the fixed core list."
     )
 )
 _INBOUND_LINES = BoundedByConstruction(
@@ -290,8 +289,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         )
     ),
     # --- inbound lines (D-997) -----------------------------------------------------------
-    "GET /v1/campaigns/{campaign_id}/notes": _CAMPAIGN_NOTES,
-    "PUT /v1/campaigns/{campaign_id}/notes": _CAMPAIGN_NOTES,
+    "GET /v1/campaigns/{campaign_id}/notes": _JOB_NOTES,
+    "GET /v1/inbound-lines/{line_id}/notes": _JOB_NOTES,
+    "PUT /v1/campaigns/{campaign_id}/notes": _JOB_NOTES,
+    "PUT /v1/inbound-lines/{line_id}/notes": _JOB_NOTES,
     "GET /v1/inbound-lines": _INBOUND_LINES,
     "POST /v1/inbound-lines": _INBOUND_LINE,
     "GET /v1/inbound-lines/{line_id}": _INBOUND_LINE,

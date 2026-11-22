@@ -108,11 +108,6 @@ log = get_logger(__name__)
 #: broken feature rather than as a floor doing its job.
 WINDOW_DAYS = 7
 
-_SCHEMA_SQL = (
-    "SELECT es.version, es.fields FROM agents a "
-    "JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
-    "WHERE a.id = :aid"
-)
 
 # `ended_at` bounds, `agent_id` scopes, RLS does the tenant. The LEFT JOIN is what makes
 # a call with no extraction count in the denominator: an agent that captured nothing on
@@ -172,19 +167,20 @@ class AgentInsights:
 
 
 async def vocabulary_for_agent(session: AsyncSession, agent_id: UUID) -> Vocabulary | None:
-    """The agent's published extraction schema as a vocabulary, or None if it has none.
+    """What the agent's campaigns and lines note (D-1028) as a vocabulary, or None if they
+    note nothing of their own.
 
-    None is a real answer and not an error: an agent with no extraction schema has no
-    client-authored vocabulary, so the only tokens available would be our own two enums —
-    outcome and sentiment counts with nothing to attach them to. A digest of that is
-    noise, and returning None lets the caller skip the agent rather than render one.
+    None is a real answer and not an error: with no client-authored details the only tokens
+    available would be our own two enums — outcome and sentiment counts with nothing to
+    attach them to. A digest of that is noise, and returning None lets the caller skip the
+    agent rather than render one.
     """
-    row = (await session.execute(text(_SCHEMA_SQL), {"aid": agent_id})).first()
-    if row is None:
+    from apps.api.campaigns.notes import account_fields
+
+    fields = await account_fields(session, agent_id=agent_id)
+    if not fields:
         return None
-    version, fields = row
-    spec = ExtractionSchemaSpec.model_validate({"version": version, "fields": fields})
-    return Vocabulary.for_schema(spec)
+    return Vocabulary.for_schema(ExtractionSchemaSpec(version=1, fields=fields))
 
 
 async def insights_for_agent(

@@ -46,6 +46,7 @@ from calevate_shared.engine import (
     placed_call_first_words,
     spoken_ai_notice,
 )
+from calevate_shared.extraction import ExtractionField
 from calevate_shared.lead_fields import business_only
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -82,7 +83,12 @@ AGENT_ROSTER_SQL = (
     "SELECT a.id, a.name, a.direction, a.status, a.language_primary, "
     # Slot 7 is unused: `published` is the status (D-1019), and a NULL keeps every later
     # positional index meaning what it meant.
-    "a.disclosure_line, a.engine, NULL, es.fields, "
+    "a.disclosure_line, a.engine, NULL, "
+    # What its campaigns and lines note (D-1028), each job's list newest edit first.
+    "(SELECT jsonb_agg(j.f ORDER BY j.at DESC) FROM (SELECT extraction_fields AS f, "
+    "updated_at AS at FROM campaigns WHERE agent_id = a.id AND archived_at IS NULL "
+    "UNION ALL SELECT extraction_fields, updated_at FROM inbound_lines "
+    "WHERE agent_id = a.id AND archived_at IS NULL) j), "
     f"a.ai_disclosure_line, {AI_NOTICE_SQL}, "
     f"a.recording_notice_line, {RECORDING_NOTICE_SQL}, a.archived_at, "
     "(SELECT count(*) FROM phone_numbers pn WHERE pn.agent_id = a.id), "
@@ -103,8 +109,8 @@ AGENT_ROSTER_SQL = (
     "pv.body, "
     # The reply languages after the main one, appended for the reason above.
     "a.languages_extra, "
-    # The capture schema's version, the editor's save token (`expected_version`).
-    "es.version, "
+    # Slot 23 is unused since D-1028 (it was the agent's own list's version).
+    "NULL, "
     # The caller-memory statement this account accepted, appended for the reason above.
     "o.caller_memory_attestation_version, "
     # Whether the caller follows along on a screen (D-906), appended for the reason above.
@@ -114,7 +120,7 @@ AGENT_ROSTER_SQL = (
     "o.name, "
     # Selling or helping customers, appended for the reason above.
     "a.purpose "
-    "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
+    "FROM agents a "
     "LEFT JOIN organizations o ON o.id = a.tenant_id "
     "LEFT JOIN prompt_versions pv ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
     "WHERE a.deleted_at IS NULL"
@@ -127,6 +133,18 @@ AGENT_ROSTER_SQL = (
 #: each row carries the agent's whole extraction schema, so the response grows in two
 #: dimensions at once.
 AGENT_ROSTER_LIMIT = 200
+
+
+def _jobs_fields(lists: Any) -> list[ExtractionField]:
+    """The jobs' lists (newest edit first) as one list, the first job's wording per key."""
+    out: list[ExtractionField] = []
+    seen: set[str] = set()
+    for raw in lists or []:
+        for field in business_only(raw or []):
+            if field.key not in seen:
+                seen.add(field.key)
+                out.append(field)
+    return out
 
 
 def agent_out(r: Any) -> AgentOut:
@@ -180,10 +198,9 @@ def agent_out(r: Any) -> AgentOut:
         disclosure_line=r[5],
         engine=r[6],
         published=is_published(r[3]),
-        # The agent's OWN fields; the core every agent also captures is
+        # What its campaigns and lines note, one per key; the core every call also notes is
         # `GET /v1/lead-fields` (`calevate_shared.lead_fields`).
-        extraction_fields=business_only(r[8]),
-        extraction_schema_version=int(r[23] or 0),
+        extraction_fields=_jobs_fields(r[8]),
         ai_disclosure_line=r[9],
         ai_disclosure_enabled=bool(r[10]),
         recording_notice_line=r[11],

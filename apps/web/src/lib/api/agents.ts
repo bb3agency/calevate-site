@@ -64,8 +64,6 @@ export type CallerScreenOut = components["schemas"]["CallerScreenOut"];
 export type AgentExtractionField = Agent["extraction_fields"][number];
 
 /** The whole ordered list a PUT replaces, and the answer a PUT gives back. */
-export type ExtractionSchemaIn = components["schemas"]["ExtractionSchemaIn"];
-export type ExtractionSchemaOut = components["schemas"]["ExtractionSchemaOut"];
 
 export const agentKeys = {
   all: (org: string) => ["agents", org] as const,
@@ -201,40 +199,6 @@ export function useSetCallerScreen(
         // Switching on may give the agent the "Give callers time" silence settings (`give_callers_time_settings`).
         client.invalidateQueries({ queryKey: callHandlingKeys.agent(session.orgSlug, agentId) }),
         client.invalidateQueries({ queryKey: callerHelpKeys.agent(session.orgSlug, agentId) }),
-      ]),
-  });
-}
-
-/**
- * Replace this agent's extraction variables — the whole ordered list at once (D-21 is
- * superseded here: the owner edits their own agents' capture columns self-serve).
- *
- * A whole-list PUT rather than per-field POST/PATCH/DELETE, mirroring the server's one
- * write path: the body is the entire list and each save mints a new schema version the
- * next call uses. `org:manage` is the owner's own permission — the same one the disclosure
- * and lifecycle controls gate on — so this is genuinely the client's to change and no
- * impersonating session holds it against a tenant (D-22).
- *
- * The awaited invalidation (rather than `void`) matches `useSetCallNotices`: the agent row
- * carries `extraction_fields`, so the screen must repaint from the server's stored answer
- * — including any normalisation the validator applied — rather than from the draft that was
- * sent.
- */
-export function useSetExtractionSchema(
-  session: Session,
-  agentId: string,
-): UseMutationResult<ExtractionSchemaOut, Error, ExtractionSchemaIn> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: ExtractionSchemaIn) =>
-      apiRequest<ExtractionSchemaOut>(session, `/v1/agents/${agentId}/extraction-schema`, {
-        method: "PUT",
-        body: payload,
-      }),
-    onSuccess: () =>
-      Promise.all([
-        client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
-        client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
       ]),
   });
 }
@@ -471,7 +435,7 @@ export function useAgentLifecycle(
  *
  * ## Why it is a whole-list PUT
  *
- * `useSetExtractionSchema`'s argument, about a list where the ORDER is the product: "move
+ * The same argument as any ordered list where the ORDER is the product: "move
  * Priya above Ravi and take Ravi off while he is away" is one intention, and four requests
  * over rows can half-apply into two people at the same position or a roster that is briefly
  * empty. The member ids are therefore NOT stable across a save, which is why the screen

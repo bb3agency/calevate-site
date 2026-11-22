@@ -27,6 +27,7 @@ from calevate_shared.call_script import CallScript
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.campaigns.notes import starting_fields
 from apps.api.campaigns.workspace import (
     MAIN_TASK_MAX,
     CampaignProposal,
@@ -220,12 +221,17 @@ async def create_line(
             remediation="Archive a line you no longer use, then add this one.",
         )
     line_id = uuid7()
+    # A new line notes what its voice's starting list holds, so it never starts noting
+    # nothing; it is the line's own list from then on (D-1028).
+    notes = await starting_fields(session, tenant_id=tenant_id, agent_id=agent_id)
     await session.execute(
         text(
             "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, main_task, script, "
-            "created_by) VALUES (:id, :t, :n, :a, :m, CAST(:s AS jsonb), :by)"
+            "extraction_fields, created_by) "
+            "VALUES (:id, :t, :n, :a, :m, CAST(:s AS jsonb), CAST(:f AS jsonb), :by)"
         ),
         {
+            "f": json.dumps(notes),
             "id": line_id,
             "t": tenant_id,
             "n": _clean(name or "", limit=NAME_MAX, field="name") or DEFAULT_NAME,

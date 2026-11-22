@@ -192,7 +192,8 @@ async def brief_for(
         direction=str(row[0]),
         language=language,
         register=(f"{style.register_name}. {style.register}" if style is not None else ""),
-        collect=tuple(f.label for f in await script_builder.collect_fields(session, agent_id)),
+        # An agent's own script asks for no details: its jobs' lists do (D-1028).
+        collect=(),
         knowledge_titles=tuple(str(r[0])[:120] for r in titles),
         introduced=introduces_itself(ai_notice=str(row[5]), language=language),
         woven=WovenNotices(

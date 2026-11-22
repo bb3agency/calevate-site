@@ -275,10 +275,6 @@ async def _stalled_calls(session: AsyncSession) -> tuple[int, UUID | None]:
         await session.execute(
             text(
                 "SELECT count(*), (array_agg(c.id ORDER BY c.ended_at, c.id))[1] FROM calls c "
-                # LEFT, so a call whose agent row was removed still counts on its
-                # transcript alone rather than vanishing from the alarm.
-                "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
-                "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
                 "WHERE c.status = 'completed' "
                 "AND c.ended_at < now() - make_interval(mins => :after) "
                 "AND c.ended_at > now() - make_interval(hours => :window) "

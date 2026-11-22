@@ -61,7 +61,6 @@ function agent(id: string, name: string): Agent {
     archived_at: null,
     inbound_number_count: 1,
     extraction_fields: [],
-    extraction_schema_version: 0,
     llm_tier: null,
     llm_tier_effective: "standard",
     llm_tier_label: "Standard",
@@ -141,6 +140,7 @@ const lineRoutes = (current: InboundLine, extra: Routes = {}): Routes => ({
   [`/v1/inbound-lines/${LINE_ID}/calls`]: { calls: [] },
   [`/v1/inbound-lines/${LINE_ID}/test-calls`]: [],
   [`/v1/inbound-lines/${LINE_ID}/test-numbers`]: { numbers: [] },
+  [`/v1/inbound-lines/${LINE_ID}/notes`]: { agent_id: "agent-1", agent_name: "Front desk", fields: [], core_fields: [], digest: "empty", applied_now: false },
   "/v1/agents": AGENTS,
   "/v1/kb/notes": { notes: [] },
   "/v1/kb/uploads": [],
@@ -213,8 +213,9 @@ describe("one inbound line", () => {
       linePage(),
       lineRoutes(line(), { [`PATCH /v1/inbound-lines/${LINE_ID}`]: line({ main_task: "Book visits." }) }),
     );
-    fireEvent.change(await screen.findByRole("textbox", { name: "Main task" }), { target: { value: "Book visits." } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const task = await screen.findByRole("textbox", { name: "Main task" });
+    fireEvent.change(task, { target: { value: "Book visits." } });
+    fireEvent.click(within(task.closest("section") ?? document.body).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(writes(rendered.calls)).toHaveLength(1));
     expect(bodyOf(rendered.calls, "PATCH", `/v1/inbound-lines/${LINE_ID}`)).toEqual({ main_task: "Book visits." });
     // Phone numbers names each number's line, so a change to the line reads that list again.

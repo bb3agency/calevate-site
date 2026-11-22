@@ -497,7 +497,6 @@ async def test_the_lane_table_states_the_precedence_rule_surfaces_asks_for() -> 
 
     assert lanes["script"].lane == "staged"
     assert lanes["voice"].lane == "live"
-    assert lanes["extraction_fields"].lane == "live"
     assert lanes["training"].lane == "live"
     # A cap changes conduct, not content: it cannot alter one word the agent says.
     assert lanes["max_call_duration_s"].lane == "live"

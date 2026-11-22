@@ -46,12 +46,17 @@ export function CampaignStatusPill({
   if (status === "paused" && pauseReason && pauseReason !== "person") {
     return <StatusPill tone="warn">{lookup(PAUSE_COPY, pauseReason)?.title ?? "Paused"}</StatusPill>;
   }
-  const label = lookup(WORDS, status) ?? status.replace(/_/g, " ");
   return (
     <StatusPill tone={lookup(TONE, status) ?? "neutral"} dot={lookup(DOT, status)}>
-      {label.charAt(0).toUpperCase() + label.slice(1)}
+      {campaignStatusWord(status)}
     </StatusPill>
   );
+}
+
+/** A status in the words the pill shows, for a place that has room for the word alone. */
+export function campaignStatusWord(status: string): string {
+  const label = lookup(WORDS, status) ?? status.replace(/_/g, " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 /**

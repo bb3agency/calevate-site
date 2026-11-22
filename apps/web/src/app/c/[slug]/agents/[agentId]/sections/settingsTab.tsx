@@ -20,7 +20,6 @@
  */
 
 import Link from "next/link";
-import type { ReactNode } from "react";
 
 import { useActionFeedback, type ActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION } from "@/components/console/section";
@@ -34,7 +33,6 @@ import { CopilotSurfaceScope } from "@/lib/copilot/registry";
 import { AgentIdentity } from "../../AgentIdentity";
 import { AgentLifecycle, LifecycleError } from "../../AgentLifecycle";
 import { AgentModel } from "../../AgentModel";
-import { ExtractionList } from "../../panels/extraction";
 import { TEAM_ALERTS_ANCHOR, TeamAlertsPanel } from "../../panels/teamAlerts";
 import { CallHandlingSection, VoiceSection } from "./deliverySections";
 
@@ -44,12 +42,9 @@ export const CALL_HANDLING_ANCHOR = "call-handling";
 export function SettingsTab({
   agent,
   slug,
-  leadsLink,
 }: {
   agent: Agent;
   slug: string;
-  /** The link to the Leads table that What it notes names. */
-  leadsLink: ReactNode;
 }) {
   const { href } = useClientRealm();
   const canDelete = movesFor(agent.status).includes("archive");
@@ -73,8 +68,6 @@ export function SettingsTab({
         <Section headingLevel={3} title="Voice">
           <VoiceSection agent={agent} />
         </Section>
-
-        <ExtractionList agent={agent} leadsHref={leadsLink} />
 
         <div id={CALL_HANDLING_ANCHOR} className="scroll-mt-24">
           {/* Each section: a title and one short line. The fuller reason, where one is

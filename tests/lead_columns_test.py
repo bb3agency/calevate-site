@@ -80,7 +80,9 @@ class Tenant:
         }
 
 
-async def _tenant(role: str = "owner", schema: list[dict[str, Any]] | None = None) -> Tenant:
+async def _tenant(
+    role: str = "owner", schema: list[dict[str, Any]] | None = None, *, with_line: bool = True
+) -> Tenant:
     """One org, one agent, one owner, one extraction schema — no seeded fixtures.
 
     Built by hand rather than through `admin_service.create_organization` because the
@@ -135,6 +137,22 @@ async def _tenant(role: str = "owner", schema: list[dict[str, Any]] | None = Non
                 "f": json.dumps(SCHEMA if schema is None else schema),
             },
         )
+        # What a call notes is its job's list (D-1028): the agent's one line holds it.
+        # `with_line=False` is an agent with no job yet, for a test about jobs it adds.
+        if with_line:
+            await session.execute(
+                text(
+                    "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, "
+                    "extraction_fields) VALUES (:id, :tid, 'Front desk', :aid, "
+                    "CAST(:f AS jsonb))"
+                ),
+                {
+                    "id": uuid7(),
+                    "tid": tenant_id,
+                    "aid": agent_id,
+                    "f": json.dumps(SCHEMA if schema is None else schema),
+                },
+            )
     return Tenant(tenant_id, agent_id, slug, f"dev:client:{user_id}")
 
 
@@ -636,34 +654,14 @@ async def test_a_number_written_as_people_write_it_finds_its_lead(typed: str) ->
     assert [row["name"] for row in table.json()["items"]] == ["Searched"]
 
 
-async def test_with_no_agent_filter_the_columns_are_the_newest_schema_not_the_most_edited() -> None:
-    """`lead_columns(None)` promises "the most recently published schema", and it read
-    `ORDER BY version DESC` across every agent. `version` counts ONE agent's edits, so the
-    agent whose variables were edited most often won the whole unfiltered table and its
-    export — an agent created later, with its own capture list, had no columns on the
-    default Leads screen or in the default CSV.
-    """
-    t = await _tenant()  # agent A: SCHEMA at version 1
-    edited = [{"key": "locality", "label": "Locality", "type": "text", "reason": "where"}]
-    newer_agent = uuid.uuid4()
-    newest = [{"key": "visit_date", "label": "Visit date", "type": "text", "reason": "when"}]
+async def test_the_columns_are_every_jobs_details_and_an_agent_filter_narrows_them() -> None:
+    """D-1028: the columns are what the calls note, which is each campaign's and line's own
+    list; with no filter every job's, the most recently edited job's first; per agent, only
+    the jobs in its voice. The agent's starting list is never a column."""
+    t = await _tenant()  # the agent's line notes SCHEMA
+    other_agent = uuid.uuid4()
+    visits = [{"key": "visit_date", "label": "Visit date", "type": "text", "reason": "when"}]
     async with tenant_session(t.tenant_id) as session:
-        # A's variables edited twice more, both BEFORE agent B existed.
-        for version in (2, 3):
-            await session.execute(
-                text(
-                    "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
-                    "created_at, updated_at) VALUES (:id, :tid, :aid, :v, CAST(:f AS jsonb), "
-                    "now() - interval '1 day', now() - interval '1 day')"
-                ),
-                {
-                    "id": uuid7(),
-                    "tid": t.tenant_id,
-                    "aid": t.agent_id,
-                    "v": version,
-                    "f": json.dumps(edited),
-                },
-            )
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
@@ -672,30 +670,23 @@ async def test_with_no_agent_filter_the_columns_are_the_newest_schema_not_the_mo
                 "'Idi AI assistant.', 'Idi AI assistant.', 'This call is being recorded.', "
                 "'I keep a short note of what you ask about.', 'live', 'fake', now(), now())"
             ),
-            {"id": newer_agent, "tid": t.tenant_id},
+            {"id": other_agent, "tid": t.tenant_id},
         )
         await session.execute(
             text(
-                "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
-                "created_at, updated_at) VALUES (:id, :tid, :aid, 1, CAST(:f AS jsonb), "
-                "now(), now())"
+                "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, status, "
+                "extraction_fields, updated_at) VALUES (:id, :tid, :aid, 'Visits', 'service', "
+                "'draft', CAST(:f AS jsonb), now() + interval '1 minute')"
             ),
-            {"id": uuid7(), "tid": t.tenant_id, "aid": newer_agent, "f": json.dumps(newest)},
+            {"id": uuid7(), "tid": t.tenant_id, "aid": other_agent, "f": json.dumps(visits)},
         )
-
-    async with tenant_session(t.tenant_id) as session:
         unfiltered = await lead_columns(session, None)
-        only_a = await lead_columns(session, t.agent_id)
+        only_first = await lead_columns(session, t.agent_id)
 
-    # The core every lead carries leads both lists (`calevate_shared.lead_fields`); what
-    # this test is about is which agent's own fields follow it.
-    assert [f.key for f in unfiltered[: len(CORE_LEAD_FIELDS)]] == [f.key for f in CORE_LEAD_FIELDS]
-    assert [f.key for f in unfiltered[len(CORE_LEAD_FIELDS) :]] == ["visit_date"], (
-        "the unfiltered table took the most-edited agent's schema, not the newest one"
-    )
-    assert [f.key for f in only_a[len(CORE_LEAD_FIELDS) :]] == ["locality"], (
-        "per agent, the latest version still wins"
-    )
+    core = [f.key for f in CORE_LEAD_FIELDS]
+    assert [f.key for f in unfiltered[: len(core)]] == core
+    assert [f.key for f in unfiltered[len(core) :]] == ["visit_date", *(f["key"] for f in SCHEMA)]
+    assert [f.key for f in only_first[len(core) :]] == [f["key"] for f in SCHEMA]
 
 
 async def test_name_and_phone_always_lead_the_file_whatever_the_screen_shows() -> None:

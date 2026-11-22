@@ -37,7 +37,6 @@ from apps.api.db.session import tenant_session, untenanted_session
 from calevate_shared.call_script import (
     STANDARD_VARIABLES,
     CallScript,
-    CollectField,
     compile_call_script,
     extract_variable_names,
 )
@@ -279,16 +278,10 @@ async def test_creating_with_a_starter_writes_a_draft_script_and_captured_detail
     # Without its ready-made opening, which is written for the business instead (D-965).
     expected = expected.model_copy(update={"opening_line": "", "outbound_opening_line": ""})
     assert CallScript.model_validate(structured) == expected
-    collect = [
-        CollectField(
-            label=str(f["label"]),
-            reason=str(f.get("reason") or ""),
-            required=bool(f.get("required")),
-        )
-        for f in fields
-    ]
-    assert stored_body == compile_call_script(expected, collect=collect)
-    assert "[WHAT TO COLLECT]" in stored_body
+    # The agent's own script asks for no details: a campaign's or line's list does (D-1028).
+    assert stored_body == compile_call_script(expected)
+    assert "[WHAT TO COLLECT]" not in stored_body
+    # Its business's fields are the starting list its campaigns and lines copy.
     assert [f["key"] for f in fields] == [f["key"] for f in vertical_templates()["real_estate"]]
 
 

@@ -565,14 +565,12 @@ async def in_call_live(session: AsyncSession, agent_id: UUID) -> bool:
 async def _agent_choices(
     session: AsyncSession, agent_id: UUID
 ) -> tuple[list[Choice], list[Choice]]:
-    """The agent's business outcomes and its choice fields, as the owner may pick them."""
+    """The agent's business outcomes and the choice fields its calls note (the core and its
+    campaigns' and lines' lists, D-1028), as the owner may pick them; a job's own answers are
+    also offered per job (`_holder_choices`)."""
     row = (
         await session.execute(
-            text(
-                "SELECT a.business_outcomes, es.fields FROM agents a "
-                "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
-                "WHERE a.id = :aid AND a.deleted_at IS NULL"
-            ),
+            text("SELECT business_outcomes FROM agents WHERE id = :aid AND deleted_at IS NULL"),
             {"aid": agent_id},
         )
     ).first()
@@ -582,7 +580,10 @@ async def _agent_choices(
     from apps.api.crm.lead_definition import LEAD_BAND
 
     outcomes, _starting = call_outcomes.outcomes_in_use(row[0])
-    fields = _enum_choices(with_core(row[1], await core_labels(session)))
+    from apps.api.campaigns.notes import account_fields
+
+    jobs = await account_fields(session, agent_id=agent_id)
+    fields = _enum_choices(with_core(jobs, await core_labels(session)))
     choices = [
         Choice(o.key, o.label, positive=o.lead_status in LEAD_BAND, goal=o.lead_status == "hot")
         for o in outcomes

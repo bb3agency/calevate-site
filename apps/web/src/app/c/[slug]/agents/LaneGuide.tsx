@@ -117,7 +117,6 @@ function LaneBody({ lanes }: { lanes: ReturnType<typeof useLanes> }) {
 const FIELD_LABELS: Record<string, string> = {
   script: "What the agent says",
   max_call_duration_s: "Longest a call may run",
-  extraction_fields: "What it writes down",
   training: "What it knows and training",
   voice: "Its voice",
 };

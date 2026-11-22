@@ -247,6 +247,17 @@ class CallerNoticeDraft:
     markdown: str = ""
 
 
+#: Every detail the agent's open campaigns and lines note (D-1028), as one JSON array of
+#: field objects; `_collected` deduplicates on the key. The caller aliases `agents` as `a`.
+_JOBS_FIELDS_SQL = (
+    "(SELECT COALESCE(jsonb_agg(j.f), '[]'::jsonb) FROM ("
+    "SELECT jsonb_array_elements(extraction_fields) AS f FROM campaigns "
+    "WHERE agent_id = a.id AND archived_at IS NULL "
+    "UNION ALL SELECT jsonb_array_elements(extraction_fields) FROM inbound_lines "
+    "WHERE agent_id = a.id AND archived_at IS NULL) j)"
+)
+
+
 async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
     """Every agent a caller could reach, with its notice switches.
 
@@ -268,9 +279,8 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
             text(
                 "SELECT a.id, a.name, o.notice_ai_enabled, o.notice_recording_enabled, "
                 f"a.direction, {MEMORY_ON_SQL}, a.handoff_enabled, "
-                "s.fields, COALESCE(o.vertical_template, o.unconfirmed_business_type) "
+                f"{_JOBS_FIELDS_SQL}, COALESCE(o.vertical_template, o.unconfirmed_business_type) "
                 "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
-                "LEFT JOIN extraction_schemas s ON s.id = a.extraction_schema_id "
                 "WHERE a.status IN ('live', 'paused') AND a.deleted_at IS NULL "
                 "ORDER BY a.name, a.id"
             )

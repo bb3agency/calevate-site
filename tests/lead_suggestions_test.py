@@ -643,7 +643,19 @@ async def test_an_operator_reads_and_answers_a_clients_suggestions() -> None:
 # --- 6. a real call: stored, shown, counted, erased ---------------------------------------------
 
 
-async def _call_for(tenant_id: UUID, agent_ref: str) -> tuple[str, UUID]:
+async def _line_for(tenant_id: UUID, agent_id: UUID) -> UUID:
+    """The line its calls come in on: it copies the agent's list (D-1028)."""
+    from apps.api.inbound import lines
+
+    async with tenant_session(tenant_id) as session:
+        return await lines.create_line(
+            session, tenant_id=tenant_id, agent_id=agent_id, name="Front desk", created_by=None
+        )
+
+
+async def _call_for(
+    tenant_id: UUID, agent_ref: str, line_id: UUID | None = None
+) -> tuple[str, UUID]:
     execution_id = f"exec_{uuid.uuid4().hex[:12]}"
     get_engine().seed_inbound_call(  # type: ignore[attr-defined]
         call_id=execution_id,
@@ -657,6 +669,12 @@ async def _call_for(tenant_id: UUID, agent_ref: str) -> tuple[str, UUID]:
     call_id = await _scalar(
         tenant_id, "SELECT id FROM calls WHERE engine_call_id = :e", e=execution_id
     )
+    if line_id is not None:
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text("UPDATE calls SET inbound_line_id = :l WHERE id = :c"),
+                {"l": line_id, "c": call_id},
+            )
     return execution_id, UUID(str(call_id))
 
 
@@ -685,8 +703,9 @@ async def test_a_call_keeps_the_callers_words_and_the_second_one_brings_a_sugges
     await turn_pip_on_for_tests(tenant_id)
     async with tenant_session(tenant_id) as session:
         await write_schema(session, agent_id=agent_id, fields=[BHK, AREA])
+    line_id = await _line_for(tenant_id, agent_id)
 
-    execution_id, call_id = await _call_for(tenant_id, agent_ref)
+    execution_id, call_id = await _call_for(tenant_id, agent_ref, line_id)
     await _run_pipeline(tenant_id, call_id, execution_id)
     stored = await _scalar(
         tenant_id, "SELECT unlisted FROM call_extractions WHERE call_id = :c", c=call_id
@@ -700,10 +719,10 @@ async def test_a_call_keeps_the_callers_words_and_the_second_one_brings_a_sugges
     assert bhk.value is None and bhk.unlisted == "6 BHK"
     assert await _jobs(field_suggestions.JOB, agent_id) == [], "one caller is not yet demand"
 
-    second, second_call = await _call_for(tenant_id, agent_ref)
+    second, second_call = await _call_for(tenant_id, agent_ref, line_id)
     await _run_pipeline(tenant_id, second_call, second)
     assert len(await _jobs(field_suggestions.JOB, agent_id)) == 1, "the second caller is"
-    third, third_call = await _call_for(tenant_id, agent_ref)
+    third, third_call = await _call_for(tenant_id, agent_ref, line_id)
     await _run_pipeline(tenant_id, third_call, third)
     assert len(await _jobs(field_suggestions.JOB, agent_id)) == 1, "the third adds nothing"
 

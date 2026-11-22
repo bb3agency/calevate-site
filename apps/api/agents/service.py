@@ -4270,7 +4270,7 @@ async def line_config(
     knowledge attach on the line's ref re-sends, because an attach replaces the whole agent
     on the platform (`kb/service._publish_config`, D-488), as it does for an arm."""
     from apps.api.actions import service as actions_service
-    from apps.api.agents.script_builder import collect_fields
+    from apps.api.agents.script_builder import line_collect_fields
 
     line = (
         await session.execute(
@@ -4294,7 +4294,7 @@ async def line_config(
         agent = await _load_agent(session, tenant_id, agent_id)
     engine = get_engine()
     script = CallScript.model_validate(line.script)
-    body = compile_call_script(script, collect=await collect_fields(session, agent_id))
+    body = compile_call_script(script, collect=await line_collect_fields(session, line_id))
     handoff, _duty = await handoff_module.spec_for(session, dict(agent))
     off = set(line.actions_off or ())
     tools = await actions_service.declare(session, agent_id=agent_id, direction="inbound")
@@ -4761,7 +4761,7 @@ async def campaign_agent_row(
     row: AgentRow = agent
     if camp.script:
         script = CallScript.model_validate(camp.script)
-        collect = await campaign_collect_fields(session, campaign_id=campaign_id, agent_id=agent_id)
+        collect = await campaign_collect_fields(session, campaign_id)
         body = compile_call_script(script, collect=collect)
         row = _line_agent_row(agent, script, body)
     held = cast(AgentRow, apply_overrides(dict(row), camp.settings_overrides))

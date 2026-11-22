@@ -125,6 +125,14 @@ async def _publish(
             ),
             {"s": schema_id, "dir": direction, "a": agent_id},
         )
+        # What its calls note is its job's list (D-1028): the agent answers on one line.
+        await session.execute(
+            text(
+                "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, extraction_fields) "
+                "VALUES (:i, :t, 'Front desk', :a, CAST(:f AS jsonb))"
+            ),
+            {"i": uuid.uuid4(), "t": tenant_id, "a": agent_id, "f": json.dumps(fields or FIELDS)},
+        )
         # The account's switches (D-1021): one pair for every agent of the client.
         await session.execute(
             text(

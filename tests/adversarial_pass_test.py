@@ -884,6 +884,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PATCH", "/v1/inbound-lines/{line_id}", {"name": "Taken"}, {}),
     ("PUT", "/v1/inbound-lines/{line_id}/sources", {"source_ids": []}, {}),
     ("PUT", "/v1/inbound-lines/{line_id}/actions", {"off": []}, {}),
+    ("GET", "/v1/inbound-lines/{line_id}/notes", {}, {}),
+    ("PUT", "/v1/inbound-lines/{line_id}/notes", {"fields": []}, {}),
     ("PUT", "/v1/inbound-lines/{line_id}/script", {"script": {}}, {}),
     ("POST", "/v1/inbound-lines/{line_id}/publish", {}, {}),
     ("POST", "/v1/inbound-lines/{line_id}/proposal", {}, {}),

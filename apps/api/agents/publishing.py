@@ -195,12 +195,6 @@ LANES: tuple[LaneEntry, ...] = (
         ),
     ),
     LaneEntry(
-        field="extraction_fields",
-        lane="live",
-        precedence=2,
-        why="Extraction shapes the CRM columns a call produces, never the call itself.",
-    ),
-    LaneEntry(
         field="training",
         lane="live",
         precedence=2,

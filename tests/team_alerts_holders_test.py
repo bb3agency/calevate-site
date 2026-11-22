@@ -115,7 +115,7 @@ async def _after(t: Tenant, call_id: UUID, data: dict[str, Any]) -> str:
 
 
 async def test_an_answer_on_a_campaigns_own_list_tells_the_team() -> None:
-    t = await _tenant()
+    t = await _tenant(with_line=False)
     await _use_schema(t)
     await _verified_contact(t)
     campaign_id = await _campaign(t, [VISIT_DAY])
@@ -170,7 +170,7 @@ async def test_an_answer_on_a_campaigns_own_list_tells_the_team() -> None:
 
 
 async def test_an_answer_on_a_lines_own_list_tells_the_team() -> None:
-    t = await _tenant()
+    t = await _tenant(with_line=False)
     await _use_schema(t)
     await _verified_contact(t)
     line_id = await _line(t, [VISIT_DAY])
@@ -189,7 +189,7 @@ async def test_an_answer_on_a_lines_own_list_tells_the_team() -> None:
 
 
 async def test_an_agent_answer_still_fires_on_its_own_and_its_campaigns_calls() -> None:
-    t = await _tenant()
+    t = await _tenant(with_line=False)
     await _use_schema(t)
     await _verified_contact(t)
     campaign_id = await _campaign(t, [BUDGET, VISIT_DAY])
@@ -206,7 +206,7 @@ async def test_an_agent_answer_still_fires_on_its_own_and_its_campaigns_calls() 
 
 
 async def test_an_answer_off_the_holders_list_or_an_archived_holder_is_refused() -> None:
-    t = await _tenant()
+    t = await _tenant(with_line=False)
     await _use_schema(t)
     campaign_id = await _campaign(t, [VISIT_DAY])
 
@@ -237,7 +237,7 @@ async def test_an_answer_off_the_holders_list_or_an_archived_holder_is_refused()
 
 
 async def test_another_tenants_campaign_is_neither_offered_nor_accepted() -> None:
-    t, other = await _tenant(), await _tenant()
+    t, other = await _tenant(with_line=False), await _tenant(with_line=False)
     await _use_schema(t)
     await _use_schema(other)
     theirs = await _campaign(t, [VISIT_DAY])

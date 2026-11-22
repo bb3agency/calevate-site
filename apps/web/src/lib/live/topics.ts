@@ -141,7 +141,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "pin-card",
     // Main task, script, Pip's draft and the second opening live on the campaign row (D-992).
     "campaign-workspace",
-    // A campaign's own voice and call settings (D-994), and what its calls note (D-1003).
+    // A campaign's own voice and call settings (D-994), and what its calls note (D-1028).
     "campaign-settings",
     "campaign-notes",
     "campaign-insights",
@@ -222,14 +222,13 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "agent",
     // How they speak, the training every agent is given (`company_trainings`, D-996).
     "company-training",
-    // A campaign's settings page shows the agent's own values beside its overrides (D-994),
-    // and its "What it notes" shows the agent's list it follows while empty (D-1003).
+    // A campaign's settings page shows the agent's own values beside its overrides (D-994).
     "campaign-settings",
-    "campaign-notes",
     "agents",
     "agents-archived",
-    // Inbound lines and the sources each is written from (D-997).
+    // Inbound lines, the sources each is written from (D-997) and what each notes (D-1028).
     "inbound-lines",
+    "line-notes",
     // An agent's jobs: its inbound lines and its campaigns (D-1000).
     "agent-jobs",
     "agent-stats",
