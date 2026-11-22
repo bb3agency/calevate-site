@@ -3,6 +3,10 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.1 — 22-Nov-2026
+
+- The step flow no longer cuts off the first step on its left edge.
+
 ## 0.5.0 — 22-Nov-2026
 
 - On a campaign call that opens with the second opening or by checking the person's name,

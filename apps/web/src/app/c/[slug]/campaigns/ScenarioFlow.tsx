@@ -62,6 +62,11 @@ const COL_GAP = 88;
 const ROW_GAP = 18;
 const HEAD_H = 40;
 const PAD = 20;
+/** A step's band reaches `BAND_INSET` past its cards on each side, so the side padding must
+ * hold it: with less, the first band and its "Step 1" heading start left of the canvas and
+ * are clipped by the scroll box. */
+const BAND_INSET = COL_GAP / 2 - 8;
+const PAD_X = BAND_INSET + 12;
 const END_W = 150;
 const END_H = 40;
 
@@ -353,7 +358,7 @@ function Columns({
   const [linking, setLinking] = useState<{ from: string; to: Point } | null>(
     null,
   );
-  const colX = (step: number) => PAD + (step - 1) * (BOX_W + COL_GAP);
+  const colX = (step: number) => PAD_X + (step - 1) * (BOX_W + COL_GAP);
   const boxes = new Map<string, Box>();
   for (const p of items) {
     boxes.set(p.section.id, {
@@ -376,7 +381,7 @@ function Columns({
     }),
   );
   const tallest = Math.max(...items.map((p) => p.row), usedEnds.length ? 1 : 0);
-  const width = endX + (usedEnds.length ? END_W : BOX_W) + PAD;
+  const width = endX + (usedEnds.length ? END_W : BOX_W) + PAD_X;
   const height = PAD + HEAD_H + tallest * (BOX_H + ROW_GAP) + 56;
 
   const local = (e: { clientX: number; clientY: number }): Point => {
@@ -431,8 +436,8 @@ function Columns({
             key={step}
             className={`absolute top-0 rounded-card ${step % 2 ? "bg-surface/40" : ""}`}
             style={{
-              left: colX(step) - COL_GAP / 2 + 8,
-              width: BOX_W + COL_GAP - 16,
+              left: colX(step) - BAND_INSET,
+              width: BOX_W + 2 * BAND_INSET,
               height,
             }}
             onContextMenu={(e) => onMenu(e, null, step)}
