@@ -591,7 +591,7 @@ class AgentRow(TypedDict):
     forwarded_line: NotRequired[bool]
     #: The applied version's authored `CallScript`, or NULL for a freeform one.
     structured_script: NotRequired[dict[str, Any] | None]
-    #: The settings the campaign holding this agent sets over its defaults (D-994).
+    #: The script language the campaign holding this agent sets over its own (D-994, D-1027).
     campaign_overrides: NotRequired[dict[str, Any] | None]
     #: The agent's call handling values and the account's (D-751); NULL inherits.
     turn_silence_ms: NotRequired[int | None]
@@ -4738,8 +4738,8 @@ async def campaign_agent_row(
 ) -> AgentRow:
     """The agent's row as the campaign's engine agent speaks it (D-1003): the campaign's
     compiled script in place of the agent's own, carrying the agent's pinned facts and
-    [T0 FACTS] (`_line_agent_row`, as a line's does), its setting overrides laid over the
-    agent's defaults (`campaigns/settings.apply_overrides`, D-994), and calling out only. The
+    [T0 FACTS] (`_line_agent_row`, as a line's does), its script language laid over the agent's
+    (`campaigns/settings.apply_overrides`, D-994, D-1027), and calling out only. The
     one reader for the config, the dial's first words and the dial gate, so the three agree.
 
     A campaign with no script of its own (made before D-992) speaks the agent's applied

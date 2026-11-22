@@ -314,8 +314,7 @@ export function useEndCampaignTestCall(session: Session, campaignId: string) {
 }
 
 export type CampaignSettings = Schemas["CampaignSettingsOut"];
-export type CampaignSettingsValues = Schemas["CampaignSettingsValues-Output"];
-export type CampaignSettingsInput = Schemas["CampaignSettingsValues-Input"];
+export type CampaignSettingsInput = Schemas["CampaignSettingsValues"];
 export const settingsKey = (org: string, campaignId: string) => ["campaign-settings", org, campaignId] as const;
 
 /** The agent's defaults and this campaign's own settings over them (D-994). */

@@ -110,7 +110,7 @@ async def test_a_campaigns_engine_agent_is_its_own_and_two_share_one_voice() -> 
     tenant_id, agent_id = await _live_agent()
     agent_ref = await _agent_ref(tenant_id, agent_id)
     agent_prompt = engine._agents[agent_ref].system_prompt
-    first = await _campaign(tenant_id, agent_id, overrides={"max_call_duration_s": 300})
+    first = await _campaign(tenant_id, agent_id, overrides={"language_primary": "hi-IN"})
     second = await _campaign(tenant_id, agent_id, script=OTHER, status="running")
 
     ref_one = await _publish(tenant_id, first)
@@ -120,8 +120,8 @@ async def test_a_campaigns_engine_agent_is_its_own_and_two_share_one_voice() -> 
     assert engine._agents[agent_ref].system_prompt == agent_prompt, "the agent's script moved"
     one, two = engine._agents[ref_one], engine._agents[ref_two]
     assert "check-up" in one.system_prompt and "evening hours" in two.system_prompt
-    assert one.direction == "outbound" and one.max_call_duration_s == 300
-    assert engine._agents[agent_ref].max_call_duration_s != 300, "an override reached the agent"
+    assert one.direction == "outbound" and one.language_primary == "hi-IN"
+    assert engine._agents[agent_ref].language_primary != "hi-IN", "an override reached the agent"
     async with tenant_session(tenant_id) as session:
         route = (
             await session.execute(

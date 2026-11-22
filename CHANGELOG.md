@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.2 — 22-Nov-2026
+
+- A campaign's Agent section now only picks the agent. Its voice and call settings are
+  changed on the agent's own settings page, and every campaign's calls follow them.
+
 ## 0.5.1 — 22-Nov-2026
 
 - The step flow no longer cuts off the first step on its left edge.

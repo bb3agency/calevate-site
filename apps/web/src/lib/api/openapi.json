@@ -14766,7 +14766,7 @@
             "type": "boolean"
           },
           "defaults": {
-            "$ref": "#/components/schemas/CampaignSettingsValues-Output"
+            "$ref": "#/components/schemas/CampaignSettingsValues"
           },
           "offered_languages": {
             "items": {
@@ -14776,7 +14776,7 @@
             "type": "array"
           },
           "overrides": {
-            "$ref": "#/components/schemas/CampaignSettingsValues-Output"
+            "$ref": "#/components/schemas/CampaignSettingsValues"
           }
         },
         "required": [
@@ -14790,57 +14790,10 @@
         "title": "CampaignSettingsOut",
         "type": "object"
       },
-      "CampaignSettingsValues-Input": {
+      "CampaignSettingsValues": {
         "additionalProperties": false,
         "description": "Each value null when not set: on `defaults`, the platform's; on `overrides`, the agent's.",
         "properties": {
-          "ambience": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ambience"
-          },
-          "ambience_volume_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ambience Volume Pct"
-          },
-          "end_after_silence_seconds": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "End After Silence Seconds"
-          },
-          "filler_lines": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Filler Lines"
-          },
           "language_primary": {
             "anyOf": [
               {
@@ -14865,179 +14818,6 @@
               }
             ],
             "title": "Languages Extra"
-          },
-          "max_call_duration_s": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Call Duration S"
-          },
-          "nudge_after_seconds": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Nudge After Seconds"
-          },
-          "reask_after_ms": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reask After Ms"
-          },
-          "speaking_speed": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Speaking Speed"
-          }
-        },
-        "title": "CampaignSettingsValues",
-        "type": "object"
-      },
-      "CampaignSettingsValues-Output": {
-        "additionalProperties": false,
-        "description": "Each value null when not set: on `defaults`, the platform's; on `overrides`, the agent's.",
-        "properties": {
-          "ambience": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ambience"
-          },
-          "ambience_volume_pct": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ambience Volume Pct"
-          },
-          "end_after_silence_seconds": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "End After Silence Seconds"
-          },
-          "filler_lines": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Filler Lines"
-          },
-          "language_primary": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Language Primary"
-          },
-          "languages_extra": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Languages Extra"
-          },
-          "max_call_duration_s": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Call Duration S"
-          },
-          "nudge_after_seconds": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Nudge After Seconds"
-          },
-          "reask_after_ms": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reask After Ms"
-          },
-          "speaking_speed": {
-            "anyOf": [
-              {
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Speaking Speed"
           }
         },
         "title": "CampaignSettingsValues",
@@ -90576,7 +90356,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The agent's default settings and what this campaign sets over them",
+        "summary": "The agent's languages and the script language this campaign sets over them",
         "tags": [
           "campaigns"
         ],
@@ -90601,7 +90381,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CampaignSettingsValues-Input"
+                "$ref": "#/components/schemas/CampaignSettingsValues"
               }
             }
           },
@@ -90625,7 +90405,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Set this campaign's own settings over its agent's defaults; null follows the agent",
+        "summary": "Set this campaign's script language over its agent's; null follows the agent",
         "tags": [
           "campaigns"
         ],

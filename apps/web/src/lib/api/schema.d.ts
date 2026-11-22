@@ -7656,10 +7656,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The agent's default settings and what this campaign sets over them */
+        /** The agent's languages and the script language this campaign sets over them */
         get: operations["campaign_settings_v1_campaigns__campaign_id__settings_get"];
         /**
-         * Set this campaign's own settings over its agent's defaults; null follows the agent
+         * Set this campaign's script language over its agent's; null follows the agent
          * @description Stored, then, when the campaign has its own engine agent, put live on it at once through
          *     the same publish Start uses; otherwise they reach its calls at the next Start or test
          *     call. The agent's own settings are never changed (D-1003).
@@ -19751,62 +19751,20 @@ export interface components {
             agent_name: string;
             /** Applied Now */
             applied_now: boolean;
-            defaults: components["schemas"]["CampaignSettingsValues-Output"];
+            defaults: components["schemas"]["CampaignSettingsValues"];
             /** Offered Languages */
             offered_languages: string[];
-            overrides: components["schemas"]["CampaignSettingsValues-Output"];
+            overrides: components["schemas"]["CampaignSettingsValues"];
         };
         /**
          * CampaignSettingsValues
          * @description Each value null when not set: on `defaults`, the platform's; on `overrides`, the agent's.
          */
-        "CampaignSettingsValues-Input": {
-            /** Ambience */
-            ambience?: string | null;
-            /** Ambience Volume Pct */
-            ambience_volume_pct?: number | null;
-            /** End After Silence Seconds */
-            end_after_silence_seconds?: number | null;
-            /** Filler Lines */
-            filler_lines?: string[] | null;
+        CampaignSettingsValues: {
             /** Language Primary */
             language_primary?: string | null;
             /** Languages Extra */
             languages_extra?: string[] | null;
-            /** Max Call Duration S */
-            max_call_duration_s?: number | null;
-            /** Nudge After Seconds */
-            nudge_after_seconds?: number | null;
-            /** Reask After Ms */
-            reask_after_ms?: number | null;
-            /** Speaking Speed */
-            speaking_speed?: number | string | null;
-        };
-        /**
-         * CampaignSettingsValues
-         * @description Each value null when not set: on `defaults`, the platform's; on `overrides`, the agent's.
-         */
-        "CampaignSettingsValues-Output": {
-            /** Ambience */
-            ambience?: string | null;
-            /** Ambience Volume Pct */
-            ambience_volume_pct?: number | null;
-            /** End After Silence Seconds */
-            end_after_silence_seconds?: number | null;
-            /** Filler Lines */
-            filler_lines?: string[] | null;
-            /** Language Primary */
-            language_primary?: string | null;
-            /** Languages Extra */
-            languages_extra?: string[] | null;
-            /** Max Call Duration S */
-            max_call_duration_s?: number | null;
-            /** Nudge After Seconds */
-            nudge_after_seconds?: number | null;
-            /** Reask After Ms */
-            reask_after_ms?: number | null;
-            /** Speaking Speed */
-            speaking_speed?: string | null;
         };
         /** CampaignSourcesIn */
         CampaignSourcesIn: {
@@ -53921,7 +53879,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["CampaignSettingsValues-Input"];
+                "application/json": components["schemas"]["CampaignSettingsValues"];
             };
         };
         responses: {

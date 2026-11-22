@@ -109,7 +109,7 @@ async def _due_with_script(*, recurring: bool = False) -> tuple[UUID, UUID]:
 async def test_scheduling_a_campaign_makes_no_engine_agent() -> None:
     engine = _fresh_engine()
     tenant_id, agent_id = await _live_agent()
-    campaign_id = await _campaign(tenant_id, agent_id, overrides={"max_call_duration_s": 300})
+    campaign_id = await _campaign(tenant_id, agent_id, overrides={"language_primary": "hi-IN"})
     token = await _owner_token(tenant_id)
     made_before = len(engine._agents)
 

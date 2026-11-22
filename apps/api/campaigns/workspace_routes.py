@@ -9,7 +9,6 @@ import io
 import json
 import re
 from datetime import datetime
-from decimal import Decimal
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
@@ -23,16 +22,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_proposals
-from apps.api.agents.call_handling import read_agent_call_handling
 from apps.api.agents.extraction_routes import MAX_EXTRACTION_FIELDS
 from apps.api.agents.languages import LANGUAGE_LABELS, client_language_tags
 from apps.api.agents.service import (
     CAMPAIGN_HOLDING_STATUSES,
-    effective_call_cap,
     refuse_campaign_opening_over_limit,
 )
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
-from apps.api.agents.voice_tuning import read_voice_tuning
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import learning, workspace
@@ -1069,7 +1065,7 @@ async def upload_source(
     return await _workspace_out(session, campaign_id)
 
 
-# --- The campaign's own settings over its agent's defaults (D-994) ---------------------------
+# --- The campaign's own script language over its agent's (D-994, D-1027) ---------------------
 
 
 class CampaignSettingsValues(BaseModel):
@@ -1080,14 +1076,6 @@ class CampaignSettingsValues(BaseModel):
     #: The other languages the agent switches to when a caller speaks one; the script is
     #: written in `language_primary` and followed in each (founder, 16 Nov 2026).
     languages_extra: list[str] | None = None
-    speaking_speed: Decimal | None = None
-    max_call_duration_s: int | None = None
-    nudge_after_seconds: int | None = None
-    end_after_silence_seconds: int | None = None
-    filler_lines: list[str] | None = None
-    ambience: str | None = None
-    ambience_volume_pct: int | None = None
-    reask_after_ms: int | None = None
 
 
 class CampaignSettingsOut(_Out):
@@ -1108,16 +1096,10 @@ async def _settings_out(session: AsyncSession, campaign_id: UUID) -> CampaignSet
     space = await workspace.read_workspace(session, campaign_id)
     agent = (
         await session.execute(
-            text(
-                "SELECT name, language_primary, max_call_duration_s, languages_extra "
-                "FROM agents WHERE id = :a"
-            ),
+            text("SELECT name, language_primary, languages_extra FROM agents WHERE id = :a"),
             {"a": space.agent_id},
         )
     ).one()
-    tuning = await read_voice_tuning(session, space.agent_id)
-    handling = await read_agent_call_handling(session, space.agent_id)
-    values = handling.resolved.values
     raw = (
         await session.execute(
             text(
@@ -1133,16 +1115,8 @@ async def _settings_out(session: AsyncSession, campaign_id: UUID) -> CampaignSet
         defaults=CampaignSettingsValues(
             language_primary=str(agent.language_primary),
             languages_extra=list(agent.languages_extra or []),
-            speaking_speed=tuning.tuning.speed,
-            max_call_duration_s=effective_call_cap(agent.max_call_duration_s),
-            nudge_after_seconds=values.nudge_after_seconds,
-            end_after_silence_seconds=values.end_after_silence_seconds,
-            filler_lines=list(values.filler_lines or ()),
-            ambience=values.ambience,
-            ambience_volume_pct=values.ambience_volume_pct,
-            reask_after_ms=values.reask_after_ms,
         ),
-        overrides=CampaignSettingsValues(**(raw[0] or {})),
+        overrides=CampaignSettingsValues(**campaign_settings_rules.language_overrides(raw[0])),
         applied_now=bool(raw[1]),
         offered_languages=list(client_language_tags()),
     )
@@ -1152,7 +1126,7 @@ async def _settings_out(session: AsyncSession, campaign_id: UUID) -> CampaignSet
     "/{campaign_id}/settings",
     response_model=CampaignSettingsOut,
     openapi_extra=permission_meta("leads:read"),
-    summary="The agent's default settings and what this campaign sets over them",
+    summary="The agent's languages and the script language this campaign sets over them",
 )
 async def campaign_settings(campaign_id: UUID, session: Session, _: Reader) -> CampaignSettingsOut:
     return await _settings_out(session, campaign_id)
@@ -1162,7 +1136,7 @@ async def campaign_settings(campaign_id: UUID, session: Session, _: Reader) -> C
     "/{campaign_id}/settings",
     response_model=CampaignSettingsOut,
     openapi_extra=permission_meta("leads:dispatch"),
-    summary="Set this campaign's own settings over its agent's defaults; null follows the agent",
+    summary="Set this campaign's script language over its agent's; null follows the agent",
 )
 async def save_campaign_settings(
     campaign_id: UUID, payload: CampaignSettingsValues, session: Session, principal: Dispatcher

@@ -45,12 +45,9 @@ export function ScriptLanguagePick({
 
   const choose = (tag: string) => {
     if (tag === main) return;
-    const { speaking_speed, ...rest } = overrides;
     onSaving?.(true);
     save.mutate(
       {
-        ...rest,
-        speaking_speed: speaking_speed == null ? null : String(speaking_speed),
         language_primary: tag,
         languages_extra: [main, ...extra].filter((t): t is string => Boolean(t) && t !== tag),
       },

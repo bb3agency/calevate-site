@@ -38,7 +38,7 @@ export function ChooseAgentPrompt({ campaignId }: { campaignId: string }) {
             document.getElementById(agentSectionId(campaignId))?.scrollIntoView({ behavior: "smooth", block: "start" })
           }
         >
-          Go to Agent and its settings
+          Go to Agent
         </button>
       }
     >

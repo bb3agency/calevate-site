@@ -2,9 +2,8 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { CampaignNotes, notesTakeEffect } from "@/app/c/[slug]/campaigns/CampaignNotes";
-import { CampaignVoiceSettings } from "@/app/c/[slug]/campaigns/CampaignVoiceSettings";
 
-import { FIXTURE_AGENT_ID, FIXTURE_CAMPAIGN_ID, notesFixture, settingsFixture } from "./campaignFixtures";
+import { FIXTURE_AGENT_ID, FIXTURE_CAMPAIGN_ID, notesFixture } from "./campaignFixtures";
 import { problem, renderClientPage } from "./harness";
 import { OWNER_ME } from "./fixtures/sharedReads";
 
@@ -51,26 +50,6 @@ describe("a campaign's What it notes", () => {
     fireEvent.click(await screen.findByRole("button", { name: /^Use .*list$/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("The calling platform did not answer.")).toBeTruthy();
-  });
-
-  it("says after a settings save when they reach its calls", async () => {
-    const settingsPath = `/v1/campaigns/${FIXTURE_CAMPAIGN_ID}/settings`;
-    let saved = false;
-    await renderClientPage(
-      <CampaignVoiceSettings campaignId={FIXTURE_CAMPAIGN_ID} agentId={FIXTURE_AGENT_ID} status="completed" canWrite />,
-      {
-        "/v1/me": OWNER_ME,
-        // The read after the save answers what was saved, as the server does.
-        [settingsPath]: () => (saved ? settingsFixture({ overrides: { speaking_speed: "1.2" } }) : settingsFixture()),
-        [`PUT ${settingsPath}`]: () => {
-          saved = true;
-          return settingsFixture({ overrides: { speaking_speed: "1.2" } });
-        },
-      },
-    );
-    fireEvent.change(await screen.findByLabelText(/Speaking speed/), { target: { value: "1.2" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
-    expect(await screen.findByText("Saved. From its next Start.")).toBeTruthy();
   });
 
   it("links Set alerts as a button to its agent's alerts", async () => {

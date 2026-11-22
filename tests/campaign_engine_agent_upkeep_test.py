@@ -135,15 +135,15 @@ async def test_clearing_every_override_of_a_running_campaign_republishes_its_eng
     engine = _fresh_engine()
     tenant_id, agent_id, token = await _live_agent_and_token()
     campaign_id = await _campaign(
-        tenant_id, agent_id, script=None, status="running", overrides={"max_call_duration_s": 300}
+        tenant_id, agent_id, script=None, status="running", overrides={"language_primary": "hi-IN"}
     )
     ref = await _publish(tenant_id, campaign_id)
-    assert engine._agents[ref].max_call_duration_s == 300
+    assert engine._agents[ref].language_primary == "hi-IN"
 
     code, body = await _put(token, f"/v1/campaigns/{campaign_id}/settings", {})
 
     assert code == 200, body
-    assert engine._agents[ref].max_call_duration_s != 300, (
+    assert engine._agents[ref].language_primary != "hi-IN", (
         "the cleared override stayed on the running campaign's calls"
     )
 

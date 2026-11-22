@@ -19,6 +19,7 @@ import { useEffect, useState } from "react";
 
 import { problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
+import { TEXT_ACTION } from "@/components/console/section";
 import {
   FIELD,
   PRIMARY_BUTTON_SM,
@@ -44,7 +45,6 @@ import { useTestRingsFrom } from "@/lib/api/trialCalls";
 import { hourWords } from "@/lib/clock";
 
 import { FallbackNote, RingsFromNote } from "../TestCallStatus";
-import { CampaignVoiceSettings } from "./CampaignVoiceSettings";
 import { FoldSection } from "./FoldSection";
 import { SlotsFullProblem, isSlotsFull } from "./SlotHolders";
 import { agentSectionId } from "./StartCampaign";
@@ -607,15 +607,13 @@ export function AgentSection({
   campaignId,
   agentId,
   editable,
-  status,
   canWrite,
-  refusal,
 }: Omit<Common, "slug"> & {
   agentId: string;
   editable: boolean;
   status?: string | null;
 }) {
-  const { session } = useClientRealm();
+  const { session, href } = useClientRealm();
   const agents = useAgents(session);
   const update = useUpdateCampaign(session, campaignId);
   useActionFeedback(update, { errorDisplay: "inline" });
@@ -638,9 +636,9 @@ export function AgentSection({
   return (
     <FoldSection
       id={agentSectionId(campaignId)}
-      title="Agent and its settings"
+      title="Agent"
       tone="agent"
-      hint="Who makes these calls, and its settings here."
+      hint="Who makes these calls."
     >
       <div className="space-y-4">
         {!agents.data && !agents.error && (
@@ -667,13 +665,12 @@ export function AgentSection({
           </p>
         )}
         {update.error != null && <ProblemNotice error={update.error} />}
-        <CampaignVoiceSettings
-          campaignId={campaignId}
-          agentId={agentId}
-          status={status}
-          canWrite={canWrite}
-          refusal={refusal}
-        />
+        <Link
+          href={href(`/c/${session.orgSlug}/agents/${agentId}?section=settings`)}
+          className={TEXT_ACTION}
+        >
+          Voice and call settings
+        </Link>
       </div>
     </FoldSection>
   );

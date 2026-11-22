@@ -170,13 +170,13 @@ export function insightsFixture(over: Partial<CampaignInsights> = {}): CampaignI
   };
 }
 
-/** `GET /v1/campaigns/{id}/settings` (D-994): the agent's defaults, nothing overridden yet. */
+/** `GET /v1/campaigns/{id}/settings` (D-994, D-1027): the agent's languages, none set by the campaign. */
 export function settingsFixture(over: Partial<CampaignSettings> = {}): CampaignSettings {
   return {
     agent_id: FIXTURE_AGENT_ID,
     agent_name: "Outbound follow-up",
     applied_now: false,
-    defaults: { language_primary: "te-IN", speaking_speed: "1", max_call_duration_s: 600, languages_extra: [] },
+    defaults: { language_primary: "te-IN", languages_extra: [] },
     offered_languages: ["te-IN", "hi-IN", "en-IN"],
     overrides: {},
     ...over,
