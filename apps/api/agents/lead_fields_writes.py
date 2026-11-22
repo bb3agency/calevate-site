@@ -1,9 +1,11 @@
-"""The two account-wide writes to the lead details agents capture, behind the Lead details
-screen's buttons and Pip's `lead_fields_keep_draft` / `lead_fields_reset` (D-821, D-893).
+"""The two account-wide writes to what campaigns and lines note, behind the Lead details
+screen's buttons and Pip's `lead_fields_keep_draft` / `lead_fields_reset` (D-821, D-893,
+D-1029).
 
-Each is the service write plus the business-type apply that rebuilds what the scripts ask
-for from the next call (D-722); the route writes its own audit row, Pip's framework the
-tool's. A module of its own because `admin.business_type` already imports `lead_fields`.
+Both end in `lead_fields.apply_to_jobs`: the set is written onto the campaigns and lines the
+owner ticked, each under a compare-and-set on the list the screen showed. The route writes
+its own audit row, Pip's framework the tool's, and the caller puts the changed jobs that hold
+calls live again once the transaction has committed (`campaigns/notes_live`).
 """
 
 from __future__ import annotations
@@ -14,19 +16,28 @@ from uuid import UUID
 from calevate_shared.extraction import ExtractionField
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.admin.business_type import queue_apply as queue_business_type_apply
 from apps.api.agents import lead_fields as service
 from apps.api.core.errors import ProblemError
 
 
+@dataclass(frozen=True, slots=True)
+class Kept:
+    kept: list[ExtractionField]
+    written: list[service.JobWrite]
+
+
 async def keep_draft(
-    session: AsyncSession, *, tenant_id: UUID, keep: list[str]
-) -> service.Reviewed:
-    """Keep the drafted fields named in `keep` (empty discards the draft), once."""
+    session: AsyncSession, *, tenant_id: UUID, keep: list[str], jobs: list[service.JobRef]
+) -> Kept:
+    """Keep the drafted fields named in `keep` (empty discards the draft), once. What is kept
+    becomes the starting set and is written onto `jobs`; a discard writes nothing."""
     reviewed = await service.review_draft(session, tenant_id=tenant_id, keep=keep)
-    if reviewed.written:
-        await queue_business_type_apply(session, tenant_id=tenant_id)
-    return reviewed
+    written = (
+        await service.apply_to_jobs(session, fields=reviewed.kept, jobs=jobs)
+        if reviewed.kept
+        else []
+    )
+    return Kept(kept=reviewed.kept, written=written)
 
 
 async def replacement_fields(
@@ -45,8 +56,8 @@ async def replacement_fields(
                 "This business has no standard set of lead details, and none have been "
                 "drafted from its details and kept yet."
             ),
-            remediation="Draft the details and keep them first, or edit each agent's details "
-            "directly.",
+            remediation="Draft the details and keep them first, or edit each campaign's or "
+            "line's details directly.",
         )
     return draft.fields
 
@@ -54,21 +65,20 @@ async def replacement_fields(
 @dataclass(frozen=True, slots=True)
 class Replaced:
     fields: list[ExtractionField]
-    written: list[service.AgentWrite]
+    written: list[service.JobWrite]
 
 
 async def replace_with_standard(
     session: AsyncSession,
     *,
     tenant_id: UUID,
-    agent_ids: list[UUID] | None,
+    jobs: list[service.JobRef],
     business_type: str | None = None,
 ) -> Replaced:
-    """Start the named agents (every agent when None) again from the standard set."""
+    """Start the named campaigns and lines again from the standard set."""
     fields = await replacement_fields(session, tenant_id=tenant_id, business_type=business_type)
-    written = await service.replace_business_fields(session, fields=fields, agent_ids=agent_ids)
-    await queue_business_type_apply(session, tenant_id=tenant_id)
+    written = await service.apply_to_jobs(session, fields=fields, jobs=jobs)
     return Replaced(fields=fields, written=written)
 
 
-__all__ = ["Replaced", "keep_draft", "replace_with_standard", "replacement_fields"]
+__all__ = ["Kept", "Replaced", "keep_draft", "replace_with_standard", "replacement_fields"]

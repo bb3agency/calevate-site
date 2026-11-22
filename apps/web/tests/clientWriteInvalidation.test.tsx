@@ -29,6 +29,7 @@ const SESSION: Session = { orgSlug: "acme" };
 const AGENT = "0192f0aa-1111-7000-8000-000000000001";
 const CALL = "0192f0aa-3333-7000-8000-000000000001";
 const LEAD = "0192f0aa-4444-7000-8000-000000000001";
+const LINE = "0192f0aa-5555-7000-8000-000000000001";
 
 function harness() {
   const client = new QueryClient({
@@ -137,36 +138,39 @@ describe("a lead's status or owner changed", () => {
   });
 });
 
-describe("lead details written for more than one agent", () => {
-  it("reviewing the draft and replacing the fields re-read every agent's detail", async () => {
+describe("lead details written onto several campaigns and lines", () => {
+  it("keeping the draft and starting again re-read every job's list and suggestions", async () => {
     stubApi({
-      "POST /v1/lead-fields/draft/review": { kept: [] },
-      "POST /v1/lead-fields/replace": { replaced: 0 },
+      "POST /v1/lead-fields/draft/review": { fields_kept: 0, jobs_changed: 0, jobs_waiting: 0 },
+      "POST /v1/lead-fields/replace": { jobs_changed: 0, jobs_unchanged: 0, jobs_waiting: 0 },
     });
     const { wrapper, keys } = harness();
     const review = renderHook(() => useReviewLeadFieldsDraft(SESSION), { wrapper });
     await act(async () => {
-      await review.result.current.mutateAsync([]);
+      await review.result.current.mutateAsync({ keep: [], jobs: [] });
     });
     const replace = renderHook(() => useReplaceLeadFields(SESSION), { wrapper });
     await act(async () => {
-      await replace.result.current.mutateAsync({});
+      await replace.result.current.mutateAsync({ jobs: [] });
     });
-    await waitFor(() => expect(keys().filter((k) => k === key("agent", "acme"))).toHaveLength(2));
+    const expected = [key("campaign-notes", "acme"), key("line-notes", "acme"), key("lead-suggestions", "acme")];
+    await waitFor(() => {
+      for (const one of expected) expect(keys().filter((k) => k === one)).toHaveLength(2);
+    });
   });
 
-  it("accepting a suggested field re-reads that agent's detail", async () => {
-    const base = `/v1/agents/${AGENT}/lead-suggestions`;
+  it("accepting a suggestion re-reads that line's list", async () => {
+    const base = `/v1/inbound-lines/${LINE}/lead-suggestions`;
     stubApi({
-      [base]: { state: "idle", suggestions: [] },
-      [`POST ${base}/s-1/accept`]: { remaining: { state: "idle", suggestions: [] } },
+      [base]: { state: "done", suggestions: [], checked_at: null },
+      [`POST ${base}/s-1/accept`]: { remaining: { state: "done", suggestions: [], checked_at: null } },
     });
     const { wrapper, keys } = harness();
-    const { result } = renderHook(() => useLeadSuggestions(SESSION, AGENT), { wrapper });
+    const { result } = renderHook(() => useLeadSuggestions(SESSION, "line", LINE), { wrapper });
     await act(async () => {
       await result.current.accept.mutateAsync("s-1");
     });
-    await expectInvalidated(keys, [key("agent", "acme", AGENT)]);
+    await expectInvalidated(keys, [key("line-notes", "acme", LINE), key("lead-fields", "acme")]);
   });
 });
 

@@ -179,13 +179,14 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         # A forced re-read, a model pass, and the two routes that email a code to an address
         # the caller types: each sat at `client_api`, 240/min.
         ("/v1/kb/uploads/{upload_id}/read", "POST", "costly"),
-        ("/v1/agents/{agent_id}/lead-suggestions/check", "POST", "costly"),
+        ("/v1/campaigns/{campaign_id}/lead-suggestions/check", "POST", "costly"),
+        ("/v1/inbound-lines/{line_id}/lead-suggestions/check", "POST", "costly"),
         ("/v1/team-alerts/contacts", "POST", "costly"),
         ("/v1/team-alerts/contacts", "GET", "client_api"),
         ("/v1/team-alerts/contacts/{contact_id}/code", "POST", "costly"),
         ("/v1/admin/tenants/{tenant_id}/business-copy/refresh", "POST", "costly"),
         (
-            "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions/check",
+            "/v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions/check",
             "POST",
             "costly",
         ),

@@ -2138,7 +2138,7 @@ async def _extract_stage(
             # as a suggestion (D-889). After the persist, so this call is counted.
             async with tenant_session(tenant_id) as session:
                 await queue_on_repeat(
-                    session, tenant_id=tenant_id, agent_id=agent_id, unlisted=extraction.unlisted
+                    session, tenant_id=tenant_id, call_id=call_id, unlisted=extraction.unlisted
                 )
 
     return extraction

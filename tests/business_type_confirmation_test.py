@@ -3,13 +3,13 @@
 What is under test:
 
 1. **No default.** The operator wizard and signup refuse a body with no business type.
-2. **Unconfirmed accounts run neutral.** An account given `clinic` by default loses the clinic
-   lead details and the script that asked for them, and
+2. **Unconfirmed accounts run neutral.** An account given `clinic` by default loses the script
+   that asked for the clinic details, starts new campaigns and lines on the core alone, and
    gets ONE AI suggestion that changes nothing by itself.
-3. **Confirming applies the type.** The type's lead details land on agents that have none or
-   still carry the clinic default; details somebody chose are kept.
-4. **Raghava's repair.** A shop set to its type gets the shop's details in place of the
-   clinic default.
+3. **Confirming applies the type.** New campaigns and lines start with the type's details;
+   which existing ones take them is the operator's choice on Lead details (D-1029).
+4. **Raghava's repair.** A shop set to its type starts new campaigns and lines with the
+   shop's details.
 5. **Tenancy (hard rule 1).** The read and the confirm act on the named client only.
 """
 
@@ -21,17 +21,15 @@ from typing import Any
 import pytest
 from apps.api.admin import business_type
 from apps.api.admin.routes import CreateOrgIn
-from apps.api.agents import lead_fields
-from apps.api.agents.extraction_routes import write_schema
 from apps.api.agents.script_builder import load_agent_script, save_agent_script, save_draft
 from apps.api.agents.starters import StarterJob, apply_starter, starter_vertical_of
+from apps.api.campaigns.notes import starting_fields
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.main import app
 from apps.api.tenancy.signup_routes import SignupIn
 from apps.workers import business_type as worker
 from apps.workers.script_assist import JsonAnswer
-from calevate_shared.extraction import ExtractionField
 from calevate_shared.verticals import templates as vertical_templates
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
@@ -63,16 +61,6 @@ def test_every_create_path_requires_a_business_type() -> None:
 
 
 # --- unit: what the worker recognises -------------------------------------------------------
-
-
-def test_the_clinic_default_is_recognised_whole_or_trimmed_and_nothing_else() -> None:
-    def fields(*keys: str) -> list[ExtractionField]:
-        return [ExtractionField(key=k, label=k.title(), type="text") for k in keys]
-
-    assert worker.carries_clinic_default(fields(*CLINIC_KEYS))
-    assert worker.carries_clinic_default(fields("symptom", "insurance"))
-    assert not worker.carries_clinic_default([])
-    assert not worker.carries_clinic_default(fields("symptom", "chilli_variety"))
 
 
 def test_a_suggestion_names_a_type_we_offer_or_nothing() -> None:
@@ -119,15 +107,19 @@ async def _given_clinic_by_default(tenant_id: uuid.UUID) -> None:
         )
 
 
-async def _business_keys(tenant_id: uuid.UUID) -> list[list[str]]:
+async def _starting_keys(tenant_id: uuid.UUID) -> list[str]:
+    """What a new campaign or line of this account starts with."""
     async with tenant_session(tenant_id) as session:
-        agents = await lead_fields.agents_with_fields(session)
-    return [[f.key for f in a["fields"]] for a in agents]
+        start = await starting_fields(session, tenant_id=tenant_id)
+    return [str(f["key"]) for f in start]
 
 
 async def _first_agent(tenant_id: uuid.UUID) -> uuid.UUID:
     async with tenant_session(tenant_id) as session:
-        return uuid.UUID(str((await lead_fields.agents_with_fields(session))[0]["id"]))
+        first = (
+            await session.execute(text("SELECT id FROM agents ORDER BY created_at LIMIT 1"))
+        ).scalar_one()
+    return uuid.UUID(str(first))
 
 
 def _suggests(monkeypatch: pytest.MonkeyPatch, answer: str | None) -> list[str]:
@@ -150,10 +142,8 @@ def _suggests(monkeypatch: pytest.MonkeyPatch, answer: str | None) -> list[str]:
     return asked
 
 
-async def _apply(tenant_id: uuid.UUID, *, replace: bool = True) -> str:
-    return await worker.apply_business_type(
-        {}, {"tenant_id": str(tenant_id), "replace_clinic_default": replace}
-    )
+async def _apply(tenant_id: uuid.UUID) -> str:
+    return await worker.apply_business_type({}, {"tenant_id": str(tenant_id)})
 
 
 async def _operator() -> dict[str, str]:
@@ -203,7 +193,7 @@ async def test_an_account_given_clinic_by_default_runs_on_the_core_only(
 
     assert await _apply(tenant_id) == "done"
 
-    assert await _business_keys(tenant_id) == [[]]
+    assert await _starting_keys(tenant_id) == []
     async with tenant_session(tenant_id) as session:
         body = (
             await session.execute(
@@ -246,14 +236,14 @@ async def test_no_model_leaves_the_account_unconfirmed_without_a_suggestion(
 
 
 @pytest.mark.rls
-async def test_confirming_applies_the_type_to_agents_with_no_details(
+async def test_confirming_starts_new_campaigns_and_lines_on_the_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id = await _tenant("clinic")
     await _given_clinic_by_default(tenant_id)
     _suggests(monkeypatch, "retail")
     await _apply(tenant_id)
-    assert await _business_keys(tenant_id) == [[]]
+    assert await _starting_keys(tenant_id) == []
 
     headers = await _operator()
     path = f"/v1/admin/tenants/{tenant_id}/business-type"
@@ -288,25 +278,10 @@ async def test_confirming_applies_the_type_to_agents_with_no_details(
     assert queued == 1 and audited == 1
 
     await _apply(tenant_id)
-    assert await _business_keys(tenant_id) == [RETAIL_KEYS]
+    assert await _starting_keys(tenant_id) == RETAIL_KEYS
 
     refused = await _http("POST", f"{path}/confirm", headers, {"business_type": "bakery"})
     assert refused.status_code == 422
-
-
-@pytest.mark.rls
-async def test_details_somebody_chose_are_kept(monkeypatch: pytest.MonkeyPatch) -> None:
-    tenant_id = await _tenant("clinic")
-    async with tenant_session(tenant_id) as session:
-        await write_schema(
-            session,
-            agent_id=await _first_agent(tenant_id),
-            fields=[ExtractionField(key="chilli_variety", label="Chilli variety", type="text")],
-        )
-    await _given_clinic_by_default(tenant_id)
-    _suggests(monkeypatch, "retail")
-    await _apply(tenant_id)
-    assert await _business_keys(tenant_id) == [["chilli_variety"]]
 
 
 @pytest.mark.rls
@@ -314,7 +289,7 @@ async def test_a_chosen_clinic_is_left_exactly_as_it_is(monkeypatch: pytest.Monk
     tenant_id = await _tenant("clinic")
     asked = _suggests(monkeypatch, "retail")
     await _apply(tenant_id)
-    assert await _business_keys(tenant_id) == [CLINIC_KEYS]
+    assert await _starting_keys(tenant_id) == CLINIC_KEYS
     assert asked == []
 
 
@@ -322,7 +297,7 @@ async def test_a_chosen_clinic_is_left_exactly_as_it_is(monkeypatch: pytest.Monk
 
 
 @pytest.mark.rls
-async def test_a_shop_set_to_its_type_gets_the_shop_details_in_place_of_the_clinic_default(
+async def test_a_shop_set_to_its_type_starts_new_jobs_on_the_shop_details(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id = await _tenant("clinic")
@@ -333,7 +308,7 @@ async def test_a_shop_set_to_its_type_gets_the_shop_details_in_place_of_the_clin
         )
     asked = _suggests(monkeypatch, "retail")
     await _apply(tenant_id)
-    assert await _business_keys(tenant_id) == [RETAIL_KEYS]
+    assert await _starting_keys(tenant_id) == RETAIL_KEYS
     assert asked == []
 
 
@@ -567,10 +542,10 @@ async def test_suggest_again_asks_only_for_a_suggestion_and_replaces_the_one_on_
     await _apply(tenant_id)
     asked = _suggests(monkeypatch, "custom")
 
-    async def no_refit(*args: Any, **kwargs: Any) -> int:
-        raise AssertionError("suggest_only must not touch lead details")
+    async def no_draft(*args: Any, **kwargs: Any) -> bool:
+        raise AssertionError("suggest_only must not ask for a lead-details draft")
 
-    monkeypatch.setattr(worker, "_refit_fields", no_refit)
+    monkeypatch.setattr(worker, "_ask_for_draft", no_draft)
     assert (
         await worker.apply_business_type({}, {"tenant_id": str(tenant_id), "suggest_only": True})
         == "done"

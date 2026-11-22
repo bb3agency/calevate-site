@@ -2294,6 +2294,15 @@ class InboundLine(PKMixin, TimestampMixin, Base):
     extraction_fields: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
+    #: Suggested changes to that list and their pass, as on `campaigns` (D-1029, migration
+    #: f3b8d2a6c1e4, which holds their CHECKs).
+    field_suggestions: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB)
+    field_suggestions_state: Mapped[str | None] = mapped_column(Text)
+    field_suggestions_inputs: Mapped[str | None] = mapped_column(Text)
+    field_suggestions_dismissed: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    field_suggestions_at: Mapped[datetime | None]
     #: The agent's actions this line switches off; every other action of the agent is on.
     actions_off: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")

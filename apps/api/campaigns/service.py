@@ -917,7 +917,7 @@ async def create_campaign(
     campaign_id = uuid7()
     # A new campaign notes what its voice's starting list holds, so it never starts noting
     # nothing; it is the campaign's own list from then on (D-1028).
-    notes = await starting_fields(session, tenant_id=tenant_id, agent_id=agent_id)
+    notes = await starting_fields(session, tenant_id=tenant_id)
     await session.execute(
         text(
             "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, number_id, "

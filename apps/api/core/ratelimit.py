@@ -426,7 +426,8 @@ RULES: tuple[Rule, ...] = (
     # a repeat (`kb/reading.queue_read`), so each click is a fetch and a read job.
     Rule("/v1/kb/uploads/*/read", "costly", _m("POST")),
     # Each queues a model pass with `force=True` (`field_suggestions.queue_pass`).
-    Rule("/v1/agents/*/lead-suggestions/check", "costly", _m("POST")),
+    Rule("/v1/campaigns/*/lead-suggestions/check", "costly", _m("POST")),
+    Rule("/v1/inbound-lines/*/lead-suggestions/check", "costly", _m("POST")),
     # Each emails a six-digit code to an address the caller types. Adding an address sends
     # one and removing it is free, so add/remove in a loop mails any inbox from our domain.
     Rule("/v1/team-alerts/contacts", "costly", _m("POST")),
@@ -442,7 +443,8 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/admin/tenants/*/invitations", "costly", _m("POST")),
     # Model calls on the platform's own key, one click each.
     Rule("/v1/admin/tenants/*/business-copy/refresh", "costly", _m("POST")),
-    Rule("/v1/admin/tenants/*/agents/*/lead-suggestions/check", "costly", _m("POST")),
+    Rule("/v1/admin/tenants/*/campaigns/*/lead-suggestions/check", "costly", _m("POST")),
+    Rule("/v1/admin/tenants/*/inbound-lines/*/lead-suggestions/check", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/publish", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/apply", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/undo", "costly", _m("POST")),

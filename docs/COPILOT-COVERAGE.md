@@ -124,7 +124,7 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | settings | Run an in-call action once with sample values | (none) | confirm | MISSING |
 | settings | What besides hot leads the agent tells the hot-lead list | agents_do:agent_team_alert_set | confirm | BUILT (D-938, D-967) |
 | delivery | What a campaign or line writes down | campaigns_do:notes_set | confirm | COVERED |
-| delivery | Accept / turn down a lead-detail suggestion | agents_do:lead_suggestion_answer | confirm | COVERED |
+| delivery | Accept / turn down a campaign's or line's lead-detail suggestion | agents_do:lead_suggestion_answer | confirm | COVERED |
 | delivery | Call outcomes: AI draft / replace | (none) | confirm | MISSING |
 | known facts | Add, edit, pin, unpin, remove a fact | knowledge_do:knowledge_fact_change | confirm | COVERED |
 | try it | Chat with the agent as a caller | (none) | read | MISSING |
@@ -346,9 +346,10 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | billing | What each result cost (per call, lead, booking) | billing_find:billing_overview; reports_find:report_chart `cost_per_result` | read | BUILT (D-944) |
 | performance | How fast the agent answered, by week | reports_find:report_chart `reply_speed` | read | BUILT (D-944) |
 | lead details | Draft a custom business's lead details | settings_do:lead_fields_draft | confirm | COVERED |
-| lead details | Keep some drafted details | agents_do:lead_fields_keep_draft | confirm | COVERED |
-| lead details | Back to the standard set | agents_do:lead_fields_reset | confirm | COVERED |
-| lead details | Accept / turn down a suggestion | agents_do:lead_suggestion_answer | confirm | COVERED |
+| lead details | Keep some drafted details (onto the campaigns and lines nobody customised, D-1029) | agents_do:lead_fields_keep_draft | confirm | COVERED |
+| lead details | Back to the standard set on named campaigns and lines (D-1029) | agents_do:lead_fields_reset | confirm | COVERED |
+| lead details | Accept / turn down a campaign's or line's suggestion (D-1029) | agents_do:lead_suggestion_answer | confirm | COVERED |
+| lead details | Change one campaign's or line's list | campaigns_do:notes_set | confirm | COVERED |
 | call-handling | Account default call settings | agents_do:agent_settings_set (scope all_agents) | confirm | COVERED |
 | line protection | Backup phone set / remove | settings_do:line_protection_phone | confirm | COVERED |
 | line protection | Turn my line back on (restore incident) | healer | - | OWNED ELSEWHERE (D-935) |

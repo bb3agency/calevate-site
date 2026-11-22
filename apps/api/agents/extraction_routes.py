@@ -1,47 +1,22 @@
-"""An agent's STARTING list of lead details: what a new campaign or line in its voice copies.
+"""An agent's own lead-details list (`extraction_schemas`): read-only since D-1029, and the
+extraction rules every "What it notes" list is held to.
 
-D-1028 (founder, 22 Nov 2026): what a call notes belongs to its job, so no call reads this
-list. A campaign or an inbound line keeps its own (`campaigns/notes.py`) and copies this one
-when it is made (`campaigns/notes.starting_fields`). The account's Lead details screen and the
-platform's business-type and AI-draft paths still write it, which is why these routes stay;
-the agent page no longer edits it. `extraction_schemas` is dropped in a later release (hard
-rule 8). The history below explains the versioned, whole-list shape, which is unchanged.
+D-1028 (founder, 22 Nov 2026): what a call notes belongs to its job. A campaign or an inbound
+line keeps its own list (`campaigns/notes.py`); a new one starts from the business's starting
+set (`lead_fields.starting_business_fields`), never from this list. D-1029 removed the client
+and operator PUTs: nothing a person edits writes it any more. What stays here:
 
-WHAT CHANGED, AND THE DECISION BEHIND IT (D-460, superseding D-21's admin-only clause)
---------------------------------------------------------------------------------------
-The per-agent extraction schema — the list of variables the AI fills in after a call, which
-IS the Leads column list (`crm/columns.py`) — used to be written exactly once, at account
-creation, from a hard-coded vertical template, with no edit path in either realm. D-21 kept
-it admin-only on a managed-service argument. D-460 opens it: a client OWNER edits their own
-agents' variables, and an operator edits any tenant's, because a business knows what it
-needs to capture better than a template does, and each variable now carries an optional
-`reason` the model reads.
+* `_validate_fields`, the rules a list must meet to be saved (unique keys, choices for a
+  choice detail, no reserved key, the size ceilings below), which `campaigns/notes.save_notes`
+  applies to every job's list;
+* the GET, a read of an agent's list for API clients that still ask;
+* `write_schema`, the versioned write the platform's own seeding still uses for a new agent
+  (`starters`) and for a reworded template field (`refresh_field_reason`).
 
-WHY THIS ROUTER HAS NO PREFIX, and why there are two of them: the resource lives in two
-spaces — the client realm's `/v1/agents/{agent_id}/extraction-schema` and the admin realm's
-`/v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema` — so one prefix could
-describe only one. Same resolution as `llm_routes.py` and `prompt_routes.py`, which pair a
-client router with an admin one for the identical reason. Both call one reader and one
-writer; what differs is who is admitted and whose tenant is named (a `Depends` + a path
-parameter), not a second implementation.
-
-WHY A WHOLE-LIST PUT, NOT PER-FIELD POST/PATCH/DELETE. The field list is one ordered value
-(order is the display order AND the prompt order), so add / edit / delete are all "here is
-the new list". One write path is one place for the validation, the collision guard and the
-versioning to live — per-field verbs would be four places for those to drift, and a
-half-applied multi-field edit would be a schema nobody chose.
-
-WHY A NEW VERSION RATHER THAN AN IN-PLACE UPDATE. `extraction_schemas` is versioned on
-purpose (`models.py`): historical leads render by the version active when they were
-extracted, and `leads.data` is keyed by `field.key`. So a save INSERTs a new version row and
-repoints the agent at it; old versions stay for old leads. It is NOT append-only (edits are
-allowed), but the versioning contract is what keeps a rename from rewriting history.
-
-LIVE ON SAVE, IN TWO HALVES. Extraction is post-call (`apps/workers/extraction.py`), so the
-next call's reading uses the new list with nothing to push. What the agent ASKS callers for
-is compiled into its script ("what to collect"), so a changed list also queues
-`rebuild_collect` (D-889), which recompiles the script and republishes a live agent in a
-worker, where a voice-platform refusal cannot fail the save.
+`extraction_schemas` and `agents.extraction_schema_id` are dropped in a later release (hard
+rule 8). The versioned shape: a write INSERTs a new version row and repoints the agent, so
+leads extracted under an older version render by it; a changed list also queues
+`rebuild_collect` (D-889), which recompiles the agent's own script in a worker.
 """
 
 from __future__ import annotations
@@ -52,32 +27,24 @@ from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec
 from calevate_shared.lead_fields import OUTPUT_KEYS, business_only, core_fields
-from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.field_suggestions import queue_collect_rebuild
-from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.crm.columns import FIXED_KEYS
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session
 from apps.api.tenancy.core_labels import core_labels
 
 router = APIRouter(tags=["agents"])
 
 Session = Annotated[AsyncSession, Depends(db)]
-
-# The owner's permission on the client side (the same gate the account model picker and the
-# per-agent model edit use — this decides what every call on the agent captures, an owner's
-# call); the operator's on the admin side.
-Owner = Annotated[Principal, Depends(requires("org:manage"))]
-Operator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 
 
 #: THE CEILINGS THIS SURFACE HAD NONE OF, and the reason they are needed NOW rather than
@@ -103,29 +70,6 @@ MAX_LABEL_LEN = 80
 MAX_REASON_LEN = 500
 MAX_ENUM_VALUES = 50
 MAX_ENUM_VALUE_LEN = 80
-
-
-class ExtractionSchemaIn(BaseModel):
-    """The whole new ordered field list. `extra="forbid"` on every field
-    (`ExtractionField`), so an unknown key on a variable is a 422 rather than a silently
-    dropped edit.
-
-    `max_length` HERE and not on `ExtractionField`/`ExtractionSchemaSpec`, deliberately.
-    Those two models also parse what is ALREADY STORED (`_read_current`, `crm.service.
-    lead_columns`, `crm/lead_chunks._fields_for`), and a ceiling added to a read model is a
-    ceiling that turns every row written before it existed into a 500 on the client's own
-    Leads screen. A bound belongs on the write, where the person who can act on it is
-    holding the form.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    fields: list[ExtractionField] = Field(max_length=MAX_EXTRACTION_FIELDS)
-    #: The schema version the editor was showing (0 for an agent with none yet). Sent, a
-    #: save over a version somebody else wrote since (another owner, Pip, an accepted
-    #: suggestion) is refused rather than silently dropping their fields, because the body
-    #: is the WHOLE list. Omitted, the list replaces whatever is there.
-    expected_version: int | None = Field(default=None, ge=0)
 
 
 class ExtractionSchemaOut(BaseModel):
@@ -268,7 +212,6 @@ async def _write_schema(
     *,
     agent_id: UUID,
     fields: list[ExtractionField],
-    expected_version: int | None = None,
 ) -> ExtractionSchemaOut:
     """Insert a new schema version and point the agent at it — or do nothing if the list is
     unchanged. The caller has already validated `fields`.
@@ -288,20 +231,12 @@ async def _write_schema(
     current_version, current_fields = await _read_current(session, current_schema_id)
     desired = [f.model_dump() for f in fields]
     if desired == current_fields:
-        # Re-asserting the list already on file touches nothing — a PUT states the whole
-        # resource, so a repeat is idempotent by construction and must not spend a version.
+        # Re-asserting the list already on file touches nothing and spends no version.
         return ExtractionSchemaOut(
             fields=fields,
             core_fields=core_fields(await core_labels(session)),
             version=current_version,
             changed=False,
-        )
-    # After the no-op check: re-sending what is already on file loses nobody's edit.
-    if expected_version is not None and expected_version != current_version:
-        raise ProblemError.conflict(
-            "extraction_schema_changed_elsewhere",
-            "These details were changed somewhere else after you opened them.",
-            remediation="Reload to see the current list, then make your change again.",
         )
 
     # `MAX(version)+1` over the agent's own rows, not `current_version + 1`: it is the value
@@ -337,13 +272,6 @@ async def _write_schema(
         text("UPDATE agents SET extraction_schema_id = :sid, updated_at = now() WHERE id = :aid"),
         {"sid": schema_id, "aid": str(agent_id)},
     )
-    # Every writer of an agent's starting list comes through here, so this is the one place
-    # its jobs that still hold exactly the list they copied take the change (D-1028).
-    from apps.api.agents.lead_fields import follow_onto_jobs
-
-    await follow_onto_jobs(
-        session, agent_id=agent_id, previous=business_only(current_fields), fields=fields
-    )
     await queue_collect_rebuild(session, tenant_id=tenant_id, agent_id=agent_id)
     return ExtractionSchemaOut(
         fields=fields,
@@ -353,34 +281,11 @@ async def _write_schema(
     )
 
 
-def _audit_summary(result: ExtractionSchemaOut) -> dict[str, object]:
-    """WHAT to record, and — as much — what NOT to. The variable KEYS, LABELS, reasons and
-    types are tenant CONFIG (safe to log); a caller's extracted VALUES are PII and never
-    touch this path (hard rule 6). So the summary is the shape of the schema, never a value:
-    an auditor reconstructing "who changed what the agent captures" needs the field list and
-    the version, and nothing a caller said.
-    """
-    return {
-        "version": result.version,
-        "changed": result.changed,
-        "field_keys": [f.key for f in result.fields],
-    }
-
-
 _DESCRIPTION = (
-    "The starting list of details a new campaign or inbound line in this agent's voice "
-    "copies (D-1028); no call reads it. Send the WHOLE ordered list; it replaces what was "
-    "there. Each variable has a key (stored id), a label (shown), a type (text, number, "
-    "bool, enum, date), "
-    "whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — "
-    "why the variable is needed, which the AI reads to fill it more accurately. Leave the "
-    "reason blank to have the AI work from the name alone.\n\n"
-    "Saving creates a new schema version; campaigns and lines already made keep their own "
-    "lists. A variable whose key is a built-in lead column, or a duplicate key, is "
-    "refused.\n\n"
-    f"At most {MAX_EXTRACTION_FIELDS} variables, each with a name of "
-    f"{MAX_LABEL_LEN} characters or fewer, a reason of {MAX_REASON_LEN} or fewer, and at "
-    f"most {MAX_ENUM_VALUES} choices."
+    "The agent's own list of details, kept read-only until it is dropped (D-1028, D-1029): no "
+    "call reads it and no new campaign or line copies it. What a call notes is its campaign's "
+    "or line's list (`/v1/campaigns/{id}/notes`, `/v1/inbound-lines/{id}/notes`), and a new "
+    "one starts from the business's starting set (`/v1/lead-fields`)."
 )
 
 
@@ -388,7 +293,7 @@ _DESCRIPTION = (
     "/v1/agents/{agent_id}/extraction-schema",
     response_model=ExtractionSchemaOut,
     openapi_extra=permission_meta("org:read"),
-    summary="The lead details a new campaign or line in this voice starts with",
+    summary="The agent's own list of lead details, read-only",
     description=_DESCRIPTION,
 )
 async def get_extraction_schema(
@@ -416,87 +321,8 @@ async def get_extraction_schema(
     )
 
 
-@router.put(
-    "/v1/agents/{agent_id}/extraction-schema",
-    response_model=ExtractionSchemaOut,
-    # `org:manage` — the OWNER's permission. Editing what every call captures is an owner's
-    # decision, the same class as choosing the account's language model, not a staff read.
-    openapi_extra=permission_meta("org:manage"),
-    summary="Set the lead details a new campaign or line in this voice starts with",
-    description=_DESCRIPTION,
-)
-async def set_extraction_schema(
-    agent_id: UUID,
-    payload: ExtractionSchemaIn,
-    session: Session,
-    request: Request,
-    principal: Owner,
-) -> ExtractionSchemaOut:
-    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
-    _validate_fields(payload.fields)
-    result = await _write_schema(
-        session,
-        agent_id=agent_id,
-        fields=payload.fields,
-        expected_version=payload.expected_version,
-    )
-    await write_audit(
-        session,
-        action="agent.extraction_schema_set",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="agent",
-        object_id=str(agent_id),
-        ip=client_request_ip(request),
-        summary=_audit_summary(result),
-    )
-    return result
-
-
-admin_router = APIRouter(prefix="/v1/admin", tags=["admin"])
-
-
-@admin_router.put(
-    "/tenants/{tenant_id}/agents/{agent_id}/extraction-schema",
-    response_model=ExtractionSchemaOut,
-    openapi_extra=permission_meta("admin:tenants"),
-    summary="Set the lead details new jobs in one client agent's voice start with",
-    description=_DESCRIPTION,
-)
-async def admin_set_extraction_schema(
-    tenant_id: UUID,
-    agent_id: UUID,
-    payload: ExtractionSchemaIn,
-    request: Request,
-    principal: Operator,
-) -> ExtractionSchemaOut:
-    """THE TENANT IS NAMED IN THE PATH AND ENTERED EXPLICITLY, never inferred from a session
-    — the same resolution `agents/prompt_routes.py` and `llm_routes.py` record: an admin
-    principal carries no tenant of its own, and impersonation is READ-ONLY (D-22), so a route
-    that inferred the tenant would be un-callable for a mutation."""
-    _validate_fields(payload.fields)
-    async with tenant_session(tenant_id) as scoped:
-        result = await _write_schema(
-            scoped,
-            agent_id=agent_id,
-            fields=payload.fields,
-            expected_version=payload.expected_version,
-        )
-        await write_audit(
-            scoped,
-            action="admin.agent_extraction_schema_set",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="agent",
-            object_id=str(agent_id),
-            ip=client_request_ip(request),
-            summary=_audit_summary(result),
-        )
-        return result
-
-
-#: The route's two steps under public names, for the platform's own writers of the starting
-#: list (`lead_fields`, `starters`, `field_suggestions`), so they validate and write exactly
-#: as the Save button does.
+#: The rules and the write under public names: every job's list is held to `validate_fields`
+#: (`campaigns/notes.save_notes`), and the platform's own seeding of an agent's list writes
+#: through `write_schema` (`starters`, `lead_fields.refresh_field_reason`).
 validate_fields = _validate_fields
 write_schema = _write_schema

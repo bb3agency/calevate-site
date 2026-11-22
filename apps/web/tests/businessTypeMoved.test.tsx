@@ -1,33 +1,27 @@
 import { describe, expect, it } from "vitest";
 
-import { replacedSentence } from "@/app/admin/tenants/[tenantId]/profile/BusinessTypeMoved";
+import { appliedSentence } from "@/components/leadFields/ApplyToJobs";
 
 /**
- * The operator's answer after "Use the <type> details". It is built from the server's
- * counts, so an account with no agents, or one whose agents already had the set, is not
- * told that "0 agents now write" anything.
+ * The answer after a set is put onto the ticked campaigns and lines (a business-type move, a
+ * kept draft, Start again). It is built from the server's counts, so nobody is told that "0
+ * campaigns" changed, and a job whose put-live was refused is named as waiting.
  */
-describe("replacedSentence", () => {
-  it("counts the agents that moved", () => {
-    expect(replacedSentence({ agents_changed: 1, agents_unchanged: 0 }, "retail")).toBe(
-      "1 agent now writes down the retail details. Answers already captured keep their old names.",
-    );
-    expect(replacedSentence({ agents_changed: 3, agents_unchanged: 1 }, "retail")).toMatch(
-      /^3 agents now write down the retail details\./,
-    );
+describe("appliedSentence", () => {
+  it("counts the campaigns and lines that changed", () => {
+    expect(appliedSentence({ jobs_changed: 1, jobs_waiting: 0 })).toBe("1 campaign or line updated.");
+    expect(appliedSentence({ jobs_changed: 3, jobs_waiting: 0 })).toBe("3 campaigns and lines updated.");
   });
 
-  it("says nothing changed when every agent already had the set", () => {
-    expect(replacedSentence({ agents_changed: 0, agents_unchanged: 2 }, "retail")).toBe(
-      "Every agent already writes down the retail details. Nothing changed.",
-    );
-  });
-
-  it("says there are no agents rather than a zero count", () => {
-    const sentence = replacedSentence({ agents_changed: 0, agents_unchanged: 0 }, "retail");
+  it("says nothing changed rather than a zero count", () => {
+    const sentence = appliedSentence({ jobs_changed: 0, jobs_waiting: 0 });
     expect(sentence).not.toMatch(/^0 /);
-    expect(sentence).toBe(
-      "This account has no agents yet. A new agent starts with the retail details.",
+    expect(sentence).toBe("Nothing changed. They already note these details.");
+  });
+
+  it("names the ones that use the details from their next start", () => {
+    expect(appliedSentence({ jobs_changed: 2, jobs_waiting: 1 })).toBe(
+      "2 campaigns and lines updated. 1 will use them from their next start.",
     );
   });
 });

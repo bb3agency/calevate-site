@@ -1,30 +1,27 @@
-"""The lead details a business captures: the fixed core, its business fields, and the one
-AI draft every business gets (founder decision 15, 10 Oct 2026; every type since 5 Nov 2026).
+"""The lead details a business captures: the fixed core, its starting set of business fields,
+and the one AI draft every business gets (founder decision 15, 10 Oct 2026; every type since
+5 Nov 2026).
 
-Three sources can fill an agent's business fields, and every one ends as an ordinary
-`extraction_schemas` version written by `extraction_routes.write_schema`, so history and
-"leads render by the version they were captured under" hold for all of them:
+What a call notes is its campaign's or inbound line's own list (D-1028), edited on that job's
+What it notes and on the Lead details screen, one card per job (D-1029). This module holds
+what those lists start from and the account-wide writes that reach several at once:
 
-* **A known business type's standard set** (`calevate_shared/verticals.json`), at account
-  creation, at agent creation, or when an operator moves the account to another type and
-  chooses to replace the fields (`replace_business_fields`; never as a side effect of the
-  type change itself). Since 5 Nov 2026 it is only the starting point and the draft's seed:
-  two businesses of one type rarely need the same details (founder: "make everything that
-  matters dynamic").
+* **The business's starting set** (`starting_business_fields`): what its owner kept of the AI
+  draft, else its business type's standard set (`calevate_shared/verticals.json`). A new
+  campaign or line copies it (`campaigns/notes.starting_fields`). A business-type move changes
+  it by changing the type; since 5 Nov 2026 a standard set is only a starting point and the
+  draft's seed (founder: "make everything that matters dynamic").
 * **The AI draft**, for every business: drafted ONCE by a worker
   (`apps/workers/lead_fields_draft.py`) from the business's own details, kept on
-  `lead_field_drafts`, reviewed by the owner field by field (D-821), and the kept fields are
-  written onto every agent whose business fields are still empty or still exactly its
-  type's standard set (`untouched`): an owner's own edit is never overwritten (D-715). It is
-  never redrafted; `UNIQUE(tenant_id)` makes a second draft unrepresentable.
-* **The client's own edits**, through the per-agent editor, at any time.
+  `lead_field_drafts`, reviewed by the owner field by field (D-821). It is never redrafted;
+  `UNIQUE(tenant_id)` makes a second draft unrepresentable.
+* **An apply** (`apply_to_jobs`): the starting set written onto the campaigns and lines the
+  owner ticked, each under a compare-and-set on the list the screen showed. The screen ticks
+  the jobs nobody customised (`JobRow.untouched`); an owner's own list is changed only when
+  they tick it (D-715).
 
-The core is never stored (`calevate_shared.lead_fields`).
-
-Since D-1028 no call reads an agent's list: a call notes its campaign's or line's own list.
-An agent's list is the starting list a new campaign or line copies, and a platform write
-here (through `extraction_routes.write_schema`) also reaches the agent's jobs that still hold
-exactly what they copied (`follow_onto_jobs`).
+The core is never stored (`calevate_shared.lead_fields`). An agent's own `extraction_schemas`
+list is read by nothing that decides a call and is dropped in a later release (hard rule 8).
 """
 
 from __future__ import annotations
@@ -32,7 +29,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared import verticals
@@ -125,8 +122,8 @@ async def vertical_of(session: AsyncSession, *, tenant_id: UUID) -> str | None:
 async def starting_business_fields(
     session: AsyncSession, *, tenant_id: UUID, vertical: str | None
 ) -> list[ExtractionField]:
-    """What a NEW agent of this business starts with: what its owner kept of its draft, else
-    its type's standard set. Never a redraft."""
+    """The business's starting set, which a new campaign or line copies: what its owner kept of
+    its draft, else its type's standard set. Never a redraft."""
     draft = await read_draft(session, tenant_id=tenant_id)
     if draft is not None and draft.status == "done" and draft.reviewed and draft.fields:
         return draft.fields
@@ -219,15 +216,14 @@ async def maybe_request_draft(
 @dataclass(frozen=True, slots=True)
 class Reviewed:
     kept: list[ExtractionField]
-    written: list[AgentWrite]
 
 
 async def review_draft(session: AsyncSession, *, tenant_id: UUID, keep: list[str]) -> Reviewed:
     """The owner's review of the finished draft (D-821): the fields whose keys are in `keep`
-    are written onto every agent whose business fields are empty or still its type's
-    untouched standard set, and become the set a new agent starts with; the rest are
-    dropped. `keep=[]` discards the draft. Once, under a row lock: a second review is
-    refused, and the draft is never redrafted.
+    become the business's starting set (`starting_business_fields`); the rest are dropped.
+    `keep=[]` discards the draft. Once, under a row lock: a second review is refused, and the
+    draft is never redrafted. Which campaigns and lines take the kept set is the caller's
+    (`lead_fields_writes.keep_draft`, D-1029).
     """
     row = (
         await session.execute(
@@ -249,12 +245,6 @@ async def review_draft(session: AsyncSession, *, tenant_id: UUID, keep: list[str
         )
     wanted = set(keep)
     kept = [f for f in business_only(row[1] or []) if f.key in wanted]
-    seed = standard_fields(await vertical_of(session, tenant_id=tenant_id))
-    written = (
-        await replace_business_fields(session, fields=kept, only_empty=True, untouched=seed)
-        if kept
-        else []
-    )
     await session.execute(
         text(
             "UPDATE lead_field_drafts SET reviewed_at = now(), fields = CAST(:fields AS jsonb), "
@@ -262,106 +252,141 @@ async def review_draft(session: AsyncSession, *, tenant_id: UUID, keep: list[str
         ),
         {"tid": tenant_id, "fields": json.dumps([f.model_dump() for f in kept])},
     )
-    return Reviewed(kept=kept, written=written)
+    return Reviewed(kept=kept)
 
 
-# ------------------------------------------------------------- writing onto the agents
-
-
-@dataclass(frozen=True, slots=True)
-class AgentWrite:
-    agent_id: UUID
-    version: int
-    changed: bool
+# ------------------------------------------------------- the campaigns' and lines' lists
 
 
 #: Agents one business runs, read at most this many at a time: a handful in practice, and a
 #: ceiling against a pathological roster rather than a product limit.
 MAX_AGENTS: Final = 50
+#: Campaigns, and separately lines, the Lead details screen lists: open ones only, which a
+#: business keeps to a handful, so a ceiling against a pathological account.
+MAX_JOBS: Final = 200
 
-_AGENTS_SQL: Final = (
-    "SELECT a.id, es.fields FROM agents a "
-    "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
-    "WHERE a.deleted_at IS NULL ORDER BY a.created_at, a.id LIMIT :limit"
+JobKind = Literal["campaign", "line"]
+
+
+@dataclass(frozen=True, slots=True)
+class JobRef:
+    """A campaign or line an account-wide apply writes, with the digest of the list the
+    screen showed for it (`campaigns/notes.digest_of`)."""
+
+    kind: JobKind
+    job_id: UUID
+    digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class JobWrite:
+    kind: JobKind
+    job_id: UUID
+    changed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class JobRow:
+    kind: JobKind
+    id: UUID
+    name: str
+    #: A campaign's status (`campaigns.models.CAMPAIGN_STATUSES`); `live` or `draft` for a line.
+    status: str
+    #: Running now: a running campaign, or a line callers hear.
+    live: bool
+    agent_id: UUID
+    agent_name: str
+    fields: list[ExtractionField]
+    digest: str
+    #: Nobody chose this list: it is empty, or exactly a set the platform offered (the
+    #: business's starting set or any business type's standard set). An apply of a new
+    #: starting set ticks these by default.
+    untouched: bool
+
+
+_JOBS_SQL: Final = (
+    "SELECT 'campaign' AS kind, g.id, g.name, g.status, g.status = 'running' AS live, "
+    "g.agent_id, a.name AS agent_name, g.extraction_fields FROM campaigns g "
+    "JOIN agents a ON a.id = g.agent_id WHERE g.archived_at IS NULL "
+    "ORDER BY (g.status = 'running') DESC, lower(g.name), g.id LIMIT :limit"
+)
+_LINES_SQL: Final = (
+    "SELECT 'line' AS kind, l.id, l.name, "
+    "CASE WHEN l.engine_agent_ref IS NOT NULL AND l.published_at IS NOT NULL "
+    "THEN 'live' ELSE 'draft' END, "
+    "l.engine_agent_ref IS NOT NULL AND l.published_at IS NOT NULL, "
+    "l.agent_id, a.name, l.extraction_fields FROM inbound_lines l "
+    "JOIN agents a ON a.id = l.agent_id WHERE l.archived_at IS NULL "
+    "ORDER BY (l.engine_agent_ref IS NOT NULL AND l.published_at IS NOT NULL) DESC, "
+    "lower(l.name), l.id LIMIT :limit"
 )
 
 
-async def replace_business_fields(
-    session: AsyncSession,
-    *,
-    fields: list[ExtractionField],
-    agent_ids: list[UUID] | None = None,
-    only_empty: bool = False,
-    untouched: list[ExtractionField] | None = None,
-) -> list[AgentWrite]:
-    """Write `fields` as the business fields of this tenant's agents (RLS scopes them).
+def platform_sets(starting: list[ExtractionField]) -> list[list[ExtractionField]]:
+    """Every list the platform ever offered this business: its starting set and each business
+    type's standard set. A job holding exactly one of them holds nobody's choice, which is how
+    a business-type move finds the jobs still on the old type's set without knowing it."""
+    sets = [starting]
+    for key in verticals.all_keys():
+        standard = standard_fields(key)
+        if standard:
+            sets.append(standard)
+    return sets
 
-    `agent_ids=None` means every agent that is not deleted. `only_empty` skips an agent
-    that already has business fields of its own — how a finished draft lands without
-    overwriting anything a client already chose — unless they are exactly `untouched`
-    (the set the platform wrote, which nobody chose). Every write is a new schema version;
-    earlier versions and the values captured under them are untouched.
-    """
-    validate_fields(fields)
-    rows = (await session.execute(text(_AGENTS_SQL), {"limit": MAX_AGENTS})).all()
-    wanted = None if agent_ids is None else set(agent_ids)
-    if wanted is not None:
-        unknown = wanted - {UUID(str(r[0])) for r in rows}
-        if unknown:
-            raise ProblemError.not_found("Agent")
-    written: list[AgentWrite] = []
+
+def untouched(fields: list[ExtractionField], offered: list[list[ExtractionField]]) -> bool:
+    return not fields or any(_same_fields(fields, each) for each in offered)
+
+
+async def jobs_with_fields(
+    session: AsyncSession, *, starting: list[ExtractionField]
+) -> list[JobRow]:
+    """Every open campaign, then every line, each running one first and then by name, with its
+    list. RLS scopes both to the session's tenant."""
+    from apps.api.campaigns.notes import digest_of
+
+    offered = platform_sets(starting)
+    rows = [
+        *(await session.execute(text(_JOBS_SQL), {"limit": MAX_JOBS})).all(),
+        *(await session.execute(text(_LINES_SQL), {"limit": MAX_JOBS})).all(),
+    ]
+    out: list[JobRow] = []
     for row in rows:
-        agent_id = UUID(str(row[0]))
-        if wanted is not None and agent_id not in wanted:
-            continue
-        own = business_only(row[1] or [])
-        if only_empty and own and not _same_fields(own, untouched):
-            continue
-        result = await write_schema(session, agent_id=agent_id, fields=fields)
-        written.append(
-            AgentWrite(agent_id=agent_id, version=result.version, changed=result.changed)
+        fields = business_only(row[7] or [])
+        out.append(
+            JobRow(
+                kind="campaign" if row[0] == "campaign" else "line",
+                id=UUID(str(row[1])),
+                name=str(row[2]),
+                status=str(row[3]),
+                live=bool(row[4]),
+                agent_id=UUID(str(row[5])),
+                agent_name=str(row[6]),
+                fields=fields,
+                digest=digest_of(row[7]),
+                untouched=untouched(fields, offered),
+            )
         )
+    return out
+
+
+async def apply_to_jobs(
+    session: AsyncSession, *, fields: list[ExtractionField], jobs: list[JobRef]
+) -> list[JobWrite]:
+    """Write `fields` as the list of each named campaign and line, each under a compare-and-set
+    on the digest the screen showed (`campaigns/notes.save_notes`), so a list somebody changed
+    while the owner was choosing is refused rather than overwritten. One transaction: a refusal
+    writes none of them."""
+    from apps.api.campaigns.notes import save_notes
+
+    validate_fields(fields)
+    written: list[JobWrite] = []
+    for job in jobs:
+        changed = await save_notes(
+            session, job.kind, job.job_id, fields, expected_digest=job.digest
+        )
+        written.append(JobWrite(kind=job.kind, job_id=job.job_id, changed=changed))
     return written
-
-
-async def follow_onto_jobs(
-    session: AsyncSession,
-    *,
-    agent_id: UUID,
-    previous: list[ExtractionField],
-    fields: list[ExtractionField],
-) -> None:
-    """Give `fields` to the agent's open campaigns and lines whose list is empty or still
-    exactly the agent's `previous` list, which is the list they copied and nobody changed
-    (D-1028). Calls read the job's list, not the agent's, so without this a finished draft
-    or a business-type move would reach no call; a job whose owner changed its list keeps
-    it. A live job's engine agent learns the list at its next put-live."""
-    from apps.api.campaigns.notes import JobKind, job_table
-
-    stored = json.dumps([f.model_dump(mode="json", exclude_none=True) for f in fields])
-    kinds: tuple[JobKind, ...] = ("campaign", "line")
-    for kind in kinds:
-        table = job_table(kind)
-        rows = (
-            await session.execute(
-                text(
-                    f"SELECT id, extraction_fields FROM {table} "
-                    "WHERE agent_id = :aid AND archived_at IS NULL FOR UPDATE"
-                ),
-                {"aid": agent_id},
-            )
-        ).all()
-        for job_id, raw in rows:
-            current = business_only(raw or [])
-            if current and not _same_fields(current, previous):
-                continue
-            await session.execute(
-                text(
-                    f"UPDATE {table} SET extraction_fields = CAST(:f AS jsonb), "
-                    "updated_at = now() WHERE id = :jid"
-                ),
-                {"f": stored, "jid": job_id},
-            )
 
 
 def _same_fields(own: list[ExtractionField], seed: list[ExtractionField] | None) -> bool:
@@ -418,31 +443,6 @@ async def refresh_field_reason(
     return (await write_schema(session, agent_id=agent_id, fields=updated)).changed
 
 
-async def agents_with_fields(session: AsyncSession) -> list[dict[str, Any]]:
-    """Every agent that is not deleted, with its current business fields and version."""
-    rows = (
-        await session.execute(
-            text(
-                "SELECT a.id, a.name, a.direction, a.status, es.version, es.fields "
-                "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
-                "WHERE a.deleted_at IS NULL ORDER BY a.created_at, a.id LIMIT :limit"
-            ),
-            {"limit": MAX_AGENTS},
-        )
-    ).all()
-    return [
-        {
-            "id": UUID(str(r[0])),
-            "name": str(r[1]),
-            "direction": str(r[2]),
-            "status": str(r[3]),
-            "version": int(r[4]) if r[4] is not None else 0,
-            "fields": business_only(r[5] or []),
-        }
-        for r in rows
-    ]
-
-
 #: The worker that names the core details for one business (`workers/core_labels`).
 NAME_CORE_JOB: Final = "name_core_details"
 
@@ -495,25 +495,30 @@ __all__ = [
     "CUSTOM",
     "DRAFT_JOB",
     "MAX_AGENTS",
+    "MAX_JOBS",
     "NAME_CORE_JOB",
-    "AgentWrite",
     "Draft",
+    "JobKind",
+    "JobRef",
+    "JobRow",
+    "JobWrite",
     "Reviewed",
-    "agents_with_fields",
+    "apply_to_jobs",
     "business_type_label",
     "core_labels",
-    "follow_onto_jobs",
     "has_business_fields",
     "has_standard_set",
+    "jobs_with_fields",
     "maybe_name_core_details",
     "maybe_request_draft",
+    "platform_sets",
     "read_draft",
     "refresh_field_reason",
-    "replace_business_fields",
     "request_draft",
     "review_draft",
     "save_core_labels",
     "standard_fields",
     "starting_business_fields",
+    "untouched",
     "vertical_of",
 ]

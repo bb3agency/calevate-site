@@ -129,7 +129,7 @@ describe("an inbound line's What it notes", () => {
 
   it("renders the line's list and saves it whole, with the digest it read", async () => {
     const { calls } = await renderClientPage(
-      <JobNotes kind="line" jobId="line-1" slug="acme" canWrite takeEffect={lineNotesTakeEffect} />,
+      <JobNotes kind="line" jobId="line-1" canWrite takeEffect={lineNotesTakeEffect} />,
       {
         "/v1/me": OWNER_ME,
         "/v1/inbound-lines": lines,
@@ -151,7 +151,7 @@ describe("an inbound line's What it notes", () => {
 
   it("imports another line's list, never its own", async () => {
     await renderClientPage(
-      <JobNotes kind="line" jobId="line-1" slug="acme" canWrite takeEffect={lineNotesTakeEffect} />,
+      <JobNotes kind="line" jobId="line-1" canWrite takeEffect={lineNotesTakeEffect} />,
       {
         "/v1/me": OWNER_ME,
         "/v1/inbound-lines": lines,

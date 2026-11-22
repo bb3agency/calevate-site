@@ -223,7 +223,7 @@ async def create_line(
     line_id = uuid7()
     # A new line notes what its voice's starting list holds, so it never starts noting
     # nothing; it is the line's own list from then on (D-1028).
-    notes = await starting_fields(session, tenant_id=tenant_id, agent_id=agent_id)
+    notes = await starting_fields(session, tenant_id=tenant_id)
     await session.execute(
         text(
             "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, main_task, script, "

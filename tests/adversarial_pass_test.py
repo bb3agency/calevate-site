@@ -99,6 +99,27 @@ async def _make_member(tenant_id: uuid.UUID) -> tuple[uuid.UUID, str]:
 # --- 1. IDOR ------------------------------------------------------------------------
 
 
+SUGGESTION_ID = "0123456789abcdef"
+_SUGGESTION: dict[str, object] = {
+    "id": SUGGESTION_ID,
+    "kind": "new_field",
+    "field_key": "facing",
+    "field_label": "Facing",
+    "values": [],
+    "field": {"key": "facing", "label": "Facing", "type": "text"},
+    "reason": "The script asks which way the flat faces.",
+    "source": "script",
+}
+_SUGGEST_ON_CAMPAIGN_SQL = (
+    "UPDATE campaigns SET field_suggestions = CAST(:s AS jsonb), "
+    "field_suggestions_state = 'done' WHERE id = :j"
+)
+_SUGGEST_ON_LINE_SQL = (
+    "UPDATE inbound_lines SET field_suggestions = CAST(:s AS jsonb), "
+    "field_suggestions_state = 'done' WHERE id = :j"
+)
+
+
 async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> dict[str, str]:
     """One real row of each kind a `{...}` client route addresses.
 
@@ -117,33 +138,9 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             )
         ).scalar_one()
         ids["agent_id"] = str(agent_id)
-        # A lead-detail suggestion waiting on A's agent (D-889), so accept/dismiss are driven
-        # with an id that exists.
-        suggestion_id = "0123456789abcdef"
-        await s.execute(
-            text(
-                "UPDATE agents SET field_suggestions = CAST(:s AS jsonb), "
-                "field_suggestions_state = 'done' WHERE id = :a"
-            ),
-            {
-                "a": agent_id,
-                "s": json.dumps(
-                    [
-                        {
-                            "id": suggestion_id,
-                            "kind": "new_field",
-                            "field_key": "facing",
-                            "field_label": "Facing",
-                            "values": [],
-                            "field": {"key": "facing", "label": "Facing", "type": "text"},
-                            "reason": "The script asks which way the flat faces.",
-                            "source": "script",
-                        }
-                    ]
-                ),
-            },
-        )
-        ids["suggestion_id"] = suggestion_id
+        # A lead-detail suggestion waiting on A's campaign and line (D-889, D-1029), written
+        # once both exist below, so accept/dismiss are driven with an id that exists.
+        ids["suggestion_id"] = SUGGESTION_ID
 
         rows: tuple[tuple[str, str, str, dict[str, object]], ...] = (
             (
@@ -689,6 +686,11 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
         )
         ids["line_id"] = str(line_id)
         ids["line_proposal_id"] = str(line_proposal_id)
+        for sql, job_id in (
+            (_SUGGEST_ON_CAMPAIGN_SQL, uuid.UUID(ids["campaign_id"])),
+            (_SUGGEST_ON_LINE_SQL, line_id),
+        ):
+            await s.execute(text(sql), {"j": job_id, "s": json.dumps([_SUGGESTION])})
         await s.execute(
             text(
                 "INSERT INTO data_rights_requests (id, tenant_id, kind, channel, subject_ref, "
@@ -741,11 +743,6 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/agents/{agent_id}/call-mistakes", {}, {}),
     # D-985: the owner's Undo of a script fix. `{kind}` is a mistake kind, not an object.
     ("POST", "/v1/agents/{agent_id}/call-mistakes/{kind}/undo", {}, {}),
-    ("PUT", "/v1/agents/{agent_id}/extraction-schema", {"fields": []}, {}),
-    ("GET", "/v1/agents/{agent_id}/lead-suggestions", {}, {}),
-    ("POST", "/v1/agents/{agent_id}/lead-suggestions/check", {}, {}),
-    ("POST", "/v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/accept", {}, {}),
-    ("POST", "/v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/dismiss", {}, {}),
     ("GET", "/v1/agents/{agent_id}/pending", {}, {}),
     # D-533. The handover list — WHO a caller is put through to. Read is `agents:read` and
     # the write is `org:manage`, so both are reachable with an ordinary client credential,
@@ -886,6 +883,10 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PUT", "/v1/inbound-lines/{line_id}/actions", {"off": []}, {}),
     ("GET", "/v1/inbound-lines/{line_id}/notes", {}, {}),
     ("PUT", "/v1/inbound-lines/{line_id}/notes", {"fields": []}, {}),
+    ("GET", "/v1/inbound-lines/{line_id}/lead-suggestions", {}, {}),
+    ("POST", "/v1/inbound-lines/{line_id}/lead-suggestions/check", {}, {}),
+    ("POST", "/v1/inbound-lines/{line_id}/lead-suggestions/{suggestion_id}/accept", {}, {}),
+    ("POST", "/v1/inbound-lines/{line_id}/lead-suggestions/{suggestion_id}/dismiss", {}, {}),
     ("PUT", "/v1/inbound-lines/{line_id}/script", {"script": {}}, {}),
     ("POST", "/v1/inbound-lines/{line_id}/publish", {}, {}),
     ("POST", "/v1/inbound-lines/{line_id}/proposal", {}, {}),
@@ -923,6 +924,10 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PUT", "/v1/campaigns/{campaign_id}/settings", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/notes", {}, {}),
     ("PUT", "/v1/campaigns/{campaign_id}/notes", {"fields": []}, {}),
+    ("GET", "/v1/campaigns/{campaign_id}/lead-suggestions", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/lead-suggestions/check", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/lead-suggestions/{suggestion_id}/accept", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/lead-suggestions/{suggestion_id}/dismiss", {}, {}),
     ("DELETE", "/v1/dnc/{entry_id}", {}, {}),
     # A neighbour's opt-out evidence is the caller's own words; restoring one would put a
     # person who said "do not call me" back on another business's dialling list.
@@ -1429,7 +1434,13 @@ async def test_every_id_route_in_the_client_space_is_swept() -> None:
 #: body id without first reading it under the caller's RLS (`db/ownership.assert_visible`)
 #: stores a cross-tenant reference and answers 2xx (OWASP API1:2023, BOLA).
 _BODY_REFERENCE_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str], str], ...] = (
-    ("POST", "/v1/lead-fields/replace", {"agent_ids": ["{agent_id}"]}, {}, "Agent"),
+    (
+        "POST",
+        "/v1/lead-fields/replace",
+        {"jobs": [{"kind": "line", "id": "{line_id}", "digest": "x"}]},
+        {},
+        "Inbound line",
+    ),
     (
         "POST",
         "/v1/one-calls",

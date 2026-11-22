@@ -4,12 +4,11 @@ Queued through the outbox by `admin/business_type.queue_apply` (an operator conf
 type) and by migration `d7a3c91e5b20` (every account that had `clinic` by default, and
 Raghava Organics). Three steps, each idempotent, so a redelivery repeats nothing harmful:
 
-1. **Lead details.** An agent with no business fields gets the type's standard set (or a
-   custom business's finished AI draft). With `replace_clinic_default`, an agent whose
-   fields are a subset of the clinic set, on an account that is not a confirmed clinic, is
-   treated as carrying the old default and gets the type's set instead (the neutral core
-   alone for an unconfirmed account). Fields somebody chose are never touched. Each write
-   is a new schema version (`agents/lead_fields.replace_business_fields`).
+1. **Lead details.** A confirmed account's one AI draft is asked for once its business says
+   what it sells (`lead_fields.maybe_request_draft`). Nothing here writes a list: the type
+   decides the business's starting set, which new campaigns and lines copy, and which
+   existing ones take the new set is the operator's or owner's choice on Lead details
+   (D-1029).
 2. **Scripts.** An agent still carrying another business type's ready-made starter, exactly
    as written, gets the confirmed type's starter (`agents/starters.replace_unedited_starter`);
    a script anybody changed is left alone. Every agent's script is then recompiled so "what
@@ -35,17 +34,11 @@ from uuid import UUID
 
 from calevate_shared import verticals
 from calevate_shared.business_frame import BUSINESS_KIND
-from calevate_shared.extraction import ExtractionField
 from sqlalchemy import text
 
-from apps.api.admin.business_type import CLINIC, CLINIC_DEFAULT_KEYS, record_suggestion
+from apps.api.admin.business_type import record_suggestion
 from apps.api.agents.assist_leg import account_assist_leg
-from apps.api.agents.lead_fields import (
-    agents_with_fields,
-    maybe_request_draft,
-    replace_business_fields,
-    starting_business_fields,
-)
+from apps.api.agents.lead_fields import maybe_request_draft
 from apps.api.agents.script_builder import recompile_collect
 from apps.api.agents.starters import replace_unedited_starter
 from apps.api.billing.ai_quota import new_assist_ref
@@ -102,11 +95,6 @@ def suggestion_from_model(raw: dict[str, Any]) -> tuple[str, str] | None:
     return business_type, reason
 
 
-def carries_clinic_default(fields: list[ExtractionField]) -> bool:
-    """Business fields that are the clinic set, whole or trimmed, and nothing else."""
-    return bool(fields) and {f.key for f in fields} <= CLINIC_DEFAULT_KEYS
-
-
 #: Why step 3 did not ask, or what came of asking. Logged as `outcome`.
 SKIP_CONFIRMED: Final = "skipped_confirmed"
 SKIP_ALREADY_SUGGESTED: Final = "skipped_already_suggested"
@@ -131,43 +119,22 @@ async def _suggestion_state(tenant_id: UUID) -> tuple[bool, bool]:
     return (False, False) if row is None else (bool(row[0]), bool(row[1]))
 
 
-async def _refit_fields(tenant_id: UUID, *, replace_clinic_default: bool) -> int:
-    """Step 1. Returns the number of agents whose fields were written."""
+async def _ask_for_draft(tenant_id: UUID) -> bool:
+    """Step 1. Queues the account's AI draft when its type is confirmed (an unconfirmed
+    account stays on the neutral core until a person chooses). Returns whether one was."""
     async with tenant_session(tenant_id) as session:
-        org = (
+        confirmed = (
             await session.execute(
                 text(
-                    "SELECT vertical_template, unconfirmed_business_type "
-                    "FROM organizations WHERE id = :tid AND deleted_at IS NULL"
+                    "SELECT unconfirmed_business_type IS NULL FROM organizations "
+                    "WHERE id = :tid AND deleted_at IS NULL"
                 ),
                 {"tid": tenant_id},
             )
-        ).first()
-        if org is None:
-            return 0
-        vertical = None if org[0] is None else str(org[0])
-        unconfirmed = org[1] is not None
-        if unconfirmed:
-            # Neutral until a person chooses: the core alone, never the clinic's set.
-            target: list[ExtractionField] = []
-        else:
-            target = await starting_business_fields(session, tenant_id=tenant_id, vertical=vertical)
-            await maybe_request_draft(session, tenant_id=tenant_id, requested_by=None)
-        fill: list[UUID] = []
-        replace: list[UUID] = []
-        for agent in await agents_with_fields(session):
-            fields = agent["fields"]
-            if not fields and target:
-                fill.append(agent["id"])
-            elif replace_clinic_default and vertical != CLINIC and carries_clinic_default(fields):
-                replace.append(agent["id"])
-        written = 0
-        if fill or replace:
-            writes = await replace_business_fields(
-                session, fields=target, agent_ids=[*fill, *replace]
-            )
-            written = sum(1 for w in writes if w.changed)
-        return written
+        ).scalar()
+        if not confirmed:
+            return False
+        return await maybe_request_draft(session, tenant_id=tenant_id, requested_by=None)
 
 
 async def _recompile_scripts(tenant_id: UUID) -> tuple[int, int, int]:
@@ -283,18 +250,16 @@ async def apply_business_type(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     if payload.get("suggest_only"):
         await _suggest(tenant_id, again=True)
         return "done"
-    written = await _refit_fields(
-        tenant_id, replace_clinic_default=bool(payload.get("replace_clinic_default"))
-    )
+    drafted = await _ask_for_draft(tenant_id)
     replaced, recompiled, refused = await _recompile_scripts(tenant_id)
-    # Read again AFTER the refit, never from the refit's own read: the suggestion step's
+    # Read again AFTER step 1, never from its own read: the suggestion step's
     # condition is the account's state when it runs, and a skip is logged with its reason.
     suggestion = await _suggest(tenant_id)
     log.info(
         "business_type_applied",
         extra={
             "tenant_id": str(tenant_id),
-            "fields_written": written,
+            "draft_queued": drafted,
             "starters_replaced": replaced,
             "scripts_recompiled": recompiled,
             "scripts_refused": refused,
@@ -308,6 +273,5 @@ __all__ = [
     "JOB_NAME",
     "SUGGEST_INSTRUCTION",
     "apply_business_type",
-    "carries_clinic_default",
     "suggestion_from_model",
 ]

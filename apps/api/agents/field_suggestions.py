@@ -4,20 +4,24 @@ Founder, 25 Oct 2026: a choice field's list (a real-estate agent's BHK sizes, a 
 services, a garage's vehicle types) is the business's own, and has to follow what the
 business sells and what its callers ask for, for every kind of business. Three things feed it:
 
-* **the agent's script, the business's details and its quick facts**, which say what is sold;
-* **unlisted answers** (`call_extractions.unlisted`): what callers asked for that none of a
-  field's choices fits, kept as their own words instead of the nearest wrong choice;
-* **what the owner already turned down** (`agents.field_suggestions_dismissed`).
+* **the voice's script, the business's details and its quick facts**, which say what is sold;
+* **unlisted answers** (`call_extractions.unlisted`) on the job's own calls: what callers asked
+  for that none of a field's choices fits, kept as their own words instead of the nearest
+  wrong choice;
+* **what the owner already turned down** (`field_suggestions_dismissed` on the job).
 
-A pass (`workers/field_suggestions`) reads them and writes at most `MAX_FIELD_SUGGESTIONS`
-suggestions onto the agent: add choices, remove choices, or a new detail to capture. Nothing
-changes the agent's fields until the owner accepts one, and accepting writes a new schema
-version like every other edit, so leads captured earlier keep the names they were captured
-under. Removing a choice the agent captured in the last `RECENT_DAYS` is never suggested.
+Since D-1029 a pass belongs to one job, a campaign or an inbound line, because the list it
+suggests changes to is that job's "What it notes" (D-1028). It reads them and writes at most
+`MAX_FIELD_SUGGESTIONS` suggestions onto the job: add choices, remove choices, or a new detail
+to capture. Nothing changes the job's list until the owner accepts one, and accepting saves
+the list through the editor's own write (`campaigns/notes.save_notes`); leads captured earlier
+keep what they noted. Removing a choice the job's calls captured in the last `RECENT_DAYS` is
+never suggested.
 
-**When a pass is queued.** On a script save, a business-details save, a quick-facts change,
-the first publish, the second caller to ask for the same unlisted thing, and the owner's "Check
-again". A pass whose inputs hash the same as the last finished one spends nothing, so these
+**When a pass is queued.** On a script save (for every job in that voice), a business-details
+save, a quick-facts change, the first publish, the second caller on a job to ask for the same
+unlisted thing, and the owner's "Check again". A pass whose inputs hash the same as the last
+finished one spends nothing, so these
 triggers can be generous. A pass already running when another is asked for leaves the state
 `queued`; the running pass sees that when it finishes and queues the next one itself, so a
 change made mid-pass is never lost.
@@ -65,7 +69,9 @@ HINT_MAX: Final = 300
 MAX_CHOICES: Final = 20
 
 Kind = Literal["add_choices", "remove_choices", "new_field"]
-#: `agents.models.FIELD_SUGGESTION_STATES`, plus `none` for an agent no pass has run for.
+#: `campaigns.notes.JobKind`, restated: that module imports this one's neighbours.
+JobKind = Literal["campaign", "line"]
+#: `agents.models.FIELD_SUGGESTION_STATES`, plus `none` for a job no pass has run for.
 PassState = Literal["none", "queued", "running", "done", "failed", "skipped"]
 Source = Literal["script", "business", "facts", "calls"]
 
@@ -159,71 +165,140 @@ def stored(raw: Any) -> list[Suggestion]:
     return out
 
 
-async def current_fields(session: AsyncSession, agent_id: UUID) -> list[ExtractionField]:
-    row = (
+def _table(kind: JobKind) -> str:
+    """The job's table, as a conditional of literals so `scripts/check_raw_sql.py` can read it."""
+    return "campaigns" if kind == "campaign" else "inbound_lines"
+
+
+def _calls_of(kind: JobKind) -> str:
+    """The calls a job made: a campaign's own (its Test calls count in no result, so they are
+    left out) or a line's."""
+    return "c.campaign_id = :jid" if kind == "campaign" else "c.inbound_line_id = :jid"
+
+
+def _noun(kind: JobKind) -> str:
+    return "Campaign" if kind == "campaign" else "Inbound line"
+
+
+async def current_fields(
+    session: AsyncSession, kind: JobKind, job_id: UUID
+) -> list[ExtractionField]:
+    """The job's own "What it notes" list (D-1028); empty for a job that is gone."""
+    raw = (
         await session.execute(
-            text(
-                "SELECT es.fields FROM agents a JOIN extraction_schemas es "
-                "ON es.id = a.extraction_schema_id WHERE a.id = :aid"
-            ),
-            {"aid": agent_id},
+            text(f"SELECT extraction_fields FROM {_table(kind)} WHERE id = :jid"),
+            {"jid": job_id},
         )
-    ).first()
-    return business_only(row[0] or []) if row is not None else []
+    ).scalar()
+    return business_only(raw or [])
 
 
-#: The pass's columns and job on the shared queue (`agents/agent_pass`).
-SLOT: Final = agent_pass.PassSlot("field_suggestions", JOB)
-_DEAD_SQL: Final = dead_sql(SLOT)
+#: The pass's columns and job on the shared queue (`agents/agent_pass`), one slot per table.
+SLOTS: Final[dict[JobKind, agent_pass.PassSlot]] = {
+    "campaign": agent_pass.PassSlot(
+        "field_suggestions", JOB, table="campaigns", gone="archived_at", id_key="campaign_id"
+    ),
+    "line": agent_pass.PassSlot(
+        "field_suggestions", JOB, table="inbound_lines", gone="archived_at", id_key="line_id"
+    ),
+}
+
+
+def job_of_payload(payload: dict[str, Any]) -> tuple[JobKind, UUID] | None:
+    """The job a queued pass names. None for a payload queued before D-1029, which named an
+    agent: its pass has no list of its own to read any more."""
+    if payload.get("campaign_id"):
+        return "campaign", UUID(str(payload["campaign_id"]))
+    if payload.get("line_id"):
+        return "line", UUID(str(payload["line_id"]))
+    return None
 
 
 async def queue_pass(
-    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, force: bool = False
+    session: AsyncSession, *, tenant_id: UUID, kind: JobKind, job_id: UUID, force: bool = False
 ) -> bool:
-    """Ask for a pass over this agent's lead details, in the caller's transaction
-    (`agent_pass.queue`). `force` is the owner's "Check again"."""
+    """Ask for a pass over this job's list, in the caller's transaction (`agent_pass.queue`).
+    `force` is the owner's "Check again"."""
     return await agent_pass.queue(
-        session, SLOT, tenant_id=tenant_id, agent_id=agent_id, force=force
+        session, SLOTS[kind], tenant_id=tenant_id, row_id=job_id, force=force
     )
 
 
-async def queue_first_pass(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> bool:
-    """At publish: the agent's first pass, once. Later publishes change nothing a pass reads
-    that a script, details or facts save has not already queued one for."""
-    return await agent_pass.queue_first(session, SLOT, tenant_id=tenant_id, agent_id=agent_id)
+#: Every open job, or those in one agent's voice. RLS scopes both tables to the tenant.
+_OPEN_JOBS_SQL: Final = (
+    "SELECT 'campaign', id FROM campaigns WHERE archived_at IS NULL "
+    "AND (CAST(:aid AS uuid) IS NULL OR agent_id = :aid) "
+    "UNION ALL SELECT 'line', id FROM inbound_lines WHERE archived_at IS NULL "
+    "AND (CAST(:aid AS uuid) IS NULL OR agent_id = :aid)"
+)
 
 
-async def queue_account(session: AsyncSession, *, tenant_id: UUID) -> int:
-    """`queue_pass` for every agent of the account: its business details or facts changed."""
-    ids = (await session.execute(text("SELECT id FROM agents WHERE deleted_at IS NULL"))).scalars()
+async def _open_jobs(session: AsyncSession, agent_id: UUID | None) -> list[tuple[JobKind, UUID]]:
+    rows = (
+        await session.execute(text(_OPEN_JOBS_SQL), {"aid": str(agent_id) if agent_id else None})
+    ).all()
+    return [("campaign" if r[0] == "campaign" else "line", UUID(str(r[1]))) for r in rows]
+
+
+async def queue_agent(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, first: bool = False
+) -> int:
+    """`queue_pass` for every open job in this agent's voice: its script says what the
+    business sells. `first` (at publish) queues only a job no pass has ever run for."""
     queued = 0
-    for agent_id in list(ids):
-        queued += await queue_pass(session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)))
+    for kind, job_id in await _open_jobs(session, agent_id):
+        if first:
+            queued += await agent_pass.queue_first(
+                session, SLOTS[kind], tenant_id=tenant_id, row_id=job_id
+            )
+        else:
+            queued += await queue_pass(session, tenant_id=tenant_id, kind=kind, job_id=job_id)
     return queued
 
 
+async def queue_account(session: AsyncSession, *, tenant_id: UUID) -> int:
+    """`queue_pass` for every open job of the account: its business details or facts changed."""
+    queued = 0
+    for kind, job_id in await _open_jobs(session, None):
+        queued += await queue_pass(session, tenant_id=tenant_id, kind=kind, job_id=job_id)
+    return queued
+
+
+#: The job a call was made for: its campaign, the campaign whose Test call it was, or its line.
+_CALL_JOB_SQL: Final = (
+    "SELECT c.campaign_id, (SELECT t.id FROM campaigns t WHERE c.campaign_id IS NULL "
+    "AND c.id = ANY (t.test_call_ids) LIMIT 1), c.inbound_line_id FROM calls c WHERE c.id = :cid"
+)
+
+
 async def queue_on_repeat(
-    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, unlisted: dict[str, str]
+    session: AsyncSession, *, tenant_id: UUID, call_id: UUID, unlisted: dict[str, str]
 ) -> bool:
-    """After a call stored unlisted answers: queue a pass when one of them has now been
-    heard exactly `REPEAT_THRESHOLD` times, so the second caller asking for the same thing is
-    what brings it to the owner, and the tenth does not buy another pass."""
+    """After a call stored unlisted answers: queue a pass over the call's job when one of them
+    has now been heard exactly `REPEAT_THRESHOLD` times on that job's calls, so the second
+    caller asking for the same thing is what brings it to the owner, and the tenth does not buy
+    another pass. A call with no job notes only the core, so it has nothing to suggest for."""
     if not unlisted:
         return False
     # The one trigger nobody presses: a call. The pass sends callers' answers to a model,
     # so it waits for the owner to turn Pip on; "Check again" is the way without it.
     if not await account_content_may_reach_models(session, tenant_id=tenant_id):
         return False
+    row = (await session.execute(text(_CALL_JOB_SQL), {"cid": call_id})).first()
+    if row is None or not any(row):
+        return False
+    kind: JobKind = "line" if row[0] is None and row[1] is None else "campaign"
+    job_id = UUID(str(row[0] or row[1] or row[2]))
     rows = (
         await session.execute(
             text(
                 "SELECT kv.key, kv.value FROM call_extractions ce "
                 "JOIN calls c ON c.id = ce.call_id AND c.tenant_id = ce.tenant_id "
                 "CROSS JOIN LATERAL jsonb_each_text(ce.unlisted) AS kv "
-                "WHERE c.agent_id = :aid AND ce.unlisted IS NOT NULL "
+                f"WHERE {_calls_of(kind)} AND ce.unlisted IS NOT NULL "
                 f"AND ce.updated_at > now() - interval '{RECENT_DAYS} days'"
             ),
-            {"aid": agent_id},
+            {"jid": job_id},
         )
     ).all()
     counts: dict[tuple[str, str], int] = {}
@@ -235,22 +310,23 @@ async def queue_on_repeat(
         counts.get((key, normalise(said)), 0) == REPEAT_THRESHOLD for key, said in unlisted.items()
     ):
         return False
-    return await queue_pass(session, tenant_id=tenant_id, agent_id=agent_id)
+    return await queue_pass(session, tenant_id=tenant_id, kind=kind, job_id=job_id)
 
 
-async def read_state(session: AsyncSession, *, agent_id: UUID) -> SuggestionsState:
+async def read_state(session: AsyncSession, kind: JobKind, job_id: UUID) -> SuggestionsState:
     row = (
         await session.execute(
             text(
                 "SELECT field_suggestions, field_suggestions_state, field_suggestions_at, "
-                f"  {_DEAD_SQL} FROM agents WHERE id = :aid AND deleted_at IS NULL"
+                f"  {dead_sql(SLOTS[kind])}, extraction_fields FROM {_table(kind)} "
+                "WHERE id = :jid AND archived_at IS NULL"
             ),
-            {"aid": agent_id},
+            {"jid": job_id},
         )
     ).first()
     if row is None:
-        raise ProblemError.not_found("Agent")
-    fields = await current_fields(session, agent_id)
+        raise ProblemError.not_found(_noun(kind))
+    fields = business_only(row[4] or [])
     state: PassState = "failed" if row[3] else (row[1] or "none")
     return SuggestionsState(
         state=state,
@@ -259,74 +335,84 @@ async def read_state(session: AsyncSession, *, agent_id: UUID) -> SuggestionsSta
     )
 
 
-async def _locked(session: AsyncSession, agent_id: UUID) -> tuple[list[Suggestion], list[str]]:
+async def _locked(
+    session: AsyncSession, kind: JobKind, job_id: UUID
+) -> tuple[list[Suggestion], list[str]]:
     row = (
         await session.execute(
             text(
-                "SELECT field_suggestions, field_suggestions_dismissed FROM agents "
-                "WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
+                "SELECT field_suggestions, field_suggestions_dismissed "
+                f"FROM {_table(kind)} WHERE id = :jid AND archived_at IS NULL FOR UPDATE"
             ),
-            {"aid": agent_id},
+            {"jid": job_id},
         )
     ).first()
     if row is None:
-        raise ProblemError.not_found("Agent")
+        raise ProblemError.not_found(_noun(kind))
     return stored(row[0]), [str(f) for f in row[1] or []]
 
 
 async def _save(
-    session: AsyncSession, agent_id: UUID, suggestions: list[Suggestion], dismissed: list[str]
+    session: AsyncSession,
+    kind: JobKind,
+    job_id: UUID,
+    suggestions: list[Suggestion],
+    dismissed: list[str],
 ) -> None:
     await session.execute(
         text(
-            "UPDATE agents SET field_suggestions = CAST(:s AS jsonb), "
+            f"UPDATE {_table(kind)} SET field_suggestions = CAST(:s AS jsonb), "
             "field_suggestions_dismissed = CAST(:d AS jsonb), updated_at = now() "
-            "WHERE id = :aid"
+            "WHERE id = :jid"
         ),
         {
-            "aid": agent_id,
+            "jid": job_id,
             "s": json.dumps([s.model_dump(mode="json") for s in suggestions]),
             "d": json.dumps(dismissed[-MAX_DISMISSED_SUGGESTIONS:]),
         },
     )
 
 
-_GONE: Final = (
-    "That suggestion no longer fits this agent's lead details, which changed since it was "
-    "made. Check again for fresh ones."
-)
+def _gone(kind: JobKind) -> str:
+    return (
+        f"That suggestion no longer fits what this {_noun(kind).lower()} notes, which changed "
+        "since it was made. Check again for fresh ones."
+    )
 
 
-async def accept(session: AsyncSession, *, agent_id: UUID, suggestion_id: str) -> Suggestion:
-    """Make the change: a new schema version through the one write path, then the
-    suggestion is gone. 409 when it no longer fits the agent's current fields."""
-    from apps.api.agents.extraction_routes import validate_fields, write_schema
+async def accept(
+    session: AsyncSession, kind: JobKind, job_id: UUID, *, suggestion_id: str
+) -> Suggestion:
+    """Make the change to the job's list through its own write (`campaigns/notes.save_notes`),
+    then the suggestion is gone. 409 when it no longer fits the job's current list. The job's
+    engine agent learns the list at its next put-live, which the route asks for."""
+    from apps.api.campaigns.notes import save_notes
 
-    suggestions, dismissed = await _locked(session, agent_id)
+    suggestions, dismissed = await _locked(session, kind, job_id)
     chosen = next((s for s in suggestions if s.id == suggestion_id), None)
     if chosen is None:
         raise ProblemError.not_found("Suggestion")
-    fields = await current_fields(session, agent_id)
+    fields = await current_fields(session, kind, job_id)
     remaining = [s for s in suggestions if s.id != suggestion_id]
     if not applicable(chosen, fields):
-        await _save(session, agent_id, remaining, dismissed)
-        raise ProblemError.conflict("suggestion_out_of_date", _GONE)
-    changed = apply(chosen, fields)
-    validate_fields(changed)
-    await write_schema(session, agent_id=agent_id, fields=changed)
-    await _save(session, agent_id, remaining, dismissed)
+        await _save(session, kind, job_id, remaining, dismissed)
+        raise ProblemError.conflict("suggestion_out_of_date", _gone(kind))
+    await save_notes(session, kind, job_id, apply(chosen, fields), expected_digest=None)
+    await _save(session, kind, job_id, remaining, dismissed)
     return chosen
 
 
-async def dismiss(session: AsyncSession, *, agent_id: UUID, suggestion_id: str) -> Suggestion:
+async def dismiss(
+    session: AsyncSession, kind: JobKind, job_id: UUID, *, suggestion_id: str
+) -> Suggestion:
     """The owner said no: the suggestion goes, and its fingerprint is kept so the same idea
     is not offered again."""
-    suggestions, dismissed = await _locked(session, agent_id)
+    suggestions, dismissed = await _locked(session, kind, job_id)
     chosen = next((s for s in suggestions if s.id == suggestion_id), None)
     if chosen is None:
         raise ProblemError.not_found("Suggestion")
     remaining = [s for s in suggestions if s.id != suggestion_id]
-    await _save(session, agent_id, remaining, [*dismissed, chosen.id])
+    await _save(session, kind, job_id, remaining, [*dismissed, chosen.id])
     return chosen
 
 
@@ -352,7 +438,8 @@ __all__ = [
     "RECENT_DAYS",
     "RECOMPILE_COLLECT_JOB",
     "REPEAT_THRESHOLD",
-    "SLOT",
+    "SLOTS",
+    "JobKind",
     "Kind",
     "Source",
     "Suggestion",
@@ -362,8 +449,10 @@ __all__ = [
     "apply",
     "current_fields",
     "dismiss",
+    "job_of_payload",
     "normalise",
     "queue_account",
+    "queue_agent",
     "queue_collect_rebuild",
     "queue_on_repeat",
     "queue_pass",

@@ -133,32 +133,18 @@ async def save_notes(
     return True
 
 
-async def starting_fields(
-    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
-) -> list[dict[str, Any]]:
-    """The list a new campaign or line starts with, so no new job notes nothing: its agent's
-    starting list (the business's fields a new agent is given, `starters`), else the
-    business's own starting set (`lead_fields.starting_business_fields`)."""
+async def starting_fields(session: AsyncSession, *, tenant_id: UUID) -> list[dict[str, Any]]:
+    """The list a new campaign or line starts with: the business's starting set
+    (`lead_fields.starting_business_fields`, D-1029), whichever agent's voice it is in."""
     from apps.api.agents.lead_fields import starting_business_fields, vertical_of
 
-    raw = (
-        await session.execute(
-            text(
-                "SELECT es.fields FROM agents a JOIN extraction_schemas es "
-                "ON es.id = a.extraction_schema_id WHERE a.id = :aid"
-            ),
-            {"aid": agent_id},
+    fields = business_only(
+        await starting_business_fields(
+            session,
+            tenant_id=tenant_id,
+            vertical=await vertical_of(session, tenant_id=tenant_id),
         )
-    ).scalar()
-    fields = list(_fields(raw))
-    if not fields:
-        fields = business_only(
-            await starting_business_fields(
-                session,
-                tenant_id=tenant_id,
-                vertical=await vertical_of(session, tenant_id=tenant_id),
-            )
-        )
+    )
     return [field.model_dump(mode="json", exclude_none=True) for field in fields]
 
 

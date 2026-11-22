@@ -763,7 +763,7 @@ export function spendThisMonth(over: Partial<Spend> = {}): Spend {
 /** `GET /v1/lead-fields`: the core only, no business fields, no draft. The leads screen
  *  reads it for `need_key`, the field it shows as "What they want". */
 export const LEAD_FIELDS_CORE_ONLY = {
-  agents: [],
+  jobs: [],
   business_type: null,
   business_type_label: "Your business",
   can_draft: false,
@@ -773,6 +773,7 @@ export const LEAD_FIELDS_CORE_ONLY = {
   has_standard_set: false,
   need_key: "need",
   standard_fields: [],
+  starting_fields: [],
 } satisfies LeadFields;
 
 /**

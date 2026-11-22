@@ -4,10 +4,11 @@ A caller on 25 Oct 2026 asked for five bedrooms and was saved as 3BHK: a closed 
 reader pick the nearest wrong choice. These pin: a choice field the caller answered outside its
 list stays empty and keeps the caller's words; those words show on the call and the lead and
 are erased with the rest of the extraction; the second caller asking for the same thing queues
-a suggestion pass; the pass's answer is cleaned before an owner sees it (never a choice callers
-are choosing removed, never a detail every lead already has, never one the owner turned down);
-accepting writes a new version through the editor's one write path and rebuilds what a live
-agent asks; and the owner's and operator's routes.
+a suggestion pass on that job; the pass's answer is cleaned before an owner sees it (never a
+choice callers are choosing removed, never a detail every lead already has, never one the owner
+turned down); accepting changes the job's own list (per campaign and line since D-1029)
+through its notes write; and the owner's and operator's routes, which reach no other account's
+job.
 """
 
 from __future__ import annotations
@@ -259,82 +260,121 @@ def test_a_change_applies_by_spelling_and_a_stale_one_does_not_apply() -> None:
     assert apply(gone, [BHK])[0].enum_values == ["1BHK", "2BHK", "3BHK", "4BHK"]
 
 
-# --- 3. queuing a pass --------------------------------------------------------------------
+# --- 3. queuing a pass: one per campaign or line (D-1029) -----------------------------------
 
 
 async def _agent_of(tenant_id: UUID) -> UUID:
     return UUID(str(await _scalar(tenant_id, "SELECT id FROM agents LIMIT 1")))
 
 
-async def _jobs(job: str, agent_id: UUID) -> list[dict[str, Any]]:
+async def _line_for(tenant_id: UUID, agent_id: UUID, fields: list[ExtractionField]) -> UUID:
+    """An inbound line in the agent's voice noting `fields`."""
+    from apps.api.inbound import lines
+
+    async with tenant_session(tenant_id) as session:
+        line_id = await lines.create_line(
+            session, tenant_id=tenant_id, agent_id=agent_id, name="Front desk", created_by=None
+        )
+        await session.execute(
+            text("UPDATE inbound_lines SET extraction_fields = CAST(:f AS jsonb) WHERE id = :l"),
+            {"f": json.dumps([f.model_dump(mode="json") for f in fields]), "l": line_id},
+        )
+    return line_id
+
+
+async def _jobs(job: str, line_id: UUID) -> list[dict[str, Any]]:
     async with untenanted_session() as session:
         rows = (
             await session.execute(
                 text(
                     "SELECT payload FROM outbox_messages WHERE job = :job "
-                    "AND payload->>'agent_id' = :a ORDER BY created_at"
+                    "AND payload->>'line_id' = :l ORDER BY created_at"
                 ),
-                {"job": job, "a": str(agent_id)},
+                {"job": job, "l": str(line_id)},
             )
         ).scalars()
         return [dict(r) for r in rows]
 
 
-async def _queue(tenant_id: UUID, agent_id: UUID, *, force: bool = False) -> bool:
+async def _queue(tenant_id: UUID, line_id: UUID, *, force: bool = False) -> bool:
     async with tenant_session(tenant_id) as session:
         return await field_suggestions.queue_pass(
-            session, tenant_id=tenant_id, agent_id=agent_id, force=force
+            session, tenant_id=tenant_id, kind="line", job_id=line_id, force=force
         )
 
 
-async def _set_state(tenant_id: UUID, agent_id: UUID, state: str, age: str = "0 minutes") -> None:
+async def _set_state(tenant_id: UUID, line_id: UUID, state: str, age: str = "0 minutes") -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE agents SET field_suggestions_state = :s, "
-                "field_suggestions_at = now() - CAST(:age AS interval) WHERE id = :a"
+                "UPDATE inbound_lines SET field_suggestions_state = :s, "
+                "field_suggestions_at = now() - CAST(:age AS interval) WHERE id = :l"
             ),
-            {"s": state, "age": age, "a": agent_id},
+            {"s": state, "age": age, "l": line_id},
         )
+
+
+async def _line_state(tenant_id: UUID, line_id: UUID, column: str) -> Any:
+    sql = {
+        "state": "SELECT field_suggestions_state FROM inbound_lines WHERE id = :l",
+        "inputs": "SELECT field_suggestions_inputs FROM inbound_lines WHERE id = :l",
+        "dismissed": "SELECT field_suggestions_dismissed FROM inbound_lines WHERE id = :l",
+    }[column]
+    return await _scalar(tenant_id, sql, l=line_id)
 
 
 async def test_a_pass_is_queued_once_and_a_running_one_queues_the_next_itself() -> None:
     tenant_id, _slug, _token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    assert await _queue(tenant_id, agent_id) is True
-    assert await _queue(tenant_id, agent_id) is False, "already queued"
-    assert len(await _jobs(field_suggestions.JOB, agent_id)) == 1
+    line_id = await _line_for(tenant_id, await _agent_of(tenant_id), [BHK])
+    assert await _queue(tenant_id, line_id) is True
+    assert await _queue(tenant_id, line_id) is False, "already queued"
+    assert len(await _jobs(field_suggestions.JOB, line_id)) == 1
 
-    await _set_state(tenant_id, agent_id, "running")
-    assert await _queue(tenant_id, agent_id) is False, "the running pass queues the next"
-    assert (
-        await _scalar(
-            tenant_id, "SELECT field_suggestions_state FROM agents WHERE id = :a", a=agent_id
-        )
-        == "queued"
+    await _set_state(tenant_id, line_id, "running")
+    assert await _queue(tenant_id, line_id) is False, "the running pass queues the next"
+    assert await _line_state(tenant_id, line_id, "state") == "queued"
+    assert len(await _jobs(field_suggestions.JOB, line_id)) == 1
+
+    await _set_state(tenant_id, line_id, "queued", age="1 hour")
+    assert await _queue(tenant_id, line_id, force=True) is True, "a dead pass gets a new job"
+    assert len(await _jobs(field_suggestions.JOB, line_id)) == 2
+    assert await _line_state(tenant_id, line_id, "inputs") is None, (
+        "Check again forgets the last reading"
     )
-    assert len(await _jobs(field_suggestions.JOB, agent_id)) == 1
 
-    await _set_state(tenant_id, agent_id, "queued", age="1 hour")
-    assert await _queue(tenant_id, agent_id, force=True) is True, "a dead pass gets a new job"
-    jobs = await _jobs(field_suggestions.JOB, agent_id)
-    assert len(jobs) == 2
-    assert (
-        await _scalar(
-            tenant_id, "SELECT field_suggestions_inputs FROM agents WHERE id = :a", a=agent_id
+
+async def test_an_agents_script_save_and_publish_queue_its_jobs() -> None:
+    tenant_id, _slug, _token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    line_id = await _line_for(tenant_id, agent_id, [BHK])
+    async with tenant_session(tenant_id) as session:
+        assert await field_suggestions.queue_agent(
+            session, tenant_id=tenant_id, agent_id=agent_id, first=True
         )
-        is None
-    ), "Check again forgets the last reading"
+        assert not await field_suggestions.queue_agent(
+            session, tenant_id=tenant_id, agent_id=agent_id, first=True
+        ), "the first pass is queued once"
+    assert len(await _jobs(field_suggestions.JOB, line_id)) == 1
 
 
-async def test_saving_lead_details_rebuilds_what_the_agent_asks_only_when_they_changed() -> None:
+async def test_a_pass_queued_for_an_agent_before_d1029_runs_nothing() -> None:
+    tenant_id, _slug, _token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    assert (
+        await passer.suggest_lead_details(
+            {}, {"tenant_id": str(tenant_id), "agent_id": str(agent_id)}
+        )
+        == "no_job"
+    )
+
+
+async def test_saving_an_agents_own_list_rebuilds_its_script_only_when_it_changed() -> None:
     tenant_id, _slug, _token = await _make_tenant()
     agent_id = await _agent_of(tenant_id)
     async with tenant_session(tenant_id) as session:
         assert (await write_schema(session, agent_id=agent_id, fields=[BHK])).changed
     async with tenant_session(tenant_id) as session:
         assert not (await write_schema(session, agent_id=agent_id, fields=[BHK])).changed
-    assert len(await _jobs(field_suggestions.RECOMPILE_COLLECT_JOB, agent_id)) == 1
     assert (
         await passer.rebuild_collect({}, {"tenant_id": str(tenant_id), "agent_id": str(agent_id)})
         == "unchanged"
@@ -406,17 +446,15 @@ def _setup(monkeypatch: pytest.MonkeyPatch, *, trial: bool, model: _Model) -> No
     monkeypatch.setattr(passer, "google_assist_leg", _Leg)
 
 
-async def _bhk_agent() -> tuple[UUID, str, str, UUID]:
+async def _bhk_line() -> tuple[UUID, str, str, UUID]:
     tenant_id, slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    async with tenant_session(tenant_id) as session:
-        await write_schema(session, agent_id=agent_id, fields=[BHK])
-    return tenant_id, slug, token, agent_id
+    line_id = await _line_for(tenant_id, await _agent_of(tenant_id), [BHK])
+    return tenant_id, slug, token, line_id
 
 
-async def _pass(tenant_id: UUID, agent_id: UUID) -> str:
+async def _pass(tenant_id: UUID, line_id: UUID) -> str:
     return await passer.suggest_lead_details(
-        {}, {"tenant_id": str(tenant_id), "agent_id": str(agent_id)}
+        {}, {"tenant_id": str(tenant_id), "line_id": str(line_id)}
     )
 
 
@@ -437,28 +475,28 @@ async def test_a_pass_stores_its_suggestions_on_the_allowance_and_spends_once(
 ) -> None:
     model = _Model()
     _setup(monkeypatch, trial=False, model=model)
-    tenant_id, _slug, _token, agent_id = await _bhk_agent()
-    await _queue(tenant_id, agent_id)
-    assert await _pass(tenant_id, agent_id) == "stored_1"
+    tenant_id, _slug, _token, line_id = await _bhk_line()
+    await _queue(tenant_id, line_id)
+    assert await _pass(tenant_id, line_id) == "stored_1"
     call = model.calls[0]
     assert "bhk_size 'BHK': choices 1BHK, 2BHK" in call["description"]
     assert call["gemini_only"] is True and call["health_leg"] == "lead_suggestions"
     assert await _features(tenant_id) == {ASSIST_FEATURE_FIELD_SUGGESTIONS}
     assert ASSIST_FEATURE_FIELD_SUGGESTIONS not in ABSORBED_ASSIST_FEATURES
     async with tenant_session(tenant_id) as session:
-        state = await field_suggestions.read_state(session, agent_id=agent_id)
+        state = await field_suggestions.read_state(session, "line", line_id)
     assert state.state == "done" and [s.values for s in state.suggestions] == [["6BHK"]]
 
-    await _queue(tenant_id, agent_id)
-    assert await _pass(tenant_id, agent_id) == "unchanged", "nothing changed, nothing spent"
+    await _queue(tenant_id, line_id)
+    assert await _pass(tenant_id, line_id) == "unchanged", "nothing changed, nothing spent"
     assert len(model.calls) == 1
-    await _queue(tenant_id, agent_id)
-    await _queue(tenant_id, agent_id, force=True)
-    assert await _pass(tenant_id, agent_id) == "stored_1", (
+    await _queue(tenant_id, line_id)
+    await _queue(tenant_id, line_id, force=True)
+    assert await _pass(tenant_id, line_id) == "stored_1", (
         "Check again reads afresh, even pressed while a pass was already waiting"
     )
     assert len(model.calls) == 2
-    assert await _pass(tenant_id, agent_id) == "not_queued"
+    assert await _pass(tenant_id, line_id) == "not_queued"
 
 
 async def test_a_trials_pass_is_ours_and_a_used_up_allowance_spends_nothing(
@@ -466,9 +504,9 @@ async def test_a_trials_pass_is_ours_and_a_used_up_allowance_spends_nothing(
 ) -> None:
     model = _Model()
     _setup(monkeypatch, trial=True, model=model)
-    tenant_id, _slug, _token, agent_id = await _bhk_agent()
-    await _queue(tenant_id, agent_id)
-    assert await _pass(tenant_id, agent_id) == "stored_1"
+    tenant_id, _slug, _token, line_id = await _bhk_line()
+    await _queue(tenant_id, line_id)
+    assert await _pass(tenant_id, line_id) == "stored_1"
     assert await _features(tenant_id) == {ASSIST_FEATURE_FIELD_SUGGESTIONS_ABSORBED}
     assert ASSIST_FEATURE_FIELD_SUGGESTIONS_ABSORBED in ABSORBED_ASSIST_FEATURES
 
@@ -478,9 +516,9 @@ async def test_a_trials_pass_is_ours_and_a_used_up_allowance_spends_nothing(
         raise ProblemError.business_rule("ai_quota_exceeded", "used up")
 
     monkeypatch.setattr(passer, "require_ai_assist", _ceiling)
-    other, _s, _t, other_agent = await _bhk_agent()
-    await _queue(other, other_agent)
-    assert await _pass(other, other_agent) == "skipped"
+    other, _s, _t, other_line = await _bhk_line()
+    await _queue(other, other_line)
+    assert await _pass(other, other_line) == "skipped"
     assert len(model.calls) == 1
 
 
@@ -492,31 +530,28 @@ async def test_a_failed_pass_reads_failed_and_a_change_mid_pass_queues_the_next(
         trial=False,
         model=_Model(fail=ProblemError.business_rule("ai_unavailable", "down")),
     )
-    tenant_id, _slug, _token, agent_id = await _bhk_agent()
-    await _queue(tenant_id, agent_id)
-    assert await _pass(tenant_id, agent_id) == "failed"
+    tenant_id, _slug, _token, line_id = await _bhk_line()
+    await _queue(tenant_id, line_id)
+    assert await _pass(tenant_id, line_id) == "failed"
     async with tenant_session(tenant_id) as session:
-        assert (await field_suggestions.read_state(session, agent_id=agent_id)).state == "failed"
+        assert (await field_suggestions.read_state(session, "line", line_id)).state == "failed"
 
     model = _Model()
     _setup(monkeypatch, trial=False, model=model)
     original = passer.gather
 
-    async def _changed_meanwhile(tenant: UUID, agent: UUID, *, dismissed: list[str]) -> Any:
-        await _queue(tenant, agent)  # the owner saves their script while the pass reads
-        return await original(tenant, agent, dismissed=dismissed)
+    async def _changed_meanwhile(
+        tenant: UUID, kind: Any, job: UUID, *, dismissed: list[str]
+    ) -> Any:
+        await _queue(tenant, job)  # the owner saves their script while the pass reads
+        return await original(tenant, kind, job, dismissed=dismissed)
 
     monkeypatch.setattr(passer, "gather", _changed_meanwhile)
-    await _queue(tenant_id, agent_id)
-    before = len(await _jobs(field_suggestions.JOB, agent_id))
-    assert await _pass(tenant_id, agent_id) == "stored_1"
-    assert (
-        await _scalar(
-            tenant_id, "SELECT field_suggestions_state FROM agents WHERE id = :a", a=agent_id
-        )
-        == "queued"
-    )
-    assert len(await _jobs(field_suggestions.JOB, agent_id)) == before + 1
+    await _queue(tenant_id, line_id)
+    before = len(await _jobs(field_suggestions.JOB, line_id))
+    assert await _pass(tenant_id, line_id) == "stored_1"
+    assert await _line_state(tenant_id, line_id, "state") == "queued"
+    assert len(await _jobs(field_suggestions.JOB, line_id)) == before + 1
 
 
 # --- 5. the owner's and operator's routes ----------------------------------------------------
@@ -530,106 +565,153 @@ async def _http(method: str, path: str, token: str, slug: str | None = None) -> 
         return await http.request(method, path, headers=headers)
 
 
-async def _seed(tenant_id: UUID, agent_id: UUID, *items: dict[str, Any]) -> list[Suggestion]:
+async def _seed(tenant_id: UUID, line_id: UUID, *items: dict[str, Any]) -> list[Suggestion]:
     inputs = dataclasses.replace(INPUTS, fields=[BHK], captured={})
     made = passer.suggestions_from_model({"suggestions": list(items)}, inputs)
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE agents SET field_suggestions = CAST(:s AS jsonb), "
-                "field_suggestions_state = 'done', field_suggestions_at = now() WHERE id = :a"
+                "UPDATE inbound_lines SET field_suggestions = CAST(:s AS jsonb), "
+                "field_suggestions_state = 'done', field_suggestions_at = now() WHERE id = :l"
             ),
-            {"s": json.dumps([s.model_dump(mode="json") for s in made]), "a": agent_id},
+            {"s": json.dumps([s.model_dump(mode="json") for s in made]), "l": line_id},
         )
     return made
 
 
-async def _fields(tenant_id: UUID, agent_id: UUID) -> tuple[int, list[dict[str, Any]]]:
-    async with tenant_session(tenant_id) as session:
-        row = (
-            await session.execute(
-                text(
-                    "SELECT es.version, es.fields FROM agents a JOIN extraction_schemas es "
-                    "ON es.id = a.extraction_schema_id WHERE a.id = :a"
-                ),
-                {"a": agent_id},
-            )
-        ).one()
-    return int(row[0]), list(row[1])
+async def _fields(tenant_id: UUID, line_id: UUID) -> list[dict[str, Any]]:
+    raw = await _scalar(
+        tenant_id, "SELECT extraction_fields FROM inbound_lines WHERE id = :l", l=line_id
+    )
+    return list(raw)
 
 
 async def test_the_owner_accepts_one_and_turns_one_down() -> None:
-    tenant_id, slug, token, agent_id = await _bhk_agent()
+    tenant_id, slug, token, line_id = await _bhk_line()
     add, new = await _seed(
         tenant_id,
-        agent_id,
+        line_id,
         _item("add_choices", values=["6BHK"], reason="3 callers asked for 6BHK."),
         _item("new_field", label="Facing", values=["East", "West"], source="script"),
     )
-    base = f"/v1/agents/{agent_id}/lead-suggestions"
+    base = f"/v1/inbound-lines/{line_id}/lead-suggestions"
     got = await _http("GET", base, token, slug)
     assert got.status_code == 200, got.text
     body = got.json()
     assert body["state"] == "done" and [s["id"] for s in body["suggestions"]] == [add.id, new.id]
     assert body["suggestions"][1]["field_type"] == "enum"
 
-    version, _ = await _fields(tenant_id, agent_id)
     accepted = await _http("POST", f"{base}/{add.id}/accept", token, slug)
     assert accepted.status_code == 200, accepted.text
     assert [s["id"] for s in accepted.json()["remaining"]["suggestions"]] == [new.id]
-    after, fields = await _fields(tenant_id, agent_id)
-    assert after == version + 1 and fields[0]["enum_values"][-1] == "6BHK"
-    assert len(await _jobs(field_suggestions.RECOMPILE_COLLECT_JOB, agent_id)) == 2, (
-        "the accepted change rebuilds what the agent asks, as the editor's save does"
+    assert (await _fields(tenant_id, line_id))[0]["enum_values"][-1] == "6BHK", (
+        "accepting changes the line's own list"
     )
 
     dismissed = await _http("POST", f"{base}/{new.id}/dismiss", token, slug)
     assert dismissed.status_code == 200 and dismissed.json()["remaining"]["suggestions"] == []
-    stored = await _scalar(
-        tenant_id, "SELECT field_suggestions_dismissed FROM agents WHERE id = :a", a=agent_id
-    )
-    assert stored == [new.id]
+    assert await _line_state(tenant_id, line_id, "dismissed") == [new.id]
     again = await _http("POST", f"{base}/{new.id}/accept", token, slug)
     assert again.status_code == 404
+    async with tenant_session(tenant_id) as session:
+        audited = (
+            await session.execute(
+                text(
+                    "SELECT action FROM audit_log WHERE object_id = :l "
+                    "AND action LIKE 'lead_suggestions.%' ORDER BY created_at"
+                ),
+                {"l": str(line_id)},
+            )
+        ).scalars()
+        assert list(audited) == ["lead_suggestions.accepted", "lead_suggestions.dismissed"]
+
+
+async def test_a_campaign_has_its_own_suggestions() -> None:
+    from tests.notes_per_job_test import _campaign
+
+    tenant_id, slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    campaign_id = await _campaign(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET extraction_fields = CAST(:f AS jsonb) WHERE id = :c"),
+            {"f": json.dumps([BHK.model_dump(mode="json")]), "c": campaign_id},
+        )
+    base = f"/v1/campaigns/{campaign_id}/lead-suggestions"
+    got = await _http("GET", base, token, slug)
+    assert got.status_code == 200 and got.json() == {
+        "state": "none",
+        "suggestions": [],
+        "checked_at": None,
+    }
+    async with tenant_session(tenant_id) as session:
+        assert await field_suggestions.queue_pass(
+            session, tenant_id=tenant_id, kind="campaign", job_id=campaign_id
+        )
+    async with untenanted_session() as session:
+        payload = (
+            await session.execute(
+                text(
+                    "SELECT payload FROM outbox_messages WHERE job = :j "
+                    "AND payload->>'campaign_id' = :c"
+                ),
+                {"j": field_suggestions.JOB, "c": str(campaign_id)},
+            )
+        ).scalar_one()
+    assert payload == {"tenant_id": str(tenant_id), "campaign_id": str(campaign_id)}
 
 
 async def test_a_suggestion_the_owner_overtook_is_hidden_and_refused() -> None:
-    tenant_id, slug, token, agent_id = await _bhk_agent()
-    (add,) = await _seed(tenant_id, agent_id, _item("add_choices", values=["6BHK"]))
+    tenant_id, slug, token, line_id = await _bhk_line()
+    (add,) = await _seed(tenant_id, line_id, _item("add_choices", values=["6BHK"]))
     async with tenant_session(tenant_id) as session:
-        await write_schema(session, agent_id=agent_id, fields=[AREA])
-    base = f"/v1/agents/{agent_id}/lead-suggestions"
+        await session.execute(
+            text("UPDATE inbound_lines SET extraction_fields = CAST(:f AS jsonb) WHERE id = :l"),
+            {"f": json.dumps([AREA.model_dump(mode="json")]), "l": line_id},
+        )
+    base = f"/v1/inbound-lines/{line_id}/lead-suggestions"
     assert (await _http("GET", base, token, slug)).json()["suggestions"] == []
     refused = await _http("POST", f"{base}/{add.id}/accept", token, slug)
     assert refused.status_code == 409
     assert refused.json()["type"].endswith("/suggestion_out_of_date")
 
 
-async def test_staff_cannot_answer_and_nobody_reaches_another_accounts_agent() -> None:
-    theirs, _s, _t, their_agent = await _bhk_agent()
-    (add,) = await _seed(theirs, their_agent, _item("add_choices", values=["6BHK"]))
+async def test_staff_cannot_answer_and_nobody_reaches_another_accounts_line() -> None:
+    theirs, _s, _t, their_line = await _bhk_line()
+    (add,) = await _seed(theirs, their_line, _item("add_choices", values=["6BHK"]))
     _mine, slug, staff = await _make_tenant(role="staff")
-    base = f"/v1/agents/{their_agent}/lead-suggestions"
+    base = f"/v1/inbound-lines/{their_line}/lead-suggestions"
     assert (await _http("POST", f"{base}/{add.id}/accept", staff, slug)).status_code == 403
-    _owner_tenant, owner_slug, owner = await _make_tenant()
+    owner_tenant, owner_slug, owner = await _make_tenant()
     assert (await _http("GET", base, owner, owner_slug)).status_code == 404
+    assert (await _http("POST", f"{base}/check", owner, owner_slug)).status_code == 404
     assert (await _http("POST", f"{base}/{add.id}/accept", owner, owner_slug)).status_code == 404
     assert (await _http("POST", f"{base}/{add.id}/dismiss", owner, owner_slug)).status_code == 404
-    assert (await _fields(theirs, their_agent))[1][0]["enum_values"] == BHK.enum_values
+    assert (await _fields(theirs, their_line))[0]["enum_values"] == BHK.enum_values
+    assert (
+        await _scalar(
+            owner_tenant,
+            "SELECT count(*) FROM inbound_lines WHERE field_suggestions IS NOT NULL AND id = :l",
+            l=their_line,
+        )
+        == 0
+    ), "another account's suggestions hold zero rows under its session"
 
 
 async def test_check_again_queues_a_fresh_pass(monkeypatch: pytest.MonkeyPatch) -> None:
     _setup(monkeypatch, trial=True, model=_Model())
-    _tenant_id, slug, token, agent_id = await _bhk_agent()
-    checked = await _http("POST", f"/v1/agents/{agent_id}/lead-suggestions/check", token, slug)
+    _tenant_id, slug, token, line_id = await _bhk_line()
+    checked = await _http(
+        "POST", f"/v1/inbound-lines/{line_id}/lead-suggestions/check", token, slug
+    )
     assert checked.status_code == 202 and checked.json()["state"] == "queued"
-    assert len(await _jobs(field_suggestions.JOB, agent_id)) == 1
+    assert len(await _jobs(field_suggestions.JOB, line_id)) == 1
 
 
 async def test_an_operator_reads_and_answers_a_clients_suggestions() -> None:
-    tenant_id, _slug, _token, agent_id = await _bhk_agent()
-    (add,) = await _seed(tenant_id, agent_id, _item("add_choices", values=["6BHK"]))
-    base = f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions"
+    tenant_id, _slug, _token, line_id = await _bhk_line()
+    (add,) = await _seed(tenant_id, line_id, _item("add_choices", values=["6BHK"]))
+    base = f"/v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions"
     _admin_id, headers = await _operator()
     operator = headers["Authorization"].removeprefix("Bearer ")
     got = await _http("GET", base, operator)
@@ -637,20 +719,10 @@ async def test_an_operator_reads_and_answers_a_clients_suggestions() -> None:
     assert [s["id"] for s in got.json()["suggestions"]] == [add.id]
     accepted = await _http("POST", f"{base}/{add.id}/accept", operator)
     assert accepted.status_code == 200, accepted.text
-    assert (await _fields(tenant_id, agent_id))[1][0]["enum_values"][-1] == "6BHK"
+    assert (await _fields(tenant_id, line_id))[0]["enum_values"][-1] == "6BHK"
 
 
 # --- 6. a real call: stored, shown, counted, erased ---------------------------------------------
-
-
-async def _line_for(tenant_id: UUID, agent_id: UUID) -> UUID:
-    """The line its calls come in on: it copies the agent's list (D-1028)."""
-    from apps.api.inbound import lines
-
-    async with tenant_session(tenant_id) as session:
-        return await lines.create_line(
-            session, tenant_id=tenant_id, agent_id=agent_id, name="Front desk", created_by=None
-        )
 
 
 async def _call_for(
@@ -686,12 +758,11 @@ async def test_without_pip_the_second_caller_brings_no_suggestion(
     monkeypatch.setattr(extraction_module, "get_extractor", lambda: _Runner(SIX))
     agent_ref = f"fakeagent_six_{uuid.uuid4().hex[:8]}"
     tenant_id, agent_id = await _seed_tenant(agent_ref)
-    async with tenant_session(tenant_id) as session:
-        await write_schema(session, agent_id=agent_id, fields=[BHK, AREA])
+    line_id = await _line_for(tenant_id, agent_id, [BHK, AREA])
     for _ in range(2):
-        execution_id, call_id = await _call_for(tenant_id, agent_ref)
+        execution_id, call_id = await _call_for(tenant_id, agent_ref, line_id)
         await _run_pipeline(tenant_id, call_id, execution_id)
-    assert await _jobs(field_suggestions.JOB, agent_id) == []
+    assert await _jobs(field_suggestions.JOB, line_id) == []
 
 
 async def test_a_call_keeps_the_callers_words_and_the_second_one_brings_a_suggestion(
@@ -701,9 +772,7 @@ async def test_a_call_keeps_the_callers_words_and_the_second_one_brings_a_sugges
     agent_ref = f"fakeagent_six_{uuid.uuid4().hex[:8]}"
     tenant_id, agent_id = await _seed_tenant(agent_ref)
     await turn_pip_on_for_tests(tenant_id)
-    async with tenant_session(tenant_id) as session:
-        await write_schema(session, agent_id=agent_id, fields=[BHK, AREA])
-    line_id = await _line_for(tenant_id, agent_id)
+    line_id = await _line_for(tenant_id, agent_id, [BHK, AREA])
 
     execution_id, call_id = await _call_for(tenant_id, agent_ref, line_id)
     await _run_pipeline(tenant_id, call_id, execution_id)
@@ -717,14 +786,14 @@ async def test_a_call_keeps_the_callers_words_and_the_second_one_brings_a_sugges
         assert await lead_unlisted(session, UUID(str(lead_id))) == {"bhk_size": "6 BHK"}
     (bhk,) = [f for f in detail.captured if f.key == "bhk_size"]
     assert bhk.value is None and bhk.unlisted == "6 BHK"
-    assert await _jobs(field_suggestions.JOB, agent_id) == [], "one caller is not yet demand"
+    assert await _jobs(field_suggestions.JOB, line_id) == [], "one caller is not yet demand"
 
     second, second_call = await _call_for(tenant_id, agent_ref, line_id)
     await _run_pipeline(tenant_id, second_call, second)
-    assert len(await _jobs(field_suggestions.JOB, agent_id)) == 1, "the second caller is"
+    assert len(await _jobs(field_suggestions.JOB, line_id)) == 1, "the second caller is"
     third, third_call = await _call_for(tenant_id, agent_ref, line_id)
     await _run_pipeline(tenant_id, third_call, third)
-    assert len(await _jobs(field_suggestions.JOB, agent_id)) == 1, "the third adds nothing"
+    assert len(await _jobs(field_suggestions.JOB, line_id)) == 1, "the third adds nothing"
 
     async with tenant_session(tenant_id) as session:
         await session.execute(

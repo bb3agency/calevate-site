@@ -60,7 +60,6 @@ AGENT_READS = (
     "/caller-help",
     "/call-mistakes",
     "/known-facts",
-    "/lead-suggestions",
     "/team-alert",
     "/test-cases",
     "/voice-tuning",

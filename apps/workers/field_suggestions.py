@@ -1,12 +1,13 @@
-"""Suggest changes to one agent's lead details from what the business sells and what its
-callers ask for (D-889), and rebuild what an agent asks after its details changed.
+"""Suggest changes to what one campaign or inbound line notes from what the business sells
+and what its callers ask for (D-889, per job since D-1029), and rebuild what an agent asks
+after its details changed.
 
 Queued through the outbox by `agents/field_suggestions.queue_pass`. One pass:
 
 1. **Claim** `field_suggestions_state` from `queued` to `running` (compare-and-swap).
-2. **Read** the business's details, the agent's script, the quick facts, the agent's fields,
-   and the unlisted answers and captured choices of the last `RECENT_DAYS` days. Everything a
-   caller said is redacted first (D-127 G-1/G-2), and the question goes to Gemini only
+2. **Read** the business's details, the job's script, the quick facts, the job's list,
+   and the unlisted answers and captured choices of its calls in the last `RECENT_DAYS` days.
+   Everything a caller said is redacted first (D-127 G-1/G-2), and the question goes to Gemini only
    (`gemini_only`, D-827's rule for caller words: Sarvam's terms permit training on inputs).
 3. **Unchanged?** When these hash the same as the last finished pass, nothing is spent. The
    owner's "Check again" forgets that hash (`queue_pass(force=True)`).
@@ -49,11 +50,13 @@ from apps.api.agents.field_suggestions import (
     REASON_MAX,
     RECENT_DAYS,
     RECOMPILE_COLLECT_JOB,
-    SLOT,
+    SLOTS,
+    JobKind,
     Source,
     Suggestion,
     applicable,
     current_fields,
+    job_of_payload,
     normalise,
     suggestion_fingerprint,
 )
@@ -402,23 +405,34 @@ def script_text(script: Any) -> str:
     return "\n".join(" ".join(str(line).split()) for line in lines)
 
 
-async def gather(tenant_id: UUID, agent_id: UUID, *, dismissed: list[str]) -> Inputs:
+def _table(kind: JobKind) -> str:
+    """The job's table, as a conditional of literals so `scripts/check_raw_sql.py` can read it."""
+    return "campaigns" if kind == "campaign" else "inbound_lines"
+
+
+def _calls_of(kind: JobKind) -> str:
+    return "c.campaign_id = :jid" if kind == "campaign" else "c.inbound_line_id = :jid"
+
+
+async def gather(tenant_id: UUID, kind: JobKind, job_id: UUID, *, dismissed: list[str]) -> Inputs:
     description, _vertical = await business_context(tenant_id)
     async with tenant_session(tenant_id) as session:
         script = (
             await session.execute(
                 text(
-                    # The latest saved script, staged or live: the owner's newest word on
-                    # what the business sells.
-                    "SELECT pv.structured_script FROM agents a LEFT JOIN prompt_versions pv "
+                    # The job's own script, which its calls speak (D-997); a job with none
+                    # yet reads its voice's latest saved script, staged or live.
+                    "SELECT COALESCE(j.script, pv.structured_script) "
+                    f"FROM {_table(kind)} j JOIN agents a ON a.id = j.agent_id "
+                    "LEFT JOIN prompt_versions pv "
                     "ON pv.id = COALESCE(a.system_prompt_id, a.live_prompt_id) "
-                    "WHERE a.id = :aid"
+                    "WHERE j.id = :jid"
                 ),
-                {"aid": agent_id},
+                {"jid": job_id},
             )
         ).scalar()
         facts = await list_pinned(session)
-        fields = await current_fields(session, agent_id)
+        fields = await current_fields(session, kind, job_id)
         choice_keys = [f.key for f in fields if f.type == "enum"]
         unlisted_rows = (
             (
@@ -427,10 +441,10 @@ async def gather(tenant_id: UUID, agent_id: UUID, *, dismissed: list[str]) -> In
                         "SELECT kv.key, kv.value FROM call_extractions ce "
                         "JOIN calls c ON c.id = ce.call_id AND c.tenant_id = ce.tenant_id "
                         "CROSS JOIN LATERAL jsonb_each_text(ce.unlisted) AS kv "
-                        "WHERE c.agent_id = :aid AND ce.unlisted IS NOT NULL "
+                        f"WHERE {_calls_of(kind)} AND ce.unlisted IS NOT NULL "
                         f"AND ce.updated_at > now() - interval '{RECENT_DAYS} days'"
                     ),
-                    {"aid": agent_id},
+                    {"jid": job_id},
                 )
             ).all()
             if choice_keys
@@ -443,11 +457,11 @@ async def gather(tenant_id: UUID, agent_id: UUID, *, dismissed: list[str]) -> In
                         "SELECT kv.key, kv.value, count(*) FROM call_extractions ce "
                         "JOIN calls c ON c.id = ce.call_id AND c.tenant_id = ce.tenant_id "
                         "CROSS JOIN LATERAL jsonb_each_text(ce.data) AS kv "
-                        "WHERE c.agent_id = :aid AND kv.key = ANY(:keys) "
+                        f"WHERE {_calls_of(kind)} AND kv.key = ANY(:keys) "
                         f"AND ce.updated_at > now() - interval '{RECENT_DAYS} days' "
                         "GROUP BY kv.key, kv.value"
                     ),
-                    {"aid": agent_id, "keys": choice_keys},
+                    {"jid": job_id, "keys": choice_keys},
                 )
             ).all()
             if choice_keys
@@ -516,10 +530,12 @@ def _unlisted_text(unlisted: dict[str, list[tuple[str, int]]]) -> str:
     )
 
 
-async def _finish(tenant_id: UUID, agent_id: UUID, state: str) -> None:
+async def _finish(tenant_id: UUID, kind: JobKind, job_id: UUID, state: str) -> None:
     """Close the pass, or, when it was asked for again while it ran, start the next one."""
     async with tenant_session(tenant_id) as session:
-        await agent_pass.finish(session, SLOT, tenant_id=tenant_id, agent_id=agent_id, state=state)
+        await agent_pass.finish(
+            session, SLOTS[kind], tenant_id=tenant_id, row_id=job_id, state=state
+        )
 
 
 async def _blocked(tenant_id: UUID, *, absorbed: bool) -> bool:
@@ -535,7 +551,8 @@ async def _blocked(tenant_id: UUID, *, absorbed: bool) -> bool:
 
 async def _store(
     tenant_id: UUID,
-    agent_id: UUID,
+    kind: JobKind,
+    job_id: UUID,
     inputs: Inputs,
     answer: JsonAnswer[list[Suggestion]] | None,
     *,
@@ -559,22 +576,24 @@ async def _store(
         closed = (
             await session.execute(
                 text(
-                    "UPDATE agents SET field_suggestions = CAST(:s AS jsonb), "
+                    f"UPDATE {_table(kind)} SET field_suggestions = CAST(:s AS jsonb), "
                     "field_suggestions_inputs = :h, "
                     "field_suggestions_state = CASE WHEN field_suggestions_state = 'running' "
                     "  THEN 'done' ELSE field_suggestions_state END, "
                     "field_suggestions_at = now(), updated_at = now() "
-                    "WHERE id = :aid RETURNING field_suggestions_state"
+                    "WHERE id = :jid RETURNING field_suggestions_state"
                 ),
                 {
-                    "aid": agent_id,
+                    "jid": job_id,
                     "h": inputs.digest(),
                     "s": json.dumps([s.model_dump(mode="json") for s in suggestions]),
                 },
             )
         ).scalar()
         if closed == "queued":
-            await agent_pass.requeue_if_asked(session, SLOT, tenant_id=tenant_id, agent_id=agent_id)
+            await agent_pass.requeue_if_asked(
+                session, SLOTS[kind], tenant_id=tenant_id, row_id=job_id
+            )
 
 
 def _parser(inputs: Inputs) -> Any:
@@ -588,21 +607,21 @@ def _parser(inputs: Inputs) -> Any:
     return parse
 
 
-async def _run(tenant_id: UUID, agent_id: UUID, *, previous: str | None) -> str:
+async def _run(tenant_id: UUID, kind: JobKind, job_id: UUID, *, previous: str | None) -> str:
     async with tenant_session(tenant_id) as session:
         dismissed = (
             await session.execute(
-                text("SELECT field_suggestions_dismissed FROM agents WHERE id = :aid"),
-                {"aid": agent_id},
+                text(f"SELECT field_suggestions_dismissed FROM {_table(kind)} WHERE id = :jid"),
+                {"jid": job_id},
             )
         ).scalar()
         absorbed = await trial_billing_active(session, tenant_id=tenant_id)
-    inputs = await gather(tenant_id, agent_id, dismissed=[str(d) for d in dismissed or []])
+    inputs = await gather(tenant_id, kind, job_id, dismissed=[str(d) for d in dismissed or []])
     if previous == inputs.digest():
-        await _finish(tenant_id, agent_id, "done")
+        await _finish(tenant_id, kind, job_id, "done")
         return "unchanged"
     if await _blocked(tenant_id, absorbed=absorbed):
-        await _finish(tenant_id, agent_id, "skipped")
+        await _finish(tenant_id, kind, job_id, "skipped")
         return "skipped"
     feature = (
         ASSIST_FEATURE_FIELD_SUGGESTIONS_ABSORBED if absorbed else ASSIST_FEATURE_FIELD_SUGGESTIONS
@@ -614,9 +633,9 @@ async def _run(tenant_id: UUID, agent_id: UUID, *, previous: str | None) -> str:
             "lead_suggestions_unavailable",
             detail="The Gemini leg the lead-detail suggestions use cannot serve; none were made.",
             tenant_id=str(tenant_id),
-            agent_id=str(agent_id),
+            job_id=str(job_id),
         )
-        await _finish(tenant_id, agent_id, "failed")
+        await _finish(tenant_id, kind, job_id, "failed")
         return "failed"
     try:
         answer: JsonAnswer[list[Suggestion]] = await ask_json(
@@ -643,38 +662,42 @@ async def _run(tenant_id: UUID, agent_id: UUID, *, previous: str | None) -> str:
             await crm_assist.meter_refusal(
                 session, tenant_id=tenant_id, refusal=refused, feature=feature
             )
-        await _finish(tenant_id, agent_id, "failed")
+        await _finish(tenant_id, kind, job_id, "failed")
         log.warning(
             "lead_suggestions_failed",
-            extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "code": refused.code},
+            extra={"tenant_id": str(tenant_id), "job_id": str(job_id), "code": refused.code},
         )
         return "failed"
-    await _store(tenant_id, agent_id, inputs, answer, feature=feature)
+    await _store(tenant_id, kind, job_id, inputs, answer, feature=feature)
     return f"stored_{len(answer.value)}"
 
 
 async def suggest_lead_details(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    """Claim the agent's queued pass, read, ask once, store what can stand."""
+    """Claim the job's queued pass, read, ask once, store what can stand."""
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
-    agent_id = UUID(str(payload["agent_id"]))
+    job = job_of_payload(payload)
+    if job is None:
+        log.info("lead_suggestions_run", extra={"tenant_id": str(tenant_id), "outcome": "no_job"})
+        return "no_job"
+    kind, job_id = job
     async with tenant_session(tenant_id) as session:
-        claimed, previous = await agent_pass.claim(session, SLOT, agent_id=agent_id)
+        claimed, previous = await agent_pass.claim(session, SLOTS[kind], row_id=job_id)
     if not claimed:
         outcome = "not_queued"
     else:
         try:
-            outcome = await _run(tenant_id, agent_id, previous=previous)
+            outcome = await _run(tenant_id, kind, job_id, previous=previous)
         except Exception:
             log.exception(
                 "lead_suggestions_crashed",
-                extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id)},
+                extra={"tenant_id": str(tenant_id), "job_id": str(job_id)},
             )
-            await _finish(tenant_id, agent_id, "failed")
+            await _finish(tenant_id, kind, job_id, "failed")
             outcome = "failed"
     log.info(
         "lead_suggestions_run",
-        extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id), "outcome": outcome},
+        extra={"tenant_id": str(tenant_id), "job_id": str(job_id), "outcome": outcome},
     )
     return outcome
 

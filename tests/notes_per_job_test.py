@@ -2,7 +2,7 @@
 
 1. The data step copies an agent's list into each of its campaigns and lines that had none,
    and leaves a list of their own alone.
-2. A new campaign or line starts with its agent's starting list.
+2. A new campaign or line starts with the business's starting set (D-1029).
 3. An inbound line's list has its own API: read, a whole-list save under a compare-and-set,
    the extraction rules, and another account's line answers 404 and holds zero rows.
 4. The post-call pipeline notes the line's list for a line's call, the campaign's for a
@@ -119,12 +119,30 @@ async def _set_list(tenant_id: UUID, table: str, job_id: UUID, fields: list[Any]
 # --- 1 and 2: the data step and the starting list --------------------------------------
 
 
-async def test_a_new_campaign_and_line_start_with_their_agents_list() -> None:
+async def test_a_new_campaign_and_line_start_with_the_businesss_starting_set() -> None:
+    """D-1029: whatever the agent's own list holds, a new job copies the business's set."""
+    from apps.api.agents.lead_fields import starting_business_fields, vertical_of
+
     tenant_id, agent_id, _ = await _tenant()
-    agent_keys = await _agent_keys(tenant_id, agent_id)
-    assert agent_keys, "the receptionist fixture carries its business type's fields"
-    assert await _keys(tenant_id, "campaigns", await _campaign(tenant_id, agent_id)) == agent_keys
-    assert await _keys(tenant_id, "inbound_lines", await _line(tenant_id, agent_id)) == agent_keys
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE extraction_schemas SET fields = CAST(:f AS jsonb) WHERE id = "
+                "(SELECT extraction_schema_id FROM agents WHERE id = :a)"
+            ),
+            {"f": json.dumps([AREA]), "a": agent_id},
+        )
+        start = await starting_business_fields(
+            session, tenant_id=tenant_id, vertical=await vertical_of(session, tenant_id=tenant_id)
+        )
+    starting_keys = [f.key for f in start]
+    assert starting_keys, "the receptionist fixture's business type has a standard set"
+    assert (
+        await _keys(tenant_id, "campaigns", await _campaign(tenant_id, agent_id)) == starting_keys
+    )
+    assert (
+        await _keys(tenant_id, "inbound_lines", await _line(tenant_id, agent_id)) == starting_keys
+    )
 
 
 async def test_the_data_step_copies_the_agents_list_only_into_empty_lists() -> None:

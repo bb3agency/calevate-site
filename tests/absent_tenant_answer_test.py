@@ -122,36 +122,47 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "GET /v1/admin/tenants/{tenant_id}/members": None,
     # The twelve named layers of an agent's prompt (D-882).
     "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/layers": None,
-    # Suggested changes to an agent's lead details (D-889).
-    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions": None,
-    "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions/check": None,
+    # Suggested changes to what a campaign or line notes (D-889, D-1029), and its list.
+    "GET /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions": None,
+    "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions/check": None,
     (
-        "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}"
+        "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}"
         "/lead-suggestions/{suggestion_id}/accept"
     ): None,
     (
-        "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}"
+        "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}"
         "/lead-suggestions/{suggestion_id}/dismiss"
     ): None,
+    "GET /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions": None,
+    "POST /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions/check": None,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}"
+        "/lead-suggestions/{suggestion_id}/accept"
+    ): None,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}"
+        "/lead-suggestions/{suggestion_id}/dismiss"
+    ): None,
+    "GET /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/notes": None,
+    "PUT /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/notes": {"fields": []},
+    "GET /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/notes": None,
+    "PUT /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/notes": {"fields": []},
     # Making an account paid without a payment (D-890). A reason is required, so `{}` would
     # 422 before the tenant is looked at.
     "GET /v1/admin/tenants/{tenant_id}/paid": None,
     "POST /v1/admin/tenants/{tenant_id}/paid": {"reason": "census"},
-    # A client's lead details (D-715). `{}` replaces every agent's set from its own type.
+    # A client's lead details (D-715, D-1029). A replace names at least one job.
     "GET /v1/admin/tenants/{tenant_id}/lead-fields": None,
     "POST /v1/admin/tenants/{tenant_id}/lead-fields/draft": None,
-    "POST /v1/admin/tenants/{tenant_id}/lead-fields/replace": {},
+    "POST /v1/admin/tenants/{tenant_id}/lead-fields/replace": {
+        "jobs": [{"kind": "line", "id": "00000000-0000-7000-8000-000000000000", "digest": "x"}]
+    },
     "PUT /v1/admin/tenants/{tenant_id}/lead-fields/core-labels": {"labels": {"need": "Crop issue"}},
     "GET /v1/admin/tenants/{tenant_id}/business-type": None,
     "POST /v1/admin/tenants/{tenant_id}/business-type/confirm": {"business_type": "retail"},
     "POST /v1/admin/tenants/{tenant_id}/business-type/suggest": None,
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {"body": PROMPT_BODY},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/rollback": {"version": 1},
-    # An EMPTY variable list is a valid body (a schema may capture nothing extra), so the
-    # route validates and reaches the tenant lookup — which 404s for a tenant that names
-    # nothing. A non-empty body would work too; empty is the minimal one that gets past
-    # `_validate_fields` to the 404 this census is about.
-    "PUT /v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": {"fields": []},
     # D-538. The edit demands at least one field, so an empty body would 422 and this
     # census would stop measuring the 404 it is about.
     "PATCH /v1/admin/tenants/{tenant_id}": {"name": "Census Clinic"},
@@ -436,7 +447,8 @@ def _tenant_path_routes() -> list[tuple[str, str, list[str]]]:
     for route in iter_api_routes(app):
         if not route.path.startswith(TENANT_PATH_PREFIXES):
             continue
-        params = [param.name for param in route.dependant.path_params]
+        # The name the path spells: a parameter read through an alias is named by it.
+        params = [param.alias for param in route.dependant.path_params]
         for method in sorted((route.methods or set()) - {"HEAD", "OPTIONS"}):
             found.append((method, route.path, params))
     return sorted(found)

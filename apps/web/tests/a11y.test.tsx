@@ -386,20 +386,37 @@ const LEAD_FIELDS = {
     { key: "product", label: "Product", type: "text" as const, reason: "", required: true, enum_values: null },
   ],
   has_standard_set: true,
+  starting_fields: [
+    { key: "product", label: "Product", type: "text" as const, reason: "", required: true, enum_values: null },
+  ],
   draft: null,
   can_draft: false,
-  agents: [
+  jobs: [
     {
-      id: "a1",
+      kind: "line" as const,
+      id: "l1",
       name: "Shop counter",
-      direction: "inbound",
       status: "live",
-      version: 2,
-      business_fields: [
-      { key: "product", label: "Product", type: "text" as const, reason: "", required: true, enum_values: null },
+      live: true,
+      agent_id: "a1",
+      agent_name: "Anjali",
+      fields: [
+        { key: "product", label: "Product", type: "text" as const, reason: "", required: true, enum_values: null },
       ],
+      digest: "d1",
+      untouched: true,
     },
   ],
+};
+
+/** One line's What it notes, as the Lead details card reads it. */
+const LINE_NOTES = {
+  agent_id: "a1",
+  agent_name: "Anjali",
+  fields: LEAD_FIELDS.jobs[0].fields,
+  core_fields: LEAD_FIELDS.core_fields,
+  digest: "d1",
+  applied_now: true,
 };
 
 const ME = {
@@ -3925,6 +3942,7 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/lead-fields": LEAD_FIELDS,
+      "/v1/inbound-lines/l1/notes": LINE_NOTES,
       "/v1/call-outcomes": {
         max_outcomes: 8,
         agents: [
@@ -5583,7 +5601,11 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/tenants/[tenantId]/lead-details/page.tsx",
     realm: "admin",
     element: () => <TenantLeadDetailsPage params={tenant} />,
-    routes: { ...TENANT_ROUTES, "/v1/admin/tenants/t1/lead-fields": LEAD_FIELDS },
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/admin/tenants/t1/lead-fields": LEAD_FIELDS,
+      "/v1/admin/tenants/t1/inbound-lines/l1/notes": LINE_NOTES,
+    },
   },
   {
     // The Agents section's index (D-661): one link row per agent.

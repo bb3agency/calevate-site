@@ -378,7 +378,12 @@ export function useSaveJobNotes(session: Session, kind: JobKind, jobId: string) 
   return useMutation({
     mutationFn: (input: JobNotesInput) =>
       apiRequest<JobNotes>(session, jobNotesPath(kind, jobId), { method: "PUT", body: input }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: jobNotesKey(session.orgSlug, kind, jobId) }),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: jobNotesKey(session.orgSlug, kind, jobId) }),
+        // Lead details lists every job with its digest and whether anybody chose its list.
+        client.invalidateQueries({ queryKey: ["lead-fields", session.orgSlug] }),
+      ]),
   });
 }
 

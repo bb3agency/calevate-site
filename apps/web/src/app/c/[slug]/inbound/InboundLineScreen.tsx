@@ -175,7 +175,6 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
         <JobNotes
           kind="line"
           jobId={data.id}
-          slug={slug}
           canWrite={write.allowed}
           refusal={refusal}
           takeEffect={lineNotesTakeEffect}

@@ -13,9 +13,9 @@ import pytest
 from sqlalchemy import text
 from tests.action_save_trial_test import BOOK_A_TIME
 from tests.api_security_test import _make_tenant
-from tests.lead_fields_test import _business_keys, _request, _run_worker
+from tests.lead_fields_test import _job_keys, _line, _request, _run_worker
 from tests.lead_fields_test import _tenant as _lead_fields_tenant
-from tests.lead_suggestions_test import _bhk_agent, _fields, _item, _seed
+from tests.lead_suggestions_test import _bhk_line, _fields, _item, _seed
 
 from apps.api.actions import credentials as creds
 from apps.api.copilot import write_tools
@@ -204,11 +204,12 @@ async def test_another_tenants_connection_or_agent_is_absent() -> None:
     assert foreign.value.status == 404
 
 
-# --- lead details ------------------------------------------------------------------------------
+# --- lead details: what each campaign and line notes (D-1029) -------------------------------
 
 
 async def test_the_drafted_lead_details_are_kept_once(monkeypatch: pytest.MonkeyPatch) -> None:
     tenant_id, token = await _lead_fields_tenant("custom")
+    await _line(tenant_id)
     with pytest.raises(write_tools.WriteRefusedError):
         await _propose(tenant_id, token, "lead_fields_keep_draft", {"keep": ["produce"]})
     await _request(tenant_id)
@@ -216,42 +217,49 @@ async def test_the_drafted_lead_details_are_kept_once(monkeypatch: pytest.Monkey
     with pytest.raises(write_tools.WriteRefusedError):
         await _propose(tenant_id, token, "lead_fields_keep_draft", {"keep": ["nonsense"]})
     proposal = await _propose(tenant_id, token, "lead_fields_keep_draft", {"keep": ["produce"]})
-    assert "Produce" in proposal.summary
+    assert "Produce" in proposal.summary and "Front desk" in proposal.summary
     await _confirm(tenant_id, _user_of(token), proposal.token)
-    assert all("produce" in keys for keys in await _business_keys(tenant_id))
+    assert await _job_keys(tenant_id) == [["produce"]]
     with pytest.raises(write_tools.WriteRefusedError) as again:
         await _propose(tenant_id, token, "lead_fields_keep_draft", {"keep": []})
     assert "already" in again.value.reason
     assert "lead_fields.draft_reviewed" in {a for a, _o, _i in await _audit(tenant_id)}
 
 
-async def test_reset_puts_the_standard_set_on_every_agent() -> None:
+async def test_reset_puts_the_standard_set_on_the_named_lines() -> None:
     tenant_id, token = await _lead_fields_tenant("retail")
+    line_id = await _line(tenant_id)
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text(
-                "UPDATE extraction_schemas SET fields = '[]'::jsonb WHERE id IN "
-                "(SELECT extraction_schema_id FROM agents)"
-            )
+            text("UPDATE inbound_lines SET extraction_fields = '[]'::jsonb WHERE id = :l"),
+            {"l": line_id},
         )
-    done = await _yes(tenant_id, token, "lead_fields_reset", {"agent_ids": None})
+    done = await _yes(
+        tenant_id, token, "lead_fields_reset", {"jobs": [{"job": "line", "job_id": str(line_id)}]}
+    )
     assert done.applied is True
-    assert all(keys for keys in await _business_keys(tenant_id))
+    assert all(keys for keys in await _job_keys(tenant_id))
+    with pytest.raises(write_tools.WriteRefusedError):
+        await _propose(
+            tenant_id,
+            token,
+            "lead_fields_reset",
+            {"jobs": [{"job": "campaign", "job_id": str(line_id)}]},
+        )
     with pytest.raises(ProblemError):
         custom_id, custom_token = await _lead_fields_tenant("custom")
-        await _propose(custom_id, custom_token, "lead_fields_reset", {"agent_ids": None})
+        await _propose(custom_id, custom_token, "lead_fields_reset", {"jobs": None})
 
 
 async def test_a_suggestion_is_accepted_or_turned_down() -> None:
-    tenant_id, _slug, token, agent_id = await _bhk_agent()
+    tenant_id, _slug, token, line_id = await _bhk_line()
     add, new = await _seed(
         tenant_id,
-        agent_id,
+        line_id,
         _item("add_choices", values=["6BHK"], reason="3 callers asked for 6BHK."),
         _item("new_field", label="Facing", values=["East", "West"], source="script"),
     )
-    before, _fields_before = await _fields(tenant_id, agent_id)
-    base = {"agent_id": str(agent_id)}
+    base = {"job": "line", "job_id": str(line_id)}
     accepted = await _yes(
         tenant_id,
         token,
@@ -259,9 +267,7 @@ async def test_a_suggestion_is_accepted_or_turned_down() -> None:
         {**base, "suggestion_id": add.id, "accept": True},
     )
     assert accepted.applied is True
-    after, fields = await _fields(tenant_id, agent_id)
-    assert after == before + 1
-    assert "6BHK" in json.dumps(fields)
+    assert "6BHK" in json.dumps(await _fields(tenant_id, line_id))
     await _yes(
         tenant_id,
         token,
@@ -275,4 +281,19 @@ async def test_a_suggestion_is_accepted_or_turned_down() -> None:
             "lead_suggestion_answer",
             {**base, "suggestion_id": new.id, "accept": True},
         )
-    assert "agent.lead_suggestion_answered" in {a for a, _o, _i in await _audit(tenant_id)}
+    assert "lead_suggestions.answered" in {a for a, _o, _i in await _audit(tenant_id)}
+
+
+async def test_pip_reads_what_each_job_in_a_voice_notes_and_its_suggestions() -> None:
+    from apps.api.copilot.agent_reads import _lead_fields_part
+    from apps.api.copilot.tools import ToolContext
+
+    tenant_id, _slug, _token, line_id = await _bhk_line()
+    (add,) = await _seed(tenant_id, line_id, _item("add_choices", values=["6BHK"]))
+    agent_id = await _one(tenant_id, "SELECT agent_id FROM inbound_lines WHERE id = :l", l=line_id)
+    async with tenant_session(tenant_id) as session:
+        lines = await _lead_fields_part(
+            session, ToolContext(tenant_id=tenant_id, role="owner"), UUID(str(agent_id[0]))
+        )
+    assert lines[0].startswith(f"Line Front desk [line {line_id}] writes down: BHK (bhk_size)")
+    assert any(line.startswith(f"- suggestion {add.id}: add_choices BHK 6BHK") for line in lines)

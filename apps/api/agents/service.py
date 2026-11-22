@@ -3601,8 +3601,10 @@ async def publish_agent(
         # D-836: its own call outcomes, drafted once, queued in this transaction so a failed
         # publish queues nothing. A no-op for an agent that has them or was drafted before.
         await call_outcomes.queue_draft(session, tenant_id=tenant_id, agent_id=agent_id)
-        # D-889: the first look at whether its lead details fit the business, once.
-        await field_suggestions.queue_first_pass(session, tenant_id=tenant_id, agent_id=agent_id)
+        # D-889: the first look at whether its jobs' lead details fit the business, once each.
+        await field_suggestions.queue_agent(
+            session, tenant_id=tenant_id, agent_id=agent_id, first=True
+        )
         # Whether its callers follow along on their phone, for an agent never judged.
         await caller_help.queue_first_pass(session, tenant_id=tenant_id, agent_id=agent_id)
         await session.execute(
@@ -3742,7 +3744,7 @@ async def _publish_without_engine_agent(
     """
     agent_id = UUID(str(agent["id"]))
     await call_outcomes.queue_draft(session, tenant_id=tenant_id, agent_id=agent_id)
-    await field_suggestions.queue_first_pass(session, tenant_id=tenant_id, agent_id=agent_id)
+    await field_suggestions.queue_agent(session, tenant_id=tenant_id, agent_id=agent_id, first=True)
     await caller_help.queue_first_pass(session, tenant_id=tenant_id, agent_id=agent_id)
     routing = await route_inbound_numbers(
         session, engine, agent_id=agent_id, ref=None, answers=False, lines_answer=takes_calls

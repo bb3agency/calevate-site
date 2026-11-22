@@ -682,7 +682,7 @@ lived in a route body it moved into a service both doors call.
 | `agent_action_set` / `_switch` / `_remove` | confirm, `org:manage`, `action_tool.saved` / `.switched` / `.deleted` | `actions/agent_tools` (each re-syncs a live agent's actions) |
 | `lead_fields_keep_draft` | confirm, `org:manage`, `lead_fields.draft_reviewed` | `agents/lead_fields_writes.keep_draft` |
 | `lead_fields_reset` | confirm, `org:manage`, `lead_fields.replaced` | `agents/lead_fields_writes.replace_with_standard` |
-| `lead_suggestion_answer` | confirm, `org:manage`, `agent.lead_suggestion_answered` | `field_suggestions.accept` / `.dismiss` |
+| `lead_suggestion_answer` | confirm, `org:manage`, `lead_suggestions.answered` | `field_suggestions.accept` / `.dismiss`, on one campaign or line (D-1029) |
 
 * **The read is `agent_settings`** (`copilot/agent_reads.py`, `agents:read`) with a `part`:
   `settings`, `script`, `handover`, `actions`, `lead_fields`. One schema instead of five keeps

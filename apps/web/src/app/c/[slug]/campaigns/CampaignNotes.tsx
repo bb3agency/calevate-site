@@ -2,21 +2,28 @@
 
 /**
  * WHAT IT NOTES (D-1028): the details a campaign's or an inbound line's calls write down. The
- * list belongs to the job, never to the agent, so the campaign page and the line page show
- * this one editor. Rows are the shared field row (`agents/panels/extractionRow`) and draft
- * arithmetic (`agents/panels/extractionDraft`). A save over a list changed elsewhere is
- * refused (`<kind>_notes_changed_elsewhere`) and offers the current list. "Import from
- * another ..." loads another job's list into the editor as an unsaved change; Save keeps it.
+ * list belongs to the job, never to the agent, so the campaign page, the line page and every
+ * card on Lead details (D-1029) show this one editor. Rows are the shared field row
+ * (`agents/panels/extractionRow`) and draft arithmetic (`agents/panels/extractionDraft`). A
+ * save over a list changed elsewhere is refused (`<kind>_notes_changed_elsewhere`) and offers
+ * the current list. "Import" loads another job's list, or the business's starting set, into
+ * the editor as an unsaved change; Save keeps it. The job's suggested changes (D-889) sit at
+ * the top of the card.
+ *
+ * Where the reads and writes go is a `JobNotesSource`: the client realm's endpoints by
+ * default, the operator's twins when the admin Lead details screen provides its own.
  */
 
-import { useMemo, useState } from "react";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, Download, Plus, Save } from "lucide-react";
 import Link from "next/link";
+import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Menu, type MenuItem } from "@/components/arc/menu";
 import { EmptyState } from "@/components/console/emptyState";
 import { useFormValidation } from "@/components/formValidation";
+import { LeadSuggestions } from "@/components/leadFields/LeadSuggestions";
 import { ProblemNotice, SECONDARY_BUTTON, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
 import { useCampaigns } from "@/lib/api/campaigns";
@@ -26,11 +33,15 @@ import {
   useSaveJobNotes,
   type JobKind,
   type JobNotes as Notes,
+  type JobNotesInput,
 } from "@/lib/api/campaignWorkspace";
 import { useInboundLines } from "@/lib/api/inboundLines";
+import type { LeadField } from "@/lib/api/leadFields";
+import { useLeadSuggestions, type LeadSuggestionsApi } from "@/lib/api/leadSuggestions";
 import { useClientRealm } from "@/lib/api/session";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
+import type { VerticalExamples } from "@/lib/verticalExamples";
 
 import { blankRow, canonical, clientValidationError, toDraft, toWireFields, type DraftRow } from "../agents/panels/extractionDraft";
 import { FieldEditorRow } from "../agents/panels/extractionRow";
@@ -56,61 +67,24 @@ export function lineNotesTakeEffect(appliedNow: boolean): string {
 
 const NOUN: Record<JobKind, string> = { campaign: "campaign", line: "line" };
 
-type JobProps = {
-  kind: JobKind;
-  jobId: string;
-  slug: string;
-  canWrite: boolean;
-  refusal?: string;
-  /** When a saved list reaches the calls, from the server's `applied_now`. */
-  takeEffect: (appliedNow: boolean) => string;
-};
+type OtherJobs = { items: { id: string; label: string; hint?: string }[]; loading: boolean; failed: boolean };
 
-export function JobNotes(props: JobProps) {
-  const { session } = useClientRealm();
-  const notes = useJobNotes(session, props.kind, props.jobId);
-  const noun = NOUN[props.kind];
-  return (
-    <FoldSection
-      id={`${props.kind}-notes-${props.jobId}`}
-      title="What it notes"
-      tone="details"
-      hint="The details its calls write down."
-      info={`The agent asks for these on this ${noun}'s calls and writes them on the lead.`}
-    >
-      {notes.error != null && <ProblemNotice error={notes.error} onRetry={() => notes.refetch()} />}
-      {!notes.data && notes.error == null && <Skeleton rows={2} label="Loading what it notes" />}
-      {notes.data && (
-        <NotesEditor key={notes.data.digest} data={notes.data} onReload={() => void notes.refetch()} {...props} />
-      )}
-    </FoldSection>
-  );
+/** Where one realm reads and writes job lists. Each member is a hook, called on every render. */
+export interface JobNotesSource {
+  audience: "client" | "operator";
+  useNotes: (kind: JobKind, jobId: string) => UseQueryResult<Notes>;
+  useSave: (kind: JobKind, jobId: string) => UseMutationResult<Notes, Error, JobNotesInput>;
+  useFetch: (kind: JobKind) => (jobId: string) => Promise<Notes>;
+  /** The account's other open jobs of a kind, read once `wanted` (the import menu opened). */
+  useOthers: (kind: JobKind, jobId: string, wanted: boolean) => OtherJobs;
+  useSuggestions: (kind: JobKind, jobId: string) => LeadSuggestionsApi;
+  /** Where the agent's team alerts are set, or null where this realm has no such page. */
+  useAlertsHref: (agentId: string) => string | null;
+  /** The example text the field rows show. */
+  useExamples: () => VerticalExamples;
 }
 
-type CampaignProps = {
-  slug: string;
-  campaignId: string;
-  /** The campaign's status, which says when a saved list reaches its calls. */
-  status?: string | null;
-  canWrite: boolean;
-  refusal?: string;
-};
-
-export function CampaignNotes({ campaignId, status, ...rest }: CampaignProps) {
-  return (
-    <JobNotes kind="campaign" jobId={campaignId} takeEffect={(now) => notesTakeEffect(now, status)} {...rest} />
-  );
-}
-
-/**
- * The account's other open campaigns or lines, as the import menu offers them. Read only once
- * the menu is asked for (`wanted`), so a page that never imports never lists them.
- */
-function useOtherJobs(
-  kind: JobKind,
-  jobId: string,
-  wanted: boolean,
-): { items: { id: string; label: string; hint?: string }[]; loading: boolean; failed: boolean } {
+function useClientOthers(kind: JobKind, jobId: string, wanted: boolean): OtherJobs {
   const { session } = useClientRealm();
   const campaigns = useCampaigns(session, wanted && kind === "campaign");
   const lines = useInboundLines(session, wanted && kind === "line");
@@ -136,29 +110,131 @@ function useOtherJobs(
   };
 }
 
+/** The client realm's endpoints: the default, so the campaign and line pages provide nothing. */
+export const CLIENT_JOB_NOTES: JobNotesSource = {
+  audience: "client",
+  useNotes: (kind, jobId) => useJobNotes(useClientRealm().session, kind, jobId),
+  useSave: (kind, jobId) => useSaveJobNotes(useClientRealm().session, kind, jobId),
+  useFetch: (kind) => useFetchJobNotes(useClientRealm().session, kind),
+  useOthers: useClientOthers,
+  useSuggestions: (kind, jobId) => useLeadSuggestions(useClientRealm().session, kind, jobId),
+  useExamples: useVerticalExamples,
+  useAlertsHref: (agentId) => {
+    const { href, session } = useClientRealm();
+    return href(`/c/${session.orgSlug}/agents/${agentId}?section=settings#${TEAM_ALERTS_ANCHOR}`);
+  },
+};
+
+const JobNotesSourceContext = createContext<JobNotesSource | null>(null);
+
+export function JobNotesSourceProvider({ source, children }: { source: JobNotesSource; children: ReactNode }) {
+  return <JobNotesSourceContext.Provider value={source}>{children}</JobNotesSourceContext.Provider>;
+}
+
+function useSource(): JobNotesSource {
+  return useContext(JobNotesSourceContext) ?? CLIENT_JOB_NOTES;
+}
+
+/** A set the platform offers to load into the editor: the business's starting set. */
+export type OfferedSet = { label: string; fields: LeadField[] };
+
+type JobProps = {
+  kind: JobKind;
+  jobId: string;
+  canWrite: boolean;
+  refusal?: string;
+  /** When a saved list reaches the calls, from the server's `applied_now`. */
+  takeEffect: (appliedNow: boolean) => string;
+  /** The card's name; the job's own page says "What it notes". */
+  title?: string;
+  /** A state beside the name, such as the job's status pill. */
+  aside?: ReactNode;
+  /** The line under the name; a link to the job's page on Lead details. */
+  hint?: ReactNode;
+  /** Offered in the import menu beside the other jobs. */
+  offered?: OfferedSet | null;
+};
+
+export function JobNotes(props: JobProps) {
+  const source = useSource();
+  const notes = source.useNotes(props.kind, props.jobId);
+  const noun = NOUN[props.kind];
+  return (
+    <FoldSection
+      id={`${props.kind}-notes-${props.jobId}`}
+      title={props.title ?? "What it notes"}
+      tone="details"
+      aside={props.aside}
+      hint={props.hint ?? "The details its calls write down."}
+      info={`The agent asks for these on this ${noun}'s calls and writes them on the lead.`}
+    >
+      {notes.error != null && <ProblemNotice error={notes.error} onRetry={() => notes.refetch()} />}
+      {!notes.data && notes.error == null && <Skeleton rows={2} label="Loading what it notes" />}
+      {notes.data && (
+        <NotesEditor
+          key={notes.data.digest}
+          data={notes.data}
+          source={source}
+          onReload={() => void notes.refetch()}
+          {...props}
+        />
+      )}
+    </FoldSection>
+  );
+}
+
+type CampaignProps = {
+  slug: string;
+  campaignId: string;
+  /** The campaign's status, which says when a saved list reaches its calls. */
+  status?: string | null;
+  canWrite: boolean;
+  refusal?: string;
+};
+
+export function CampaignNotes({ campaignId, status, canWrite, refusal }: CampaignProps) {
+  return (
+    <JobNotes
+      kind="campaign"
+      jobId={campaignId}
+      canWrite={canWrite}
+      refusal={refusal}
+      takeEffect={(now) => notesTakeEffect(now, status)}
+    />
+  );
+}
+
 function ImportMenu({
   kind,
   jobId,
   disabled,
   title,
+  offered,
+  source,
   onImport,
 }: {
   kind: JobKind;
   jobId: string;
   disabled: boolean;
   title?: string;
-  onImport: (id: string, name: string) => void;
+  offered?: OfferedSet | null;
+  source: JobNotesSource;
+  onImport: (choice: { id: string; name: string } | OfferedSet) => void;
 }) {
   const noun = NOUN[kind];
   const [wanted, setWanted] = useState(false);
-  const others = useOtherJobs(kind, jobId, wanted);
+  const others = source.useOthers(kind, jobId, wanted);
   const want = () => setWanted(true);
-  const items: MenuItem[] = others.items.length
+  const fromSet: MenuItem[] =
+    offered && offered.fields.length > 0
+      ? [{ id: "offered-set", label: offered.label, hint: "Standard", onSelect: () => onImport(offered) }]
+      : [];
+  const fromJobs: MenuItem[] = others.items.length
     ? others.items.map((job) => ({
         id: job.id,
         label: job.label,
         hint: job.hint,
-        onSelect: () => onImport(job.id, job.label),
+        onSelect: () => onImport({ id: job.id, name: job.label }),
       }))
     : [
         {
@@ -175,7 +251,7 @@ function ImportMenu({
     <Menu
       label={`Import from another ${noun}`}
       align="start"
-      items={items}
+      items={[...fromSet, ...fromJobs]}
       trigger={
         <button
           type="button"
@@ -188,7 +264,7 @@ function ImportMenu({
           onClick={want}
         >
           <Download aria-hidden className="h-4 w-4" />
-          Import from another {noun}
+          {offered && offered.fields.length > 0 ? "Import" : `Import from another ${noun}`}
           <ChevronDown aria-hidden className="h-4 w-4" />
         </button>
       }
@@ -198,18 +274,20 @@ function ImportMenu({
 
 function NotesEditor({
   data,
+  source,
   onReload,
   kind,
   jobId,
-  slug,
   canWrite,
   refusal,
   takeEffect,
-}: JobProps & { data: Notes; onReload: () => void }) {
-  const { session, href } = useClientRealm();
-  const eg = useVerticalExamples();
-  const save = useSaveJobNotes(session, kind, jobId);
-  const fetchNotes = useFetchJobNotes(session, kind);
+  offered,
+}: JobProps & { data: Notes; source: JobNotesSource; onReload: () => void }) {
+  const eg = source.useExamples();
+  const save = source.useSave(kind, jobId);
+  const fetchNotes = source.useFetch(kind);
+  const suggestions = source.useSuggestions(kind, jobId);
+  const alertsHref = source.useAlertsHref(data.agent_id);
   const feedback = useActionFeedback(save, { errorDisplay: "inline" });
   const valid = useFormValidation();
   const [rows, setRows] = useState<DraftRow[]>(() => data.fields.map(toDraft));
@@ -235,14 +313,19 @@ function NotesEditor({
       [next[index], next[target]] = [next[target], next[index]];
       return next;
     });
-  const importFrom = async (id: string, name: string) => {
-    setImporting(true);
+  const importFrom = async (choice: { id: string; name: string } | OfferedSet) => {
     setImportError(null);
+    save.reset();
+    if ("fields" in choice) {
+      setRows(choice.fields.map(toDraft));
+      setImported(choice.label);
+      return;
+    }
+    setImporting(true);
     try {
-      const other = await fetchNotes(id);
+      const other = await fetchNotes(choice.id);
       setRows(other.fields.map(toDraft));
-      setImported(name);
-      save.reset();
+      setImported(choice.name);
     } catch (error) {
       setImportError(error);
     } finally {
@@ -262,6 +345,7 @@ function NotesEditor({
         );
       })}
     >
+      <LeadSuggestions api={suggestions} canWrite={canWrite} dirty={dirty} audience={source.audience} />
       {save.error != null && (
         <div>
           <ProblemNotice error={save.error} />
@@ -328,7 +412,9 @@ function NotesEditor({
           jobId={jobId}
           disabled={disabled || importing}
           title={refusal}
-          onImport={(id, name) => void importFrom(id, name)}
+          offered={offered}
+          source={source}
+          onImport={(choice) => void importFrom(choice)}
         />
       </div>
       <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
@@ -349,13 +435,10 @@ function NotesEditor({
         ) : null}
       </div>
       <p className="text-xs text-ink-muted">{takeEffect(data.applied_now)} Old leads keep their values.</p>
-      {data.fields.length > 0 && (
+      {data.fields.length > 0 && alertsHref && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <p className="text-xs text-ink-muted">Want your team told about an answer?</p>
-          <Link
-            className={SECONDARY_BUTTON_SM}
-            href={href(`/c/${slug}/agents/${data.agent_id}?section=settings#${TEAM_ALERTS_ANCHOR}`)}
-          >
+          <Link className={SECONDARY_BUTTON_SM} href={alertsHref}>
             Set alerts
           </Link>
         </div>

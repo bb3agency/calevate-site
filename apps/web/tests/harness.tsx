@@ -381,12 +381,12 @@ export function stubApi(routes: Routes): ApiCall[] {
             report: { verdict: "clear", blocks_launch: false, findings: [], truncated: false, fix: "" },
           });
         }
-        // AN AGENT'S SUGGESTED LEAD-DETAIL CHANGES (D-889), answered "checked, none" by
-        // default in both realms: every Lead details editor reads them. A test about the
+        // A JOB'S SUGGESTED LEAD-DETAIL CHANGES (D-889, D-1029), answered "checked, none" by
+        // default in both realms: every What it notes editor reads them. A test about the
         // suggestions names the route itself.
         if (
-          /^GET \/v1\/agents\/[^/]+\/lead-suggestions$/.test(scoped) ||
-          /^GET \/v1\/admin\/tenants\/[^/]+\/agents\/[^/]+\/lead-suggestions$/.test(scoped)
+          /^GET \/v1\/(campaigns|inbound-lines)\/[^/]+\/lead-suggestions$/.test(scoped) ||
+          /^GET \/v1\/admin\/tenants\/[^/]+\/(campaigns|inbound-lines)\/[^/]+\/lead-suggestions$/.test(scoped)
         ) {
           return jsonResponse(NO_LEAD_SUGGESTIONS);
         }

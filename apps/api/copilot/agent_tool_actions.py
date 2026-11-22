@@ -482,6 +482,45 @@ AGENT_ACTION_REMOVE: Final = ActionTool(
 
 
 # --- lead details -----------------------------------------------------------------------
+#
+# What a call notes is its campaign's or line's own list (D-1028), so each write here names
+# jobs and carries the digest of the list each showed when the card was made: a confirm that
+# lands after a list changed is refused (`campaigns/notes.save_notes`) rather than replacing
+# it. A job's engine agent learns its list at its next put-live (Start, a test call, Put it
+# live), as after `notes_set`.
+
+_JobKind = Literal["campaign", "line"]
+
+
+def _job_word(kind: str) -> str:
+    return "campaign" if kind == "campaign" else "line"
+
+
+def _refs_arg(jobs: list[lead_fields_service.JobRow]) -> list[dict[str, str]]:
+    return [{"job": j.kind, "job_id": str(j.id), "digest": j.digest} for j in jobs]
+
+
+def _refs_of(raw: Any) -> list[lead_fields_service.JobRef]:
+    return [
+        lead_fields_service.JobRef(
+            kind="campaign" if item["job"] == "campaign" else "line",
+            job_id=UUID(str(item["job_id"])),
+            digest=str(item["digest"]),
+        )
+        for item in raw or []
+    ]
+
+
+async def _open_jobs(session: AsyncSession, tenant_id: UUID) -> list[lead_fields_service.JobRow]:
+    vertical = await lead_fields_service.vertical_of(session, tenant_id=tenant_id)
+    starting = await lead_fields_service.starting_business_fields(
+        session, tenant_id=tenant_id, vertical=vertical
+    )
+    return await lead_fields_service.jobs_with_fields(session, starting=starting)
+
+
+def _jobs_words(jobs: list[lead_fields_service.JobRow]) -> str:
+    return ", ".join(f"{_job_word(j.kind)} “{strip_invisible(j.name)}”" for j in jobs)
 
 
 class _KeepArgs(BaseModel):
@@ -504,45 +543,41 @@ async def _plan_keep(session: AsyncSession, actor: ToolActor, args: Mapping[str,
             "`keep` names keys that are not in the draft; use the draft's own keys"
         )
     keep = list(dict.fromkeys(parsed.keep))
-    agents = [
-        str(a["name"])
-        for a in await lead_fields_service.agents_with_fields(session)
-        if not a["fields"]
-    ]
+    # The jobs the Lead details screen ticks by default: nobody chose their list.
+    jobs = [j for j in await _open_jobs(session, actor.tenant_id) if j.untouched] if keep else []
     kept = ", ".join(labels[key] for key in keep)
     return Plan(
         object_id=str(actor.tenant_id),
         title="Keep the drafted lead details" if keep else "Discard the drafted lead details",
         summary=(
-            f"Keep {kept}. They go onto "
-            + (", ".join(agents) if agents else "no agent yet")
-            + " (agents with no details of their own) and every new agent; the rest of the "
-            "draft is dropped. Live agents ask for them from their next call."
+            f"Keep {kept}. New campaigns and lines start with them, and "
+            + (_jobs_words(jobs) if jobs else "no campaign or line yet")
+            + " (whose lists nobody changed) take them now; the rest of the draft is dropped."
             if keep
-            else "Drop the whole draft. No agent changes."
+            else "Drop the whole draft. No campaign or line changes."
         ),
         current="a draft waiting for review",
         proposed=kept or "nothing kept",
         cost=None,
-        reversal="This is done once; edit each agent's lead details afterwards.",
-        args={"keep": keep},
+        reversal="This is done once; change each campaign's or line's list afterwards.",
+        args={"keep": keep, "jobs": _refs_arg(jobs)},
     )
 
 
 async def _execute_keep(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    parsed = parse_args(_KeepArgs, args)
-    reviewed = await lead_fields_writes.keep_draft(
-        session, tenant_id=actor.tenant_id, keep=parsed.keep
+    keep = parse_args(_KeepArgs, {"keep": args["keep"]}).keep
+    done = await lead_fields_writes.keep_draft(
+        session, tenant_id=actor.tenant_id, keep=keep, jobs=_refs_of(args.get("jobs"))
     )
-    changed = sum(1 for w in reviewed.written if w.changed)
+    changed = sum(1 for w in done.written if w.changed)
     return Executed(
         applied=True,
-        detail=f"Kept {len(reviewed.kept)} detail(s); {changed} agent(s) changed.",
+        detail=f"Kept {len(done.kept)} detail(s); {changed} campaign(s) or line(s) changed.",
         audit_summary={
-            "field_keys": [f.key for f in reviewed.kept],
-            "agents": [str(w.agent_id) for w in reviewed.written],
+            "field_keys": [f.key for f in done.kept],
+            "jobs": [f"{w.kind}:{w.job_id}" for w in done.written],
         },
     )
 
@@ -558,7 +593,9 @@ LEAD_FIELDS_KEEP_DRAFT: Final = ActionTool(
     schema=action_schema(
         "lead_fields_keep_draft",
         "Propose keeping some of the lead details `lead_fields_draft` drafted (by key; an "
-        "empty list discards the draft). Once per draft." + PROPOSES_ONLY,
+        "empty list discards the draft). Once per draft. What is kept becomes what new "
+        "campaigns and lines start with, and goes onto the ones whose lists nobody changed."
+        + PROPOSES_ONLY,
         {"keep": {"type": "array", "items": {"type": "string"}}},
     ),
     plan=_plan_keep,
@@ -566,10 +603,17 @@ LEAD_FIELDS_KEEP_DRAFT: Final = ActionTool(
 )
 
 
+class _JobArg(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job: _JobKind
+    job_id: UUID
+
+
 class _ResetArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    agent_ids: Annotated[list[UUID], Field(max_length=50)] | None
+    jobs: Annotated[list[_JobArg], Field(max_length=lead_fields_service.MAX_JOBS)] | None
 
 
 async def _plan_reset(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
@@ -577,46 +621,46 @@ async def _plan_reset(session: AsyncSession, actor: ToolActor, args: Mapping[str
     fields = await lead_fields_writes.replacement_fields(
         session, tenant_id=actor.tenant_id, business_type=None
     )
-    agents = await lead_fields_service.agents_with_fields(session)
-    if parsed.agent_ids is not None:
-        known = {a["id"] for a in agents}
-        if any(agent_id not in known for agent_id in parsed.agent_ids):
-            raise ProblemError.not_found("Agent")
-        agents = [a for a in agents if a["id"] in set(parsed.agent_ids)]
+    jobs = await _open_jobs(session, actor.tenant_id)
+    if parsed.jobs is not None:
+        named = {(j.job, j.job_id) for j in parsed.jobs}
+        if not named <= {(j.kind, j.id) for j in jobs}:
+            raise WriteRefusedError(
+                "one of `jobs` is not an open campaign or line of this account; take the "
+                "ids from `agent_detail`"
+            )
+        jobs = [j for j in jobs if (j.kind, j.id) in named]
+    if not jobs:
+        raise WriteRefusedError("this account has no open campaign or line to change")
     labels = ", ".join(field.label for field in fields)
     return Plan(
         object_id=str(actor.tenant_id),
         title="Start lead details again from the standard set",
         summary=(
-            f"Give {', '.join(str(a['name']) for a in agents) or 'no agent'} these lead "
-            f"details: {labels}. Each gets a new version; details already captured stay on "
-            "their leads. Live agents ask for them from their next call."
+            f"Give {_jobs_words(jobs)} these lead details: {labels}. Details already captured "
+            "stay on their leads. Each asks for them from its next call once it is put live "
+            "again."
         ),
-        current="each agent's own lead details",
+        current="each campaign's or line's own list",
         proposed=labels,
         cost=None,
-        reversal="Edit each agent's lead details afterwards; earlier versions are kept.",
-        args={
-            "agent_ids": None
-            if parsed.agent_ids is None
-            else [str(agent_id) for agent_id in parsed.agent_ids]
-        },
+        reversal="Change each campaign's or line's list back on its What it notes.",
+        args={"jobs": _refs_arg(jobs)},
     )
 
 
 async def _execute_reset(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    parsed = parse_args(_ResetArgs, args)
     done = await lead_fields_writes.replace_with_standard(
-        session, tenant_id=actor.tenant_id, agent_ids=parsed.agent_ids
+        session, tenant_id=actor.tenant_id, jobs=_refs_of(args.get("jobs"))
     )
     changed = sum(1 for w in done.written if w.changed)
     return Executed(
         applied=changed > 0,
-        detail=f"{changed} agent(s) now capture the standard lead details.",
+        detail=f"{changed} campaign(s) or line(s) now note the standard lead details.",
         audit_summary={
-            "agents": [str(w.agent_id) for w in done.written],
+            "jobs": [f"{w.kind}:{w.job_id}" for w in done.written],
             "field_keys": [f.key for f in done.fields],
         },
     )
@@ -632,11 +676,26 @@ LEAD_FIELDS_RESET: Final = ActionTool(
     where="on the Lead details screen",
     schema=action_schema(
         "lead_fields_reset",
-        "Propose replacing agents' lead details with the business's standard set (or the "
-        "kept draft). `agent_ids` null means every agent." + PROPOSES_ONLY,
+        "Propose replacing what campaigns and lines note with the business's standard set (or "
+        "the kept draft). `jobs` null means every open campaign and line; otherwise each is "
+        "`{job: campaign|line, job_id}` from `agent_detail`." + PROPOSES_ONLY,
         {
-            "agent_ids": {
-                "anyOf": [{"type": "array", "items": {"type": "string"}}, {"type": "null"}]
+            "jobs": {
+                "anyOf": [
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "job": {"type": "string", "enum": ["campaign", "line"]},
+                                "job_id": {"type": "string"},
+                            },
+                            "required": ["job", "job_id"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    {"type": "null"},
+                ]
             }
         },
     ),
@@ -648,7 +707,8 @@ LEAD_FIELDS_RESET: Final = ActionTool(
 class _AnswerArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    agent_id: UUID
+    job: _JobKind
+    job_id: UUID
     suggestion_id: Annotated[str, Field(pattern=r"^[0-9a-f]{16}$")]
     accept: bool
 
@@ -663,37 +723,38 @@ _KIND_WORDS: Final[dict[str, str]] = {
 async def _plan_answer(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
     del actor
     parsed = parse_args(_AnswerArgs, args)
-    name = await agent_name(session, parsed.agent_id)
-    state = await field_suggestions.read_state(session, agent_id=parsed.agent_id)
+    state = await field_suggestions.read_state(session, parsed.job, parsed.job_id)
     chosen = next((s for s in state.suggestions if s.id == parsed.suggestion_id), None)
     if chosen is None:
         raise WriteRefusedError(
-            "that suggestion is not waiting for this agent; read them with `agent_settings` "
-            "part `lead_fields`"
+            "that suggestion is not waiting for this campaign or line; read them with "
+            "`agent_settings` part `lead_fields`"
         )
+    noun = _job_word(parsed.job)
     what = (
         f"{_KIND_WORDS[chosen.kind]} {', '.join(chosen.values)}".strip()
         + f" ({strip_invisible(chosen.field_label)})"
     )
     return Plan(
-        object_id=str(parsed.agent_id),
+        object_id=str(parsed.job_id),
         title="Accept a suggested lead detail" if parsed.accept else "Turn down a suggestion",
         summary=(
-            f"On “{name}”: {what}. Saved as a new version; leads captured earlier keep their "
-            "details. A live agent asks for it from its next call."
+            f"On this {noun}: {what}. Leads captured earlier keep their details. It asks for "
+            "it from its next call once it is put live again."
             if parsed.accept
-            else f"Turn down “{what}” for “{name}”. It is not offered again."
+            else f"Turn down “{what}” for this {noun}. It is not offered again."
         ),
         current="suggested",
         proposed="accepted" if parsed.accept else "turned down",
         cost=None,
         reversal=(
-            "Edit the agent's lead details to change it back."
+            f"Change the {noun}'s What it notes to change it back."
             if parsed.accept
             else "A turned-down suggestion is not offered again."
         ),
         args={
-            "agent_id": str(parsed.agent_id),
+            "job": parsed.job,
+            "job_id": str(parsed.job_id),
             "suggestion_id": parsed.suggestion_id,
             "accept": parsed.accept,
         },
@@ -706,14 +767,15 @@ async def _execute_answer(
     del actor
     parsed = parse_args(_AnswerArgs, args)
     answer = field_suggestions.accept if parsed.accept else field_suggestions.dismiss
-    chosen = await answer(session, agent_id=parsed.agent_id, suggestion_id=parsed.suggestion_id)
+    chosen = await answer(session, parsed.job, parsed.job_id, suggestion_id=parsed.suggestion_id)
     return Executed(
         applied=True,
-        detail="Done: the agent's lead details are updated."
+        detail="Done: its list is updated."
         if parsed.accept
         else "Turned down; it will not be offered again.",
         # Kind, key and how many choices: the choice words are the business's wording.
         audit_summary={
+            "job": parsed.job,
             "suggestion": chosen.id,
             "kind": chosen.kind,
             "field_key": chosen.field_key,
@@ -728,15 +790,19 @@ LEAD_SUGGESTION_ANSWER: Final = ActionTool(
     tier="confirm",
     undo=None,
     permission="org:manage",
-    object_type="agent",
-    audit_action="agent.lead_suggestion_answered",
-    where="on the Lead details screen",
+    object_type="campaign",
+    audit_action="lead_suggestions.answered",
+    where="on the Lead details screen or the job's What it notes",
     schema=action_schema(
         "lead_suggestion_answer",
-        "Propose accepting or turning down one suggested change to an agent's lead details "
-        "(from `agent_settings` part `lead_fields`)." + PROPOSES_ONLY,
+        "Propose accepting or turning down one suggested change to what a campaign or line "
+        "notes (from `agent_settings` part `lead_fields`)." + PROPOSES_ONLY,
         {
-            "agent_id": _ID,
+            "job": {"type": "string", "enum": ["campaign", "line"]},
+            "job_id": {
+                "type": "string",
+                "description": "The campaign's or line's id, never invented.",
+            },
             "suggestion_id": {"type": "string"},
             "accept": {"type": "boolean"},
         },

@@ -135,11 +135,11 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.company_training_routes import router as company_training_router
     from apps.api.agents.engine_catalogue_routes import router as engine_catalogue_router
     from apps.api.agents.experiment_routes import router as experiment_router
-    from apps.api.agents.extraction_routes import admin_router as extraction_admin_router
     from apps.api.agents.extraction_routes import router as extraction_router
     from apps.api.agents.field_suggestion_routes import admin_router as lead_suggestions_admin
     from apps.api.agents.field_suggestion_routes import router as lead_suggestions_router
     from apps.api.agents.handoff_routes import router as handoff_router
+    from apps.api.agents.lead_fields_routes import admin_notes_router as job_notes_admin_router
     from apps.api.agents.lead_fields_routes import admin_router as lead_fields_admin_router
     from apps.api.agents.lead_fields_routes import router as lead_fields_router
     from apps.api.agents.llm_routes import admin_router as llm_defaults_admin_router
@@ -411,12 +411,12 @@ def _mount_routers(application: FastAPI) -> None:
     # tenant in the path like `prompt_admin_router` and collides with nothing under
     # `/v1/admin/tenants/{tenant_id}`.
     application.include_router(extraction_router)
-    application.include_router(extraction_admin_router)
     # D-889: suggested changes to an agent's lead details, beside the details themselves.
     application.include_router(lead_suggestions_router)
     application.include_router(lead_suggestions_admin)
     application.include_router(lead_fields_router)
     application.include_router(lead_fields_admin_router)
+    application.include_router(job_notes_admin_router)
     application.include_router(call_outcomes_router)
     application.include_router(call_outcomes_agent_router)
     application.include_router(business_type_router)

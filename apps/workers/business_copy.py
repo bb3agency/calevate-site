@@ -53,7 +53,6 @@ from sqlalchemy import text
 from apps.api.admin.capability_overrides import apply_overrides
 from apps.api.agents.assist_leg import google_assist_leg
 from apps.api.agents.languages import platform_default_language
-from apps.api.agents.lead_fields import agents_with_fields
 from apps.api.agents.starters import CATALOGUE, LINE_SETS, vertical_of
 from apps.api.billing.ai_quota import (
     new_assist_ref,
@@ -65,6 +64,7 @@ from apps.api.billing.models import (
     ASSIST_FEATURE_BUSINESS_COPY_ABSORBED,
 )
 from apps.api.billing.trials import trial_billing_active
+from apps.api.campaigns.notes import account_fields
 from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -653,7 +653,7 @@ async def gather_inputs(tenant_id: UUID) -> Inputs:
             or platform_default_language(tenant_id)
         )
         pinned = (await session.execute(text(_PINNED), {"limit": MAX_PINNED_FACTS})).all()
-        agents = await agents_with_fields(session)
+        noted = await account_fields(session)
         gaps = (await session.execute(text(_OPEN_GAPS), {"limit": MAX_GAPS})).all()
         recent = (
             (
@@ -668,7 +668,7 @@ async def gather_inputs(tenant_id: UUID) -> Inputs:
     lines: list[str] = []
     for question, fact in pinned:
         lines.append(f"Pinned fact: {question} {fact}" if question else f"Pinned fact: {fact}")
-    labels = sorted({f.label for agent in agents for f in agent["fields"]})
+    labels = sorted({f.label for f in noted})
     if labels:
         lines.append("Details its agents write down: " + ", ".join(labels))
     for topic, example in gaps:

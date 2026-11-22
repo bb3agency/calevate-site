@@ -2,7 +2,7 @@
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { CallOutcomesView } from "@/components/leadFields/CallOutcomesView";
-import { LeadDetailsView } from "@/components/leadFields/LeadDetailsView";
+import { LeadDetailsView, type JobLinks } from "@/components/leadFields/LeadDetailsView";
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { useCallOutcomes, useDraftCallOutcomes, useSaveCallOutcomes } from "@/lib/api/callOutcomes";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -12,21 +12,22 @@ import {
   useLeadFields,
   useNameCoreDetails,
   useReplaceLeadFields,
-  useSaveAgentLeadFields,
 } from "@/lib/api/leadFields";
-import { useLeadSuggestions } from "@/lib/api/leadSuggestions";
 import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
+import { CLIENT_JOB_NOTES } from "../../campaigns/CampaignNotes";
+
 /**
- * Lead details: what every call of this business writes down (founder decision 15).
- * Readable by everyone on the account; changed by the owner, and by an operator in a
- * view-as session.
+ * Lead details: what every call of this business writes down (founder decision 15), one card
+ * per campaign and Inbound line (D-1029). Readable by everyone on the account; changed by the
+ * owner, and by an operator in a view-as session.
  */
 export function LeadDetailsScreen() {
-  const { session } = useClientRealm();
+  const { session, href } = useClientRealm();
+  const slug = session.orgSlug;
   const fields = useLeadFields(session);
   const write = useWriteAccess(session, "org:manage", "change the lead details");
   const eg = useVerticalExamples();
@@ -34,24 +35,19 @@ export function LeadDetailsScreen() {
   const outcomes = useCallOutcomes(session);
   const saveOutcomes = useSaveCallOutcomes(session);
   const draftOutcomes = useDraftCallOutcomes(session);
-  const saveFields = useSaveAgentLeadFields(session);
   const reviewDraft = useReviewLeadFieldsDraft(session);
   const replaceFields = useReplaceLeadFields(session);
   const nameCore = useNameCoreDetails(session);
-  // The two views draw each write's busy face, saved tick and refusal beside its own
-  // button, so a failure stays inline rather than being said twice in a toast.
+  // The views draw each write's busy face, saved tick and refusal beside its own button, so a
+  // failure stays inline rather than being said twice in a toast.
   useActionFeedback(saveOutcomes, { errorDisplay: "inline" });
   useActionFeedback(draftOutcomes, { errorDisplay: "inline" });
-  useActionFeedback(saveFields, { errorDisplay: "inline" });
   useActionFeedback(reviewDraft, { errorDisplay: "inline" });
-  useActionFeedback(replaceFields, { errorDisplay: "inline" });
   useActionFeedback(nameCore, { errorDisplay: "inline" });
-  const writes = {
-    save: saveFields,
-    review: reviewDraft,
-    replace: replaceFields,
-    nameCore,
-    useSuggestions: (agentId: string) => useLeadSuggestions(session, agentId),
+  const writes = { review: reviewDraft, replace: replaceFields, nameCore };
+  const links: JobLinks = {
+    open: (kind, id) => href(kind === "campaign" ? `/c/${slug}/campaigns/${id}` : `/c/${slug}/inbound/${id}`),
+    create: (kind) => href(kind === "campaign" ? `/c/${slug}/campaigns/new` : `/c/${slug}/inbound`),
   };
 
   useCopilotSurface({
@@ -67,10 +63,15 @@ export function LeadDetailsScreen() {
             label: "Captured on every call, fixed",
             value: fields.data.core_fields.map((f) => f.label).join(", "),
           },
-          ...fields.data.agents.map((agent) => ({
-            key: `agent_${agent.id}`,
-            label: `Business details ${agent.name} writes down (names only)`,
-            value: agent.business_fields.map((f) => f.label).join(", ") || "none yet",
+          {
+            key: "starting_set",
+            label: "What a new campaign or line starts with (names only)",
+            value: fields.data.starting_fields.map((f) => f.label).join(", ") || "only the fixed details",
+          },
+          ...fields.data.jobs.map((job) => ({
+            key: `${job.kind}_${job.id}`,
+            label: `What the ${job.kind === "campaign" ? "campaign" : "line"} ${job.name} notes (names only; ${job.kind} id ${job.id})`,
+            value: job.fields.map((f) => f.label).join(", ") || "only the fixed details",
           })),
           {
             key: "draft",
@@ -109,7 +110,8 @@ export function LeadDetailsScreen() {
         canWrite={write.allowed}
         writeReason={write.reason}
         writes={writes}
-        eg={eg}
+        source={CLIENT_JOB_NOTES}
+        links={links}
       />
       <div className="max-w-3xl">
         {outcomes.isPending ? (

@@ -1,11 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClient } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LeadDetailsScreen } from "@/app/c/[slug]/settings/lead-details/LeadDetailsScreen";
 import { DRAFT_REQUEST } from "@/components/leadFields/LeadDetailsView";
 import type { CallOutcomes } from "@/lib/api/callOutcomes";
-import type { LeadFields } from "@/lib/api/leadFields";
+import type { LeadFields, LeadFieldsJob } from "@/lib/api/leadFields";
 import { businessTypeLabel } from "@/lib/businessTypes";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
@@ -13,9 +12,10 @@ import { BUSINESS_TYPES_FIXTURE } from "./businessTypesFixture";
 import { renderClientPage } from "./harness";
 
 /**
- * Lead details (founder decision 15): the fixed core shown as always-on, a business's own
- * details editable per agent, and the one AI draft a custom business gets — offered when
- * there is nothing, shown as drafting while it runs, and described as drafted once after.
+ * Lead details (founder decision 15; per campaign and line since D-1029): the fixed core shown
+ * as always-on, one What it notes card per campaign and Inbound line, the business's starting
+ * set with "Use on campaigns and lines", and the one AI draft — offered when there is nothing,
+ * kept onto the ticked jobs, and described as drafted once after.
  */
 
 const OWNER = {
@@ -38,6 +38,22 @@ const field = (key: string, label: string, required = false) => ({
   enum_values: null,
 });
 
+function line(over: Partial<LeadFieldsJob> = {}): LeadFieldsJob {
+  return {
+    kind: "line",
+    id: "l1",
+    name: "Front desk",
+    status: "live",
+    live: true,
+    agent_id: "a1",
+    agent_name: "Anjali",
+    fields: [],
+    digest: "d1",
+    untouched: true,
+    ...over,
+  };
+}
+
 function leadFields(over: Partial<LeadFields> = {}): LeadFields {
   return {
     business_type: "custom",
@@ -47,21 +63,19 @@ function leadFields(over: Partial<LeadFields> = {}): LeadFields {
     need_key: "need",
     standard_fields: [],
     has_standard_set: false,
+    starting_fields: [],
     draft: null,
     can_draft: true,
-    agents: [
-      {
-        id: "a1",
-        name: "Front desk",
-        direction: "inbound",
-        status: "live",
-        version: 1,
-        business_fields: [],
-      },
-    ],
+    jobs: [],
     ...over,
   };
 }
+
+/** The card's own read of a job's list (`GET /v1/inbound-lines/{id}/notes`). */
+function notes(fields: ReturnType<typeof field>[] = [], digest = "d1") {
+  return { agent_id: "a1", agent_name: "Anjali", fields, core_fields: [], digest, applied_now: true };
+}
+
 /** Each agent's own call outcomes (D-836): none by default, so the lead-field tests stay about fields. */
 function callOutcomes(over: Partial<CallOutcomes> = {}): CallOutcomes {
   return { max_outcomes: 8, agents: [], ...over };
@@ -89,6 +103,21 @@ const DRAFTED: NonNullable<LeadFields["draft"]> = {
   reviewed: false,
 };
 
+/** The Lead details card of line l1. */
+async function card(): Promise<HTMLElement> {
+  await screen.findByRole("button", { name: "Front desk" });
+  return document.getElementById("line-notes-l1") as HTMLElement;
+}
+
+const SHOP = {
+  business_type: "retail",
+  business_type_label: "Shop, food or produce",
+  has_standard_set: true,
+  can_draft: false,
+  standard_fields: [field("product", "Product", true)],
+  starting_fields: [field("product", "Product", true)],
+};
+
 
 describe("the business types", () => {
   it("are one list that does not start with a clinic", () => {
@@ -113,6 +142,7 @@ describe("the lead details screen", () => {
       "/v1/me": OWNER,
       "/v1/call-outcomes": callOutcomes(),
       "/v1/lead-fields": leadFields(),
+      "/v1/inbound-lines/l1/notes": notes(),
     });
     await screen.findByRole("heading", { name: "Always captured" });
     expect(screen.getByText("What they want")).toBeTruthy();
@@ -122,20 +152,28 @@ describe("the lead details screen", () => {
     expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 
-  it("asks the owner to keep the drafted details before any agent has them", async () => {
+  it("keeps the drafted details onto the ticked jobs, ticking only lists nobody chose", async () => {
+    const own = line({ id: "l2", name: "After hours", digest: "d2", fields: [field("flavour", "Flavour")], untouched: false });
     const { calls } = await renderClientPage(<LeadDetailsScreen />, {
       "/v1/me": OWNER,
       "/v1/call-outcomes": callOutcomes(),
-      "/v1/lead-fields": leadFields({ can_draft: false, draft: DRAFTED }),
-      "POST /v1/lead-fields/draft/review": { fields_kept: 1, agents_changed: 1 },
+      "/v1/lead-fields": leadFields({ can_draft: false, draft: DRAFTED, jobs: [line(), own] }),
+      "/v1/inbound-lines/l1/notes": notes(),
+      "/v1/inbound-lines/l2/notes": notes([field("flavour", "Flavour")], "d2"),
+      "POST /v1/lead-fields/draft/review": { fields_kept: 1, jobs_changed: 1, jobs_waiting: 0 },
     });
     await screen.findByRole("heading", { name: "2 drafted details" });
-    expect(screen.getAllByText(/Keep what fits\./).length).toBeGreaterThan(0);
+    const review = screen.getByRole("group", { name: "Add them to" });
+    expect((within(review).getByRole("checkbox", { name: /Front desk/ }) as HTMLInputElement).checked).toBe(true);
+    expect((within(review).getByRole("checkbox", { name: /After hours/ }) as HTMLInputElement).checked).toBe(false);
     fireEvent.click(screen.getByRole("checkbox", { name: /Kilos/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Add 1 of 2 to my agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep 1 of 2" }));
     await waitFor(() => {
-      const review = calls.find((c) => c.path === "/v1/lead-fields/draft/review");
-      expect(review && JSON.parse(review.body ?? "{}")).toEqual({ keep: ["produce"] });
+      const sent = calls.find((c) => c.path === "/v1/lead-fields/draft/review");
+      expect(sent && JSON.parse(sent.body ?? "{}")).toEqual({
+        keep: ["produce"],
+        jobs: [{ kind: "line", id: "l1", digest: "d1" }],
+      });
     });
   });
 
@@ -146,145 +184,87 @@ describe("the lead details screen", () => {
       "/v1/lead-fields": leadFields({
         can_draft: false,
         draft: { ...DRAFTED, reviewed: true, fields: [field("produce", "Produce", true)] },
-        agents: [
-          {
-            id: "a1",
-            name: "Front desk",
-            direction: "inbound",
-            status: "live",
-            version: 2,
-            business_fields: [field("produce", "Produce", true)],
-          },
-        ],
+        starting_fields: [field("produce", "Produce", true)],
+        jobs: [line({ fields: [field("produce", "Produce", true)] })],
       }),
+      "/v1/inbound-lines/l1/notes": notes([field("produce", "Produce", true)]),
     });
     await screen.findByText(/Drafted from your business details/);
     // The reason is behind its "Why?", one tap away.
     fireEvent.click(screen.getAllByRole("button", { name: /Why\?/ })[0]!);
     expect(screen.getByText(/won't be drafted again/)).toBeTruthy();
-    expect(screen.getByText("Produce")).toBeTruthy();
+    expect(screen.getAllByText("Produce").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /^Let Pip draft them/ })).toBeNull();
     expect(screen.queryByRole("heading", { name: /drafted details/ })).toBeNull();
   });
 
-  it("saves an added detail for the chosen agent through the per-agent write", async () => {
+  it("shows one card per job, named, with its state and a link to its page", async () => {
+    await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
+      "/v1/lead-fields": leadFields({ ...SHOP, jobs: [line({ fields: [field("product", "Product", true)] })] }),
+      "/v1/inbound-lines/l1/notes": notes([field("product", "Product", true)]),
+    });
+    expect(await screen.findByRole("button", { name: "Front desk" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Open line" }).getAttribute("href")).toContain("/inbound/l1");
+    expect(screen.getByText("In Anjali's voice.")).toBeTruthy();
+    // No campaign yet: one plain line and the button that makes one.
+    expect(screen.getByText("No campaigns yet")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "New campaign" }).getAttribute("href")).toContain("/campaigns/new");
+  });
+
+  it("saves an added detail through the job's own notes write, with the digest it read", async () => {
     const { calls } = await renderClientPage(<LeadDetailsScreen />, {
       "/v1/me": OWNER,
       "/v1/call-outcomes": callOutcomes(),
-      "/v1/lead-fields": leadFields({
-        business_type: "retail",
-        business_type_label: "Shop, food or produce",
-        has_standard_set: true,
-        can_draft: false,
-        standard_fields: [field("product", "Product", true)],
-        agents: [
-          {
-            id: "a1",
-            name: "Shop counter",
-            direction: "inbound",
-            status: "live",
-            version: 1,
-            business_fields: [field("product", "Product", true)],
-          },
-        ],
-      }),
-      "PUT /v1/agents/a1/extraction-schema": {
-        fields: [field("product", "Product", true), field("pack_size", "Pack size")],
-        core_fields: [],
-        version: 2,
-        changed: true,
-      },
+      "/v1/lead-fields": leadFields({ ...SHOP, jobs: [line({ fields: [field("product", "Product", true)] })] }),
+      "/v1/inbound-lines/l1/notes": notes([field("product", "Product", true)]),
+      "PUT /v1/inbound-lines/l1/notes": notes([field("product", "Product", true), field("pack_size", "Pack size")], "d2"),
     });
-    await screen.findByRole("heading", { name: "Details about your business" });
+    await within(await card()).findByText("Product");
     fireEvent.click(screen.getByRole("button", { name: "Add a detail" }));
-    fireEvent.change(screen.getAllByRole("textbox", { name: "Name" }).at(-1) as HTMLElement, {
+    fireEvent.change(screen.getAllByLabelText(/^Name/).at(-1) as HTMLElement, {
       target: { value: "Pack size" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => {
-      const put = calls.find((c) => c.method === "PUT");
-      expect(put?.path).toBe("/v1/agents/a1/extraction-schema");
-      const sent = JSON.parse(put?.body ?? "{}") as {
-        fields: { key: string }[];
-        expected_version: number;
-      };
-      expect(sent.fields.map((f) => f.key)).toEqual(["product", "pack_size"]);
-      // The version the editor loaded: a list changed since (a kept suggestion, Pip) is
-      // refused by the server instead of being overwritten by this whole-list save.
-      expect(sent.expected_version).toBe(1);
+      const put = calls.find((c) => c.method === "PUT" && c.path === "/v1/inbound-lines/l1/notes");
+      const sent = JSON.parse(put?.body ?? "{}") as { fields: { label: string }[]; expected_digest: string };
+      expect(sent.fields.map((f) => f.label)).toEqual(["Product", "Pack size"]);
+      expect(sent.expected_digest).toBe("d1");
     });
   });
 
-  /** A list written elsewhere (a kept suggestion, Pip) while this screen is open. */
-  function shopFields(version: number, fields: ReturnType<typeof field>[]) {
-    return leadFields({
-      business_type: "retail",
-      business_type_label: "Shop, food or produce",
-      has_standard_set: true,
-      can_draft: false,
-      standard_fields: [field("product", "Product", true)],
-      agents: [
-        { id: "a1", name: "Shop counter", direction: "inbound", status: "live", version, business_fields: fields },
-      ],
+  it("loads the standard set into a card as an unsaved change from Import", async () => {
+    await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
+      "/v1/lead-fields": leadFields({ ...SHOP, jobs: [line({ untouched: false, fields: [field("flavour", "Flavour")] })] }),
+      "/v1/inbound-lines/l1/notes": notes([field("flavour", "Flavour")]),
+      "/v1/inbound-lines": { lines: [] },
     });
-  }
-
-  it("shows a newer list from elsewhere when nothing has been typed", async () => {
-    let current = shopFields(1, [field("product", "Product", true)]);
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    await renderClientPage(
-      <LeadDetailsScreen />,
-      { "/v1/me": OWNER, "/v1/call-outcomes": callOutcomes(), "/v1/lead-fields": () => current },
-      "acme",
-      client,
-    );
-    await screen.findByRole("heading", { name: "Details about your business" });
-    expect(screen.queryByText("Colour")).toBeNull();
-
-    current = shopFields(2, [field("product", "Product", true), field("colour", "Colour")]);
-    await act(async () => {
-      await client.invalidateQueries();
-    });
-
-    await screen.findByText("Colour");
+    fireEvent.click(await screen.findByRole("button", { name: /^Import/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Standard shop, food or produce details/ }));
+    expect(await screen.findByText(/Save to keep it\./)).toBeTruthy();
+    expect(within(await card()).getByText("Product")).toBeTruthy();
   });
 
-  it("keeps what the owner typed when a newer list arrives, and saves against the old version", async () => {
-    let current = shopFields(1, [field("product", "Product", true)]);
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const { calls } = await renderClientPage(
-      <LeadDetailsScreen />,
-      {
-        "/v1/me": OWNER,
-        "/v1/call-outcomes": callOutcomes(),
-        "/v1/lead-fields": () => current,
-        "PUT /v1/agents/a1/extraction-schema": {
-          fields: [],
-          core_fields: [],
-          version: 3,
-          changed: true,
-        },
-      },
-      "acme",
-      client,
-    );
-    await screen.findByRole("heading", { name: "Details about your business" });
-    fireEvent.click(screen.getByRole("button", { name: "Add a detail" }));
-    fireEvent.change(screen.getAllByRole("textbox", { name: "Name" }).at(-1) as HTMLElement, {
-      target: { value: "Pack size" },
+  it("puts the starting set onto the ticked jobs after a confirm", async () => {
+    const { calls } = await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
+      "/v1/lead-fields": leadFields({ ...SHOP, jobs: [line()] }),
+      "/v1/inbound-lines/l1/notes": notes(),
+      "POST /v1/lead-fields/replace": { jobs_changed: 1, jobs_unchanged: 0, jobs_waiting: 0 },
     });
-
-    current = shopFields(2, [field("product", "Product", true), field("colour", "Colour")]);
-    await act(async () => {
-      await client.invalidateQueries();
-    });
-
-    expect(screen.getByDisplayValue("Pack size")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Save details" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Use on campaigns and lines" }));
+    fireEvent.click(screen.getByRole("button", { name: "Replace on 1" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Replace" }));
     await waitFor(() => {
-      const put = calls.find((c) => c.method === "PUT");
-      expect(JSON.parse(put?.body ?? "{}").expected_version).toBe(1);
+      const sent = calls.find((c) => c.path === "/v1/lead-fields/replace");
+      expect(sent && JSON.parse(sent.body ?? "{}")).toEqual({ jobs: [{ kind: "line", id: "l1", digest: "d1" }] });
     });
+    expect(await screen.findByText("1 campaign or line updated.")).toBeTruthy();
   });
 });
 
@@ -412,7 +392,7 @@ describe("write them for me (D-841)", () => {
   });
 });
 
-describe("suggested changes to an agent's lead details (D-889)", () => {
+describe("suggested changes to what a job notes (D-889, D-1029)", () => {
   const BHK = {
     key: "bhk_size",
     label: "BHK",
@@ -421,13 +401,8 @@ describe("suggested changes to an agent's lead details (D-889)", () => {
     required: false,
     enum_values: ["1BHK", "2BHK", "3BHK", "4BHK", "5BHK+"],
   };
-  const withBhk = () =>
-    leadFields({
-      can_draft: false,
-      agents: [
-        { id: "a1", name: "Flats desk", direction: "inbound", status: "live", version: 3, business_fields: [BHK] },
-      ],
-    });
+  const withBhk = () => leadFields({ can_draft: false, jobs: [line({ name: "Flats desk", fields: [BHK] })] });
+  const BHK_NOTES = { ...notes(), fields: [BHK] };
   const ADD = {
     id: "0123456789abcdef",
     kind: "add_choices" as const,
@@ -456,14 +431,16 @@ describe("suggested changes to an agent's lead details (D-889)", () => {
     checked_at: "2026-10-25T12:00:00Z",
     ...over,
   });
+  const BASE = "/v1/inbound-lines/l1/lead-suggestions";
 
-  it("shows each change with why, and accepting one asks the server and re-reads the details", async () => {
+  it("shows each change with why, and accepting one asks the server and re-reads the list", async () => {
     const { calls } = await renderClientPage(<LeadDetailsScreen />, {
       "/v1/me": OWNER,
       "/v1/call-outcomes": callOutcomes(),
       "/v1/lead-fields": withBhk(),
-      "/v1/agents/a1/lead-suggestions": suggestions(),
-      "POST /v1/agents/a1/lead-suggestions/0123456789abcdef/accept": {
+      "/v1/inbound-lines/l1/notes": BHK_NOTES,
+      [BASE]: suggestions(),
+      [`POST ${BASE}/0123456789abcdef/accept`]: {
         answered: ADD,
         remaining: suggestions({ suggestions: [NEW] }),
       },
@@ -480,14 +457,12 @@ describe("suggested changes to an agent's lead details (D-889)", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Why?" })[0]);
     expect(screen.getByText("Three callers asked for a six bedroom flat.")).toBeTruthy();
 
-    const before = calls.filter((c) => c.path === "/v1/lead-fields").length;
+    const before = calls.filter((c) => c.path === "/v1/inbound-lines/l1/notes").length;
     fireEvent.click(screen.getAllByRole("button", { name: "Accept" })[0]);
     await waitFor(() => expect(screen.queryByText("Add to BHK")).toBeNull());
-    expect(
-      calls.some((c) => c.method === "POST" && c.path === "/v1/agents/a1/lead-suggestions/0123456789abcdef/accept"),
-    ).toBe(true);
+    expect(calls.some((c) => c.method === "POST" && c.path === `${BASE}/0123456789abcdef/accept`)).toBe(true);
     await waitFor(() => {
-      expect(calls.filter((c) => c.path === "/v1/lead-fields").length).toBeGreaterThan(before);
+      expect(calls.filter((c) => c.path === "/v1/inbound-lines/l1/notes").length).toBeGreaterThan(before);
     });
   });
 
@@ -496,8 +471,9 @@ describe("suggested changes to an agent's lead details (D-889)", () => {
       "/v1/me": OWNER,
       "/v1/call-outcomes": callOutcomes(),
       "/v1/lead-fields": withBhk(),
-      "/v1/agents/a1/lead-suggestions": suggestions(),
-      "POST /v1/agents/a1/lead-suggestions/fedcba9876543210/dismiss": {
+      "/v1/inbound-lines/l1/notes": BHK_NOTES,
+      [BASE]: suggestions(),
+      [`POST ${BASE}/fedcba9876543210/dismiss`]: {
         answered: NEW,
         remaining: suggestions({ suggestions: [ADD] }),
       },
@@ -505,9 +481,7 @@ describe("suggested changes to an agent's lead details (D-889)", () => {
     await screen.findByRole("heading", { name: "Suggested changes (2)" });
     fireEvent.click(screen.getByRole("button", { name: "Not now: New detail: Facing" }));
     await waitFor(() => expect(screen.queryByText("New detail: Facing")).toBeNull());
-    expect(
-      calls.some((c) => c.method === "POST" && c.path === "/v1/agents/a1/lead-suggestions/fedcba9876543210/dismiss"),
-    ).toBe(true);
+    expect(calls.some((c) => c.method === "POST" && c.path === `${BASE}/fedcba9876543210/dismiss`)).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: /Add a detail/ }));
     expect(screen.getByText("Save or undo the changes below to accept one.")).toBeTruthy();
@@ -519,13 +493,14 @@ describe("suggested changes to an agent's lead details (D-889)", () => {
       "/v1/me": OWNER,
       "/v1/call-outcomes": callOutcomes(),
       "/v1/lead-fields": withBhk(),
-      "/v1/agents/a1/lead-suggestions": suggestions({ state: "skipped", suggestions: [] }),
-      "POST /v1/agents/a1/lead-suggestions/check": suggestions({ state: "queued", suggestions: [] }),
+      "/v1/inbound-lines/l1/notes": BHK_NOTES,
+      [BASE]: suggestions({ state: "skipped", suggestions: [] }),
+      [`POST ${BASE}/check`]: suggestions({ state: "queued", suggestions: [] }),
     });
     await screen.findByText(/this month's AI allowance is used up/);
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
     await screen.findByText("Checking the script and recent calls…");
-    expect(calls.some((c) => c.method === "POST" && c.path === "/v1/agents/a1/lead-suggestions/check")).toBe(true);
+    expect(calls.some((c) => c.method === "POST" && c.path === `${BASE}/check`)).toBe(true);
     expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
   });
 });

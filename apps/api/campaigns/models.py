@@ -163,10 +163,21 @@ class Campaign(PKMixin, TimestampMixin, Base):
     #: When that engine agent was last published; an unused test holder is retired after it.
     engine_agent_at: Mapped[datetime | None]
     #: What this campaign's calls note ("What it notes"), in the extraction-schema field
-    #: shape; empty means the agent's own fields are noted.
+    #: shape; empty notes only the core (D-1028).
     extraction_fields: Mapped[list[dict[str, object]]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
+    #: Suggested changes to that list (D-889, D-1029), `agents/field_suggestions.Suggestion`
+    #: dicts waiting for the owner; NULL until a pass has run. The pass's state, inputs hash
+    #: and time, and the fingerprints the owner turned down, sit beside it (`agents/
+    #: agent_pass`). The CHECKs on their shapes are migration f3b8d2a6c1e4's.
+    field_suggestions: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB)
+    field_suggestions_state: Mapped[str | None] = mapped_column(Text)
+    field_suggestions_inputs: Mapped[str | None] = mapped_column(Text)
+    field_suggestions_dismissed: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    field_suggestions_at: Mapped[datetime | None]
     #: The calls its Test call placed, newest last (migration b3d8e1f6a2c9). Kept here rather
     #: than in `calls.campaign_id`, which would count them in the campaign's results.
     test_call_ids: Mapped[list[UUID]] = mapped_column(

@@ -12,8 +12,8 @@ operator wizard pre-selected `clinic`, so a chilli shop captured "Preferred doct
   (`apps/workers/business_type.py`); an operator confirms it or picks another
   (`confirm`). A suggestion alone changes nothing.
 
-Confirming queues `APPLY_JOB`, which writes the type's lead details onto agents that have
-none, swaps an untouched ready-made starter for the new type's, recompiles each agent's
+Confirming queues `APPLY_JOB`, which asks for the account's AI draft of lead details,
+swaps an untouched ready-made starter for the new type's, recompiles each agent's
 script so "what to collect" matches, and republishes live agents through the one publish
 path.
 """
@@ -36,11 +36,6 @@ from apps.api.reliability.service import enqueue_outbox
 
 #: The worker job (`apps/workers/business_type.apply_business_type`).
 APPLY_JOB: Final = "apply_business_type"
-
-#: The keys the clinic type seeds. An agent whose business fields are a subset of these on
-#: an account that is not a clinic is carrying the old default, not a choice.
-CLINIC: Final = "clinic"
-CLINIC_DEFAULT_KEYS: Final = frozenset(str(f["key"]) for f in verticals.of(CLINIC).fields)
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,14 +81,12 @@ async def read_state(session: AsyncSession, *, tenant_id: UUID) -> BusinessTypeS
     )
 
 
-async def queue_apply(
-    session: AsyncSession, *, tenant_id: UUID, replace_clinic_default: bool = False
-) -> None:
+async def queue_apply(session: AsyncSession, *, tenant_id: UUID) -> None:
     """Bring the account's agents to its business type, after the caller's commit."""
     await enqueue_outbox(
         session,
         job=APPLY_JOB,
-        payload={"tenant_id": str(tenant_id), "replace_clinic_default": replace_clinic_default},
+        payload={"tenant_id": str(tenant_id)},
     )
 
 
@@ -175,8 +168,6 @@ async def record_suggestion(
 
 __all__ = [
     "APPLY_JOB",
-    "CLINIC",
-    "CLINIC_DEFAULT_KEYS",
     "BusinessTypeState",
     "Unconfirmed",
     "confirm",

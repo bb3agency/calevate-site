@@ -2005,30 +2005,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set the lead details new jobs in one client agent's voice start with
-         * @description The starting list of details a new campaign or inbound line in this agent's voice copies (D-1028); no call reads it. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
-         *
-         *     Saving creates a new schema version; campaigns and lines already made keep their own lists. A variable whose key is a built-in lead column, or a duplicate key, is refused.
-         *
-         *     At most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.
-         */
-        put: operations["admin_set_extraction_schema_v1_admin_tenants__tenant_id__agents__agent_id__extraction_schema_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge": {
         parameters: {
             query?: never;
@@ -2063,77 +2039,6 @@ export interface paths {
          * @description Deletes, on the voice platform, a document this agent holds that no record of ours names. 409 for one of the client's own items (removed from their page instead); 404 when the agent does not hold it.
          */
         post: operations["admin_remove_unrecorded_document_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_remove_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Suggested changes to one client agent's lead details
-         * @description Suggestions come from the business's details, the agent's script, its quick facts and what recent callers asked for that no choice fitted. Nothing changes until one is accepted; a dismissed one is not offered again.
-         */
-        get: operations["admin_get_lead_suggestions_v1_admin_tenants__tenant_id__agents__agent_id__lead_suggestions_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions/check": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Look again for changes to one client agent's lead details */
-        post: operations["admin_check_lead_suggestions_v1_admin_tenants__tenant_id__agents__agent_id__lead_suggestions_check_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions/{suggestion_id}/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Make one suggested change to a client agent's lead details */
-        post: operations["admin_accept_lead_suggestion_v1_admin_tenants__tenant_id__agents__agent_id__lead_suggestions__suggestion_id__accept_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions/{suggestion_id}/dismiss": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Turn down one suggested change to a client agent's lead details */
-        post: operations["admin_dismiss_lead_suggestion_v1_admin_tenants__tenant_id__agents__agent_id__lead_suggestions__suggestion_id__dismiss_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2522,6 +2427,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggested changes to what one client campaign notes
+         * @description Suggestions come from the business's details, the job's script, the quick facts and what the job's recent callers asked for that no choice fitted. Nothing changes until one is accepted; a dismissed one is not offered again.
+         */
+        get: operations["admin_get_campaign_lead_suggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Look again for changes to what one client campaign notes */
+        post: operations["admin_check_campaign_lead_suggestions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions/{suggestion_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make one suggested change to what a client campaign notes */
+        post: operations["admin_accept_campaign_lead_suggestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions/{suggestion_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn down one suggested change to what a client campaign notes */
+        post: operations["admin_dismiss_campaign_lead_suggestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What one client campaign's calls note */
+        get: operations["admin_get_campaign_notes"];
+        /**
+         * Set what one client campaign's calls note
+         * @description The whole list under a compare-and-set on the digest the editor read, held to the extraction rules. A job that holds calls is put live again so its next call asks for the new details.
+         */
+        put: operations["admin_put_campaign_notes"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
         parameters: {
             query?: never;
@@ -2902,6 +2899,98 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggested changes to what one client line notes
+         * @description Suggestions come from the business's details, the job's script, the quick facts and what the job's recent callers asked for that no choice fitted. Nothing changes until one is accepted; a dismissed one is not offered again.
+         */
+        get: operations["admin_get_line_lead_suggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Look again for changes to what one client line notes */
+        post: operations["admin_check_line_lead_suggestions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions/{suggestion_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make one suggested change to what a client line notes */
+        post: operations["admin_accept_line_lead_suggestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions/{suggestion_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn down one suggested change to what a client line notes */
+        post: operations["admin_dismiss_line_lead_suggestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What one client line's calls note */
+        get: operations["admin_get_line_notes"];
+        /**
+         * Set what one client line's calls note
+         * @description The whole list under a compare-and-set on the digest the editor read, held to the extraction rules. A job that holds calls is put live again so its next call asks for the new details.
+         */
+        put: operations["admin_put_line_notes"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/invitations": {
         parameters: {
             query?: never;
@@ -3208,8 +3297,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Replace one client's agents' lead details with a standard set
-         * @description Each agent named (every agent when none is named) gets the set as a NEW version of its lead details; values already captured stay on their leads and calls, readable under their old names.
+         * Replace one client's campaigns' and lines' lead details with a standard set
+         * @description Each campaign and line named gets the set as its whole list, under a compare-and-set on the digest the screen showed (409 when one changed meanwhile, and then none is written). Values already captured stay on their leads and calls. A job that holds calls is put live again so its next call asks for the new details.
          */
         post: operations["admin_post_replace_v1_admin_tenants__tenant_id__lead_fields_replace_post"];
         delete?: never;
@@ -4370,23 +4459,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The lead details a new campaign or line in this voice starts with
-         * @description The starting list of details a new campaign or inbound line in this agent's voice copies (D-1028); no call reads it. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
-         *
-         *     Saving creates a new schema version; campaigns and lines already made keep their own lists. A variable whose key is a built-in lead column, or a duplicate key, is refused.
-         *
-         *     At most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.
+         * The agent's own list of lead details, read-only
+         * @description The agent's own list of details, kept read-only until it is dropped (D-1028, D-1029): no call reads it and no new campaign or line copies it. What a call notes is its campaign's or line's list (`/v1/campaigns/{id}/notes`, `/v1/inbound-lines/{id}/notes`), and a new one starts from the business's starting set (`/v1/lead-fields`).
          */
         get: operations["get_extraction_schema_v1_agents__agent_id__extraction_schema_get"];
-        /**
-         * Set the lead details a new campaign or line in this voice starts with
-         * @description The starting list of details a new campaign or inbound line in this agent's voice copies (D-1028); no call reads it. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
-         *
-         *     Saving creates a new schema version; campaigns and lines already made keep their own lists. A variable whose key is a built-in lead column, or a duplicate key, is refused.
-         *
-         *     At most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.
-         */
-        put: operations["set_extraction_schema_v1_agents__agent_id__extraction_schema_put"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -4444,83 +4521,6 @@ export interface paths {
         get: operations["known_facts_v1_agents__agent_id__known_facts_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/lead-suggestions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Suggested changes to this agent's lead details
-         * @description Suggestions come from the business's details, the agent's script, its quick facts and what recent callers asked for that no choice fitted. Nothing changes until one is accepted; a dismissed one is not offered again.
-         */
-        get: operations["get_lead_suggestions_v1_agents__agent_id__lead_suggestions_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/lead-suggestions/check": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Look again for changes to this agent's lead details
-         * @description Queues a fresh look. On a paying account it uses the monthly AI allowance; on a trial it is free.
-         */
-        post: operations["check_lead_suggestions_v1_agents__agent_id__lead_suggestions_check_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Make one suggested change to this agent's lead details
-         * @description Saved as a new version of the agent's lead details, exactly as the editor saves; leads captured earlier keep their details. 409 when the details changed since the suggestion was made.
-         */
-        post: operations["accept_lead_suggestion_v1_agents__agent_id__lead_suggestions__suggestion_id__accept_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/dismiss": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Turn down one suggested change; it is not offered again */
-        post: operations["dismiss_lead_suggestion_v1_agents__agent_id__lead_suggestions__suggestion_id__dismiss_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7289,6 +7289,83 @@ export interface paths {
         get: operations["launch_check_v1_campaigns__campaign_id__launch_check_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/lead-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggested changes to what this campaign notes
+         * @description Suggestions come from the business's details, the job's script, the quick facts and what the job's recent callers asked for that no choice fitted. Nothing changes until one is accepted; a dismissed one is not offered again.
+         */
+        get: operations["get_campaign_lead_suggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/lead-suggestions/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Look again for changes to what this campaign notes
+         * @description Queues a fresh look. On a paying account it uses the monthly AI allowance; on a trial it is free.
+         */
+        post: operations["check_campaign_lead_suggestions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/lead-suggestions/{suggestion_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make one suggested change to what this campaign notes
+         * @description Saved as the job's list, exactly as its What it notes Save does; leads captured earlier keep their details. 409 when the list changed since the suggestion was made.
+         */
+        post: operations["accept_campaign_lead_suggestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/lead-suggestions/{suggestion_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn down one suggested change; it is not offered again */
+        post: operations["dismiss_campaign_lead_suggestion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10311,6 +10388,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/inbound-lines/{line_id}/lead-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggested changes to what this line notes
+         * @description Suggestions come from the business's details, the job's script, the quick facts and what the job's recent callers asked for that no choice fitted. Nothing changes until one is accepted; a dismissed one is not offered again.
+         */
+        get: operations["get_line_lead_suggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/lead-suggestions/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Look again for changes to what this line notes
+         * @description Queues a fresh look. On a paying account it uses the monthly AI allowance; on a trial it is free.
+         */
+        post: operations["check_line_lead_suggestions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/lead-suggestions/{suggestion_id}/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make one suggested change to what this line notes
+         * @description Saved as the job's list, exactly as its What it notes Save does; leads captured earlier keep their details. 409 when the list changed since the suggestion was made.
+         */
+        post: operations["accept_line_lead_suggestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/lead-suggestions/{suggestion_id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn down one suggested change; it is not offered again */
+        post: operations["dismiss_line_lead_suggestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/inbound-lines/{line_id}/notes": {
         parameters: {
             query?: never;
@@ -11468,7 +11622,7 @@ export interface paths {
         put?: never;
         /**
          * Keep some or none of the drafted lead details (D-821)
-         * @description The kept fields go onto every agent that has no business details of its own yet and become what a new agent starts with; the rest are dropped. Once: a reviewed draft is refused (409). Asking for the draft is Pip's (`lead_fields_draft`).
+         * @description The kept fields become what a new campaign or line starts with, and are written onto each campaign and line named in `jobs`; the rest are dropped. Once: a reviewed draft is refused (409). Asking for the draft is Pip's (`lead_fields_draft`).
          */
         post: operations["post_draft_review_v1_lead_fields_draft_review_post"];
         delete?: never;
@@ -11487,8 +11641,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Start agents again from this business type's standard lead details
-         * @description Each agent named (every agent when none is named) gets the set as a NEW version of its lead details; values already captured stay on their leads and calls, readable under their old names.
+         * Start campaigns and lines again from this business's standard lead details
+         * @description Each campaign and line named gets the set as its whole list, under a compare-and-set on the digest the screen showed (409 when one changed meanwhile, and then none is written). Values already captured stay on their leads and calls. A job that holds calls is put live again so its next call asks for the new details.
          */
         post: operations["post_replace_v1_lead_fields_replace_post"];
         delete?: never;
@@ -15669,10 +15823,10 @@ export interface components {
         };
         /** AdminReplaceIn */
         AdminReplaceIn: {
-            /** Agent Ids */
-            agent_ids?: string[] | null;
             /** Business Type */
             business_type?: string | null;
+            /** Jobs */
+            jobs: components["schemas"]["JobRefIn"][];
         };
         /** AdminWhatsAppAccountOut */
         AdminWhatsAppAccountOut: {
@@ -24697,25 +24851,6 @@ export interface components {
             type: "text" | "number" | "bool" | "enum" | "date";
         };
         /**
-         * ExtractionSchemaIn
-         * @description The whole new ordered field list. `extra="forbid"` on every field
-         *     (`ExtractionField`), so an unknown key on a variable is a 422 rather than a silently
-         *     dropped edit.
-         *
-         *     `max_length` HERE and not on `ExtractionField`/`ExtractionSchemaSpec`, deliberately.
-         *     Those two models also parse what is ALREADY STORED (`_read_current`, `crm.service.
-         *     lead_columns`, `crm/lead_chunks._fields_for`), and a ceiling added to a read model is a
-         *     ceiling that turns every row written before it existed into a 500 on the client's own
-         *     Leads screen. A bound belongs on the write, where the person who can act on it is
-         *     holding the form.
-         */
-        ExtractionSchemaIn: {
-            /** Expected Version */
-            expected_version?: number | null;
-            /** Fields */
-            fields: components["schemas"]["ExtractionField"][];
-        };
-        /**
          * ExtractionSchemaOut
          * @description The stored list after the write, and the version it became.
          *
@@ -27193,6 +27328,24 @@ export interface components {
             fields: components["schemas"]["ExtractionField"][];
         };
         /**
+         * JobRefIn
+         * @description A campaign or line to write, with the `digest` of the list the screen showed for it.
+         */
+        JobRefIn: {
+            /** Digest */
+            digest: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "campaign" | "line";
+        };
+        /**
          * KbDriftOut
          * @description How far the KNOWLEDGE on the voice platform has drifted from what we approved
          *     (D-158) — the same measurement as `EngineDriftOut`, on the other object.
@@ -27914,24 +28067,6 @@ export interface components {
             /** Omitted Field Count */
             omitted_field_count: number;
         };
-        /** LeadFieldsAgentOut */
-        LeadFieldsAgentOut: {
-            /** Business Fields */
-            business_fields: components["schemas"]["ExtractionField"][];
-            /** Direction */
-            direction: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Name */
-            name: string;
-            /** Status */
-            status: string;
-            /** Version */
-            version: number;
-        };
         /**
          * LeadFieldsDraftOut
          * @description The one AI draft of a custom business's fields.
@@ -27956,10 +28091,43 @@ export interface components {
              */
             status: "queued" | "running" | "done" | "failed";
         };
+        /**
+         * LeadFieldsJobOut
+         * @description One open campaign or inbound line and what its calls note.
+         */
+        LeadFieldsJobOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string;
+            /** Digest */
+            digest: string;
+            /** Fields */
+            fields: components["schemas"]["ExtractionField"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "campaign" | "line";
+            /** Live */
+            live: boolean;
+            /** Name */
+            name: string;
+            /** Status */
+            status: string;
+            /** Untouched */
+            untouched: boolean;
+        };
         /** LeadFieldsOut */
         LeadFieldsOut: {
-            /** Agents */
-            agents: components["schemas"]["LeadFieldsAgentOut"][];
             /** Business Type */
             business_type: string | null;
             /** Business Type Label */
@@ -27975,25 +28143,34 @@ export interface components {
             draft: components["schemas"]["LeadFieldsDraftOut"] | null;
             /** Has Standard Set */
             has_standard_set: boolean;
+            /** Jobs */
+            jobs: components["schemas"]["LeadFieldsJobOut"][];
             /** Need Key */
             need_key: string;
             /** Standard Fields */
             standard_fields: components["schemas"]["ExtractionField"][];
+            /** Starting Fields */
+            starting_fields: components["schemas"]["ExtractionField"][];
         };
         /**
          * LeadFieldsReviewIn
-         * @description The drafted fields the owner keeps, by key. Empty discards the draft.
+         * @description The drafted fields the owner keeps, by key, and the campaigns and lines that take them.
+         *     An empty `keep` discards the draft and writes nothing.
          */
         LeadFieldsReviewIn: {
+            /** Jobs */
+            jobs?: components["schemas"]["JobRefIn"][];
             /** Keep */
             keep: string[];
         };
         /** LeadFieldsReviewOut */
         LeadFieldsReviewOut: {
-            /** Agents Changed */
-            agents_changed: number;
             /** Fields Kept */
             fields_kept: number;
+            /** Jobs Changed */
+            jobs_changed: number;
+            /** Jobs Waiting */
+            jobs_waiting: number;
         };
         /**
          * LeadLensIn
@@ -33003,18 +33180,20 @@ export interface components {
         };
         /**
          * ReplaceIn
-         * @description Which agents get a fresh set of business fields. Omit `agent_ids` for all of them.
+         * @description Which campaigns and lines get the standard set (or the kept draft).
          */
         ReplaceIn: {
-            /** Agent Ids */
-            agent_ids?: string[] | null;
+            /** Jobs */
+            jobs: components["schemas"]["JobRefIn"][];
         };
         /** ReplaceOut */
         ReplaceOut: {
-            /** Agents Changed */
-            agents_changed: number;
-            /** Agents Unchanged */
-            agents_unchanged: number;
+            /** Jobs Changed */
+            jobs_changed: number;
+            /** Jobs Unchanged */
+            jobs_unchanged: number;
+            /** Jobs Waiting */
+            jobs_waiting: number;
         };
         /** ReplayOut */
         ReplayOut: {
@@ -43515,42 +43694,6 @@ export interface operations {
             };
         };
     };
-    admin_set_extraction_schema_v1_admin_tenants__tenant_id__agents__agent_id__extraction_schema_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ExtractionSchemaIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExtractionSchemaOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     admin_agent_knowledge_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_get: {
         parameters: {
             query?: never;
@@ -43605,136 +43748,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    admin_get_lead_suggestions_v1_admin_tenants__tenant_id__agents__agent_id__lead_suggestions_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeadSuggestionsOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    admin_check_lead_suggestions_v1_admin_tenants__tenant_id__agents__agent_id__lead_suggestions_check_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeadSuggestionsOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    admin_accept_lead_suggestion_v1_admin_tenants__tenant_id__agents__agent_id__lead_suggestions__suggestion_id__accept_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-                agent_id: string;
-                suggestion_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    admin_dismiss_lead_suggestion_v1_admin_tenants__tenant_id__agents__agent_id__lead_suggestions__suggestion_id__dismiss_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                tenant_id: string;
-                agent_id: string;
-                suggestion_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
-                };
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -44527,6 +44540,204 @@ export interface operations {
             };
         };
     };
+    admin_get_campaign_lead_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_check_campaign_lead_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_accept_campaign_lead_suggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                campaign_id: string;
+                suggestion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_dismiss_campaign_lead_suggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                campaign_id: string;
+                suggestion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_get_campaign_notes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobNotesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_put_campaign_notes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobNotesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobNotesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     record_preference_scrub_v1_admin_tenants__tenant_id__campaigns__campaign_id__preference_scrub_post: {
         parameters: {
             query?: never;
@@ -45247,6 +45458,204 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeatureFlagChangeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_get_line_lead_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_check_line_lead_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_accept_line_lead_suggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                line_id: string;
+                suggestion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_dismiss_line_lead_suggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                line_id: string;
+                suggestion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_get_line_notes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobNotesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_put_line_notes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobNotesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobNotesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -47922,41 +48331,6 @@ export interface operations {
             };
         };
     };
-    set_extraction_schema_v1_agents__agent_id__extraction_schema_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ExtractionSchemaIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExtractionSchemaOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     get_handoff_v1_agents__agent_id__handoff_get: {
         parameters: {
             query?: never;
@@ -48072,132 +48446,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KnownFactsOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    get_lead_suggestions_v1_agents__agent_id__lead_suggestions_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeadSuggestionsOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    check_lead_suggestions_v1_agents__agent_id__lead_suggestions_check_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeadSuggestionsOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    accept_lead_suggestion_v1_agents__agent_id__lead_suggestions__suggestion_id__accept_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-                suggestion_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    dismiss_lead_suggestion_v1_agents__agent_id__lead_suggestions__suggestion_id__dismiss_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-                suggestion_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -53258,6 +53506,132 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LaunchCheckOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_campaign_lead_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    check_campaign_lead_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    accept_campaign_lead_suggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                suggestion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    dismiss_campaign_lead_suggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                suggestion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -58837,6 +59211,132 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LineCallsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_line_lead_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    check_line_lead_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    accept_line_lead_suggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+                suggestion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    dismiss_line_lead_suggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+                suggestion_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

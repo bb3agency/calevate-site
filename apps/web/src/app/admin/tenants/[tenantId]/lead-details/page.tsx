@@ -1,12 +1,15 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useMemo, useState } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
+import type { JobNotesSource } from "@/app/c/[slug]/campaigns/CampaignNotes";
+import { campaignStatusWord } from "@/app/c/[slug]/campaigns/campaignStatus";
 import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
+import { ApplyToJobs, appliedSentence, useJobPicks } from "@/components/leadFields/ApplyToJobs";
 import { LeadDetailsView } from "@/components/leadFields/LeadDetailsView";
 import { FIELD, FIELD_LABEL, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import {
@@ -18,24 +21,27 @@ import {
 } from "@/lib/businessTypes";
 import {
   useAdminDraftLeadFields,
+  useAdminFetchJobNotes,
+  useAdminJobNotes,
   useAdminLeadFields,
   useAdminNameCoreDetails,
   useAdminReplaceLeadFields,
-  useAdminSaveAgentLeadFields,
+  useAdminSaveJobNotes,
   type LeadFields,
+  type LeadFieldsJob,
 } from "@/lib/api/leadFields";
+import { useAdminLeadSuggestions } from "@/lib/api/leadSuggestions";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
-import { useAdminLeadSuggestions } from "@/lib/api/leadSuggestions";
-import { examplesFor } from "@/lib/verticalExamples";
 import { resetIfSettled } from "@/app/admin/resetIfSettled";
+import { examplesFor } from "@/lib/verticalExamples";
 
 /**
- * One client's lead details, for an operator (founder decision 15): the same screen the
- * client sees, plus the one operator tool — replacing every agent's business details with
- * a business type's standard set, which is how an account set up on the wrong type (a shop
- * seated on clinic details) is moved. Replacing is a new version per agent; answers
- * already captured stay readable under their old names.
+ * One client's lead details, for an operator (founder decision 15; per campaign and line since
+ * D-1029): the same screen the client sees, editing each job's list through the operator's
+ * twins of the job notes routes, plus the one operator tool, a business type's standard set
+ * onto the ticked campaigns and lines, which is how an account set up on the wrong type is
+ * moved. Answers already captured stay readable under their old names.
  */
 export default function TenantLeadDetailsPage({
   params,
@@ -46,22 +52,43 @@ export default function TenantLeadDetailsPage({
   const fields = useAdminLeadFields(tenantId);
   const businessTypes = useBusinessTypes();
   const write = useAdminAccess("admin:tenants", "change a client's lead details");
-  const save = useAdminSaveAgentLeadFields(tenantId);
   const draft = useAdminDraftLeadFields(tenantId);
   const replace = useAdminReplaceLeadFields(tenantId);
   const nameCore = useAdminNameCoreDetails(tenantId);
   useActionFeedback(nameCore, { errorDisplay: "inline" });
   // Inline: `LeadDetailsView` draws each write's refusal beside its own button.
-  useActionFeedback(save, { errorDisplay: "inline" });
   useActionFeedback(draft, { errorDisplay: "inline" });
   const replaceFeedback = useActionFeedback(replace, { errorDisplay: "inline" });
-  const writes = {
-    save,
-    draft,
-    replace,
-    nameCore,
-    useSuggestions: (agentId: string) => useAdminLeadSuggestions(tenantId, agentId),
-  };
+  const jobs = fields.data?.jobs;
+  // The type's own example rows: an operator has no client copy to read.
+  const examples = useMemo(
+    () => examplesFor(businessTypeOption(businessTypes.data, fields.data?.business_type ?? null)),
+    [businessTypes.data, fields.data?.business_type],
+  );
+  const source = useMemo((): JobNotesSource => {
+    const known = jobs ?? [];
+    return {
+      audience: "operator",
+      useNotes: (kind, jobId) => useAdminJobNotes(tenantId, kind, jobId),
+      useSave: (kind, jobId) => useAdminSaveJobNotes(tenantId, kind, jobId),
+      useFetch: (kind) => useAdminFetchJobNotes(tenantId, kind),
+      // The list this screen already read: no second request for the import menu.
+      useOthers: (kind, jobId) => ({
+        loading: false,
+        failed: false,
+        items: known
+          .filter((job) => job.kind === kind && job.id !== jobId)
+          .map((job) => ({
+            id: job.id,
+            label: job.name,
+            hint: job.kind === "campaign" ? campaignStatusWord(job.status) : job.live ? "Live" : "Draft",
+          })),
+      }),
+      useSuggestions: (kind, jobId) => useAdminLeadSuggestions(tenantId, kind, jobId),
+      useAlertsHref: () => null,
+      useExamples: () => examples,
+    };
+  }, [tenantId, jobs, examples]);
 
   useCopilotSurface({
     route: "/admin/tenants/{id}/lead-details",
@@ -73,12 +100,17 @@ export default function TenantLeadDetailsPage({
           { key: "tenant_id", label: "Tenant id", value: tenantId },
           { key: "business_type", label: "Business type", value: fields.data.business_type_label },
           {
-            key: "agents",
-            label: "Business details per agent (names only)",
+            key: "starting_set",
+            label: "What a new campaign or line starts with (names only)",
+            value: fields.data.starting_fields.map((f) => f.label).join(", ") || "only the core",
+          },
+          {
+            key: "jobs",
+            label: "What each campaign and line notes (names only)",
             value:
-              fields.data.agents
-                .map((a) => `${a.name}: ${a.business_fields.map((f) => f.label).join(", ") || "none"}`)
-                .join("; ") || "no agents",
+              fields.data.jobs
+                .map((job) => `${job.name}: ${job.fields.map((f) => f.label).join(", ") || "only the core"}`)
+                .join("; ") || "no campaigns or lines",
           },
           { key: "draft", label: "AI draft", value: fields.data.draft?.status ?? "none" },
         ]
@@ -90,7 +122,7 @@ export default function TenantLeadDetailsPage({
     <div className="space-y-10">
       <PageHeader
         title="Lead details"
-        description="What every call of this client writes down. Every change is a new version; nothing already captured is rewritten."
+        description="What every call of this client writes down, one list per campaign and line. Nothing already captured is rewritten."
       />
       {fields.isPending ? (
         <Skeleton rows={8} label="Loading the lead details" />
@@ -103,11 +135,13 @@ export default function TenantLeadDetailsPage({
             audience="operator"
             canWrite={write.allowed}
             writeReason={write.reason}
-            writes={writes}
-            eg={examplesFor(businessTypeOption(businessTypes.data, fields.data.business_type))}
+            writes={{ draft, replace, nameCore }}
+            source={source}
+            links={null}
           />
-          {write.allowed && fields.data.agents.length > 0 && businessTypes.data && (
-            <ReplaceAll
+          {write.allowed && fields.data.jobs.length > 0 && businessTypes.data && (
+            <ReplaceWithType
+              key={fields.data.jobs.map((job) => job.digest).join()}
               data={fields.data}
               types={businessTypes.data}
               replace={replace}
@@ -120,7 +154,7 @@ export default function TenantLeadDetailsPage({
   );
 }
 
-function ReplaceAll({
+function ReplaceWithType({
   data,
   types,
   replace,
@@ -135,14 +169,16 @@ function ReplaceAll({
   const current = offered.find((option) => option.value === data.business_type)?.value;
   const [type, setType] = useState<BusinessType>(current ?? offered[0]?.value ?? "");
   const [confirming, setConfirming] = useState(false);
+  const picks = useJobPicks(data.jobs);
   if (offered.length === 0) return null;
+  const label = businessTypeLabel(types, type).toLowerCase();
   return (
     <Section
       className="max-w-3xl"
-      title="Move every agent to a standard set"
-      description="For an account set up on the wrong business type. Change the type under Business details first; this replaces each agent's business details and keeps every answer already captured readable."
+      title="Move campaigns and lines to a standard set"
+      description="For an account set up on the wrong business type. Change the type under Business details first."
     >
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="space-y-4">
         <label className="block min-w-0">
           <span className={FIELD_LABEL}>Standard details for</span>
           <select
@@ -161,27 +197,24 @@ function ReplaceAll({
             ))}
           </select>
         </label>
+        <ApplyToJobs jobs={data.jobs} picks={picks} disabled={replace.isPending} legend="Replace the list on" />
         <button
           type="button"
           className={SECONDARY_BUTTON}
-          disabled={replace.isPending}
+          disabled={replace.isPending || picks.refs.length === 0}
           onClick={() => setConfirming(true)}
         >
-          Replace on every agent
+          Replace on {picks.refs.length}
         </button>
+        {replace.data && !confirming && (
+          <p role="status" className="text-body text-ink-muted">
+            {appliedSentence(replace.data)}
+          </p>
+        )}
       </div>
-      {replace.data && !confirming && (
-        <p role="status" className="mt-3 text-body text-ink-muted">
-          {replace.data.agents_changed} agent{replace.data.agents_changed === 1 ? "" : "s"} moved
-          {replace.data.agents_unchanged > 0
-            ? `; ${replace.data.agents_unchanged} already had these details`
-            : ""}
-          .
-        </p>
-      )}
       {confirming && (
         <ConfirmDialog
-          title={`Replace every agent's details with the ${businessTypeLabel(types, type).toLowerCase()} set?`}
+          title={`Use the ${label} set on ${picks.refs.length === 1 ? "1 campaign or line" : `${picks.refs.length} campaigns and lines`}?`}
           confirmLabel="Replace details"
           pendingLabel="Replacing…"
           status={status}
@@ -189,20 +222,23 @@ function ReplaceAll({
           error={replace.error}
           onCancel={() => setConfirming(false)}
           onConfirm={() =>
-            replace.mutate(
-              { business_type: type, agent_ids: null },
-              { onSuccess: () => setConfirming(false) },
-            )
+            replace.mutate({ business_type: type, jobs: picks.refs }, { onSuccess: () => setConfirming(false) })
           }
         >
           <p>
-            {data.agents.length} agent{data.agents.length === 1 ? "" : "s"} will write down the
-            standard {businessTypeLabel(types, type).toLowerCase()} details from the next call. The
-            client is not told; their Lead details screen shows the new list.
+            {jobNames(data.jobs, picks.refs.map((ref) => `${ref.kind}:${ref.id}`))} will write down the
+            standard {label} details from the next call. The client is not told; their Lead details
+            screen shows the new lists.
           </p>
           <p>Answers already captured stay on their leads and calls, under their old names.</p>
         </ConfirmDialog>
       )}
     </Section>
   );
+}
+
+function jobNames(jobs: LeadFieldsJob[], keys: string[]): string {
+  const names = jobs.filter((job) => keys.includes(`${job.kind}:${job.id}`)).map((job) => job.name);
+  if (names.length <= 3) return names.join(", ");
+  return `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
 }

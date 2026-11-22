@@ -571,21 +571,36 @@ async def _calendar_would_help(
 async def _lead_fields_part(
     session: AsyncSession, context: ToolContext, agent_id: UUID
 ) -> list[str]:
-    fields = await field_suggestions.current_fields(session, agent_id)
-    state = await field_suggestions.read_state(session, agent_id=agent_id)
+    """What each campaign and line in this voice notes (D-1028) and the suggestions waiting on
+    it (D-1029), and the account's draft."""
     assert context.tenant_id is not None
-    draft = await lead_fields_service.read_draft(session, tenant_id=context.tenant_id)
-    lines = [
-        "It writes down: "
-        + (", ".join(f"{f.label} ({f.key})" for f in fields) or "no business details yet")
-        + "."
-    ]
-    lines.extend(
-        f"- suggestion {s.id}: {s.kind} {s.field_label} {', '.join(s.values)} — {s.reason}"
-        for s in state.suggestions
+    vertical = await lead_fields_service.vertical_of(session, tenant_id=context.tenant_id)
+    starting = await lead_fields_service.starting_business_fields(
+        session, tenant_id=context.tenant_id, vertical=vertical
     )
-    if not state.suggestions:
+    jobs = [
+        job
+        for job in await lead_fields_service.jobs_with_fields(session, starting=starting)
+        if job.agent_id == agent_id
+    ]
+    lines: list[str] = []
+    for job in jobs:
+        noun = "Campaign" if job.kind == "campaign" else "Line"
+        lines.append(
+            f"{noun} {job.name} [{job.kind} {job.id}] writes down: "
+            + (", ".join(f"{f.label} ({f.key})" for f in job.fields) or "only the core details")
+            + "."
+        )
+        state = await field_suggestions.read_state(session, job.kind, job.id)
+        lines.extend(
+            f"- suggestion {s.id}: {s.kind} {s.field_label} {', '.join(s.values)} — {s.reason}"
+            for s in state.suggestions
+        )
+    if not jobs:
+        lines.append("It has no campaign or line yet, so its calls write down only the core.")
+    elif not any(line.startswith("- suggestion") for line in lines):
         lines.append("No suggestions are waiting.")
+    draft = await lead_fields_service.read_draft(session, tenant_id=context.tenant_id)
     if draft is not None and draft.status == "done" and not draft.reviewed:
         lines.append(
             "A drafted set waits to be kept (`lead_fields_keep_draft`): "

@@ -264,12 +264,12 @@ async def _store(
             )
         ).scalar()
         if closed == "queued":
-            await agent_pass.requeue_if_asked(session, SLOT, tenant_id=tenant_id, agent_id=agent_id)
+            await agent_pass.requeue_if_asked(session, SLOT, tenant_id=tenant_id, row_id=agent_id)
 
 
 async def _finish(tenant_id: UUID, agent_id: UUID, state: str) -> None:
     async with tenant_session(tenant_id) as session:
-        await agent_pass.finish(session, SLOT, tenant_id=tenant_id, agent_id=agent_id, state=state)
+        await agent_pass.finish(session, SLOT, tenant_id=tenant_id, row_id=agent_id, state=state)
 
 
 def _parse(raw: dict[str, Any]) -> CallerHelp | None:
@@ -341,7 +341,7 @@ async def judge_caller_help(ctx: dict[str, Any], payload: dict[str, Any]) -> str
     tenant_id = UUID(str(payload["tenant_id"]))
     agent_id = UUID(str(payload["agent_id"]))
     async with tenant_session(tenant_id) as session:
-        claimed, previous = await agent_pass.claim(session, SLOT, agent_id=agent_id)
+        claimed, previous = await agent_pass.claim(session, SLOT, row_id=agent_id)
     if not claimed:
         outcome = "not_queued"
     else:

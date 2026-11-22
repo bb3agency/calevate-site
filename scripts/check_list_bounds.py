@@ -107,7 +107,7 @@ _ONE_PLAN = BoundedByConstruction(
 
 _LEAD_SUGGESTIONS = BoundedByConstruction(
     by=(
-        "the open suggestions on ONE agent, at most `agents/models.MAX_FIELD_SUGGESTIONS` "
+        "the open suggestions on ONE campaign or line, at most `MAX_FIELD_SUGGESTIONS` "
         "(six), enforced by `workers/field_suggestions` when it writes them; a suggestion's "
         "`values` are choices of one field, at most "
         "`agents/field_suggestions.MAX_CHOICES` (the model's `max_length`)."
@@ -237,22 +237,46 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/trial/calls": BoundedByConstruction(
         by=("today's test calls read with `LIMIT` `agents/test_call_reads.RECENT_TEST_CALLS`.")
     ),
-    "GET /v1/agents/{agent_id}/lead-suggestions": _LEAD_SUGGESTIONS,
-    "POST /v1/agents/{agent_id}/lead-suggestions/check": _LEAD_SUGGESTIONS,
-    "POST /v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/accept": _LEAD_SUGGESTIONS,
-    "POST /v1/agents/{agent_id}/lead-suggestions/{suggestion_id}/dismiss": _LEAD_SUGGESTIONS,
-    "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions": _LEAD_SUGGESTIONS,
+    "GET /v1/campaigns/{campaign_id}/lead-suggestions": _LEAD_SUGGESTIONS,
+    "POST /v1/campaigns/{campaign_id}/lead-suggestions/check": _LEAD_SUGGESTIONS,
+    "POST /v1/campaigns/{campaign_id}/lead-suggestions/{suggestion_id}/accept": _LEAD_SUGGESTIONS,
+    "POST /v1/campaigns/{campaign_id}/lead-suggestions/{suggestion_id}/dismiss": _LEAD_SUGGESTIONS,
+    "GET /v1/inbound-lines/{line_id}/lead-suggestions": _LEAD_SUGGESTIONS,
+    "POST /v1/inbound-lines/{line_id}/lead-suggestions/check": _LEAD_SUGGESTIONS,
+    "POST /v1/inbound-lines/{line_id}/lead-suggestions/{suggestion_id}/accept": _LEAD_SUGGESTIONS,
+    "POST /v1/inbound-lines/{line_id}/lead-suggestions/{suggestion_id}/dismiss": _LEAD_SUGGESTIONS,
     (
-        "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/lead-suggestions/check"
+        "GET /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions"
     ): _LEAD_SUGGESTIONS,
     (
-        "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}"
+        "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions/check"
+    ): _LEAD_SUGGESTIONS,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}"
         "/lead-suggestions/{suggestion_id}/accept"
     ): _LEAD_SUGGESTIONS,
     (
-        "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}"
+        "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}"
         "/lead-suggestions/{suggestion_id}/dismiss"
     ): _LEAD_SUGGESTIONS,
+    (
+        "GET /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions"
+    ): _LEAD_SUGGESTIONS,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions/check"
+    ): _LEAD_SUGGESTIONS,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}"
+        "/lead-suggestions/{suggestion_id}/accept"
+    ): _LEAD_SUGGESTIONS,
+    (
+        "POST /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}"
+        "/lead-suggestions/{suggestion_id}/dismiss"
+    ): _LEAD_SUGGESTIONS,
+    "GET /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/notes": _JOB_NOTES,
+    "PUT /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/notes": _JOB_NOTES,
+    "GET /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/notes": _JOB_NOTES,
+    "PUT /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/notes": _JOB_NOTES,
     "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/layers": BoundedByConstruction(
         by=(
             "one entry per `calevate_shared.engine.PromptLayer` (twelve), the layers "
@@ -505,8 +529,8 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "the fixed core (`calevate_shared.lead_fields.CORE_LEAD_FIELDS`), one type's "
             "standard set from `calevate_shared/verticals.json`, the draft's at most "
             "`MAX_DRAFTED_FIELDS`, and "
-            "agents capped by `agents.lead_fields.MAX_AGENTS` in the LIMIT, each holding at "
-            "most `extraction_routes.MAX_EXTRACTION_FIELDS` fields (refused on write)."
+            "campaigns and lines each capped by `agents.lead_fields.MAX_JOBS` in the LIMIT, each "
+            "holding at most `extraction_routes.MAX_EXTRACTION_FIELDS` fields (refused on write)."
         )
     ),
     "GET /v1/call-outcomes": BoundedByConstruction(
@@ -1083,15 +1107,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     # request model, not a belief about how many variables a person would type.
     "GET /v1/agents/{agent_id}/extraction-schema": BoundedByConstruction(
         by="`fields` is bounded by `agents.extraction_routes.MAX_EXTRACTION_FIELDS` (50, "
-        "the `max_length` on the write model that is the only thing that can grow it)."
-    ),
-    "PUT /v1/agents/{agent_id}/extraction-schema": BoundedByConstruction(
-        by="the same `fields` read back after the write — `MAX_EXTRACTION_FIELDS` "
-        "(`ExtractionSchemaIn.fields` max_length) is the request-model ceiling."
-    ),
-    "PUT /v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": BoundedByConstruction(
-        by="the admin view of the same `fields` — same `MAX_EXTRACTION_FIELDS` request-model "
-        "ceiling, since both realms take one `ExtractionSchemaIn`."
+        "held by `validate_fields` on every platform write; no route writes it since D-1029)."
     ),
     # The in-call Actions/tools feature. A tenant mints tools like it mints endpoints, so the
     # lists are caller-controlled and NOT bounded-by-nature — the bound is a real ceiling:

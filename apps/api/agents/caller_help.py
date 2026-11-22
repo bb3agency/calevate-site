@@ -167,15 +167,13 @@ async def queue_pass(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, force: bool = False
 ) -> bool:
     """Ask for a judgement of this agent, in the caller's transaction (`agent_pass.queue`)."""
-    return await agent_pass.queue(
-        session, SLOT, tenant_id=tenant_id, agent_id=agent_id, force=force
-    )
+    return await agent_pass.queue(session, SLOT, tenant_id=tenant_id, row_id=agent_id, force=force)
 
 
 async def queue_first_pass(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> bool:
     """The agent's first judgement, once: for an agent whose script was saved before this
     existed, read on its Overview or published."""
-    return await agent_pass.queue_first(session, SLOT, tenant_id=tenant_id, agent_id=agent_id)
+    return await agent_pass.queue_first(session, SLOT, tenant_id=tenant_id, row_id=agent_id)
 
 
 __all__ = [
