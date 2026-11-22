@@ -5,9 +5,12 @@ writer for both holders, so a line and a campaign are written and checked alike.
 Queued by `campaigns/workspace.request_proposal` and `inbound/lines.request_proposal`. The
 script is written by the one script writer (`workers/script_assist.draft_script`) in the
 holder's agent's language and business context (`agents/script_proposals.brief_for`). A first
-script is written whole, from the trade's step plan like any new script; one that already
-exists gets an edit of it, so the owner's own wording survives wherever the sources do not
-change it. Documents are read
+script is written whole, from the trade's step plan like any new script, then edited once
+with the same ask (D-1031), so a script written as its campaign or line is made is as good
+as one asked for later, which edits the script there; one that already exists gets an edit
+of it, so the owner's own wording survives wherever the sources do not change it. The
+inputs are read when the job runs (`campaign_inputs`, `line_inputs`), whoever asked and
+when, and include the holder's own "What it notes". Documents are read
 the way onboarding reads them (`first_run.documents_block`: redacted, fenced, one word budget).
 
 What Pip wrote is shortened once when it would not fit the engine's box, then read by one
@@ -25,13 +28,14 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from typing import Any, Final
 from uuid import UUID
 
-from calevate_shared.call_script import CallScript
+from calevate_shared.call_script import CallScript, CollectField
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -343,11 +347,18 @@ async def _budget(tenant_id: UUID, agent_id: UUID, base: CallScript | None) -> i
     return budget_of(size.limit, size.total, script_chars)
 
 
+def _collect_labels(fields: Sequence[CollectField]) -> tuple[str, ...]:
+    """The holder's "What it notes" as the writer reads them (`ScriptBrief.collect`), each with
+    why it is asked when the owner said, so the steps ask for them where the call reaches
+    them (`call_rules.SCRIPT_FLOW_RULE`)."""
+    return tuple(
+        f"{f.label}: {f.reason}" if f.reason.strip() else f.label for f in fields if f.label
+    )
+
+
 async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """A campaign's script, from its main task and the sources it picked from What your
     agents know: typed notes and documents alike are read as documents."""
-    from apps.workers.company_training_draft import knowledge_words
-
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
     campaign_id = UUID(str(payload["campaign_id"]))
@@ -355,6 +366,18 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
     if not await _claim(holder):
         return "not_pending"
     started = time.monotonic()
+    inputs, part_ask = await campaign_inputs(tenant_id, campaign_id)
+    return await _write(holder, inputs, CAMPAIGN_ASK, started, part_ask=part_ask)
+
+
+async def campaign_inputs(tenant_id: UUID, campaign_id: UUID) -> tuple[_Inputs, str | None]:
+    """Everything a campaign's draft is written from, read when the job runs rather than when
+    it was asked for, so a draft asked for as the campaign is made (the first run) reads the
+    same main task, sources, settings and details as one asked for later from its page
+    (D-1031). The one-part ask is returned beside it."""
+    from apps.api.agents.script_builder import campaign_collect_fields
+    from apps.workers.company_training_draft import knowledge_words
+
     async with tenant_session(tenant_id) as session:
         space = await workspace.read_workspace(session, campaign_id)
         words = await knowledge_words(session, only=space.sources) if space.sources else []
@@ -377,6 +400,7 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
                 session, tenant_id, space.agent_id, language=part_language or main_language
             ),
             direction="outbound",
+            collect=_collect_labels(await campaign_collect_fields(session, campaign_id)),
         )
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
@@ -416,15 +440,12 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
         if isinstance(focus, dict) and part_language
         else None
     )
-    return await _write(holder, inputs, CAMPAIGN_ASK, started, part_ask=part_ask)
+    return inputs, part_ask
 
 
 async def draft_line_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """An inbound line's script (D-997), from its main task and the sources it picked from
     What your agents know: typed notes and documents alike are read as documents."""
-    from apps.api.inbound import lines
-    from apps.workers.company_training_draft import knowledge_words
-
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
     line_id = UUID(str(payload["line_id"]))
@@ -432,10 +453,22 @@ async def draft_line_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str
     if not await _claim(holder):
         return "not_pending"
     started = time.monotonic()
+    return await _write(holder, await line_inputs(tenant_id, line_id), LINE_ASK, started)
+
+
+async def line_inputs(tenant_id: UUID, line_id: UUID) -> _Inputs:
+    """Everything a line's draft is written from, read when the job runs (`campaign_inputs`)."""
+    from apps.api.agents.script_builder import line_collect_fields
+    from apps.api.inbound import lines
+    from apps.workers.company_training_draft import knowledge_words
+
     async with tenant_session(tenant_id) as session:
         line = await lines.read_line(session, line_id)
         words = await knowledge_words(session, only=line.sources) if line.sources else []
-        context = await script_proposals.brief_for(session, tenant_id, line.agent_id)
+        context = replace(
+            await script_proposals.brief_for(session, tenant_id, line.agent_id),
+            collect=_collect_labels(await line_collect_fields(session, line_id)),
+        )
         # A line answers its calls; only a "both" voice also places its call-backs.
         if context.direction != "both":
             context = replace(context, direction="inbound")
@@ -449,7 +482,7 @@ async def draft_line_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         ).scalar()
     base = line.proposal.base_script if line.proposal is not None else line.script
     tone, instruction = _asked(asked)
-    inputs = _Inputs(
+    return _Inputs(
         agent_id=line.agent_id,
         main_task=line.main_task,
         base=base,
@@ -465,7 +498,6 @@ async def draft_line_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str
             agent_name=context.agent_name, holder_name=line.name, inbound=True
         ),
     )
-    return await _write(holder, inputs, LINE_ASK, started)
 
 
 def _late_timeout(started: float) -> float | None:
@@ -486,6 +518,58 @@ def _openings_of(script: CallScript, kept_from: CallScript) -> CallScript:
             "outbound_opening_notices": kept_from.outbound_opening_notices,
         }
     )
+
+
+async def _refined(
+    inputs: _Inputs,
+    context: ScriptBrief,
+    script: CallScript,
+    started: float,
+    *,
+    ask: str,
+    documents: str,
+    owners: str,
+) -> tuple[CallScript, list[ScriptDraft | ProblemError]]:
+    """A first draft edited once with the same ask, as a press of Generate on it would edit
+    it (D-1031), and what that cost. Skipped when the job is short of time, and a refusal
+    keeps the first draft: it is already paid for and still goes through every check."""
+    timeout_s = _late_timeout(started)
+    if timeout_s is None:
+        log.info("holder_script_refine_skipped", extra={"reason": "time"})
+        return script, []
+    change = campaign_change(
+        inputs.main_task,
+        inputs.notes,
+        documents,
+        edit=True,
+        refine=True,
+        ask=ask,
+        tone=inputs.tone,
+        instruction=inputs.instruction,
+        budget=inputs.budget,
+        situation=inputs.situation,
+    )
+    try:
+        draft = await draft_script(
+            context,
+            tenant_leg=inputs.tenant_leg,
+            quota_exhausted=inputs.quota_exhausted,
+            edit_of=script,
+            change=change,
+            timeout_s=timeout_s,
+            max_tokens=PROPOSAL_MAX_TOKENS,
+            repair_rounds=get_settings().campaign_script_repair_rounds,
+            standby_after_answer=False,
+            owners_words=owners,
+        )
+    except ProblemError as refused:
+        log.info("holder_script_refine_refused", extra={"reason": refused.code})
+        return script, [refused]
+    except Exception:
+        # The first draft is paid for; a crash here must not lose it.
+        log.exception("holder_script_refine_crashed", extra={"agent_id": str(inputs.agent_id)})
+        return script, []
+    return draft.script, [draft]
 
 
 async def _shortened(
@@ -710,12 +794,16 @@ async def _write(
         await _ready_made_if_asked(holder)
         return "failed"
 
+    refining: list[ScriptDraft | ProblemError] = []
+    first = draft.script
+    if base is None:
+        first, refining = await _refined(
+            inputs, context, draft.script, started, ask=ask, documents=documents, owners=owners
+        )
     # Shortened before the checks, so the review and the repairs read what is offered. The
     # review runs before the call-mistake repair so its findings join those rounds: one
     # repair loop, not a second one after the review.
-    written, shortening = await _shortened(
-        tenant_id, inputs, context, draft.script, started, owners
-    )
+    written, shortening = await _shortened(tenant_id, inputs, context, first, started, owners)
     review, reviewing = await _reviewed(inputs, tenant_id, written, documents, started)
     found = review_findings(review, written)
     finished = await finish_written(
@@ -730,6 +818,7 @@ async def _write(
     )
     spends: list[Spent] = [
         draft,
+        *refining,
         *shortening,
         *finished.repairs,
         *finished.opening_spends,
@@ -785,6 +874,7 @@ async def _write(
             "stored": stored,
             "repairs": trace.repairs,
             "checked_repairs": len(finished.repairs),
+            "refined": any(isinstance(spent, ScriptDraft) for spent in refining),
             "shortened": bool(shortening),
             "notes": len(review.notes),
             "unsourced": len(review.unsourced),
@@ -800,8 +890,10 @@ __all__ = [
     "LINE_ASK",
     "UNUSABLE_NOTE",
     "campaign_change",
+    "campaign_inputs",
     "draft_campaign_script",
     "draft_line_script",
+    "line_inputs",
     "owners_words",
     "review_findings",
     "still_warned",

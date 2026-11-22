@@ -216,6 +216,38 @@ SPECIFIC_RULE: Final = (
     "call, and nothing said twice across steps."
 )
 
+#: The details the call notes are asked where the call reaches them, and what the call already
+#: knows is never asked: "Load known user details ahead of time ... to avoid redundant
+#: questions" (docs.livekit.io/agents/start/prompting, read 22 Nov 2026); transactional
+#: details are read back once, a soft intake is acknowledged instead (docs.vapi.ai/
+#: prompting-guide "Confirming details", read 22 Nov 2026). The composed call rules read back
+#: digits and close on what happens next (`engine.VOICE_STYLE_GUIDANCE`); this places the asks.
+DETAILS_RULE: Final = (
+    "Ask for each of the details to collect in the step where the call reaches it, one per "
+    "turn; on a call the agent places, only once the person has agreed to talk. Never ask "
+    "for what the call already "
+    "knows: on a call the agent places, the person's name and number, and anything the main "
+    "task or the campaign gives. A detail a booking or payment depends on (a day, a time, an "
+    "amount, a name to spell) is read back once in that step; other answers are acknowledged "
+    "in a few words and the call moves on."
+)
+
+#: Every extra instruction makes the in-call model slower and worse at following the others,
+#: and AI-written prompts add cautious lines for situations that never come up ("State each
+#: instruction once", docs.retellai.com/build/prompt-engineering-guide; "Be as concise as
+#: possible", elevenlabs.io/docs/agents-platform/best-practices/prompting-guide; a system
+#: prompt is read on every turn, so its length is dead air, docs.vapi.ai/prompting-guide;
+#: all read 22 Nov 2026). Personality as speech behaviour rather than adjectives:
+#: docs.livekit.io/agents/start/prompting (read 22 Nov 2026).
+CONCISE_RULE: Final = (
+    "Each step's instruction says in one or two short sentences what to do at that moment of "
+    "this call, and the fewest steps reach the main task. Say each thing once. Never write "
+    "rules for how to speak, be polite, handle silence or interruptions, or read numbers: the "
+    "platform gives the agent those on every call. style.tone says in a few English words how "
+    "the agent sounds in what it does (for example: short sentences, thanks them for each "
+    "answer), not only adjectives."
+)
+
 CAMPAIGN_ASK: Final = (
     "Write this campaign's call script. Every call this agent places for the campaign follows "
     "it. The campaign's main task, in the owner's words, says what the calls must achieve; the "
@@ -226,7 +258,7 @@ CAMPAIGN_ASK: Final = (
     "eight), the objections people raise with how to answer, and how the call ends. Where a "
     "note or document says how the agent should handle the call, follow it. "
     f"{CALL_KINDS_TEXT} {OBJECTIONS_RULE} {GROUNDING_RULE} {PERSON_RULE} {SPECIFIC_RULE} "
-    f"{TURN_RULE}"
+    f"{TURN_RULE} {DETAILS_RULE} {CONCISE_RULE}"
 ) + CLOSING_STEP
 
 #: An inbound line's ask (D-997): the calls are answered, not placed, so it has no call kinds.
@@ -237,11 +269,34 @@ LINE_ASK: Final = (
     "that get to the main task one at a time, quick facts (the faqs list: a question callers "
     "ask and a short spoken answer, at most eight), the objections callers raise with how to "
     "answer, and how the call ends. Where a source says how the agent should handle the "
-    f"call, follow it. {GROUNDING_RULE} {PERSON_RULE} {SPECIFIC_RULE} {TURN_RULE}"
+    f"call, follow it. {GROUNDING_RULE} {PERSON_RULE} {SPECIFIC_RULE} {TURN_RULE} "
+    f"{DETAILS_RULE} {CONCISE_RULE}"
 ) + CLOSING_STEP
 
 EDIT_TAIL: Final = (
     " Keep anything already in the script that the main task and sources do not change."
+)
+
+#: A first script gets the pass a second press of Generate gives it (D-1031): the same ask, as
+#: an edit of the draft just written. A one-pass draft was what an owner got when a campaign or
+#: line was made, while a press later edited that draft with the ask again, so scripts written
+#: later read better. Refining a draft against explicit criteria improves it where a fresh
+#: retry does not (Self-Refine, arxiv.org/abs/2303.17651); the criteria are this ask's own.
+REFINE_TAIL: Final = (
+    " The current script below is the first draft of it. Read it as the person on the call "
+    "would hear it and rewrite each part that falls short of this ask: an opening that does "
+    "not do what the ask says it must, a step that asks two things or asks what the call "
+    "already knows, a detail to collect that no step asks for, a stage missing a way out the "
+    "rules ask for, a line the main task and sources do not back, a stock line, and an "
+    "instruction that repeats another. Keep each part that already meets the ask as it is."
+)
+
+#: Long sources sit between the ask and the end of the message; the task is said again after
+#: them. "Provide all context first and put the specific instructions near the end"
+#: (ai.google.dev/gemini-api/docs/prompting-strategies, now aistudio.google.com/docs/
+#: prompting-strategies, read 22 Nov 2026).
+TASK_REMINDER: Final = (
+    "Now write the script the ask at the top describes, from the main task and the sources above.\n"
 )
 
 #: One part rewritten in a chosen language (founder, 16 Nov 2026); the rest stays word for word.
@@ -367,17 +422,23 @@ def campaign_change(
     instruction: str | None = None,
     budget: int | None = None,
     situation: str = "",
+    refine: bool = False,
 ) -> str:
     """What the script is written from: the ask, the owner's tone and instruction, the length
     it may take, the main task, the campaign's own settings (`situation_block`), the notes and
-    the documents. A one-part rewrite replaces the whole ask, edit tail included."""
-    lead = part_ask if part_ask is not None else f"{ask}{EDIT_TAIL if edit else ''}"
+    the documents, then the task again after the documents. A one-part rewrite replaces the
+    whole ask, edit tail included. `refine`: the edit is of Pip's own first draft
+    (`REFINE_TAIL`) rather than of a script the owner has."""
+    tail = REFINE_TAIL if refine else EDIT_TAIL if edit else ""
+    lead = part_ask if part_ask is not None else f"{ask}{tail}"
     change = (
         f"{lead}\n{tone_line(tone)}{instruction_line(instruction)}{length_line(budget)}"
         f"MAIN TASK:\n{main_task.strip()}\n{situation}"
     )
     if notes:
         change += f"OWNER'S NOTES AND LINKS:\n{notes}\n"
+    if documents and part_ask is None:
+        return change + documents + ("" if documents.endswith("\n") else "\n") + TASK_REMINDER
     return change + documents
 
 
@@ -697,6 +758,8 @@ __all__ = [
     "CALL_KINDS",
     "CAMPAIGN_ASK",
     "CLOSING_STEP",
+    "CONCISE_RULE",
+    "DETAILS_RULE",
     "EDIT_TAIL",
     "FLOW_ASK",
     "FLOW_PART",
@@ -705,10 +768,12 @@ __all__ = [
     "OBJECTIONS_RULE",
     "PART_ASK",
     "PERSON_RULE",
+    "REFINE_TAIL",
     "REVIEW_FORMAT",
     "REVIEW_INSTRUCTION",
     "SHORTEN_ASK",
     "SPECIFIC_RULE",
+    "TASK_REMINDER",
     "TONES",
     "TOO_LONG_RULE",
     "UNSOURCED_PROBLEM",

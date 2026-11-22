@@ -179,12 +179,15 @@ async def test_a_first_script_is_written_whole_from_the_main_task_and_notes(
     proposal, calls, _ = await _run(
         monkeypatch, tenant_id, campaign_id, [_answer(_script(ONE_QUESTION))]
     )
-    [first] = calls
+    first, refine = calls
     assert "edit_of" not in first
     assert MAIN_TASK in first["brief"].description
     assert "first month is free" in first["brief"].description
     assert "first year is free" not in first["brief"].description
     assert proposal.base_script is None and proposal.script is not None
+    # Then edited once with the same ask, as a press of Generate would edit it (D-1031).
+    assert refine["edit_of"] == _script(ONE_QUESTION)
+    assert MAIN_TASK in refine["change"] and "first draft of it" in refine["change"]
 
 
 async def test_a_campaign_with_a_script_gets_an_edit_of_the_one_it_was_asked_from(
@@ -245,10 +248,10 @@ async def test_the_writer_gets_the_consoles_rounds_and_never_the_standby(
     monkeypatch.setattr(get_settings(), "campaign_script_repair_rounds", 4)
     tenant_id, campaign_id = await _campaign()
     _, calls, _ = await _run(monkeypatch, tenant_id, campaign_id, [_answer(_script(ONE_QUESTION))])
-    [first] = calls
-    assert first["repair_rounds"] == 4
-    assert first["standby_after_answer"] is False
-    assert MAIN_TASK in first["owners_words"]
+    for call in calls:
+        assert call["repair_rounds"] == 4
+        assert call["standby_after_answer"] is False
+        assert MAIN_TASK in call["owners_words"]
 
 
 async def test_a_refusal_is_stored_with_its_reason_and_a_campaign_note(

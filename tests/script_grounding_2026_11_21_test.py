@@ -206,17 +206,22 @@ async def test_a_told_claim_about_the_person_is_repaired_in_the_one_loop(
     review = _review({"stages.s0": "Asks which phone."})
     review.value = Review(notes={"stages.s0": "x"}, asserted={"stages.s0": "they are on record"})
     proposal, calls, metered, reviewed = await _run(
-        monkeypatch, tenant_id, campaign_id, [_answer(drafted), _answer(fixed)], review=review
+        monkeypatch,
+        tenant_id,
+        campaign_id,
+        # The draft, its refining edit (D-1031), then the repair.
+        [_answer(drafted), _answer(drafted), _answer(fixed)],
+        review=review,
     )
     # The brief carried the campaign; the review read it among its sources.
     assert "THE CAMPAIGN:\nCampaign name: Install the app" in calls[0]["brief"].description
     [message] = reviewed
     assert message.index("Campaign name: Install the app") < message.index("THE SCRIPT'S PARTS")
     # One repair, asked with the review's finding, and nothing left to warn about.
-    assert len(calls) == 2
-    assert ask.ASSERTED_PROBLEM.format(claim="they are on record") in calls[1]["change"]
+    assert len(calls) == 3
+    assert ask.ASSERTED_PROBLEM.format(claim="they are on record") in calls[2]["change"]
     assert proposal.script is not None
     assert proposal.script.stages[0].sounds_like == "Did you register?"
     assert not [part for part in proposal.left_out if part.part == "stages.s0"]
-    # The draft, the review and the repair: each metered.
-    assert len(metered) == 3
+    # The draft, the refining edit, the review and the repair: each metered.
+    assert len(metered) == 4

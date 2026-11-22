@@ -250,7 +250,8 @@ async def test_the_review_writes_why_notes_and_warns_of_an_unsourced_claim(
     [message] = reviewed
     assert MAIN_TASK in message and "first month is free" in message
     assert "first year is free" not in message
-    assert len(metered) == 2
+    # The draft, its refining edit (D-1031) and the review.
+    assert len(metered) == 3
 
 
 async def test_a_review_that_fails_keeps_the_draft_without_notes(
@@ -266,7 +267,7 @@ async def test_a_review_that_fails_keeps_the_draft_without_notes(
         review=RuntimeError("the review leg broke"),
     )
     assert proposal.script is not None and proposal.why == {}
-    assert len(metered) == 1
+    assert len(metered) == 2
 
 
 async def test_a_draft_too_long_is_shortened_once_and_its_openings_never_change(
@@ -282,18 +283,19 @@ async def test_a_draft_too_long_is_shortened_once_and_its_openings_never_change(
         monkeypatch,
         tenant_id,
         campaign_id,
-        [_answer(long), _answer(short)],
-        # The room at the start, the draft, then the script as offered.
+        # The draft, its refining edit (D-1031), then the shortening.
+        [_answer(long), _answer(long), _answer(short)],
+        # The room at the start, the refined draft, then the script as offered.
         sizes=[None, _size(1_200), _size(0)],
     )
-    assert len(calls) == 2
-    assert calls[1]["edit_of"] == long
-    assert calls[1]["change"] == SHORTEN_ASK.format(over=1_200, parts="Steps")
+    assert len(calls) == 3
+    assert calls[2]["edit_of"] == long
+    assert calls[2]["change"] == SHORTEN_ASK.format(over=1_200, parts="Steps")
     assert proposal.script is not None
     assert proposal.script.opening_line == long.opening_line
     assert not [part for part in proposal.left_out if part.part == "script"]
-    # The draft, the shortening and the review: each paid for.
-    assert len(metered) == 3
+    # The draft, the refining edit, the shortening and the review: each paid for.
+    assert len(metered) == 4
 
 
 async def test_a_draft_still_too_long_is_offered_with_a_warning(
