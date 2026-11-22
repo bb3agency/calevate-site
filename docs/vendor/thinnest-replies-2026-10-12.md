@@ -2771,3 +2771,41 @@ agent and its Start and test call were refused (`engine_agent_allowance_full`; r
 
 When answered: record §53 verbatim with a "what it closes" table, then raise the console
 setting `thinnest_agents_per_workspace` to the granted figure.
+
+## 53. A voicemail message on calls we place one at a time (DRAFTED 23 Nov 2026, unsent; HOLD until Ashutosh answers §52)
+
+Why we ask: `voicemailMessage` (up to 600 characters) is a field of create-campaign only (mirror
+2026-11-12 `openapi.json`, the campaign schema near line 29415); Place Call has no such field.
+We place every call one at a time from our own campaign dispatcher, so a client cannot leave a
+message when a machine answers. The vendor's docs say leaving a voicemail works on ThinnestAI,
+Plivo and Telnyx numbers, not on Vobiz or Twilio (mirror `llms-full.txt:6560-6562`). Today we
+can only hang up on a machine (`voice.detectMachines`, the client switch, default off) and the
+retry ladder treats a machine as not reached (`docs/evidence/script-quality-2026-11-22/
+RESEARCH.md` §4). What the message SAYS, and whether one is left at all, is the founder's
+decision under hard rule 5; this email only asks for the capability.
+
+> Subject: Leaving a voicemail message on a placed call
+>
+> Hi Ashutosh,
+>
+> Your campaigns can leave a voicemail message when a machine answers (`voicemailMessage`).
+> We place each call ourselves with Place Call, one at a time, because our own scheduler
+> handles retries, calling hours and do-not-call checks. Place Call has no voicemail message,
+> so today we can only hang up when a machine answers.
+>
+> Could you:
+> 1. Add `voicemailMessage` (or an equivalent) to Place Call, with the same behaviour as on
+>    campaigns: spoken after the greeting ends, then the call hangs up?
+> 2. Tell us how the call is reported when the message was left (the `hangup` and `outcome`
+>    values on the call-ended event), so we can tell a left message apart from a machine we
+>    hung up on?
+> 3. Confirm which numbers support it: your docs say ThinnestAI, Plivo and Telnyx numbers.
+>    Do numbers bought in a customer workspace count as ThinnestAI numbers here?
+> 4. Tell us whether leaving the message is billed as a normal call minute?
+>
+> Regards,
+> Umesh
+
+When answered: record §54 verbatim with a "what it closes" table. Building it then needs the
+founder's wording and an on/off decision for the message (hard rule 5) before any code reads
+the field.
