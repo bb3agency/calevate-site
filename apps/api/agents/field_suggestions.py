@@ -392,6 +392,10 @@ async def _save(
     )
 
 
+class SuggestionOutOfDateError(ProblemError):
+    """409: the job's list changed since the suggestion was made, so it no longer fits."""
+
+
 def _gone(kind: JobKind) -> str:
     return (
         f"That suggestion no longer fits what this {_noun(kind).lower()} notes, which changed "
@@ -415,10 +419,29 @@ async def accept(
     remaining = [s for s in suggestions if s.id != suggestion_id]
     if not applicable(chosen, fields):
         await _save(session, kind, job_id, remaining, dismissed)
-        raise ProblemError.conflict("suggestion_out_of_date", _gone(kind))
+        raise SuggestionOutOfDateError.conflict("suggestion_out_of_date", _gone(kind))
     await save_notes(session, kind, job_id, apply(chosen, fields), expected_digest=None)
     await _save(session, kind, job_id, remaining, dismissed)
     return chosen
+
+
+async def accept_many(
+    session: AsyncSession, kind: JobKind, job_id: UUID, *, suggestion_ids: list[str]
+) -> list[Suggestion]:
+    """`accept` for each named suggestion still on offer, in order, in one transaction, so the
+    route puts the job live once rather than once per suggestion: each put-live republishes
+    the job's engine agent. One that an earlier one overtook drops out, as it would one at a
+    time."""
+    offered = {s.id for s in (await _locked(session, kind, job_id))[0]}
+    accepted: list[Suggestion] = []
+    for suggestion_id in dict.fromkeys(suggestion_ids):
+        if suggestion_id not in offered:
+            continue
+        try:
+            accepted.append(await accept(session, kind, job_id, suggestion_id=suggestion_id))
+        except SuggestionOutOfDateError:
+            continue
+    return accepted
 
 
 async def dismiss(
@@ -464,6 +487,7 @@ __all__ = [
     "Suggestion",
     "SuggestionsState",
     "accept",
+    "accept_many",
     "applicable",
     "apply",
     "current_fields",

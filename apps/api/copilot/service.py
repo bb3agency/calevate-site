@@ -2343,8 +2343,18 @@ async def _run_tool_loop(
         if not acts:
             # Prose or a lookup: nothing in this turn can have been refused, so its words
             # stand. A turn that acts shows them only once its act has gone through.
-            for fragment in held:
-                yield CopilotEvent(text=fragment)
+            # Unless this run tried a change, nothing landed (no fill, action, proposal,
+            # staged approval or job), and these words say something was changed: then they
+            # are withheld, and `routes` ends the answer with the refusal's own reason.
+            # Shown with the correction under them, "the script has been updated" above
+            # "Nothing was changed" left the owner to decide which to believe (23 Nov 2026).
+            # A run that tried nothing keeps its words: "it has been paused" may answer a
+            # question, so the prose exit below adds the correction instead.
+            if attempted_change and not changed and claims_a_change("".join(held)):
+                log.info("copilot_refused_claim_withheld", extra={"turn": turn_index})
+            else:
+                for fragment in held:
+                    yield CopilotEvent(text=fragment)
             held = []
         else:
             attempted_change = attempted_change or bool(fill_calls or write_calls)
@@ -2379,7 +2389,7 @@ async def _run_tool_loop(
             elif not changed and not attempted_change and claims_a_change(outcome.content):
                 # THE OUTPUT CHECK. Nothing in this run changed anything, and the answer
                 # says in English that it did; the claim is left standing and the truth
-                # follows it, as `routes` does when a write was refused.
+                # follows it.
                 log.info("copilot_unbacked_claim", extra={"turn": turn_index})
                 yield CopilotEvent(text=NOTHING_CHANGED_LINE)
             yield CopilotEvent(

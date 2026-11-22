@@ -23,10 +23,11 @@ from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Path, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import field_suggestions as service
+from apps.api.agents.models import MAX_FIELD_SUGGESTIONS
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.billing.trials import trial_billing_active
 from apps.api.campaigns import notes_live
@@ -83,6 +84,21 @@ class LeadSuggestionsOut(_Out):
 class LeadSuggestionAnsweredOut(_Out):
     #: What was accepted or dismissed, and what is left.
     answered: LeadSuggestionOut
+    remaining: LeadSuggestionsOut
+
+
+class LeadSuggestionsAcceptIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: The suggestions to accept, in order; one no longer on offer is skipped.
+    ids: list[Annotated[str, Field(pattern=r"^[0-9a-f]{16}$")]] = Field(
+        min_length=1, max_length=MAX_FIELD_SUGGESTIONS
+    )
+
+
+class LeadSuggestionsAcceptedOut(_Out):
+    #: What was accepted (at most the ids sent), and what is left.
+    accepted: list[LeadSuggestionOut]
     remaining: LeadSuggestionsOut
 
 
@@ -196,6 +212,45 @@ def _mount(client: APIRouter, admin: APIRouter, kind: Kind, id_param: str) -> No
             ip=client_request_ip(request),
         )
         return await _state(session, kind, job_id)
+
+    @client.post(
+        "/accept",
+        response_model=LeadSuggestionsAcceptedOut,
+        openapi_extra=permission_meta("org:manage"),
+        summary=f"Make several suggested changes to what this {noun} notes, at once",
+        description=(
+            "Each as its single accept would, in one save, then the job is put live once. "
+            "A suggestion an earlier one overtook, or no longer on offer, is skipped."
+        ),
+        operation_id=f"accept_{noun}_lead_suggestions",
+    )
+    async def accept_lead_suggestions(
+        body: LeadSuggestionsAcceptIn,
+        *,
+        job_id: UUID = job_path,
+        principal: Owner,
+        request: Request,
+    ) -> LeadSuggestionsAcceptedOut:
+        tenant_id = principal.tenant_id
+        assert tenant_id is not None
+        async with tenant_session(tenant_id) as own:
+            accepted = await service.accept_many(own, kind, job_id, suggestion_ids=body.ids)
+            for one in accepted:
+                await write_audit(
+                    own,
+                    action="lead_suggestions.accepted",
+                    actor=principal,
+                    tenant_id=tenant_id,
+                    object_type=_object_type(kind),
+                    object_id=str(job_id),
+                    ip=client_request_ip(request),
+                    summary=_audit_summary(kind, one),
+                )
+        await notes_live.put_live(tenant_id, kind, job_id)
+        async with tenant_session(tenant_id) as session:
+            return LeadSuggestionsAcceptedOut(
+                accepted=[_one(s) for s in accepted], remaining=await _state(session, kind, job_id)
+            )
 
     @client.post(
         "/{suggestion_id}/accept",
@@ -320,6 +375,40 @@ def _mount(client: APIRouter, admin: APIRouter, kind: Kind, id_param: str) -> No
                 ip=client_request_ip(request),
             )
             return await _state(scoped, kind, job_id)
+
+    @admin.post(
+        "/accept",
+        response_model=LeadSuggestionsAcceptedOut,
+        openapi_extra=permission_meta("admin:tenants"),
+        summary=f"Make several suggested changes to what a client {noun} notes, at once",
+        operation_id=f"admin_accept_{noun}_lead_suggestions",
+    )
+    async def admin_accept_lead_suggestions(
+        tenant_id: UUID,
+        body: LeadSuggestionsAcceptIn,
+        *,
+        job_id: UUID = job_path,
+        principal: Operator,
+        request: Request,
+    ) -> LeadSuggestionsAcceptedOut:
+        async with tenant_session(tenant_id) as scoped:
+            accepted = await service.accept_many(scoped, kind, job_id, suggestion_ids=body.ids)
+            for one in accepted:
+                await write_audit(
+                    scoped,
+                    action="admin.lead_suggestions_accepted",
+                    actor=principal,
+                    tenant_id=tenant_id,
+                    object_type=_object_type(kind),
+                    object_id=str(job_id),
+                    ip=client_request_ip(request),
+                    summary=_audit_summary(kind, one),
+                )
+        await notes_live.put_live(tenant_id, kind, job_id)
+        async with tenant_session(tenant_id) as scoped:
+            return LeadSuggestionsAcceptedOut(
+                accepted=[_one(s) for s in accepted], remaining=await _state(scoped, kind, job_id)
+            )
 
     @admin.post(
         "/{suggestion_id}/accept",

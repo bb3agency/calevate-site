@@ -695,6 +695,50 @@ async def test_a_suggestion_the_owner_overtook_is_hidden_and_refused() -> None:
     assert refused.json()["type"].endswith("/suggestion_out_of_date")
 
 
+async def _post_ids(path: str, token: str, ids: list[str], slug: str | None = None) -> Any:
+    headers = {"Authorization": f"Bearer {token}"}
+    if slug:
+        headers["X-Org-Slug"] = slug
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        return await http.post(path, headers=headers, json={"ids": ids})
+
+
+async def test_accept_all_saves_what_still_fits_in_one_request_for_owner_and_operator() -> None:
+    tenant_id, slug, token, line_id = await _bhk_line()
+    add, new = await _seed(
+        tenant_id,
+        line_id,
+        _item("add_choices", values=["6BHK"]),
+        _item("new_field", label="Facing", values=["East", "West"], source="script"),
+    )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE inbound_lines SET extraction_fields = CAST(:f AS jsonb) WHERE id = :l"),
+            {"f": json.dumps([AREA.model_dump(mode="json")]), "l": line_id},
+        )
+    base = f"/v1/inbound-lines/{line_id}/lead-suggestions"
+    done = await _post_ids(f"{base}/accept", token, [add.id, new.id, "0" * 16], slug)
+    assert done.status_code == 200, done.text
+    assert [s["id"] for s in done.json()["accepted"]] == [new.id], (
+        "the overtaken one and one never offered are skipped"
+    )
+    assert done.json()["remaining"]["suggestions"] == []
+    assert [f["key"] for f in await _fields(tenant_id, line_id)][-1] == new.field_key
+
+    (more,) = await _seed(tenant_id, line_id, _item("add_choices", values=["7BHK"]))
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE inbound_lines SET extraction_fields = CAST(:f AS jsonb) WHERE id = :l"),
+            {"f": json.dumps([BHK.model_dump(mode="json")]), "l": line_id},
+        )
+    _admin_id, headers = await _operator()
+    operator = headers["Authorization"].removeprefix("Bearer ")
+    admin_base = f"/v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions"
+    by_operator = await _post_ids(f"{admin_base}/accept", operator, [more.id])
+    assert by_operator.status_code == 200, by_operator.text
+    assert (await _fields(tenant_id, line_id))[0]["enum_values"][-1] == "7BHK"
+
+
 async def test_staff_cannot_answer_and_nobody_reaches_another_accounts_line() -> None:
     theirs, _s, _t, their_line = await _bhk_line()
     (add,) = await _seed(theirs, their_line, _item("add_choices", values=["6BHK"]))

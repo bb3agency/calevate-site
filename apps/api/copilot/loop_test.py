@@ -2015,6 +2015,32 @@ async def test_an_actions_claim_is_not_shown_when_the_action_is_refused(
     assert [step.detail for step in refused] == [actions_module.REFUSED_PLAIN]
 
 
+async def test_a_final_claim_after_every_change_was_refused_is_withheld(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: after its only change was refused, the model's closing "the script has been
+    updated" reaches the person (founder, Varsha, 23 Nov 2026); a closing answer that claims
+    nothing still does."""
+    create = _agents_do(
+        "agent_create",
+        {"name": "Nightline", "direction": "outbound", "language_primary": "te-IN"},
+        because="set the opening time",
+    )
+    _scripted(
+        monkeypatch,
+        [_tool_turn(("agents_do", create)), _turn(content="Varsha's script has been updated.")],
+    )
+    events = await _drain()
+    assert "".join(e.text for e in events if e.text) == ""
+
+    _scripted(
+        monkeypatch,
+        [_tool_turn(("agents_do", create)), _turn(content="I could not create it.")],
+    )
+    events = await _drain()
+    assert "".join(e.text for e in events if e.text) == "I could not create it."
+
+
 async def test_a_lookups_words_are_shown_when_the_turn_ends(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

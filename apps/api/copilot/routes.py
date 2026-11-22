@@ -860,6 +860,8 @@ async def ask_copilot(
         # refusal's own reason closes the answer whenever nothing it tried went through.
         if refused_writes and not (filled or acted or proposal_line or started_job):
             truth = service.unchanged_line(refused_writes[-1])
+            # With no words before it (the loop withheld a claim), the truth stands alone.
+            truth = truth if "".join(answer_parts).strip() else truth.lstrip()
             answer_parts.append(truth)
             yield ServerSentEvent(event="text", data=CopilotTextEvent(delta=truth))
         completed = True

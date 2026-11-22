@@ -31,6 +31,7 @@ type Schemas = components["schemas"];
 export type LeadSuggestions = Schemas["LeadSuggestionsOut"];
 export type LeadSuggestion = Schemas["LeadSuggestionOut"];
 export type LeadSuggestionAnswered = Schemas["LeadSuggestionAnsweredOut"];
+export type LeadSuggestionsAccepted = Schemas["LeadSuggestionsAcceptedOut"];
 
 export const leadSuggestionKeys = {
   client: (org: string, kind: JobKind, jobId: string) => ["lead-suggestions", org, kind, jobId] as const,
@@ -54,6 +55,8 @@ function jobPath(kind: JobKind, jobId: string): string {
 export interface LeadSuggestionsApi {
   query: UseQueryResult<LeadSuggestions>;
   accept: UseMutationResult<LeadSuggestionAnswered, Error, string>;
+  /** Several in one save, so the job is put live once rather than once per suggestion. */
+  acceptAll: UseMutationResult<LeadSuggestionsAccepted, Error, string[]>;
   dismiss: UseMutationResult<LeadSuggestionAnswered, Error, string>;
   check: UseMutationResult<LeadSuggestions, Error, void>;
 }
@@ -81,6 +84,15 @@ function useAnswers(
     // is rather than the stale one.
     onError: () => client.invalidateQueries({ queryKey: key }),
   });
+  const acceptAll = useMutation({
+    mutationFn: (ids: string[]) =>
+      apiRequest<LeadSuggestionsAccepted>(session, `${base}/accept`, { method: "POST", body: { ids } }),
+    onSuccess: (out) => {
+      client.setQueryData(key, out.remaining);
+      return afterAccept();
+    },
+    onError: () => client.invalidateQueries({ queryKey: key }),
+  });
   const dismiss = useMutation({
     mutationFn: answer("dismiss"),
     onSuccess: (out) => client.setQueryData(key, out.remaining),
@@ -89,7 +101,7 @@ function useAnswers(
     mutationFn: () => apiRequest<LeadSuggestions>(session, `${base}/check`, { method: "POST" }),
     onSuccess: (out) => client.setQueryData(key, out),
   });
-  return { accept, dismiss, check };
+  return { accept, acceptAll, dismiss, check };
 }
 
 export function useLeadSuggestions(session: Session, kind: JobKind, jobId: string): LeadSuggestionsApi {

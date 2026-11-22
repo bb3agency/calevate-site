@@ -357,9 +357,9 @@ async def test_the_route_stores_the_ask_and_keeps_the_typed_words_out_of_the_aud
     tenant_id, campaign_id, token = await _route_campaign()
     refused = await _post(token, campaign_id, {"tone": "shouty"})
     assert refused.status_code == 422, refused.text
-    too_long = await _post(token, campaign_id, {"instruction": "x" * 1001})
+    too_long = await _post(token, campaign_id, {"instruction": "x" * 2001})
     assert too_long.status_code == 422, too_long.text
-    assert too_long.json()["detail"] == "Keep the note for Pip to 1,000 characters or fewer."
+    assert too_long.json()["detail"] == "Keep the note for Pip to 2,000 characters or fewer."
     response = await _post(
         token, campaign_id, {"tone": "warm", "instruction": "  Say   our name slowly. "}
     )

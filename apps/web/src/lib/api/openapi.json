@@ -14147,7 +14147,7 @@
           "instruction": {
             "anyOf": [
               {
-                "maxLength": 1000,
+                "maxLength": 2000,
                 "type": "string"
               },
               {
@@ -37980,6 +37980,47 @@
           "callers"
         ],
         "title": "LeadSuggestionOut",
+        "type": "object"
+      },
+      "LeadSuggestionsAcceptIn": {
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "items": {
+              "pattern": "^[0-9a-f]{16}$",
+              "type": "string"
+            },
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "LeadSuggestionsAcceptIn",
+        "type": "object"
+      },
+      "LeadSuggestionsAcceptedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted": {
+            "items": {
+              "$ref": "#/components/schemas/LeadSuggestionOut"
+            },
+            "title": "Accepted",
+            "type": "array"
+          },
+          "remaining": {
+            "$ref": "#/components/schemas/LeadSuggestionsOut"
+          }
+        },
+        "required": [
+          "accepted",
+          "remaining"
+        ],
+        "title": "LeadSuggestionsAcceptedOut",
         "type": "object"
       },
       "LeadSuggestionsOut": {
@@ -76376,6 +76417,66 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions/accept": {
+      "post": {
+        "operationId": "admin_accept_campaign_lead_suggestions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadSuggestionsAcceptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSuggestionsAcceptedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Make several suggested changes to what a client campaign notes, at once",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions/check": {
       "post": {
         "operationId": "admin_check_campaign_lead_suggestions",
@@ -77933,6 +78034,66 @@
           "admin"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions/accept": {
+      "post": {
+        "operationId": "admin_accept_line_lead_suggestions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadSuggestionsAcceptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSuggestionsAcceptedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Make several suggested changes to what a client line notes, at once",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions/check": {
@@ -89729,6 +89890,57 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/campaigns/{campaign_id}/lead-suggestions/accept": {
+      "post": {
+        "description": "Each as its single accept would, in one save, then the job is put live once. A suggestion an earlier one overtook, or no longer on offer, is skipped.",
+        "operationId": "accept_campaign_lead_suggestions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadSuggestionsAcceptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSuggestionsAcceptedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Make several suggested changes to what this campaign notes, at once",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/campaigns/{campaign_id}/lead-suggestions/check": {
       "post": {
         "description": "Queues a fresh look. On a paying account it uses the monthly AI allowance; on a trial it is free.",
@@ -97169,6 +97381,57 @@
           "agents"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/lead-suggestions/accept": {
+      "post": {
+        "description": "Each as its single accept would, in one save, then the job is put live once. A suggestion an earlier one overtook, or no longer on offer, is skipped.",
+        "operationId": "accept_line_lead_suggestions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadSuggestionsAcceptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadSuggestionsAcceptedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Make several suggested changes to what this line notes, at once",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/inbound-lines/{line_id}/lead-suggestions/check": {

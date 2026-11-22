@@ -2447,6 +2447,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make several suggested changes to what a client campaign notes, at once */
+        post: operations["admin_accept_campaign_lead_suggestions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions/check": {
         parameters: {
             query?: never;
@@ -2913,6 +2930,23 @@ export interface paths {
         get: operations["admin_get_line_lead_suggestions"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make several suggested changes to what a client line notes, at once */
+        post: operations["admin_accept_line_lead_suggestions"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7315,6 +7349,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/lead-suggestions/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make several suggested changes to what this campaign notes, at once
+         * @description Each as its single accept would, in one save, then the job is put live once. A suggestion an earlier one overtook, or no longer on offer, is skipped.
+         */
+        post: operations["accept_campaign_lead_suggestions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/lead-suggestions/check": {
         parameters: {
             query?: never;
@@ -10402,6 +10456,26 @@ export interface paths {
         get: operations["get_line_lead_suggestions"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/lead-suggestions/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make several suggested changes to what this line notes, at once
+         * @description Each as its single accept would, in one save, then the job is put live once. A suggestion an earlier one overtook, or no longer on offer, is skipped.
+         */
+        post: operations["accept_line_lead_suggestions"];
         delete?: never;
         options?: never;
         head?: never;
@@ -28613,6 +28687,17 @@ export interface components {
             /** Values */
             values: string[];
         };
+        /** LeadSuggestionsAcceptIn */
+        LeadSuggestionsAcceptIn: {
+            /** Ids */
+            ids: string[];
+        };
+        /** LeadSuggestionsAcceptedOut */
+        LeadSuggestionsAcceptedOut: {
+            /** Accepted */
+            accepted: components["schemas"]["LeadSuggestionOut"][];
+            remaining: components["schemas"]["LeadSuggestionsOut"];
+        };
         /** LeadSuggestionsOut */
         LeadSuggestionsOut: {
             /** Checked At */
@@ -44572,6 +44657,42 @@ export interface operations {
             };
         };
     };
+    admin_accept_campaign_lead_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadSuggestionsAcceptIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionsAcceptedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     admin_check_campaign_lead_suggestions: {
         parameters: {
             query?: never;
@@ -45490,6 +45611,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadSuggestionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_accept_line_lead_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadSuggestionsAcceptIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionsAcceptedOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -53550,6 +53707,41 @@ export interface operations {
             };
         };
     };
+    accept_campaign_lead_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadSuggestionsAcceptIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionsAcceptedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     check_campaign_lead_suggestions: {
         parameters: {
             query?: never;
@@ -59242,6 +59434,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadSuggestionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    accept_line_lead_suggestions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadSuggestionsAcceptIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSuggestionsAcceptedOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

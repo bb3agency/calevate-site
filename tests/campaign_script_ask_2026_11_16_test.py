@@ -67,7 +67,7 @@ def test_the_owners_tone_instruction_and_the_room_reach_the_change() -> None:
 def test_an_unknown_tone_no_instruction_and_no_room_add_nothing() -> None:
     change = ask.campaign_change("Book site visits.", "", "", edit=False, tone="shouty")
     assert "TONE:" not in change and "THE OWNER ASKS" not in change and "LENGTH:" not in change
-    assert ask.instruction_line("x" * 1500) == f"THE OWNER ASKS: {'x' * ask.INSTRUCTION_MAX}\n"
+    assert ask.instruction_line("x" * 2500) == f"THE OWNER ASKS: {'x' * ask.INSTRUCTION_MAX}\n"
 
 
 def test_a_long_note_stays_on_its_one_line() -> None:

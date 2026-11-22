@@ -50,28 +50,10 @@ export function LeadSuggestions({
   dirty: boolean;
   audience: "client" | "operator";
 }) {
-  const { query, accept, dismiss, check } = api;
-  const [acceptingAll, setAcceptingAll] = useState(false);
+  const { query, accept, acceptAll, dismiss, check } = api;
   const data = query.data;
   if (!data) return null;
-  const busy = acceptingAll || accept.isPending || dismiss.isPending;
-  // One at a time: each accept saves the list whole under its digest, so they cannot race,
-  // and one the list has overtaken drops out of what the server returns.
-  const acceptAll = async () => {
-    setAcceptingAll(true);
-    try {
-      let left = data.suggestions.map((s) => s.id);
-      while (left.length > 0) {
-        const out = await accept.mutateAsync(left[0]);
-        const remaining = new Set(out.remaining.suggestions.map((s) => s.id));
-        left = left.slice(1).filter((id) => remaining.has(id));
-      }
-    } catch {
-      // `accept.error` says why under the list.
-    } finally {
-      setAcceptingAll(false);
-    }
-  };
+  const busy = acceptAll.isPending || accept.isPending || dismiss.isPending;
   const reading = data.state === "queued" || data.state === "running";
   const suggestions = data.suggestions;
   const count = suggestions.length;
@@ -108,7 +90,7 @@ export function LeadSuggestions({
               canWrite={canWrite}
               acceptDisabled={busy || dirty}
               dismissDisabled={busy}
-              accepting={accept.isPending && accept.variables === s.id}
+              accepting={(accept.isPending && accept.variables === s.id) || acceptAll.isPending}
               onAccept={() => accept.mutate(s.id)}
               onDismiss={() => dismiss.mutate(s.id)}
             />
@@ -118,15 +100,17 @@ export function LeadSuggestions({
 
       {canWrite && count > 1 && (
         <div className="mt-3">
-          <button type="button" className={PRIMARY_BUTTON_SM} disabled={busy || dirty} onClick={() => void acceptAll()}>
-            {acceptingAll ? "Accepting…" : `Accept all ${count}`}
+          <button type="button" className={PRIMARY_BUTTON_SM} disabled={busy || dirty} onClick={() => acceptAll.mutate(suggestions.map((s) => s.id))}>
+            {acceptAll.isPending ? "Accepting…" : `Accept all ${count}`}
           </button>
         </div>
       )}
       {dirty && count > 0 && canWrite && (
         <p className="mt-2 text-xs text-ink-muted">Save or undo the changes below to accept one.</p>
       )}
-      {accept.error && <div className="mt-2"><ProblemNotice error={accept.error} /></div>}
+      {(accept.error ?? acceptAll.error) && (
+        <div className="mt-2"><ProblemNotice error={(accept.error ?? acceptAll.error)!} /></div>
+      )}
       {dismiss.error && <div className="mt-2"><ProblemNotice error={dismiss.error} /></div>}
       {check.error && <div className="mt-2"><ProblemNotice error={check.error} /></div>}
     </section>

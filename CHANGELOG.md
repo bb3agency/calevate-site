@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.9 — 23-Nov-2026
+
+- "Accept all" on suggested lead details saves them together and updates the agent once,
+  instead of once per suggestion, so it no longer sits on "Accepting…".
+- Pip no longer says a script was updated when its request was refused; you see why
+  nothing changed instead.
+- The note Pip passes to the script writer can be up to 2,000 characters, so a detailed
+  rewrite request is no longer refused for length.
+
 ## 0.5.8 — 23-Nov-2026
 
 - Approving a spoken-style entry you did not edit now approves the built-in words and keeps

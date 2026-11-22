@@ -466,6 +466,22 @@ describe("suggested changes to what a job notes (D-889, D-1029)", () => {
     });
   });
 
+  it("accepts all of them in one request", async () => {
+    const { calls } = await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
+      "/v1/lead-fields": withBhk(),
+      "/v1/inbound-lines/l1/notes": BHK_NOTES,
+      [BASE]: suggestions(),
+      [`POST ${BASE}/accept`]: { accepted: [ADD, NEW], remaining: suggestions({ suggestions: [] }) },
+    });
+    await screen.findByRole("heading", { name: "Suggested changes (2)" });
+    fireEvent.click(screen.getByRole("button", { name: "Accept all 2" }));
+    await waitFor(() => expect(screen.queryByText("New detail: Facing")).toBeNull());
+    const posts = calls.filter((c) => c.method === "POST" && c.path.startsWith(BASE));
+    expect(posts.map((c) => [c.path, JSON.parse(c.body ?? "null")])).toEqual([[`${BASE}/accept`, { ids: [ADD.id, NEW.id] }]]);
+  });
+
   it("turns one down, and holds Accept while the owner has unsaved edits", async () => {
     const { calls } = await renderClientPage(<LeadDetailsScreen />, {
       "/v1/me": OWNER,
