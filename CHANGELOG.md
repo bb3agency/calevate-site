@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.8 — 23-Nov-2026
+
+- Approving a spoken-style entry you did not edit now approves the built-in words and keeps
+  following them, so later corrections to the built-in words still reach calls. An approval
+  of words that have since changed shows as needing review again. Approvals made before this
+  are converted, and reach calls when the language is next published.
+
 ## 0.5.7 — 22-Nov-2026
 
 - A script Pip writes when a campaign or Inbound line is made is now as good as one you ask

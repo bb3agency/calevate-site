@@ -199,21 +199,22 @@ async def _view(session: AsyncSession, tag: str) -> LanguageOut:
     keys = list(file_entries) + sorted(k for k in working if k not in file_entries)
     entries: list[EntryOut] = []
     in_force: list[tuple[str, str]] = []
+    published_approved: set[tuple[str, str]] = set()
     for kind, key in keys:
         file_entry = file_entries.get((kind, key))
         file_value = dict(file_entry.value) if file_entry is not None else None
         state = working.get((kind, key))
-        value = state.value if state is not None else file_value
+        value, approved = state.in_force(file_value) if state is not None else (file_value, False)
         pub_state = published.get((kind, key))
-        published_value = pub_state.value if pub_state is not None else file_value
+        published_value, published_ok = (
+            pub_state.in_force(file_value) if pub_state is not None else (file_value, False)
+        )
         if published_value is not None:
             in_force.append((kind, key))
+        if published_ok:
+            published_approved.add((kind, key))
         status: EntryStatus = (
-            "retired"
-            if value is None
-            else "approved"
-            if state is not None and state.approved
-            else "needs_review"
+            "retired" if value is None else "approved" if approved else "needs_review"
         )
         entries.append(
             EntryOut(
@@ -228,9 +229,7 @@ async def _view(session: AsyncSession, tag: str) -> LanguageOut:
         )
     # Reviewed when a publication exists and every entry it puts in force carries the
     # reviewer's approval: the rule `calevate_shared.spoken_style` applies to the prompt.
-    reviewed = publication is not None and all(
-        k in published and published[k].approved for k in in_force
-    )
+    reviewed = publication is not None and all(k in published_approved for k in in_force)
     live = [e for e in entries if e.status != "retired"]
     history = await store.publication_history(session, language=tag)
     style = style_for(tag)
@@ -332,12 +331,13 @@ async def change_entry(
     file_entries = {(e.kind, e.key): e for e in default_entries(tag)}
     working = await store.entry_states(session, language=tag)
 
-    def current(key: str) -> dict[str, Any] | None:
-        state = working.get((kind, key))
-        if state is not None:
-            return state.value
+    def file_value(key: str) -> dict[str, Any] | None:
         entry = file_entries.get((kind, key))
         return dict(entry.value) if entry is not None else None
+
+    def current(key: str) -> dict[str, Any] | None:
+        state = working.get((kind, key))
+        return state.in_force(file_value(key))[0] if state is not None else file_value(key)
 
     if change.action == "add" and kind not in ADDABLE:
         raise _refuse(
@@ -366,6 +366,14 @@ async def change_entry(
         )
 
     value: dict[str, Any] | None
+    # Approving words nobody edited approves the file's: it stays in force as the file
+    # changes, and the approval lapses when the file's words do. Approving an edit keeps it.
+    prior = working.get((kind, key))
+    follows_file = (
+        change.action == "approve"
+        and file_value(key) is not None
+        and (prior is None or prior.follows_file)
+    )
     if change.action == "retire":
         if kind in REQUIRED:
             raise _refuse(
@@ -399,6 +407,7 @@ async def change_entry(
         value=value,
         approved=change.action != "retire",
         actor_id=principal.user_id,
+        follows_file=follows_file,
     )
     await write_audit(
         session,

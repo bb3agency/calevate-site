@@ -164,10 +164,30 @@ class StyleEntry:
 @dataclass(frozen=True, slots=True)
 class PublishedEntry:
     """The founder's published word on one entry: its value (None = retired) and whether
-    they approved it."""
+    they approved it.
+
+    `follows_file` marks an approval of the file's own words rather than an edit: the file's
+    current value stays in force, and `value` is the text that was approved, so the approval
+    holds only while the file still says that. Copying the value instead froze an old draft
+    over every later correction to the file the moment the language was published.
+    """
 
     value: Mapping[str, Any] | None
     approved: bool
+    follows_file: bool = False
+
+
+def in_force(
+    stored: Mapping[str, Any] | None,
+    approved: bool,
+    follows_file: bool,
+    file_value: Mapping[str, Any] | None,
+) -> tuple[Mapping[str, Any] | None, bool]:
+    """(the value in force, whether it is approved) for one revision over the file's entry."""
+    if not follows_file:
+        return stored, approved
+    holds = file_value is not None and stored is not None and dict(stored) == dict(file_value)
+    return file_value, approved and holds
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,11 +332,18 @@ def merged_entries(tag: str) -> tuple[list[StyleEntry], set[tuple[str, str]]]:
     approved: set[tuple[str, str]] = set()
     if layer is not None:
         for (kind, key), published in layer.entries.items():
-            if published.value is None:
+            file_entry = merged.get((kind, key))
+            value, ok = in_force(
+                published.value,
+                published.approved,
+                published.follows_file,
+                file_entry.value if file_entry is not None else None,
+            )
+            if value is None:
                 merged.pop((kind, key), None)
                 continue
-            merged[(kind, key)] = StyleEntry(kind=kind, key=key, value=published.value)  # type: ignore[arg-type]
-            if published.approved:
+            merged[(kind, key)] = StyleEntry(kind=kind, key=key, value=value)  # type: ignore[arg-type]
+            if ok:
                 approved.add((kind, key))
     return list(merged.values()), approved
 
@@ -1034,6 +1061,7 @@ __all__ = [
     "default_entries",
     "example_exchange",
     "example_sentence",
+    "in_force",
     "install_published",
     "language_pack",
     "languages",

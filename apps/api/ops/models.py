@@ -930,6 +930,11 @@ class SpokenStyleRevision(Base):
     entry_key: Mapped[str] = mapped_column(Text, nullable=False)
     value: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     approved: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    #: An approval of the file's own words: the file's current value is in force and
+    #: `value` is the text approved (`spoken_style.in_force`).
+    follows_file: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     created_by: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
     )

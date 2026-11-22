@@ -22,7 +22,7 @@ from apps.api.main import app
 from apps.api.ops import spoken_style_store
 from apps.api.ops.spoken_style_routes import publish_confirmation
 from calevate_shared.config import Settings
-from calevate_shared.spoken_style import style_for
+from calevate_shared.spoken_style import default_entries, style_for
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -236,3 +236,76 @@ async def test_editing_a_filler_keeps_its_slow_reply_mark_unless_it_is_unticked(
             },
         )
         assert filler_of(unticked.json())["value"]["thinking"] is False  # type: ignore[index]
+
+
+async def _latest_follows_file(kind: str) -> bool:
+    async with untenanted_session() as session:
+        return bool(
+            (
+                await session.execute(
+                    text(
+                        "SELECT follows_file FROM spoken_style_revisions "
+                        "WHERE language = :l AND kind = :k ORDER BY seq DESC LIMIT 1"
+                    ),
+                    {"l": LANGUAGE, "k": kind},
+                )
+            ).scalar_one()
+        )
+
+
+async def test_approving_the_file_words_follows_the_file_and_an_edit_stays_the_reviewers() -> None:
+    token, admin_id = await _make_admin()
+    file_line = next(e for e in default_entries(LANGUAGE) if e.kind == "register").value["text"]
+
+    def register_of(body: dict[str, object]) -> dict[str, object]:
+        entries = body["entries"]
+        assert isinstance(entries, list)
+        return next(e for e in entries if e["kind"] == "register")
+
+    approve = {"kind": "register", "key": "line", "action": "approve"}
+    async with _client() as http:
+        assert (await http.post(f"{BASE}/entries", headers=_auth(token), json=approve)).is_success
+        assert await _latest_follows_file("register")
+
+        # The file's words moved on after an approval: the approval was of older words.
+        async with untenanted_session() as session:
+            await spoken_style_store.add_revision(
+                session,
+                language=LANGUAGE,
+                kind="register",
+                key="line",
+                value={"text": "An older line."},
+                approved=True,
+                actor_id=admin_id,
+                follows_file=True,
+            )
+        stale = register_of((await http.get(BASE, headers=_auth(token))).json())
+        assert stale["status"] == "needs_review"
+        assert stale["value"]["text"] == file_line  # type: ignore[index]
+
+        published = await http.post(
+            f"{BASE}/publish",
+            headers=_auth(token, publish_confirmation(LANGUAGE)),
+            json={"reviewer_name": "Sri"},
+        )
+        assert published.status_code == 200, published.text
+        await spoken_style_store.refresh_spoken_style()
+        assert style_for(LANGUAGE).register == file_line  # type: ignore[union-attr]
+
+        again = await http.post(f"{BASE}/entries", headers=_auth(token), json=approve)
+        assert register_of(again.json())["status"] == "approved"
+
+        edited = await http.post(
+            f"{BASE}/entries",
+            headers=_auth(token),
+            json={
+                "kind": "register",
+                "key": "line",
+                "action": "edit",
+                "value": {"text": "Their own line."},
+            },
+        )
+        assert edited.is_success, edited.text
+        kept = await http.post(f"{BASE}/entries", headers=_auth(token), json=approve)
+    assert register_of(kept.json())["value"]["text"] == "Their own line."  # type: ignore[index]
+    assert not await _latest_follows_file("register")

@@ -26,6 +26,7 @@ from uuid import UUID
 from calevate_shared.spoken_style import (
     PublishedEntry,
     PublishedLanguage,
+    in_force,
     install_published,
 )
 from sqlalchemy import text
@@ -52,6 +53,14 @@ class Revision:
     value: dict[str, Any] | None
     approved: bool
     created_at: datetime
+    #: An approval of the file's own words: the file's current value is in force
+    #: (`spoken_style.in_force`), and `value` is the text approved.
+    follows_file: bool = False
+
+    def in_force(self, file_value: dict[str, Any] | None) -> tuple[dict[str, Any] | None, bool]:
+        """(value in force, approved) over the file's current value for this entry."""
+        value, approved = in_force(self.value, self.approved, self.follows_file, file_value)
+        return (dict(value) if value is not None else None), approved
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +81,8 @@ class Publication:
 
 
 _LATEST_PER_ENTRY = (
-    "SELECT DISTINCT ON (kind, entry_key) seq, kind, entry_key, value, approved, created_at "
+    "SELECT DISTINCT ON (kind, entry_key) seq, kind, entry_key, value, approved, created_at, "
+    "follows_file "
     "FROM spoken_style_revisions WHERE language = :language "
     "AND (CAST(:through AS bigint) IS NULL OR seq <= CAST(:through AS bigint)) "
     "ORDER BY kind, entry_key, seq DESC"
@@ -95,6 +105,7 @@ async def entry_states(
             value=dict(r[3]) if r[3] is not None else None,
             approved=bool(r[4]),
             created_at=r[5],
+            follows_file=bool(r[6]),
         )
         for r in rows
     }
@@ -166,14 +177,15 @@ async def add_revision(
     value: dict[str, Any] | None,
     approved: bool,
     actor_id: Any,
+    follows_file: bool = False,
 ) -> int:
     seq = (
         await session.execute(
             text(
                 "INSERT INTO spoken_style_revisions "
-                "(language, kind, entry_key, value, approved, created_by) "
-                "VALUES (:language, :kind, :key, CAST(:value AS jsonb), :approved, :by) "
-                "RETURNING seq"
+                "(language, kind, entry_key, value, approved, created_by, follows_file) "
+                "VALUES (:language, :kind, :key, CAST(:value AS jsonb), :approved, :by, "
+                ":follows) RETURNING seq"
             ),
             {
                 "language": language,
@@ -182,6 +194,7 @@ async def add_revision(
                 "value": None if value is None else _json(value),
                 "approved": approved,
                 "by": actor_id,
+                "follows": follows_file,
             },
         )
     ).scalar_one()
@@ -230,7 +243,9 @@ async def published_layer(session: AsyncSession) -> dict[str, PublishedLanguage]
         )
         layer[language] = PublishedLanguage(
             entries={
-                key: PublishedEntry(value=state.value, approved=state.approved)
+                key: PublishedEntry(
+                    value=state.value, approved=state.approved, follows_file=state.follows_file
+                )
                 for key, state in states.items()
             },
             reviewed_by=publication.reviewer_name,
