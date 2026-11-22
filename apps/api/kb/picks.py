@@ -3,7 +3,8 @@ line's (`inbound_line_sources`, D-997) and a campaign's (`campaign_sources`). On
 one writer for both, so a line and a campaign resolve a pick the same way.
 
 A pick names a `kb_sources` row. A typed note gets a new row on every edit, so a picked note
-is read as its newest version (by name); a file or link keeps its row, so its id stands.
+is read as its newest version (by name); a file or link keeps its row until Replace file
+archives it, and is then read as the live version of that name.
 """
 
 from __future__ import annotations
@@ -64,14 +65,22 @@ async def read_picks(
                 "(SELECT 1 FROM kb_uploads w WHERE w.source_id = s.id) "
                 "AND n.name = s.name AND n.kind = 'text' AND NOT EXISTS "
                 "(SELECT 1 FROM kb_uploads u WHERE u.source_id = n.id) "
-                "ORDER BY n.version DESC, n.id DESC LIMIT 1), p.kb_source_id) "
+                "ORDER BY n.version DESC, n.id DESC LIMIT 1), "
+                # A file or link that Replace file archived follows its name to the live
+                # version, so a campaign keeps reading the file it picked, not the old copy.
+                "(SELECT n.id FROM kb_sources n WHERE s.kind IN ('file', 'url') "
+                "AND s.status = 'archived' AND n.name = s.name AND n.kind = s.kind "
+                "AND n.is_active ORDER BY n.version DESC, n.id DESC LIMIT 1), "
+                "p.kb_source_id) "
                 f"FROM {_table_of(picks)} p JOIN kb_sources s ON s.id = p.kb_source_id "
                 f"WHERE p.{_holder_of(picks)} = ANY(:ids) ORDER BY p.created_at, p.id"
             ),
             {"ids": holder_ids},
         )
     ).all():
-        found[holder_id].append(source_id)
+        # Two picks can resolve to one live version: an old copy and its replacement.
+        if source_id not in found[holder_id]:
+            found[holder_id].append(source_id)
     return found
 
 

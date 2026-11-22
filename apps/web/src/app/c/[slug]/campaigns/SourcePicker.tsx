@@ -44,7 +44,10 @@ function useSourceChoices() {
     const fromNotes = (notes.data?.notes ?? [])
       .filter((note) => note.state !== "removed")
       .map((note) => ({ id: note.id, name: note.name, kind: "Note" }));
-    const fromUploads = (uploads.data ?? []).map((upload) => ({
+    // A replaced file's old copy is archived; What your agents know hides it, and so does this.
+    const fromUploads = (uploads.data ?? [])
+      .filter((upload) => upload.review_state !== "archived")
+      .map((upload) => ({
       id: upload.source_id,
       name: upload.name,
       kind: upload.source_kind === "url" ? "Link" : "File",

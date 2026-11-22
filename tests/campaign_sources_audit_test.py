@@ -154,3 +154,21 @@ async def test_pip_reads_a_picked_note_that_is_approved_but_not_yet_live() -> No
     assert picked == [("Just added", "Free first month.")]
     # What every agent uses is still only what is live.
     assert "Just added" not in dict(everything)
+
+
+async def test_a_picked_file_that_was_replaced_reads_as_its_live_version_once() -> None:
+    tenant_id, campaign_id = await _campaign()
+    async with tenant_session(tenant_id) as session:
+        old = await _source(
+            session, tenant_id, name="Guide.md", kind="file", status="archived", active=False
+        )
+        live = await _source(session, tenant_id, name="Guide.md", kind="file", version=2)
+        await workspace.set_sources(
+            session,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+            kb_source_ids=[old, live],
+            created_by=None,
+        )
+        found = await picks.read_picks(session, picks.CAMPAIGN_PICKS, [campaign_id])
+    assert found[campaign_id] == [live]

@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.4 — 22-Nov-2026
+
+- A file replaced in What your agents know is listed once in a campaign's or line's
+  Sources, and a campaign that picked it reads the new version, not the old copy.
+
 ## 0.5.3 — 22-Nov-2026
 
 - What a call writes down now belongs to the campaign or the Inbound line it is for. Each

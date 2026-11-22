@@ -138,3 +138,12 @@ describe("a campaign's sources", () => {
     expect(screen.getByRole("button", { name: "Add a file or note" })).toBeTruthy();
   });
 });
+
+describe("a replaced file", () => {
+  it("is listed once, as its live version", async () => {
+    const old: KbUpload = { ...UPLOAD, id: "upload-0", source_id: NEW_ID, review_state: "archived", is_live: false };
+    await render({ "/v1/kb/uploads": [UPLOAD, old] });
+    const list = await screen.findByRole("group", { name: "Sources for this campaign" });
+    expect(within(list).getAllByText("Price list.pdf")).toHaveLength(1);
+  });
+});
