@@ -156,7 +156,7 @@ async def test_saving_what_it_notes_again_puts_a_refused_save_live(
     campaign_id = await _campaign(tenant_id, agent_id, status="running")
     await _publish(tenant_id, campaign_id)
     async with tenant_session(tenant_id) as session:
-        shown = await notes.read_notes(session, campaign_id)
+        shown = await notes.read_notes(session, "campaign", campaign_id)
     real = workspace_routes.put_campaign_live
     tries: list[UUID] = []
 
