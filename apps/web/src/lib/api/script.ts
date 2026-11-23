@@ -73,7 +73,8 @@ export interface ConversationStage {
   /** Stable id: branches and the canvas point at it. */
   id: string;
   name: string;
-  /** "say": `instruction` is said as written (best effort). */
+  /** "say": a scenario's script line is said word for word (D-1035); a section from before
+   *  scenarios (no `step`, no `scripts`) says its `instruction` (best effort). */
   mode?: "guide" | "say";
   instruction: string;
   /** One line in the call's language showing how the section sounds. */
@@ -175,7 +176,21 @@ export interface CallScript {
   example_needs_review: boolean;
   /** How closely the sections are followed. */
   adherence?: "flexible" | "strict";
+  /** What must be true before the call leaves each step (column); the scenarios are
+   *  examples of reaching it. Mirrors `StepOutcome`. Absent on a script that never had
+   *  one, and the editor leaves it absent until an outcome is written. */
+  step_outcomes?: StepOutcome[];
 }
+
+/** One step's outcome. Mirrors `StepOutcome`. */
+export interface StepOutcome {
+  /** The step (column), 1-based. */
+  step: number;
+  outcome: string;
+}
+
+/** `StepOutcome.outcome`'s server limit. */
+export const STEP_OUTCOME_MAX = 300;
 
 /** The empty structured script a brand-new agent opens on. */
 export const EMPTY_SCRIPT: CallScript = {

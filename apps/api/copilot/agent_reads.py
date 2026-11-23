@@ -32,6 +32,8 @@ from calevate_shared.call_script import (
     CallScript,
     ConversationStage,
     extract_variable_names,
+    says_instruction,
+    says_scenario_line,
     substitute_variables,
     upgrade_to_v2,
 )
@@ -192,8 +194,10 @@ def _step_lines(stages: Sequence[ConversationStage]) -> list[str]:
     lines = [f"Steps ({len(stages)}), in order, numbered and named as in its script:"]
     for index, stage in enumerate(stages):
         lines.append(f"{index + 1}. {stage.name.strip()}: {' '.join(stage.instruction.split())}")
-        if stage.mode == "say":
+        if says_instruction(stage):
             lines.append("   Says it in exactly these words.")
+        elif says_scenario_line(stage):
+            lines.append("   Says its scenario line in exactly those words.")
         if stage.sounds_like.strip():
             lines.append(f"   Example line: “{' '.join(stage.sounds_like.split())}”")
         if stage.collect:

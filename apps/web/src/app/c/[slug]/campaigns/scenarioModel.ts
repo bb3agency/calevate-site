@@ -70,13 +70,47 @@ export function placed(sections: Section[]): Placed[] {
   });
 }
 
-/** Every section with its step written out, sorted by step (stable), steps numbered 1..n. */
+/**
+ * Every section with its step written out, sorted by step (stable), steps numbered 1..n.
+ * Each step's outcome follows its step to the new number; the outcome of a step left with
+ * no scenario goes with it, as the step does.
+ */
 function settle(script: CallScript, steps: number[]): CallScript {
   const sections = sectionsOf(script);
   const order = sections.map((s, i) => ({ s, step: steps[i], i })).sort((a, b) => a.step - b.step || a.i - b.i);
   const used = [...new Set(order.map((o) => o.step))];
   const renumber = new Map(used.map((step, i) => [step, i + 1]));
-  return { ...script, stages: order.map(({ s, step }) => ({ ...s, step: renumber.get(step) ?? step })) };
+  const settled: CallScript = {
+    ...script,
+    stages: order.map(({ s, step }) => ({ ...s, step: renumber.get(step) ?? step })),
+  };
+  if (script.step_outcomes === undefined) return settled;
+  return {
+    ...settled,
+    step_outcomes: script.step_outcomes.flatMap((o) => {
+      const step = renumber.get(o.step);
+      return step === undefined ? [] : [{ ...o, step }];
+    }),
+  };
+}
+
+/** What must be true before the call leaves `step`, or "" when none is written. */
+export function outcomeOf(script: CallScript, step: number): string {
+  return script.step_outcomes?.find((o) => o.step === step)?.outcome ?? "";
+}
+
+/**
+ * Write a step's outcome. A blank one is removed rather than stored empty, and a script that
+ * never had outcomes gains the list only when one is written, so an untouched script saves
+ * exactly as it was read.
+ */
+export function setOutcome(script: CallScript, step: number, outcome: string): CallScript {
+  const rest = (script.step_outcomes ?? []).filter((o) => o.step !== step);
+  if (!outcome.trim()) {
+    return script.step_outcomes === undefined ? script : { ...script, step_outcomes: rest };
+  }
+  const next = [...rest, { step, outcome }].sort((a, b) => a.step - b.step);
+  return { ...script, step_outcomes: next };
 }
 
 /** The script with every section's step stored and the list in step order. */
@@ -96,12 +130,17 @@ export function addScenario(
   const base = normalise(script);
   const sections = sectionsOf(base);
   let steps = stepsOf(sections);
-  if (opts.newStep) steps = steps.map((n) => (n >= step ? n + 1 : n));
+  let outcomes = base.step_outcomes;
+  if (opts.newStep) {
+    steps = steps.map((n) => (n >= step ? n + 1 : n));
+    outcomes = outcomes?.map((o) => (o.step >= step ? { ...o, step: o.step + 1 } : o));
+  }
   const afterAt = opts.after ? sections.findIndex((s) => s.id === opts.after) : -1;
   const lastInStep = steps.reduce((at, n, i) => (n === step ? i : at), -1);
   const firstAfter = steps.findIndex((n) => n > step);
   const at = afterAt >= 0 ? afterAt + 1 : lastInStep >= 0 ? lastInStep + 1 : firstAfter >= 0 ? firstAfter : sections.length;
-  const shifted = { ...base, stages: sections.map((s, i) => ({ ...s, step: steps[i] })) };
+  const shifted: CallScript = { ...base, stages: sections.map((s, i) => ({ ...s, step: steps[i] })) };
+  if (outcomes !== undefined) shifted.step_outcomes = outcomes;
   const made = addSection(shifted, { name: freeName(sections), step }, at);
   return { script: normalise(made.script), id: made.id };
 }

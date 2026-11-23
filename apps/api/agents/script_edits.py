@@ -27,6 +27,7 @@ from calevate_shared.call_script import (
     CallScript,
     ConversationStage,
     Objection,
+    says_instruction,
 )
 from calevate_shared.spoken_guard import english_problem, has_indic_letters, textbook_problem
 from pydantic import ValidationError
@@ -272,7 +273,7 @@ def language_problem(
     `apply_edit` applies the owner's kept edits and never judges their language."""
     opening = edit.op == "set_part" and edit.part == "opening_line"
     stage = _stage_of(edit, script)
-    spoken = opening or (stage is not None and stage.mode == "say")
+    spoken = opening or (stage is not None and says_instruction(stage))
     text = added_text(edit, script)
     if not text:
         return None

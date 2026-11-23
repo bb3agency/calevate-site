@@ -719,9 +719,11 @@ class ProcedureStep(BaseModel):
 class ConversationStage(BaseModel):
     """One section of the call, a node of the script's section graph.
 
-    The list order is the call order. `mode` "say" asks for `instruction` to be said as
-    written (best effort: only the opening line is guaranteed verbatim). `sounds_like` is an
-    optional line in the call's language showing how it sounds. `branches` are the ways out
+    The list order is the call order. `mode` "say" asks for a line to be said as written
+    (best effort: only the opening line is guaranteed verbatim): a scenario's script line
+    (`says_scenario_line`), or the instruction of a section drawn before scenarios
+    (`says_instruction`). `sounds_like` is an optional line in the call's language showing
+    how it sounds. `branches` are the ways out
     on a condition, `otherwise` where to go when none holds (empty: the next section), and
     `collect` what must be in hand first. `position` is the canvas layout and is never
     compiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.
@@ -744,8 +746,9 @@ class ConversationStage(BaseModel):
     #: The bend of the arrow to `otherwise` (or the next section). Layout only.
     otherwise_via: CanvasPosition | None = None
     #: The step (column) of the call flow this section is a scenario of, 1-based; None for a
-    #: script drawn before scenarios, where each section is its own step. Layout only: the
-    #: call order is the list order, which the builder keeps sorted by step.
+    #: script drawn before scenarios, where each section is its own step. It never orders the
+    #: call (the list order does, which the builder keeps sorted by step); a set step marks
+    #: a scenario, whose instruction is never said (`says_instruction`).
     step: int | None = Field(default=None, ge=1, le=MAX_SCRIPT_STAGES)
     #: What to say in this scenario, by language tag (`en-IN`, `te-IN`, ...).
     scripts: dict[str, str] = Field(default_factory=dict)
@@ -994,9 +997,39 @@ ADHERENCE_SENTENCES: Final[dict[str, str]] = {
 PROCEDURE_POINTER: Final = "Then go through its steps under {name} in {header}, one at a time."
 
 
+#: A "say" scenario's step detail ends its description with this (D-1035). The words to say
+#: are the scenario's script line in the caller's language, held under `SCENARIO_HEADER`;
+#: the description stays an instruction in English and is never spoken. Best effort: an
+#: engine with a fixed-text node speaks it without the model (Retell's "static sentence",
+#: docs.retellai.com/build/conversation-flow/conversation-node, 23 Nov 2026); ThinnestAI's
+#: `AgentStepInput` has no such field, only title, detail, branches and collect
+#: (snapshots/2026-10-29/pages/api-reference/agents/create-agent.md:1225), so the model
+#: is told, as for a v1 "Say:" step.
+SAY_EXACT_STEP: Final = "Say its line exactly as written, word for word."
+#: Opens a "say" scenario's lines under `SCENARIO_HEADER`, overriding `SCENARIO_LEAD`'s "in
+#: your own natural words" for that scenario only, so a script with no "say" scenario
+#: compiles exactly as it did before D-1035.
+SAY_EXACT_LINES: Final = "Say this line exactly as written, word for word, not in your own words."
+
+
+def says_scenario_line(stage: ConversationStage) -> bool:
+    """A scenario switched to "Say this line exactly" that has a line to say (D-1035)."""
+    return stage.mode == "say" and bool(stage.scripts)
+
+
+def says_instruction(stage: ConversationStage) -> bool:
+    """A section drawn before scenarios (no `step`, no script lines) in "say" mode, whose
+    instruction IS the spoken line. A scenario's instruction is its English description,
+    so a scenario in "say" mode with no line yet is followed in the agent's own words rather
+    than having its description read to the caller."""
+    return stage.mode == "say" and stage.step is None and not stage.scripts
+
+
 def _stage_detail(stage: ConversationStage) -> str:
     text = " ".join(stage.instruction.split())
-    detail = f"Say: {_quote(text)}" if stage.mode == "say" else text
+    detail = f"Say: {_quote(text)}" if says_instruction(stage) else text
+    if says_scenario_line(stage):
+        detail += f" {SAY_EXACT_STEP}"
     if stage.sounds_like.strip():
         detail += f" It sounds like: {_quote(stage.sounds_like)}"
     if stage.procedure:
@@ -1025,6 +1058,8 @@ def _scenario_blocks(stages: Sequence[ConversationStage]) -> str:
     blocks: list[str] = []
     for stage in stages:
         lines = [f"{stage.name.strip()}:"]
+        if says_scenario_line(stage):
+            lines.append(SAY_EXACT_LINES)
         lines += [f"{names.get(tag, tag)}: {_quote(text)}" for tag, text in stage.scripts.items()]
         for qa in stage.qa:
             lines.append(f"Caller: {qa.question.strip()}\nYou: {qa.answer.strip()}")
@@ -1520,6 +1555,8 @@ __all__ = [
     "QUICK_FACTS_HEADER",
     "QUICK_FACTS_LEAD",
     "RETIRED_FAQ_FALLBACK",
+    "SAY_EXACT_LINES",
+    "SAY_EXACT_STEP",
     "SCRIPT_SCHEMA_VERSION",
     "SPECIAL_TARGETS",
     "STAGE_DETAIL_MAX",
@@ -1561,6 +1598,8 @@ __all__ = [
     "quick_fact_lines",
     "render_steps",
     "said_notices_of",
+    "says_instruction",
+    "says_scenario_line",
     "script_text",
     "splice_known_facts",
     "splice_quick_facts",

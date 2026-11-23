@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -29,9 +30,9 @@ import {
   type ReactNode,
 } from "react";
 
-import { FIELD, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { FIELD, SECONDARY_BUTTON_SM, ToggleSwitch } from "@/components/ui";
 import type { WriteAccess } from "@/lib/api/hooks";
-import type { CallScript } from "@/lib/api/script";
+import { STEP_OUTCOME_MAX, type CallScript } from "@/lib/api/script";
 import { lookup } from "@/lib/lookup";
 
 import { HearLine, type FlowAgent } from "./LineCoach";
@@ -42,14 +43,18 @@ import {
   addScenario,
   deleteScenario,
   moveToStep,
+  outcomeOf,
   placed,
   renameScenario,
   setNext,
+  setOutcome,
   shiftInStep,
   type Placed,
 } from "./scenarioModel";
 import {
   SPECIAL_TARGETS,
+  chars,
+  saysScenarioLine,
   sectionsOf,
   updateSection,
   type Issue,
@@ -60,7 +65,8 @@ const BOX_W = 232;
 const BOX_H = 112;
 const COL_GAP = 88;
 const ROW_GAP = 18;
-const HEAD_H = 40;
+/** A step's heading: its name and "Scenario" button, then its outcome field. */
+const HEAD_H = 150;
 const PAD = 20;
 /** A step's band reaches `BAND_INSET` past its cards on each side, so the side padding must
  * hold it: with less, the first band and its "Step 1" heading start left of the canvas and
@@ -95,6 +101,63 @@ function link(a: Point, b: Point): string {
 
 /** A coloured block of the scenario editor: each kind of content keeps its own colour. */
 const SECTION = "rounded-card border border-line border-l-4 p-3";
+
+const OUTCOME_HINT =
+  "What must be true before the call moves on. The agent reaches it however the call goes; the scenarios are examples.";
+
+/**
+ * A step's outcome (founder, 23 Nov 2026): what the agent must reach before the call leaves
+ * the step, by whichever scenario. `compact` is the canvas column, which has room for the
+ * field but not the hint, so the hint is read with it by a screen reader and shown once
+ * above the canvas instead.
+ */
+function StepOutcomeField({
+  step,
+  value,
+  readOnly,
+  compact,
+  onChange,
+}: {
+  step: number;
+  value: string;
+  readOnly: boolean;
+  compact: boolean;
+  onChange: (next: string) => void;
+}) {
+  const id = useId();
+  const used = chars(value);
+  return (
+    <div>
+      <label htmlFor={id} className="block text-meta font-medium text-ink">
+        Outcome of this step
+        <span className="sr-only">, step {step}</span>
+      </label>
+      <p
+        id={`${id}-hint`}
+        className={compact ? "sr-only" : "text-meta text-ink-muted"}
+      >
+        {OUTCOME_HINT}
+      </p>
+      <textarea
+        id={id}
+        className={`${FIELD} ${compact ? "resize-none text-meta" : ""}`}
+        rows={2}
+        value={value}
+        maxLength={STEP_OUTCOME_MAX}
+        readOnly={readOnly}
+        aria-describedby={`${id}-hint ${id}-count`}
+        placeholder={compact ? "What must be true to move on" : undefined}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <p
+        id={`${id}-count`}
+        className="text-right text-[11px] tabular-nums text-ink-faint"
+      >
+        {used}/{STEP_OUTCOME_MAX}
+      </p>
+    </div>
+  );
+}
 
 type Menu = { x: number; y: number; id: string | null; step: number };
 
@@ -264,6 +327,8 @@ export function ScenarioFlow({
         onSelect={onSelect}
         onAdd={add}
         onMenu={openMenu}
+        outcome={(step) => outcomeOf(script, step)}
+        onOutcome={(step, text) => onChange(setOutcome(script, step, text))}
         onLink={(from, to) => {
           const source = items.find((p) => p.section.id === from)?.section;
           if (
@@ -290,6 +355,8 @@ export function ScenarioFlow({
         onSelect={onSelect}
         onAdd={add}
         onMenu={openMenu}
+        outcome={(step) => outcomeOf(script, step)}
+        onOutcome={(step, text) => onChange(setOutcome(script, step, text))}
         editor={editor}
       />
     );
@@ -298,7 +365,14 @@ export function ScenarioFlow({
     <>
       {wide ? (
         <div className="mt-4 space-y-4">
-          <div className="min-w-0">{picture}</div>
+          <div className="min-w-0">
+            {items.length > 0 && (
+              <p className="mb-2 text-meta text-ink-muted">
+                Outcome of a step: {OUTCOME_HINT}
+              </p>
+            )}
+            {picture}
+          </div>
           <aside
             aria-label="Edit the chosen scenario"
             className="min-w-0 scroll-mt-4 rounded-card border border-series-2/40 bg-surface"
@@ -342,6 +416,8 @@ function Columns({
   onAdd,
   onMenu,
   onLink,
+  outcome,
+  onOutcome,
 }: {
   items: Placed[];
   steps: number;
@@ -353,6 +429,8 @@ function Columns({
   onAdd: (step: number, opts?: { after?: string; newStep?: boolean }) => void;
   onMenu: (e: ReactMouseEvent, id: string | null, step: number) => void;
   onLink: (from: string, to: string) => void;
+  outcome: (step: number) => string;
+  onOutcome: (step: number, text: string) => void;
 }) {
   const plane = useRef<HTMLDivElement>(null);
   const [linking, setLinking] = useState<{ from: string; to: Point } | null>(
@@ -442,25 +520,33 @@ function Columns({
             }}
             onContextMenu={(e) => onMenu(e, null, step)}
           >
-            <div
-              className="flex items-center justify-between px-3 pt-3"
-              style={{ height: HEAD_H }}
-            >
-              <span className="text-meta font-semibold text-ink">
-                Step {step}
-              </span>
-              {!readOnly && (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-brand-strong hover:bg-brand/10 disabled:opacity-40"
-                  disabled={full}
-                  onClick={() => onAdd(step)}
-                  aria-label={`Add a scenario to step ${step}`}
-                >
-                  <Plus aria-hidden className="h-3 w-3" />
-                  Scenario
-                </button>
-              )}
+            <div className="px-3 pt-3" style={{ height: HEAD_H }}>
+              <div className="flex items-center justify-between">
+                <span className="text-meta font-semibold text-ink">
+                  Step {step}
+                </span>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-brand-strong hover:bg-brand/10 disabled:opacity-40"
+                    disabled={full}
+                    onClick={() => onAdd(step)}
+                    aria-label={`Add a scenario to step ${step}`}
+                  >
+                    <Plus aria-hidden className="h-3 w-3" />
+                    Scenario
+                  </button>
+                )}
+              </div>
+              <div className="mt-1.5">
+                <StepOutcomeField
+                  step={step}
+                  value={outcome(step)}
+                  readOnly={readOnly}
+                  compact
+                  onChange={(text) => onOutcome(step, text)}
+                />
+              </div>
             </div>
           </div>
         ))}
@@ -580,6 +666,7 @@ function Columns({
                 </span>
                 <span className="mt-auto truncate text-[11px] text-ink-faint">
                   {[
+                    p.section.mode === "say" ? "Exact words" : null,
                     scripts
                       ? `Script in ${scripts} ${scripts === 1 ? "language" : "languages"}`
                       : null,
@@ -650,6 +737,8 @@ function Stacked({
   onAdd,
   onMenu,
   editor,
+  outcome,
+  onOutcome,
 }: {
   items: Placed[];
   steps: number;
@@ -660,6 +749,8 @@ function Stacked({
   onAdd: (step: number) => void;
   onMenu: (e: ReactMouseEvent, id: string | null, step: number) => void;
   editor: React.ReactNode;
+  outcome: (step: number) => string;
+  onOutcome: (step: number, text: string) => void;
 }) {
   const labelOf = (target: string) =>
     lookup(END_NAMES, target) ?? items.find((p) => p.section.id === target)?.label ?? "?";
@@ -685,6 +776,15 @@ function Stacked({
               </button>
             )}
           </div>
+          <div className="mt-2">
+            <StepOutcomeField
+              step={step}
+              value={outcome(step)}
+              readOnly={readOnly}
+              compact={false}
+              onChange={(text) => onOutcome(step, text)}
+            />
+          </div>
           <ul className="mt-2 space-y-2">
             {items
               .filter((p) => p.step === step)
@@ -709,6 +809,11 @@ function Stacked({
                       <span className="font-semibold text-ink">
                         {p.section.name}
                       </span>
+                      {p.section.mode === "say" && (
+                        <span className="ml-auto shrink-0 text-[11px] text-ink-muted">
+                          Exact words
+                        </span>
+                      )}
                     </span>
                     <span className="mt-1 block text-meta text-ink-muted">
                       {p.section.instruction}
@@ -966,6 +1071,37 @@ function ScenarioEditor({
               </div>
             ) : null}
           </div>
+
+          <ToggleSwitch
+            label="Say this line exactly"
+            hint="On: the agent says the script line word for word. Off: it says it in its own words."
+            checked={s.mode === "say"}
+            disabled={readOnly}
+            // The step is written out so a section drawn before scenarios is read as a
+            // scenario (its description is never said), and a line it held as "how it
+            // sounds" becomes its script line, as typing in the box does.
+            onChange={(on) =>
+              patch(
+                !on
+                  ? { mode: "guide" }
+                  : main && legacy
+                    ? {
+                        mode: "say",
+                        step: item.step,
+                        scripts: { ...scripts, [main]: legacy },
+                        sounds_like: "",
+                      }
+                    : { mode: "say", step: item.step },
+              )
+            }
+          >
+            {s.mode === "say" && !saysScenarioLine(s) && (
+              <p className="ml-12 mt-1 text-meta text-ink-muted">
+                Write the script line above. Until then the agent uses its own
+                words.
+              </p>
+            )}
+          </ToggleSwitch>
 
           <fieldset
             className={`min-w-0 ${SECTION} border-l-series-5 bg-series-5/5`}
