@@ -12,7 +12,7 @@ from uuid import UUID
 import pytest
 from apps.api.billing.invoice import build_invoice
 from apps.api.billing.plans import ist_billing_month
-from apps.api.billing.service import usage_summary
+from apps.api.billing.service import margin_for_tenant, usage_summary
 from apps.api.billing.trials import TRIAL_CONVERTED, TRIAL_STOPPED, end_trial, start_trial
 from apps.api.db.session import tenant_session
 from apps.workers import trials as trial_sweep
@@ -238,3 +238,31 @@ async def test_a_trial_call_with_no_engine_times_is_dated_by_its_call_row() -> N
     _month, minutes, _spend, _capped, billed = await _spend_state(tenant_id)
     assert billed == Decimal("0.00")
     assert minutes == Decimal("0.00")
+
+
+async def test_a_running_trial_puts_no_extra_minutes_on_the_open_months_statement() -> None:
+    """While a trial runs, the open month's statement bills no overage for the trial's free
+    minutes: the panel says the period is on us, and the statement for the same month
+    must not charge for those minutes."""
+    tenant_id, agent_id, _ = await _cap_tenant("trialstatement")
+    await _plan(tenant_id, included_min=0)
+    now = datetime.now(UTC)
+    m = timedelta(minutes=1)
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=1, actor_user_id=None, at=now - 40 * m)
+    await _metered(tenant_id, agent_id, seconds=300, started=now - 35 * m, ended=now - 30 * m)
+
+    async with tenant_session(tenant_id) as session:
+        usage = await usage_summary(session, tenant_id=tenant_id)
+        invoice = await build_invoice(session, tenant_id=tenant_id, month=ist_billing_month(now))
+    assert usage["trial"]["active"] is True
+    assert usage["month_charges_inr"] == Decimal("0.00")
+    calling = [
+        item
+        for item in invoice["line_items"]
+        if str(item["description"]).startswith(("Extra calling minutes", "AI model upgrade"))
+    ]
+    assert calling == [], "trial minutes are not billed"
+    async with tenant_session(tenant_id) as session:
+        margin = await margin_for_tenant(session, tenant_id=tenant_id)
+    assert margin["revenue_inr"] == invoice["subtotal_inr"], "revenue is what is billed"

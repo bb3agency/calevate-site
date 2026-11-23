@@ -4154,6 +4154,7 @@ async def margin_for_tenant(
     # stays here because a prepaid tenant has none; the CALLING half is the part that
     # differs, and it has one home now.
     tier = await plan_tier_of(session, tenant_id)
+    trial_view = bool(usage["trial"]["active"])
     # THROUGH `month_charges_inr`, which is also what the client's own panel publishes as
     # `month_charges_inr`. Revenue and "what the client owes" are the same number seen from
     # two sides, and they used to be two expressions in two modules. The model surcharge is
@@ -4170,16 +4171,18 @@ async def margin_for_tenant(
         # dict because the dict is the CLIENT's panel (`UsagePanelOut`) and this is not a
         # field of it — `month` and `counter_epoch` are what make the two reads agree.
         #
-        # A period ON US contributes ₹0.00 revenue and that is the honest figure: nothing
-        # was charged. The cost side is unchanged, so a trial shows as the loss it is,
-        # which is what `trials.trial_cost_to_us_inr` exists to size.
+        # A period ON US contributes ₹0.00 calling revenue and that is the honest figure:
+        # nothing was charged. Its overage and surcharge are priced over the trial's free
+        # minutes (what the trial absorbs), so they are zeroed here as `build_invoice`
+        # leaves them off the statement. The cost side is unchanged, so a trial shows as
+        # the loss it is, which is what `trials.trial_cost_to_us_inr` exists to size.
         calling_inr=calling_revenue_inr(
             plan_tier=tier,
             prepaid_charged_inr=(
                 await voice_tier_usage(session, tenant_id=tenant_id, month=str(usage["month"]))
             ).total_inr,
-            overage_cost_inr=usage["overage_cost_inr"],
-            llm_surcharge_inr=usage["llm_surcharge_inr"],
+            overage_cost_inr=_ZERO_PAISE if trial_view else usage["overage_cost_inr"],
+            llm_surcharge_inr=_ZERO_PAISE if trial_view else usage["llm_surcharge_inr"],
         ),
     )
     # PHONE NUMBER RENTAL (D-665). Our cost of a rented number is a `number_rental` usage

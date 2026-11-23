@@ -471,9 +471,15 @@ async def build_invoice(
     # THE EXTRA AI HELP BLOCK the wallet paid for this month (prepaid only, one per month).
     line_items.extend(await ai_help_statement_lines(session, tenant_id=tenant_id, month=period))
 
+    # While a trial runs, the open month is counted over the trial's own free minutes
+    # (`service.counting_window`), so the plan-priced overage and model upgrade
+    # `usage_summary` computes from them are what the trial absorbs, not what is owed
+    # (`absorbed_calling_inr`). They are left off the statement, as `month_charges_inr`
+    # leaves them out of the panel's total.
+    trial_view = bool(usage["trial"]["active"])
     overage_minutes: Decimal = usage["overage_minutes"]
     overage_cost: Decimal = usage["overage_cost_inr"]
-    if overage_minutes > 0 and overage_cost > 0:
+    if not trial_view and overage_minutes > 0 and overage_cost > 0:
         # The rates come from `usage_summary`, which is the computation that PRICED the
         # overage. Re-reading `plans` here was a second query with its own
         # `ORDER BY created_at DESC LIMIT 1` — two plan rows sharing a created_at and
@@ -547,7 +553,12 @@ async def build_invoice(
     surcharge_minutes: Decimal = usage["llm_surcharge_minutes"]
     surcharge_rate: Decimal | None = usage["llm_surcharge_rate_inr"]
     surcharge_amount: Decimal = usage["llm_surcharge_inr"]
-    if surcharge_rate is not None and surcharge_minutes > 0 and surcharge_amount > 0:
+    if (
+        not trial_view
+        and surcharge_rate is not None
+        and surcharge_minutes > 0
+        and surcharge_amount > 0
+    ):
         # The TIERS are named because they are what the client chose, on the screen they
         # chose them on — never the model ids behind them, which are ours (D-679, D-680).
         chosen = ", ".join(client_model_labels(usage["llm_surcharge_models"]))
