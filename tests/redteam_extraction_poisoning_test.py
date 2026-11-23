@@ -38,7 +38,7 @@ import csv
 import io
 import json
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import scripts.eval as ev
@@ -50,8 +50,9 @@ from apps.api.integrations.service import sheet_row
 from apps.workers.extraction import OfflineExtractor, extract_call
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec, coerce_value
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# The tenant/agent/extraction-schema fixture the export needs, borrowed rather than
+# The tenant/agent fixture the export needs, borrowed rather than
 # re-built: `leads_scale_test` already owns the shape of a client account with leads in
 # it, and a second copy here would drift from the one the export is really read against.
 from tests.leads_scale_test import _org
@@ -125,6 +126,24 @@ def test_the_sheets_export_neutralises_a_dictated_formula(payload: str) -> None:
 EXECUTABLE_LEADERS = ("=", "+", "-", "@", "\uff1d", "\uff0b", "\uff0d", "\uff20")
 
 
+async def _line_noting(session: AsyncSession, agent_id: UUID, label: str) -> None:
+    """An inbound line in `agent_id`'s voice that notes `intent` under `label`. The Leads
+    columns are what the account's campaigns and lines note (`crm.service.lead_columns`,
+    D-1028), not the agent's own schema."""
+    await session.execute(
+        text(
+            "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, extraction_fields, "
+            "created_at, updated_at) SELECT :i, tenant_id, 'Enquiries', id, "
+            "CAST(:f AS jsonb), now(), now() FROM agents WHERE id = :a"
+        ),
+        {
+            "i": uuid7(),
+            "a": agent_id,
+            "f": json.dumps([{"key": "intent", "label": label, "type": "text", "reason": "what"}]),
+        },
+    )
+
+
 async def _exported_rows(payload: str) -> list[list[str]]:
     """One tenant, one lead carrying `payload` in the name, the phone AND an extraction
     field, exported through the real `export_leads_csv`. Returns the parsed CSV.
@@ -140,21 +159,13 @@ async def _exported_rows(payload: str) -> list[list[str]]:
     (migration `05bba2f3c19c`), so what reaches it is whatever a writer put there — and
     even the well-formed case leads with `+`, which Excel evaluates.
 
-    So is the HEADER. The trailing columns are labels from the tenant's own extraction
-    schema, and the person who opens the file is the client's staff, not the person who
+    So is the HEADER. The trailing columns are labels from what the tenant's own lines note
+    (D-1028), and the person who opens the file is the client's staff, not the person who
     authored the label. A thinner threat than the `name` column's, and still a cell.
     """
     org = await _org()
     async with tenant_session(org.tenant_id) as session:
-        await session.execute(
-            text("UPDATE extraction_schemas SET fields = CAST(:f AS jsonb) WHERE agent_id = :a"),
-            {
-                "a": org.agents[0],
-                "f": json.dumps(
-                    [{"key": "intent", "label": payload, "type": "text", "reason": "what"}]
-                ),
-            },
-        )
+        await _line_noting(session, org.agents[0], payload)
         await session.execute(
             text(
                 "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
@@ -227,6 +238,7 @@ async def test_a_benign_export_is_not_mangled_by_the_guard() -> None:
     the file. Only the cells that would have executed are touched."""
     org = await _org()
     async with tenant_session(org.tenant_id) as session:
+        await _line_noting(session, org.agents[0], "Intent")
         await session.execute(
             text(
                 "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
