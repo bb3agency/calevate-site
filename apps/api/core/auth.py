@@ -548,6 +548,27 @@ async def record_admin_tenant_read(
     the tenant the HEADER resolved, this one names the tenant the PATH addressed, and
     when the two differ, both facts belong in the ledger.
     """
+    await record_admin_tenant_read_as(
+        session,
+        principal=principal,
+        tenant_id=tenant_id,
+        ip=client_request_ip(request),
+        # The ROUTE TEMPLATE, never the resolved path or query string (hard rule 6).
+        route=_route_template(request),
+    )
+
+
+async def record_admin_tenant_read_as(
+    session: AsyncSession,
+    *,
+    principal: Principal,
+    tenant_id: UUID,
+    ip: str | None,
+    route: str,
+) -> None:
+    """`record_admin_tenant_read` for a read with no request of its own: the admin
+    assistant's tools, which name a client by slug from any screen. `route` names what read
+    (a route template or `copilot:<tool>`), never caller data."""
     marker = f"calevate:adminread:seen:{principal.user_id}:{tenant_id}"
     if not await _first_read_in_window(
         marker,
@@ -562,14 +583,10 @@ async def record_admin_tenant_read(
         tenant_id=tenant_id,
         object_type="organization",
         object_id=str(tenant_id),
-        ip=client_request_ip(request),
-        # The ROUTE TEMPLATE, never the resolved path or query string (hard rule 6) —
-        # the same discipline the impersonation row keeps, and like it, this rides in
-        # `summary` (the log stream), not in the hashed ledger row.
-        summary={
-            "route": _route_template(request),
-            "window_s": ADMIN_READ_AUDIT_WINDOW_S,
-        },
+        ip=ip,
+        # Like the impersonation row, this rides in `summary` (the log stream), not in the
+        # hashed ledger row.
+        summary={"route": route, "window_s": ADMIN_READ_AUDIT_WINDOW_S},
     )
 
 

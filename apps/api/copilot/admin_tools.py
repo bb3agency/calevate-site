@@ -565,6 +565,26 @@ async def _resolve_client(session: AsyncSession, asked: str) -> tuple[UUID, str,
     return UUID(str(tenant_id)), str(name), str(slug)
 
 
+async def _record_client_read(
+    scoped: AsyncSession, context: ToolContext, tenant_id: UUID, tool: str
+) -> None:
+    """The client's own trail records the read, as the console screen showing the same
+    facts does (D-482 L-1). The ask's audit row names only the page that was open, which
+    is another client's or none when the client is named by slug. `unmasked` is the
+    operator on every admin-realm ask; a context without one has nobody to name."""
+    if context.unmasked is None:
+        return
+    from apps.api.core.auth import record_admin_tenant_read_as
+
+    await record_admin_tenant_read_as(
+        scoped,
+        principal=context.unmasked.actor,
+        tenant_id=tenant_id,
+        ip=context.unmasked.ip,
+        route=f"copilot:{tool}",
+    )
+
+
 async def _admin_diagnose(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
@@ -593,6 +613,7 @@ async def _admin_diagnose(
     platform = await diagnostics.platform_checks(session, tenant_id)
     async with tenant_session(tenant_id) as scoped:
         result = await diagnostics.diagnose_family(scoped, tenant_id, family, asked_args)
+        await _record_client_read(scoped, context, tenant_id, "admin_diagnose")
     if isinstance(result, str):
         return result
     return diagnostics.render(diagnostics.with_platform(result, platform))
@@ -609,7 +630,6 @@ async def _admin_client_standing(
     directory session, then reads the client under its OWN tenant session with the same
     readers the live block uses and the readiness gates' own rows — nothing re-derived.
     """
-    del context
     from apps.api.copilot.context import read_account_standing
     from apps.api.core.loadshed import get_platform_status
     from apps.api.db.session import tenant_session
@@ -626,6 +646,7 @@ async def _admin_client_standing(
     async with tenant_session(tenant_id) as scoped:
         account = await read_account_standing(scoped, tenant_id=tenant_id)
         rows = await readiness_rows(scoped, tenant_id=tenant_id, platform=platform)
+        await _record_client_read(scoped, context, tenant_id, "admin_client_standing")
     kyc = account.kyc.replace("_", " ")
     if account.kyc_path:
         kyc += f" (path: {'DigiLocker' if account.kyc_path == 'digilocker' else 'document review'})"
