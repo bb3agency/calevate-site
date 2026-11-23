@@ -2957,3 +2957,27 @@ Options, in order, none built:
    per voice could serve all its campaigns. UNVERIFIED in their docs.
 3. Inbound lines keep one engine agent each in any case: an incoming call carries nothing per
    call, so the line's agent holds its script.
+
+## 57. Ashutosh's reply to §56, received 23 Nov 2026 (11:50 IST)
+
+Verbatim as the founder relayed it:
+
+> Hi,
+> We cannot find the call history for your recent call because it seems you deleted that
+> agent.
+> Can you please test once again?
+>
+> Ashutosh K
+
+What it closes (VENDOR-STATED, 23 Nov 2026):
+
+| Asked | Answer | Our side |
+|---|---|---|
+| Check the 10:34 call's audio | Not found: the call history went with the deleted agent | Deleting an engine agent loses its calls on ThinnestAI's side; retest on an agent that is kept |
+| Agents per workspace, voicemail (§56 items 2, 3) | Not answered | Still open |
+
+Consequence for us: a campaign's engine agent is deleted when the campaign is completed,
+cancelled or archived, or when a campaign that is not running or paused has not been published
+for the idle period (`agents/service.CAMPAIGN_AGENT_UNNEEDED_WHERE`); a test-call holder an hour
+after its last use (D-1020). Each takes that agent's call history on ThinnestAI's side with it.
+This is the cost the held note under §56 describes, now confirmed.
