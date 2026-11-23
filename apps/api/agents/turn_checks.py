@@ -40,7 +40,6 @@ from calevate_shared.call_words import words as _word_list
 from calevate_shared.languages import find_language
 from calevate_shared.spoken_guard import (
     has_indic_letters,
-    closing_words,
     honorific_count,
     latin_words,
     opens_with_greeting,
@@ -49,7 +48,7 @@ from calevate_shared.spoken_guard import (
 )
 from calevate_shared.spoken_style import style_for
 
-from apps.api.agents.script_lint import CapabilityManifest, unbacked_promise
+from apps.api.agents.script_lint import CapabilityManifest, line_ending, unbacked_promise
 
 Kind = Literal[
     "brackets",
@@ -1585,11 +1584,12 @@ def reaction_lead(line: str) -> str | None:
 
 
 def _stock_closer(replies: Sequence[str]) -> tuple[str, int] | None:
-    """The ending (`closing_words`) shared by `STOCK_OPENER_REPLIES` or more of `replies`,
-    with its count. A goodbye is left out: closing a call alike is not a habit."""
+    """The ending (`script_lint.line_ending`) shared by `STOCK_OPENER_REPLIES` or more of
+    `replies`, with its count. A goodbye is left out: closing a call alike is not a habit. A
+    reply said again word for word counts once, as it is `said_again`'s."""
     counts: dict[str, int] = {}
-    for reply in replies:
-        said = None if _GOODBYE.search(reply) else closing_words(reply)
+    for reply in dict.fromkeys(" ".join(r.split()) for r in replies):
+        said = None if _GOODBYE.search(reply) else line_ending(reply)
         if said is not None:
             counts[said] = counts.get(said, 0) + 1
     return next(((said, n) for said, n in counts.items() if n >= STOCK_OPENER_REPLIES), None)

@@ -45,6 +45,7 @@ from apps.api.agents.script_lint import (
     opening_redone_problems,
     reachable_steps,
     repeated_line_problems,
+    same_ending_problems,
     same_opener_problems,
     spoken_fields,
     step_line,
@@ -314,6 +315,7 @@ def _delegate(lint: Callable[[CallScript], list[str]]) -> _Check:
 _CHECKS: Final[dict[str, _Check]] = {
     "opened_again": _opened_again,
     "same_opening": _delegate(lambda s: [*same_opener_problems(s), *reacted_line_problems(s)]),
+    "same_closing": _delegate(same_ending_problems),
     "said_again": _delegate(repeated_line_problems),
     "too_long": _too_long,
     "asked_again": _asked_again,

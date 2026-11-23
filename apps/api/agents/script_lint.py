@@ -1047,7 +1047,10 @@ _ENDING_MIN_LINE_WORDS: Final = 5
 _ENDING_REPEATS: Final = 3
 
 
-def _line_ending(text: str) -> str | None:
+def line_ending(text: str) -> str | None:
+    """The last `_ENDING_WORDS` words of `text`, lower case, or None for a line too short to
+    have a closing tag apart from its point. The script checks and the call review
+    (`turn_checks`) read endings by this one rule."""
     words = [
         word
         for token in re.sub(r"\{\{[^}]*\}\}", " ", text).split()
@@ -1070,7 +1073,7 @@ def same_ending_problems(script: CallScript) -> list[str]:
     for group in _line_groups(script, procedure=True):
         endings: dict[str, list[str]] = {}
         for _i, path, text in group:
-            ending = _line_ending(text)
+            ending = line_ending(text)
             if ending is not None:
                 endings.setdefault(ending, []).append(path)
         for paths in endings.values():
@@ -1312,6 +1315,7 @@ __all__ = [
     "question_count",
     "reachable_steps",
     "repeated_line_problems",
+    "line_ending",
     "same_ending_problems",
     "same_opener_problems",
     "scenario_lines",

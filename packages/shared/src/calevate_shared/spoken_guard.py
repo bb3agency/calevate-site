@@ -245,25 +245,6 @@ def honorific_count(text: str) -> int:
     return sum(1 for m in _HONORIFIC.finditer(text) if _starts_word(text, m.start()))
 
 
-
-#: How many words, after any closing honorific, make a line's ending: two tell "నాకు
-#: చెప్పండి" ("tell me") from the bare "అండి" that ends most polite Telugu lines.
-CLOSING_WORDS: Final = 2
-_WORD_EDGE: Final = "\"'()[]{}.,!?;:।॥‘’“”…，？-"
-
-
-def closing_words(text: str) -> str | None:
-    """The last `CLOSING_WORDS` words of `text` before any closing honorific, case-folded,
-    or None for a line too short to have an ending of its own. Read by words, so it works in
-    any language: "ఓపెన్ చేశాక నాకు చెప్పండి అండి." ends "నాకు చెప్పండి"."""
-    words = [w for w in (t.strip(_WORD_EDGE).casefold() for t in text.split()) if w]
-    while words and honorific_count(words[-1]) == 1:
-        words.pop()
-    if len(words) <= CLOSING_WORDS:
-        return None
-    return " ".join(words[-CLOSING_WORDS:])
-
-
 #: An honorific where a person's name belongs, with no name: straight after the greeting that
 #: opens the line ("Namaskaram garu, ..."). The founder's rule (23 Nov 2026): a written line
 #: never holds a title with no name; it says the name field before it or neither. "sir" and
@@ -369,8 +350,6 @@ def generation_guidance(
 
 
 __all__ = [
-    "CLOSING_WORDS",
-    "closing_words",
     "HONORIFICS_PER_LINE",
     "INTRODUCED_GREETING_RULE",
     "INTRODUCED_NAMES_RULE",
