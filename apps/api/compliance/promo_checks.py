@@ -119,15 +119,24 @@ async def campaign_script_report(
     """What every call this campaign places says: its own script when it has one, which its
     own engine agent speaks (D-1003, `agents/service.campaign_agent_row`), else its agent's
     live script (a campaign made before D-992). Reading the agent's script for a campaign
-    with its own would pass an offer the calls speak and refuse one they never say."""
-    own = (
+    with its own would pass an offer the calls speak and refuse one they never say.
+
+    The second opening under test (`campaigns.opening_b`, D-992) is read with either: half
+    the people hear it as the call's first words (`campaign_dispatch.opening_variant`)."""
+    row = (
         await session.execute(
-            text("SELECT script FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+            text("SELECT script, opening_b FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
         )
-    ).scalar_one_or_none()
+    ).first()
+    own, opening_b = (row[0], row[1]) if row is not None else (None, None)
     if own:
-        return lint(script_parts(CallScript.model_validate(own), outbound=True))
-    return await live_script_report(session, agent_id)
+        spoken = CallScript.model_validate(own)
+    else:
+        from apps.api.agents import script_builder
+
+        spoken = (await script_builder.load_agent_script(session, agent_id, applied=True)).script
+    second = [ScriptPart("Second opening line", opening_b, "opening")] if opening_b else []
+    return lint([*second, *script_parts(spoken, outbound=True)])
 
 
 async def campaign_check(session: AsyncSession, campaign_id: UUID) -> CampaignPurposeCheck:

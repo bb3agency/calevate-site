@@ -678,3 +678,27 @@ async def test_an_offer_put_live_after_launch_stops_the_running_campaign() -> No
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
     assert SCRIPT_PROMOTIONAL_RULE in {b.rule for b in after}
+
+
+async def test_an_offer_in_the_second_opening_under_test_stops_a_service_campaign() -> None:
+    """Half the people hear the second opening as the call's first words (D-992), so an offer
+    in it makes those calls promotional exactly as one in the script does."""
+    from tests.campaigns_test import _ready_campaign
+
+    tenant_id, _agent_id, campaign_id = await _ready_campaign(
+        classification="service", series="160"
+    )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET opening_b = :o WHERE id = :c"),
+            {"o": "Hello! We have a special Diwali offer, 20% off, today only.", "c": campaign_id},
+        )
+    async with tenant_session(tenant_id) as session:
+        at_start = await campaigns_service.launch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+        on_tick = await campaigns_service.dispatch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+    assert SCRIPT_PROMOTIONAL_RULE in {b.rule for b in at_start}
+    assert SCRIPT_PROMOTIONAL_RULE in {b.rule for b in on_tick}

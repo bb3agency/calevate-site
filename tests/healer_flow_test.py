@@ -393,6 +393,47 @@ async def test_a_held_line_survives_a_republish_and_comes_back_on_restore() -> N
     assert agents_service.CREDIT_STOP_MESSAGE not in await _opening(tenant_id, agent_id)
 
 
+async def test_a_campaign_archived_while_the_line_was_held_is_not_resumed_on_restore() -> None:
+    """Restore never brings a campaign back running (F-10): one the client archived while
+    the healer held it stays paused, and only the other one counts as resumed."""
+    from apps.api.campaigns.archive import archive_campaign
+
+    tenant_id, agent_id, _ = await _published("archived")
+    kept, shelved = uuid7(), uuid7()
+    async with tenant_session(tenant_id) as session:
+        for campaign_id in (kept, shelved):
+            await session.execute(
+                text(
+                    "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, "
+                    "status, concurrency, launched_at, created_at, updated_at) VALUES (:id, :t, "
+                    ":a, 'Renewals', 'service', 'running', 1, now(), now(), now())"
+                ),
+                {"id": campaign_id, "t": tenant_id, "a": agent_id},
+            )
+    incident_id = await _incident(tenant_id=tenant_id, agent_id=agent_id)
+    async with tenant_session(tenant_id) as session:
+        held = await protection.protect_agent(
+            session, tenant_id=tenant_id, incident_id=incident_id, agent_id=agent_id
+        )
+    assert held.campaigns_paused == 2
+    async with tenant_session(tenant_id) as session:
+        await archive_campaign(session, campaign_id=shelved, by=None, realm="client")
+    async with tenant_session(tenant_id) as session:
+        restored = await protection.restore_agent(
+            session, tenant_id=tenant_id, incident_id=incident_id, agent_id=agent_id
+        )
+        statuses = dict(
+            (
+                await session.execute(
+                    text("SELECT id, status FROM campaigns WHERE id = ANY(:ids)"),
+                    {"ids": [kept, shelved]},
+                )
+            ).all()
+        )
+    assert statuses == {kept: "running", shelved: "paused"}
+    assert restored.campaigns_resumed == 1
+
+
 async def test_the_wallet_does_not_lift_a_healer_hold() -> None:
     tenant_id, agent_id, _ = await _published("wallet")
     incident_id = await _incident(tenant_id=tenant_id, agent_id=agent_id)
