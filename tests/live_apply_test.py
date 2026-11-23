@@ -325,7 +325,15 @@ async def test_a_transient_failure_retries_that_agent_and_settles_the_run(
     assert type(retried.value).__name__ == "Retry"
 
     monkeypatch.setattr(worker, "converge_agent", real)
+    # The retry publishes the spoken style saved now, not this worker's last poll of it.
+    refreshed: list[str] = []
+
+    async def refresh_spoken_style() -> None:
+        refreshed.append("style")
+
+    monkeypatch.setattr(worker, "refresh_spoken_style", refresh_spoken_style)
     assert await worker.apply_live_agent({"job_try": 2}, payload) == "applied"
+    assert refreshed == ["style"]
     settled = await _run(run_id)
     assert (settled.status, settled.retrying, settled.applied, settled.failed) == (
         "done",
