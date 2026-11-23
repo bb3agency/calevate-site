@@ -13,7 +13,13 @@ import pytest
 from apps.api.billing.invoice import build_invoice
 from apps.api.billing.plans import ist_billing_month
 from apps.api.billing.service import margin_for_tenant, usage_summary
-from apps.api.billing.trials import TRIAL_CONVERTED, TRIAL_STOPPED, end_trial, start_trial
+from apps.api.billing.trials import (
+    TRIAL_CONVERTED,
+    TRIAL_ORIGIN_SIGNUP,
+    TRIAL_STOPPED,
+    end_trial,
+    start_trial,
+)
 from apps.api.db.session import tenant_session
 from apps.workers import trials as trial_sweep
 from apps.workers.pipeline import _meter
@@ -320,6 +326,21 @@ async def test_a_gift_trial_waives_the_plan_fee_of_every_month_it_touches() -> N
     assert usage["month_charges_inr"] == usage["overage_cost_inr"] > 0, "paid calls still billed"
     assert invoice["subtotal_inr"] == usage["month_charges_inr"]
     assert margin["revenue_inr"] == invoice["subtotal_inr"]
+
+    # The account's birth trial is not a gift: a month only it touched keeps the fee.
+    other, _agent, _ = await _cap_tenant("signupfee")
+    await _plan(other, included_min=0, age_days=400)
+    async with tenant_session(other) as session:
+        await start_trial(
+            session,
+            tenant_id=other,
+            days=1,
+            actor_user_id=None,
+            at=now - 40 * m,
+            origin=TRIAL_ORIGIN_SIGNUP,
+        )
+        signup_usage = await usage_summary(session, tenant_id=other, month=month)
+    assert signup_usage["monthly_fee_inr"] is not None
 
     # A month before the trial keeps its fee.
     year, mon = (int(part) for part in month.split("-"))

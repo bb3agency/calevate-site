@@ -1416,6 +1416,8 @@ class TopUpAttempt(PKMixin, TimestampMixin, Base):
 #: fact an operator and the erasure sweep both need — a client who CONVERTED keeps their
 #: data, and the two who did not do not.
 TRIAL_STATUSES = ("active", "converted", "expired", "stopped")
+#: `TenantTrial.origin`: the account's birth trial, or a gift an operator gave.
+TRIAL_ORIGINS = ("signup", "operator")
 
 #: The terminal states that mean the client did NOT buy. Named rather than spelled as
 #: "everything except converted", because the sweep that erases a non-converting client's
@@ -1471,6 +1473,7 @@ class TenantTrial(PKMixin, TimestampMixin, Base):
         # equal. Without this a row can read `expired` with no `ended_at` — which the
         # erasure sweep would then schedule from a NULL and skip for ever.
         CheckConstraint("(status = 'active') = (ended_at IS NULL)", name="ended_iff_not_active"),
+        CheckConstraint(f"origin IN {TRIAL_ORIGINS!r}", name="origin_enum"),
         # At most one open trial per client. Partial, like `uq_tenant_erasure_requests_open`
         # and for the identical reason: the CLOSED rows are history and there may be many.
         Index(
@@ -1547,6 +1550,12 @@ class TenantTrial(PKMixin, TimestampMixin, Base):
     #: The test-call minutes this trial carries (D-697). The trial ends at its end date or
     #: when these are used, whichever comes first, and at once when the client pays.
     free_minutes: Mapped[int | None] = mapped_column(Integer)
+    #: How the trial began: `signup`, the trial every new account is born with, or
+    #: `operator`, a gift an operator gave (`trial_routes.open_trial`). Only a gift trial
+    #: waives the month's plan fee and platform fee (founder, 23 Nov 2026). Its own column
+    #: rather than `started_by IS NOT NULL`, because that FK goes NULL when the operator's
+    #: row is removed and the gift would silently stop counting.
+    origin: Mapped[str] = mapped_column(Text, nullable=False, server_default="signup")
 
 
 class PlatformFeeCharge(PKMixin, TimestampMixin, Base):

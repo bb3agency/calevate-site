@@ -86,8 +86,8 @@ from apps.api.billing.trials import (
     ON_TRIAL_ROW_SQL,
     TrialState,
     counter_epoch,
+    gift_trial_in_month,
     read_trial,
-    trial_overlaps,
 )
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -3392,16 +3392,15 @@ async def usage_summary(
             llm_surcharge_inr=surcharge.total_inr,
         )
     )
-    # THE PLAN FEE IS WAIVED FOR ANY IST MONTH A TRIAL OVERLAPS (founder, 23 Nov 2026:
-    # "Waive it"), including a month the trial covers only part of — the same
-    # "trial in this month" reading the spend screens take (`trials.trial_overlaps`).
+    # THE PLAN FEE IS WAIVED FOR ANY IST MONTH A GIFT TRIAL TOUCHES (founder, 23 Nov 2026:
+    # "Waive it"), including a month the trial covers only part of; the account's birth
+    # trial waives nothing (`trials.gift_trial_in_month`, the platform fee's rule too).
     # Waived HERE, by publishing no fee, so the panel, the statement (`build_invoice`
     # prints `monthly_fee_inr`), the margin's revenue and the spend page's retainer all
     # read one answer. `trial_absorbed_inr` below still counts it: it is what we carried.
     plan_fee = to_paise(Decimal(str(plan[0]))) if plan and plan[0] is not None else None
-    month_start, month_end = ist_month_window(period)
-    fee_waived = plan_fee is not None and await trial_overlaps(
-        session, tenant_id=tenant_id, start=month_start, end=month_end
+    fee_waived = plan_fee is not None and await gift_trial_in_month(
+        session, tenant_id=tenant_id, month=period
     )
     monthly_fee = None if fee_waived else plan_fee
     charges = to_paise(

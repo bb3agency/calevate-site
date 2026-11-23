@@ -182,6 +182,10 @@ INBOUND_CUTOVER_JOB: Final = "apply_inbound_credit_state"
 
 #: The status of a trial that is still running. Spelled once; four modules compare it.
 TRIAL_ACTIVE: Final = "active"
+#: How a trial began (`TenantTrial.origin`): the account's birth trial, or a gift an
+#: operator gave. Only a gift waives a month's plan fee and platform fee.
+TRIAL_ORIGIN_SIGNUP: Final = "signup"
+TRIAL_ORIGIN_OPERATOR: Final = "operator"
 
 #: How a trial ended. `converted` is the one that keeps the client's data.
 TRIAL_CONVERTED: Final = "converted"
@@ -239,7 +243,7 @@ PAID_REASON: Final = "The client added credit."
 
 _SELECT = (
     "SELECT id, tenant_id, days, started_at, ends_at, status, ended_at, ended_reason, "
-    "erase_after, erasure_filed_at, started_by, free_minutes FROM tenant_trials"
+    "erase_after, erasure_filed_at, started_by, free_minutes, origin FROM tenant_trials"
 )
 
 #: The newest trial for one tenant. `started_at DESC, id DESC` matches
@@ -273,6 +277,8 @@ class TrialState:
     #: The test-call minutes this trial carries (D-697), or None on a trial opened before
     #: minutes existed, which is bounded by its days alone.
     free_minutes: int | None = None
+    #: `TRIAL_ORIGIN_SIGNUP` (the account's birth trial) or `TRIAL_ORIGIN_OPERATOR` (a gift).
+    origin: str = TRIAL_ORIGIN_OPERATOR
 
     def is_active(self, *, at: datetime) -> bool:
         """Is this client inside a funded period at `at`?
@@ -330,6 +336,7 @@ def _state(row: Any) -> TrialState:
         erasure_filed_at=row[9],
         started_by=UUID(str(row[10])) if row[10] is not None else None,
         free_minutes=int(row[11]) if row[11] is not None else None,
+        origin=str(row[12]),
     )
 
 
@@ -432,6 +439,27 @@ async def trial_overlaps(
     return bool(found.scalar())
 
 
+_GIFT_MONTH_SQL: Final = (
+    "SELECT EXISTS (SELECT 1 FROM tenant_trials WHERE tenant_id = :tid AND origin = :gift "
+    "AND started_at < :next AND LEAST(ends_at, COALESCE(ended_at, ends_at)) > :start)"
+)
+
+
+async def gift_trial_in_month(session: AsyncSession, *, tenant_id: UUID, month: str) -> bool:
+    """Did a GIFT trial (`TRIAL_ORIGIN_OPERATOR`) touch this IST billing month, even in
+    part? Such a month owes no plan fee on the statement and no platform fee (founder,
+    23 Nov 2026). The account's birth trial does not count: its sign-up month and the
+    month it converts in are billed as usual."""
+    from apps.api.billing.plans import ist_month_window
+
+    start, end = ist_month_window(month)
+    found = await session.execute(
+        text(_GIFT_MONTH_SQL),
+        {"tid": tenant_id, "gift": TRIAL_ORIGIN_OPERATOR, "start": start, "next": end},
+    )
+    return bool(found.scalar())
+
+
 async def counter_epoch(session: AsyncSession, *, tenant_id: UUID) -> datetime | None:
     """The instant this client's CURRENT counting period began, or None if it is the month.
 
@@ -524,8 +552,12 @@ async def start_trial(
     erasure_grace_days: int = DEFAULT_ERASURE_GRACE_DAYS,
     free_minutes: int | None = None,
     at: datetime | None = None,
+    origin: str = TRIAL_ORIGIN_OPERATOR,
 ) -> TrialState:
     """Open a trial. Does not commit — the caller's audit row shares the transaction.
+
+    `origin` is `operator` (a gift, the default for this operator-facing function) or
+    `signup`, which only `start_new_account_trial` passes.
 
     Refuses a second open trial by NAME (409) rather than letting `ux_tenant_trials_active`
     surface as a 500: an operator who clicks twice must be told the client is already on a
@@ -591,11 +623,11 @@ async def start_trial(
             text(
                 "INSERT INTO tenant_trials "
                 "(id, tenant_id, days, started_at, ends_at, status, erase_after, "
-                " started_by, free_minutes, created_at, updated_at) "
+                " started_by, free_minutes, origin, created_at, updated_at) "
                 "VALUES (:id, :tid, :days, :start, :end, 'active', :erase_after, :by, "
-                " :minutes, :start, :start) "
+                " :minutes, :origin, :start, :start) "
                 "RETURNING id, tenant_id, days, started_at, ends_at, status, ended_at, "
-                "ended_reason, erase_after, erasure_filed_at, started_by, free_minutes"
+                "ended_reason, erase_after, erasure_filed_at, started_by, free_minutes, origin"
             ),
             {
                 "id": trial_id,
@@ -606,6 +638,7 @@ async def start_trial(
                 "erase_after": ends_at + timedelta(days=erasure_grace_days),
                 "by": actor_user_id,
                 "minutes": free_minutes,
+                "origin": origin,
             },
         )
     ).first()
@@ -677,6 +710,7 @@ async def start_new_account_trial(
         days=settings.self_serve_trial_days,
         actor_user_id=None,
         free_minutes=settings.self_serve_trial_free_minutes,
+        origin=TRIAL_ORIGIN_SIGNUP,
     )
     await write_audit(
         session,
@@ -838,6 +872,7 @@ async def end_trial(
         erasure_filed_at=trial.erasure_filed_at,
         started_by=trial.started_by,
         free_minutes=trial.free_minutes,
+        origin=trial.origin,
     )
 
 
@@ -963,6 +998,7 @@ __all__ = [
     "TrialState",
     "counter_epoch",
     "end_trial",
+    "gift_trial_in_month",
     "mark_erasure_filed",
     "minutes_of",
     "read_trial",
