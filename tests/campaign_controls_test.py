@@ -114,6 +114,15 @@ async def _campaign(account: Account, *, contacts: int = 0, status: str = "draft
     return campaign_id
 
 
+async def _notes(account: Account, campaign_id: uuid.UUID, fields: list[dict[str, Any]]) -> None:
+    """The campaign's "What it notes" list (D-1028), written as its own Save stores it."""
+    async with tenant_session(account.tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET extraction_fields = CAST(:f AS jsonb) WHERE id = :c"),
+            {"f": json.dumps(fields), "c": campaign_id},
+        )
+
+
 async def _one(tenant_id: uuid.UUID, sql: str, **params: Any) -> Any:
     async with tenant_session(tenant_id) as session:
         return (await session.execute(text(sql), params)).first()
@@ -915,7 +924,8 @@ async def test_results_count_interested_people_apart_from_everyone_called() -> N
 
 async def test_results_break_down_the_agents_outcomes_and_each_choice_field() -> None:
     """D-905: counts per business outcome over the answered calls, and per value of each
-    enum the agent captures over the people reached, with the gaps counted too."""
+    enum the campaign notes over the people reached, with the gaps counted too. Only this
+    campaign's list (D-1028): another campaign in the same voice is not broken down here."""
     account = await _account()
     campaign_id = await _campaign(account, contacts=3, status="running")
     fields = [
@@ -926,15 +936,11 @@ async def test_results_break_down_the_agents_outcomes_and_each_choice_field() ->
             "enum_values": ["Yes", "No"],
         }
     ]
-    async with tenant_session(account.tenant_id) as session:
-        await session.execute(
-            text(
-                "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
-                "created_at, updated_at) VALUES (:id, :t, :a, 99, CAST(:f AS jsonb), now(), "
-                "now())"
-            ),
-            {"id": uuid7(), "t": account.tenant_id, "a": account.agent_id, "f": json.dumps(fields)},
-        )
+    other_fields = [
+        {"key": "budget", "label": "Budget", "type": "enum", "enum_values": ["Low", "High"]}
+    ]
+    await _notes(account, campaign_id, fields)
+    await _notes(account, await _campaign(account), other_fields)
     answers = [
         ("yes", "onboarded", "Onboarded"),
         ("Yes", "onboarded", "Onboarded"),
@@ -962,6 +968,7 @@ async def test_results_break_down_the_agents_outcomes_and_each_choice_field() ->
         ).json()
     assert summary["business_outcomes"] == [{"key": "onboarded", "label": "Onboarded", "count": 2}]
     assert summary["business_outcomes_unset"] == 1
+    assert "budget" not in {f["key"] for f in summary["fields"]}
     registered = next(f for f in summary["fields"] if f["key"] == "registered")
     assert registered["values"] == [{"value": "Yes", "count": 2}, {"value": "No", "count": 0}]
     assert registered["not_captured"] == 1
@@ -974,15 +981,7 @@ async def test_a_person_called_back_counts_once_by_the_call_backs_outcome() -> N
     account = await _account()
     campaign_id = await _campaign(account, contacts=2, status="running")
     fields = [{"key": "plan", "label": "Plan", "type": "enum", "enum_values": ["Basic", "Plus"]}]
-    async with tenant_session(account.tenant_id) as session:
-        await session.execute(
-            text(
-                "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
-                "created_at, updated_at) VALUES (:id, :t, :a, 99, CAST(:f AS jsonb), now(), "
-                "now())"
-            ),
-            {"id": uuid7(), "t": account.tenant_id, "a": account.agent_id, "f": json.dumps(fields)},
-        )
+    await _notes(account, campaign_id, fields)
     twice, once = "+919876500000", "+919876500001"
     twice_lead = await _lead(account, phone=twice, status="contacted")
     once_lead = await _lead(account, phone=once, status="contacted")

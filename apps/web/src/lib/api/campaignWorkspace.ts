@@ -336,7 +336,9 @@ export function useSaveCampaignSettings(session: Session, campaignId: string) {
   return useMutation({
     mutationFn: (overrides: CampaignSettingsInput) =>
       apiRequest<CampaignSettings>(session, `${base(campaignId)}/settings`, { method: "PUT", body: overrides }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: settingsKey(session.orgSlug, campaignId) }),
+    // Settled, not only on success: "Saved, but not on its calls yet" is a refusal that
+    // stored the change, and the language picker must show what the server now holds.
+    onSettled: () => void client.invalidateQueries({ queryKey: settingsKey(session.orgSlug, campaignId) }),
   });
 }
 

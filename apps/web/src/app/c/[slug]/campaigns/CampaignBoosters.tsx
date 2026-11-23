@@ -91,7 +91,7 @@ function errorText(error: unknown, fallback: string): string {
 }
 
 /** After Start: what the calls teach, and the next moves. */
-export function ImproveTab(props: Common) {
+export function ImproveTab(props: Common & { status?: string | null }) {
   const { session } = useClientRealm();
   const insights = useCampaignInsights(session, props.campaignId);
   if (insights.isLoading)
@@ -531,11 +531,24 @@ function BestTime({ insights }: { insights: CampaignInsights }) {
   );
 }
 
-function CallUnansweredAgain({ slug, campaignId, canWrite, refusal }: Common) {
+/** The states a campaign's unreached people can be copied from (`controls.duplicate_campaign`):
+ * finished, so its own retries are no longer working through the same people. */
+const CALL_AGAIN_FROM = ["completed", "cancelled"];
+
+/** Why "Make a draft for the unanswered" is held, or undefined when it may be pressed. */
+export function callAgainHeld(status: string | null | undefined): string | undefined {
+  if (status == null || CALL_AGAIN_FROM.includes(status)) return undefined;
+  if (status === "paused") return "It is stopped with people still to call. Start it again and let it finish first.";
+  if (status === "running") return "It is still calling. This opens once it has finished.";
+  return "This opens once the campaign has run and finished.";
+}
+
+function CallUnansweredAgain({ slug, campaignId, canWrite, refusal, status }: Common & { status?: string | null }) {
   const { session, href } = useClientRealm();
   const router = useRouter();
   const duplicate = useDuplicateCampaign(session, campaignId);
   useActionFeedback(duplicate, { errorDisplay: "inline" });
+  const held = callAgainHeld(status);
   return (
     <Card
       title="Call the unanswered again"
@@ -545,7 +558,7 @@ function CallUnansweredAgain({ slug, campaignId, canWrite, refusal }: Common) {
       <button
         type="button"
         className={PRIMARY_BUTTON_SM}
-        disabled={!canWrite || duplicate.isPending}
+        disabled={!canWrite || duplicate.isPending || held !== undefined}
         title={refusal}
         onClick={() =>
           duplicate.mutate(
@@ -559,6 +572,7 @@ function CallUnansweredAgain({ slug, campaignId, canWrite, refusal }: Common) {
       >
         {duplicate.isPending ? "Making it…" : "Make a draft for the unanswered"}
       </button>
+      {held && canWrite && <p className="mt-2 text-meta text-ink-muted">{held}</p>}
       {duplicate.error != null && (
         <p role="alert" className="mt-2 text-meta text-danger">
           {errorText(duplicate.error, "The draft was not made")}
