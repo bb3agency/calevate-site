@@ -701,6 +701,21 @@ CALLER_LANGUAGE_REASON: Final = (
 )
 
 
+#: The core lead field that says what the person wants (`lead_fields.CORE_LEAD_FIELDS`).
+NEED_KEY: Final = "need"
+
+#: The core `need` field's instruction on a call the business placed. Its stored reason
+#: ("what the caller wants or why they called") read on such a call as "why the call was
+#: made", and the model filled it with the call's own task: "Install the app ... and set up
+#: their farm details" on a call ringing an existing customer to help them install it
+#: (23 Nov 2026 call review).
+OUTBOUND_NEED_REASON: Final = (
+    "Something the person asked the business for, or said they need, in a few words of "
+    "their own. Leave empty when they asked for nothing beyond what the agent rang about: "
+    "the reason for the call is the business's, not theirs."
+)
+
+
 def caller_language_reason(languages: Sequence[str]) -> str:
     """The core `language` field's instruction, with the agent's own languages (then
     English) as the examples, so a Tamil agent's caller is not offered only Telugu, Hindi
@@ -725,6 +740,7 @@ def build_extraction_prompt(
     business_name: str | None = None,
     called_at: datetime | None = None,
     agent_name: str | None = None,
+    direction: str | None = None,
 ) -> str:
     """Generate the extraction instruction. Kept in `shared` so the regression harness
     scores the SAME prompt the pipeline uses (OPERATIONS §3).
@@ -753,6 +769,10 @@ def build_extraction_prompt(
     `agent_name` is the agent's, held to the same rule.
     `called_at` is when the call happened, so a call-back day the caller named ("tomorrow
     evening") resolves against the call's own date rather than a guess.
+    `direction` is the call's; on an `outbound` call the person did not ring to ask for
+    anything, which the prompt says (`_outbound_line`) and the core `need` field's
+    instruction follows (`OUTBOUND_NEED_REASON`). Any other value leaves the prompt as an
+    inbound call's.
 
     The closing line after the transcript repeats the output rule: with a long context,
     instructions placed before AND after it are followed better than instructions placed
@@ -775,17 +795,19 @@ def build_extraction_prompt(
         # The optional reason, folded in as the model's hint. When absent, the line carries
         # only the key/label/constraint — the founder's rule that a variable with no reason
         # is processed from its name alone.
-        reason = (
-            caller_language_reason(languages)
-            if field.key == CALLER_LANGUAGE_KEY and field.reason == CALLER_LANGUAGE_REASON
-            else field.reason
-        )
+        outbound = direction == "outbound"
+        if field.key == CALLER_LANGUAGE_KEY and field.reason == CALLER_LANGUAGE_REASON:
+            reason = caller_language_reason(languages)
+        elif field.key == NEED_KEY and outbound:
+            reason = OUTBOUND_NEED_REASON
+        else:
+            reason = field.reason
         hint = f" — {reason}" if reason else ""
         lines.append(f'- "{field.key}": {field.label}{constraint} [{requirement}]{hint}')
 
     return f"""You are extracting structured data from a phone call transcript.
 {_language_context(languages)} Do not translate; extract.
-{_business_line(business_name, agent_name)}{_call_day_line(called_at)}
+{_business_line(business_name, agent_name)}{_call_day_line(called_at)}{_outbound_line(direction)}
 Return ONLY a JSON object with these keys:
 
 {chr(10).join(lines)}
@@ -916,6 +938,9 @@ VALUES, EXACTLY.
   the caller meant that value — not because the word appears inside another word ("other"
   inside "brother"). If none of them fits, use null: never the nearest choice, and never
   round a count to a neighbouring one.
+- A value, a note or a summary that lists what was covered or done on the call names
+  every item through to the end of the call, never only the first few: a list that stops
+  early reads as if the rest did not happen.
 - Numbers are bare numbers, true/false fields are true, false or null, dates are YYYY-MM-DD.
 - Do not include any key that is not listed above, and return only the JSON object.
 
@@ -960,6 +985,22 @@ def _business_line(business_name: str | None, agent_name: str | None = None) -> 
         "product of that name, or the agent, write the name exactly as given here, never a\n"
         "spelling of how it sounded on the call. Write every name in plain letters, never\n"
         "with accents or marks such as ā, ṭ or ś.\n"
+    )
+
+
+def _outbound_line(direction: str | None) -> str:
+    """Who rang whom, on a call the business placed; empty otherwise, so it adds nothing to
+    an inbound call's prompt or the golden-transcript harness's, which names no direction.
+
+    Every rule below says "caller" for the person this record is about; on an outbound call
+    that person answered, and reading "caller" literally made the business's reason for
+    ringing their "need"."""
+    if direction != "outbound":
+        return ""
+    return (
+        "The business placed this call: the `caller:` lines are the person it rang, who did\n"
+        "not ring to ask for anything. What the agent rang about, and the steps it walked them\n"
+        "through, are the business's purpose for the call, not something the person asked for.\n"
     )
 
 
@@ -1051,6 +1092,13 @@ def goal_verdict(raw: object) -> GoalVerdict | None:
 #: it. "Raitu Khata" against "Rytu Khata" scores 0.86; two different two-word names rarely
 #: pass 0.8 with the same number of words and the same first letter, which are required too.
 _NAME_LIKENESS: Final = 0.8
+#: The lower bar a run clears when it also sounds like the name (`_consonants`). A name
+#: written down by ear from Telugu or Hindi changes its vowels far more than its consonants:
+#: "Raiṭa Khāta" (23 Nov 2026 call) scores 0.76 against "Rytu Khata" and has its consonants.
+_SOUNDS_LIKENESS: Final = 0.7
+#: Fewest consonants a name needs before its consonants may vouch for a match.
+_MIN_SKELETON: Final = 3
+_VOWEL_LETTERS: Final = frozenset("aeiouy")
 _WORD_RE: Final = re.compile(r"[A-Za-z][A-Za-z'\-]*")
 #: Precomposed accented Latin letters (Latin-1 to Extended-B, and Extended Additional) and
 #: the combining marks, as character-class ranges.
@@ -1066,42 +1114,82 @@ def _plain_letters(word: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", word) if not unicodedata.combining(c))
 
 
+def _consonants(text: str) -> str:
+    """The consonants of `text` as a romanised Indian word is heard: vowels and "y" left
+    out, an aspirating "h" after a consonant left out ("kh" is "k"), a doubled letter once.
+    "Rytu Khata", "Raitu Khaata" and "Raita Kata" are all "rtkt". Deleting the vowels is
+    how Hindi-English name pairs are matched across spelling variants (Harish/Hareesh) in
+    aclweb.org/anthology/W09-3407.pdf (read 23 Nov 2026); a skeleton alone also matches
+    unrelated words, so `_names_alike` still asks for close spelling."""
+    out: list[str] = []
+    previous = ""
+    for letter in text.lower():
+        if not letter.isalpha():
+            continue
+        vowel = letter in _VOWEL_LETTERS
+        aspirate = letter == "h" and previous != "" and previous not in _VOWEL_LETTERS
+        doubled = bool(out) and letter == out[-1] and previous == letter
+        if not (vowel or aspirate or doubled):
+            out.append(letter)
+        previous = letter
+    return "".join(out)
+
+
+def _names_alike(candidate: str, name: str) -> bool:
+    """Is `candidate` (without marks) the business's `name` misspelt? The same first letter,
+    and either close in letters, or nearly as close with the same consonants."""
+    a, b = candidate.lower(), name.lower()
+    if not a or a[0] != b[0]:
+        return False
+    likeness = SequenceMatcher(None, a, b).ratio()
+    if likeness >= _NAME_LIKENESS:
+        return True
+    skeleton = _consonants(b)
+    return (
+        likeness >= _SOUNDS_LIKENESS
+        and len(skeleton) >= _MIN_SKELETON
+        and _consonants(a) == skeleton
+    )
+
+
 def spell_business_name(text: str, business_name: str | None) -> str:
     """`text` with every near-miss spelling of the business's name written its own way.
 
-    The prompt asks for the name verbatim, but a summary can come from the voice platform
-    (`calls.summary_source = 'engine'`), which no prompt of ours reaches, and the spoken name
-    is transliterated by ear, sometimes with scholarly marks. Only Latin-letter names of five
-    or more letters are matched, word count for word count, compared without marks, so a
-    short or common word is never rewritten.
+    The prompts ask for the name verbatim, but a summary can come from the voice platform
+    (`calls.summary_source = 'engine'`), which no prompt of ours reaches, or be translated
+    from the call's language, and the spoken name is transliterated by ear, sometimes with
+    scholarly marks. Only Latin-letter names of five or more letters are matched, compared
+    without marks: word count for word count, or a many-word name run together into one
+    word ("Raitukhata"), as Telugu and Hindi script write it. A short or common word is
+    never rewritten.
     """
     name = " ".join((business_name or "").split())
     target = name.split()
     if not text or len(name.replace(" ", "")) < 5 or not all(_WORD_RE.fullmatch(w) for w in target):
         return text
+    run_together = name.replace(" ", "")
     words = list(_MARKED_WORD_RE.finditer(text))
-    width = len(target)
+    widths = [len(target), 1] if len(target) > 1 else [1]
     out: list[str] = []
     cursor = 0
     i = 0
-    while i + width <= len(words):
-        run = words[i : i + width]
-        start, end = run[0].start(), run[-1].end()
-        candidate = text[start:end]
-        joined = " ".join(m.group(0) for m in run)
-        plain = _plain_letters(joined)
-        if (
-            " ".join(candidate.split()) == joined
-            and joined != name
-            and plain[0].lower() == name[0].lower()
-            and SequenceMatcher(None, plain.lower(), name.lower()).ratio() >= _NAME_LIKENESS
-        ):
-            out.append(text[cursor:start])
-            out.append(name)
-            cursor = end
-            i += width
-            continue
-        i += 1
+    while i < len(words):
+        matched = 0
+        for width in widths:
+            if i + width > len(words):
+                continue
+            run = words[i : i + width]
+            start, end = run[0].start(), run[-1].end()
+            joined = " ".join(m.group(0) for m in run)
+            if " ".join(text[start:end].split()) != joined or joined == name:
+                continue
+            if _names_alike(_plain_letters(joined), name if width == len(target) else run_together):
+                out.append(text[cursor:start])
+                out.append(name)
+                cursor = end
+                matched = width
+                break
+        i += matched or 1
     out.append(text[cursor:])
     return "".join(out)
 
@@ -1381,9 +1469,11 @@ Kinds:
 - Point at the line where it happened: the caller's own line for what the caller said or
   did, the agent's line for a price the agent quoted.
 - A field_captured moment is only for a field your answer above holds a value for, on the
-  caller's line that gave THAT value. When the caller's answer changed during the call,
-  it is the later line that settled the value in your answer, never an earlier line that
-  said otherwise or only touched the subject. The agent asking for a detail is not a moment.
+  caller's line that settled THAT value: the last caller line the value in your answer
+  rests on. A status or progress ("installed", "set up", "done", "working") is settled
+  where the caller confirmed that final state, usually late in the call, never on an
+  earlier line that began the subject, answered a first step or said otherwise. The agent
+  asking for a detail is not a moment.
 - A label says WHAT happened, never the detail itself: "Gave a delivery address", not the
   address. Never put a name, phone number, address, date or amount in a label.
 - Do not mark greetings, small talk, the AI notice or the recording notice.
@@ -1518,8 +1608,10 @@ __all__ = [
     "MODEL_MOMENT_KINDS",
     "MOMENT_KINDS",
     "MOMENT_LABEL_MAX",
+    "NEED_KEY",
     "NEXT_STEP_BY",
     "NEXT_STEP_WHY",
+    "OUTBOUND_NEED_REASON",
     "OUTCOME_HINTS",
     "PHONE_NEEDS_REVIEW",
     "UNLISTED_MAX",

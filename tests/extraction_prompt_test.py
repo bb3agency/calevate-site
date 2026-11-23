@@ -157,7 +157,7 @@ def test_a_captured_detail_moment_needs_the_value_and_the_callers_line() -> None
     was "Not mentioned". `moments.field_backed` enforces it; the prompt asks for it."""
     prompt = build_extraction_prompt(SPEC, TRANSCRIPT, moments=MomentsBrief()).lower()
     assert "only for a field your answer above holds a value for" in prompt
-    assert "caller's line that gave that value" in prompt
+    assert "caller's line that settled that value" in prompt
 
 
 def test_an_unclear_call_has_no_business_outcome() -> None:

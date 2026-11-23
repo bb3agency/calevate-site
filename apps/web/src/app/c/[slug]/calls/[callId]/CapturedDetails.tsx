@@ -2,7 +2,7 @@
 
 import { Section } from "@/components/console/section";
 import type { CallDetail } from "@/lib/api/client";
-import { UNLISTED_NOTE, capturedValue, unlistedWords } from "@/lib/leadLabels";
+import { UNLISTED_NOTE, capturedValue, expectedButUnsaid, unlistedWords } from "@/lib/leadLabels";
 import { lookup } from "@/lib/lookup";
 
 /**
@@ -10,7 +10,8 @@ import { lookup } from "@/lib/lookup";
  *
  * Only the details the caller actually said are rows (founder, 11 Oct 2026): a column of
  * "Not said" read as a form the caller refused to fill. The fields nobody mentioned fold
- * into one quiet row of chips, so the owner still sees what the agent was listening for. A value
+ * into one quiet row of chips, so the owner still sees what the call's job asked for and
+ * did not get (`expectedButUnsaid`: never a core detail no script asks for). A value
  * flagged for checking carries the server's note, which names the field and never repeats
  * the value.
  */
@@ -34,7 +35,7 @@ export function CapturedDetails({ detail }: { detail: CallDetail }) {
   // Fields the agent no longer asks for appear only when this call carried a value for them.
   // An unclear answer was said, so it is listed with its reason below rather than here.
   const unclear = new Set(unclearFields.map((field) => field.key));
-  const unmentioned = fields.filter((field) => field.current && said(field) === null && !unclear.has(field.key));
+  const unmentioned = fields.filter((field) => expectedButUnsaid(field, said(field)) && !unclear.has(field.key));
   return (
     <Section title="Captured details">
       {given.length === 0 ? (

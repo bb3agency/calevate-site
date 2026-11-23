@@ -432,10 +432,28 @@ describe("the conversation", () => {
 
 describe("the rest of the screen", () => {
   it("lists only the details the caller gave, and folds the rest into one quiet line", async () => {
-    await renderClientPage(page, routes(detail()));
+    const base = detail();
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          captured: [
+            ...base.captured,
+            { key: "crop", label: "Crop", type: "text", core: false, current: true, source: "call", value: null },
+          ],
+        }),
+      ),
+    );
     expect((await screen.findByText("Quantity")).closest("div")?.textContent).toContain("2 kg");
     expect(screen.queryByText("Not said")).toBeNull();
-    expect(screen.getByRole("list", { name: "Not mentioned" }).textContent).toContain("Preferred time");
+    expect(screen.getByRole("list", { name: "Not mentioned" }).textContent).toContain("Crop");
+  });
+
+  it("never lists a core detail as not mentioned: no script asks for it (23 Nov 2026)", async () => {
+    // `detail()` leaves the core "Preferred time" empty and every job detail filled.
+    await renderClientPage(page, routes(detail()));
+    await screen.findByText("Quantity");
+    expect(screen.queryByRole("list", { name: "Not mentioned" })).toBeNull();
   });
 
   it("gives the caller's own words for a choice none of the choices fitted (D-889)", async () => {

@@ -3,7 +3,7 @@
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useLeadCaptured } from "@/lib/api/leadFields";
-import { UNLISTED_NOTE, capturedValue, unlistedWords } from "@/lib/leadLabels";
+import { UNLISTED_NOTE, capturedValue, expectedButUnsaid, unlistedWords } from "@/lib/leadLabels";
 
 /**
  * What the agents captured about this person, under the labels the business uses
@@ -12,8 +12,9 @@ import { UNLISTED_NOTE, capturedValue, unlistedWords } from "@/lib/leadLabels";
  *
  * The call screen's rule (founder, 11 Oct 2026; L3-10): only the details the person
  * actually gave are rows, because a column of "Not said" reads as a form they refused to
- * fill. The details still asked for and never given fold into one quiet "Not mentioned"
- * line, and an older detail with no value is not listed at all. The lead's own name fills
+ * fill. The details its jobs still ask for and never got fold into one quiet "Not
+ * mentioned" line (`expectedButUnsaid`); a core detail or an older one with no value is not
+ * listed at all. The lead's own name fills
  * an empty name field on the server (`crm/captured.with_known_name`).
  *
  * Its own read, so a failure here says so in place and leaves the rest of the lead alone.
@@ -34,7 +35,7 @@ export function LeadCaptured({ session, leadId }: { session: Session; leadId: st
   if (!fields.length) return null;
   const shown = (field: (typeof fields)[number]) => capturedValue(field) ?? unlistedWords(field);
   const given = fields.filter((field) => shown(field) !== null);
-  const unmentioned = fields.filter((field) => field.current && shown(field) === null);
+  const unmentioned = fields.filter((field) => expectedButUnsaid(field, shown(field)));
   return (
     <div className="space-y-3">
       {given.length === 0 ? (

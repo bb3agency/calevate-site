@@ -329,6 +329,7 @@ async def translate_call(
         else []
     )
     english = str(row[1] or "")
+    business_name = str(row[3] or "")
     local = "" if call_language.is_english(language) else str(row[2] or "")
     romanised = local if call_language.romanised_local(local, language=language) else ""
     if romanised:
@@ -359,9 +360,13 @@ async def translate_call(
             summary_en=redact(english).text if english else "",
             summary_local=redact(local).text if local else "",
             summary_romanised=redact(romanised).text if romanised else "",
+            business_name=business_name,
         )
         usage = done.usage
-        turns_en = call_language.english_lines(pending, done)
+        turns_en = {
+            idx: spell_business_name(line, business_name)
+            for idx, line in call_language.english_lines(pending, done).items()
+        }
         new_local = done.summary_local if want_local else ""
         new_english = done.summary_en if want_english else ""
         # The same feeling check `pipeline._settle_summaries` makes on the English it keeps.
@@ -382,6 +387,7 @@ async def translate_call(
                 turns=[],
                 summary_en=cleaned,
                 summary_local="",
+                business_name=business_name,
             )
             if again.usage is not None or not again.failed:
                 # A pass that failed before answering was not billed (`sum_usage`).
@@ -389,7 +395,7 @@ async def translate_call(
             if again.summary_local:
                 new_local, restated_local = again.summary_local, local or None
         # The business's own spelling, as `pipeline._record_reading` restores it.
-        new_english = spell_business_name(new_english, str(row[3]) if row[3] else None)
+        new_english = spell_business_name(new_english, business_name)
         incomplete = done.failed and bool(
             pending or (want_english and not new_english) or (want_local and not new_local)
         )

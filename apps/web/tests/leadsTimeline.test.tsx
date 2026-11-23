@@ -450,6 +450,7 @@ describe("what was captured about this person (L3-10, L3-11)", () => {
             field("name", "Name", "Ramesh Kumar", { core: true, source: "lead" }),
             field("need", "What they want", null, { core: true }),
             field("visit", "Next step", "site_visit", { type: "enum" }),
+            field("plot_size", "Plot size", null),
             field("budget", "Budget", null, { current: false }),
           ],
         },
@@ -459,7 +460,9 @@ describe("what was captured about this person (L3-10, L3-11)", () => {
     expect(container.textContent).not.toContain("Not said");
     expect(container.textContent).not.toContain("site_visit");
     const unsaid = screen.getByRole("list", { name: "Not mentioned" });
-    expect(unsaid.textContent).toContain("What they want");
+    expect(unsaid.textContent).toContain("Plot size");
+    // A core detail is noted when the person says it; no script asks for it.
+    expect(unsaid.textContent).not.toContain("What they want");
     // A detail no longer asked, with nothing said, is not listed at all.
     expect(container.textContent).not.toContain("Budget");
   });

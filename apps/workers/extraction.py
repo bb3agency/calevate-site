@@ -480,6 +480,7 @@ class SarvamExtractor:
             business_name=setting.business_name if setting else None,
             called_at=setting.called_at if setting else None,
             agent_name=setting.agent_name if setting else None,
+            direction=setting.direction if setting else None,
         )
         schema = build_response_schema(
             spec, moments=moments is not None, outcomes=outcomes, unlisted=unlisted, goal=goal
@@ -2522,11 +2523,13 @@ class _ReadsContext(Protocol):
 @dataclass(frozen=True, slots=True)
 class CallSetting:
     """Facts about the call the reading needs and the transcript does not carry: the
-    business's and its agent's own spellings of their names, and when the call happened."""
+    business's and its agent's own spellings of their names, when the call happened, and
+    whether the business placed it (`outbound`) or the person rang in."""
 
     business_name: str | None = None
     called_at: datetime | None = None
     agent_name: str | None = None
+    direction: str | None = None
 
 
 #: What `extract_call` files as a model failure rather than letting it fail the call.
