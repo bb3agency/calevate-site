@@ -18,6 +18,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+from calevate_shared.extraction import spell_business_name
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.assist_leg import account_assist_leg
@@ -84,8 +86,19 @@ async def second_reading(session: AsyncSession, *, tenant_id: UUID, call_id: UUI
         metered = await assist.meter_assist(
             record, tenant_id=tenant_id, ref=ref, result=result, model=result.model
         )
+    # The model hears the name by ear, so the business's own spelling is restored, as the
+    # post-call pipeline does for the call's first summary.
+    business_name = (
+        await session.execute(
+            text("SELECT name FROM organizations WHERE id = :t"), {"t": tenant_id}
+        )
+    ).scalar()
+    summary = spell_business_name(
+        service.redacted_summary(result.output.summary) or "",
+        str(business_name) if business_name else None,
+    )
     return SecondReading(
-        summary=service.redacted_summary(result.output.summary) or "",
+        summary=summary,
         disclosure=result.capability.disclosure,
         metered=metered.metered or charged_earlier,
         provider=result.capability.provider,

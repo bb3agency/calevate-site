@@ -110,6 +110,21 @@ def _wire(monkeypatch: pytest.MonkeyPatch, complete: Any) -> None:
     monkeypatch.setattr(chat, "complete", complete)
 
 
+async def _on_a_real_estate_line(tenant_id: UUID, call_id: UUID) -> None:
+    """Put the call on an inbound line that notes the real-estate details, as ingest stamps
+    a line's call from its engine agent's route: what a call notes is its job's list
+    (D-1028), so the agent's own schema is not where these fields go."""
+    await _scalar(
+        tenant_id,
+        "WITH line AS (INSERT INTO inbound_lines (id, tenant_id, name, agent_id, "
+        "extraction_fields) SELECT gen_random_uuid(), c.tenant_id, 'Site visits', c.agent_id, "
+        "CAST(:f AS jsonb) FROM calls c WHERE c.id = :c RETURNING id) "
+        "UPDATE calls SET inbound_line_id = (SELECT id FROM line) WHERE id = :c RETURNING id",
+        f=json.dumps(vertical_templates()["real_estate"]),
+        c=call_id,
+    )
+
+
 # --- the prompt and the schema agree --------------------------------------------------
 
 
@@ -213,13 +228,7 @@ async def test_the_site_visit_call_reads_needs_you_with_its_details(
     _wire(monkeypatch, model.complete)
     monkeypatch.setattr(extraction_module, "get_extractor", lambda: SarvamExtractor("key"))
     tenant_id, execution_id, call_id = await _completed_call("site_visit")
-    await _scalar(
-        tenant_id,
-        "UPDATE extraction_schemas SET fields = CAST(:f AS jsonb) WHERE tenant_id = :t "
-        "RETURNING id",
-        f=json.dumps(vertical_templates()["real_estate"]),
-        t=tenant_id,
-    )
+    await _on_a_real_estate_line(tenant_id, call_id)
 
     await _run_pipeline(tenant_id, call_id, execution_id)
 
@@ -247,13 +256,7 @@ async def _filed_empty(
     """A site-visit call whose reading was stored as `stored`, ended 30 minutes ago."""
     monkeypatch.setattr(fake_engine, "SAMPLE_TURNS", TURNS)
     tenant_id, execution_id, call_id = await _completed_call(label)
-    await _scalar(
-        tenant_id,
-        "UPDATE extraction_schemas SET fields = CAST(:f AS jsonb) WHERE tenant_id = :t "
-        "RETURNING id",
-        f=json.dumps(vertical_templates()["real_estate"]),
-        t=tenant_id,
-    )
+    await _on_a_real_estate_line(tenant_id, call_id)
 
     async def stored_reading(*_args: Any, **_kw: Any) -> ExtractionOutput:
         return stored
