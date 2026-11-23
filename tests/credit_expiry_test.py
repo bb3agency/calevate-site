@@ -402,6 +402,70 @@ async def test_reversing_a_lapsed_purchase_takes_back_its_lapsed_credit_first(
     assert again.expiry_restated_inr == Decimal("0")
 
 
+async def _expiry_entry(tenant_id: uuid.UUID, lot_id: uuid.UUID) -> uuid.UUID:
+    async with tenant_session(tenant_id) as session:
+        entry = (
+            await session.execute(
+                text(
+                    "SELECT id FROM credit_ledger WHERE tenant_id = :t "
+                    "AND meta->>'kind' = :k AND meta->>'lot_id' = :l"
+                ),
+                {"t": tenant_id, "k": credit_expiry.CREDIT_EXPIRY_META_KIND, "l": str(lot_id)},
+            )
+        ).scalar_one()
+    return uuid.UUID(str(entry))
+
+
+async def test_a_lapse_an_operator_credited_back_is_not_given_back_again_by_a_reversal(
+    expiry_on: None,
+) -> None:
+    """Support credits the expiry row back (the adjustment route's row, which names it in
+    `corrects_entry_id`); a later refund of the purchase must not give the lapse back too."""
+    from apps.api.billing.service import remove_credit_from_lots
+
+    tenant_id, _agent = await _tenant(monthly_fee=None)
+    lot_id = await _buy(tenant_id, "1000")
+    await _lapse(tenant_id, lot_id)
+    expiry_id = await _expiry_entry(tenant_id, lot_id)
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("1000"),
+            reason="adjustment",
+            ref=f"OPERATOR-RESTORE-{uuid.uuid4().hex[:8]}",
+            meta={"kind": "operator_adjustment", "corrects_entry_id": str(expiry_id)},
+        )
+        removal = await remove_credit_from_lots(
+            session,
+            tenant_id=tenant_id,
+            corrected_entry_id=await _entry_of(tenant_id, lot_id),
+            amount_inr=Decimal("1000"),
+        )
+    assert removal.expiry_restated_inr == Decimal("0")
+
+
+async def test_a_lapse_a_reversal_gave_back_cannot_be_credited_back_by_an_operator(
+    expiry_on: None,
+) -> None:
+    """The other order: the restatement row names the expiry row, so the adjustment route's
+    ceiling (`reversible_inr`) sees nothing left to credit back."""
+    from apps.api.billing.service import read_correctable_entry, remove_credit_from_lots
+
+    tenant_id, _agent = await _tenant(monthly_fee=None)
+    lot_id = await _buy(tenant_id, "1000")
+    await _lapse(tenant_id, lot_id)
+    expiry_id = await _expiry_entry(tenant_id, lot_id)
+    entry_id = await _entry_of(tenant_id, lot_id)
+    async with tenant_session(tenant_id) as session:
+        removal = await remove_credit_from_lots(
+            session, tenant_id=tenant_id, corrected_entry_id=entry_id, amount_inr=Decimal("1000")
+        )
+        target = await read_correctable_entry(session, tenant_id=tenant_id, entry_id=expiry_id)
+    assert removal.expiry_restated_inr == Decimal("1000.0000")
+    assert target is not None and target.reversible_inr == Decimal("0")
+
+
 async def test_a_dispute_on_a_lapsed_purchase_won_back_leaves_the_balance_where_it_was(
     expiry_on: None,
 ) -> None:

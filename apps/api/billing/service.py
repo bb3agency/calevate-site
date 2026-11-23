@@ -1551,11 +1551,21 @@ class CreditRemoval:
 #: reversal of that same purchase is being recorded (`remove_credit_from_lots`).
 CREDIT_EXPIRY_RESTATED_META_KIND: Final = "credit_expiry_restated"
 
+#: What an expiry took off one lot less everything already given back, and the expiry row.
+#: Given back is either a `credit_expiry_restated` row for the lot or an operator's
+#: credit-back naming the expiry row (`meta.corrects_entry_id`, the key `reversed_amounts`
+#: counts). Reading only the first let a lapse an operator had restored be given back a
+#: second time when its purchase was later refunded or disputed.
 _LAPSED_UNRESTATED_SQL: Final = (
-    "SELECT COALESCE(SUM(-delta) FILTER (WHERE meta->>'kind' = :lapsed), 0) "
-    "- COALESCE(SUM(delta) FILTER (WHERE meta->>'kind' = :restated), 0) "
-    "FROM credit_ledger WHERE tenant_id = :tid AND reason = 'adjustment' "
-    "AND meta->>'lot_id' = :lot"
+    "WITH lapse AS (SELECT id, -delta AS amount FROM credit_ledger WHERE tenant_id = :tid "
+    "AND reason = 'adjustment' AND meta->>'kind' = :lapsed AND meta->>'lot_id' = :lot) "
+    "SELECT COALESCE((SELECT SUM(amount) FROM lapse), 0) "
+    "- COALESCE((SELECT SUM(delta) FROM credit_ledger g WHERE g.tenant_id = :tid "
+    "AND g.reason = 'adjustment' AND g.delta > 0 AND ("
+    "(g.meta->>'kind' = :restated AND g.meta->>'lot_id' = :lot) "
+    "OR (g.meta->>'kind' IS DISTINCT FROM :restated "
+    "AND g.meta->>'corrects_entry_id' IN (SELECT CAST(id AS text) FROM lapse)))), 0), "
+    "(SELECT id FROM lapse LIMIT 1)"
 )
 
 
@@ -1567,7 +1577,7 @@ async def _restate_lapsed_credit(
     never lapsed."""
     from apps.api.billing.credit_expiry import CREDIT_EXPIRY_META_KIND
 
-    lapsed = (
+    row = (
         await session.execute(
             text(_LAPSED_UNRESTATED_SQL),
             {
@@ -1577,9 +1587,10 @@ async def _restate_lapsed_credit(
                 "restated": CREDIT_EXPIRY_RESTATED_META_KIND,
             },
         )
-    ).scalar()
+    ).one()
+    lapsed, expiry_entry_id = row[0], row[1]
     restated = min(amount_inr, Decimal(str(lapsed or 0)))
-    if restated <= 0:
+    if restated <= 0 or expiry_entry_id is None:
         return _ZERO_PAISE
     await record_entry(
         session,
@@ -1593,6 +1604,9 @@ async def _restate_lapsed_credit(
             "kind": CREDIT_EXPIRY_RESTATED_META_KIND,
             "lot_id": str(lot_id),
             "credits_inr": str(restated),
+            # So `reversed_amounts` counts this against the expiry row, and an operator
+            # cannot credit the same lapse back again on the adjustment route.
+            "corrects_entry_id": str(expiry_entry_id),
         },
         allow_negative=True,
         # The reversal the caller writes next takes at least this back.

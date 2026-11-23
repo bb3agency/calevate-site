@@ -464,7 +464,8 @@ async def build_invoice(
     # lots it drew from, so the statement reconciles to those debits rather than re-pricing
     # minutes. `calling_revenue_inr` takes the same figure for the same motion. A managed
     # account's calls take no debit, so the plan-priced lines below are its calling.
-    if await plan_tier_of(session, tenant_id) in PREPAID_TIERS:
+    prepaid = await plan_tier_of(session, tenant_id) in PREPAID_TIERS
+    if prepaid:
         line_items.extend(
             await prepaid_call_statement_lines(session, tenant_id=tenant_id, month=period)
         )
@@ -555,6 +556,11 @@ async def build_invoice(
     surcharge_amount: Decimal = usage["llm_surcharge_inr"]
     if (
         not trial_view
+        # A prepaid account's upgrade was debited per call at the plan's surcharge and is
+        # already the "AI model upgrade on calls" line above (`calling_revenue_inr` takes
+        # only the ledger for it); pricing the plan's rate over the month again would bill
+        # it twice.
+        and not prepaid
         and surcharge_rate is not None
         and surcharge_minutes > 0
         and surcharge_amount > 0

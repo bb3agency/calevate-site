@@ -216,10 +216,14 @@ export function UsageTab({
               {!isPrepaid(data.plan_tier) && (
                 <>
                   <Row label="Plan fee" value={formatINR(data.monthly_fee_inr)} />
-                  <Row
-                    label={`Extra usage (${formatDecimal(data.overage_minutes)} min × ${formatINR(data.overage_rate_inr)})`}
-                    value={formatINR(data.overage_cost_inr)}
-                  />
+                  {/* During a trial the overage is what the trial absorbs, not a charge:
+                      the statement and "Total so far" leave it out, so this does too. */}
+                  {!data.trial.active && (
+                    <Row
+                      label={`Extra usage (${formatDecimal(data.overage_minutes)} min × ${formatINR(data.overage_rate_inr)})`}
+                      value={formatINR(data.overage_cost_inr)}
+                    />
+                  )}
                 </>
               )}
               {/* WHAT EACH VOICE QUALITY COST THIS MONTH (D-547), replacing the plan's
@@ -254,7 +258,7 @@ export function UsageTab({
                   rate beside it. Absent when the plan quotes no surcharge or nothing was
                   upgraded, which is every account today: a ₹0.00 row invites a question
                   about nothing, and is the same rule the overage rows follow. */}
-              {hasNonZeroDigit(data.llm_surcharge_inr) && (
+              {!data.trial.active && hasNonZeroDigit(data.llm_surcharge_inr) && (
                 <Row
                   label={`AI model upgrade${
                     data.llm_surcharge_tiers.length > 0
