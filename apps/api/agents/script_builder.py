@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import (
@@ -468,28 +468,39 @@ async def refuse_if_too_long(session: AsyncSession, agent_id: UUID, script: Call
         raise PromptTooLongError(size)
 
 
-async def refuse_line_if_too_long(
+#: What `line_config` / `campaign_config` refuse with when a job has no script to measure.
+_NOTHING_TO_MEASURE: Final = frozenset({"line_has_no_script", "agent_has_no_script"})
+
+
+async def refuse_job_if_too_long(
     session: AsyncSession,
     *,
+    kind: Literal["campaign", "line"],
     tenant_id: UUID,
-    line_id: UUID,
+    job_id: UUID,
     script: CallScript | None = None,
     for_notes: bool = False,
 ) -> None:
-    """`refuse_if_too_long` for an inbound line, measured on the line's own engine agent as
-    put-live builds it (`service.line_config`): the line's script with its "What it notes",
-    the placed opening and its call-back rules, none of which the agent's own config carries,
-    so measuring the agent would pass a line that put-live then refuses. `script` is the one
-    being saved, else the stored one; a line with neither has nothing to measure.
+    """`refuse_if_too_long` for a campaign or an inbound line, measured on the job's own
+    engine agent as Start or put-live builds it (`service.campaign_config`,
+    `service.line_config`): the job's script with its "What it notes", and for a line the
+    placed opening and its call-back rules, none of which the agent's own config carries, so
+    measuring the agent would pass a job its publish then refuses. `script` is the one being
+    saved, else the stored one; a job with neither has nothing to measure.
 
     `for_notes` words the refusal for a notes save, whose fix is fewer details as much as a
     shorter script."""
-    from apps.api.agents.service import line_config
+    from apps.api.agents.service import campaign_config, line_config
 
     try:
-        config = await line_config(session, tenant_id=tenant_id, line_id=line_id, script=script)
+        if kind == "campaign":
+            config = await campaign_config(
+                session, tenant_id=tenant_id, campaign_id=job_id, script=script
+            )
+        else:
+            config = await line_config(session, tenant_id=tenant_id, line_id=job_id, script=script)
     except ProblemError as exc:
-        if exc.code == "line_has_no_script":
+        if exc.code in _NOTHING_TO_MEASURE:
             return
         raise
     size = prompt_size.measure_config(config, get_engine())
@@ -498,9 +509,9 @@ async def refuse_line_if_too_long(
     if for_notes:
         raise PromptTooLongError(
             size,
-            title="These details make the line's script too long for the calling system",
+            title=f"These details make the {kind}'s script too long for the calling system",
             remediation=(
-                "Note fewer details, or shorten the line's script, then save again. Each "
+                f"Note fewer details, or shorten the {kind}'s script, then save again. Each "
                 "detail a call notes adds a question to the script."
             ),
         )

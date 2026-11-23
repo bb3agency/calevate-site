@@ -4274,7 +4274,7 @@ async def line_config(
     on the platform (`kb/service._publish_config`, D-488), as it does for an arm.
 
     `script` stands in for the saved one, so a save is measured on what put-live would send
-    before it is stored (`script_builder.refuse_line_if_too_long`)."""
+    before it is stored (`script_builder.refuse_job_if_too_long`)."""
     from apps.api.actions import service as actions_service
     from apps.api.agents.script_builder import line_collect_fields
 
@@ -4749,6 +4749,7 @@ async def campaign_agent_row(
     tenant_id: UUID,
     campaign_id: UUID,
     agent: AgentRow | None = None,
+    script: CallScript | None = None,
 ) -> AgentRow:
     """The agent's row as the campaign's engine agent speaks it (D-1003): the campaign's
     compiled script in place of the agent's own, carrying the agent's pinned facts and
@@ -4757,7 +4758,8 @@ async def campaign_agent_row(
     one reader for the config, the dial's first words and the dial gate, so the three agree.
 
     A campaign with no script of its own (made before D-992) speaks the agent's script,
-    asking for the campaign's own list."""
+    asking for the campaign's own list. `script` stands in for the saved one, for a save
+    measured before it is stored (`script_builder.refuse_job_if_too_long`)."""
     from apps.api.agents.script_builder import campaign_collect_fields
     from apps.api.campaigns.settings import apply_overrides
 
@@ -4776,8 +4778,9 @@ async def campaign_agent_row(
     # A campaign made before D-992 has no script of its own and speaks its agent's, compiled
     # here with the campaign's list: the agent's own compile asks for nothing (D-1028).
     own = camp.script or agent.get("structured_script")
-    if own:
+    if script is None and own:
         script = CallScript.model_validate(own)
+    if script is not None:
         collect = await campaign_collect_fields(session, campaign_id)
         body = compile_call_script(script, collect=collect)
         row = _line_agent_row(agent, script, body)
@@ -4795,20 +4798,22 @@ async def campaign_config(
     tenant_id: UUID,
     campaign_id: UUID,
     agent: AgentRow | None = None,
+    script: CallScript | None = None,
 ) -> AgentConfig:
     """A campaign's engine agent as our tables say it should be (D-1003), before any
     workspace placement: the agent's `_to_config` over `campaign_agent_row`, so every
     platform layer (hard rule 5, the confidentiality rule, the speech rules, the notices with
     the opening) and the company training compose exactly as on the agent, with the agent's
     during-call actions. What `publish_campaign_agent` writes, what the drift sweep and the
-    settings repair compare, and what a knowledge attach re-sends (`kb/service`)."""
+    settings repair compare, and what a knowledge attach re-sends (`kb/service`). `script`
+    stands in for the saved one, as in `campaign_agent_row`."""
     from apps.api.actions import service as actions_service
 
     holder = await _campaign_holder(session, campaign_id)
     if agent is None:
         agent = await _load_agent(session, tenant_id, holder.agent_id)
     row = await campaign_agent_row(
-        session, tenant_id=tenant_id, campaign_id=campaign_id, agent=agent
+        session, tenant_id=tenant_id, campaign_id=campaign_id, agent=agent, script=script
     )
     handoff, _duty = await handoff_module.spec_for(session, dict(agent))
     tools = await actions_service.declare(session, agent_id=holder.agent_id, direction="outbound")
