@@ -42,6 +42,21 @@ async def _one(tenant_id: UUID, sql: str, **params: Any) -> Any:
         return (await session.execute(text(sql), params)).first()
 
 
+async def _queued_live(tenant_id: UUID) -> list[list[dict[str, str]]]:
+    """The job lists queued to be put live again (`notes_live.queue_put_live`)."""
+    from apps.api.campaigns.notes_live import PUT_LIVE_JOB
+
+    async with tenant_session(tenant_id) as session:
+        rows = await session.execute(
+            text(
+                "SELECT payload FROM outbox_messages WHERE job = :j "
+                "AND payload->>'tenant_id' = :t ORDER BY created_at"
+            ),
+            {"j": PUT_LIVE_JOB, "t": str(tenant_id)},
+        )
+        return [row[0]["jobs"] for row in rows]
+
+
 async def _agent_with_calendar() -> tuple[UUID, str, UUID, UUID]:
     tenant_id, _slug, token = await _make_tenant()
     async with tenant_session(tenant_id) as session:
@@ -220,6 +235,8 @@ async def test_the_drafted_lead_details_are_kept_once(monkeypatch: pytest.Monkey
     assert "Produce" in proposal.summary and "Front desk" in proposal.summary
     await _confirm(tenant_id, _user_of(token), proposal.token)
     assert await _job_keys(tenant_id) == [["produce"]]
+    # Put on its calls once committed, as the Lead details screen's keep does.
+    assert [[job["kind"] for job in jobs] for jobs in await _queued_live(tenant_id)] == [["line"]]
     with pytest.raises(write_tools.WriteRefusedError) as again:
         await _propose(tenant_id, token, "lead_fields_keep_draft", {"keep": []})
     assert "already" in again.value.reason
@@ -239,6 +256,7 @@ async def test_reset_puts_the_standard_set_on_the_named_lines() -> None:
     )
     assert done.applied is True
     assert all(keys for keys in await _job_keys(tenant_id))
+    assert await _queued_live(tenant_id) == [[{"kind": "line", "job_id": str(line_id)}]]
     with pytest.raises(write_tools.WriteRefusedError):
         await _propose(
             tenant_id,
@@ -268,6 +286,8 @@ async def test_a_suggestion_is_accepted_or_turned_down() -> None:
     )
     assert accepted.applied is True
     assert "6BHK" in json.dumps(await _fields(tenant_id, line_id))
+    live = [[{"kind": "line", "job_id": str(line_id)}]]
+    assert await _queued_live(tenant_id) == live
     await _yes(
         tenant_id,
         token,
@@ -281,6 +301,8 @@ async def test_a_suggestion_is_accepted_or_turned_down() -> None:
             "lead_suggestion_answer",
             {**base, "suggestion_id": new.id, "accept": True},
         )
+    # A turned-down suggestion changes no list, so nothing more is put live.
+    assert await _queued_live(tenant_id) == live
     assert "lead_suggestions.answered" in {a for a, _o, _i in await _audit(tenant_id)}
 
 

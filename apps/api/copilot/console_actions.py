@@ -2151,10 +2151,11 @@ async def _execute_notes_set(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
     """`campaigns/notes.save_notes`, the What it notes Save's own write, with the digest the
-    card showed as its compare-and-set. A campaign's or a live line's engine agent learns the
-    list at its next put-live (Start, a test call, Put it live)."""
-    del actor
+    card showed as its compare-and-set. A campaign holding its engine agent and a live line
+    are put live again once this commits, as the Save's route does; any other job reads the
+    list at its next Start, test call or Put it live."""
     from apps.api.campaigns.notes import save_notes
+    from apps.api.campaigns.notes_live import queue_put_live
 
     job: Literal["campaign", "line"] = "campaign" if args["job"] == "campaign" else "line"
     job_id = UUID(str(args["job_id"]))
@@ -2162,6 +2163,7 @@ async def _execute_notes_set(
     changed = await save_notes(
         session, job, job_id, fields, expected_digest=args.get("expected_digest")
     )
+    await queue_put_live(session, tenant_id=actor.tenant_id, jobs=[(job, job_id)])
     return Executed(
         applied=changed,
         detail=(

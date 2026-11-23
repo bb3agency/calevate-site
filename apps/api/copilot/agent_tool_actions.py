@@ -30,6 +30,7 @@ from apps.api.actions.models import ACTION_KINDS
 from apps.api.actions.schema import ParamSpec, lead_field_key
 from apps.api.agents import field_suggestions, lead_fields_writes
 from apps.api.agents import lead_fields as lead_fields_service
+from apps.api.campaigns.notes_live import queue_put_live
 from apps.api.copilot.actions import (
     PROPOSES_ONLY,
     ActionTool,
@@ -523,6 +524,18 @@ def _jobs_words(jobs: list[lead_fields_service.JobRow]) -> str:
     return ", ".join(f"{_job_word(j.kind)} “{strip_invisible(j.name)}”" for j in jobs)
 
 
+async def _queue_changed_live(
+    session: AsyncSession, actor: ToolActor, written: list[lead_fields_service.JobWrite]
+) -> None:
+    """Put each job whose list changed on its calls once this commits, as the Lead details
+    screen's applies do after theirs (`lead_fields_routes`)."""
+    await queue_put_live(
+        session,
+        tenant_id=actor.tenant_id,
+        jobs=[(w.kind, w.job_id) for w in written if w.changed],
+    )
+
+
 class _KeepArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -571,6 +584,7 @@ async def _execute_keep(
     done = await lead_fields_writes.keep_draft(
         session, tenant_id=actor.tenant_id, keep=keep, jobs=_refs_of(args.get("jobs"))
     )
+    await _queue_changed_live(session, actor, done.written)
     changed = sum(1 for w in done.written if w.changed)
     return Executed(
         applied=True,
@@ -638,8 +652,7 @@ async def _plan_reset(session: AsyncSession, actor: ToolActor, args: Mapping[str
         title="Start lead details again from the standard set",
         summary=(
             f"Give {_jobs_words(jobs)} these lead details: {labels}. Details already captured "
-            "stay on their leads. Each asks for them from its next call once it is put live "
-            "again."
+            "stay on their leads. Each asks for them from its next call."
         ),
         current="each campaign's or line's own list",
         proposed=labels,
@@ -655,6 +668,7 @@ async def _execute_reset(
     done = await lead_fields_writes.replace_with_standard(
         session, tenant_id=actor.tenant_id, jobs=_refs_of(args.get("jobs"))
     )
+    await _queue_changed_live(session, actor, done.written)
     changed = sum(1 for w in done.written if w.changed)
     return Executed(
         applied=changed > 0,
@@ -740,7 +754,7 @@ async def _plan_answer(session: AsyncSession, actor: ToolActor, args: Mapping[st
         title="Accept a suggested lead detail" if parsed.accept else "Turn down a suggestion",
         summary=(
             f"On this {noun}: {what}. Leads captured earlier keep their details. It asks for "
-            "it from its next call once it is put live again."
+            "it from its next call."
             if parsed.accept
             else f"Turn down “{what}” for this {noun}. It is not offered again."
         ),
@@ -764,10 +778,12 @@ async def _plan_answer(session: AsyncSession, actor: ToolActor, args: Mapping[st
 async def _execute_answer(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    del actor
     parsed = parse_args(_AnswerArgs, args)
     answer = field_suggestions.accept if parsed.accept else field_suggestions.dismiss
     chosen = await answer(session, parsed.job, parsed.job_id, suggestion_id=parsed.suggestion_id)
+    if parsed.accept:
+        # The accept route puts the job live after its commit; a dismissal changes no list.
+        await queue_put_live(session, tenant_id=actor.tenant_id, jobs=[(parsed.job, parsed.job_id)])
     return Executed(
         applied=True,
         detail="Done: its list is updated."

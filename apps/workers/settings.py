@@ -240,6 +240,7 @@ from apps.workers.inbound_cutover import apply_inbound_credit_state
 from apps.workers.interrupted_work import SWEEP_MINUTES as INTERRUPTED_SWEEP_MINUTES
 from apps.workers.interrupted_work import end_interrupted_work
 from apps.workers.job_failure import alert_unreported_failure
+from apps.workers.job_notes_live import put_job_notes_live
 from apps.workers.kb_aggregation import (
     DIGEST_HOUR,
     DIGEST_MINUTE,
@@ -482,6 +483,9 @@ FUNCTIONS: list[Any] = [
         # A notice switch migration f2477c8d623d turned back on, put onto the account's
         # calls as a flip is (D-1021, `publishing.queue_notices_reach_calls`).
         refresh_account_notices,
+        # A campaign's or line's changed "What it notes" put on its calls after a change
+        # that committed with no route to do it (`campaigns/notes_live.queue_put_live`).
+        put_job_notes_live,
         # The teach box (founder decision 9) and saved test cases made from real calls
         # (founder decision 11), both from the outbox (`apps/api/teach/`).
         run_kb_teaching,

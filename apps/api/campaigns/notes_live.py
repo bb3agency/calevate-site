@@ -6,14 +6,19 @@ change a job's list from elsewhere, so they call this after their transaction co
 campaign holding its own engine agent while it runs or is paused, and a live line, are put
 live again so their next call asks for the new details. Any other job reads its list at its
 next Start, test call or Put it live, exactly as after its own Save.
+
+A write that cannot act after its own commit (Pip's confirmed or approved changes, which
+commit with their audit row when the route returns) queues the same step through the outbox
+instead (`queue_put_live`), so it runs only if the change committed.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES
 from apps.api.campaigns.engine_agent import put_campaign_live
@@ -22,10 +27,14 @@ from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
 from apps.api.inbound import lines
 from apps.api.inbound.publish import put_line_live
+from apps.api.reliability.service import enqueue_outbox
 
 log = get_logger(__name__)
 
 JobKind = Literal["campaign", "line"]
+
+#: The worker job that runs `put_live_each` for a queued list (`workers/job_notes_live`).
+PUT_LIVE_JOB: Final = "put_job_notes_live"
 
 
 async def holds_calls(tenant_id: UUID, kind: JobKind, job_id: UUID) -> bool:
@@ -72,4 +81,35 @@ async def put_live_each(tenant_id: UUID, jobs: list[tuple[JobKind, UUID]]) -> in
     return refused
 
 
-__all__ = ["JobKind", "holds_calls", "put_live", "put_live_each"]
+async def queue_put_live(
+    session: AsyncSession, *, tenant_id: UUID, jobs: list[tuple[JobKind, UUID]]
+) -> None:
+    """`put_live_each` for `jobs`, once `session`'s transaction commits. Nothing is queued
+    for an empty list."""
+    if not jobs:
+        return
+    payload: dict[str, Any] = {
+        "tenant_id": str(tenant_id),
+        "jobs": [{"kind": kind, "job_id": str(job_id)} for kind, job_id in jobs],
+    }
+    await enqueue_outbox(session, job=PUT_LIVE_JOB, payload=payload)
+
+
+def queued_jobs(payload: dict[str, Any]) -> tuple[UUID, list[tuple[JobKind, UUID]]]:
+    """`queue_put_live`'s payload read back."""
+    jobs: list[tuple[JobKind, UUID]] = [
+        ("campaign" if job["kind"] == "campaign" else "line", UUID(str(job["job_id"])))
+        for job in payload["jobs"]
+    ]
+    return UUID(str(payload["tenant_id"])), jobs
+
+
+__all__ = [
+    "PUT_LIVE_JOB",
+    "JobKind",
+    "holds_calls",
+    "put_live",
+    "put_live_each",
+    "queue_put_live",
+    "queued_jobs",
+]

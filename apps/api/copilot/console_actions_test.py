@@ -29,6 +29,7 @@ from tests.lead_dial_routes_test import (  # reuse, never re-implement
     _settle_calls,
 )
 
+from apps.api.campaigns.notes_live import PUT_LIVE_JOB
 from apps.api.copilot import action_log, console_actions, write_tools
 from apps.api.copilot.account_actions import ACCOUNT_ACTIONS
 from apps.api.copilot.agent_setup_actions import AGENT_SETUP_ACTIONS
@@ -720,6 +721,14 @@ async def test_notes_set_changes_a_lines_list_after_a_click() -> None:
     assert done.applied is True
     fields = (await _one(tenant_id, _LINE_NOTES_SQL, l=line_id))[0]
     assert [f["key"] for f in fields] == ["budget"]
+    # Put on the line's calls once committed, as its own Save does (`notes_live`).
+    queued = await _one(
+        tenant_id,
+        "SELECT payload FROM outbox_messages WHERE job = :j AND payload->>'tenant_id' = :t",
+        j=PUT_LIVE_JOB,
+        t=str(tenant_id),
+    )
+    assert queued[0]["jobs"] == [{"kind": "line", "job_id": str(line_id)}]
 
 
 async def test_notes_named_only_by_label_are_taken() -> None:
