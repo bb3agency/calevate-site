@@ -326,6 +326,23 @@ def unchanged_line(reason: str) -> str:
     return f"\n\nNothing was changed. {said[0].upper()}{said[1:]}."
 
 
+def _unless_claimed(held: Sequence[str], *, turn: int) -> Sequence[str]:
+    """A turn's held words beside a proposal or a staged approval, or nothing when they say
+    the change was made: until somebody presses Confirm or Approve nothing was, and the card
+    under them says what would change."""
+    if claims_a_change("".join(held)):
+        log.info("copilot_proposal_claim_withheld", extra={"turn": turn})
+        return ()
+    return held
+
+
+def _unchanged_close(reasons: Sequence[str], *, spoke: bool) -> str:
+    """`unchanged_line` for the loop's last refusal, standing alone when no words precede it
+    (the loop withheld a claim). Stripped: a fill refusal names a field by the screen's label."""
+    line = strip_invisible(unchanged_line("; ".join(reasons)))
+    return line if spoke else line.lstrip()
+
+
 def silent_answer_line(*, fields: Sequence[str], actions: Sequence[str]) -> str:
     """What an answer that only filled fields or ran actions says, from what happened: the
     labels it filled and each action's own receipt sentence, never the model's account of
@@ -1897,8 +1914,10 @@ def _step_end(
     status: Literal["done", "refused", "failed"],
     detail: str,
     started_at: float | None,
+    proposed: bool = False,
 ) -> CopilotStepEvent:
     """The terminal frame for one call, carrying what came back and how long it took.
+    `proposed`: the call ended in a card waiting for the person (`step_labels.step_label`).
 
     `time.monotonic` rather than the wall clock: this is a DURATION, and a wall clock can
     step backwards under NTP and report a negative one.
@@ -1920,7 +1939,7 @@ def _step_end(
         elapsed_ms=None if started_at is None else int((time.monotonic() - started_at) * 1000),
         # A step that did not finish is named by what it was doing, not by a past tense
         # that would claim it happened.
-        label=step_label(call.name, running=status != "done"),
+        label=step_label(call.name, running=status != "done", proposed=proposed),
     )
 
 
@@ -2194,6 +2213,9 @@ async def _run_tool_loop(
     guard_refused = False
     #: Whether this run tried to change anything at all, refused or not.
     attempted_change = False
+    #: Whether any words reached the person, so the closing "Nothing was changed" knows
+    #: whether it follows a sentence or stands alone.
+    spoke = False
     for turn_index in range(limits.max_turns):
         outcome: chat.ChatOutcome | None = None
         # A TURN'S TEXT IS HELD UNTIL THE TURN HAS ENDED, on every screen. The model writes
@@ -2345,7 +2367,7 @@ async def _run_tool_loop(
             # stand. A turn that acts shows them only once its act has gone through.
             # Unless this run tried a change, nothing landed (no fill, action, proposal,
             # staged approval or job), and these words say something was changed: then they
-            # are withheld, and `routes` ends the answer with the refusal's own reason.
+            # are withheld, and the prose exit ends the answer with the refusal's own reason.
             # Shown with the correction under them, "the script has been updated" above
             # "Nothing was changed" left the owner to decide which to believe (23 Nov 2026).
             # A run that tried nothing keeps its words: "it has been paused" may answer a
@@ -2355,6 +2377,7 @@ async def _run_tool_loop(
             else:
                 for fragment in held:
                     yield CopilotEvent(text=fragment)
+                spoke = spoke or bool("".join(held).strip())
             held = []
         else:
             attempted_change = attempted_change or bool(fill_calls or write_calls)
@@ -2386,12 +2409,19 @@ async def _run_tool_loop(
                     extra={"turn": turn_index, "finish_reason": outcome.finish_reason},
                 )
                 yield CopilotEvent(text=strip_invisible(_no_answer_sentence(outcome.finish_reason)))
+                spoke = True
             elif not changed and not attempted_change and claims_a_change(outcome.content):
                 # THE OUTPUT CHECK. Nothing in this run changed anything, and the answer
                 # says in English that it did; the claim is left standing and the truth
                 # follows it.
                 log.info("copilot_unbacked_claim", extra={"turn": turn_index})
                 yield CopilotEvent(text=NOTHING_CHANGED_LINE)
+            if attempted_change and not changed:
+                # EVERY CHANGE THIS RUN TRIED WAS REFUSED, and the refusal's reason closes
+                # the answer. Said here rather than by each route so the admin console and
+                # a background job's summary carry it too, and so a refusal that showed no
+                # step (two acts in one turn) still has a sentence after a withheld claim.
+                yield CopilotEvent(text=_unchanged_close(refusal_reasons, spoke=spoke))
             yield CopilotEvent(
                 spend=CopilotSpend(
                     usage=_sum_usage(turns),
@@ -2632,12 +2662,16 @@ async def _run_tool_loop(
                     )
                     actions_run += 1
                     changed = True
-                    for fragment in held:
+                    for fragment in _unless_claimed(held, turn=turn_index):
                         yield CopilotEvent(text=fragment)
                     held = []
                     yield CopilotEvent(
                         step=_step_end(
-                            call, status="done", detail=staged.summary, started_at=started_at
+                            call,
+                            status="done",
+                            detail=staged.summary,
+                            started_at=started_at,
+                            proposed=True,
                         )
                     )
                     yield CopilotEvent(approval=staged)
@@ -2704,10 +2738,16 @@ async def _run_tool_loop(
                 messages = _with_tool_result(messages, outcome, call, _problem_result(problem))
                 continue
 
-            for fragment in held:
+            for fragment in _unless_claimed(held, turn=turn_index):
                 yield CopilotEvent(text=fragment)
             yield CopilotEvent(
-                step=_step_end(call, status="done", detail=proposal.summary, started_at=started_at)
+                step=_step_end(
+                    call,
+                    status="done",
+                    detail=proposal.summary,
+                    started_at=started_at,
+                    proposed=True,
+                )
             )
             yield CopilotEvent(proposal=proposal)
             yield CopilotEvent(
@@ -2915,6 +2955,7 @@ async def _run_tool_loop(
             navigations_run += 1
             for fragment in held:
                 yield CopilotEvent(text=fragment)
+            spoke = spoke or bool("".join(held).strip())
             yield CopilotEvent(
                 step=_step_end(
                     call, status="done", detail=destination.detail, started_at=started_at
@@ -2980,6 +3021,8 @@ async def _run_tool_loop(
     # STRIPPED LIKE EVERY OTHER TEXT EVENT: a fill refusal names a field by its label, and
     # the screen wrote the label.
     yield CopilotEvent(text=strip_invisible(f"{EXHAUSTED_MESSAGE}{detail}"))
+    if attempted_change and not changed:
+        yield CopilotEvent(text=_unchanged_close(refusal_reasons, spoke=True))
     # A RUN THAT RAN OUT OF TURNS IS OUR COST, NOT THE CLIENT'S ALLOWANCE: the turns went on
     # our own guards and the model's slips, and the person got no answer for them.
     yield CopilotEvent(

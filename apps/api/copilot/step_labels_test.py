@@ -70,3 +70,15 @@ def test_the_backup_disclosure_is_one_short_line_that_keeps_what_g6_requires() -
             assert capability_named in text
         assert "sarvam" not in text.lower()
         assert len(text) <= 170, text
+
+
+def test_a_proposed_step_says_it_was_suggested_not_done() -> None:
+    """FAILS IF: a step that ended in a card waiting for Confirm reads "Bought the number"
+    or "Deleted the agent" when nothing has happened yet; a label that already says only
+    that something was prepared keeps its words."""
+    assert step_label("number_buy", running=False, proposed=True) == "Suggested buying the number"
+    deleting = step_label("agent_delete", running=False, proposed=True)
+    assert deleting == "Suggested deleting the agent"
+    preparing = step_label("agent_tests_fix", running=False, proposed=True)
+    assert preparing == STEP_LABELS["agent_tests_fix"].done
+    assert step_label("number_buy", running=False) == "Bought the number"

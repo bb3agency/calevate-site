@@ -2010,7 +2010,9 @@ async def test_an_actions_claim_is_not_shown_when_the_action_is_refused(
 
     said = "".join(e.text for e in events if e.text)
     assert "I've created the agent" not in said
-    assert said == "I could not create it from here."
+    assert said == "I could not create it from here." + service.unchanged_line(
+        actions_module.REFUSED_PLAIN
+    )
     refused = [e.step for e in events if e.step is not None and e.step.status == "refused"]
     assert [step.detail for step in refused] == [actions_module.REFUSED_PLAIN]
 
@@ -2031,14 +2033,82 @@ async def test_a_final_claim_after_every_change_was_refused_is_withheld(
         [_tool_turn(("agents_do", create)), _turn(content="Varsha's script has been updated.")],
     )
     events = await _drain()
-    assert "".join(e.text for e in events if e.text) == ""
+    closing = service.unchanged_line(actions_module.REFUSED_PLAIN)
+    assert "".join(e.text for e in events if e.text) == closing.lstrip()
 
     _scripted(
         monkeypatch,
         [_tool_turn(("agents_do", create)), _turn(content="I could not create it.")],
     )
     events = await _drain()
-    assert "".join(e.text for e in events if e.text) == "I could not create it."
+    assert "".join(e.text for e in events if e.text) == "I could not create it." + closing
+
+
+async def test_a_claim_after_a_refusal_that_showed_no_step_still_ends_in_the_truth(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: a fill and an action asked for in one turn (refused with no step on screen)
+    followed by "I've updated the opening line" leaves the answer empty: the claim is
+    withheld and nothing said why. The loop closes it itself, so the admin console and a
+    background job's summary, which have no closing line of their own, carry it too."""
+    fill = json.dumps(
+        {"because": "set the opening time", "items": [{"field_id": "open", "value": "09:00"}]}
+    )
+    create = _agents_do(
+        "agent_create",
+        {"name": "Nightline", "direction": "outbound", "language_primary": "te-IN"},
+        because="set the opening time",
+    )
+    _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("set_fields", fill), ("agents_do", create)),
+            _turn(content="I've updated the opening line."),
+        ],
+    )
+    events = await _drain()
+    said = "".join(e.text for e in events if e.text)
+    assert said == service.unchanged_line(service.TWO_ACTS_PLAIN).lstrip()
+    assert not [e for e in events if e.fill is not None or e.action is not None]
+
+
+async def test_a_claim_beside_a_proposal_is_withheld_until_confirmed(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: "I've paused the campaign" written beside a confirm-tier proposal reaches
+    the person, when nothing happens until they press Confirm; words that claim nothing
+    still stand above the card."""
+    card = cast(Any, type("Card", (), {"summary": "Pause the campaign.", "title": "Pause"})())
+
+    async def _plan(name: str, arguments: str, **kwargs: Any) -> Any:
+        return card
+
+    monkeypatch.setattr(write_tools, "plan_write", _plan)
+    for words, shown in (
+        ("I've paused the campaign. ", ""),
+        ("I can pause it once you confirm. ", "I can pause it once you confirm. "),
+    ):
+        _scripted(monkeypatch, [_tool_turn(("agent_tests_fix", "{}"), content=words)])
+        events = [e async for e in service.run_copilot(PAYLOAD, tool_context=TOOL_CONTEXT)]
+        assert [e.proposal for e in events if e.proposal is not None] == [card]
+        assert "".join(e.text for e in events if e.text) == shown
+
+
+async def test_a_proposed_step_is_labelled_as_suggested(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: the step under a Confirm card reads as done ("Paused the campaign") while
+    nothing has happened until the person presses Confirm."""
+    card = cast(Any, type("Card", (), {"summary": "Pause the campaign.", "title": "Pause"})())
+
+    async def _plan(name: str, arguments: str, **kwargs: Any) -> Any:
+        return card
+
+    monkeypatch.setattr(write_tools, "plan_write", _plan)
+    _scripted(monkeypatch, [_tool_turn(("campaign_pause", "{}"))])
+    events = [e async for e in service.run_copilot(PAYLOAD, tool_context=TOOL_CONTEXT)]
+    done = [e.step for e in events if e.step is not None and e.step.status == "done"]
+    assert [step.label for step in done] == ["Suggested pausing the campaign"]
 
 
 async def test_a_lookups_words_are_shown_when_the_turn_ends(

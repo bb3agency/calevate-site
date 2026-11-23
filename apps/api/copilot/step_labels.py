@@ -258,9 +258,17 @@ for _area, _words in _AREA_WORDS.items():
 UNKNOWN: Final[StepLabel] = _l("Trying something", "Tried something it could not do")
 
 
-def step_label(tool: str, *, running: bool) -> str:
+def step_label(tool: str, *, running: bool, proposed: bool = False) -> str:
+    """`proposed` is a step that ended in a card waiting for Confirm or Approve: nothing has
+    happened yet, so "Bought the number" would be false. Its words are "Suggested buying the
+    number", unless the done label already says only that something was prepared."""
     label = STEP_LABELS.get(tool, UNKNOWN)
-    return label.running if running else label.done
+    if running:
+        return label.running
+    if proposed and not label.done.startswith("Prepared"):
+        doing = label.running.removesuffix("…")
+        return f"Suggested {doing[:1].lower()}{doing[1:]}"
+    return label.done
 
 
 __all__ = ["STEP_LABELS", "UNKNOWN", "StepLabel", "step_label"]
