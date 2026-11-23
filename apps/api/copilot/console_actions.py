@@ -63,6 +63,7 @@ from apps.api.billing.plans import IST
 from apps.api.callbacks.service import MAX_NOTE as CALLBACK_NOTE_MAX
 from apps.api.campaigns import controls as campaign_controls
 from apps.api.campaigns import service as campaigns_service
+from apps.api.campaigns.engine_agent import check_before_schedule
 from apps.api.copilot.actions import (
     DOES_IT,
     LANGUAGE_CHOICE_NOTE,
@@ -675,15 +676,24 @@ async def _plan_callback_book(
     phone, _name = await crm_service.lead_phone(session, parsed.lead_id)
     await _refuse_standing(session, actor, agent_id=parsed.agent_id, phone=phone)
     note = None if parsed.note is None else (strip_invisible(parsed.note.strip()) or None)
+    # Booking moves the lead's waiting call-back rather than adding a second one
+    # (`swipe.schedule_lead_callback`), and gives it this agent and note.
+    raw_waiting = (await _client_scheduled(session, parsed.lead_id))["requested_at"]
+    waiting = None if raw_waiting is None else _ist_words(datetime.fromisoformat(raw_waiting))
+    moves = (
+        f" This moves the call-back already waiting for {waiting} and gives it this agent and note."
+        if waiting
+        else ""
+    )
     return Plan(
         object_id=str(parsed.lead_id),
-        title="Book a call-back",
+        title="Move this lead's call-back" if waiting else "Book a call-back",
         summary=(
             f"“{agent_name}” calls this lead back at {_ist_words(when)}. The call is placed "
             "automatically then, inside calling hours and only if every calling rule still "
-            "allows it."
+            f"allows it.{moves}"
         ),
-        current=None,
+        current=waiting,
         proposed=_ist_words(when),
         cost=_BILLED_PER_MINUTE,
         reversal="You can cancel or move it from the Call-backs screen until it is placed.",
@@ -736,10 +746,31 @@ async def _execute_callback_book(
 
 
 _CLIENT_SCHEDULED: Final = (
-    "SELECT id, requested_at FROM scheduled_callbacks WHERE lead_id = :lid "
+    "SELECT id, requested_at, note, agent_id FROM scheduled_callbacks WHERE lead_id = :lid "
     "AND status = 'scheduled' AND source_execution_id LIKE :prefix "
     "ORDER BY created_at DESC LIMIT 1"
 )
+
+
+async def _client_scheduled(session: AsyncSession, lead_id: UUID) -> dict[str, Any]:
+    """The lead's waiting client call-back, which a booking moves: its id, time, note and
+    agent, or Nones."""
+    from apps.api.callbacks import service as callbacks_service
+
+    found = (
+        await session.execute(
+            text(_CLIENT_SCHEDULED),
+            {"lid": lead_id, "prefix": f"{callbacks_service.CLIENT_SCHEDULE_PREFIX}%"},
+        )
+    ).first()
+    if found is None:
+        return {"callback_id": None, "requested_at": None, "note": None, "agent_id": None}
+    return {
+        "callback_id": str(found[0]),
+        "requested_at": found[1].isoformat(),
+        "note": found[2],
+        "agent_id": str(found[3]),
+    }
 
 
 async def _capture_callback_book(
@@ -758,18 +789,7 @@ async def _capture_callback_book(
             "status": row["status"],
             "requested_at": row["requested_at"].isoformat(),
         }
-    found = (
-        await session.execute(
-            text(_CLIENT_SCHEDULED),
-            {
-                "lid": UUID(str(args["lead_id"])),
-                "prefix": f"{callbacks_service.CLIENT_SCHEDULE_PREFIX}%",
-            },
-        )
-    ).first()
-    if found is None:
-        return {"callback_id": None, "requested_at": None}
-    return {"callback_id": str(found[0]), "requested_at": found[1].isoformat()}
+    return await _client_scheduled(session, UUID(str(args["lead_id"])))
 
 
 async def _invert_callback_book(session: AsyncSession, actor: ToolActor, record: UndoRecord) -> str:
@@ -796,14 +816,17 @@ async def _invert_callback_book(session: AsyncSession, actor: ToolActor, record:
     prior_id = record.prior_state.get("callback_id")
     prior_at = record.prior_state.get("requested_at")
     if prior_id == str(callback_id) and prior_at:
+        # The note and agent it had before the booking replaced them; a record written
+        # before they were captured keeps the current ones.
+        prior_agent = record.prior_state.get("agent_id")
         try:
             await schedule_lead_callback(
                 session,
                 tenant_id=actor.tenant_id,
                 lead_id=UUID(str(row[2])),
                 at=datetime.fromisoformat(prior_at),
-                note=row[3],
-                agent_id=UUID(str(row[4])),
+                note=record.prior_state["note"] if "note" in record.prior_state else row[3],
+                agent_id=UUID(str(prior_agent or row[4])),
             )
         except ProblemError as problem:
             raise UndoRefusedError(
@@ -911,8 +934,11 @@ async def _execute_callback_reschedule(
 async def _move_callback(
     session: AsyncSession, actor: ToolActor, callback_id: UUID, when: datetime
 ) -> bool:
-    from apps.api.crm.swipe import change_callback
+    from apps.api.crm.swipe import change_callback, check_schedule_time
 
+    # `change_callback` leaves the window to its caller, as `PATCH /v1/callbacks/{id}` asks
+    # it first; a card confirmed after its time passed would otherwise ring at once.
+    check_schedule_time(when, now=datetime.now(UTC))
     out = await change_callback(
         session, tenant_id=actor.tenant_id, callback_id=callback_id, change="move", at=when
     )
@@ -1336,6 +1362,7 @@ async def _plan_campaign_schedule(
     name, status = await _campaign_name_status(session, parsed.campaign_id)
     if status not in ("draft", "scheduled"):
         raise WriteRefusedError(f"“{name}” is {status}, so it cannot be scheduled")
+    await check_before_schedule(session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id)
     blockers = await campaigns_service.launch_blockers(
         session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id
     )
@@ -1366,10 +1393,12 @@ async def _plan_campaign_schedule(
 async def _execute_campaign_schedule(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`scheduling.schedule_campaign` — `POST /v1/campaigns/{id}/schedule`'s call."""
+    """`scheduling.schedule_campaign` — `POST /v1/campaigns/{id}/schedule`'s call, behind
+    the same `check_before_schedule` refusal."""
     from apps.api.campaigns import scheduling
 
     parsed = parse_args(_CampaignScheduleArgs, args)
+    await check_before_schedule(session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id)
     result = await scheduling.schedule_campaign(
         session,
         tenant_id=actor.tenant_id,

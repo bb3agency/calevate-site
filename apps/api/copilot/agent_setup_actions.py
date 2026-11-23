@@ -65,6 +65,7 @@ from apps.api.copilot.actions import (
     DOES_IT,
     PROPOSES_ONLY,
     ActionTool,
+    AuditEntry,
     Executed,
     Plan,
     ToolActor,
@@ -241,6 +242,13 @@ async def _execute_prepare(
     result = await lifecycle.prepare_agent(
         session, tenant_id=actor.tenant_id, agent_id=parsed.agent_id
     )
+    if result.status == "live":
+        # Switched on between the card and the click: `prepare_agent` leaves it alone.
+        return Executed(
+            applied=False,
+            detail="That agent is already live and taking calls, so nothing changed.",
+            audit_summary={"agent_id": str(parsed.agent_id), "status": result.status},
+        )
     return Executed(
         applied=True,
         detail="The agent is ready to try in its Try it chat. It takes no calls.",
@@ -657,6 +665,9 @@ async def _execute_settings(
     }
     await _owner_settings_allowed(session, actor, list(values))
     moved: list[str] = []
+    # The route's own audit action for each switch that moved: the direction is in the
+    # action because `audit_log` keeps no summary (`agents/routes.py`).
+    flips: list[str] = []
     if "longest_call_minutes" in values:
         before = (
             await session.execute(
@@ -679,12 +690,14 @@ async def _execute_settings(
         )
         if not memory.unchanged:
             moved.append("caller_memory")
+            flips.append(f"agent.caller_memory_{'enabled' if memory.enabled else 'disabled'}")
     if "caller_has_screen" in values:
         screen = await publishing.set_caller_has_screen(
             tenant_id=actor.tenant_id, agent_id=agent_id, enabled=bool(values["caller_has_screen"])
         )
         if not screen.unchanged:
             moved.append("caller_has_screen")
+            flips.append(f"agent.caller_has_screen_{'enabled' if screen.enabled else 'disabled'}")
     voice = {s: v for s, v in values.items() if s in VOICE_SETTINGS}
     if voice:
         _state, voice_moved = await voice_tuning.set_voice_tuning(
@@ -752,6 +765,7 @@ async def _execute_settings(
             "scope": parsed.scope,
             **({} if agents_reset is None else {"agents_reset": agents_reset}),
         },
+        also_audit=tuple(AuditEntry(flip, "agent", str(agent_id)) for flip in flips),
     )
 
 

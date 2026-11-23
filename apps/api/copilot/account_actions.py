@@ -1022,6 +1022,8 @@ async def _execute_fallback(
             applied=removed,
             detail="The backup phone is removed." if removed else "There was no backup phone.",
             audit_summary={"set": False},
+            # The Remove button's own action (`healer/routes.py`), not the Save's.
+            audit_action="healer.fallback_phone_removed",
         )
     await protection.set_fallback_phone(
         session, tenant_id=actor.tenant_id, user_id=actor.user_id, phone_e164=str(phone)
@@ -2172,6 +2174,12 @@ def _inr(value: Decimal | None) -> str:
     return "none" if value is None else display_inr(value)
 
 
+def _cap_minutes(value: int | None) -> str:
+    """A minute limit in words. Zero is a limit (no outgoing minutes at all), never "no
+    limit": `caps.apply_client_caps` stores it and the effective cap is the lower one."""
+    return "no minute limit" if value is None else f"{value} minute limit"
+
+
 class _CapsArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2188,8 +2196,8 @@ async def _plan_caps(session: AsyncSession, actor: ToolActor, args: Mapping[str,
     if spend is not None and spend > MAX_CLIENT_CAP_SPEND_INR:
         raise WriteRefusedError("that limit is above ₹10,00,000; ask the person to check it")
     caps = await read_caps(session, tenant_id=actor.tenant_id)
-    current = f"{_inr(caps.client_cap_spend)} a month, {caps.client_cap_min or 'no'} minute limit"
-    proposed = f"{_inr(spend)} a month, {parsed.cap_minutes or 'no'} minute limit"
+    current = f"{_inr(caps.client_cap_spend)} a month, {_cap_minutes(caps.client_cap_min)}"
+    proposed = f"{_inr(spend)} a month, {_cap_minutes(parsed.cap_minutes)}"
     return Plan(
         object_id=str(actor.tenant_id),
         title="Change your spending limit",

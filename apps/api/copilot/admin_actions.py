@@ -36,6 +36,7 @@ from apps.api.copilot import action_log
 from apps.api.copilot.actions import (
     PROPOSES_ONLY,
     ActionTier,
+    AuditEntry,
     Executed,
     Plan,
     WriteRefusedError,
@@ -533,6 +534,10 @@ async def _execute_call_lines_raise(
             "moved": moved,
             "request_closed": None if closed is None else str(closed.id),
         },
+        # The Calls at once panel's second row: the client's request is answered.
+        also_audit=()
+        if closed is None
+        else (AuditEntry("call_lines_request.done", "call_line_request", str(closed.id)),),
     )
 
 
@@ -900,6 +905,7 @@ async def _execute_healer_retry(
         applied=True,
         detail="The healer runs its next step within a minute.",
         audit_summary={"playbook": incident.playbook},
+        audit_tenant_id=incident.tenant_id,
     )
 
 
@@ -991,6 +997,7 @@ async def _execute_healer_resolve(
             "was": incident.state,
             "reason": parsed.reason,
         },
+        audit_tenant_id=incident.tenant_id,
     )
 
 
@@ -1143,6 +1150,8 @@ async def _execute_healer_attest(
         actor_id=actor.admin_user_id,
     )
     closed = []
+    # Each close gets the row the healer screen's Resolve writes, under its own client.
+    resolved_rows = []
     for ref in parsed.resolve:
         incident = await incidents.find(session, ref)
         if incident is not None and await decisions.resolve(
@@ -1153,6 +1162,14 @@ async def _execute_healer_attest(
             reason=f"attested the {parsed.rate_key} rate at ₹{attested.inr_per_min}/min",
         ):
             closed.append(str(incident.id))
+            resolved_rows.append(
+                AuditEntry(
+                    "healer.incident_resolved",
+                    "heal_incident",
+                    str(incident.id),
+                    tenant_id=incident.tenant_id,
+                )
+            )
     return Executed(
         applied=True,
         detail=f"The {parsed.rate_key} rate is attested at ₹{attested.inr_per_min} per minute"
@@ -1165,6 +1182,7 @@ async def _execute_healer_attest(
             "source_note": attested.source_note,
             "resolved_incidents": closed,
         },
+        also_audit=tuple(resolved_rows),
     )
 
 
@@ -1359,16 +1377,30 @@ async def _execute_and_audit(
     ip: str | None,
 ) -> Executed:
     executed = await tool.execute(session, actor, args)
+    # A platform-scope act about one client (a healer incident) lands in that client's trail,
+    # as its console route writes it.
+    audited_tenant = tenant_id or executed.audit_tenant_id
     await write_audit(
         session,
         action=tool.audit_action,
         actor=principal,
-        tenant_id=tenant_id,
+        tenant_id=audited_tenant,
         object_type=tool.object_type,
         object_id=object_id,
         ip=ip,
         summary={"via": "copilot", "tool": tool.name, **executed.audit_summary},
     )
+    for entry in executed.also_audit:
+        await write_audit(
+            session,
+            action=entry.action,
+            actor=principal,
+            tenant_id=entry.tenant_id or audited_tenant,
+            object_type=entry.object_type,
+            object_id=entry.object_id,
+            ip=ip,
+            summary={"via": "copilot", "tool": tool.name},
+        )
     return executed
 
 

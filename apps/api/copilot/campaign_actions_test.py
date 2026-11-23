@@ -15,7 +15,7 @@ from tests.api_security_test import _make_tenant
 
 from apps.api.copilot import areas, write_tools
 from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS, brief_line
-from apps.api.copilot.console_actions_test import _role_without
+from apps.api.copilot.console_actions_test import _give_script, _role_without
 from apps.api.copilot.write_tools_test import (
     _actor,
     _audit,
@@ -183,6 +183,7 @@ async def test_edit_undo_refuses_after_a_later_change_and_edit_refuses_a_launche
 
 async def test_repeat_needs_a_click_and_sets_the_weekly_start() -> None:
     tenant_id, _slug, token = await _make_tenant()
+    await _give_script(tenant_id)
     campaign_id = await _make_campaign(tenant_id, status="draft")
     proposal = await _propose(
         tenant_id,

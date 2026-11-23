@@ -1515,6 +1515,9 @@ async def run_immediate(
                 **executed.audit_summary,
             },
         )
+        await write_also_audit(
+            session, executed, principal=principal, tenant_id=actor.tenant_id, ip=ip
+        )
         await complete_idempotency(
             session,
             claim=claim,
@@ -1737,6 +1740,29 @@ async def _require_action_code(
     await code_check(template)
 
 
+async def write_also_audit(
+    session: AsyncSession,
+    executed: Executed,
+    *,
+    principal: Principal,
+    tenant_id: UUID | None,
+    ip: str | None,
+) -> None:
+    """The further rows the screen's route writes for the same act (`Executed.also_audit`),
+    in the action's own transaction."""
+    for entry in executed.also_audit:
+        await write_audit(
+            session,
+            action=entry.action,
+            actor=principal,
+            tenant_id=entry.tenant_id or tenant_id,
+            object_type=entry.object_type,
+            object_id=entry.object_id,
+            ip=ip,
+            summary={"via": "copilot"},
+        )
+
+
 async def _record_undo(
     session: AsyncSession,
     tool: WriteTool,
@@ -1868,6 +1894,9 @@ async def confirm(
             # and answers "did a person or the assistant suggest this" without a second
             # action name to keep in step.
             summary={"via": "copilot", "tool": proposal.tool.name, **executed.audit_summary},
+        )
+        await write_also_audit(
+            session, executed, principal=principal, tenant_id=actor.tenant_id, ip=ip
         )
         await action_log.insert(
             session,
@@ -2117,6 +2146,7 @@ async def approve(
         ip=ip,
         summary={"via": "copilot", "tool": tool.name, "approval": True, **executed.audit_summary},
     )
+    await write_also_audit(session, executed, principal=principal, tenant_id=actor.tenant_id, ip=ip)
     await action_log.decide_approval(
         session,
         action_id=action_id,

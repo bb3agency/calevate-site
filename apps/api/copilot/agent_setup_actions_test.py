@@ -146,6 +146,11 @@ async def test_prepare_publishes_a_draft_without_taking_calls() -> None:
     assert done.applied is True
     assert await _status(tenant_id, agent_id) == "paused"
     assert "agent.prepared" in {a for a, _o, _i in await _audit(tenant_id)}
+    # Switched on between the card and the click: nothing changes and Pip says so.
+    late = await _propose(tenant_id, token, "agent_prepare", {"agent_id": str(agent_id)})
+    await _set_status(tenant_id, agent_id, "live")
+    skipped = await _confirm(tenant_id, _user_of(token), late.token)
+    assert skipped.applied is False and "already live" in skipped.detail
 
 
 async def _version(tenant_id: UUID, agent_id: UUID, identity: str) -> None:
@@ -293,6 +298,8 @@ async def test_the_screen_guide_is_a_confirmed_per_agent_switch() -> None:
     assert done.applied is True
     row = await _one(tenant_id, "SELECT caller_has_screen FROM agents WHERE id = :a", a=agent_id)
     assert row[0] is True
+    # The switch's own route records the direction in the action; Pip writes that row too.
+    assert ("agent.caller_has_screen_enabled", "agent", str(agent_id)) in await _audit(tenant_id)
     args = {**_settings(agent_id, caller_has_screen="off"), "scope": "all_agents"}
     with pytest.raises(write_tools.WriteRefusedError) as refused:
         await _propose(tenant_id, token, "agent_settings_set", args)

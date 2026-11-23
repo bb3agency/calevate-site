@@ -336,6 +336,39 @@ async def test_a_team_address_is_added_and_removed() -> None:
     assert gone[0] is True
 
 
+async def test_a_team_address_is_checked_as_the_form_checks_it_and_no_code_is_claimed() -> None:
+    """FAILS IF Pip stores what the Alerts form refuses as an email, or says a code was sent
+    when `add_contact` / `resend_code` sent none (an address already listed or confirmed)."""
+    tenant_id, _slug, token = await _make_tenant()
+    with pytest.raises(write_tools.WriteRefusedError):
+        await _propose(
+            tenant_id,
+            token,
+            "team_alert_contact",
+            {"act": "add", "team_contact_id": None, "address": "a@b.com, x@evil.com"},
+        )
+    add = {"act": "add", "team_contact_id": None, "address": "desk@example.com"}
+    proposal = await _propose(tenant_id, token, "team_alert_contact", add)
+    assert (await _do(tenant_id, token, "team_alert_contact", add)).applied is True
+    # The same card confirmed after the address landed: nothing sent, nothing claimed.
+    again = await _confirm(tenant_id, _user_of(token), proposal.token)
+    assert again.applied is False and "already" in again.detail
+    with pytest.raises(write_tools.WriteRefusedError):
+        await _propose(tenant_id, token, "team_alert_contact", add)
+    row = await _one(tenant_id, "SELECT id FROM team_alert_contacts")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE team_alert_contacts SET verified_at = now() WHERE id = :i"), {"i": row[0]}
+        )
+    with pytest.raises(write_tools.WriteRefusedError):
+        await _propose(
+            tenant_id,
+            token,
+            "team_alert_contact",
+            {"act": "resend_code", "team_contact_id": str(row[0]), "address": None},
+        )
+
+
 async def test_a_whatsapp_address_is_sent_to_the_screen() -> None:
     tenant_id, _slug, token = await _make_tenant()
     with pytest.raises(write_tools.WriteRefusedError) as refused:

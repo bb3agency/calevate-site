@@ -585,6 +585,63 @@ async def test_pip_closes_a_problem_with_the_operators_reason_and_step_up() -> N
     ]
 
 
+async def _audited_tenant(action: str, object_id: str) -> list[UUID | None]:
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text("SELECT tenant_id FROM audit_log WHERE action = :a AND object_id = :o"),
+                {"a": action, "o": object_id},
+            )
+        ).all()
+    return [r[0] for r in rows]
+
+
+async def test_a_clients_problem_closed_or_retried_through_pip_lands_in_its_trail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF Pip's healer_retry, healer_resolve or healer_attest_rate audits a client's
+    incident with no tenant, or not at all, where the healer screen's buttons write
+    `healer.incident_*` under the incident's own client (`healer/routes.py`)."""
+    monkeypatch.setattr(get_settings(), "engine", "thinnest")
+    token = await _make_admin()
+    tenant_id, _agent = await _seed_tenant(f"pip_{uuid.uuid4().hex[:10]}")
+    repair = await _open(
+        "outbox_replay", "outbox_dead_letter", state="escalated", tenant_id=tenant_id
+    )
+    retried, _asked = await _confirm(
+        token,
+        await _plan("healer_retry", token, {"incident": incidents.short_ref(repair.id)}),
+    )
+    assert retried.applied
+    assert await _audited_tenant("healer.incident_retried", str(repair.id)) == [tenant_id]
+    closed, _asked = await _confirm(
+        token,
+        await _plan("healer_resolve", token, {"incident": str(repair.id), "reason": "Fixed it"}),
+    )
+    assert closed.applied
+    assert await _audited_tenant("healer.incident_resolved", str(repair.id)) == [tenant_id]
+
+    money_problem = await _open(state="escalated", tenant_id=tenant_id)
+    effective = datetime(2099, 1, 1, tzinfo=UTC) + timedelta(seconds=uuid.uuid4().int % 10**6)
+    attested, _asked = await _confirm(
+        token,
+        await _plan(
+            "healer_attest_rate",
+            token,
+            {
+                "rate_key": "premium",
+                "inr_per_min": "2.75",
+                "effective_from": effective.isoformat(),
+                "source_note": "Pricing page in the console",
+                "operator_typed_it": True,
+                "resolve": [str(money_problem.id)],
+            },
+        ),
+    )
+    assert attested.applied
+    assert await _audited_tenant("healer.incident_resolved", str(money_problem.id)) == [tenant_id]
+
+
 async def test_pip_never_attests_a_rate_the_operator_did_not_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

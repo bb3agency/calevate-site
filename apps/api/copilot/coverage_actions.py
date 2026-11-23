@@ -34,7 +34,7 @@ from collections.abc import Mapping
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, TypeAdapter, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -371,17 +371,47 @@ _CONTACT_TITLES: Final[dict[str, str]] = {
 }
 
 
+_EMAIL: Final[TypeAdapter[EmailStr]] = TypeAdapter(EmailStr)
+
+
+def _team_email(raw: str | None) -> str:
+    """One email address, checked as the Alerts screen's form checks it
+    (`team_alerts/routes.TeamContactIn`), lower-cased as the service stores it."""
+    try:
+        return str(_EMAIL.validate_python((raw or "").strip())).lower()
+    except ValidationError as exc:
+        raise WriteRefusedError(
+            "`address` must be one email address; a WhatsApp number is added on the Alerts screen",
+            plain="That is not one email address.",
+        ) from exc
+
+
+async def _listed(session: AsyncSession, address: str) -> bool:
+    """Is this email already a live team address? `add_contact` returns such a contact
+    unchanged and sends no code."""
+    return (
+        await session.execute(
+            text(
+                "SELECT 1 FROM team_alert_contacts WHERE address = :address "
+                "AND channel = 'email' AND removed_at IS NULL"
+            ),
+            {"address": address},
+        )
+    ).first() is not None
+
+
 async def _plan_contact(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
     from apps.api.team_alerts.service import _live_contact
 
     del actor
     parsed = parse_args(_ContactArgs, args)
     if parsed.act == "add":
-        if parsed.address is None or "@" not in parsed.address:
+        address = _team_email(parsed.address)
+        if await _listed(session, address):
             raise WriteRefusedError(
-                "`address` must be an email; a WhatsApp number is added on the Alerts screen"
+                "that address is already on the team list, so nothing would change",
+                plain="That address is already on your team list.",
             )
-        address = parsed.address.strip().lower()
         return Plan(
             object_id="",
             title=_CONTACT_TITLES["add"],
@@ -399,6 +429,11 @@ async def _plan_contact(session: AsyncSession, actor: ToolActor, args: Mapping[s
         raise WriteRefusedError("`team_contact_id` is needed; take it from agent_settings handover")
     contact = await _live_contact(session, parsed.team_contact_id)
     shown = _masked(contact.address)
+    if parsed.act == "resend_code" and contact.verified:
+        raise WriteRefusedError(
+            "that address is already confirmed, so no code is needed",
+            plain="That address is already confirmed. No code is needed.",
+        )
     summaries = {
         "remove": f"{shown} stops getting lead alerts.",
         "resend_code": f"A new code is sent to {shown}.",
@@ -424,10 +459,15 @@ async def _execute_contact(
 
     parsed = parse_args(_ContactArgs, args)
     if parsed.act == "add":
-        assert parsed.address is not None
-        contact = await service.add_contact(
-            session, tenant_id=actor.tenant_id, address=parsed.address
-        )
+        address = _team_email(parsed.address)
+        # `add_contact` hands back an address already listed without sending it a code.
+        if await _listed(session, address):
+            return Executed(
+                applied=False,
+                detail="That address is already on your team list, so nothing changed.",
+                audit_summary={"act": "add", "changed": False},
+            )
+        contact = await service.add_contact(session, tenant_id=actor.tenant_id, address=address)
         return Executed(
             applied=True,
             detail="Added. A code was emailed to it; type it on the Alerts screen.",
@@ -441,6 +481,14 @@ async def _execute_contact(
         await service.resync_agents(session, agents)
         detail = "Removed."
     else:
+        # `resend_code` sends nothing to an address confirmed since the card was shown.
+        before = await service._live_contact(session, parsed.team_contact_id)
+        if before.verified:
+            return Executed(
+                applied=False,
+                detail="That address is already confirmed, so no code was sent.",
+                audit_summary={"act": parsed.act, "changed": False},
+            )
         await service.resend_code(
             session, tenant_id=actor.tenant_id, contact_id=parsed.team_contact_id
         )
