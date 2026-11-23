@@ -401,6 +401,21 @@ describe("one inbound line", () => {
     expect(within(fold).queryByRole("button", { name: "Put this line live" })).toBeNull();
   });
 
+  it("says a live line's numbers answer nobody while its voice is not taking calls", async () => {
+    await renderClientPage(
+      linePage(),
+      lineRoutes(line({ script: SCRIPT, live: true, numbers: [{ id: "num-1", e164: NUMBER.e164 }] }), {
+        "/v1/agents": [{ ...agent(AGENT_ID, "Reception"), status: "paused" }, agent(OTHER_AGENT_ID, "Evening desk")],
+      }),
+    );
+    const fold = (await screen.findByRole("heading", { name: "Numbers" })).closest("section") as HTMLElement;
+    expect(await within(fold).findByText("Reception is not taking calls, so callers hear nothing.")).toBeTruthy();
+    expect(within(fold).getByText("Not answering")).toBeTruthy();
+    expect(within(fold).getByRole("link", { name: "Open Reception" }).getAttribute("href")).toBe(`/c/acme/agents/${AGENT_ID}`);
+    // Putting the line live again would not help; the voice is the fix.
+    expect(within(fold).queryByRole("button", { name: "Put this line live" })).toBeNull();
+  });
+
   it("counts only the sources still in the pick list as chosen", async () => {
     const KEPT = "0192f0aa-5555-7000-8000-0000000000a1";
     const GONE = "0192f0aa-5555-7000-8000-0000000000a2";

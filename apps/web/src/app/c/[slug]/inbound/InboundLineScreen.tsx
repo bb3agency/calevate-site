@@ -584,7 +584,8 @@ function OutsideHoursSection({ slug }: { slug: string }) {
 /**
  * A number on a line that is not live answers nobody (D-1019 D3): only a live line holds
  * what answers it, so each number says so and the section offers the one move that fixes
- * it. Putting the line live is the owner's press, never done for them.
+ * it. Putting the line live is the owner's press, never done for them. A live line in the
+ * voice of an agent that is not taking calls answers nobody either, and says which agent.
  */
 function NumbersSection({
   line,
@@ -593,9 +594,14 @@ function NumbersSection({
   putLive,
   puttingLive,
 }: Props & { putLive: () => void; puttingLive: boolean }) {
-  const { session } = useClientRealm();
+  const { session, href } = useClientRealm();
   const numbers = useCampaignNumbers(session);
   const lines = useInboundLines(session);
+  // A live line's numbers are answered only while its voice is taking calls
+  // (`agents/service.route_line_numbers`): switched off, they ring nothing.
+  const voice = useAgents(session).data?.find((agent) => agent.id === line.agent_id);
+  const voiceOff = voice !== undefined && voice.status !== "live";
+  const answering = line.live && !voiceOff;
   const assign = useAssignLineNumber(session, line.id);
   const feedback = useActionFeedback(assign, { errorDisplay: "inline", successToast: "Number added" });
   const [adding, setAdding] = useState(false);
@@ -630,10 +636,21 @@ function NumbersSection({
             {line.numbers.map((n) => (
               <li key={n.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 py-2.5 text-body text-ink">
                 <span className="tabular-nums">{formatPhone(n.e164)}</span>
-                {!line.live && <StatusPill tone="warn">Not answering</StatusPill>}
+                {!answering && <StatusPill tone="warn">Not answering</StatusPill>}
               </li>
             ))}
           </ul>
+        )}
+
+        {line.live && voiceOff && line.numbers.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-body text-ink-muted [overflow-wrap:anywhere]">
+              {voice.name} is not taking calls, so callers hear nothing.
+            </p>
+            <Link href={href(`/c/${session.orgSlug}/agents/${voice.id}`)} className={SECONDARY_BUTTON_SM}>
+              Open {voice.name}
+            </Link>
+          </div>
         )}
 
         {!line.live && line.numbers.length > 0 && (
