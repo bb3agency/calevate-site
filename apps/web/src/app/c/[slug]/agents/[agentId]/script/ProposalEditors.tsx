@@ -222,10 +222,32 @@ export function PartEditor({
             onClick={() => set("faqs", [...script.faqs, { question: "", answer: "" }])} />
         </div>
       );
+    case "step_outcomes":
+      return (
+        <div className="space-y-3">
+          {(script.step_outcomes ?? []).map((o, i) => (
+            <Text key={o.step} id={id(`outcome-${o.step}`)} label={`Step ${o.step} is done when`}
+              hint="In plain English: what is true once this step is done." maxLength={300} value={o.outcome}
+              onChange={(v) =>
+                set("step_outcomes", (script.step_outcomes ?? []).map((x, j) => (j === i ? { ...x, outcome: v } : x)))
+              } />
+          ))}
+        </div>
+      );
     case "example_exchange":
       return (
-        <ExampleEditor lines={script.example_exchange} idBase={idBase} issues={issues}
-          onChange={(lines) => set("example_exchange", lines)} />
+        <div className="space-y-3">
+          {script.example_needs_review && script.example_exchange.length > 0 && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <p className={FIELD_HINT}>Written by Pip. Read it aloud before you keep it.</p>
+              <button type="button" className={TEXT_ACTION} onClick={() => set("example_needs_review", false)}>
+                I have read it
+              </button>
+            </div>
+          )}
+          <ExampleEditor lines={script.example_exchange} idBase={idBase} issues={issues}
+            onChange={(lines) => onChange({ ...script, example_exchange: lines, example_needs_review: false })} />
+        </div>
       );
     case "adherence":
       return (

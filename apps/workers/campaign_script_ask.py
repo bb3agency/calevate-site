@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
 from calevate_shared.business_frame import BUSINESS_FRAME
-from calevate_shared.call_script import CallScript
+from calevate_shared.call_script import CallScript, ConversationStage, stage_steps
 
 from apps.api.tenancy.business_copy import provider_words
 
@@ -184,7 +184,22 @@ GROUNDING_RULE: Final = (
     "Every price, amount, date, time, place, offer and claim in what the agent says comes from "
     "the main task, the sources or the owner's facts, with the same meaning. When they do not "
     "give a detail people will ask for, the agent says it does not have that detail and takes "
-    "it for the team; it never guesses one."
+    "it for the team; it never guesses one. The same holds for every quick fact, objection "
+    "answer and step answer: none promises what the business or its team will do (send, call, "
+    "reset, fix) or reassures (safe, guaranteed, no risk) unless the sources say so."
+)
+
+#: The founder's step outcomes (23 Nov 2026): "we should focus on the outcome of a step ...
+#: the agent handling the live call should reach that outcome through any scenario". Each task
+#: the main task lists becomes one; the review checks none is missing (`REVIEW_INSTRUCTION`).
+OUTCOMES_RULE: Final = (
+    "List every task the main task names, in the order the call can do them, and give each its "
+    "own step whose outcome (step_outcomes) says what is true once it is done, checkable from "
+    "what the person says. Then write that step's scenarios: the ways the person may answer "
+    "(they do it, they already did it, they cannot now, it does not work), each saying how it "
+    "reaches the outcome or where the call goes instead. A task left out for the 12-stage "
+    "limit is named in the goal. The first step goes on from the person's answer to the "
+    "opening line and never greets, says who is calling or asks whether now suits again."
 )
 
 #: Two or three sentences at most per reply and one question per turn (docs.vapi.ai/
@@ -240,8 +255,9 @@ DETAILS_RULE: Final = (
 #: all read 22 Nov 2026). Personality as speech behaviour rather than adjectives:
 #: docs.livekit.io/agents/start/prompting (read 22 Nov 2026).
 CONCISE_RULE: Final = (
-    "Each step's instruction says in one or two short sentences what to do at that moment of "
-    "this call, and the fewest steps reach the main task. Say each thing once. Never write "
+    "Each step's instruction says in at most three short sentences what this scenario does "
+    "toward its step's outcome, what to check or ask, and when it is done, and the fewest "
+    "steps reach the main task. Say each thing once. Never write "
     "rules for how to speak, be polite, handle silence or interruptions, or read numbers: the "
     "platform gives the agent those on every call. style.tone says in a few English words how "
     "the agent sounds in what it does (for example: short sentences, thanks them for each "
@@ -256,9 +272,10 @@ CAMPAIGN_ASK: Final = (
     "short sentence, the steps that get to the main task one at a time, "
     "quick facts (the faqs list: a question people ask and a short spoken answer, at most "
     "eight), the objections people raise with how to answer, and how the call ends. Where a "
-    "note or document says how the agent should handle the call, follow it. "
-    f"{CALL_KINDS_TEXT} {OBJECTIONS_RULE} {GROUNDING_RULE} {PERSON_RULE} {SPECIFIC_RULE} "
-    f"{TURN_RULE} {DETAILS_RULE} {CONCISE_RULE}"
+    "note or document says how the agent should handle the call, follow it. Set policies from "
+    "this campaign: prices only if the sources give prices, bookings only if it books. "
+    f"{CALL_KINDS_TEXT} {OUTCOMES_RULE} {OBJECTIONS_RULE} {GROUNDING_RULE} {PERSON_RULE} "
+    f"{SPECIFIC_RULE} {TURN_RULE} {DETAILS_RULE} {CONCISE_RULE}"
 ) + CLOSING_STEP
 
 #: An inbound line's ask (D-997): the calls are answered, not placed, so it has no call kinds.
@@ -269,8 +286,9 @@ LINE_ASK: Final = (
     "that get to the main task one at a time, quick facts (the faqs list: a question callers "
     "ask and a short spoken answer, at most eight), the objections callers raise with how to "
     "answer, and how the call ends. Where a source says how the agent should handle the "
-    f"call, follow it. {GROUNDING_RULE} {PERSON_RULE} {SPECIFIC_RULE} {TURN_RULE} "
-    f"{DETAILS_RULE} {CONCISE_RULE}"
+    "call, follow it. Set policies from this line: prices only if the sources give prices, "
+    f"bookings only if callers book. {OUTCOMES_RULE} {GROUNDING_RULE} {PERSON_RULE} "
+    f"{SPECIFIC_RULE} {TURN_RULE} {DETAILS_RULE} {CONCISE_RULE}"
 ) + CLOSING_STEP
 
 EDIT_TAIL: Final = (
@@ -288,7 +306,10 @@ REFINE_TAIL: Final = (
     "not do what the ask says it must, a step that asks two things or asks what the call "
     "already knows, a detail to collect that no step asks for, a stage missing a way out the "
     "rules ask for, a line the main task and sources do not back, a stock line, and an "
-    "instruction that repeats another. Keep each part that already meets the ask as it is."
+    "instruction that repeats another; a task of the main task with no step outcome, a step "
+    "whose line greets again after the opening, an already-done way out that ends the call "
+    "while tasks remain, and an answer that promises or reassures beyond the sources. Keep "
+    "each part that already meets the ask as it is."
 )
 
 #: Long sources sit between the ask and the end of the message; the task is said again after
@@ -319,7 +340,8 @@ FLOW_ASK: Final = (
     "step number and in next the stages it can go on to (0 to end the call), so a step's "
     "scenarios lead to the scenarios of a later step. Name each scenario for what happens. "
     "Write each instruction in plain English and its sounds-like line in {language}. Keep "
-    "to 12 stages in all. Leave every other part of the script exactly as it is. "
+    "to 12 stages in all. Give each step its outcome in step_outcomes, on the step's number. "
+    "Leave every other part of the script exactly as it is. "
     f"{PERSON_RULE}"
 ) + CLOSING_STEP
 
@@ -485,7 +507,8 @@ REVIEW_INSTRUCTION: Final = (
     "the owner why the part says what it says, naming the main task or the source it comes "
     "from by its title. Never name an AI company or model.\n"
     "2. claims: every statement of fact in a part: a price, amount, date, time, place, offer, "
-    "discount, guarantee, rule, or anything about the person called (what they did, "
+    "discount, guarantee, rule, a promise of what the business or its team will do, a "
+    "reassurance (safe, secure, no risk), or anything about the person called (what they did, "
     "registered, bought or gave, or what records hold about them). `claim` names it in a few "
     "plain English words. `evidence` copies, word for word, the shortest passage of the "
     "SOURCES that states it, or is empty when no passage does. `about_person` is true when it "
@@ -496,8 +519,12 @@ REVIEW_INSTRUCTION: Final = (
     "words in `detail`: off_task (it does not help reach the main task); generic (it names "
     "nothing from this campaign, business, sources or the people called, and would fit any "
     "business's call; a greeting, a permission question and the close are never generic); "
-    "repeats (it says what another part already says; `detail` names that part's key). Most "
-    "parts fail none.\n"
+    "repeats (it says what another part already says; `detail` names that part's key); "
+    "missing_task (only on the step_outcomes part: a task the main task names that no step "
+    "outcome covers; `detail` names the task); dead_end (a step's way out ends the call for a "
+    "person who already did something the call asks, while the main task still has something "
+    "for them); vague (a step's instruction does not say what it must achieve, what to check, "
+    "or when it is done). Most parts fail none.\n"
     "Use only the keys given. Return ONLY JSON."
 )
 WHY_MAX: Final = 200
@@ -525,6 +552,12 @@ WEAK_PROBLEMS: Final[dict[str, str]] = {
     "generic": "is a stock line that would fit any business's call: {detail}; say it with what "
     "this campaign is about",
     "repeats": "says again what another part already says: {detail}; say it once",
+    "missing_task": "has no step for a task the main task names: {detail}; give it a step "
+    "with its outcome, or say in the goal why it is left out",
+    "dead_end": "ends the call for a person who already did part of the task: {detail}; send "
+    "them on to the next thing the main task asks of them",
+    "vague": "does not say what this step must achieve or when it is done: {detail}; say what "
+    "to achieve, what to check and when it is done",
 }
 
 _REVIEW_ROW: Final[dict[str, object]] = {
@@ -579,6 +612,8 @@ _REVIEWED_FIELDS: Final = (
     ("faqs", "Quick facts"),
     ("objections", "When people push back"),
     ("ending", "How it ends the call"),
+    ("step_outcomes", "What each step must reach"),
+    ("example_exchange", "The example call"),
 )
 
 
@@ -594,7 +629,31 @@ def _part_text(script: CallScript, key: str) -> str:
         return " | ".join(f"{f.question} -> {f.answer}" for f in script.faqs)
     if key == "objections":
         return " | ".join(f"{o.objection} -> {o.response}" for o in script.objections)
+    if key == "step_outcomes":
+        # Read for coverage of the main task, so the steps are named even with no outcomes.
+        names: dict[int, list[str]] = {}
+        for stage, step in zip(script.stages, stage_steps(script.stages), strict=True):
+            names.setdefault(step, []).append(stage.name)
+        said = {o.step: o.outcome for o in script.step_outcomes}
+        return " | ".join(
+            f"Step {step} ({', '.join(names[step])}): {said.get(step, 'no outcome')}"
+            for step in sorted(names)
+        )
+    if key == "example_exchange":
+        return " | ".join(f"{line.speaker}: {line.text}" for line in script.example_exchange)
     return str(getattr(script, key))
+
+
+def _stage_text(stage: ConversationStage, names: dict[str, str]) -> str:
+    """A step as the review reads it: what it does, its line, where it goes and its answers."""
+    ways = "; ".join(f"when {b.when} -> {names.get(b.target, b.target)}" for b in stage.branches)
+    answers = " | ".join(f"{qa.question} -> {qa.answer}" for qa in stage.qa)
+    text = f"{stage.instruction} Says: {stage.sounds_like}"
+    if ways:
+        text += f" Ways out: {ways}"
+    if answers:
+        text += f" Answers: {answers}"
+    return text.strip()
 
 
 def reviewed_parts(script: CallScript, base: CallScript | None) -> list[ReviewedPart]:
@@ -606,13 +665,11 @@ def reviewed_parts(script: CallScript, base: CallScript | None) -> list[Reviewed
         if text and (base is None or text != _part_text(base, key).strip()):
             parts.append(ReviewedPart(key, label, text))
     before = {stage.id: stage for stage in (base.stages if base is not None else [])}
+    names = {stage.id: stage.name for stage in script.stages}
     for stage in script.stages:
-        text = f"{stage.instruction} Says: {stage.sounds_like}".strip()
+        text = _stage_text(stage, names)
         was = before.get(stage.id)
-        if was is not None and (was.instruction, was.sounds_like) == (
-            stage.instruction,
-            stage.sounds_like,
-        ):
+        if was is not None and _stage_text(was, names) == text:
             continue
         parts.append(ReviewedPart(f"stages.{stage.id}", f"Step: {stage.name}", text))
     return parts
@@ -662,6 +719,11 @@ class Review:
     unsourced: dict[str, str] = field(default_factory=dict)
     asserted: dict[str, str] = field(default_factory=dict)
     weak: dict[str, str] = field(default_factory=dict)
+    #: Each part's further rubric findings after its first (`weak`), such as a second task of
+    #: the main task no step covers.
+    weak_more: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: The rubric kinds each part failed (`WEAK_PROBLEMS` keys), for what a repair may rewrite.
+    weak_kinds: dict[str, frozenset[str]] = field(default_factory=dict)
 
     def problems(self, key: str) -> list[str]:
         """The rubric's findings on one part, as problem sentences."""
@@ -672,6 +734,7 @@ class Review:
             found.append(ASSERTED_PROBLEM.format(claim=self.asserted[key]))
         if key in self.weak:
             found.append(self.weak[key])
+        found += self.weak_more.get(key, ())
         return found
 
     def flagged(self) -> list[str]:
@@ -739,19 +802,33 @@ def parsed_review(
             unsourced.setdefault(key, []).append(claim)
         if row.get("about_person") is True and row.get("asked") is not True:
             asserted.setdefault(key, []).append(claim)
-    weak: dict[str, str] = {}
+    weak: dict[str, list[str]] = {}
+    kinds: dict[str, set[str]] = {}
     for key, row in rows("problems"):
-        shape = WEAK_PROBLEMS.get(str(row.get("kind")))
+        kind = str(row.get("kind"))
+        shape = WEAK_PROBLEMS.get(kind)
         detail = clean(row.get("detail"), CLAIM_MAX)
-        if shape is not None and detail:
-            weak.setdefault(key, shape.format(detail=detail.rstrip(".;")))
+        # A missing task is judged on the steps' outcomes as a whole, never on one part.
+        if shape is None or not detail or (kind == "missing_task") != (key == "step_outcomes"):
+            continue
+        said = shape.format(detail=detail.rstrip(".;"))
+        if said not in weak.get(key, []) and len(weak.get(key, [])) < _CLAIMS_PER_PART:
+            weak.setdefault(key, []).append(said)
+            kinds.setdefault(key, set()).add(kind)
 
     def joined(found: dict[str, list[str]]) -> dict[str, str]:
         return {
             key: " and ".join(dict.fromkeys(said[:_CLAIMS_PER_PART])) for key, said in found.items()
         }
 
-    return Review(notes=notes, unsourced=joined(unsourced), asserted=joined(asserted), weak=weak)
+    return Review(
+        notes=notes,
+        unsourced=joined(unsourced),
+        asserted=joined(asserted),
+        weak={key: said[0] for key, said in weak.items()},
+        weak_more={key: tuple(said[1:]) for key, said in weak.items() if len(said) > 1},
+        weak_kinds={key: frozenset(found) for key, found in kinds.items()},
+    )
 
 
 __all__ = [

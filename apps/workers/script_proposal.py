@@ -38,7 +38,8 @@ from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.capability_manifest import lint_context_for
 from apps.api.agents.mistake_fixes import Holder, holder_table
 from apps.api.agents.mistake_lints import mistake_findings, script_mistakes
-from apps.api.agents.script_lint import LintContext, unasked_details
+from apps.api.agents.script_lint import LintContext, empty_title_problems, unasked_details
+from apps.api.agents.script_structure import settled
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -219,7 +220,9 @@ class Noted:
 
 
 def text_at(script: CallScript, path: str) -> str | None:
-    """The string at a script check path (`stages.3.sounds_like`, `ending`), or None."""
+    """The string at a script check path (`stages.3.sounds_like`, `ending`), or None. A path
+    to a list or an object (`stages.3.branches`) reads as its JSON, so a finding on a step's
+    ways out stands while they are unchanged, as one on a line does."""
     node: Any = script.model_dump(mode="json")
     for part in path.split("."):
         if isinstance(node, list) and part.isdigit() and int(part) < len(node):
@@ -228,6 +231,8 @@ def text_at(script: CallScript, path: str) -> str | None:
             node = node[part]
         else:
             return None
+    if isinstance(node, list | dict):
+        return json.dumps(node, sort_keys=True, ensure_ascii=False)
     return node if isinstance(node, str) else None
 
 
@@ -256,7 +261,9 @@ class _Fix:
         if self.mistake_kind is not None:
             found = mistake_findings(script, self.lint, self.mistake_kind)
         else:
-            found = script_mistakes(script, self.lint)
+            # A title left with no name in a line `script_structure.settled` could not mend
+            # (one of the owner's own steps in an edit is not Pip's to mend).
+            found = [*script_mistakes(script, self.lint), *empty_title_problems(script)]
         return [*found, *(n.finding for n in self.noted if n.stands(script))]
 
     def targeted(self, script: CallScript) -> list[str]:
@@ -401,6 +408,9 @@ async def _mistakes_checked(
         context = await lint_context_for(session, tenant_id=tenant_id, agent_id=agent_id)
     check = _Fix(replace(context, promo=False), [], frozenset())
     base = proposal.base_script
+    # Code mends what it can before any paid repair is spent on it.
+    edit = bool(proposal.paths) or proposal.mode == "change"
+    script = settled(script, context, base=base if edit else None)
     had = (
         {_finding_at(p, base) for p in check.problems(base)}
         if proposal.paths or proposal.mode == "change"

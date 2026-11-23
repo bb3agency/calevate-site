@@ -165,6 +165,8 @@ export interface CallScript {
   outbound_purpose: string;
   style: SpeakingStyle;
   stages: ConversationStage[];
+  /** What each step (the `step` its scenarios share) must reach, however the call goes. */
+  step_outcomes?: StepOutcome[];
   /** Where each end point sits on the canvas, by target. Layout only. */
   end_positions?: Record<string, { x: number; y: number }>;
   objections: Objection[];
@@ -175,6 +177,12 @@ export interface CallScript {
   example_needs_review: boolean;
   /** How closely the sections are followed. */
   adherence?: "flexible" | "strict";
+}
+
+/** One step's outcome: a state of the call that shows the step is done. */
+export interface StepOutcome {
+  step: number;
+  outcome: string;
 }
 
 /** The empty structured script a brand-new agent opens on. */

@@ -245,6 +245,40 @@ def honorific_count(text: str) -> int:
     return sum(1 for m in _HONORIFIC.finditer(text) if _starts_word(text, m.start()))
 
 
+#: An honorific where a person's name belongs, with no name: straight after the greeting that
+#: opens the line ("Namaskaram garu, ..."). The founder's rule (23 Nov 2026): a written line
+#: never holds a title with no name; it says the name field before it or neither. "sir" and
+#: "madam" are left out, as they address a person without a name by design, and so is a title
+#: opening a line with no greeting, since Hindi opens a reply with "ji" meaning yes.
+def _empty_title() -> str:
+    greetings = _extend(
+        r"hello|hi|hey|namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)",
+        "spoken_guard._GREETING_HEAD.greetings",
+    )
+    titles = _extend("ji|andi|garu", "spoken_guard._GREETING_HEAD.honorifics")
+    return rf"^(\W*(?:{greetings})(?=[\s,.!?।]))[\s,]*((?:{titles}))(?=[\s,.!?।]|$)[\s,]*"
+
+
+_EMPTY_TITLE: Final = _LivePattern(_empty_title, re.IGNORECASE)
+
+
+def empty_title(text: str) -> str | None:
+    """The honorific a line says where a name belongs with no name in it, or None."""
+    found = _EMPTY_TITLE.search(text.strip())
+    return found.group(2) if found else None
+
+
+def without_empty_title(text: str) -> str:
+    """`text` with an `empty_title` honorific taken out, the greeting before it kept."""
+    stripped = text.strip()
+    found = _EMPTY_TITLE.search(stripped)
+    if found is None:
+        return text
+    head = found.group(1).rstrip()
+    rest = stripped[found.end() :]
+    return f"{head}, {rest}" if rest else head
+
+
 def opens_with_greeting(text: str) -> bool:
     return bool(_GREETING_HEAD.search(text))
 
@@ -327,6 +361,7 @@ __all__ = [
     "UNINTRODUCED_RULE",
     "WRITTEN_FORM_RULE",
     "Side",
+    "empty_title",
     "english_problem",
     "generation_guidance",
     "has_indic_letters",
@@ -341,5 +376,6 @@ __all__ = [
     "textbook_problem",
     "textbook_words",
     "unintroduced_opening_problem",
+    "without_empty_title",
     "without_greeting",
 ]

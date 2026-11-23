@@ -98,7 +98,8 @@ async def lint_context_for(
     row = (
         await session.execute(
             text(
-                "SELECT a.name, o.name, a.language_primary FROM agents a "
+                "SELECT a.name, o.name, a.language_primary, a.ai_disclosure_line, "
+                "a.recording_notice_line FROM agents a "
                 "JOIN organizations o ON o.id = a.tenant_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
@@ -115,6 +116,9 @@ async def lint_context_for(
         language=str(row[2] or ""),
         # An agent's own script asks for no details: its jobs' lists do (D-1028).
         collect=(),
+        # Both sentences whatever the switches: one turned on later says its sentence with no
+        # new script, and covering its spellings costs one short pronunciation each.
+        spoken_elsewhere=tuple(str(line) for line in (row[3], row[4]) if line),
     )
 
 

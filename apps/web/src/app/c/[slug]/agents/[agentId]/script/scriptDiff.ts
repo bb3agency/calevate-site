@@ -25,6 +25,7 @@ export type PartKey =
   | "style"
   | "objections"
   | "ending"
+  | "step_outcomes"
   | "example_exchange"
   | "adherence";
 
@@ -39,6 +40,7 @@ const PARTS: { key: PartKey; label: string }[] = [
   { key: "style", label: "How it talks" },
   { key: "objections", label: "When callers push back" },
   { key: "ending", label: "How it ends the call" },
+  { key: "step_outcomes", label: "What each step must reach" },
   { key: "example_exchange", label: "Example call" },
   { key: "adherence", label: "How closely it follows the steps" },
 ];
@@ -93,6 +95,12 @@ export function partText(script: CallScript, key: PartKey): string {
     case "example_exchange":
       return (script.example_exchange ?? [])
         .map((l) => `${l.speaker === "caller" ? "Caller" : "Agent"}: ${l.text}`)
+        .join("\n");
+    case "step_outcomes":
+      return (script.step_outcomes ?? [])
+        .slice()
+        .sort((a, b) => a.step - b.step)
+        .map((o) => `Step ${o.step}: ${o.outcome}`)
         .join("\n");
     case "adherence":
       return script.adherence === "strict" ? "Follow closely" : "Use as a guide";
@@ -375,7 +383,7 @@ export function applyTraced(
       schema_version: 2,
       raw_override: null,
       example_needs_review: exampleKept
-        ? proposal.example_needs_review && !exampleTouched
+        ? proposal.example_needs_review && edited.example_needs_review && !exampleTouched
         : current.example_needs_review,
     },
     from,

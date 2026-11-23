@@ -39,11 +39,17 @@ import re
 from dataclasses import dataclass
 from typing import Final
 
-from calevate_shared.call_script import CallScript, ConversationStage, extract_variable_names
+from calevate_shared.call_script import (
+    CALL_BACK,
+    CallScript,
+    ConversationStage,
+    extract_variable_names,
+    stage_steps,
+)
 from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
 from calevate_shared.engine import NAME_VARIABLE
-from calevate_shared.spoken_guard import has_indic_letters, latin_word_problem
+from calevate_shared.spoken_guard import empty_title, has_indic_letters, latin_word_problem
 
 from apps.api.compliance.call_purpose import Finding, first_finding
 
@@ -152,6 +158,9 @@ class LintContext:
     #: The script is said on calls the agent places, so its steps need the ways out every
     #: placed call does (`script_assist.way_out_problems`).
     places_calls: bool = False
+    #: What the agent says on a call outside the script, word for word: its AI and recording
+    #: sentences where they are switched on. Names in them need the script's pronunciations.
+    spoken_elsewhere: tuple[str, ...] = ()
 
 
 def _promo(text: str, context: LintContext) -> Finding | None:
@@ -476,6 +485,9 @@ def script_problems(script: CallScript, context: LintContext) -> list[str]:
         for problem in instruction_problems(path, text, context)
     ]
     found += flow_problems(script)
+    found += step_number_problems(script)
+    found += untaken_time_problems(script)
+    found += pronunciation_problems(script, context)
     # With no steps there is nowhere to ask; the details list still reaches the call.
     if script.stages:
         found += [
@@ -979,16 +991,198 @@ def same_opener_problems(script: CallScript) -> list[str]:
     return problems
 
 
+def scenario_lines(script: CallScript) -> list[tuple[str, str]]:
+    """(path, text) of each step's own line in each language (`ConversationStage.scripts`),
+    which the in-call model uses as what to say at that step."""
+    return [
+        (f"stages.{i}.scripts.{tag}", text)
+        for i, stage in enumerate(script.stages)
+        for tag, text in stage.scripts.items()
+        if text.strip()
+    ]
+
+
+def answer_lines(script: CallScript) -> list[tuple[str, str]]:
+    """(path, text) of each answer a step gives a caller's question, in English and in each
+    other language."""
+    out: list[tuple[str, str]] = []
+    for i, stage in enumerate(script.stages):
+        for j, qa in enumerate(stage.qa):
+            out.append((f"stages.{i}.qa.{j}.answer", qa.answer))
+            out += [
+                (f"stages.{i}.qa.{j}.translations.{tag}.answer", said.answer)
+                for tag, said in qa.translations.items()
+                if said.answer.strip()
+            ]
+    return out
+
+
+def agent_lines(script: CallScript) -> list[tuple[str, str]]:
+    """(path, text) of every line the agent says or copies: the spoken fields but the caller's
+    example lines, each step's lines by language, and its answers."""
+    callers = caller_paths(script)
+    return [
+        *((p, t) for p, t in spoken_fields(script) if t.strip() and p not in callers),
+        *scenario_lines(script),
+        *answer_lines(script),
+    ]
+
+
+def empty_title_problems(script: CallScript) -> list[str]:
+    """A line the agent says that puts an honorific where the person's name belongs with no
+    name (`spoken_guard.empty_title`); the openings are the opening writer's to judge."""
+    return [
+        f'{path}: says "{title}" where the person\'s name belongs, with no name; put '
+        f"{NAME_FIELD} before it or leave both out."
+        for path, text in agent_lines(script)
+        if path not in OPENING_FIELDS and (title := empty_title(text))
+    ]
+
+
+def unreached_steps(script: CallScript) -> list[int]:
+    """The steps, by index, that no way out from the first step ever reaches."""
+    if len(script.stages) < 2:
+        return []
+    reached = reachable_steps(script, 0) | {0}
+    return [i for i in range(len(script.stages)) if i not in reached]
+
+
+def unreachable_problems(script: CallScript) -> list[str]:
+    return [
+        f'stages.{i}: no way out of another step leads to "{script.stages[i].name}", so the '
+        "call never reaches it; give the step before it a way out whose condition says when "
+        "this one is needed, or leave it out."
+        for i in unreached_steps(script)
+    ]
+
+
+def step_numbers_broken(script: CallScript) -> bool:
+    """Whether the stages' step numbers do not read as the call's steps: some numbered and
+    some not, out of list order, or with a number skipped."""
+    steps = [stage.step for stage in script.stages]
+    if all(step is None for step in steps):
+        return False
+    if any(step is None for step in steps):
+        return True
+    numbers = [step or 0 for step in steps]
+    return numbers != sorted(numbers) or sorted(set(numbers)) != list(range(1, max(numbers) + 1))
+
+
+def step_number_problems(script: CallScript) -> list[str]:
+    if not step_numbers_broken(script):
+        return []
+    return [
+        "stages: the step numbers do not follow the call; number the steps 1, 2, 3 in call "
+        "order, and give scenarios that are other ways of the same moment the same number."
+    ]
+
+
+def step_outcome_problems(script: CallScript) -> list[str]:
+    """An outcome for a step the script does not have, and, once any step has an outcome, a
+    step with none."""
+    if not script.step_outcomes:
+        return []
+    steps = set(stage_steps(script.stages))
+    named = {o.step for o in script.step_outcomes}
+    return [
+        *(
+            f"step_outcomes: step {step} has an outcome and no scenario; leave it out."
+            for step in sorted(named - steps)
+        ),
+        *(
+            f"step_outcomes: step {step} has no outcome; say in one sentence what is true "
+            "once that step is done."
+            for step in sorted(steps - named)
+        ),
+    ]
+
+
+#: A step that asks the person when to call them back. Read in the English instruction.
+_ASKS_A_TIME: Final = re.compile(
+    r"\b(?:better|convenient|suitable|good|preferred|another|later) (?:time|day)\b|"
+    r"\bwhen (?:to|we (?:can|should)|i (?:can|should)|they (?:want|would like) (?:us )?to) "
+    r"call\b|\bcall (?:them |you )?(?:back )?later\b",
+    re.IGNORECASE,
+)
+
+
+def asks_a_time(stage: ConversationStage) -> bool:
+    return stage.mode == "guide" and bool(_ASKS_A_TIME.search(stage.instruction))
+
+
+def untaken_time_problems(script: CallScript) -> list[str]:
+    """A step that asks when to call the person back but notes nothing and goes nowhere with
+    the answer: the time is lost and nobody calls."""
+    problems: list[str] = []
+    for i, stage in enumerate(script.stages):
+        if not asks_a_time(stage):
+            continue
+        exits = {stage.otherwise, *(b.target for b in stage.branches)}
+        if not stage.collect or CALL_BACK not in exits:
+            problems.append(
+                f"stages.{i}.collect: asks for a time to call back but does not note it or "
+                "go to call_back with it; collect the time they give and go to call_back."
+            )
+    return problems
+
+
+_LATIN_RUN: Final = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:[ \-][A-Za-z][A-Za-z0-9]*){0,3}")
+
+
+def _squashed(text: str) -> str:
+    return re.sub(r"[\s\-]+", "", text).casefold()
+
+
+def unpronounced_spellings(script: CallScript, context: LintContext) -> list[tuple[str, str]]:
+    """(spelling, say_as) for each spelling of a word the script teaches the voice to say that
+    a line the agent speaks writes differently ("Rytu khata" where the pronunciation is for
+    "RytuKhata"), anywhere the agent speaks: the script's lines and its AI and recording
+    sentences. Spellings are compared without case, spaces or hyphens."""
+    taught = {_squashed(p.word): p.say_as for p in script.style.pronunciations}
+    have = {p.word.strip().casefold() for p in script.style.pronunciations}
+    found: dict[str, tuple[str, str]] = {}
+    texts = [t for _p, t in agent_lines(script)] + list(context.spoken_elsewhere)
+    for text in texts:
+        for run in _LATIN_RUN.finditer(text):
+            words = re.split(r"([ \-])", run.group(0))
+            # Every stretch of one to four words in the run, so "the Rytu khata app" finds
+            # "Rytu khata".
+            tokens = words[::2]
+            for start in range(len(tokens)):
+                for end in range(start + 1, min(start + 4, len(tokens)) + 1):
+                    spelling = "".join(words[start * 2 : end * 2 - 1])
+                    say_as = taught.get(_squashed(spelling))
+                    folded = spelling.casefold()
+                    if say_as is not None and folded not in have and folded not in found:
+                        found[folded] = (spelling, say_as)
+    return list(found.values())
+
+
+def pronunciation_problems(script: CallScript, context: LintContext) -> list[str]:
+    return [
+        f'style.pronunciations: a line says "{spelling}", which no pronunciation covers; add '
+        "it with the same sound as its other spelling."
+        for spelling, _say in unpronounced_spellings(script, context)
+    ]
+
+
 def flow_problems(script: CallScript) -> list[str]:
     """What the whole call's shape gets wrong: a placeholder step, a question asked before
     the caller can answer it, the same thing said twice, a step that redoes the opening,
-    lines that all open alike."""
+    lines that all open alike, a step nothing leads to, outcomes that do not match the steps,
+    and a title said with no name. Broken step numbers and a call-back time asked and lost
+    are `script_problems`' alone, not the writer's to repair: code mends both before the owner
+    reads a draft (`script_structure.renumbered`, `time_taken`), and a new draft has no
+    `collect` to answer the second with."""
     return [
         *placeholder_problems(script),
         *order_problems(script),
         *repeated_line_problems(script),
         *opening_redone_problems(script),
         *same_opener_problems(script),
+        *unreachable_problems(script),
+        *step_outcome_problems(script),
+        *empty_title_problems(script),
     ]
 
 
@@ -999,8 +1193,12 @@ __all__ = [
     "PLACED_OPENING_BRIEF",
     "CapabilityManifest",
     "LintContext",
+    "agent_lines",
+    "answer_lines",
     "answered_opening",
+    "asks_a_time",
     "caller_paths",
+    "empty_title_problems",
     "flow_problems",
     "instruction_fields",
     "instruction_problems",
@@ -1015,16 +1213,25 @@ __all__ = [
     "placeholder_problems",
     "plain",
     "presumed_lines",
+    "pronunciation_problems",
     "question_count",
     "reachable_steps",
     "repeated_line_problems",
     "same_opener_problems",
+    "scenario_lines",
     "script_problems",
     "spoken_fields",
     "spoken_line_problems",
     "stacked_actions",
     "step_line",
+    "step_number_problems",
+    "step_numbers_broken",
+    "step_outcome_problems",
     "unasked_details",
     "unbacked_promise",
     "unknown_figure",
+    "unpronounced_spellings",
+    "unreachable_problems",
+    "unreached_steps",
+    "untaken_time_problems",
 ]

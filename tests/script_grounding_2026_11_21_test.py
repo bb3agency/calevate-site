@@ -167,11 +167,14 @@ def test_findings_on_steps_go_to_the_repair_and_the_rest_are_warnings() -> None:
     )
     found = campaign_script.review_findings(review, script)
     paths = sorted(n.finding.partition(": ")[0] for n in found.noted)
-    assert paths == ["ending", "stages.0.instruction", "stages.0.sounds_like"]
-    assert sorted(left.part for left, _ in found.warned) == ["faqs", "opening_line"]
+    # A quick fact answer is repaired too since 23 Nov 2026: an unsourced promise in one was
+    # only ever a warning before.
+    assert paths == ["ending", "faqs.0.answer", "stages.0.instruction", "stages.0.sounds_like"]
+    assert sorted(left.part for left, _ in found.warned) == ["opening_line"]
     # The opening repair rewrote the opening afterwards: its warning is about a line gone.
     later = script.model_copy(update={"opening_line": "Hello, can you talk?"})
-    assert [left.part for left in campaign_script.still_warned(found, later)] == ["faqs"]
+    assert [left.part for left in campaign_script.still_warned(found, script)] == ["opening_line"]
+    assert campaign_script.still_warned(found, later) == []
 
 
 def test_a_noted_finding_clears_once_any_line_of_its_part_is_rewritten() -> None:

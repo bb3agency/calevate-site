@@ -69,6 +69,7 @@ export function canonicalScript(script: CallScript): string {
       s.collect ?? [],
       s.position ? [s.position.x, s.position.y] : null,
     ]),
+    (script.step_outcomes ?? []).map((o) => [o.step, o.outcome]),
     (script.objections ?? []).map((o) => [o.objection, o.response]),
     script.policies
       ? [script.policies.offer_call_backs, script.policies.share_prices, script.policies.take_bookings]
