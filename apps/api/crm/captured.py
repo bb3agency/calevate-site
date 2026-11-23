@@ -388,18 +388,32 @@ async def lead_unlisted(session: AsyncSession, lead_id: UUID) -> dict[str, str]:
     return out
 
 
+#: The lead's calls, its latest call first, then the rest newest first. Bounded: a lead's
+#: jobs are few, and its newest calls name them.
+_LEAD_CALLS_SQL: Final = (
+    "SELECT c.id FROM leads l JOIN calls c "
+    "ON (c.lead_id = l.id OR c.id = l.last_call_id) AND c.tenant_id = l.tenant_id "
+    "WHERE l.id = :lid AND l.deleted_at IS NULL "
+    "ORDER BY (c.id = l.last_call_id) DESC, c.created_at DESC LIMIT 50"
+)
+
+
 async def lead_holder_fields(session: AsyncSession, lead_id: UUID) -> list[ExtractionField] | None:
-    """The own list of the holder of the lead's latest call, when it has one."""
-    call_id = (
-        await session.execute(
-            text("SELECT last_call_id FROM leads WHERE id = :lid AND deleted_at IS NULL"),
-            {"lid": lead_id},
-        )
-    ).scalar()
-    if call_id is None:
-        return None
-    cid = UUID(str(call_id))
-    return (await holder_fields(session, [cid])).get(cid)
+    """What the lead's jobs note: the own list of its latest call's holder, then each field
+    another of its calls' campaigns or lines notes. A lead met on an Inbound line and then
+    called by a campaign keeps the line's details as asked, not "No longer asked"."""
+    call_ids = [
+        UUID(str(r[0])) for r in (await session.execute(text(_LEAD_CALLS_SQL), {"lid": lead_id}))
+    ]
+    held = await holder_fields(session, call_ids)
+    merged: list[ExtractionField] = []
+    seen: set[str] = set()
+    for call_id in call_ids:
+        for field in held.get(call_id, []):
+            if field.key not in seen:
+                seen.add(field.key)
+                merged.append(field)
+    return merged or None
 
 
 __all__ = [

@@ -168,6 +168,62 @@ async def test_a_campaign_leads_details_are_searchable_under_the_campaigns_list(
     assert sorted(content.values()) == sorted(c.text for c in chunks)
 
 
+async def test_a_leads_details_from_an_earlier_line_call_are_still_asked() -> None:
+    """A lead met on an Inbound line and then called by a campaign: the line's detail is one a
+    job of the lead still notes, so the lead page shows it as asked, not "No longer asked"."""
+    budget = ExtractionField(key="budget", label="Budget", type="text")
+    tenant_id, call_id, lead_id = await _campaign_call()
+    line_id, line_call = uuid7(), uuid7()
+    async with tenant_session(tenant_id) as session:
+        agent_id = (
+            await session.execute(text("SELECT agent_id FROM calls WHERE id = :c"), {"c": call_id})
+        ).scalar_one()
+        await session.execute(
+            text(
+                "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, extraction_fields) "
+                "VALUES (:id, :t, 'Front desk', :a, CAST(:f AS jsonb))"
+            ),
+            {
+                "id": line_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "f": json.dumps([budget.model_dump(mode="json")]),
+            },
+        )
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, inbound_line_id, lead_id, "
+                "engine_call_id, direction, status, started_at, duration_s, from_e164, "
+                "created_at, updated_at) VALUES (:id, :t, :a, :l, :lead, :e, 'inbound', "
+                "'completed', now() - interval '1 day', 60, '+919800000123', "
+                "now() - interval '1 day', now())"
+            ),
+            {
+                "id": line_call,
+                "t": tenant_id,
+                "a": agent_id,
+                "l": line_id,
+                "lead": lead_id,
+                "e": f"h-{line_call}",
+            },
+        )
+        await session.execute(
+            text(
+                "UPDATE leads SET data = data || CAST(:d AS jsonb), call_count = 2 WHERE id = :l"
+            ),
+            {"l": lead_id, "d": json.dumps({"budget": "50 lakh"})},
+        )
+        lead = await get_lead_captured(lead_id, session)
+
+    by_key = {f.key: f for f in lead.fields}
+    assert (by_key["visit_day"].value, by_key["visit_day"].current) == ("Monday", True)
+    assert (by_key["budget"].label, by_key["budget"].value) == ("Budget", "50 lakh")
+    assert by_key["budget"].current is True
+    # The latest call's job's list comes first.
+    business = [f.key for f in lead.fields if not f.core]
+    assert business.index("visit_day") < business.index("budget")
+
+
 async def test_a_call_with_no_job_lists_none_of_the_agents_own_fields_as_not_mentioned() -> None:
     """A call with no campaign or line (an agent's own test call) noted only the core
     (D-1028): the agent's own field it never asked is not `current`, so the screen does not
