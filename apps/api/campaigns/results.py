@@ -276,19 +276,18 @@ async def _goal_counts(session: AsyncSession, campaign_id: UUID) -> dict[str, in
 
 
 async def _field_breakdown(session: AsyncSession, campaign_id: UUID) -> list[dict[str, Any]]:
-    """Each choice field the campaign's agent captures (an `enum` of its extraction schema),
-    counted over the people its answered calls reached: how many hold each value, and how
-    many have none. A person is counted once (D-913), through the lead of their latest
-    answered call, whose values are that call's wherever it captured one."""
+    """Each choice field the campaign notes (an `enum` of its own "What it notes" list,
+    D-1028), counted over the people its answered calls reached: how many hold each value,
+    and how many have none. Not its agent's: that is every list in the agent's voice, so
+    another campaign's details would be broken down here. A person is counted once (D-913),
+    through the lead of their latest answered call, whose values are that call's wherever it
+    captured one."""
     from apps.api.crm import columns as lead_columns
     from apps.api.crm.service import lead_columns as schema_of
 
-    agent_id = (
-        await session.execute(
-            text("SELECT agent_id FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
-        )
-    ).scalar()
-    fields = lead_columns.facetable(lead_columns.available(await schema_of(session, agent_id)))
+    fields = lead_columns.facetable(
+        lead_columns.available(await schema_of(session, campaign_id=campaign_id))
+    )
     if not fields:
         return []
     rows = (
