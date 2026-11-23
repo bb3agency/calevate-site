@@ -75,6 +75,7 @@ from apps.api.billing.lots import runway as lot_runway
 from apps.api.billing.number_rental import RENTAL_CHARGE_META_KIND
 from apps.api.billing.rates import VOICE_TIERS, VoiceTier, voice_tier_label
 from apps.api.billing.service import (
+    CREDIT_EXPIRY_RESTATED_META_KIND,
     Balance,
     CreditTotals,
     credit_totals,
@@ -147,6 +148,19 @@ _RENTAL_KIND_SQL: Final = f"'{RENTAL_CHARGE_META_KIND}'"
 #: spend chart, the cost per lead and the daily summary. It is the fifth column of
 #: `DRAWDOWN_BUCKETS_SQL`, which no reader adds into what was spent.
 _EXPIRY_KIND_SQL: Final = f"'{CREDIT_EXPIRY_META_KIND}'"
+#: Lapsed credit GIVEN BACK (founder, 23 Nov 2026): a `credit_expiry_restated` row, or an
+#: operator's credit-back naming an expiry row in `corrects_entry_id`. The row stays its
+#: own compensating entry (hard rule 4); readers show it as reducing "credit expired" in
+#: the window it lands in, never as "credit added". Counted where it lands rather than in
+#: the month of the lapse, so a closed month's statement never changes after the fact and
+#: a window's figures still sum to the balance movement over it. Binds `:tid`.
+_RESTORED_SQL: Final = (
+    "delta > 0 AND reason = 'adjustment' AND ("
+    f"(meta->>'kind') = '{CREDIT_EXPIRY_RESTATED_META_KIND}' "
+    "OR (meta->>'corrects_entry_id') IN (SELECT CAST(x.id AS text) FROM credit_ledger x "
+    "WHERE x.tenant_id = :tid AND x.reason = 'adjustment' "
+    f"AND x.meta->>'kind' = {_EXPIRY_KIND_SQL}))"
+)
 DRAWDOWN_BUCKETS_SQL: Final = (
     "COALESCE(SUM(-delta) FILTER ("
     "  WHERE delta < 0 AND reason = 'usage'"
@@ -160,16 +174,20 @@ DRAWDOWN_BUCKETS_SQL: Final = (
     "COALESCE(SUM(-delta) FILTER ("
     "  WHERE delta < 0 AND reason = 'usage'"
     f"  AND (meta->>'kind') = {_RENTAL_KIND_SQL}), 0), "
-    # The fifth column: credit that lapsed unused. Never summed into spend.
+    # The fifth column: credit that lapsed unused, net of lapsed credit given back in the
+    # same window (`_RESTORED_SQL`). Never summed into spend.
     "COALESCE(SUM(-delta) FILTER (WHERE delta < 0 AND reason = 'adjustment'"
     f"  AND (meta->>'kind') = {_EXPIRY_KIND_SQL}), 0)"
+    f" - COALESCE(SUM(delta) FILTER (WHERE {_RESTORED_SQL}), 0)"
 )
 
 #: Credit that LANDED: payments, pack bonuses, positive adjustments and goodwill grants
-#: (D-535). Shared with the statement list's "credit added" for the reason above.
+#: (D-535). Shared with the statement list's "credit added" for the reason above. Lapsed
+#: credit given back is not credit added: it reduces "credit expired" instead.
 CREDIT_ADDED_SQL: Final = (
     "COALESCE(SUM(delta) FILTER ("
-    "  WHERE delta > 0 AND reason IN ('topup', 'bonus', 'adjustment', 'grant')), 0)"
+    "  WHERE delta > 0 AND reason IN ('topup', 'bonus', 'adjustment', 'grant')"
+    f"  AND NOT ({_RESTORED_SQL})), 0)"
 )
 
 

@@ -445,6 +445,40 @@ async def test_a_lapse_an_operator_credited_back_is_not_given_back_again_by_a_re
     assert removal.expiry_restated_inr == Decimal("0")
 
 
+async def test_restored_lapsed_credit_reduces_credit_expired_not_credit_added(
+    expiry_on: None,
+) -> None:
+    """Founder, 23 Nov 2026: lapsed credit an operator gives back is shown as reducing the
+    month's "credit expired", never as "credit added". The ledger keeps both rows."""
+    from apps.api.billing.history import statement_page
+    from apps.api.billing.wallet import read_runway
+
+    tenant_id, _agent = await _tenant(monthly_fee=None)
+    lot_id = await _buy(tenant_id, "1000")
+    await _lapse(tenant_id, lot_id)
+    expiry_id = await _expiry_entry(tenant_id, lot_id)
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("400"),
+            reason="adjustment",
+            ref=f"OPERATOR-RESTORE-{uuid.uuid4().hex[:8]}",
+            meta={"kind": "operator_adjustment", "corrects_entry_id": str(expiry_id)},
+        )
+    async with tenant_session(tenant_id) as session:
+        page = await statement_page(session, tenant_id=tenant_id, limit=1, before=None)
+        current = await get_balance(session, tenant_id=tenant_id)
+        _runway, drawdown = await read_runway(session, tenant_id=tenant_id, balance=current)
+        balance = current.amount_inr
+    (month,) = page.statements
+    assert month.credit_added_inr == Decimal("1000.00"), "the purchase only"
+    assert month.credit_expired_inr == Decimal("600.00"), "1,000 lapsed less 400 given back"
+    assert drawdown.added_inr == Decimal("1000")
+    assert drawdown.expired_inr == Decimal("600")
+    assert balance == month.credit_added_inr - month.wallet_spent_inr - month.credit_expired_inr
+
+
 async def test_a_lapse_a_reversal_gave_back_cannot_be_credited_back_by_an_operator(
     expiry_on: None,
 ) -> None:
