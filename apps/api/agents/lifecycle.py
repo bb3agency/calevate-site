@@ -71,6 +71,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.call_handling import opening_waits_default
+from apps.api.agents.company_training import schedule_first_write
 from apps.api.agents.engine_choice import (
     refuse_choice_under_byok,
     require_engine_choice,
@@ -445,6 +446,10 @@ async def create_agent(
             await make_new_lead_caller(
                 session, tenant_id=tenant_id, agent_id=agent_id, user_id=created_by
             )
+    # The client's first agent is when Pip writes the company training, in the background
+    # (D-1034); here, so every way an agent is made (first run, the console, Pip, admin)
+    # queues it.
+    await schedule_first_write(session, tenant_id)
     log.info(
         "agent_created",
         extra={

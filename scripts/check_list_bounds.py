@@ -959,6 +959,23 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/agents/lanes": BoundedByConstruction(
         by="the publishing lanes, a constant tuple in `agents/publishing.py`."
     ),
+    # The company training (D-1034): the account's ONE row.
+    **{
+        route: BoundedByConstruction(
+            by=(
+                "the ONE company training of the caller's account: `reasons` are the closed "
+                "set `company_training.WRITE_REASONS` (five), deduplicated, and `superseded` "
+                "the owner's carried edits, at most `company_training_draft.OWNER_EDITS_KEPT` "
+                "(sixty)."
+            )
+        )
+        for route in (
+            "GET /v1/company-training",
+            "PUT /v1/company-training/overview",
+            "PUT /v1/company-training/training",
+            "POST /v1/company-training/proposal",
+        )
+    },
     # "Meet your agent" (D-855): every route answers the one first run, whose lists are its
     # questions (`first_run/models.MAX_QUESTIONS`), the four build steps
     # (`first_run/models.BUILD_STEPS`), a trade's fixed choices (`first_run/questions.

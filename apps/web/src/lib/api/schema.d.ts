@@ -8018,7 +8018,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The company training every agent is given and Pip's draft */
+        /** The company training every agent is given and Pip's write of it */
         get: operations["read_company_training_v1_company_training_get"];
         put?: never;
         post?: never;
@@ -8036,7 +8036,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Save the owner's description of the business, which Pip writes the training from */
+        /** Save the owner's description of the business; Pip rewrites the training from it */
         put: operations["save_overview_v1_company_training_overview_put"];
         post?: never;
         delete?: never;
@@ -8054,7 +8054,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Ask Pip to write the training from the overview and the knowledge */
+        /** Ask Pip to rewrite the training now, from the business and its knowledge */
         post: operations["request_proposal_v1_company_training_proposal_post"];
         delete?: never;
         options?: never;
@@ -8072,7 +8072,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Stop Pip's draft while it is written, or discard it */
+        /** Dismiss a write that failed, or stop one */
         delete: operations["clear_proposal_v1_company_training_proposal__training_proposal_id__delete"];
         options?: never;
         head?: never;
@@ -8087,7 +8087,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        /** Save the training; every agent is brought onto it */
+        /** Save the owner's edit of the training; every agent is brought onto it */
         put: operations["save_training_v1_company_training_training_put"];
         post?: never;
         delete?: never;
@@ -21240,10 +21240,13 @@ export interface components {
         };
         /** CompanyTrainingOut */
         CompanyTrainingOut: {
+            last_write: components["schemas"]["LastWriteOut"] | null;
             /** Overview */
             overview: string;
             /** Overview Max */
             overview_max: number;
+            /** Owner Edited */
+            owner_edited: boolean;
             proposal: components["schemas"]["TrainingProposalOut"] | null;
             /** Training */
             training: string;
@@ -27870,6 +27873,27 @@ export interface components {
             total: number;
             /** Unpublished Changes */
             unpublished_changes: number;
+        };
+        /**
+         * LastWriteOut
+         * @description Pip's last saved write.
+         */
+        LastWriteOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Disclosure */
+            disclosure: string | null;
+            /** Owner Edits Kept */
+            owner_edits_kept: number;
+            /** Reasons */
+            reasons: ("first_agent" | "knowledge_changed" | "profile_changed" | "owner_words" | "owner_asked")[];
+            /** Shortened */
+            shortened: boolean;
+            /** Superseded */
+            superseded: string[];
         };
         /** LaunchCheckOut */
         LaunchCheckOut: {
@@ -37714,17 +37738,16 @@ export interface components {
         };
         /** TrainingIn */
         TrainingIn: {
-            /** Proposal Id */
-            proposal_id?: string | null;
             /** Training */
             training: string;
         };
-        /** TrainingProposalOut */
+        /**
+         * TrainingProposalOut
+         * @description Pip's pending write: waiting for changes to settle, writing, or failed.
+         */
         TrainingProposalOut: {
-            /** Base Training */
-            base_training: string | null;
-            /** Disclosure */
-            disclosure: string | null;
+            /** Due At */
+            due_at: string | null;
             /**
              * Id
              * Format: uuid
@@ -37734,6 +37757,8 @@ export interface components {
             note: string | null;
             /** Reason */
             reason: string | null;
+            /** Reasons */
+            reasons: ("first_agent" | "knowledge_changed" | "profile_changed" | "owner_words" | "owner_asked")[];
             /**
              * Requested At
              * Format: date-time
@@ -37743,9 +37768,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "drafting" | "ready" | "failed";
-            /** Training */
-            training: string | null;
+            status: "queued" | "drafting" | "failed";
         };
         /** TranscriptTurnOut */
         TranscriptTurnOut: {

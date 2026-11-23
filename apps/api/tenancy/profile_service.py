@@ -34,6 +34,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.company_training import schedule_write
 from apps.api.agents.languages import OfferedLanguage
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -65,6 +66,8 @@ log = get_logger(__name__)
 FACT_STEPS: Final = frozenset({"hours", "branches", "services", "faqs", "staff", "booking"})
 #: Sections that are also agent configuration, so a live agent is re-published for them.
 CONFIG_STEPS: Final = frozenset({"hours", "contacts"})
+#: Sections the company training is written from (`lead_fields_draft.business_context`).
+TRAINING_STEPS: Final = frozenset({"branches", "services", "faqs", "staff", "booking"})
 
 
 def _whole_week(rows: list[DayHours]) -> list[DayHours]:
@@ -318,6 +321,9 @@ async def save_profile(
         # And each ready-made job's steps, rewritten whenever what it sells changes.
         await maybe_write_starter_steps(session, tenant_id=tenant_id)
         await maybe_write_profile_wording(session, tenant_id=tenant_id)
+    if changed & TRAINING_STEPS:
+        # Pip rewrites the company training from what the business now says (D-1034).
+        await schedule_write(session, tenant_id, reason="profile_changed")
     # The save that completes the profile is what finishes an onboarding whose owner has
     # already joined (D-695).
     await complete_onboarding_if_finished(session, tenant_id=tenant_id)

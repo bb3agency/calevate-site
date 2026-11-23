@@ -2226,8 +2226,9 @@ TRAINING_MATERIAL_KINDS: Final = ("file", "link", "note")
 
 class CompanyTraining(PKMixin, TimestampMixin, Base):
     """The one training every agent of a client is given (founder, 16 Nov 2026): the owner's
-    overview, the reviewed training text, Pip's pending draft and a version moved by every
-    save. Composed into each agent's script by `agents/company_training.with_training`."""
+    overview, the live training text, Pip's background write of it (D-1034) and a version
+    moved by every save. Composed into each agent's script by
+    `agents/company_training.with_training`."""
 
     __tablename__ = "company_trainings"
     __table_args__ = (UniqueConstraint("tenant_id"),)
@@ -2237,7 +2238,14 @@ class CompanyTraining(PKMixin, TimestampMixin, Base):
     )
     overview: Mapped[str | None] = mapped_column(Text)
     training: Mapped[str | None] = mapped_column(Text)
+    #: The pending background write (queued, writing or failed), one at a time.
     proposal: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    #: The text Pip last saved; `training` differing from it is the owner's hand edits.
+    pip_training: Mapped[str | None] = mapped_column(Text)
+    #: The owner's edits every rewrite carries: `{"said": [...], "removed": [...]}`.
+    owner_edits: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    #: When Pip last wrote the training and why, for the screen.
+    last_write: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     updated_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
 

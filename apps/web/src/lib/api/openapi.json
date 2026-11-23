@@ -17968,6 +17968,16 @@
       "CompanyTrainingOut": {
         "additionalProperties": false,
         "properties": {
+          "last_write": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastWriteOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "overview": {
             "title": "Overview",
             "type": "string"
@@ -17975,6 +17985,10 @@
           "overview_max": {
             "title": "Overview Max",
             "type": "integer"
+          },
+          "owner_edited": {
+            "title": "Owner Edited",
+            "type": "boolean"
           },
           "proposal": {
             "anyOf": [
@@ -18017,6 +18031,8 @@
           "version",
           "updated_at",
           "proposal",
+          "last_write",
+          "owner_edited",
           "overview_max",
           "training_max"
         ],
@@ -35818,6 +35834,67 @@
           "unpublished_changes"
         ],
         "title": "LanguageSummaryOut",
+        "type": "object"
+      },
+      "LastWriteOut": {
+        "additionalProperties": false,
+        "description": "Pip's last saved write.",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "disclosure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosure"
+          },
+          "owner_edits_kept": {
+            "title": "Owner Edits Kept",
+            "type": "integer"
+          },
+          "reasons": {
+            "items": {
+              "enum": [
+                "first_agent",
+                "knowledge_changed",
+                "profile_changed",
+                "owner_words",
+                "owner_asked"
+              ],
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "shortened": {
+            "title": "Shortened",
+            "type": "boolean"
+          },
+          "superseded": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Superseded",
+            "type": "array"
+          }
+        },
+        "required": [
+          "at",
+          "reasons",
+          "owner_edits_kept",
+          "superseded",
+          "shortened",
+          "disclosure"
+        ],
+        "title": "LastWriteOut",
         "type": "object"
       },
       "LaunchCheckOut": {
@@ -62337,18 +62414,6 @@
       "TrainingIn": {
         "additionalProperties": false,
         "properties": {
-          "proposal_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Proposal Id"
-          },
           "training": {
             "maxLength": 6000,
             "title": "Training",
@@ -62363,28 +62428,19 @@
       },
       "TrainingProposalOut": {
         "additionalProperties": false,
+        "description": "Pip's pending write: waiting for changes to settle, writing, or failed.",
         "properties": {
-          "base_training": {
+          "due_at": {
             "anyOf": [
               {
+                "format": "date-time",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Base Training"
-          },
-          "disclosure": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Disclosure"
+            "title": "Due At"
           },
           "id": {
             "format": "uuid",
@@ -62413,6 +62469,20 @@
             ],
             "title": "Reason"
           },
+          "reasons": {
+            "items": {
+              "enum": [
+                "first_agent",
+                "knowledge_changed",
+                "profile_changed",
+                "owner_words",
+                "owner_asked"
+              ],
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
           "requested_at": {
             "format": "date-time",
             "title": "Requested At",
@@ -62420,33 +62490,21 @@
           },
           "status": {
             "enum": [
+              "queued",
               "drafting",
-              "ready",
               "failed"
             ],
             "title": "Status",
             "type": "string"
-          },
-          "training": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Training"
           }
         },
         "required": [
           "id",
           "status",
           "requested_at",
-          "base_training",
-          "training",
+          "due_at",
+          "reasons",
           "note",
-          "disclosure",
           "reason"
         ],
         "title": "TrainingProposalOut",
@@ -91583,7 +91641,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The company training every agent is given and Pip's draft",
+        "summary": "The company training every agent is given and Pip's write of it",
         "tags": [
           "company-training"
         ],
@@ -91621,7 +91679,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Save the owner's description of the business, which Pip writes the training from",
+        "summary": "Save the owner's description of the business; Pip rewrites the training from it",
         "tags": [
           "company-training"
         ],
@@ -91649,7 +91707,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Ask Pip to write the training from the overview and the knowledge",
+        "summary": "Ask Pip to rewrite the training now, from the business and its knowledge",
         "tags": [
           "company-training"
         ],
@@ -91682,7 +91740,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Stop Pip's draft while it is written, or discard it",
+        "summary": "Dismiss a write that failed, or stop one",
         "tags": [
           "company-training"
         ],
@@ -91734,7 +91792,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Save the training; every agent is brought onto it",
+        "summary": "Save the owner's edit of the training; every agent is brought onto it",
         "tags": [
           "company-training"
         ],

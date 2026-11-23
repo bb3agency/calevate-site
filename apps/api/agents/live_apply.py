@@ -82,6 +82,15 @@ def _check_target(scope: Scope, tenant_id: UUID | None, agent_id: UUID | None) -
         raise ValueError(f"live apply scope {scope!r} names the wrong target")
 
 
+async def lock_tenant_target(session: AsyncSession, tenant_id: UUID) -> None:
+    """Take the lock `queue_live_apply` takes for one client, ahead of a caller's own row
+    locks. A write that locks a row of its own and then queues a live apply takes the two in
+    the opposite order to one that queues a live apply first and touches that row after (a
+    profile save that also asks for the company training to be rewritten); taking this first
+    gives every such writer one order. Re-entrant in one transaction."""
+    await session.execute(text(_LOCK), {"key": f"live_apply:{tenant_id}"})
+
+
 async def queue_live_apply(
     session: AsyncSession,
     *,
@@ -705,6 +714,7 @@ __all__ = [
     "held_back",
     "held_back_from",
     "is_permanent",
+    "lock_tenant_target",
     "queue_agent_retry",
     "queue_live_apply",
     "queue_walk",

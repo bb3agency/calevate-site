@@ -189,6 +189,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-985: the healer could not fix a mistake in a script. One agent's quality, not an
     # outage: work, never a page.
     "call_mistake_fix_needs_person": "attention",
+    # D-1034: Pip's background rewrite of a client's company training failed its grounding
+    # review or would not fit the box. The previous training stays live: work, not an outage.
+    "company_training_not_saved": "attention",
     # D-985: a real call showed a mistake and the healer opened its fix. Expected and
     # handled without anyone; the incident is the record.
     "call_mistake_seen": "record",
