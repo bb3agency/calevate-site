@@ -223,9 +223,7 @@ async def test_a_leads_details_from_an_earlier_line_call_are_still_asked() -> No
             },
         )
         await session.execute(
-            text(
-                "UPDATE leads SET data = data || CAST(:d AS jsonb), call_count = 2 WHERE id = :l"
-            ),
+            text("UPDATE leads SET data = data || CAST(:d AS jsonb), call_count = 2 WHERE id = :l"),
             {"l": lead_id, "d": json.dumps({"budget": "50 lakh"})},
         )
         lead = await get_lead_captured(lead_id, session)
