@@ -459,7 +459,7 @@ async def test_a_bought_number_skips_a_line_in_a_deleted_agents_voice() -> None:
     """A bought number goes to the first line that can be put live. The oldest line spoke for
     an agent since deleted, which `publish_line` refuses, so the number rang nothing."""
     from apps.api.agents import lifecycle
-    from apps.api.campaigns.engine_number_routes import _onto_first_line
+    from apps.api.inbound.publish import onto_first_line
 
     _fresh_engine()
     tenant_id, deleted_id, _token = await _tenant()
@@ -476,14 +476,14 @@ async def test_a_bought_number_skips_a_line_in_a_deleted_agents_voice() -> None:
         )
 
     # Only the deleted agent's line: the number is left for the owner to put on a line.
-    assert await _onto_first_line(tenant_id, number_id) is None
+    assert await onto_first_line(tenant_id=tenant_id, number_id=number_id) is None
 
     async with tenant_session(tenant_id) as session:
         voice_id = await lifecycle.create_agent(
             session, tenant_id=tenant_id, name="Ravi", direction="both", language_primary="te-IN"
         )
     new_line = await _line(tenant_id, voice_id)
-    assert await _onto_first_line(tenant_id, number_id) == new_line
+    assert await onto_first_line(tenant_id=tenant_id, number_id=number_id) == new_line
     async with tenant_session(tenant_id) as session:
         on = (
             await session.execute(
@@ -491,3 +491,58 @@ async def test_a_bought_number_skips_a_line_in_a_deleted_agents_voice() -> None:
             )
         ).scalar_one()
     assert on == new_line != old_line
+
+
+async def test_a_number_pip_buys_to_take_calls_goes_to_the_first_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pip's `number_buy` is the Buy button's twin: a number bought to take calls lands on the
+    first line, since only a line answers a number (D-997, D-1019). One bought to call out
+    only stays off every line."""
+    from types import SimpleNamespace
+
+    from apps.api.campaigns import engine_number_purchase
+    from apps.api.copilot import console_actions, write_tools
+
+    _fresh_engine()
+    tenant_id, agent_id, _token = await _tenant()
+    line_id = await _line(tenant_id, agent_id, script=False)
+    answering = await _number(tenant_id, agent_id, f"num_pip_{uuid.uuid4().hex[:6]}")
+    calling = await _number(tenant_id, agent_id, f"num_pip_{uuid.uuid4().hex[:6]}")
+    bought = iter([answering, calling])
+
+    async def purchase(**_kwargs: Any) -> Any:
+        return SimpleNamespace(
+            replayed=False,
+            client_inr_per_month=None,
+            attachment="not_applicable",
+            number_id=next(bought),
+        )
+
+    monkeypatch.setattr(engine_number_purchase, "purchase_engine_number", purchase)
+    actor = write_tools.ToolActor(
+        tenant_id=tenant_id, user_id=uuid.uuid4(), role="owner", impersonating=False
+    )
+    for direction in ("both", "outbound"):
+        await console_actions._execute_number_buy(
+            None,  # type: ignore[arg-type]
+            actor,
+            {
+                "city": "Hyderabad",
+                "agent_id": None,
+                "direction": direction,
+                "number": "918012345671",
+                "attempt": str(uuid.uuid4()),
+            },
+        )
+
+    async with tenant_session(tenant_id) as session:
+        placed = dict(
+            (
+                await session.execute(
+                    text("SELECT id, inbound_line_id FROM phone_numbers WHERE id = ANY(:ids)"),
+                    {"ids": [answering, calling]},
+                )
+            ).all()
+        )
+    assert placed == {answering: line_id, calling: None}

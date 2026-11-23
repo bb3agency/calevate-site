@@ -2983,6 +2983,11 @@ async def _execute_number_buy(
         requested_by="client",
         quoted_inr_per_month=parsed.inr_per_month,
     )
+    if parsed.direction != "outbound":
+        from apps.api.inbound.publish import onto_first_line
+
+        # As the Buy button does: only a line answers a number (D-997, D-1019).
+        await onto_first_line(tenant_id=actor.tenant_id, number_id=bought.number_id)
     return Executed(
         applied=not bought.replayed,
         detail="The number is yours and appears on the Phone numbers screen.",

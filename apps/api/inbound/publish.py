@@ -93,4 +93,26 @@ async def route_numbers(*, tenant_id: UUID, line_id: UUID) -> InboundRouting:
         return await agents_service.route_line_numbers(session, line_id=line_id)
 
 
-__all__ = ["line_test_dial", "put_line_live", "route_numbers"]
+async def onto_first_line(*, tenant_id: UUID, number_id: UUID) -> UUID | None:
+    """A newly bought number is answered by the account's first inbound line whose agent can
+    still speak (D-997, D-1012; `lines.first_line`), or by none yet, which the owner is asked
+    to fix by making one. A number already on a line (a replayed purchase) keeps it. Every
+    purchase door calls this for a number bought to take calls: the client's Buy, Pip's
+    `number_buy` and an operator's purchase, since only a line answers a number (D-1019)."""
+    async with tenant_session(tenant_id) as session:
+        current = (
+            await session.execute(
+                text("SELECT inbound_line_id FROM phone_numbers WHERE id = :n"), {"n": number_id}
+            )
+        ).scalar_one_or_none()
+        if current is not None:
+            return UUID(str(current))
+        line_id = await lines.first_line(session)
+        if line_id is None:
+            return None
+        await lines.assign_number(session, UUID(str(line_id)), number_id)
+    await route_numbers(tenant_id=tenant_id, line_id=UUID(str(line_id)))
+    return UUID(str(line_id))
+
+
+__all__ = ["line_test_dial", "onto_first_line", "put_line_live", "route_numbers"]

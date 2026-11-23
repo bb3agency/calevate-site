@@ -195,8 +195,15 @@ async def test_the_number_screens_are_absent_where_clients_have_no_workspace(
 async def test_an_admin_sees_the_workspace_buys_releases_and_forgets(
     account: FakeAccount,
 ) -> None:
+    from apps.api.inbound import lines
+
     await _attested()
     tenant_id, workspace = await _client(account)
+    async with tenant_session(tenant_id) as session:
+        agent_id = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
+        line_id = await lines.create_line(
+            session, tenant_id=tenant_id, agent_id=agent_id, created_by=None
+        )
     headers = await _admin_headers()
     base = f"/v1/admin/engine-workspaces/tenants/{tenant_id}"
     async with _http() as http:
@@ -215,6 +222,15 @@ async def test_an_admin_sees_the_workspace_buys_releases_and_forgets(
         )
         assert bought.status_code == 201, bought.text
         number_id = bought.json()["number_id"]
+        # Bought to take calls, so the client's first line answers it, as at the client's Buy.
+        async with tenant_session(tenant_id) as session:
+            on_line = (
+                await session.execute(
+                    text("SELECT inbound_line_id FROM phone_numbers WHERE id = :n"),
+                    {"n": number_id},
+                )
+            ).scalar_one()
+        assert on_line == line_id
 
         # Forgetting stops the client's monthly charge, as releasing does, so it takes the
         # same step-up: without the echo it is refused before anything is read.

@@ -22,7 +22,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.first_payment import has_paid
@@ -377,9 +376,11 @@ async def purchase_own_number(
                     "attachment": bought.attachment,
                 },
             )
+    from apps.api.inbound.publish import onto_first_line
+
     # A number bought to take calls is answered by a line; one bought only to call out is not.
     line_id = (
-        await _onto_first_line(principal.tenant_id, bought.number_id)
+        await onto_first_line(tenant_id=principal.tenant_id, number_id=bought.number_id)
         if payload.direction != "outbound"
         else None
     )
@@ -394,30 +395,6 @@ async def purchase_own_number(
         first_period=bought.first_period,
         inbound_line_id=line_id,
     )
-
-
-async def _onto_first_line(tenant_id: UUID, number_id: UUID) -> UUID | None:
-    """A new number is answered by the account's first inbound line whose agent can still
-    speak (founder, 16 Nov 2026; `lines.first_line`), or by none yet, which the purchase
-    answer shows the owner as a number no line answers; a number already on a line (a
-    replayed click) keeps it."""
-    from apps.api.inbound import lines
-    from apps.api.inbound.publish import route_numbers
-
-    async with tenant_session(tenant_id) as session:
-        current = (
-            await session.execute(
-                text("SELECT inbound_line_id FROM phone_numbers WHERE id = :n"), {"n": number_id}
-            )
-        ).scalar_one_or_none()
-        if current is not None:
-            return UUID(str(current))
-        line_id = await lines.first_line(session)
-        if line_id is None:
-            return None
-        await lines.assign_number(session, UUID(str(line_id)), number_id)
-    await route_numbers(tenant_id=tenant_id, line_id=UUID(str(line_id)))
-    return UUID(str(line_id))
 
 
 class ReleaseOwnNumberIn(BaseModel):

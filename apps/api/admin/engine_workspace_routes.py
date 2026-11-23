@@ -796,6 +796,11 @@ async def admin_purchase(
                     "error": type(exc).__name__,
                 },
             )
+    if payload.direction != "outbound":
+        from apps.api.inbound.publish import onto_first_line
+
+        # As the client's own Buy: only a line answers a number (D-997, D-1019).
+        await onto_first_line(tenant_id=tenant_id, number_id=bought.number_id)
     return AdminPurchasedOut(
         number_id=bought.number_id,
         e164=bought.e164,
