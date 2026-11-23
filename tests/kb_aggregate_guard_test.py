@@ -573,7 +573,10 @@ async def _agent_with_calls(
     schema: ExtractionSchemaSpec = SCHEMA,
     tenant_id: uuid.UUID | None = None,
 ) -> tuple[uuid.UUID, uuid.UUID]:
-    """A tenant, a live agent with a published extraction schema, and its calls.
+    """A tenant, a live agent with an inbound line noting `schema`'s fields, and the
+    line's calls. The vocabulary comes from the line: what a call notes belongs to its job,
+    not its agent (D-1028), and `insights.vocabulary_for_agent` reads the jobs in the
+    agent's voice.
 
     Built with raw INSERTs rather than through `admin.service.create_organization`
     deliberately: this suite is about what the aggregate READS, and routing it through the
@@ -586,7 +589,7 @@ async def _agent_with_calls(
     """
     new_tenant = tenant_id is None
     tenant_id = tenant_id or uuid7()
-    agent_id, schema_id = uuid7(), uuid7()
+    agent_id, line_id = uuid7(), uuid7()
     slug = f"agg-{uuid.uuid4().hex[:10]}"
     async with tenant_session(tenant_id) as session:
         if new_tenant:
@@ -611,36 +614,33 @@ async def _agent_with_calls(
         )
         await session.execute(
             text(
-                "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
-                "published_at, created_at, updated_at) VALUES (:id, :tid, :aid, :v, "
-                "CAST(:fields AS jsonb), now(), now(), now())"
+                "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, extraction_fields, "
+                "created_at, updated_at) VALUES (:id, :tid, 'Reception line', :aid, "
+                "CAST(:fields AS jsonb), now(), now())"
             ),
             {
-                "id": schema_id,
+                "id": line_id,
                 "tid": tenant_id,
                 "aid": agent_id,
-                "v": schema.version,
                 "fields": schema.model_dump_json(include={"fields"}).split('"fields":', 1)[1][:-1],
             },
-        )
-        await session.execute(
-            text("UPDATE agents SET extraction_schema_id = :sid WHERE id = :aid"),
-            {"sid": schema_id, "aid": agent_id},
         )
         ended = datetime.now(UTC) - timedelta(days=_CALLS_ENDED_DAYS_AGO)
         for index, spec in enumerate(outcomes):
             call_id = uuid7()
             await session.execute(
                 text(
-                    "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
-                    "status, ended_at, outcome_tag, sentiment, summary, to_e164, created_at, "
-                    "updated_at) VALUES (:id, :tid, :aid, :ec, 'inbound', 'completed', :end, "
-                    ":tag, :sent, :summary, :to, now(), now())"
+                    "INSERT INTO calls (id, tenant_id, agent_id, inbound_line_id, "
+                    "engine_call_id, direction, status, ended_at, outcome_tag, sentiment, "
+                    "summary, to_e164, created_at, updated_at) VALUES (:id, :tid, :aid, :lid, "
+                    ":ec, 'inbound', 'completed', :end, :tag, :sent, :summary, :to, now(), "
+                    "now())"
                 ),
                 {
                     "id": call_id,
                     "tid": tenant_id,
                     "aid": agent_id,
+                    "lid": line_id,
                     "ec": f"{slug}-{index}",
                     "end": ended,
                     "tag": spec.get("outcome_tag"),
@@ -1350,7 +1350,7 @@ async def test_a_route_row_pointing_at_the_wrong_tenant_mails_nobody(
     INSIDE it, so a mismatched pair finds no agent and mails nobody.
 
     WHAT THIS TEST IS, PRECISELY: a pin, not a caught defect. Three tables on this path —
-    `agents`, `extraction_schemas` and `calls` — each carry FORCE RLS with a policy that
+    `agents`, `inbound_lines` and `calls` — each carry FORCE RLS with a policy that
     yields zero rows when `app.tenant_id` is unset, so every sabotage of this module that
     was actually tried (the lookup moved to `untenanted_session`; a recipient fallback
     reading the route's own tenant; both together) makes the sweep mail NOBODY rather than
