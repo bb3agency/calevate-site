@@ -391,29 +391,39 @@ async def lead_unlisted(session: AsyncSession, lead_id: UUID) -> dict[str, str]:
 #: The lead's calls, its latest call first, then the rest newest first. Bounded: a lead's
 #: jobs are few, and its newest calls name them.
 _LEAD_CALLS_SQL: Final = (
-    "SELECT c.id FROM leads l JOIN calls c "
-    "ON (c.lead_id = l.id OR c.id = l.last_call_id) AND c.tenant_id = l.tenant_id "
-    "WHERE l.id = :lid AND l.deleted_at IS NULL "
-    "ORDER BY (c.id = l.last_call_id) DESC, c.created_at DESC LIMIT 50"
+    "SELECT l.id, c.id FROM leads l CROSS JOIN LATERAL (SELECT c.id, row_number() OVER "
+    "(ORDER BY (c.id = l.last_call_id) DESC, c.created_at DESC) AS n FROM calls c "
+    "WHERE (c.lead_id = l.id OR c.id = l.last_call_id) AND c.tenant_id = l.tenant_id "
+    "ORDER BY n LIMIT 50) c "
+    "WHERE l.id = ANY(:ids) AND l.deleted_at IS NULL ORDER BY l.id, c.n"
 )
 
 
-async def lead_holder_fields(session: AsyncSession, lead_id: UUID) -> list[ExtractionField] | None:
-    """What the lead's jobs note: the own list of its latest call's holder, then each field
+async def leads_holder_fields(
+    session: AsyncSession, lead_ids: list[UUID]
+) -> dict[UUID, list[ExtractionField]]:
+    """What each lead's jobs note: the own list of its latest call's holder, then each field
     another of its calls' campaigns or lines notes. A lead met on an Inbound line and then
-    called by a campaign keeps the line's details as asked, not "No longer asked"."""
-    call_ids = [
-        UUID(str(r[0])) for r in (await session.execute(text(_LEAD_CALLS_SQL), {"lid": lead_id}))
-    ]
-    held = await holder_fields(session, call_ids)
-    merged: list[ExtractionField] = []
-    seen: set[str] = set()
-    for call_id in call_ids:
-        for field in held.get(call_id, []):
-            if field.key not in seen:
-                seen.add(field.key)
-                merged.append(field)
-    return merged or None
+    called by a campaign keeps the line's details as asked, not "No longer asked". Leads
+    whose calls' jobs note nothing of their own are left out."""
+    if not lead_ids:
+        return {}
+    rows = (await session.execute(text(_LEAD_CALLS_SQL), {"ids": lead_ids})).all()
+    held = await holder_fields(session, [UUID(str(r[1])) for r in rows])
+    merged: dict[UUID, list[ExtractionField]] = {}
+    seen: dict[UUID, set[str]] = {}
+    for lead, call in rows:
+        lead_id = UUID(str(lead))
+        for field in held.get(UUID(str(call)), []):
+            if field.key not in seen.setdefault(lead_id, set()):
+                seen[lead_id].add(field.key)
+                merged.setdefault(lead_id, []).append(field)
+    return merged
+
+
+async def lead_holder_fields(session: AsyncSession, lead_id: UUID) -> list[ExtractionField] | None:
+    """`leads_holder_fields` for one lead; None when its jobs note nothing of their own."""
+    return (await leads_holder_fields(session, [lead_id])).get(lead_id)
 
 
 __all__ = [
@@ -425,6 +435,7 @@ __all__ = [
     "is_name_field",
     "lead_holder_fields",
     "lead_unlisted",
+    "leads_holder_fields",
     "unclear_fields",
     "with_known_name",
     "with_list_columns",

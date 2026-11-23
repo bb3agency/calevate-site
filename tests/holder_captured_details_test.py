@@ -229,7 +229,12 @@ async def test_a_leads_details_from_an_earlier_line_call_are_still_asked() -> No
             {"l": lead_id, "d": json.dumps({"budget": "50 lakh"})},
         )
         lead = await get_lead_captured(lead_id, session)
+        from apps.api.crm.lead_chunks import discover_lead_chunks
 
+        chunks = [c for c in await discover_lead_chunks(session, 10) if c.subject_id == lead_id]
+
+    # Searchable under both jobs' details, not only the latest call's.
+    assert any("Budget" in c.text and "Visit day" in c.text for c in chunks)
     by_key = {f.key: f for f in lead.fields}
     assert (by_key["visit_day"].value, by_key["visit_day"].current) == ("Monday", True)
     assert (by_key["budget"].label, by_key["budget"].value) == ("Budget", "50 lakh")
