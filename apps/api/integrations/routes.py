@@ -261,7 +261,8 @@ class DeliveryOut(Strict):
     # could file it under (`service.body_subject`). The screen offers the link only when
     # this is true, so nobody clicks through to a refusal.
     payload_stored: bool
-    # When a `retrying` delivery is tried next (the webhook retry schedule); None otherwise.
+    # When a `retrying` delivery is tried next: the webhook retry schedule, or for a sheet or
+    # LeadSquared the sweep's backstop behind arq's own retry. None otherwise.
     next_attempt_at: datetime | None = None
     # Whether "Send again" can work: a `failed` delivery to an active endpoint whose body
     # the outbox still holds (`service.resend_delivery` refuses the rest, each with a reason).
