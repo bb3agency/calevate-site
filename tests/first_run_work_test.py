@@ -474,3 +474,38 @@ async def test_go_live_is_done_once_a_line_is_live_on_a_number() -> None:
         live = await read_go_live(session, tenant_id=tenant_id)
     assert (draft.switch_on, draft.live_lines, draft.live_agents) == ("todo", 0, 0)
     assert (live.switch_on, live.live_lines, live.live_agents) == ("done", 1, 0)
+
+
+@pytest.mark.parametrize(
+    ("job", "holder", "table"),
+    [("answer_calls", "line_id", "inbound_lines"), ("call_leads", "campaign_id", "campaigns")],
+)
+async def test_an_agent_made_again_after_its_deletion_gets_its_own_first_work(
+    job: str, holder: str, table: str
+) -> None:
+    """The first agent deleted before the run finished: the run makes a new one, and "What
+    first?" drafts work for THAT agent rather than handing back the deleted one's draft, whose
+    test call would ring an archived agent."""
+    tenant_id = await _tenant()
+    headers = await _owner(tenant_id)
+    first = await _made(tenant_id, headers)
+    async with _client() as http:
+        drafted = await http.post("/v1/first-run/work", headers=headers, json={"job": job})
+        assert drafted.status_code == 200, drafted.text
+        archived = await http.post(f"/v1/agents/{first['agent_id']}/archive", headers=headers)
+        assert archived.status_code == 200, archived.text
+        made = await http.put(
+            "/v1/first-run/agent",
+            headers=headers,
+            json={"name": "Priya", "language_primary": "te-IN", "languages_extra": []},
+        )
+        assert made.status_code == 200, made.text
+        again = await http.post("/v1/first-run/work", headers=headers, json={"job": job})
+    assert again.status_code == 200, again.text
+    new_agent = made.json()["agent_id"]
+    assert new_agent != first["agent_id"]
+    assert again.json()[holder] not in (None, drafted.json()[holder])
+    owner = await _one(
+        tenant_id, f"SELECT agent_id FROM {table} WHERE id = :h", h=again.json()[holder]
+    )
+    assert str(owner.agent_id) == new_agent

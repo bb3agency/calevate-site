@@ -154,11 +154,15 @@ async def save_agent(
             # first agent is made: the signup run had only the business type and name. The
             # run checks the allowance itself and keeps the examples it has when spent.
             await queue_generation(session, tenant_id=tenant_id, trigger="first_run")
+        # A run that had an agent before (deleted since) forgets that agent's draft work too:
+        # "What first?" would otherwise hand back a line or campaign of the archived agent,
+        # whose test call cannot ring.
         await session.execute(
             text(
                 "UPDATE first_runs SET agent_id = :aid, language_primary = :lang, "
                 "languages_extra = :extra, "
                 "build_steps = jsonb_build_object('voice', CAST(:voice AS jsonb)), "
+                "line_id = NULL, campaign_id = NULL, jobs = '{}', "
                 "updated_at = now() WHERE id = :id"
             ),
             {
