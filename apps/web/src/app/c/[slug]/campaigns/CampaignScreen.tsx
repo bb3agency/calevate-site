@@ -331,7 +331,14 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
           ) : current === "questions" ? (
             <CampaignQuestions slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
           ) : current === "improve" ? (
-            <ImproveTab slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} agentId={data.agent_id} />
+            <ImproveTab
+              slug={slug}
+              campaignId={campaignId}
+              canWrite={write.allowed}
+              refusal={refusal}
+              agentId={data.agent_id}
+              status={status}
+            />
           ) : current === "progress" ? (
             launched ? (
               <FoldGroup className="space-y-8" actions={<>{startButton}{campaignActions}</>}>

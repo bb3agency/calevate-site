@@ -373,7 +373,9 @@ async def duplicate_campaign(
         raise ProblemError.business_rule(
             "campaign_still_running",
             "People can be called again once this campaign has finished or been stopped.",
-            remediation="Stop it for good first, or wait for it to finish its retries.",
+            # Stop on the client's screen is a pause (founder, 16 Nov 2026), so "stop it for
+            # good" is not a move the owner has; a paused campaign finishes once resumed.
+            remediation="Let it finish its calls first. A stopped one finishes once started again.",
         )
     prefix = "Call again: " if with_unreached else "Copy of "
     new_name = (name or f"{prefix}{row[0]}").strip()[:120]
