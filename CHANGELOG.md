@@ -3,6 +3,17 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.12 — 23-Nov-2026
+
+- A campaign's or Inbound line's script and What it notes are checked for length when you
+  save them, against what actually goes on calls, so a long list can no longer fail at Start.
+- Accepting a suggested detail on a live job that could not go live says it was saved and
+  offers Save again.
+- The campaigns list offers Resume once credit or the limit is sorted, or a complaint review
+  is confirmed.
+- Suggested lead details no longer re-check, and use AI allowance, when only a caller count
+  changed.
+
 ## 0.5.11 — 23-Nov-2026
 
 - Changing the agent on a running or paused campaign now changes the voice on its calls.

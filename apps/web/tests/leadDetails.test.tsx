@@ -561,7 +561,7 @@ describe("suggested changes to what a job notes (D-889, D-1029)", () => {
     });
     await screen.findByText(/this month's AI allowance is used up/);
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
-    await screen.findByText("Checking what it's for, the script and recent calls…");
+    await screen.findByText("Checking what it’s for, the script and recent calls…");
     expect(calls.some((c) => c.method === "POST" && c.path === `${BASE}/check`)).toBe(true);
     expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
   });

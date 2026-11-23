@@ -78,7 +78,7 @@ export function LeadSuggestions({
 
       <p role="status" aria-live="polite" className="mt-0.5 text-xs text-ink-muted">
         {reading ? (
-          <span className="text-shimmer">Checking what it's for, the script and recent calls…</span>
+          <span className="text-shimmer">Checking what it’s for, the script and recent calls…</span>
         ) : count ? (
           audience === "client" ? "Nothing changes until you accept." : "Nothing changes until one is accepted."
         ) : (
