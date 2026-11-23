@@ -526,7 +526,7 @@ async def test_a_failed_append_is_retried_and_the_retry_really_appends(
         await deliver_outbound_webhook({"job_try": 1}, payload)
 
     row = await _delivery(tenant_id, UUID(payload["delivery_id"]))
-    assert row is not None and row[0] == "failed"
+    assert row is not None and row[0] == service.RETRYING
 
     succeeding = _use(monkeypatch)
     assert await deliver_outbound_webhook({"job_try": 2}, payload) == "delivered via sheets"
@@ -534,6 +534,42 @@ async def test_a_failed_append_is_retried_and_the_retry_really_appends(
 
     row = await _delivery(tenant_id, UUID(payload["delivery_id"]))
     assert row is not None and row[:2] == ("delivered", 2), "one row per delivery, not per attempt"
+
+
+async def test_an_append_waiting_for_its_retry_is_not_shown_as_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Between arq's tries the delivery is still going: it is not on the Needs-attention
+    queue as "did not reach your spreadsheet", "Send again" does not start a second job
+    beside the queued retry, and the sweep only takes it after the retry had its chance."""
+    from datetime import UTC, datetime
+
+    from apps.api.core.errors import ProblemError
+    from apps.api.crm.attention import failed_deliveries
+
+    tenant_id, endpoint_id = await _tenant_with_sheet()
+    _use(monkeypatch, _Recorder(AppendResult(AppendStatus.TRANSPORT_FAILED, "sheets_unavailable")))
+    _capture_alerts(monkeypatch)
+    payload = _job_payload(tenant_id, endpoint_id)
+    delivery_id = UUID(payload["delivery_id"])
+
+    before = datetime.now(UTC)
+    with pytest.raises(Retry):
+        await deliver_outbound_webhook({"job_try": 1}, payload)
+
+    async with tenant_session(tenant_id) as session:
+        queue = await failed_deliveries(session)
+        assert str(delivery_id) not in [item.id for item in queue.items]
+        with pytest.raises(ProblemError) as refused:
+            await service.resend_delivery(session, delivery_id=delivery_id)
+        assert refused.value.code == "delivery_not_failed"
+        next_at = (
+            await session.execute(
+                text("SELECT next_attempt_at FROM webhook_deliveries WHERE id = :id"),
+                {"id": delivery_id},
+            )
+        ).scalar_one()
+    assert next_at > before + service.RETRY_CLAIM_LEASE
 
 
 async def test_the_last_try_gives_up_loudly(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -50,7 +50,7 @@ no longer exists would be noise forever.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -377,12 +377,24 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
         and transient
         and attempt < service.WEBHOOK_MAX_ATTEMPTS
     )
+    arq_retry = (
+        transient and _kind_of(endpoint) != service.WEBHOOK_KIND and arq_try < service.MAX_ATTEMPTS
+    )
     next_attempt_at = (
         datetime.now(UTC) + service.WEBHOOK_RETRY_SCHEDULE[attempt - 1] if scheduled else None
     )
+    retry_delay_s = ladder_delay_s(RETRY_BACKOFF_S, arq_try) if arq_retry else 0.0
+    if arq_retry:
+        # Still being retried by arq, so `retrying` rather than `failed`: a failed row is on
+        # the Needs-attention queue and offers "Send again", which would start a second
+        # append beside the queued one. The time is the sweep's backstop for a retry the
+        # queue lost, one claim lease after arq's own; the next attempt overwrites it.
+        next_attempt_at = (
+            datetime.now(UTC) + timedelta(seconds=retry_delay_s) + service.RETRY_CLAIM_LEASE
+        )
     if result.delivered:
         status = "delivered"
-    elif scheduled:
+    elif scheduled or arq_retry:
         status = service.RETRYING
     else:
         status = "failed"
@@ -435,11 +447,11 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
     if scheduled:
         assert next_attempt_at is not None
         return f"retry {attempt + 1} at {next_attempt_at.isoformat()}"
-    if transient and _kind_of(endpoint) != service.WEBHOOK_KIND and arq_try < service.MAX_ATTEMPTS:
+    if arq_retry:
         # The one exception type arq treats as "not finished". The delivery row is
         # already committed — the session closed above — so the retry starts from a
         # recorded attempt, not from nothing.
-        raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, arq_try))
+        raise Retry(defer=retry_delay_s)
 
     # Give up loudly, whether the budget ran out or the endpoint rejected the request
     # outright. The client's integration is broken and someone has to know; a silent
