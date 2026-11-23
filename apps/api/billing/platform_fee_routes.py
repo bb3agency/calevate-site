@@ -41,6 +41,7 @@ from apps.api.billing.platform_fee import (
     FeeCharge,
     FeeStatus,
     attach_order,
+    charge_exemption,
     exemption_of,
     fee_status,
     fee_switch,
@@ -191,7 +192,16 @@ async def _fee_view(session: AsyncSession, *, tenant_id: UUID) -> PlatformFeeOut
         exemption=exemption,
         outbound_paused=paused is not None,
         grace_days=GRACE_PERIOD.days,
-        charges=[_charge_out(c, at=at, exemption=exemption) for c in charges],
+        # Each fee's status by its own month: a trial this month does not waive an
+        # earlier month's fee it never touched, and one that touched a fee's month does.
+        charges=[
+            _charge_out(
+                c,
+                at=at,
+                exemption=await charge_exemption(session, tenant_id=tenant_id, charge=c, at=at),
+            )
+            for c in charges
+        ],
     )
 
 
@@ -226,7 +236,7 @@ async def open_fee_order(charge_id: UUID, principal: FeePay) -> FeeOrderOut:
         charge = await read_charge(session, tenant_id=tenant_id, charge_id=charge_id)
         if charge is None:
             raise ProblemError.not_found("Platform fee")
-        exemption = await exemption_of(session, tenant_id=tenant_id, at=at)
+        exemption = await charge_exemption(session, tenant_id=tenant_id, charge=charge, at=at)
     status = fee_status(charge, at=at, exemption=exemption, switch=fee_switch())
     if status in ("paid", "waived"):
         raise ProblemError.business_rule(
@@ -486,7 +496,7 @@ async def record_manual_fee_payment(
                 summary={"period": charge.period, "reference": payload.reference.strip()},
             )
         settled = await read_charge(scoped, tenant_id=tenant_id, charge_id=charge_id)
-        exemption = await exemption_of(scoped, tenant_id=tenant_id, at=at)
+        exemption = await charge_exemption(scoped, tenant_id=tenant_id, charge=charge, at=at)
     assert settled is not None
     return FeePaymentOut(
         charge_id=charge_id,

@@ -32,8 +32,8 @@ from uuid import UUID
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.plans import ist_billing_month
-from apps.api.billing.trials import read_trial
+from apps.api.billing.plans import ist_billing_month, ist_month_window
+from apps.api.billing.trials import read_trial, trial_overlaps
 from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -140,7 +140,47 @@ def _charge(row: Row[Any]) -> FeeCharge:
 
 
 async def exemption_of(session: AsyncSession, *, tenant_id: UUID, at: datetime) -> Exemption | None:
-    """Why this account owes no fee, or None when it does.
+    """Why this account owes no fee for the IST month of `at`, or None when it does.
+
+    The account-wide reasons (`_account_exemption`), or a trial that touches that month
+    (`month_on_trial`). Asked by the job before it raises a month's fee, so a month a trial
+    touches is raised none.
+    """
+    exemption = await _account_exemption(session, tenant_id=tenant_id, at=at)
+    if exemption is not None:
+        return exemption
+    if await month_on_trial(session, tenant_id=tenant_id, period=ist_billing_month(at)):
+        return "trial"
+    return None
+
+
+async def month_on_trial(session: AsyncSession, *, tenant_id: UUID, period: str) -> bool:
+    """Did any trial touch this IST month? Such a month owes no platform fee (founder,
+    23 Nov 2026: "Skip it too"), by the same month-overlap rule that waives the plan fee
+    on the statement (`service.usage_summary`, `trials.trial_overlaps`). Including a month
+    the trial covers only part of, and a fee already raised before a trial was given."""
+    start, end = ist_month_window(period)
+    return await trial_overlaps(session, tenant_id=tenant_id, start=start, end=end)
+
+
+async def charge_exemption(
+    session: AsyncSession, *, tenant_id: UUID, charge: FeeCharge, at: datetime
+) -> Exemption | None:
+    """Why this one raised fee is not owed, or None when it is: the account's own
+    exemption, or a trial that touched the fee's own month. Per charge, so a trial this
+    month does not excuse an unpaid fee for an earlier month it never touched."""
+    exemption = await _account_exemption(session, tenant_id=tenant_id, at=at)
+    if exemption is not None:
+        return exemption
+    if await month_on_trial(session, tenant_id=tenant_id, period=charge.period):
+        return "trial"
+    return None
+
+
+async def _account_exemption(
+    session: AsyncSession, *, tenant_id: UUID, at: datetime
+) -> Exemption | None:
+    """Why this account owes no fee at all, or None.
 
     A free trial is exempt whether it is still running, has ended unpaid (the account is
     still restricted to test calls) or the account sits on the `trial` tier. A waiver is an
@@ -218,26 +258,32 @@ async def overdue_charge(
 
     None whenever the switch is off or the account is exempt: turning the fee off, or
     waiving one client, lifts a pause on the next dial without anybody touching a charge.
+    A fee for a month a trial touched is skipped the same way (`month_on_trial`): the
+    charge row stays as it was, and it is simply not owed.
     """
     switch = fee_switch()
     if not switch.enabled:
         return None
     now = at or datetime.now(UTC)
-    row = (
+    rows = (
         await session.execute(
             text(
                 f"SELECT {_CHARGE_COLUMNS} {_CHARGES_FROM}"
                 "WHERE c.tenant_id = :tid AND c.grace_ends_at <= :at AND p.id IS NULL "
-                "ORDER BY c.issued_at LIMIT 1"
+                "ORDER BY c.issued_at"
             ),
             {"tid": tenant_id, "at": now},
         )
-    ).first()
-    if row is None:
+    ).all()
+    if not rows:
         return None
-    if await exemption_of(session, tenant_id=tenant_id, at=now) is not None:
+    if await _account_exemption(session, tenant_id=tenant_id, at=now) is not None:
         return None
-    return _charge(row)
+    for row in rows:
+        charge = _charge(row)
+        if not await month_on_trial(session, tenant_id=tenant_id, period=charge.period):
+            return charge
+    return None
 
 
 async def platform_fee_paused(session: AsyncSession, *, tenant_id: UUID) -> bool:
@@ -438,12 +484,14 @@ __all__ = [
     "PaymentMethod",
     "Waiver",
     "attach_order",
+    "charge_exemption",
     "charge_for_order",
     "exemption_of",
     "fee_status",
     "fee_switch",
     "issue_charge",
     "list_charges",
+    "month_on_trial",
     "overdue_charge",
     "paid_with",
     "platform_fee_paused",

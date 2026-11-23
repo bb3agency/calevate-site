@@ -40,6 +40,7 @@ from apps.api.billing.platform_fee import (
     fee_switch,
     issue_charge,
     list_charges,
+    month_on_trial,
 )
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -179,7 +180,14 @@ async def settle_tenant(tenant_id: UUID, *, amount_inr: Decimal, now: datetime) 
                 {"tid": tenant_id},
             )
         ).first()
-        charges = await list_charges(session, tenant_id=tenant_id)
+        # A fee for a month a trial touched is not owed (`platform_fee.month_on_trial`), so
+        # it is told about nothing, however it was raised.
+        charges = [
+            charge
+            for charge in await list_charges(session, tenant_id=tenant_id)
+            if charge.paid
+            or not await month_on_trial(session, tenant_id=tenant_id, period=charge.period)
+        ]
     if row is None:
         return "nothing"
     address = str(row[0]) if row[0] else None

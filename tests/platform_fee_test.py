@@ -535,3 +535,73 @@ async def test_a_fee_payment_cannot_be_edited_or_deleted() -> None:
         with pytest.raises(DBAPIError):
             async with tenant_session(tenant_id) as session:
                 await session.execute(text(statement), {"t": tenant_id})
+
+
+# --- a month a trial touches owes no fee (founder, 23 Nov 2026: "Skip it too") -----------
+
+
+async def _gift(tenant_id: UUID, *, start: datetime, end: datetime) -> None:
+    """A gift trial on a paying account, from `start` and stopped at `end`."""
+    from apps.api.billing.trials import TRIAL_STOPPED, end_trial, start_trial
+    from tests.conftest import mark_paid_for_tests
+
+    await mark_paid_for_tests(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=30, actor_user_id=None, at=start)
+        await end_trial(
+            session, tenant_id=tenant_id, outcome=TRIAL_STOPPED, reason="Gift over.", at=end
+        )
+
+
+def _month_start(at: datetime) -> datetime:
+    from apps.api.billing.plans import ist_billing_month, ist_month_window
+
+    return ist_month_window(ist_billing_month(at))[0]
+
+
+@pytest.mark.usefixtures("_gate_reaches_money")
+async def test_a_trial_given_after_the_fee_was_raised_lifts_its_pause() -> None:
+    from apps.api.billing.platform_fee import charge_exemption
+
+    tenant_id, agent_id = await _dialling_tenant()
+    now = datetime.now(UTC)
+    charge_id = await _tenant_with_late_fee(tenant_id, await _issue(tenant_id, at=now))
+    decision = await _gate(tenant_id, agent_id)
+    assert not decision.allowed and decision.rule == PLATFORM_FEE_RULE, decision
+
+    await _gift(tenant_id, start=now - timedelta(minutes=30), end=now - timedelta(minutes=10))
+    assert (await _gate(tenant_id, agent_id)).allowed, "a month a trial touched owes no fee"
+    async with tenant_session(tenant_id) as session:
+        assert not await platform_fee_paused(session, tenant_id=tenant_id)
+        charge = await read_charge(session, tenant_id=tenant_id, charge_id=charge_id)
+        assert charge is not None and not charge.paid, "the charge row is left as it was"
+        exemption = await charge_exemption(session, tenant_id=tenant_id, charge=charge, at=now)
+    assert exemption == "trial"
+
+
+async def test_a_trial_that_ended_early_in_the_month_raises_no_fee_for_it() -> None:
+    tenant_id = await _tenant()
+    start = _month_start(datetime.now(UTC))
+    await _gift(tenant_id, start=start - timedelta(days=3), end=start + timedelta(minutes=1))
+    async with tenant_session(tenant_id) as session:
+        assert await exemption_of(session, tenant_id=tenant_id, at=datetime.now(UTC)) == "trial"
+    await issue_platform_fees({})
+    async with tenant_session(tenant_id) as session:
+        assert await list_charges(session, tenant_id=tenant_id) == []
+
+
+@pytest.mark.usefixtures("_gate_reaches_money")
+async def test_a_month_no_trial_touched_still_raises_and_enforces_its_fee() -> None:
+    """A trial last month waives last month only: this month's fee is raised and, unpaid
+    past its grace, pauses outbound."""
+    tenant_id, agent_id = await _dialling_tenant()
+    start = _month_start(datetime.now(UTC))
+    await _gift(tenant_id, start=start - timedelta(days=10), end=start - timedelta(days=5))
+    async with tenant_session(tenant_id) as session:
+        assert await exemption_of(session, tenant_id=tenant_id, at=datetime.now(UTC)) is None
+    await issue_platform_fees({})
+    async with tenant_session(tenant_id) as session:
+        (charge,) = await list_charges(session, tenant_id=tenant_id)
+    await _tenant_with_late_fee(tenant_id, charge.id)
+    decision = await _gate(tenant_id, agent_id)
+    assert not decision.allowed and decision.rule == PLATFORM_FEE_RULE, decision
