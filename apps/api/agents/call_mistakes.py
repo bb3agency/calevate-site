@@ -129,6 +129,11 @@ LESSONS: Final[dict[str, Lesson]] = {
         "React only when it fits what was said, in new words, and often not at all.",
         'HOW TO SPEAK: "no two replies start or end alike"',
     ),
+    "same_closing": Lesson(
+        "Ended reply after reply with the same words",
+        "End each reply on its own question or next step, in new words.",
+        'HOW TO SPEAK: "no two replies start or end alike"',
+    ),
     "too_long": Lesson(
         "Said too much in one turn",
         "Say one or two short sentences, then let the caller speak.",

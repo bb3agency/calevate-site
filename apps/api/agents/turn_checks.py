@@ -40,6 +40,7 @@ from calevate_shared.call_words import words as _word_list
 from calevate_shared.languages import find_language
 from calevate_shared.spoken_guard import (
     has_indic_letters,
+    closing_words,
     honorific_count,
     latin_words,
     opens_with_greeting,
@@ -89,6 +90,8 @@ Kind = Literal[
     "invented_source",
     # D-894: the same short reaction ("మంచిది అండి", "సరే అండి") before reply after reply.
     "same_opening",
+    # 24 Nov 2026: the same words ending reply after reply ("... tell me").
+    "same_closing",
     # D-910: an unanswered question asked again word for word after the caller's "సరే".
     "asked_again",
     # The Sri Estates call of 28 Oct 2026 (D-912): "two BHK or three BHK?", an unclear
@@ -149,6 +152,7 @@ SOUND_KINDS: Final = frozenset(
         "opened_again",
         # HOW TO SPEAK decides how a turn opens, not the owner's script (D-894).
         "same_opening",
+        "same_closing",
         "asked_again",
         # HOW TO SPEAK decides these (D-912). `picked_for_them` stays a note because "the
         # bigger one" is a fair answer to "two or three?" that no word list reads.
@@ -1574,6 +1578,17 @@ def reaction_lead(line: str) -> str | None:
     return " ".join(head)
 
 
+def _stock_closer(replies: Sequence[str]) -> tuple[str, int] | None:
+    """The ending (`closing_words`) shared by `STOCK_OPENER_REPLIES` or more of `replies`,
+    with its count. A goodbye is left out: closing a call alike is not a habit."""
+    counts: dict[str, int] = {}
+    for reply in replies:
+        said = None if _GOODBYE.search(reply) else closing_words(reply)
+        if said is not None:
+            counts[said] = counts.get(said, 0) + 1
+    return next(((said, n) for said, n in counts.items() if n >= STOCK_OPENER_REPLIES), None)
+
+
 def _stock_opener(replies: Sequence[str]) -> tuple[str, int] | None:
     """The first reaction that opens `STOCK_OPENER_REPLIES` or more of `replies`, with its
     count."""
@@ -2118,6 +2133,17 @@ def conversation_problems(
                 "same_opening",
                 f"It opened {times} replies with {_quoted(said)}. A reaction should fit what "
                 "the caller said, and is often not needed at all.",
+            ),
+        )
+    ending = _stock_closer([e.reply for e in exchanges if e.reply.strip()])
+    if ending:
+        said, times = ending
+        found.setdefault(
+            "same_closing",
+            TurnProblem(
+                "same_closing",
+                f"It ended {times} replies with {_quoted(said)}. Each reply ends on its own "
+                "question or next step, in new words.",
             ),
         )
     return list(found.values())
