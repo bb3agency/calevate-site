@@ -144,7 +144,7 @@ async def test_six_bedrooms_stays_unlisted_rather_than_the_nearest_choice() -> N
 
 
 INPUTS = passer.Inputs(
-    description="d",
+    context="d",
     fields=[BHK, AREA],
     script="Step 'Ask': Ask the car model they drive, the visit day, the facing, the main crops.",
     unlisted={"bhk_size": [("6 BHK", 3), ("Penthouse", 1)]},
@@ -234,6 +234,19 @@ def test_a_second_caller_changes_the_inputs_and_a_third_does_not() -> None:
 
     assert digest(1) != digest(2)
     assert digest(2) == digest(3)
+
+
+def test_the_digest_ignores_counts_above_two_that_the_model_is_still_sent() -> None:
+    def at(*rows: tuple[str, int]) -> passer.Inputs:
+        return dataclasses.replace(INPUTS, unlisted={"bhk_size": list(rows)})
+
+    three, seven = at(("6 BHK", 3), ("Villa", 1)), at(("6 BHK", 7), ("Villa", 1))
+    assert three.digest() == seven.digest()
+    assert "'6 BHK' (3 callers); 'Villa' (1 caller)" in three.description
+    assert "'6 BHK' (7 callers)" in seven.description
+    assert at(("6 BHK", 3), ("Villa", 2)).digest() != three.digest(), "a second caller counts"
+    assert at(("6 BHK", 3), ("Penthouse", 2)).digest() != at(("6 BHK", 3)).digest()
+    assert at().description == "d" and at().digest() == at(("Villa", 1)).digest()
 
 
 def test_the_script_is_read_for_what_the_business_sells() -> None:
@@ -515,6 +528,30 @@ async def test_a_pass_stores_its_suggestions_on_the_allowance_and_spends_once(
     )
     assert len(model.calls) == 2
     assert await _pass(tenant_id, line_id) == "not_queued"
+
+
+async def test_one_more_caller_repeating_an_answer_does_not_buy_another_pass(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _Model()
+    _setup(monkeypatch, trial=False, model=model)
+    tenant_id, _slug, _token, line_id = await _bhk_line()
+    unlisted: list[tuple[str, int]] = [("6 BHK", 3)]
+
+    async def _gather(*_a: Any, dismissed: list[str]) -> passer.Inputs:
+        return dataclasses.replace(INPUTS, unlisted={"bhk_size": list(unlisted)})
+
+    monkeypatch.setattr(passer, "gather", _gather)
+    await _queue(tenant_id, line_id)
+    assert await _pass(tenant_id, line_id) == "stored_1"
+    unlisted[:] = [("6 BHK", 4)]
+    await _queue(tenant_id, line_id)
+    assert await _pass(tenant_id, line_id) == "unchanged"
+    assert len(model.calls) == 1, "the model is not asked again"
+    unlisted[:] = [("6 BHK", 4), ("Penthouse", 2)]
+    await _queue(tenant_id, line_id)
+    assert await _pass(tenant_id, line_id) == "stored_1"
+    assert len(model.calls) == 2 and "'Penthouse' (2 callers)" in model.calls[1]["description"]
 
 
 async def test_a_trials_pass_is_ours_and_a_used_up_allowance_spends_nothing(
@@ -893,7 +930,7 @@ def test_a_new_detail_may_come_from_what_the_job_is_for_when_it_quotes_it() -> N
     """A Rytu Khata install campaign was offered "Phone Operating System" because its script
     asks which phone to give the right steps; a detail must serve what the job is for."""
     aimed = passer.Inputs(
-        description="d", fields=[], purpose="Get farmers to install the app and open a ledger."
+        context="d", fields=[], purpose="Get farmers to install the app and open a ledger."
     )
     done: dict[str, Any] = {"label": "App installed", "values": ["Yes", "No"], "hint": "Did they."}
     got = _clean(

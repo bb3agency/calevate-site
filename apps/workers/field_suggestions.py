@@ -183,9 +183,13 @@ _ANSWER_SCHEMA: Final = {
 class Inputs:
     """What one pass reads. `unlisted` and `captured` are keyed by field key; `unlisted`
     values are `(redacted words, callers)` and `captured` maps a choice to how often the
-    agent recorded it."""
+    agent recorded it.
 
-    description: str
+    `context` is everything the model reads except the unlisted answers, which `description`
+    appends with their caller counts. They are kept apart so `digest` can hash the context
+    without the counts: a hash over the sent text would change with every extra caller."""
+
+    context: str
     fields: list[ExtractionField]
     #: The agent's script as the model read it (redacted), which a new detail's evidence
     #: must be found in when its source is the script.
@@ -197,6 +201,16 @@ class Inputs:
     captured: dict[str, dict[str, int]] = field(default_factory=dict)
     dismissed: frozenset[str] = frozenset()
 
+    @property
+    def description(self) -> str:
+        """What the model is sent: the context, then the unlisted answers with their counts."""
+        if not any(self.unlisted.values()):
+            return self.context
+        return (
+            f"{self.context}\n\nWhat callers asked for that no choice fitted:\n"
+            + _unlisted_text(self.unlisted)
+        )
+
     def digest(self) -> str:
         """The hash a later pass compares against. An unlisted answer counts once it has been
         heard twice, so one more caller saying the same thing does not buy another pass."""
@@ -206,7 +220,7 @@ class Inputs:
         }
         body = json.dumps(
             {
-                "d": self.description,
+                "d": self.context,
                 "f": [f.model_dump() for f in self.fields],
                 "u": repeated,
                 "x": sorted(self.dismissed),
@@ -508,10 +522,9 @@ async def gather(tenant_id: UUID, kind: JobKind, job_id: UUID, *, dismissed: lis
         quick = "\n".join(f"{f.question}: {f.answer}" if f.question else f.answer for f in facts)
         parts.append("Quick facts:\n" + quick[:FACTS_CHARS])
     parts.append("The agent's lead details now:\n" + _fields_text(fields))
-    if any(unlisted.values()):
-        parts.append("What callers asked for that no choice fitted:\n" + _unlisted_text(unlisted))
+    # The unlisted answers are appended by `Inputs.description`; `_aggregate` redacted them.
     return Inputs(
-        description=redact("\n\n".join(parts)).text,
+        context=redact("\n\n".join(parts)).text,
         script=redact(body[:SCRIPT_CHARS]).text if body else "",
         purpose=redact(purpose).text,
         fields=fields,
