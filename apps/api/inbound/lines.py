@@ -340,8 +340,8 @@ async def save_script(session: AsyncSession, line_id: UUID, script: CallScript) 
     from apps.api.agents import script_builder
 
     row = await _lock(session, line_id)
-    await script_builder.refuse_line_if_too_long(
-        session, tenant_id=UUID(str(row.tenant_id)), line_id=line_id, script=script
+    await script_builder.refuse_job_if_too_long(
+        session, kind="line", tenant_id=UUID(str(row.tenant_id)), job_id=line_id, script=script
     )
     version = (
         await session.execute(

@@ -22,7 +22,8 @@ from apps.api.agents.engine_limits import (
     PromptTooLongError,
     refuse_over_engine_limits,
 )
-from apps.api.campaigns.notes import save_notes
+from apps.api.campaigns import workspace as campaign_workspace
+from apps.api.campaigns.notes import JobKind, save_notes
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
@@ -38,6 +39,7 @@ from calevate_shared.engine import (
 )
 from calevate_shared.extraction import ExtractionField
 from sqlalchemy import text
+from tests.notes_per_job_test import _campaign
 from tests.thinnest_publish_limits_test import _agent_with_script, _selected, _thinnest
 
 SECRET = "secret-staff-mobile-9876543210"
@@ -243,10 +245,10 @@ async def test_save_and_put_live_refuse_before_anything_is_stored() -> None:
     assert before == after
 
 
-# --- an inbound line is measured as its own engine agent -------------------------------
+# --- a campaign or an inbound line is measured as its own engine agent -----------------
 
-#: Enough "What it notes" to add thousands of characters to a line's compiled script.
-LINE_NOTES = [
+#: Enough "What it notes" to add thousands of characters to a job's compiled script.
+JOB_NOTES = [
     ExtractionField(
         key=f"detail_{n}", label=f"Detail {n}", type="text", reason="to follow up " * 35
     )
@@ -254,13 +256,34 @@ LINE_NOTES = [
 ]
 
 
-async def _line_total(
-    session: Any, tenant_id: uuid.UUID, line_id: uuid.UUID, script: CallScript
+async def _job(kind: JobKind, tenant_id: uuid.UUID, agent_id: uuid.UUID) -> uuid.UUID:
+    if kind == "campaign":
+        return await _campaign(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        return await lines.create_line(
+            session, tenant_id=tenant_id, agent_id=agent_id, name="Desk", created_by=None
+        )
+
+
+async def _job_total(
+    session: Any, kind: JobKind, tenant_id: uuid.UUID, job_id: uuid.UUID, script: CallScript
 ) -> int:
-    config = await agents_service.line_config(
-        session, tenant_id=tenant_id, line_id=line_id, script=script
-    )
+    if kind == "campaign":
+        config = await agents_service.campaign_config(
+            session, tenant_id=tenant_id, campaign_id=job_id, script=script
+        )
+    else:
+        config = await agents_service.line_config(
+            session, tenant_id=tenant_id, line_id=job_id, script=script
+        )
     return prompt_size.measure_config(config, get_engine()).total
+
+
+async def _save_script(session: Any, kind: JobKind, job_id: uuid.UUID, script: CallScript) -> None:
+    if kind == "campaign":
+        await campaign_workspace.save_script(session, job_id, script)
+    else:
+        await lines.save_script(session, job_id, script)
 
 
 def _v2_script(filler: int) -> CallScript:
@@ -284,64 +307,67 @@ def _sized(bare_total: int, target: int) -> CallScript:
     return _v2_script(target - bare_total)
 
 
-async def _line_extraction(tenant_id: uuid.UUID, line_id: uuid.UUID) -> Any:
+async def _stored(kind: JobKind, tenant_id: uuid.UUID, job_id: uuid.UUID) -> Any:
+    sql = {
+        "campaign": "SELECT script, extraction_fields FROM campaigns WHERE id = :j",
+        "line": "SELECT script, extraction_fields FROM inbound_lines WHERE id = :j",
+    }[kind]
     async with tenant_session(tenant_id) as session:
-        return (
-            await session.execute(
-                text("SELECT script, extraction_fields FROM inbound_lines WHERE id = :l"),
-                {"l": line_id},
-            )
-        ).one()
+        return (await session.execute(text(sql), {"j": job_id})).one()
 
 
-async def test_a_lines_script_save_counts_its_notes_and_its_call_back_rules() -> None:
+@pytest.mark.parametrize("kind", ["campaign", "line"])
+async def test_a_jobs_script_save_counts_what_it_notes(kind: JobKind) -> None:
     tenant_id, agent_id = await _agent_with_script("Greet, then help.")
+    job_id = await _job(kind, tenant_id, agent_id)
     with _selected(_thinnest()):
         async with tenant_session(tenant_id) as session:
-            line_id = await lines.create_line(
-                session, tenant_id=tenant_id, agent_id=agent_id, name="Desk", created_by=None
-            )
-            await save_notes(session, "line", line_id, LINE_NOTES, expected_digest=None)
+            await save_notes(session, kind, job_id, JOB_NOTES, expected_digest=None)
             agent_bare = (
                 await script_builder.compiled_preview(session, agent_id, _v2_script(0))
             ).size.total
-            line_bare = await _line_total(session, tenant_id, line_id, _v2_script(0))
-            added = line_bare - agent_bare
+            job_bare = await _job_total(session, kind, tenant_id, job_id, _v2_script(0))
+            added = job_bare - agent_bare
             assert added > 4_000
-            # Fits the agent's own config, over once the line's notes are compiled in: the
-            # agent-only measurement let this through to fail at put-live.
+            # Fits the agent's own config, over once the job's notes are compiled in: the
+            # agent-only measurement let this through to fail at Start or put-live.
             script = _sized(agent_bare, 20_000 - added // 2)
             assert (await script_builder.compiled_preview(session, agent_id, script)).size.fits
+        before = (await _stored(kind, tenant_id, job_id)).script
         with pytest.raises(PromptTooLongError) as caught:
             async with tenant_session(tenant_id) as session:
-                await lines.save_script(session, line_id, script)
-        assert (await _line_extraction(tenant_id, line_id)).script is None
+                await _save_script(session, kind, job_id, script)
+        assert (await _stored(kind, tenant_id, job_id)).script == before
         async with tenant_session(tenant_id) as session:
-            assert await lines.save_script(session, line_id, _v2_script(0)) >= 1
+            await _save_script(session, kind, job_id, _v2_script(0))
+        assert (await _stored(kind, tenant_id, job_id)).script == _v2_script(0).model_dump(
+            mode="json"
+        )
     assert "characters too long for the calling system" in caught.value.detail
 
 
-async def test_notes_that_push_a_lines_saved_script_over_are_refused_and_not_stored() -> None:
+@pytest.mark.parametrize("kind", ["campaign", "line"])
+async def test_notes_that_push_a_jobs_saved_script_over_are_refused_and_not_stored(
+    kind: JobKind,
+) -> None:
     tenant_id, agent_id = await _agent_with_script("Greet, then help.")
+    job_id = await _job(kind, tenant_id, agent_id)
     with _selected(_thinnest()):
         async with tenant_session(tenant_id) as session:
-            line_id = await lines.create_line(
-                session, tenant_id=tenant_id, agent_id=agent_id, name="Desk", created_by=None
-            )
-            await save_notes(session, "line", line_id, [], expected_digest=None)
-            bare = await _line_total(session, tenant_id, line_id, _v2_script(0))
-            await save_notes(session, "line", line_id, LINE_NOTES, expected_digest=None)
-            added = await _line_total(session, tenant_id, line_id, _v2_script(0)) - bare
-            await save_notes(session, "line", line_id, [], expected_digest=None)
-            await lines.save_script(session, line_id, _sized(bare, 20_000 - added // 2))
+            await save_notes(session, kind, job_id, [], expected_digest=None)
+            bare = await _job_total(session, kind, tenant_id, job_id, _v2_script(0))
+            await save_notes(session, kind, job_id, JOB_NOTES, expected_digest=None)
+            added = await _job_total(session, kind, tenant_id, job_id, _v2_script(0)) - bare
+            await save_notes(session, kind, job_id, [], expected_digest=None)
+            await _save_script(session, kind, job_id, _sized(bare, 20_000 - added // 2))
         with pytest.raises(PromptTooLongError) as caught:
             async with tenant_session(tenant_id) as session:
-                await save_notes(session, "line", line_id, LINE_NOTES, expected_digest=None)
-        assert (await _line_extraction(tenant_id, line_id)).extraction_fields == []
+                await save_notes(session, kind, job_id, JOB_NOTES, expected_digest=None)
+        assert (await _stored(kind, tenant_id, job_id)).extraction_fields == []
         async with tenant_session(tenant_id) as session:
-            assert await save_notes(session, "line", line_id, LINE_NOTES[:2], expected_digest=None)
+            assert await save_notes(session, kind, job_id, JOB_NOTES[:2], expected_digest=None)
     assert caught.value.code == PROMPT_TOO_LONG
-    assert caught.value.title.startswith("These details make the line's script too long")
+    assert caught.value.title.startswith(f"These details make the {kind}'s script too long")
     assert caught.value.remediation is not None
     assert caught.value.remediation.startswith("Note fewer details")
 

@@ -138,7 +138,7 @@ async def _campaign_row(session: AsyncSession, campaign_id: UUID, *, lock: bool 
     row = (
         await session.execute(
             text(
-                "SELECT id, agent_id, status, main_task, script, script_proposal, "
+                "SELECT id, tenant_id, agent_id, status, main_task, script, script_proposal, "
                 "script_live_version, script_before_pip_at FROM campaigns "
                 "WHERE id = :cid AND archived_at IS NULL" + (" FOR UPDATE" if lock else "")
             ),
@@ -191,12 +191,19 @@ async def save_main_task(session: AsyncSession, campaign_id: UUID, value: str) -
 
 
 async def save_script(session: AsyncSession, campaign_id: UUID, script: CallScript) -> None:
-    """The owner's edit, or a reviewed Pip draft they kept. Held to the agent's own limits
-    (`script_builder.refuse_if_too_long`), so Start can never be refused for its length."""
+    """The owner's edit, or a reviewed Pip draft they kept. Measured as the campaign's own
+    engine agent Start sends, its notes included (`script_builder.refuse_job_if_too_long`),
+    so Start can never be refused for its length."""
     from apps.api.agents import script_builder
 
     row = await _campaign_row(session, campaign_id, lock=True)
-    await script_builder.refuse_if_too_long(session, row.agent_id, script)
+    await script_builder.refuse_job_if_too_long(
+        session,
+        kind="campaign",
+        tenant_id=UUID(str(row.tenant_id)),
+        job_id=campaign_id,
+        script=script,
+    )
     await session.execute(
         text("UPDATE campaigns SET script = CAST(:s AS jsonb), updated_at = now() WHERE id = :cid"),
         {"s": script.model_dump_json(), "cid": campaign_id},
@@ -234,7 +241,13 @@ async def restore_before_pip(session: AsyncSession, campaign_id: UUID) -> None:
     previous = CallScript.model_validate(held)
     from apps.api.agents import script_builder
 
-    await script_builder.refuse_if_too_long(session, row.agent_id, previous)
+    await script_builder.refuse_job_if_too_long(
+        session,
+        kind="campaign",
+        tenant_id=UUID(str(row.tenant_id)),
+        job_id=campaign_id,
+        script=previous,
+    )
     await session.execute(
         text(
             "UPDATE campaigns SET script_before_pip = script, script = script_before_pip, "
