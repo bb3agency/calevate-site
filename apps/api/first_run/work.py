@@ -39,7 +39,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.first_run.documents import read_documents
 from apps.api.first_run.names import identity_with_name
-from apps.api.first_run.service import RunState, ensure_run, read_state
+from apps.api.first_run.service import RunState, ensure_run, live_work_ids, read_state
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.business_copy import queue_generation
 
@@ -217,14 +217,15 @@ async def _rename_in_work(session: AsyncSession, *, row: Any, name: str) -> None
             return None
         return script.model_copy(update={"identity": identity_with_name(script.identity, name)})
 
-    if row.line_id is not None:
-        line_script = renamed((await lines.read_line(session, row.line_id)).script)
+    line_id, campaign_id = await live_work_ids(session, row)
+    if line_id is not None:
+        line_script = renamed((await lines.read_line(session, line_id)).script)
         if line_script is not None:
-            await lines.save_script(session, row.line_id, line_script)
-    if row.campaign_id is not None:
-        campaign_script = renamed((await workspace.read_workspace(session, row.campaign_id)).script)
+            await lines.save_script(session, line_id, line_script)
+    if campaign_id is not None:
+        campaign_script = renamed((await workspace.read_workspace(session, campaign_id)).script)
         if campaign_script is not None:
-            await workspace.save_script(session, row.campaign_id, campaign_script)
+            await workspace.save_script(session, campaign_id, campaign_script)
 
 
 async def _within_ai_allowance(session: AsyncSession, tenant_id: UUID) -> bool:
@@ -306,7 +307,9 @@ async def start_work(
             direction="inbound" if job == "answer_calls" else "outbound",
         )
     pip_writes = may_spend_ai and await _within_ai_allowance(session, tenant_id)
-    if job == "answer_calls" and row.line_id is None:
+    # An archived line or campaign reads as none, so this drafts another one.
+    held_line, held_campaign = await live_work_ids(session, row)
+    if job == "answer_calls" and held_line is None:
         line_id = await lines.create_line(
             session, tenant_id=tenant_id, agent_id=agent_id, main_task=task, created_by=user_id
         )
@@ -333,7 +336,7 @@ async def start_work(
             )
         else:
             await save_ready_made(session, tenant_id=tenant_id, line_id=line_id)
-    elif job == "call_leads" and row.campaign_id is None:
+    elif job == "call_leads" and held_campaign is None:
         campaign_id = await campaigns_service.create_campaign(
             session,
             tenant_id=tenant_id,

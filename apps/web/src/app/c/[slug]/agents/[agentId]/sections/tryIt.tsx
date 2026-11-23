@@ -75,10 +75,23 @@ export function TryIt({
 }) {
   // A paying account test-calls its agents here too (D-859), from its own number and billed
   // like any call; the dashboard no longer carries a test-call box of its own.
-  const paid = useTrialPanel(useClientSession()).data?.paid_test_calls === true;
+  const panel = useTrialPanel(useClientSession());
+  const paid = panel.data?.paid_test_calls === true;
   const testable = onTrial || paid;
   let body;
-  if (testable && canTestCall(agent)) {
+  if (!onTrial && !panel.isSuccess) {
+    // Until the read answers, a paying account cannot be told from one that has not paid:
+    // "add credit" or "give it a number" would be a guess, so the read's state is shown.
+    body = (
+      <PracticeFrame>
+        {panel.isError ? (
+          <ProblemNotice error={panel.error} onRetry={() => void panel.refetch()} />
+        ) : (
+          <Skeleton rows={1} label="Checking your test calls" />
+        )}
+      </PracticeFrame>
+    );
+  } else if (testable && canTestCall(agent)) {
     body = (
       <TrialTestCall
         agent={agent}

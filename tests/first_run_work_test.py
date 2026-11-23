@@ -577,3 +577,44 @@ async def test_renaming_the_agent_renames_it_in_its_first_works_scripts() -> Non
         space = await workspace.read_workspace(session, uuid.UUID(campaign_id))
     assert line.script == SCRIPT
     assert space.script is not None and space.script.identity.startswith("Your name is Meera.")
+
+
+@pytest.mark.parametrize(
+    ("job", "holder", "archive"),
+    [
+        ("answer_calls", "line_id", "/v1/inbound-lines/{id}/archive"),
+        ("call_leads", "campaign_id", "/v1/campaigns/{id}/archive"),
+    ],
+)
+async def test_an_archived_first_work_reads_as_none_and_what_first_drafts_another(
+    job: str, holder: str, archive: str
+) -> None:
+    """The owner archived the run's line or campaign from its own page: the run no longer
+    names it (its read is a 404, so the screen would wait on it for ever), "What first?"
+    drafts a new one for the same agent, and a rename on "Name and voice" still saves."""
+    tenant_id = await _tenant()
+    headers = await _owner(tenant_id)
+    made = await _made(tenant_id, headers)
+    async with _client() as http:
+        drafted = await http.post("/v1/first-run/work", headers=headers, json={"job": job})
+        assert drafted.status_code == 200, drafted.text
+        first = drafted.json()[holder]
+        archived = await http.post(archive.format(id=first), headers=headers)
+        assert archived.status_code in (200, 204), archived.text
+        read = await http.get("/v1/first-run", headers=headers)
+        renamed = await http.put(
+            "/v1/first-run/agent",
+            headers=headers,
+            json={"name": "Priya", "language_primary": "te-IN", "languages_extra": []},
+        )
+        again = await http.post("/v1/first-run/work", headers=headers, json={"job": job})
+    assert read.status_code == 200, read.text
+    assert read.json()[holder] is None
+    assert renamed.status_code == 200, renamed.text
+    assert again.status_code == 200, again.text
+    assert again.json()[holder] not in (None, first)
+    table = "inbound_lines" if holder == "line_id" else "campaigns"
+    owner = await _one(
+        tenant_id, f"SELECT agent_id FROM {table} WHERE id = :h", h=again.json()[holder]
+    )
+    assert str(owner.agent_id) == made["agent_id"]

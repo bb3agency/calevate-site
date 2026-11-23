@@ -1046,4 +1046,17 @@ describe("a failed read of the agent's last call (frontend audit 8 Nov 2026, W1)
     expect(await screen.findByText("Calls are not yours to read", {}, { timeout: 8000 })).toBeTruthy();
     expect(screen.queryByText("Getting your agent ready…")).toBeNull();
   }, 15000);
+
+  it("says the first work's read failed instead of saying Pip is still writing it", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [agent()],
+        [`/v1/inbound-lines/${LINE_ID}`]: problem(403, { title: "That line is not yours to read" }),
+      }),
+    );
+    expect(await screen.findByText("That line is not yours to read", {}, { timeout: 8000 })).toBeTruthy();
+    expect(screen.queryByText("Pip is writing what it says…")).toBeNull();
+  }, 15000);
 });
