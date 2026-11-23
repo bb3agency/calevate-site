@@ -958,11 +958,22 @@ async def diagnose_delivery(
                 )
             return ok("failures", label, "None failed lately.", "team_alerts")
         failed = await failed_deliveries(session, limit=20)
-        mine = [
-            item
-            for item in failed.items
-            if (kind == "google_sheets") == ("spreadsheet" in item.title)
-        ]
+        # By the endpoint's kind, not the title: a LeadSquared failure is neither the sheet's
+        # nor the webhook's.
+        of_kind = {
+            str(row[0])
+            for row in (
+                await session.execute(
+                    text(
+                        "SELECT d.id FROM webhook_deliveries d JOIN outbound_webhooks w "
+                        "ON w.id = d.endpoint_id WHERE w.kind = :kind "
+                        "AND d.id = ANY(CAST(:ids AS uuid[]))"
+                    ),
+                    {"kind": kind, "ids": [item.id for item in failed.items]},
+                )
+            ).all()
+        }
+        mine = [item for item in failed.items if item.id in of_kind]
         if not mine:
             return ok("failures", label, "None failed lately.", "webhook_deliveries")
         first = mine[0]

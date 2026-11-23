@@ -272,9 +272,16 @@ def client_token_source(tenant_id: UUID, credential_id: UUID) -> TokenSource:
         from apps.api.db.session import tenant_session
 
         async with tenant_session(tenant_id) as session:
-            resolved = await creds.resolve_credential(
-                session, tenant_id=tenant_id, credential_id=credential_id
-            )
+            try:
+                resolved = await creds.resolve_credential(
+                    session, tenant_id=tenant_id, credential_id=credential_id
+                )
+            except creds.CredentialUnusableError:
+                # Raised past here it would leave the delivery job as a non-`Retry`: one
+                # try, no delivery row, no alert. A connection we cannot open is a lapsed
+                # one to the ladder.
+                log.warning("sheet_connection_unusable", extra={"tenant_id": str(tenant_id)})
+                return None
         if resolved is None or resolved.kind != "google_sheets":
             log.info("sheet_connection_missing", extra={"tenant_id": str(tenant_id)})
             return None

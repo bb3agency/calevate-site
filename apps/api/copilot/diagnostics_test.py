@@ -198,6 +198,38 @@ async def test_no_sheet_connection_points_at_integrations() -> None:
     assert this_call.status == "unknown"
 
 
+async def test_a_leadsquared_failure_is_not_blamed_on_the_webhook() -> None:
+    """Each channel answers for its own deliveries: a lead that did not reach LeadSquared is
+    not why one did not reach the client's own system."""
+    tenant_id, _slug, _token = await _make_tenant()
+    hook_id, crm_id, delivery_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        for endpoint_id, kind, url in (
+            (hook_id, "webhook", "https://crm.example.com/hook"),
+            (crm_id, "leadsquared", None),
+        ):
+            await session.execute(
+                text(
+                    "INSERT INTO outbound_webhooks (id, tenant_id, kind, url, secret_ref, events, "
+                    "active, created_at, updated_at) VALUES (:id, :t, :kind, :url, 'ref', "
+                    "ARRAY['lead.created'], true, now(), now())"
+                ),
+                {"id": endpoint_id, "t": tenant_id, "kind": kind, "url": url},
+            )
+        await session.execute(
+            text(
+                "INSERT INTO webhook_deliveries (id, direction, source, event_type, status, "
+                "attempts, endpoint_id, reason, first_at, last_at, created_at) VALUES (:id, "
+                "'out', 'leadsquared', 'lead.created', 'failed', 3, :e, 'leadsquared_error', "
+                "now(), now(), now())"
+            ),
+            {"id": delivery_id, "e": crm_id},
+        )
+    result = await _diagnose("delivery_diagnose", tenant_id, channel="webhook", call_id=None)
+    failures = next(c for c in _dx(result).checks if c.key == "failures")
+    assert failures.status == "ok", failures
+
+
 async def test_no_whatsapp_contact_points_at_alerts() -> None:
     tenant_id, _slug, _token = await _make_tenant()
     cause = _cause(
