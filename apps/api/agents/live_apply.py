@@ -527,7 +527,11 @@ async def converge_agent(*, tenant_id: UUID, agent_id: UUID) -> tuple[Outcome, s
     deleted agent is left alone, since its first publish sends everything anyway.
     """
     from apps.api.agents.engine_settings import check_agent_settings
-    from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES, publish_agent
+    from apps.api.agents.service import (
+        CAMPAIGN_HOLDING_STATUSES,
+        HOLDER_REFUSALS_KEY,
+        publish_agent,
+    )
     from apps.api.db.session import tenant_session
 
     async with tenant_session(tenant_id) as session:
@@ -535,12 +539,19 @@ async def converge_agent(*, tenant_id: UUID, agent_id: UUID) -> tuple[Outcome, s
         if name is None:
             return "not_live", None
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
+        refused: list[BaseException] = session.info.pop(HOLDER_REFUSALS_KEY, [])
         refs = (
             await session.execute(
                 _HOLDER_REFS, {"aid": agent_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)}
             )
         ).scalars()
         holders = [str(ref) for ref in refs]
+    # A line or campaign the platform refused keeps its previous config while the publish
+    # carried on for the others (`service._republish_holder`). Raised after the commit, so
+    # what did go through stays, and the run records it or retries it rather than counting
+    # the agent applied.
+    if refused:
+        raise refused[0]
     for ref in holders:
         checked = await check_agent_settings(
             tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=ref

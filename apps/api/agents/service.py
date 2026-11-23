@@ -4611,6 +4611,12 @@ async def republish_lines(session: AsyncSession, *, tenant_id: UUID, agent_id: U
     return count
 
 
+#: `session.info` key under which `_republish_holder` keeps each refusal it swallowed, for a
+#: caller that must not report the change as applied while a line or campaign kept the old
+#: config (`live_apply.converge_agent`).
+HOLDER_REFUSALS_KEY: Final = "holder_refusals"
+
+
 async def _republish_holder(
     session: AsyncSession,
     *,
@@ -4629,6 +4635,7 @@ async def _republish_holder(
             await publish()
     except Exception as exc:
         reason = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
+        session.info.setdefault(HOLDER_REFUSALS_KEY, []).append(exc)
         alert(
             "CORE_LOGIC",
             "holder_republish_failed",
