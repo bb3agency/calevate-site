@@ -82,6 +82,8 @@ ALERT_JOB: Final = "deliver_team_alert"
 #: The owner's alert (`apps/workers/notifications.notify_hot_lead`), which queues the
 #: owner's WhatsApp beside it.
 OWNER_JOB: Final = "notify_hot_lead"
+#: The owner's WhatsApp alert (`apps/workers/whatsapp.notify_hot_lead_whatsapp`).
+OWNER_WHATSAPP_JOB: Final = "notify_hot_lead_whatsapp"
 
 
 def owner_dedupe_key(*, lead_id: UUID, call_id: UUID) -> str:
@@ -956,15 +958,22 @@ async def tell_everyone(
 async def owner_after_team_failed(
     session: AsyncSession, *, tenant_id: UUID, alert_id: UUID, call_id: UUID
 ) -> bool:
-    """A team alert about this call failed for good. The owner's own alert may have stood
-    down for it (`team_covers`), so it is asked again under its own key; it sends only when
+    """A team alert about this call failed for good, or was cancelled because its address
+    was removed before it went. The owner's own alert may have stood down for it
+    (`team_covers`), so it is asked again under its own key; it sends only when
     nothing else reached the owner (`notify_hot_lead` checks what was delivered). A call
-    with no lead has no owner alert to ask. True when one was queued."""
+    with no lead has no owner alert to ask. True when one was queued.
+
+    The owner's alert on the failed alert's own channel is the one asked: a WhatsApp team
+    alert stood down the owner's WhatsApp job, which is separate from the email job and
+    keyed apart (`hot-lead-whatsapp:`), so re-asking the email job would find its email
+    delivered and never reach the WhatsApp leg."""
     row = (
         await session.execute(
             text(
-                "SELECT c.lead_id, a.reasons FROM team_alerts a JOIN calls c ON c.id = a.call_id "
-                "WHERE a.id = :aid"
+                "SELECT c.lead_id, a.reasons, k.channel FROM team_alerts a "
+                "JOIN calls c ON c.id = a.call_id "
+                "JOIN team_alert_contacts k ON k.id = a.contact_id WHERE a.id = :aid"
             ),
             {"aid": alert_id},
         )
@@ -972,16 +981,22 @@ async def owner_after_team_failed(
     if row is None or row[0] is None:
         return False
     lead_id = UUID(str(row[0]))
+    whatsapp = row[2] == "whatsapp"
+    key = (
+        f"hot-lead-whatsapp:{lead_id}:{call_id}"
+        if whatsapp
+        else owner_dedupe_key(lead_id=lead_id, call_id=call_id)
+    )
     queued = await enqueue_outbox_once(
         session,
-        job=OWNER_JOB,
+        job=OWNER_WHATSAPP_JOB if whatsapp else OWNER_JOB,
         payload={
             "tenant_id": str(tenant_id),
             "lead_id": str(lead_id),
             "call_id": str(call_id),
             "triggers": [label for label in (reason_label(r) for r in row[1] or []) if label],
         },
-        dedupe_key=f"{owner_dedupe_key(lead_id=lead_id, call_id=call_id)}:team-failed:{alert_id}",
+        dedupe_key=f"{key}:team-failed:{alert_id}",
     )
     return queued is not None
 
@@ -1115,6 +1130,7 @@ __all__ = [
     "CODE_JOB",
     "MAX_CONTACTS",
     "OWNER_JOB",
+    "OWNER_WHATSAPP_JOB",
     "TEAM_ACTION_DESCRIPTION",
     "TEAM_ACTION_NAME",
     "TEAM_PROBLEM_DESCRIPTION",

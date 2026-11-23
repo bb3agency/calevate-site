@@ -39,13 +39,20 @@ log = get_logger(__name__)
 #: Seconds before each retry, indexed by the attempt that just failed.
 RETRY_BACKOFF_S: Final[tuple[float, ...]] = (10.0, 60.0)
 #: Outcomes worth another attempt: the vendor was slow, busy or broken, not refusing us.
+#: The httpx names are the transport failures `execute_action` reports by type: a timeout,
+#: a connection that could not be made or was dropped mid-exchange, or a full pool.
 _TRANSIENT_PREFIXES: Final = (
     "http_5",
     "timeout",
     "unreachable",
     "ReadTimeout",
+    "WriteTimeout",
+    "PoolTimeout",
     "ConnectTimeout",
     "ConnectError",
+    "ReadError",
+    "WriteError",
+    "RemoteProtocolError",
 )
 _TRANSIENT_CODES: Final = frozenset({"crm_error", "sheet_error", "auth_unavailable"})
 

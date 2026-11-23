@@ -121,6 +121,25 @@ async def test_a_failed_reading_is_read_again_and_the_crm_hears_the_new_outcome(
     )
 
 
+async def test_a_reread_of_a_call_that_hung_up_early_reaches_no_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The re-read follows the pipeline: when the facts say the caller hung up early, the
+    reading's outcome is not written and the lead is not moved or alerted on it."""
+    tenant_id, call_id = await _failed_call("reread-hungup", monkeypatch)
+
+    async def _hung_up_early(*_a: Any, **_k: Any) -> str:
+        return "hung_up_early"
+
+    monkeypatch.setattr(extraction_reread, "_record_outcome", _hung_up_early)
+    reads_as(monkeypatch, "ready_to_buy")
+    assert await extraction_reread.reread_call_extraction({}, _payload(tenant_id, call_id)) == (
+        "reread"
+    )
+    assert (await _row(tenant_id, call_id))["business"] is None
+    assert await _outbox_rows("notify_hot_lead", {"call_id": str(call_id)}) == []
+
+
 async def test_a_reading_that_keeps_failing_stops_at_the_cap_and_alarms(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

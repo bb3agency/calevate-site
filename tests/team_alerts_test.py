@@ -521,6 +521,112 @@ async def test_an_owner_covered_by_a_team_alert_that_fails_is_told_again(
     assert len(owner) == 2 and {p["lead_id"] for p in owner} == {str(lead_id)}
 
 
+async def test_an_owner_covered_by_a_team_alert_cancelled_before_it_went_is_told_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The owner's email stands down for a team alert to the same inbox; when that address is
+    removed before the alert goes, the alert is cancelled and the owner's alert asked again."""
+    _mail(monkeypatch)
+    t = await _tenant()
+    contact_id = await _verified_contact(t, "owner@example.com")
+    call_id = await _call(t)
+    lead_id = uuid7()
+    async with tenant_session(t.tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, data, "
+                "created_at, updated_at) VALUES (:i, :t, :a, :p, 'inbound_call', 'new', "
+                "'{}'::jsonb, now(), now())"
+            ),
+            {"i": lead_id, "t": t.tenant_id, "a": t.agent_id, "p": CALLER},
+        )
+        await session.execute(
+            text("UPDATE calls SET lead_id = :l WHERE id = :c"), {"l": lead_id, "c": call_id}
+        )
+        await service.tell_everyone(
+            session,
+            tenant_id=t.tenant_id,
+            agent_id=t.agent_id,
+            call_id=call_id,
+            lead_id=lead_id,
+            trigger="after_call",
+            reasons=[{"kind": "in_call"}],
+        )
+        await service.remove_contact(session, contact_id=contact_id)
+    assert len(await _owner_payloads(t.tenant_id)) == 1
+    payload = (await _alert_payloads(t.tenant_id))[0]
+    assert await worker.deliver_team_alert({"job_try": 1}, payload) == "cancelled"
+    async with tenant_session(t.tenant_id) as session:
+        assert not await service.team_covers(
+            session, call_id=call_id, channel="email", address="owner@example.com"
+        )
+    assert len(await _owner_payloads(t.tenant_id)) == 2, "the owner's alert is asked again"
+
+
+async def test_a_failed_whatsapp_team_alert_asks_the_owners_whatsapp_again() -> None:
+    """A WhatsApp team alert stands down the owner's WhatsApp, which is its own job; when it
+    fails for good, that job is asked again, not the email job (whose delivered email would
+    end it before the WhatsApp leg)."""
+    from apps.api.actions import credentials as creds
+    from apps.workers import whatsapp as owner_whatsapp
+
+    assert service.OWNER_WHATSAPP_JOB == owner_whatsapp.JOB_NAME
+    t = await _tenant()
+    call_id = await _call(t)
+    lead_id = uuid7()
+    alert_id = uuid7()
+    async with tenant_session(t.tenant_id) as session:
+        cred = await creds.create_credential(
+            session, tenant_id=t.tenant_id, kind="meta_cloud", label="Our WhatsApp", secret="tok-1"
+        )
+        contact = await service.add_contact(
+            session,
+            tenant_id=t.tenant_id,
+            address="+91 98765 43210",
+            channel="whatsapp",
+            whatsapp=service.WhatsAppSetup(
+                credential_id=cred.id,
+                template="team_alert",
+                values=("name", "phone", "why", "link"),
+                language="en",
+            ),
+        )
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, data, "
+                "created_at, updated_at) VALUES (:i, :t, :a, :p, 'inbound_call', 'new', "
+                "'{}'::jsonb, now(), now())"
+            ),
+            {"i": lead_id, "t": t.tenant_id, "a": t.agent_id, "p": CALLER},
+        )
+        await session.execute(
+            text("UPDATE calls SET lead_id = :l WHERE id = :c"), {"l": lead_id, "c": call_id}
+        )
+        await session.execute(
+            text(
+                "INSERT INTO team_alerts (id, tenant_id, agent_id, call_id, contact_id, trigger, "
+                "reasons, status, attempts, created_at, updated_at) VALUES (:id, :t, :a, :c, "
+                ":k, 'after_call', '[]'::jsonb, 'failed', 3, now(), now())"
+            ),
+            {"id": alert_id, "t": t.tenant_id, "a": t.agent_id, "c": call_id, "k": contact.id},
+        )
+        assert await service.owner_after_team_failed(
+            session, tenant_id=t.tenant_id, alert_id=alert_id, call_id=call_id
+        )
+        jobs = (
+            await session.execute(
+                text(
+                    "SELECT job, dedupe_key FROM outbox_messages "
+                    "WHERE payload->>'call_id' = :cid AND job IN (:email, :wa)"
+                ),
+                {"cid": str(call_id), "email": service.OWNER_JOB, "wa": owner_whatsapp.JOB_NAME},
+            )
+        ).all()
+    assert [(j[0], j[1]) for j in jobs] == [
+        (owner_whatsapp.JOB_NAME, f"hot-lead-whatsapp:{lead_id}:{call_id}:team-failed:{alert_id}")
+    ], "the owner's WhatsApp leg is asked again under its own key; the email job is not"
+
+
 async def test_an_exhausted_alert_is_failed_and_alarmed(monkeypatch: pytest.MonkeyPatch) -> None:
     _mail(monkeypatch, delivered=False)
     fired: list[str] = []

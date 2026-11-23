@@ -316,6 +316,9 @@ async def schedule_lead_callback(
     """
     check_schedule_time(at, now=now or datetime.now(UTC))
     phone, _name = await lead_phone(session, lead_id)
+    # The lead's row is the lock: two bookings at once (the screen and Pip, two people)
+    # would each find no client call-back below and each book one, ringing the person twice.
+    await session.execute(text("SELECT 1 FROM leads WHERE id = :lid FOR UPDATE"), {"lid": lead_id})
     agent_id = await contact_agent(session, lead_id, agent_id)
     refused = await standing_refusal(session, tenant_id=tenant_id, agent_id=agent_id, phone=phone)
     if refused is not None:
