@@ -193,8 +193,9 @@ function OutcomesEditor({
   useEffect(() => {
     if (!canWrite || !dirty || problem || isPending || wire === refused) return;
     const timer = window.setTimeout(() => {
+      const outcomes: CallOutcomeIn[] = JSON.parse(wire);
       mutate(
-        { agentId: agent.id, outcomes: JSON.parse(wire) as CallOutcomeIn[] },
+        { agentId: agent.id, outcomes },
         { onError: () => setRefused(wire) },
       );
     }, AUTOSAVE_DELAY_MS);
@@ -346,7 +347,7 @@ function OutcomesEditor({
               ? "Saving…"
               : dirty
                 ? "Not saved. Change it to try again."
-                : "Changes save on their own. Calls already sorted keep their outcome."}
+                : "Changes save on their own. Sorted calls keep their outcome."}
         </span>
       </div>
     </form>
