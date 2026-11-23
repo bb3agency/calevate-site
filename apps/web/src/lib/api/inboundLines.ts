@@ -9,11 +9,18 @@
  * with the line, so the cache takes the server's copy rather than refetching it.
  */
 
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useMutationState,
+  useQuery,
+  useQueryClient,
+  type Mutation,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 import { useRef } from "react";
 
 import { PIP_POLL_MS, type CampaignProposal } from "./campaignWorkspace";
-import { apiRequest, type Session } from "./client";
+import { ApiProblem, apiRequest, type Session } from "./client";
 import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 import type { CallScript } from "./script";
@@ -72,6 +79,22 @@ export function useCreateInboundLine(session: Session) {
   });
 }
 
+/** Every write on one line is filed under this key, so the page can read their outcomes. */
+const lineWriteKey = (org: string, lineId: string) => ["inbound-line-write", org, lineId] as const;
+
+/**
+ * The title the api gives a write it kept while the put-live after it was refused
+ * (`inbound/routes._put_live_after_save`).
+ */
+export const SAVED_NOT_LIVE_TITLE = "Saved, but not live yet";
+
+export function isSavedNotLive(error: unknown): boolean {
+  return error instanceof ApiProblem && error.title === SAVED_NOT_LIVE_TITLE;
+}
+
+/** Whether a successful write with this input put the line live again (when it was live). */
+type Republishes<TIn> = (input: TIn) => boolean;
+
 /**
  * A write on one line. The line the server answers with replaces the cached one; a write
  * that answers nothing refetches it. The list is refetched either way, since it shows the
@@ -82,9 +105,12 @@ function useLineMutation<TIn>(
   lineId: string,
   call: (input: TIn) => Promise<unknown>,
   alsoShownBy: readonly (readonly unknown[])[] = [],
+  republishes?: Republishes<TIn>,
 ) {
   const client = useQueryClient();
   return useMutation({
+    mutationKey: lineWriteKey(session.orgSlug, lineId),
+    meta: republishes ? { republishes } : undefined,
     mutationFn: call,
     onSuccess: (out) => {
       if (out && typeof out === "object" && "agent_id" in out && "numbers" in out) {
@@ -100,6 +126,33 @@ function useLineMutation<TIn>(
   });
 }
 
+function wentLive(mutation: Mutation<unknown, Error, unknown, unknown>): boolean {
+  const republishes = mutation.options.meta?.republishes as Republishes<unknown> | undefined;
+  return mutation.state.status === "success" && republishes !== undefined && republishes(mutation.state.variables);
+}
+
+/**
+ * Whether this line holds an edit callers do not hear yet: the latest write that put it live
+ * or was refused with `SAVED_NOT_LIVE_TITLE` was the refusal. A live line still reads as live
+ * then, since its engine agent answers with what it had before, so this is what offers its
+ * Put it live.
+ */
+export function useLineAwaitsPutLive(session: Session, lineId: string): boolean {
+  const outcomes = useMutationState({
+    filters: { mutationKey: lineWriteKey(session.orgSlug, lineId) },
+    select: (mutation) => ({
+      at: mutation.state.submittedAt,
+      refused: isSavedNotLive(mutation.state.error),
+      live: wentLive(mutation),
+    }),
+  });
+  let latest: { at: number; refused: boolean } | undefined;
+  for (const outcome of outcomes) {
+    if ((outcome.refused || outcome.live) && (!latest || outcome.at >= latest.at)) latest = outcome;
+  }
+  return latest?.refused ?? false;
+}
+
 export type LinePatch = { name?: string; agent_id?: string; main_task?: string };
 
 export function useUpdateInboundLine(session: Session, lineId: string) {
@@ -110,6 +163,8 @@ export function useUpdateInboundLine(session: Session, lineId: string) {
     // Phone numbers names each number's line, and the live topic a rename announces does not
     // reach that list.
     [["campaign-numbers", session.orgSlug]],
+    // A new voice puts a live line live again; a name or a main task does not.
+    (patch) => patch.agent_id !== undefined,
   );
 }
 
@@ -121,24 +176,37 @@ export function useSetLineSources(session: Session, lineId: string) {
 
 /** The agent's actions this line does not use, by name; every other one stays on. */
 export function useSetLineActions(session: Session, lineId: string) {
-  return useLineMutation(session, lineId, (off: string[]) =>
-    apiRequest<InboundLine>(session, `${linePath(lineId)}/actions`, { method: "PUT", body: { off } }),
+  return useLineMutation(
+    session,
+    lineId,
+    (off: string[]) => apiRequest<InboundLine>(session, `${linePath(lineId)}/actions`, { method: "PUT", body: { off } }),
+    [],
+    () => true,
   );
 }
 
 /** Save the script and put it live; `proposalId` settles the Pip draft it came from. */
 export function useSaveLineScript(session: Session, lineId: string) {
-  return useLineMutation(session, lineId, ({ script, proposalId }: { script: CallScript; proposalId?: string }) =>
-    apiRequest<InboundLine>(session, `${linePath(lineId)}/script`, {
-      method: "PUT",
-      body: proposalId ? { script, proposal_id: proposalId } : { script },
-    }),
+  return useLineMutation(
+    session,
+    lineId,
+    ({ script, proposalId }: { script: CallScript; proposalId?: string }) =>
+      apiRequest<InboundLine>(session, `${linePath(lineId)}/script`, {
+        method: "PUT",
+        body: proposalId ? { script, proposal_id: proposalId } : { script },
+      }),
+    [],
+    () => true,
   );
 }
 
 export function usePublishInboundLine(session: Session, lineId: string) {
-  return useLineMutation(session, lineId, () =>
-    apiRequest<InboundLine>(session, `${linePath(lineId)}/publish`, { method: "POST" }),
+  return useLineMutation(
+    session,
+    lineId,
+    () => apiRequest<InboundLine>(session, `${linePath(lineId)}/publish`, { method: "POST" }),
+    [],
+    () => true,
   );
 }
 

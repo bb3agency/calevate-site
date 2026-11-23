@@ -11,7 +11,7 @@ import type { InboundLine } from "@/lib/api/inboundLines";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 
 import { businessProfileFixture } from "./businessProfileFixture";
-import { renderClientPage, type ApiCall, type Routes } from "./harness";
+import { problem, renderClientPage, type ApiCall, type Routes } from "./harness";
 import { SHORT_LINE, defaultCopyUnder, longLines } from "./shortCopy";
 
 /**
@@ -349,6 +349,46 @@ describe("one inbound line", () => {
     expect(within(fold).getByText("Not answering")).toBeTruthy();
     expect(within(fold).queryByRole("button", { name: "Put this line live" })).toBeNull();
     expect(within(fold).getByRole("link", { name: "Write the script" }).getAttribute("href")).toBe("#line-script");
+  });
+
+  it("offers Put it live on a live line whose edit was kept but not put live", async () => {
+    const live = line({ main_task: "Book visits.", script: SCRIPT, live: true, published_at: "2026-11-16T05:00:00Z" });
+    const rendered = await renderClientPage(
+      linePage(),
+      lineRoutes(live, {
+        [`PUT /v1/inbound-lines/${LINE_ID}/actions`]: problem(502, {
+          title: "Saved, but not live yet",
+          detail: "The voice platform did not answer.",
+          remediation: "Press Put it live to finish; your change is kept.",
+        }),
+        [`POST /v1/inbound-lines/${LINE_ID}/publish`]: live,
+      }),
+    );
+    expect(await screen.findByText("Live")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Put it live" })).toBeNull();
+    fireEvent.click(await screen.findByRole("switch", { name: "send_price_list" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Put it live" }));
+    await waitFor(() => expect(writes(rendered.calls).map((c) => c.path)).toContain(`/v1/inbound-lines/${LINE_ID}/publish`));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Put it live" })).toBeNull());
+  });
+
+  it("keeps the header's Put it live away from a live line whose edit went live", async () => {
+    const live = line({ main_task: "Book visits.", script: SCRIPT, live: true, published_at: "2026-11-16T05:00:00Z" });
+    const rendered = await renderClientPage(
+      linePage(),
+      lineRoutes(live, {
+        [`PATCH /v1/inbound-lines/${LINE_ID}`]: problem(502, { title: "Saved, but not live yet", detail: "Not answered." }),
+        [`PUT /v1/inbound-lines/${LINE_ID}/actions`]: { ...live, actions_off: ["send_price_list"] },
+      }),
+    );
+    // A voice change refused after it was kept, then an edit that put the line live again.
+    fireEvent.change(await screen.findByLabelText("Agent"), { target: { value: OTHER_AGENT_ID } });
+    expect(await screen.findByRole("button", { name: "Put it live" })).toBeTruthy();
+    expect(screen.getByText("Not answered.")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("switch", { name: "send_price_list" }));
+    await waitFor(() => expect(writes(rendered.calls)).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Put it live" })).toBeNull());
+    expect(screen.queryByText("Not answered.")).toBeNull();
   });
 
   it("shows no warning on the numbers of a live line", async () => {

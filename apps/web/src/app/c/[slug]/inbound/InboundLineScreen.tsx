@@ -7,8 +7,9 @@
  * owner sets a line up: Voice, Main task, Sources, Script, Actions, Outside hours, Numbers,
  * Test call, Calls taken, Archive.
  *
- * Saving the script puts it live. When the platform step fails the script is still saved
- * (the refusal is titled "Saved, but not live yet"), so the header offers Put it live.
+ * Saving the script puts it live, as does any edit to what a live line's callers hear. When
+ * the platform step fails the edit is still saved (the refusal is titled "Saved, but not live
+ * yet"), so the header offers Put it live, on a line that still reads as live too.
  */
 
 import Link from "next/link";
@@ -44,11 +45,13 @@ import { DAYS, DAY_LABELS, useBusinessProfile } from "@/lib/api/businessProfile"
 import { useCampaignNumbers } from "@/lib/api/campaigns";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
+  isSavedNotLive,
   useArchiveInboundLine,
   useAssignLineNumber,
   useClearLineProposal,
   useInboundLine,
   useInboundLines,
+  useLineAwaitsPutLive,
   useLineCalls,
   useLineTestCall,
   useLineTestCalls,
@@ -110,6 +113,7 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
   const renameFeedback = useActionFeedback(rename, { errorDisplay: "inline" });
   const publish = usePublishInboundLine(session, lineId);
   const publishFeedback = useActionFeedback(publish, { errorTitle: "Not live yet", successToast: "The line is live" });
+  const awaitsPutLive = useLineAwaitsPutLive(session, lineId);
   const back = { href: href(`/c/${slug}/inbound`), label: "All inbound lines" };
 
   if (line.isLoading) {
@@ -150,7 +154,7 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
         }
         status={<LineStatusPill line={data} />}
         actions={
-          lineState(data) === "not_live" ? (
+          lineState(data) === "not_live" || awaitsPutLive ? (
             <button
               type="button"
               className={PRIMARY_BUTTON}
@@ -199,6 +203,7 @@ function VoiceSection({ line, canWrite, refusal }: Props) {
   const agents = useAgents(session);
   const update = useUpdateInboundLine(session, line.id);
   const feedback = useActionFeedback(update, { errorDisplay: "inline", successToast: "Voice changed" });
+  const awaitsPutLive = useLineAwaitsPutLive(session, line.id);
   const offered = (agents.data ?? []).filter((agent) => agent.status !== "archived" || agent.id === line.agent_id);
   return (
     <FoldSection id="line-voice" title="Voice" tone="agent" hint="Which agent answers on this line." info={VOICE_INFO}>
@@ -225,7 +230,9 @@ function VoiceSection({ line, canWrite, refusal }: Props) {
               </option>
             ))}
           </select>
-          {update.error != null && <ProblemNotice error={update.error} />}
+          {update.error != null && (awaitsPutLive || !isSavedNotLive(update.error)) && (
+            <ProblemNotice error={update.error} />
+          )}
         </div>
       )}
     </FoldSection>
@@ -344,8 +351,7 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
   const clear = useClearLineProposal(session, line.id);
   const save = useSaveLineScript(session, line.id);
   const ask = useRequestLineScript(session, line.id);
-  const publish = usePublishInboundLine(session, line.id);
-  useActionFeedback(publish, { errorDisplay: "inline", successToast: "The line is live" });
+  const awaitsPutLive = useLineAwaitsPutLive(session, line.id);
   const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
   const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
   useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved and live" });
@@ -392,32 +398,15 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
         {ask.error != null && <ProblemNotice error={ask.error} />}
       </div>
 
-      {save.error != null && (
-        <div className="mb-3 space-y-2">
+      {/* The retry a "Saved, but not live yet" refusal names is the header's Put it live;
+          once that went through, the refusal is no longer true. */}
+      {save.error != null && (awaitsPutLive || !isSavedNotLive(save.error)) && (
+        <div className="mb-3">
           {isSlotsFull(save.error) ? (
             <SlotsFullProblem slug={session.orgSlug} error={save.error} />
           ) : (
             <ProblemNotice error={save.error} />
           )}
-          {/* A live line keeps its old "Live" state when only the platform step failed, so
-              the header offers no Put it live; the retry the refusal names is here. */}
-          {line.script && (
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={!canWrite || publish.isPending}
-              title={refusal}
-              onClick={() => publish.mutate(undefined, { onSuccess: () => save.reset() })}
-            >
-              {publish.isPending ? "Putting it live…" : "Put it live"}
-            </button>
-          )}
-          {publish.error != null &&
-            (isSlotsFull(publish.error) ? (
-              <SlotsFullProblem slug={session.orgSlug} error={publish.error} />
-            ) : (
-              <ProblemNotice error={publish.error} />
-            ))}
         </div>
       )}
 
