@@ -137,6 +137,21 @@ async def test_a_campaigns_leads_offer_the_campaigns_own_details_as_columns() ->
     assert "insurance_plan" not in account_keys
 
 
+async def test_an_archived_campaigns_leads_keep_its_details_as_columns() -> None:
+    """Archiving keeps a campaign's leads, so the account's Leads table still offers what it
+    noted; what open jobs note is unchanged by it, and alerts read only open jobs."""
+    from apps.api.crm.routes import _leads_page
+    from apps.api.crm.schemas import LeadSearchIn
+
+    tenant_id, _call_id, _lead_id = await _campaign_call()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text("UPDATE campaigns SET archived_at = now()"))
+        account = await _leads_page(session, LeadSearchIn(), tenant_id=tenant_id)
+        open_only = await notes.account_fields(session)
+    assert "visit_day" in {c.key for c in account.available_columns}
+    assert "visit_day" not in {f.key for f in open_only}
+
+
 async def test_reading_a_campaign_call_again_asks_for_the_campaigns_own_list() -> None:
     from apps.api.crm.assist import load_assist_source
 

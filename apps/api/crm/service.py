@@ -1035,13 +1035,17 @@ async def lead_columns(
     """The Leads table columns are what the calls note (TRD §7, D-1028): one campaign's
     leads (`campaign_id`) take that campaign's list; otherwise every detail the account's
     campaigns and lines note, narrowed by `agent_id` to the jobs in that agent's voice.
+    Archived jobs count too: archiving keeps a campaign's leads, so it keeps their columns.
 
     The core every lead carries comes first (`calevate_shared.lead_fields`); its `name` is
     the fixed Name column, which `crm/columns.available` keeps in its own place."""
     if campaign_id:
         own = (await session.execute(text(_CAMPAIGN_FIELDS_SQL), {"cid": campaign_id})).scalar()
         return with_core(own or [], await core_labels(session))
-    return with_core(await account_fields(session, agent_id=agent_id), await core_labels(session))
+    return with_core(
+        await account_fields(session, agent_id=agent_id, archived=True),
+        await core_labels(session),
+    )
 
 
 # The lead row's columns, in `_lead_out`'s order, and the join that names its owner.
