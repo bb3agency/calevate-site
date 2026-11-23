@@ -18,7 +18,7 @@ Environment=VPS_CLIENT_PATH=/var/www/calevate
 # never secrets (DEPLOYMENT §9.4a); NGINX_AUTO_RELOAD stays unset, so an nginx change stops
 # the deploy with the `sudo install` lines for a human, as a hand deploy does.
 Environment=ROOT_DOMAIN=calevate.tech
-Environment=TLS_LIVE_DIR=/etc/letsencrypt/live/calevate.tech
+Environment=TLS_LIVE_DIR=/etc/ssl/calevate/live
 Environment=ORIGIN_CERT_PATH=/etc/ssl/calevate/origin.pem
 Environment=ORIGIN_KEY_PATH=/etc/ssl/calevate/origin.key
 # A login shell, so node, pnpm, pm2 and uv are on PATH exactly as they are for

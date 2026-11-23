@@ -296,7 +296,7 @@ after migrations and all three container swaps):
 
 ```sh
 export ROOT_DOMAIN=calevate.tech
-export TLS_LIVE_DIR=/etc/letsencrypt/live/calevate.tech
+export TLS_LIVE_DIR=/etc/ssl/calevate/live
 export ORIGIN_CERT_PATH=/etc/ssl/calevate/origin.pem
 export ORIGIN_KEY_PATH=/etc/ssl/calevate/origin.key
 ```
@@ -557,7 +557,7 @@ This is the routine path once the host is live, run by hand: automatic deploys a
    ```sh
    sudo -iu calevate
    cd /var/www/calevate
-   export ROOT_DOMAIN=calevate.tech TLS_LIVE_DIR=/etc/letsencrypt/live/calevate.tech \
+   export ROOT_DOMAIN=calevate.tech TLS_LIVE_DIR=/etc/ssl/calevate/live \
           ORIGIN_CERT_PATH=/etc/ssl/calevate/origin.pem ORIGIN_KEY_PATH=/etc/ssl/calevate/origin.key
    git pull --ff-only && git log -1 --format=%H
    ```

@@ -645,7 +645,7 @@ each build on a one-vCPU host. The deploy follows `production` (D-991), so the c
    | Variable | `VPS_DEPLOY_ENABLED` | `true` — **set this LAST** | the job `if` |
    | Variable | `NGINX_AUTO_RELOAD` | `1` only if you want CD to reload the edge; unset = render and print | `render_nginx` |
    | Variable | `ROOT_DOMAIN` | `calevate.tech` | `render_nginx` |
-   | Variable | `TLS_LIVE_DIR` | `/etc/letsencrypt/live/calevate.tech` | `render_nginx` |
+   | Variable | `TLS_LIVE_DIR` | `/etc/ssl/calevate/live` (D-1037) | `render_nginx` |
    | Variable | `ORIGIN_CERT_PATH` | `/etc/ssl/calevate/origin.pem` | `render_nginx` |
    | Variable | `ORIGIN_KEY_PATH` | `/etc/ssl/calevate/origin.key` | `render_nginx` |
 
@@ -1613,7 +1613,7 @@ in the operator's shell:
 
 ```sh
 export ROOT_DOMAIN=calevate.tech
-export TLS_LIVE_DIR=/etc/letsencrypt/live/calevate.tech
+export TLS_LIVE_DIR=/etc/ssl/calevate/live
 export ORIGIN_CERT_PATH=/etc/ssl/calevate/origin.pem
 export ORIGIN_KEY_PATH=/etc/ssl/calevate/origin.key
 ```

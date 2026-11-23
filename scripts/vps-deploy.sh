@@ -1218,7 +1218,7 @@ render_nginx() {
   step "render nginx config"
 
   : "${ROOT_DOMAIN:?ROOT_DOMAIN must be set (e.g. calevate.tech) to render nginx config}"
-  : "${TLS_LIVE_DIR:?TLS_LIVE_DIR must be set (e.g. /etc/letsencrypt/live/calevate.tech)}"
+  : "${TLS_LIVE_DIR:?TLS_LIVE_DIR must be set (e.g. /etc/ssl/calevate/live)}"
   : "${ACME_WEBROOT:=/var/www/certbot}"
   : "${ORIGIN_CERT_PATH:?ORIGIN_CERT_PATH must be set — the Cloudflare Origin CA cert for the default_server (DEPLOYMENT §5)}"
   : "${ORIGIN_KEY_PATH:?ORIGIN_KEY_PATH must be set — the Cloudflare Origin CA key}"
@@ -1233,6 +1233,15 @@ render_nginx() {
   esac
   if [[ "$CF_ORIGIN_PULL" != off && ! -r /etc/nginx/certs/calevate-origin-pull-ca.pem ]]; then
     die "CF_ORIGIN_PULL=$CF_ORIGIN_PULL needs the zone's origin-pull CA at /etc/nginx/certs/calevate-origin-pull-ca.pem"
+  fi
+  # nginx loads an expired certificate without complaint (`nginx -t` passes) and Cloudflare
+  # then answers 526 on every host: the 23 Nov 2026 outage (D-1037). Refuse to render over one.
+  local leaf="$TLS_LIVE_DIR/fullchain.pem"
+  # nginx reads it as root; this account may not be able to, and then the check is skipped.
+  if [[ ! -r "$leaf" ]]; then
+    warn "cannot read $leaf as $(id -un); its expiry is not checked"
+  elif command -v openssl >/dev/null && ! openssl x509 -checkend 86400 -noout -in "$leaf" >/dev/null; then
+    die "the certificate at $leaf has expired or expires within a day; point TLS_LIVE_DIR at a current one (DEPLOYMENT §5)"
   fi
   export ROOT_DOMAIN TLS_LIVE_DIR ACME_WEBROOT ORIGIN_CERT_PATH ORIGIN_KEY_PATH CF_ORIGIN_PULL
 
