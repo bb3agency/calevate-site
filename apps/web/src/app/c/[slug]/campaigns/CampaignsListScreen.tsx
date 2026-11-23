@@ -31,6 +31,7 @@ import {
   useDeleteCampaign,
   useDuplicateCampaign,
   useCampaignPage,
+  useCampaignProgress,
   type CampaignStatus,
   type CampaignSummary,
 } from "@/lib/api/campaigns";
@@ -40,6 +41,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { TrialLockNotice } from "../TrialLockNotice";
 import { listBlockerNote } from "./blockerCopy";
 import { CampaignStatusPill } from "./campaignStatus";
+import { needsReviewRead, reviewHoldsResume } from "./resumeHold";
 
 const PAGE_SIZE = 25;
 const ALL = "all";
@@ -107,7 +109,9 @@ function segmentOptions(
  *
  * A row shows only what the page read returns: the state, how many of the list were
  * reached, and when it started. Anything else (who calls, results, spend) is one tap away
- * on the campaign, because fetching it per row would cost a request per campaign.
+ * on the campaign, because fetching it per row would cost a request per campaign. The one
+ * exception is a row paused for a complaint spike, which reads whether its opt-out review is
+ * still owed, since that decides between Review and Resume.
  *
  * A row offers the one action its state allows: Pause or Resume, or the fix for a stuck
  * one. Launch is never a row action, because a launch restates what it will do and asks
@@ -462,23 +466,21 @@ function RowsSkeleton() {
   );
 }
 
-/** A pause whose cause must be cleared before Resume works. */
-const HELD_PAUSES = ["complaint_spike", "out_of_credit", "spend_cap"];
-
 /**
- * The fix for a row that is stuck, as a button-styled link: the way out of a held pause
- * (add credit, raise the limit, review the opt-outs) or the draft's missing consent answer,
- * which is given on the campaign's own page.
+ * The fix for a row that is stuck, as a button-styled link: the way out of an automatic
+ * pause (add credit, raise the limit, review the opt-outs while the review is owed) or the
+ * draft's missing consent answer, which is given on the campaign's own page.
  */
 function rowFix(
   campaign: CampaignSummary,
   at: (path: string) => string,
   detail: string,
+  reviewOwed: boolean,
 ): { href: string; label: string } | null {
   if (campaign.status === "paused") {
     if (campaign.pause_reason === "out_of_credit") return { href: at("/billing?tab=credits"), label: "Add credit" };
     if (campaign.pause_reason === "spend_cap") return { href: at("/billing?tab=usage"), label: "Raise limit" };
-    if (campaign.pause_reason === "complaint_spike") return { href: detail, label: "Review" };
+    if (reviewOwed) return { href: detail, label: "Review" };
   }
   // The row shows no question, so the button names what it asks for: "Answer" alone
   // answered nothing the owner could see.
@@ -488,12 +490,6 @@ function rowFix(
   return null;
 }
 
-/**
- * Pause or Resume, bound to the row's own id, or the row's fix when it is stuck. The new
- * state shows in the row's own status mark, so success needs no toast; a refusal is toasted
- * with the server's reason. A row with neither renders an empty cell so the reach column
- * keeps its place.
- */
 /** Archive a finished campaign from its row (with a one-line confirm), or restore one. */
 function ShelfButton({
   campaign,
@@ -677,12 +673,21 @@ function DuplicateButton({
   );
 }
 
+/**
+ * Pause or Resume, bound to the row's own id, or the row's fix when it is stuck. Resume
+ * waits only on an opt-out review still owed (`reviewHoldsResume`, as the campaign page's
+ * Start); after a credit or spending-limit pause it sits beside the fix, and whether the
+ * cause still holds is the server's answer. The new state shows in the row's own status
+ * mark, so success needs no toast; a refusal is toasted with the server's reason.
+ */
 function RowMainAction({ campaign, canWrite, refusal, at, detail }: RowProps) {
   const { session } = useClientRealm();
   const setStatus = usePauseCampaign(session, campaign.id);
   const feedback = useActionFeedback(setStatus, {
     errorTitle: `Could not change ${campaign.name}`,
   });
+  const readReview = campaign.archived_at == null && needsReviewRead(campaign);
+  const review = useCampaignProgress(session, readReview ? campaign.id : null);
   const cell = "flex gap-2";
   // F-10: an archived row offers Restore; a finished one offers Archive (the campaign's own
   // page archives any campaign).
@@ -693,9 +698,10 @@ function RowMainAction({ campaign, canWrite, refusal, at, detail }: RowProps) {
       </div>
     );
   }
-  // A pause whose cause must be cleared first is not resumed from the row: its fix is.
-  const held = campaign.status === "paused" && HELD_PAUSES.includes(campaign.pause_reason ?? "");
-  const fix = rowFix(campaign, at, detail);
+  // Until the campaign has been read, a complaint pause offers its Review rather than a
+  // Resume that may flip to Review a moment later.
+  const held = readReview && (review.data === undefined || reviewHoldsResume(review.data));
+  const fix = rowFix(campaign, at, detail, held);
   // A draft that never called anyone can be deleted from its row (founder, 15 Nov 2026).
   const deletable = campaign.status === "draft" && campaign.launched_at == null;
   if (fix && (held || campaign.status === "draft")) {
@@ -715,12 +721,17 @@ function RowMainAction({ campaign, canWrite, refusal, at, detail }: RowProps) {
       </div>
     );
   }
-  if (held || (campaign.status !== "running" && campaign.status !== "paused")) {
+  if (campaign.status !== "running" && campaign.status !== "paused") {
     return null;
   }
   const action = campaign.status === "running" ? "pause" : "resume";
   return (
     <div className={cell}>
+      {action === "resume" && fix && (
+        <Link href={fix.href} className={SECONDARY_BUTTON_SM} aria-label={`${fix.label}: ${campaign.name}`}>
+          {fix.label}
+        </Link>
+      )}
       <ActionButton
         variant="secondary-sm"
         title={refusal}

@@ -2,11 +2,18 @@ import { QueryClient } from "@tanstack/react-query";
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { ToastProvider } from "@/components/arc/toast";
 import type { CampaignSummary } from "@/lib/api/campaigns";
 import type { Me } from "@/lib/api/client";
 
-import { FIXTURE_CAMPAIGN_ID as CAMPAIGN_ID, LIST_PATH, listPage, pageFixture } from "./campaignFixtures";
-import { renderClientPage } from "./harness";
+import {
+  FIXTURE_CAMPAIGN_ID as CAMPAIGN_ID,
+  LIST_PATH,
+  listPage,
+  pageFixture,
+  progressFixture,
+} from "./campaignFixtures";
+import { problem, renderClientPage } from "./harness";
 
 /**
  * `/c/{slug}/campaigns`. Each assertion guards something the list must not SHOW: a rule
@@ -77,20 +84,71 @@ describe("the campaign list", () => {
     );
   });
 
-  it("names an automatic pause and offers no Resume the server would refuse", async () => {
-    const paused: CampaignSummary = {
-      ...RUNNING,
-      status: "paused",
-      pause_reason: "out_of_credit",
-    };
-    const { container } = await renderClientPage(listPage(), {
+  it("offers Resume beside the fix after a credit pause, and shows the server's refusal", async () => {
+    const paused: CampaignSummary = { ...RUNNING, status: "paused", pause_reason: "out_of_credit" };
+    const rendered = await renderClientPage(<ToastProvider>{listPage()}</ToastProvider>, {
       "/v1/me": ME,
       [LIST_PATH]: pageFixture([paused]),
+      [`POST /v1/campaigns/${paused.id}/resume`]: problem(422, {
+        type: "https://calevate.tech/problems/no_credits",
+        title: "Out of credit",
+        status: 422,
+        detail: "Your balance is used up.",
+      }),
     });
     await screen.findByRole("link", { name: RUNNING.name });
-    expect(container.textContent).toContain("Paused: out of credit");
-    expect(screen.queryByRole("button", { name: /Resume/ })).toBeNull();
+    expect(rendered.container.textContent).toContain("Paused: out of credit");
     expect(screen.getByRole("link", { name: `Add credit: ${RUNNING.name}` })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: `Resume ${RUNNING.name}` }));
+    expect((await screen.findAllByText(/Your balance is used up\./)).length).toBeGreaterThan(0);
+  });
+
+  it("offers Resume after a spending-limit pause; the server answers whether the limit still holds", async () => {
+    const paused: CampaignSummary = { ...RUNNING, status: "paused", pause_reason: "spend_cap" };
+    const rendered = await renderClientPage(listPage(), {
+      "/v1/me": ME,
+      [LIST_PATH]: pageFixture([paused]),
+      [`POST /v1/campaigns/${paused.id}/resume`]: new Response(null, { status: 204 }),
+    });
+    await screen.findByRole("link", { name: RUNNING.name });
+    expect(screen.getByRole("link", { name: `Raise limit: ${RUNNING.name}` })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: `Resume ${RUNNING.name}` }));
+    await vi.waitFor(() =>
+      expect(rendered.calls.some((c) => c.method === "POST" && c.path.endsWith(`${paused.id}/resume`))).toBe(true),
+    );
+  });
+
+  it("holds Resume after a complaint spike until the review is confirmed", async () => {
+    const paused: CampaignSummary = { ...RUNNING, status: "paused", pause_reason: "complaint_spike" };
+    await renderClientPage(listPage(), {
+      "/v1/me": ME,
+      [LIST_PATH]: pageFixture([paused]),
+      [`/v1/campaigns/${paused.id}`]: progressFixture({
+        id: paused.id,
+        status: "paused",
+        pause_reason: "complaint_spike",
+        complaint_review_required: true,
+      }),
+    });
+    expect(await screen.findByRole("link", { name: `Review: ${RUNNING.name}` })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Resume/ })).toBeNull();
+  });
+
+  it("offers Resume once the complaint review is confirmed", async () => {
+    const paused: CampaignSummary = { ...RUNNING, status: "paused", pause_reason: "complaint_spike" };
+    await renderClientPage(listPage(), {
+      "/v1/me": ME,
+      [LIST_PATH]: pageFixture([paused]),
+      [`/v1/campaigns/${paused.id}`]: progressFixture({
+        id: paused.id,
+        status: "paused",
+        pause_reason: "complaint_spike",
+        complaint_review_required: false,
+        complaint_reviewed_at: "2026-11-20T06:00:00Z",
+      }),
+    });
+    expect(await screen.findByRole("button", { name: `Resume ${RUNNING.name}` })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: `Review: ${RUNNING.name}` })).toBeNull();
   });
 
   it("measures a launched campaign's reach and draws no bar for one that has not started", async () => {

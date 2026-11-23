@@ -22,6 +22,7 @@ import type { useCampaignProgress, useLaunchCheck } from "@/lib/api/campaigns";
 
 import { blockerNote } from "./blockerCopy";
 import { peopleSectionId } from "./DraftPeople";
+import { reviewHoldsResume } from "./resumeHold";
 import { SlotsFullProblem, isSlotsFull } from "./SlotHolders";
 
 /** The compliance card's element id, so Start can take the owner to what is left. */
@@ -118,13 +119,11 @@ export function StartCampaign({
   }
 
   // What stands in the way, before the press: the launch check, or an opt-out review still
-  // owed. The pause reason alone holds nothing: it stays on the campaign until it is resumed,
-  // so a raised spending limit, a new month or a confirmed review would otherwise hold Start
-  // for ever. Whether credit or the limit still stop it is the server's answer to the press
-  // (`controls.assert_resumable`), shown in this box.
+  // owed (`reviewHoldsResume`, the rule the list row's Resume follows too). Anything else
+  // that still stops a resume is the server's refusal, shown in this box.
   const problems: Problem[] = [];
   if (resuming) {
-    if (data?.complaint_review_required === true) problems.push({ rule: "complaint_review", text: "Review the opt-outs first." });
+    if (reviewHoldsResume(data)) problems.push({ rule: "complaint_review", text: "Review the opt-outs first." });
   } else {
     for (const b of check.data?.blockers ?? []) {
       problems.push({ rule: b.rule, text: blockerNote(b.rule, { promotionalOpen: null })?.text ?? b.reason });
