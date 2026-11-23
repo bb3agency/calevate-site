@@ -30,6 +30,7 @@ from uuid import UUID
 import pytest
 from apps.api.agents import prompts
 from apps.api.agents import service as agents_service
+from apps.api.agents.company_training import TRAINING_DRAFT_JOB
 from apps.api.billing.service import (
     INBOUND_CUTOVER_JOB,
     crossed_zero,
@@ -130,11 +131,16 @@ async def _outbox_jobs(tenant_id: UUID) -> list[str]:
             await session.execute(
                 text(
                     "SELECT job FROM outbox_messages "
-                    "WHERE payload->>'tenant_id' = :t AND job <> :at_birth "
+                    "WHERE payload->>'tenant_id' = :t AND job NOT IN (:at_birth, :training) "
                     "ORDER BY created_at, id"
                 ),
-                # Less the examples job every new account queues at birth (D-827).
-                {"t": str(tenant_id), "at_birth": business_copy.JOB},
+                # Less the examples job every new account queues at birth (D-827) and the company
+                # training its first agent queues (D-1034).
+                {
+                    "t": str(tenant_id),
+                    "at_birth": business_copy.JOB,
+                    "training": TRAINING_DRAFT_JOB,
+                },
             )
         ).all()
     return [str(row[0]) for row in rows]

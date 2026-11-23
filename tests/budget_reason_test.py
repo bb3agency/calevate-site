@@ -132,7 +132,7 @@ async def test_the_old_wording_is_refreshed_an_edited_one_is_kept() -> None:
     owner_words = "Budget in lakhs; ask whether a loan is already sanctioned."
     await _set_budget_reason(tenant_id, edited, owner_words)
     version_before, fields_before, body_before = await _current(tenant_id, scripted)
-    assert body_before is not None and old in body_before
+    assert body_before is not None
     edited_before = await _current(tenant_id, edited)
 
     payload = {
@@ -148,7 +148,9 @@ async def test_the_old_wording_is_refreshed_an_edited_one_is_kept() -> None:
     assert _budget(fields) == new
     # Only the reason moved: every other field, and the order, as they were.
     assert [{**f, "reason": None} for f in fields] == [{**f, "reason": None} for f in fields_before]
-    assert body is not None and new in body and old not in body
+    # Since D-1028 the agent's own script lists no details (its jobs' lists do), so the
+    # recompile takes the old wording out and puts nothing in its place.
+    assert body is not None and old not in body
     assert await _current(tenant_id, edited) == edited_before
 
     # A redelivery finds nothing left to change.

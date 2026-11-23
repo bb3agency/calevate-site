@@ -3,6 +3,23 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.17 — 23-Nov-2026
+
+- Company training is written by Pip in the background when an account's first agent is made,
+  goes live at once, and is rewritten when knowledge or the business profile changes, keeping
+  and improving the owner's own edits. A draft that fails its fact check is never saved.
+- Each step of a call flow has an outcome the agent reaches however the call goes; the
+  scenarios are examples of reaching it.
+- A scenario can be switched to "Say this line exactly"; the agent then says that step's line
+  word for word in the caller's language.
+- Pip writes scripts without a second greeting, unreachable or misnumbered steps, name-less
+  titles, dead ends after "already done", missing tasks or promises the material does not make;
+  call-back steps note the time and every spelling of a name gets its pronunciation.
+- Only a trial an operator gives waives the plan fee and the monthly platform fee for the months
+  it touches; the sign-up trial waives neither.
+- What it notes and waiting suggestions are copied onto campaigns and lines that the 0.5.3
+  move left empty.
+
 ## 0.5.16 — 23-Nov-2026
 
 - Billing (D-1033): a trial month has no monthly plan fee on the statement, spend page or

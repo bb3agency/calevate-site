@@ -84,7 +84,7 @@ def test_a_section_drawn_before_scenarios_still_says_its_instruction() -> None:
     legacy = ConversationStage(
         id="greet", name="Greet", mode="say", instruction="Hello, this is the shop."
     )
-    assert "1. Greet: Say: \"Hello, this is the shop.\"" in _body(legacy)
+    assert '1. Greet: Say: "Hello, this is the shop."' in _body(legacy)
     assert says_instruction(legacy)
 
 

@@ -14,10 +14,9 @@ from pathlib import Path
 from types import ModuleType
 from uuid import UUID
 
+from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from tests.conftest import create_org_with_receptionist
-
-from apps.api.db.session import tenant_session
 
 MIGRATION = next(
     (Path(__file__).resolve().parents[1] / "alembic" / "versions").glob("a6c2e9f4b8d1_*.py")
@@ -36,7 +35,11 @@ def _module() -> ModuleType:
 
 async def _tenant() -> tuple[UUID, UUID]:
     created = await create_org_with_receptionist(
-        name="Rerun Shop", slug=f"rerun-{uuid.uuid4().hex[:8]}"
+        name="Rerun Shop",
+        slug=f"rerun-{uuid.uuid4().hex[:8]}",
+        vertical_template="real_estate",
+        billing_email=None,
+        created_by=None,
     )
     tenant_id = UUID(str(created["id"]))
     agent_id = UUID(str(created["agent_id"]))
@@ -118,9 +121,7 @@ async def test_waiting_suggestions_reach_a_job_with_none_and_spare_one_with_its_
         rows = dict(
             (
                 await session.execute(
-                    text(
-                        "SELECT id, field_suggestions FROM inbound_lines WHERE id IN (:a, :b)"
-                    ),
+                    text("SELECT id, field_suggestions FROM inbound_lines WHERE id IN (:a, :b)"),
                     {"a": bare, "b": passed},
                 )
             ).all()

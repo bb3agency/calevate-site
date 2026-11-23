@@ -124,8 +124,11 @@ def test_an_enqueue_for_an_unregistered_name_is_caught() -> None:
     offenders = check_job_wiring.enqueued_but_not_registered(
         sites, registered - {"notify_hot_lead_whatsapp"}
     )
-    assert len(offenders) == 1 and "notify_hot_lead_whatsapp" in offenders[0], offenders
-    assert "no worker registers" in offenders[0]
+    # One offender per call site, and the owner's WhatsApp alert has more than one (the
+    # hot-lead path and the re-ask after a failed team alert).
+    assert offenders, offenders
+    assert all("notify_hot_lead_whatsapp" in o for o in offenders), offenders
+    assert all("no worker registers" in o for o in offenders), offenders
 
 
 def test_the_enqueue_scan_reads_the_outbox_call_sites() -> None:
