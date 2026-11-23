@@ -3,6 +3,22 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.11 — 23-Nov-2026
+
+- Changing the agent on a running or paused campaign now changes the voice on its calls.
+- Start resumes a campaign paused by a complaint review or the spending limit once that is
+  sorted, and "Make a draft for the unanswered" says when it cannot run.
+- A campaign's Results break down only that campaign's own details.
+- A live line whose edit did not go live offers Put it live, and a live line whose agent is
+  switched off says callers hear nothing.
+- Leads keep the details of every campaign and line that called them, also after a campaign
+  is archived, and search finds them; test calls no longer list details as Not mentioned.
+- Platform wording changes, including the 0.5.10 name fix, now reach agents that are already
+  live, and a line or campaign that refuses an update is shown as held back.
+- Pip never says a change was made when it was refused or is waiting for your confirm, its
+  changes to what a campaign or line notes reach live calls, and a long call-back note is
+  refused instead of cut.
+
 ## 0.5.10 — 23-Nov-2026
 
 - An agent no longer says a title such as గారు on its own when the call list has no name

@@ -522,12 +522,12 @@ SCRIPT_DRAFT: Final = ActionTool(
             },
             "instruction": {
                 "anyOf": [{"type": "string"}, {"type": "null"}],
-                "description": f"Every change the person asked for, at most {INSTRUCTION_MAX} "
+                "description": f"Every change asked for, at most {INSTRUCTION_MAX} "
                 "characters, in their words; null for a fresh draft.",
             },
             "tone": {
                 "anyOf": [{"type": "string", "enum": list(TONES)}, {"type": "null"}],
-                "description": "Only when the person asked for one.",
+                "description": "Only when asked for.",
             },
         },
     ),

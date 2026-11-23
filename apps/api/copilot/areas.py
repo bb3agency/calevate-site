@@ -206,11 +206,11 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("callback_reschedule", "callbacks", "move a waiting call-back"),
     AreaEntry("callback_cancel", "callbacks", "cancel a waiting call-back"),
     AreaEntry("campaign_create", "campaigns", "a new draft campaign"),
-    AreaEntry("campaign_clone", "campaigns", "copy a campaign's settings into a new draft"),
+    AreaEntry("campaign_clone", "campaigns", "copy its settings into a new draft"),
     AreaEntry(
         "campaign_add_leads",
         "campaigns",
-        "add leads to a draft campaign, by `lens` or lead_ids; a list: campaign_contacts_add",
+        "add leads to a draft, by `lens` or lead_ids; a list: campaign_contacts_add",
     ),
     AreaEntry("campaign_schedule", "campaigns", "start a draft campaign later"),
     AreaEntry("campaign_unschedule", "campaigns", "cancel a scheduled start"),
