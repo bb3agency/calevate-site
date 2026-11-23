@@ -3,6 +3,20 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.13 — 23-Nov-2026
+
+- Knowledge: a note put back after an unapproved edit is in use again, and adding a link
+  named like an existing item adds a new item instead of replacing it.
+- Erasure reaches a caller's forwarded calls, and a repeat erasure's certificate counts only
+  what it erased.
+- Admin: the health board's "will break" count is right, Pip's reads of a named client are
+  audited, and Spoken style frees room when an added entry is retired.
+- A Sheets or LeadSquared delivery waiting to retry no longer shows as failed, a moved
+  call-back drops its old reason, and a broken Google connection is retried and alerted.
+- A running trial's free minutes no longer appear as charges on the month's statement.
+- First run: an agent made again after deletion gets its own line or campaign, and renaming
+  it renames it in their scripts.
+
 ## 0.5.12 — 23-Nov-2026
 
 - A campaign's or Inbound line's script and What it notes are checked for length when you
