@@ -11,6 +11,7 @@ import uuid
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
 from apps.api.kb import store
+from apps.api.kb.picks import LINE_PICKS, read_picks
 from apps.workers import kb_ingest
 from sqlalchemy import text
 from tests.conftest import FakeS3
@@ -150,3 +151,40 @@ async def test_staff_without_curation_are_refused_and_another_account_sees_404(
     assert refused.status_code == 403
     assert foreign.status_code == 404
     assert not_a_note.status_code == 404
+
+
+async def test_a_note_put_back_over_an_unapproved_edit_lists_as_in_use_and_keeps_its_pick(
+    s3: FakeS3,
+) -> None:
+    """An edit still waiting for review is archived with the note when it is removed; put
+    back, the approved version is live again, and the list and a pick both name that one,
+    not the never-approved edit."""
+    del s3
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    live_id = await _note(tenant_id, "Delivery")
+    line_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        edit = await kb_service.submit_source(
+            session, tenant_id=tenant_id, name="Delivery", body="Delivery is free over 500."
+        )
+        await store.remove_note(session, tenant_id=tenant_id, source_id=live_id)
+        await store.restore_note(session, tenant_id=tenant_id, source_id=live_id)
+        await session.execute(
+            text(
+                "INSERT INTO inbound_lines (id, tenant_id, agent_id, name) "
+                "VALUES (:id, :t, :a, 'Front desk')"
+            ),
+            {"id": line_id, "t": tenant_id, "a": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO inbound_line_sources (id, tenant_id, inbound_line_id, kb_source_id) "
+                "VALUES (:id, :t, :l, :s)"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "l": line_id, "s": live_id},
+        )
+        notes = [n for n in await store.list_notes(session) if n.name == "Delivery"]
+        picked = (await read_picks(session, LINE_PICKS, [line_id]))[line_id]
+    assert edit["status"] == "pending_approval"
+    assert [(n.id, n.state) for n in notes] == [(live_id, "in_use")]
+    assert picked == [live_id]

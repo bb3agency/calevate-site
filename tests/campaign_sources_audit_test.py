@@ -172,3 +172,31 @@ async def test_a_picked_file_that_was_replaced_reads_as_its_live_version_once() 
         )
         found = await picks.read_picks(session, picks.CAMPAIGN_PICKS, [campaign_id])
     assert found[campaign_id] == [live]
+
+
+async def test_a_link_named_like_an_item_already_known_is_its_own_item() -> None:
+    """A link added from the campaign page under a name the knowledge already uses gets a
+    free name ("Name (2)"), as a note does: taken as given it would be that item's next
+    version, and publishing it would replace the item for every agent."""
+    tenant_id, campaign_id = await _campaign()
+    async with tenant_session(tenant_id) as session:
+        price_list = await _source(session, tenant_id, name="Price list", kind="file")
+        source_id, _upload_id = await workspace.add_link(
+            session,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+            url="https://example.com/prices",
+            name="Price list",
+            created_by=None,
+            auto_approve=True,
+        )
+        row = (
+            await session.execute(
+                text("SELECT name, version FROM kb_sources WHERE id = :s"), {"s": source_id}
+            )
+        ).one()
+        found = await picks.read_picks(session, picks.CAMPAIGN_PICKS, [campaign_id])
+        await session.rollback()
+    assert (row.name, row.version) == ("Price list (2)", 1)
+    assert found[campaign_id] == [source_id]
+    assert source_id != price_list

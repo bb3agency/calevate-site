@@ -205,7 +205,10 @@ SELECT * FROM (
     AND NOT EXISTS (SELECT 1 FROM kb_uploads u WHERE u.source_id = s.id)
     AND (CAST(:only AS uuid) IS NULL
          OR s.name = (SELECT n.name FROM kb_sources n WHERE n.id = :only))
-  ORDER BY s.name, s.version DESC
+  -- An edit archived before anyone approved it (removed while it waited for review) is
+  -- dead history: after the note is put back it must not stand for the note over the
+  -- version that is live again. It still stands when it is all the note has.
+  ORDER BY s.name, (s.status = 'archived' AND s.approved_at IS NULL), s.version DESC
 ) newest
 ORDER BY newest.updated_at DESC, newest.id DESC
 LIMIT 200

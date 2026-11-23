@@ -65,7 +65,10 @@ async def read_picks(
                 "(SELECT 1 FROM kb_uploads w WHERE w.source_id = s.id) "
                 "AND n.name = s.name AND n.kind = 'text' AND NOT EXISTS "
                 "(SELECT 1 FROM kb_uploads u WHERE u.source_id = n.id) "
-                "ORDER BY n.version DESC, n.id DESC LIMIT 1), "
+                # The version the notes list shows for the name (`store._NOTES_SQL`), so
+                # an edit archived unapproved never stands for a note that was put back.
+                "ORDER BY (n.status = 'archived' AND n.approved_at IS NULL), "
+                "n.version DESC, n.id DESC LIMIT 1), "
                 # A file or link that Replace file archived follows its name to the live
                 # version, so a campaign keeps reading the file it picked, not the old copy.
                 "(SELECT n.id FROM kb_sources n WHERE s.kind IN ('file', 'url') "

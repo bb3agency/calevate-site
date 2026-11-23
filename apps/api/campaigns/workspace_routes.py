@@ -406,13 +406,13 @@ async def add_link(
 ) -> WorkspaceOut:
     """The link goes into the client's knowledge exactly as `POST /v1/kb/links` puts it."""
     assert principal.tenant_id is not None
-    await workspace.read_workspace(session, campaign_id)
-    made = await kb_uploads.create_link(
+    source_id, upload_id = await workspace.add_link(
         session,
         tenant_id=principal.tenant_id,
-        name=(payload.name or "").strip() or None,
-        url=payload.url.strip(),
-        submitted_by=principal.user_id,
+        campaign_id=campaign_id,
+        url=payload.url,
+        name=payload.name,
+        created_by=principal.user_id,
         auto_approve=goes_live_without_review(
             realm=principal.realm, impersonating=principal.impersonating
         ),
@@ -423,16 +423,9 @@ async def add_link(
         actor=principal,
         tenant_id=principal.tenant_id,
         object_type="kb_source",
-        object_id=str(made["source_id"]),
+        object_id=str(source_id),
         ip=client_request_ip(request),
-        summary={"upload_id": str(made["id"]), "via": "campaign_source"},
-    )
-    await workspace.pick_source(
-        session,
-        tenant_id=principal.tenant_id,
-        campaign_id=campaign_id,
-        kb_source_id=UUID(str(made["source_id"])),
-        created_by=principal.user_id,
+        summary={"upload_id": str(upload_id), "via": "campaign_source"},
     )
     return await _workspace_out(session, campaign_id)
 

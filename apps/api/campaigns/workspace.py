@@ -346,6 +346,51 @@ async def add_note(
     return source_id
 
 
+async def add_link(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    campaign_id: UUID,
+    url: str,
+    name: str | None,
+    created_by: UUID | None,
+    auto_approve: bool,
+) -> tuple[UUID, UUID]:
+    """A web page added on the campaign page goes into What your agents know exactly as
+    `POST /v1/kb/links` puts it, and the campaign picks it. Answers its source and upload ids.
+
+    A name it is given is made free, as `add_note`'s is: taken as given, a name another item
+    already has would make the link that item's next version, and publishing it would
+    archive the item and take it off every agent."""
+    from apps.api.kb.uploads import create_link, name_for_new_item
+
+    await _campaign_row(session, campaign_id, lock=True)
+    given = (name or "").strip()
+    free = (
+        await name_for_new_item(session, tenant_id=tenant_id, given=None, fallback=given)
+        if given
+        else None
+    )
+    made = await create_link(
+        session,
+        tenant_id=tenant_id,
+        name=free,
+        url=url.strip(),
+        submitted_by=created_by,
+        auto_approve=auto_approve,
+    )
+    source_id = UUID(str(made["source_id"]))
+    await add_pick(
+        session,
+        CAMPAIGN_PICKS,
+        tenant_id=tenant_id,
+        holder_id=campaign_id,
+        kb_source_id=source_id,
+        created_by=created_by,
+    )
+    return source_id, UUID(str(made["id"]))
+
+
 async def request_proposal(
     session: AsyncSession,
     *,
@@ -471,6 +516,7 @@ __all__ = [
     "MAIN_TASK_MAX",
     "CampaignProposal",
     "Workspace",
+    "add_link",
     "add_note",
     "clear_proposal",
     "pick_source",
