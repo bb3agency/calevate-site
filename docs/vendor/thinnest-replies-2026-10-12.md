@@ -2738,7 +2738,7 @@ UNVERIFIED until ThinnestAI answers. Nothing is built on any answer yet.
 > Thanks,
 > Umesh
 
-## 52. Agents per customer workspace on pay as you go (DRAFTED 17 Nov 2026, unsent)
+## 52. Agents per customer workspace on pay as you go (DRAFTED 17 Nov 2026, unsent; folded into §56)
 
 Why we ask: §28 (23 Oct 2026, VENDOR-STATED) set agents per customer workspace at 2 on pay as
 you go, "raised per workspace by email". Since D-997 and D-1003 every Inbound line and every
@@ -2772,7 +2772,7 @@ agent and its Start and test call were refused (`engine_agent_allowance_full`; r
 When answered: record §53 verbatim with a "what it closes" table, then raise the console
 setting `thinnest_agents_per_workspace` to the granted figure.
 
-## 53. A voicemail message on calls we place one at a time (DRAFTED 23 Nov 2026, unsent; READY TO SEND: §55 answered our last mail)
+## 53. A voicemail message on calls we place one at a time (DRAFTED 23 Nov 2026, unsent; folded into §56)
 
 Why we ask: `voicemailMessage` (up to 600 characters) is a field of create-campaign only (mirror
 2026-11-12 `openapi.json`, the campaign schema near line 29415); Place Call has no such field.
@@ -2886,3 +2886,48 @@ Still open:
   whether the ending clips there too. A founder action (our Cartesia account).
 - **§52 (agents per customer workspace)** was not answered in this reply.
 - **§53 (voicemail on Place Call)** was held for this reply and can now be sent.
+
+## 56. Reply to §55: playground not clipped; agents per workspace; voicemail on Place Call (DRAFTED 23 Nov 2026, for the founder to send; folds in §52 and §53, neither sent)
+
+The founder ran ThinnestAI's test (§55 item 1) on 23 Nov 2026: Varsha's opening line, played in
+Cartesia's playground with our voice at 8000 Hz `pcm_s16le`, was not clipped and sounded
+natural; the same line on the live call at 10:34 IST that day was clipped.
+
+> Subject: Re: Clipped endings, agents per workspace, voicemail on placed calls
+>
+> Hi Ashutosh,
+>
+> Thanks for the quick and clear answers, and good to know all three defaults are already
+> platform-wide.
+>
+> 1. Clipped endings. We ran your test. In Cartesia's playground, with our voice at 8000 Hz
+> pcm_s16le, this sentence plays complete and natural, with nothing cut:
+> "నమస్కారం, నేను రైతుఖాతా నుంచి మాట్లాడుతున్నాను, ఇప్పుడు మాట్లాడటానికి మీకు వీలుగా ఉందా అండి?"
+> The same sentence, as the agent's first words on our live call today at 10:34 IST (agent
+> Varsha, workspace org_805a8e1a-320e-4724-b6c0-19217a07fa3f), was clipped. So the 8 kHz
+> format alone doesn't seem to be the cause; it looks like something between Cartesia and the
+> caller. Could you check that call's audio on your side, and tell us what you find?
+>
+> 2. Agents per customer workspace. On pay as you go each customer workspace allows 2 agents.
+> We create one agent per answering line and one per running campaign in the client's own
+> workspace, so a client with two voices cannot start a campaign; one of our clients hit
+> this last week. Could you raise it to 20 agents per customer workspace, for all our
+> customer workspaces, existing and new, without a request per workspace? And is there a
+> price for agents above that?
+>
+> 3. Voicemail on placed calls. Your campaigns can leave a voicemail message
+> (voicemailMessage). We place each call ourselves with Place Call, because our own
+> scheduler handles retries, calling hours and do-not-call checks, and Place Call has no
+> voicemail message. Could you add it to Place Call, with the same behaviour as on
+> campaigns? When it is left, how will the call-ended event report it, so we can tell it
+> apart from a machine we hung up on? Do numbers bought in a customer workspace support it,
+> and is leaving it billed as a normal call minute?
+>
+> Best regards,
+> Umesh Chandra J
+> Calevate
+> +918019857559
+
+When answered: record §57 verbatim with a "what it closes" table; raise
+`thinnest_agents_per_workspace` to any granted figure; a voicemail message is built only with
+the founder's wording and on/off decision (hard rule 5).
