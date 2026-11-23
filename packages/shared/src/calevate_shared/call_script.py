@@ -1017,9 +1017,15 @@ CONVERSATION_HEADER: Final = "[CONVERSATION]"
 PROCEDURE_HEADER: Final = "[STEP BY STEP]"
 #: How the agent walks a list. The caller is doing something on their own phone, so the
 #: agent gives one step and waits for it to be done rather than reading the list out.
+#: A step is done only when the person's own words say so: on the founder's Rytu Khata call
+#: of 23 Nov 2026 the recogniser heard "Friday" after "open the browser and tell me", and the
+#: agent took it as done and gave the next step. Waiting for the reply that meets the step's
+#: exit condition, and asking when it does not, is how the voice guides write a state's exit
+#: ("Exit when: ...", developers.openai.com/api/docs/guides/realtime-models-prompting; "Collect,
+#: confirm, move on", docs.vapi.ai/prompting-guide; both read 23 Nov 2026).
 PROCEDURE_LEAD: Final = (
-    "Give one step at a time. After each, wait until the caller has done it, then give the "
-    "next. If they are stuck, help with that step before moving on."
+    "Give one step at a time. Give the next only once what they say meets its Wait for, or "
+    "says it is done; else ask, never assume. Stuck? Help with that step first."
 )
 ADHERENCE_SENTENCES: Final[dict[str, str]] = {
     "flexible": "Sections in order as a guide. Follow the caller if they jump ahead; do not "
@@ -1075,11 +1081,13 @@ def _stage_detail(stage: ConversationStage) -> str:
     return detail
 
 
-#: Each scenario's script lines by language and its own questions and answers.
+#: Each scenario's script lines by language and its own questions and answers. An answer is
+#: given only to its own question, so none is volunteered: on the founder's call of 23 Nov
+#: 2026 the agent answered a question the caller had not asked.
 SCENARIO_HEADER: Final = "[SCENARIO SCRIPTS]"
 SCENARIO_LEAD: Final = (
     "What to say in each scenario. Use the line in the caller's language, in your own natural "
-    "words; answer their questions from these answers."
+    "words; give an answer only when they ask its question."
 )
 SCENARIO_POINTER: Final = "Its script and answers are under {name} in {header}."
 
@@ -1144,11 +1152,18 @@ def _step_detail(stage: ConversationStage, outcome: str = "") -> str:
 #: 2026): the scenarios show one way there, the outcome is what must be true. Not an
 #: `OUTLINE_HEADERS` entry, so an engine that takes the sections as its own steps still reads
 #: it in the instructions.
+#: An outcome is reached by what the person says, not by what the agent says for them: on the
+#: founder's Rytu Khata call of 23 Nov 2026 the agent closed a "they have seen the dashboard"
+#: step with "everything is right, isn't it?" instead of asking them to look. Confirming with
+#: the person before the step that depends on it is the guides' rule ("Confirm ... with the
+#: caller before booking", docs.retellai.com/build/prompt-engineering-guide, read 23 Nov 2026).
 OUTCOMES_HEADER: Final = "[STEP OUTCOMES]"
 OUTCOMES_LEAD: Final = (
     "Each step of the call has one outcome to reach. Its scenarios are examples of how the call "
     "may go, not the only ways: reach the outcome however the person answers, then go on to "
-    "the next step. If it clearly cannot be reached (they refuse, cannot do it now, or are not "
+    "the next step. It is reached only when what they say shows it, never assumed or said for "
+    "them: if it needs them to look or do something, ask them to and wait for their answer. "
+    "If it clearly cannot be reached (they refuse, cannot do it now, or are not "
     "the right person), take the step's way out for that, else its Otherwise."
 )
 #: The outcome as an engine step carries it, when there is room.

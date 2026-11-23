@@ -79,9 +79,12 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: register is how friends talk on the phone, one honorific a reply at most; a reply opens
 #: with the point itself, never a reaction; registers name no trade; the agent's own language in
 #: English letters never switches it (21 Nov 2026).
+#: 23 Nov 2026: one point a turn, only what was asked is answered, an off-the-point reply is
+#: asked about, no two replies open or end alike, a check is asked for, no reassurance
+#: without a fact.
 PINNED = (
-    "9a559c1caeff97300b95da82c037aab8b6e90e34d02980140a14fd9d9229f90a",
-    "d274588be8f5d653bd3f4ea2d94c17df58e9434c4daca406ec489f890294a34e",
+    "9c6aad4280535b8286c810152d349471fef700b3cd4444717679ff2f5a0f7c72",
+    "473bdee1d49cb6091caed4593a2a23fc4597c430618441e403df78fe5b577829",
 )
 
 

@@ -73,7 +73,7 @@ LESSONS: Final[dict[str, Lesson]] = {
     "asked_again": Lesson(
         "Asked the same question again, word for word",
         "Ask an unanswered question once more, in new words.",
-        'HOW TO SPEAK: "Unclear ... Ask one thing again, reworded"',
+        'HOW TO SPEAK: "Unclear ... Ask what they meant, reworded"',
     ),
     "reasked_name": Lesson(
         "Asked for a name the caller already gave",
@@ -127,7 +127,7 @@ LESSONS: Final[dict[str, Lesson]] = {
     "same_opening": Lesson(
         "Began reply after reply with the same words",
         "React only when it fits what was said, in new words, and often not at all.",
-        'HOW TO SPEAK: "React only if it fits what they said, never the same way twice in a call"',
+        'HOW TO SPEAK: "no two replies start or end alike"',
     ),
     "too_long": Lesson(
         "Said too much in one turn",

@@ -185,9 +185,10 @@ ENGINE_CONSOLE_DEFAULT_KEYS: Final = (
 def platform_prompt_revision() -> str:
     """A short digest of the text every live agent carries that only a deploy can change: the
     platform layers `compose_engine_prompt` wraps around a script, how a script's sections
-    compile to engine steps, our call rules (`CALL_INSTRUCTIONS`, D-850), the order of the
-    greeting field and its salutations (`join_first_words`) and the
-    call-behaviour values every agent is published with (`hosted_platform.PLATFORM_AGENT_VALUES`).
+    compile to engine steps and the platform's leads in a compiled script, our call rules
+    (`CALL_INSTRUCTIONS`, D-850), the order of the greeting field and its salutations
+    (`join_first_words`) and the call-behaviour values every agent is published with
+    (`hosted_platform.PLATFORM_AGENT_VALUES`).
 
     Composed over reference agents rather than read from the constants, so a change in any
     section builder (registers, knowledge, the cannot-help rules) moves it too. Stable across
@@ -200,6 +201,10 @@ def platform_prompt_revision() -> str:
         CallScript,
         Capabilities,
         ConversationStage,
+        ProcedureStep,
+        ScenarioQa,
+        StepOutcome,
+        compile_call_script,
         native_steps,
         render_steps,
     )
@@ -227,6 +232,25 @@ def platform_prompt_revision() -> str:
     # Every offered language, so a change to any language's platform sentences moves it.
     primary, *extra = offered_language_tags()
     parts: list[str] = [render_steps(native_steps(script, can=Capabilities(True, False)))]
+    # A job's script is compiled at every publish, so the platform's own leads in it (the
+    # step-by-step list, step outcomes and scenario answers) reach live agents only through a
+    # platform run; the reference script above has none of those sections.
+    guided = CallScript(
+        schema_version=2,
+        stages=[
+            ConversationStage(
+                id="s",
+                name="S",
+                instruction="I",
+                step=1,
+                procedure=[ProcedureStep(action="A", wait_for="W")],
+                scripts={primary: "L"},
+                qa=[ScenarioQa(question="Q", answer="R")],
+            )
+        ],
+        step_outcomes=[StepOutcome(step=1, outcome="O")],
+    )
+    parts.append(compile_call_script(guided))
     # Every direction, with and without a business name, so a change to any wording of the
     # role sentence moves it too.
     references: tuple[tuple[bool, bool, Literal["inbound", "outbound", "both"], str], ...] = (
