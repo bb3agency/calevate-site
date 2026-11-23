@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.20 — 23-Nov-2026
+
+- Call flow: a scenario shows a script box only for the languages its campaign speaks (and any
+  language it already has a line in), so a Telugu-only campaign no longer shows an empty
+  English box.
+
 ## 0.5.19 — 23-Nov-2026
 
 - Call flow: dragging a scenario's dot onto another scenario links them even when you let go

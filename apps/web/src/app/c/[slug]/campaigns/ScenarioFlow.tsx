@@ -183,7 +183,7 @@ export function ScenarioFlow({
   script: CallScript;
   limits: Limits;
   issues: Issue[];
-  /** The campaign's languages; English is always offered too. */
+  /** The campaign's languages, main first; English's box shows when English is one of them. */
   languages: string[];
   selected: string | null;
   readOnly: boolean;
@@ -934,6 +934,11 @@ function ScenarioEditor({
   // English and the campaign's main language only (founder, 17 Nov 2026: Hindi boxes off
   // for now); a campaign in English has the one script.
   const local = main && main !== english ? main : null;
+  // English's script box only where the campaign speaks English or the scenario already has
+  // an English line (founder, 23 Nov 2026): a Telugu-only campaign showed an empty English
+  // box nobody fills. The caller-and-agent answers keep English as their base either way.
+  const showEnglish =
+    !local || languages.includes(english) || Boolean(scripts[english]?.trim());
   const scriptBox = (tag: string) => (
     <div key={tag}>
       <label className={label()} htmlFor={`sc-${tag}-${id}`}>
@@ -1088,9 +1093,11 @@ function ScenarioEditor({
           </div>
 
           <div className={pair}>
-            <div className={`${SECTION} border-l-series-2 bg-series-2/5`}>
-              {scriptBox(english)}
-            </div>
+            {showEnglish ? (
+              <div className={`${SECTION} border-l-series-2 bg-series-2/5`}>
+                {scriptBox(english)}
+              </div>
+            ) : null}
             {local ? (
               <div className={`${SECTION} border-l-series-6 bg-series-6/5`}>
                 {scriptBox(local)}

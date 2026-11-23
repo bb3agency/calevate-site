@@ -131,3 +131,39 @@ describe("drag to link", () => {
     expect(await screen.findByText("It already goes there.")).toBeTruthy();
   });
 });
+
+describe("script boxes by language", () => {
+  const view = (languages: string[], scripts: Record<string, string> = {}) =>
+    renderClientPage(
+      <ScenarioFlow
+        agent={null}
+        hear={{ allowed: true, reason: null, unknown: false }}
+        script={{ ...SCRIPT, stages: [stage({ id: "a", name: "First", step: 1, scripts }), SCRIPT.stages[1] as ConversationStage] }}
+        limits={DEFAULT_LIMITS}
+        issues={[]}
+        languages={languages}
+        selected="a"
+        readOnly={false}
+        wide
+        onSelect={() => {}}
+        onChange={() => {}}
+      />,
+      {},
+    );
+
+  it("shows no English box for a campaign that does not speak English", async () => {
+    await view(["te-IN"]);
+    expect(await screen.findByText("Script in Telugu")).toBeTruthy();
+    expect(screen.queryByText(/Script in English/)).toBeNull();
+  });
+
+  it("shows it when the campaign speaks English or the scenario already has an English line", async () => {
+    await view(["te-IN", "en-IN"]);
+    expect(await screen.findByText(/Script in English/)).toBeTruthy();
+  });
+
+  it("keeps an English line already written visible", async () => {
+    await view(["te-IN"], { "en-IN": "Hello." });
+    expect(await screen.findByText(/Script in English/)).toBeTruthy();
+  });
+});
