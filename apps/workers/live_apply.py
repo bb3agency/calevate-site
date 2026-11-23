@@ -303,7 +303,10 @@ async def apply_live_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     tenant_id = UUID(str(payload["tenant_id"]))
     agent_id = UUID(str(payload["agent_id"]))
     attempt = job_try(ctx)
+    # The walk's reason (`apply_live_settings`): the first try is dispatched at once, often
+    # to a worker whose poll has not yet read the setting or spoken style just saved.
     await refresh()
+    await refresh_spoken_style()
     try:
         outcome, _name = await converge_agent(tenant_id=tenant_id, agent_id=agent_id)
     except Exception as exc:

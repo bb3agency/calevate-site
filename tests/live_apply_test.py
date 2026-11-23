@@ -265,6 +265,41 @@ async def test_a_refusal_no_retry_can_fix_is_recorded_and_alarmed(
     assert [code for code, _ in alarms] == ["live_apply_agent_failed"]
 
 
+async def test_a_line_the_platform_refused_is_recorded_not_counted_applied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The agent's publish carries on past a line the platform refuses, and that line keeps
+    its previous config; the run must say so rather than count the agent applied."""
+    from apps.api.agents import service as agents_service
+    from tests.call_notices_holders_test import _line
+
+    tenant_id, agent_id, _bearer = await _tenant()
+    await _published(tenant_id, agent_id)
+    line_id = await _line(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE inbound_lines SET engine_agent_ref = 'ref-' || id::text, "
+                "published_at = now() WHERE id = :l"
+            ),
+            {"l": line_id},
+        )
+
+    async def refused(_session: Any, *, tenant_id: uuid.UUID, line_id: uuid.UUID) -> str:
+        raise ProblemError.business_rule("engine_prompt_too_long", "The script is too long.")
+
+    monkeypatch.setattr(agents_service, "publish_line", refused)
+    monkeypatch.setattr(agents_service, "alert", lambda *_a, **_kw: None)
+    monkeypatch.setattr(worker, "alert", lambda *_a, **_kw: None)
+    run_id = await _queue(tenant_id)
+    await drain_live_apply(tenant_id)
+
+    run = await _run(run_id)
+    assert (run.status, run.applied, run.failed) == ("done", 0, 1)
+    assert run.failures[0]["code"] == "engine_prompt_too_long"
+    assert run.failures[0]["agent_id"] == str(agent_id)
+
+
 async def test_a_transient_failure_retries_that_agent_and_settles_the_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -290,7 +325,15 @@ async def test_a_transient_failure_retries_that_agent_and_settles_the_run(
     assert type(retried.value).__name__ == "Retry"
 
     monkeypatch.setattr(worker, "converge_agent", real)
+    # The retry publishes the spoken style saved now, not this worker's last poll of it.
+    refreshed: list[str] = []
+
+    async def refresh_spoken_style() -> None:
+        refreshed.append("style")
+
+    monkeypatch.setattr(worker, "refresh_spoken_style", refresh_spoken_style)
     assert await worker.apply_live_agent({"job_try": 2}, payload) == "applied"
+    assert refreshed == ["style"]
     settled = await _run(run_id)
     assert (settled.status, settled.retrying, settled.applied, settled.failed) == (
         "done",

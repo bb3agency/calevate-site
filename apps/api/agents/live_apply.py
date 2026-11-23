@@ -186,6 +186,7 @@ def platform_prompt_revision() -> str:
     """
     from calevate_shared.call_script import (
         COLLECT_HEADER,
+        OPENING_HEADER,
         PRONOUNCE_LEAD,
         CallScript,
         Capabilities,
@@ -196,6 +197,7 @@ def platform_prompt_revision() -> str:
     from calevate_shared.engine import (
         CALL_INSTRUCTIONS,
         INTRODUCTION_SALUTATIONS,
+        NAME_VARIABLE,
         SCREEN_CALL_INSTRUCTIONS,
         AgentConfig,
         compose_engine_prompt,
@@ -250,6 +252,15 @@ def platform_prompt_revision() -> str:
             caller_has_screen=callbacks,
         )
         parts.append(compose_engine_prompt(cfg))
+    # Each offered language as the only one: the primary's register examples and full pack
+    # are composed for the primary alone, so with only the first language as primary a
+    # change to another language's would not move the revision.
+    parts += [
+        compose_engine_prompt(
+            cfg.model_copy(update={"language_primary": tag, "languages_extra": []})
+        )
+        for tag in offered_language_tags()
+    ]
     # Our call rules (D-850), and which agents send them with the console's switch off: a
     # screen agent does (D-906), so a change to that rule republishes every live agent.
     parts += [CALL_INSTRUCTIONS, SCREEN_CALL_INSTRUCTIONS]
@@ -258,6 +269,23 @@ def platform_prompt_revision() -> str:
             update={"engine_call_instructions": False, "caller_has_screen": screen}
         )
         parts.append(f"ours with the switch off, screen {screen}: {sends_our_call_rules(off)}")
+    # A script with an opening that greets the caller by name and title: the reference
+    # scripts above have neither, so the start-of-call rules an opening adds and how the
+    # name field is marked for the model (`mark_caller_name`) would not move the revision,
+    # and live agents would keep the old text until each was republished by hand.
+    opening_script = f"{OPENING_HEADER}\nHello {{{{{NAME_VARIABLE}}}}} ji, O\n{COLLECT_HEADER}\n- a"
+    for direction, line_calls_back in (("inbound", False), ("inbound", True), ("both", False)):
+        parts.append(
+            compose_engine_prompt(
+                cfg.model_copy(
+                    update={
+                        "system_prompt": opening_script,
+                        "direction": direction,
+                        "places_call_backs": line_calls_back,
+                    }
+                )
+            )
+        )
     # How the greeting field orders the opening line and the notices (D-861), and the
     # introduction with its salutation in each language that has one (D-865), which the
     # reference agents above cannot show: their script has no opening line.
@@ -506,7 +534,11 @@ async def converge_agent(*, tenant_id: UUID, agent_id: UUID) -> tuple[Outcome, s
     deleted agent is left alone, since its first publish sends everything anyway.
     """
     from apps.api.agents.engine_settings import check_agent_settings
-    from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES, publish_agent
+    from apps.api.agents.service import (
+        CAMPAIGN_HOLDING_STATUSES,
+        HOLDER_REFUSALS_KEY,
+        publish_agent,
+    )
     from apps.api.db.session import tenant_session
 
     async with tenant_session(tenant_id) as session:
@@ -514,12 +546,19 @@ async def converge_agent(*, tenant_id: UUID, agent_id: UUID) -> tuple[Outcome, s
         if name is None:
             return "not_live", None
         await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
+        refused: list[BaseException] = session.info.pop(HOLDER_REFUSALS_KEY, [])
         refs = (
             await session.execute(
                 _HOLDER_REFS, {"aid": agent_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)}
             )
         ).scalars()
         holders = [str(ref) for ref in refs]
+    # A line or campaign the platform refused keeps its previous config while the publish
+    # carried on for the others (`service._republish_holder`). Raised after the commit, so
+    # what did go through stays, and the run records it or retries it rather than counting
+    # the agent applied.
+    if refused:
+        raise refused[0]
     for ref in holders:
         checked = await check_agent_settings(
             tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=ref
