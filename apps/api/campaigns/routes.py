@@ -1490,7 +1490,13 @@ async def _update_settings(
     """A new voice on a started campaign reaches its engine agent at once, so its next call
     speaks in it. The change is committed in its own transaction first, because the publish
     reads the campaign in another session; if the engine agent cannot take the new voice the
-    old agent is put back and the refusal stands."""
+    old agent is put back and the refusal stands.
+
+    The edit publish (`require_holding`), not Start's `put_live_for_start`: Start's gate
+    refuses a campaign already running or paused by its status, so through it nothing was
+    published and the calls kept the old voice. A scheduled campaign holds no engine agent
+    (D-1010) and gets the new voice when its start fires; one running without its own yet
+    gets it at its next dial (`engine_agent.dial_for`)."""
     assert principal.tenant_id is not None
     row = (
         await session.execute(
@@ -1507,7 +1513,9 @@ async def _update_settings(
     async with tenant_session(principal.tenant_id) as own:
         written = await controls.update_draft(own, campaign_id=campaign_id, changes=changes)
     try:
-        await _put_campaign_script_live(session, principal, campaign_id)
+        await campaign_engine_agent.put_campaign_live(
+            tenant_id=principal.tenant_id, campaign_id=campaign_id, require_holding=True
+        )
     except ProblemError:
         async with tenant_session(principal.tenant_id) as own:
             await own.execute(

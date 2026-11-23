@@ -26,18 +26,22 @@ from apps.api.agents.publishing import engine_drift_for
 from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.api.campaigns import engine_agent, notes
 from apps.api.campaigns.controls import stop_campaign
+from apps.api.campaigns.routes import router as campaigns_router
 from apps.api.compliance.service import (
     TRUTHFUL_ANSWER_DRIFT_RULE,
     truthful_answer_drift_blocker,
 )
-from apps.api.core.errors import ProblemError
+from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers.campaign_engine_agents import own_script_version
 from apps.workers.pipeline import _STAMP_CAMPAIGN_SQL
 from calevate_shared.call_script import CallScript
 from calevate_shared.extraction import ExtractionField
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.agent_lifecycle_test import _app as agents_app
 from tests.agent_lifecycle_test import _fresh_engine, _move, _number, _tenant, _write_script
 
 pytestmark = pytest.mark.rls
@@ -581,3 +585,51 @@ async def test_the_pipeline_notes_the_campaigns_list_for_its_calls() -> None:
         )
     spec = (await _load_call_context(tenant_id, call_id))[0]
     assert "visit_day" in {f.key for f in spec.fields}
+
+
+async def test_a_new_voice_on_a_running_campaign_reaches_its_engine_agent() -> None:
+    """The agent changed on a running campaign is put on the engine agent it holds, so its
+    next call speaks in the new voice. Start's gate refuses a running campaign by its status,
+    so it cannot be what publishes the change."""
+    engine = _fresh_engine()
+    tenant_id, agent_id, token = await _tenant()
+    headers = {"Authorization": f"Bearer {token}"}
+    async with AsyncClient(
+        transport=ASGITransport(app=agents_app()), base_url="http://api"
+    ) as http:
+        made = await http.post(
+            "/v1/agents",
+            json={"name": "Evening voice", "direction": "both", "language_primary": "te-IN"},
+            headers=headers,
+        )
+    assert made.status_code == 201, made.text
+    second = UUID(made.json()["id"])
+    for agent in (agent_id, second):
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text("UPDATE agents SET direction = 'both' WHERE id = :a"), {"a": agent}
+            )
+        await _write_script(tenant_id, agent)
+        code, body = await _move(token, agent, "activate")
+        assert code == 200, body
+    campaign_id = await _campaign(tenant_id, agent_id, status="running")
+    ref = await _publish(tenant_id, campaign_id)
+    assert not engine._agents[ref].name.startswith("Evening voice")
+
+    application = FastAPI()
+    install_error_handlers(application)
+    application.include_router(campaigns_router)
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="http://api") as http:
+        changed = await http.patch(
+            f"/v1/campaigns/{campaign_id}", json={"agent_id": str(second)}, headers=headers
+        )
+    assert changed.status_code == 204, changed.text
+    async with tenant_session(tenant_id) as session:
+        held = (
+            await session.execute(
+                text("SELECT agent_id, engine_agent_ref FROM campaigns WHERE id = :c"),
+                {"c": campaign_id},
+            )
+        ).one()
+    assert (held.agent_id, held.engine_agent_ref) == (second, ref)
+    assert engine._agents[ref].name.startswith("Evening voice"), "the old voice kept calling"
