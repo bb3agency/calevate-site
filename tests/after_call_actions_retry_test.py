@@ -86,3 +86,17 @@ async def test_the_last_attempt_alarms_instead_of_retrying(wired: dict[str, Any]
     result = await client_actions.run_after_call_actions({"job_try": WORKER_MAX_TRIES}, _payload())
     assert result == "delivered,crm_error"
     assert wired["alarms"] == ["client_action_not_completed"]
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["ReadError", "WriteError", "WriteTimeout", "PoolTimeout", "RemoteProtocolError"],
+)
+def test_a_dropped_connection_or_full_pool_is_retried(status: str) -> None:
+    """`execute_action` names a transport failure by its httpx type; a connection dropped
+    mid-exchange or a pool that was full is the vendor's blip, not a refusal."""
+    assert client_actions._transient(status, {"error": "unreachable"})
+
+
+def test_an_unsupported_url_is_not_retried() -> None:
+    assert not client_actions._transient("UnsupportedProtocol", {"error": "unreachable"})

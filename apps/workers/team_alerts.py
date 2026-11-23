@@ -220,6 +220,10 @@ async def deliver_team_alert(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         if not reachable:
             # The address was removed (or its verification undone) after the alert was queued.
             await _finish(session, alert_id, "cancelled", attempt)
+            # The owner's own alert may have stood down for this one (`team_covers`).
+            await team_alert_service.owner_after_team_failed(
+                session, tenant_id=tenant_id, alert_id=alert_id, call_id=UUID(str(call_id))
+            )
             return "cancelled"
         destination = _destination(destination_row)
         phone = await _caller_phone(

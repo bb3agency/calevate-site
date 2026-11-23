@@ -420,6 +420,41 @@ async def _booked(headers: dict[str, str], lead_id: uuid.UUID, hour: int) -> str
     return str(booked.json()["callback_id"])
 
 
+async def test_two_bookings_of_one_lead_at_once_make_one_call_back() -> None:
+    """Two people (or a person and Pip) booking the same lead at the same moment book one
+    call-back between them; the second moves it rather than ringing the person twice."""
+    import asyncio
+
+    tenant_id, _headers, lead_id, _phone = await _tenant()
+    await _outbound_agent(tenant_id)
+
+    async def _book(hour: int) -> str:
+        async with tenant_session(tenant_id) as session:
+            out = await swipe.schedule_lead_callback(
+                session,
+                tenant_id=tenant_id,
+                lead_id=lead_id,
+                at=datetime.fromisoformat(_tomorrow_ist(hour)),
+                note=None,
+            )
+        assert out.status == "scheduled"
+        return str(out.callback_id)
+
+    first, second = await asyncio.gather(_book(16), _book(17))
+    assert first == second
+    async with tenant_session(tenant_id) as session:
+        waiting = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM scheduled_callbacks WHERE lead_id = :l "
+                    "AND status = 'scheduled'"
+                ),
+                {"l": lead_id},
+            )
+        ).scalar_one()
+    assert waiting == 1
+
+
 async def test_a_waiting_call_back_is_moved_inside_the_window_and_not_once_it_ended() -> None:
     tenant_id, headers, lead_id, _phone = await _tenant()
     await _outbound_agent(tenant_id)

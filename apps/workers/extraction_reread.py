@@ -334,7 +334,11 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID, *, reuse: bool = Tru
         opted_out=opt_out is not None,
     )
     call_outcome = await _record_outcome(tenant_id, call_id, snapshot)
-    business_outcome = await _record_business_outcome(tenant_id, call_id, business_outcomes)
+    # As the pipeline does: a call the facts call hung up early reaches no outcome and no
+    # goal, whatever the reading chose.
+    business_outcome = await _record_business_outcome(
+        tenant_id, call_id, business_outcomes, learned=call_outcome != "hung_up_early"
+    )
     lead_id = await _upsert_lead(
         tenant_id,
         agent_id,
