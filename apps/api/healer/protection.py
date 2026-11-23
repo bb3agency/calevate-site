@@ -215,7 +215,10 @@ async def restore_agent(
     resumed = (
         await session.execute(
             text(
-                "UPDATE campaigns SET status = CASE WHEN status = 'paused' THEN 'running' "
+                # An archived campaign stays put (F-10), as at a maintenance window's end:
+                # only Restore, then Resume, wakes it.
+                "UPDATE campaigns SET status = CASE WHEN status = 'paused' "
+                "AND archived_at IS NULL THEN 'running' "
                 "ELSE status END, paused_by_heal_id = NULL, updated_at = now() "
                 "WHERE paused_by_heal_id = :iid AND agent_id = :aid RETURNING status"
             ),
@@ -262,7 +265,10 @@ async def restore_agent(
         {"iid": incident_id, "aid": agent_id, "rq": requeued, "missed": missed},
     )
     return Restored(
-        lifted=lifted, campaigns_resumed=len(resumed), requeued=requeued, missed_calls=missed
+        lifted=lifted,
+        campaigns_resumed=sum(1 for row in resumed if row[0] == "running"),
+        requeued=requeued,
+        missed_calls=missed,
     )
 
 

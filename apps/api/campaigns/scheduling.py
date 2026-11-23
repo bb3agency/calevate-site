@@ -463,7 +463,7 @@ async def schedule_campaign(
         text(
             "UPDATE campaigns SET schedule = CAST(:sched AS jsonb), status = 'scheduled', "
             "updated_at = now() WHERE id = :cid AND tenant_id = :tid "
-            "AND status IN ('draft', 'scheduled') "
+            "AND status IN ('draft', 'scheduled') AND archived_at IS NULL "
             "RETURNING calling_hours"
         ),
         {"sched": json.dumps(payload), "cid": campaign_id, "tid": tenant_id},
@@ -591,7 +591,7 @@ async def schedule_recurrence(
         text(
             "UPDATE campaigns SET schedule = CAST(:sched AS jsonb), status = 'scheduled', "
             "updated_at = now() WHERE id = :cid AND tenant_id = :tid "
-            "AND status IN ('draft', 'scheduled') "
+            "AND status IN ('draft', 'scheduled') AND archived_at IS NULL "
             "RETURNING calling_hours"
         ),
         {"sched": json.dumps(payload), "cid": campaign_id, "tid": tenant_id},
@@ -670,13 +670,22 @@ async def _why_not_schedulable(
     Returns the error rather than raising it, so the caller's `raise` is visible at the
     call site (the same shape `declare_consent_provenance` reaches for, one level up).
     """
-    status = (
+    row = (
         await session.execute(
-            text("SELECT status FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+            text("SELECT status, archived_at IS NOT NULL FROM campaigns WHERE id = :cid"),
+            {"cid": campaign_id},
         )
-    ).scalar()
-    if status is None:
+    ).first()
+    if row is None:
         return ProblemError.not_found("Campaign")
+    status = row[0]
+    if row[1] and not unscheduling:
+        # F-10: an archived campaign never starts, so it is given no start to wait for.
+        return ProblemError.conflict(
+            "campaign_archived",
+            "This campaign is archived. Restore it first.",
+            remediation="Restore the campaign, then set its start.",
+        )
     if unscheduling:
         return ProblemError.business_rule(
             "campaign_not_scheduled",

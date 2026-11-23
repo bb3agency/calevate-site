@@ -154,6 +154,42 @@ async def test_restore_brings_it_back_paused_never_running() -> None:
     assert "campaign.restored" in await _audits(tenant_id)
 
 
+async def test_an_archived_draft_is_given_no_start_time_or_repeat() -> None:
+    """An archived campaign never starts, so a start or a repeat set on it would only fire
+    into the gate's `campaign_archived` refusal, out of sight in the Archived list."""
+    from datetime import time, timedelta
+
+    from apps.api.campaigns import scheduling
+    from apps.api.campaigns.archive import archive_campaign
+    from apps.api.core.errors import ProblemError
+
+    tenant_id, _slug, _token = await _make_tenant()
+    campaign_id = await _campaign(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await archive_campaign(session, campaign_id=campaign_id, by=None, realm="client")
+    for attempt in ("once", "weekly"):
+        with pytest.raises(ProblemError) as refused:
+            async with tenant_session(tenant_id) as session:
+                if attempt == "once":
+                    await scheduling.schedule_campaign(
+                        session,
+                        tenant_id=tenant_id,
+                        campaign_id=campaign_id,
+                        start_at=datetime.now(UTC) + timedelta(days=1),
+                    )
+                else:
+                    await scheduling.schedule_recurrence(
+                        session,
+                        tenant_id=tenant_id,
+                        campaign_id=campaign_id,
+                        days=[1, 3],
+                        at=time(10, 0),
+                    )
+        assert refused.value.code == "campaign_archived", attempt
+    row = await _row(tenant_id, campaign_id)
+    assert row[0] == "draft" and row[1] is not None
+
+
 async def test_a_draft_that_never_dialled_is_deleted_and_one_that_did_is_refused() -> None:
     tenant_id, _slug, token = await _make_tenant()
     fresh = await _campaign(tenant_id, name="Fresh")
