@@ -6,7 +6,7 @@ import CallMistakesPage from "@/app/admin/ops/call-mistakes/page";
 import CallWordsPage from "@/app/admin/ops/call-words/page";
 import { CallLinesPanel } from "@/app/admin/tenants/[tenantId]/numbers/CallLinesPanel";
 import { ToastProvider } from "@/components/arc/toast";
-import { FLEET_FIXES_PATH, PLATFORM_MISTAKES_PATH, mistakeFixedPath } from "@/lib/api/callMistakes";
+import { FLEET_FIXES_LIMIT, FLEET_FIXES_PATH, PLATFORM_MISTAKES_PATH, mistakeFixedPath } from "@/lib/api/callMistakes";
 import { CALL_WORDS_PATH } from "@/lib/api/callWords";
 
 import { CALL_WORDS, PRICING_DETAIL } from "./fixtures/callWords";
@@ -52,7 +52,7 @@ describe("an admin dialog that closes on success still says it worked", () => {
           },
         ],
       },
-      [FLEET_FIXES_PATH]: { window_days: 30, items: [] },
+      [`${FLEET_FIXES_PATH}?limit=${FLEET_FIXES_LIMIT + 1}`]: { window_days: 30, items: [] },
       [`POST ${mistakeFixedPath("said_again")}`]: { kind: "said_again", fixed_at: "2026-11-01T10:00:00Z" },
     });
     fireEvent.click(await screen.findByRole("button", { name: "Mark fixed: Said the same line again" }));

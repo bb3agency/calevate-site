@@ -829,15 +829,25 @@ async def count_listed_bands(session: AsyncSession) -> dict[HostedVoiceBand, int
     return {cast(HostedVoiceBand, band): int(count) for band, count in rows.all()}
 
 
-async def read_hosted_voice(session: AsyncSession, voice_id: str) -> HostedVoiceRow:
-    """One hosted row, or 404 for an id that is not a hosted voice we hold."""
+async def read_hosted_voice(
+    session: AsyncSession, voice_id: str, *, for_update: bool = False
+) -> HostedVoiceRow:
+    """One hosted row, or 404 for an id that is not a hosted voice we hold.
+
+    `for_update` locks the row to commit, for a write that checks a rule against it: the
+    consent rules (D-721) span columns two operators can change at once, so unlocked, one
+    enabling a voice while another marks it a person's clone both pass their checks and a
+    clone with no consent is offered."""
     if parse_hosted_voice_id(voice_id) is None:
         raise ProblemError.not_found("Voice", voice_id)
-    entry = (
-        await session.execute(
-            select(PlatformVoiceCatalogEntry).where(PlatformVoiceCatalogEntry.voice_id == voice_id)
-        )
-    ).scalar_one_or_none()
+    statement = select(PlatformVoiceCatalogEntry).where(
+        PlatformVoiceCatalogEntry.voice_id == voice_id
+    )
+    if for_update:
+        # `populate_existing`: an earlier read in this session would otherwise hand back
+        # its cached, pre-lock attributes, and the check would run on them.
+        statement = statement.with_for_update().execution_options(populate_existing=True)
+    entry = (await session.execute(statement)).scalar_one_or_none()
     if entry is None:
         raise ProblemError.not_found("Voice", voice_id)
     return row_of(entry)
@@ -872,7 +882,7 @@ async def set_hosted_curation(
     """Enable, disable or archive one hosted voice. Enabling needs it ADDED first, so a
     voice a sync merely read can never reach a picker by a stray click. The caller commits
     and audits."""
-    row = await read_hosted_voice(session, voice_id)
+    row = await read_hosted_voice(session, voice_id, for_update=True)
     if state == "enabled" and not row.added:
         raise ProblemError(
             kind="business_rule",
@@ -980,7 +990,7 @@ async def set_display_label(
     session: AsyncSession, *, voice_id: str, display_label: str | None
 ) -> HostedVoiceRow:
     """Set or clear the name clients see. The caller commits and audits."""
-    row = await read_hosted_voice(session, voice_id)
+    row = await read_hosted_voice(session, voice_id, for_update=True)
     cleaned = (display_label or "").strip() or None
     if cleaned is None and row.person_clone and row.state == "enabled":
         raise ProblemError(
@@ -1011,7 +1021,7 @@ async def set_person_clone(
     consent record is refused rather than silently taking it off the picker. Unmarking keeps
     the consent record and its document: they are evidence of what was agreed, and a mark
     set again finds them. The caller commits and audits."""
-    row = await read_hosted_voice(session, voice_id)
+    row = await read_hosted_voice(session, voice_id, for_update=True)
     if person_clone and row.state == "enabled":
         refusal = clone_offer_refusal(replace(row, person_clone=True))
         if refusal is not None:
@@ -1039,7 +1049,7 @@ async def record_clone_consent(
     Returns the record it replaced, for the audit row. `document_key` None keeps any document
     already stored, so correcting a typo does not drop the signed copy. The caller commits
     and audits."""
-    row = await read_hosted_voice(session, voice_id)
+    row = await read_hosted_voice(session, voice_id, for_update=True)
     if row.display_label is not None and name_reveals_speaker(row.display_label, speaker_name):
         raise _speaker_named(row.display_label, speaker_name)
     await session.execute(

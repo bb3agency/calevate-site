@@ -479,6 +479,7 @@ function AdminBuyNumber({
                 agent_id: agentId === NO_AGENT ? null : agentId,
                 direction: "both",
                 request_key: requestKey,
+                inr_per_month: chosen.client_inr_per_month,
               },
               {
                 onSuccess: (result) => {

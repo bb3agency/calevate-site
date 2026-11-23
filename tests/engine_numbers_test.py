@@ -22,6 +22,7 @@ import pytest
 from apps.api.admin import number_routes
 from apps.api.campaigns import engine_numbers, number_catalog
 from apps.api.campaigns.number_pricing import record_attested_price_inr
+from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.fake import FakeEngine
@@ -413,6 +414,30 @@ async def test_a_refused_record_puts_the_test_line_back(
             expected_revision=await current_revision(session, "trial_caller_number"),
         )
     assert stored == f"+{trial}"
+
+
+async def test_the_trial_number_may_not_be_the_forwarding_tests_second_number(
+    vendor: FakeVendor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The forwarding test rings from both numbers at once; the second number's save refused
+    the trial number, and the trial number's save must refuse the second number too."""
+    from apps.api.ops.config_service import current_revision, set_value
+
+    admin_id, _headers = await _admin()
+    second = _number()
+    vendor.hold(second)
+    monkeypatch.setattr(get_settings(), "forwarding_test_second_number", f"+{second}")
+    async with untenanted_session() as session:
+        with pytest.raises(ProblemError) as refused:
+            await set_value(
+                session,
+                key="trial_caller_number",
+                value=f"+{second}",
+                note="same as the second number",
+                actor_id=admin_id,
+                expected_revision=await current_revision(session, "trial_caller_number"),
+            )
+    assert refused.value.code == "forwarding_second_number_is_trial_number"
 
 
 async def test_the_trial_number_answered_by_calevates_line_agent_can_be_given(

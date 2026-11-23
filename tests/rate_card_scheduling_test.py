@@ -26,6 +26,7 @@ literal would be a second opinion about the ladder the margin guard scores.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -448,6 +449,15 @@ async def test_a_second_card_at_the_same_instant_is_refused_not_overwritten() ->
     second = await _post(at, _rise("0.60"))
     assert second.status_code == 409, second.text
     assert _code(second) == "rate_card_already_scheduled"
+
+
+async def test_two_cards_saved_at_one_instant_at_once_give_one_card_and_one_refusal() -> None:
+    """Both saves used to find no card and the second INSERT hit the primary key as a 500."""
+    at = _later()
+    first, second = await asyncio.gather(_post(at, _rise()), _post(at, _rise("0.60")))
+    assert sorted((first.status_code, second.status_code)) == [201, 409], (first.text, second.text)
+    refused = first if first.status_code == 409 else second
+    assert _code(refused) == "rate_card_already_scheduled"
 
 
 async def test_a_write_without_the_step_up_header_is_refused() -> None:

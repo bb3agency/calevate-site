@@ -3,7 +3,12 @@ import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsHealerPage from "@/app/admin/ops/healer/page";
-import type { HealerAction, HealerIncident, HealerOverview } from "@/lib/api/opsHealer";
+import {
+  HEALER_LIST_LIMIT,
+  type HealerAction,
+  type HealerIncident,
+  type HealerOverview,
+} from "@/lib/api/opsHealer";
 import openapi from "@/lib/api/openapi.json";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
@@ -182,8 +187,8 @@ function routes(extra: Record<string, unknown> = {}) {
   return {
     [ADMIN_ME_PATH]: ME,
     "/v1/ops/healer": OVERVIEW,
-    "/v1/ops/healer/incidents?days=7&limit=50": { items: INCIDENTS },
-    "/v1/ops/healer/actions?limit=50": { items: ACTIONS },
+    "/v1/ops/healer/incidents?days=7&limit=51": { items: INCIDENTS },
+    "/v1/ops/healer/actions?limit=51": { items: ACTIONS },
     ...extra,
   };
 }
@@ -212,6 +217,33 @@ describe("auto-healer screen in plain words", () => {
     expect(row("Background jobs failed after every retry").textContent).toContain(
       "Fixed automatically after 3 tries",
     );
+  });
+
+  it("says when the problems and the actions are more than it shows", async () => {
+    const problems = Array.from({ length: HEALER_LIST_LIMIT + 1 }, (_, n) =>
+      incident({ id: `019f1000-0000-7000-8000-${String(n).padStart(12, "0")}`, ref: `r${n}` }),
+    );
+    const actions = Array.from({ length: HEALER_LIST_LIMIT + 1 }, (_, n) => ({
+      ...ACTIONS[0]!,
+      id: `019f2000-0000-7000-8000-${String(n).padStart(12, "0")}`,
+    }));
+    await renderAdminRoute(
+      <OpsHealerPage />,
+      routes({
+        "/v1/ops/healer/incidents?days=7&limit=51": { items: problems },
+        "/v1/ops/healer/actions?limit=51": { items: actions },
+      }),
+    );
+    await settle();
+    expect(screen.getByText(/most recent problems of the last 7 days; there are more/)).toBeTruthy();
+    expect(screen.getByText(/older ones are not listed/)).toBeTruthy();
+  });
+
+  it("says nothing about more when the lists are whole", async () => {
+    await renderAdminRoute(<OpsHealerPage />, routes());
+    await settle();
+    expect(screen.queryByText(/there are more/)).toBeNull();
+    expect(screen.queryByText(/older ones are not listed/)).toBeNull();
   });
 
   it("keeps codes off the visible rows", async () => {
@@ -312,7 +344,7 @@ describe("auto-healer screen in plain words", () => {
     const { calls } = await renderAdminRoute(
       <OpsHealerPage />,
       routes({
-        "/v1/ops/healer/incidents?days=7&limit=50": { items: [...INCIDENTS, second] },
+        "/v1/ops/healer/incidents?days=7&limit=51": { items: [...INCIDENTS, second] },
         [`POST /v1/ops/healer/incidents/${webhooks.id}/retry`]: stillLoading(),
       }),
     );
@@ -405,7 +437,7 @@ describe("an open problem's status page notice", () => {
   });
   const withOutage = (extra: Record<string, unknown> = {}) =>
     routes({
-      "/v1/ops/healer/incidents?days=7&limit=50": { items: [outage, ...INCIDENTS] },
+      "/v1/ops/healer/incidents?days=7&limit=51": { items: [outage, ...INCIDENTS] },
       ...extra,
     });
 

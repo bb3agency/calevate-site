@@ -6,6 +6,7 @@ import CallMistakesPage from "@/app/admin/ops/call-mistakes/page";
 import { CallMistakes } from "@/components/improvement/CallMistakes";
 import type { Me } from "@/lib/api/client";
 import {
+  FLEET_FIXES_LIMIT,
   FLEET_FIXES_PATH,
   PLATFORM_MISTAKES_PATH,
   agentMistakesPath,
@@ -17,6 +18,9 @@ import {
 } from "@/lib/api/callMistakes";
 
 import { problem, renderAdminPage, renderClientPage, stillLoading, type Routes } from "./harness";
+
+/** The fleet list asks for one more fix than it shows, to know when it is cut. */
+const FIXES = `${FLEET_FIXES_PATH}?limit=${FLEET_FIXES_LIMIT + 1}`;
 
 /**
  * Mistakes on real calls (D-949). The client card must word each state as ours to fix and
@@ -265,7 +269,7 @@ function adminRoutes(over: Routes = {}): Routes {
         }),
       ],
     },
-    [FLEET_FIXES_PATH]: { window_days: 30, items: [] },
+    [FIXES]: { window_days: 30, items: [] },
     ...over,
   };
 }
@@ -296,7 +300,7 @@ describe("Ops > Call mistakes", () => {
     renderAdminPage(
       <CallMistakesPage />,
       adminRoutes({
-        [FLEET_FIXES_PATH]: {
+        [FIXES]: {
           window_days: 30,
           items: [
             fleetFix(),
@@ -323,6 +327,21 @@ describe("Ops > Call mistakes", () => {
     // What opened each fix (D-989).
     expect(live?.textContent).toContain("Seen on a call");
     expect(back?.textContent).toContain("Found in the script before any call");
+  });
+
+  it("says when the script fixes are more than it shows", async () => {
+    const many = Array.from({ length: FLEET_FIXES_LIMIT + 1 }, (_, n) => fleetFix({ id: `fix-${n}` }));
+    renderAdminPage(<CallMistakesPage />, adminRoutes({ [FIXES]: { window_days: 30, items: many } }));
+    const table = await screen.findByRole("table", { name: "Script fixes by agent" });
+    // The header row plus the shown fixes, never the extra one fetched to detect the cut.
+    expect(within(table).getAllByRole("row").length).toBeLessThanOrEqual(FLEET_FIXES_LIMIT + 1);
+    expect(await screen.findByText(/there are more/)).toBeTruthy();
+  });
+
+  it("says nothing about more when every fix is shown", async () => {
+    renderAdminPage(<CallMistakesPage />, adminRoutes({ [FIXES]: { window_days: 30, items: [fleetFix()] } }));
+    await screen.findByRole("table", { name: "Script fixes by agent" });
+    expect(screen.queryByText(/there are more/)).toBeNull();
   });
 
   it("lists each kind with its counts, state and fix note", async () => {

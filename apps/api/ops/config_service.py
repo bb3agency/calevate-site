@@ -665,6 +665,15 @@ async def _gated_value(session: AsyncSession, key: str, stored: Any) -> Any:
         from apps.api.ops.trial_number import assert_trial_number_selectable
 
         await assert_trial_number_selectable(stored)
+        # The same rule as the second number's save, from this side: the forwarding test
+        # rings from both at once, which one number cannot carry.
+        if stored is not None and stored == get_settings().forwarding_test_second_number:
+            raise ProblemError.business_rule(
+                "forwarding_second_number_is_trial_number",
+                "The shared trial number must be a different number from the forwarding "
+                "test's second number.",
+                remediation="Pick another number, or change the second number first.",
+            )
     # The forwarding test's second number: the same kind of number, and not the first one,
     # which could not ring a second call at once (D-746).
     if key == "forwarding_test_second_number":

@@ -13,6 +13,7 @@ rows as the OWNER (`tests/model_pricing_test._purge_table`).
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import AsyncIterator
 
@@ -339,3 +340,27 @@ async def test_retiring_an_added_entry_frees_room_for_another() -> None:
         assert retired.status_code == 200, retired.text
         room = await http.post(f"{BASE}/entries", headers=_auth(token), json=add)
     assert room.status_code == 200, room.text
+
+
+async def test_an_entry_change_waits_for_a_publication_of_its_language() -> None:
+    """A publication covers every revision up to the highest it reads; an entry change that
+    committed after that read could fall inside it unreviewed. Both take the language's
+    lock, so a change made during a publication lands after it."""
+    token, _ = await _make_admin()
+    async with _client() as http:
+        async with untenanted_session() as publishing:
+            await publishing.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": f"spoken_style:{LANGUAGE}"},
+            )
+            change = asyncio.create_task(
+                http.post(
+                    f"{BASE}/entries",
+                    headers=_auth(token),
+                    json={"kind": "register", "key": "line", "action": "approve"},
+                )
+            )
+            await asyncio.sleep(0.5)
+            assert not change.done(), "the entry change did not wait for the language's lock"
+        response = await change
+    assert response.status_code == 200, response.text

@@ -29,7 +29,9 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { adminSession, confirmedAdminRequest } from "./admin";
+import { businessTypeKeys } from "./businessType";
 import { apiRequest } from "./client";
+import { leadFieldsKeys } from "./leadFields";
 
 import type { components } from "./schema";
 
@@ -114,8 +116,14 @@ export function useEditTenant(tenantId: string) {
             method: "PATCH",
             body: changes,
           }),
-    onSuccess: () => {
+    onSuccess: (_data, changes) => {
       void client.invalidateQueries({ queryKey: ["admin", "tenant-profile", tenantId] });
+      if (changes.vertical_template != null) {
+        // The type also decides the lead details offered and clears an unconfirmed one, as
+        // the business type page's own confirm does.
+        void client.invalidateQueries({ queryKey: leadFieldsKeys.admin(tenantId) });
+        void client.invalidateQueries({ queryKey: businessTypeKeys.admin(tenantId) });
+      }
       // The name and the vertical are printed under the client's heading on the detail
       // screen and in the directory; a stale one there is the console telling an operator
       // the correction did not take.

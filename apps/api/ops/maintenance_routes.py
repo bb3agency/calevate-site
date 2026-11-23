@@ -484,6 +484,7 @@ async def cancel_maintenance(
     `active` are reached through `/end`, and the refusal below names it.
     """
     step_up.require(x_confirm_action, maintenance_confirmation("cancel_maintenance", window_id))
+    was = (await read_window(session, window_id)).state
     changed = await cancel_window(session, window_id=window_id)
     window = await read_window(session, window_id)
     if changed:
@@ -494,7 +495,7 @@ async def cancel_maintenance(
             object_type="platform_maintenance_window",
             object_id=str(window.id),
             ip=client_request_ip(request),
-            summary={"was": window.state, "starts_at": window.starts_at.isoformat()},
+            summary={"was": was, "starts_at": window.starts_at.isoformat()},
         )
         # A window cancelled mid-DRAIN owes the same restoration as one that completes:
         # campaigns to resume, agents to put back. The tick does it either way — it reads

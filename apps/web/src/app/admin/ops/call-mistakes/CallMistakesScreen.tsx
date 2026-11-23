@@ -27,6 +27,7 @@ import {
   FIX_FOUND_BY_WORDS,
   FIX_NOTE_MAX,
   FIX_STATE_WORDS,
+  FLEET_FIXES_LIMIT,
   useFleetFixes,
   useMarkMistakeFixed,
   usePlatformMistakes,
@@ -388,13 +389,21 @@ function ScriptFixes() {
       ) : !fixes.data ? (
         <Skeleton rows={3} label="Loading the script fixes" />
       ) : (
-        <DataTable
-          rows={fixes.data.items}
-          columns={columns}
-          getRowId={(row) => row.id}
-          label="Script fixes by agent"
-          empty="No script fixes yet."
-        />
+        <>
+          <DataTable
+            rows={fixes.data.items}
+            columns={columns}
+            getRowId={(row) => row.id}
+            label="Script fixes by agent"
+            empty="No script fixes yet."
+          />
+          {fixes.data.more && (
+            <p className="mt-2 text-meta text-ink-muted">
+              Showing {FLEET_FIXES_LIMIT} of the fixes from the last {fixes.data.window_days} days, the ones
+              in progress first; there are more.
+            </p>
+          )}
+        </>
       )}
     </Section>
   );

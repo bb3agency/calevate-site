@@ -30,6 +30,7 @@ import {
   type NoticeTone,
 } from "@/components/ui";
 import {
+  HEALER_LIST_LIMIT,
   useHealerActions,
   useHealerIncidents,
   useHealerOverview,
@@ -268,6 +269,11 @@ function Incidents() {
             />
           ))}
         </ul>
+      )}
+      {incidents.data?.more && (
+        <p className="mt-2 text-meta text-ink-muted">
+          Showing the {HEALER_LIST_LIMIT} most recent problems of the last 7 days; there are more.
+        </p>
       )}
       {resolving && (
         <ConfirmDialog
@@ -652,6 +658,11 @@ function Ledger({ titles }: { titles: Record<string, string> }) {
             </li>
           ))}
         </ul>
+      )}
+      {actions.data?.more && (
+        <p className="mt-2 text-meta text-ink-muted">
+          Showing the {HEALER_LIST_LIMIT} most recent; older ones are not listed.
+        </p>
       )}
     </Section>
   );

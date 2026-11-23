@@ -4338,7 +4338,7 @@ const ADMIN_SCREENS: Screen[] = [
         shadow: ["voice_fallback"],
         metrics: { days: 7, actions: 4, failed: 1, undone: 0, shadow: 1, recurrences: 0 },
       },
-      "/v1/ops/healer/incidents?days=7&limit=50": {
+      "/v1/ops/healer/incidents?days=7&limit=51": {
         items: [
           {
             id: "019f1000-0000-7000-8000-0000000000i1",
@@ -4370,7 +4370,7 @@ const ADMIN_SCREENS: Screen[] = [
           },
         ],
       },
-      "/v1/ops/healer/actions?limit=50": {
+      "/v1/ops/healer/actions?limit=51": {
         items: [
           {
             id: "019f1000-0000-7000-8000-0000000000l1",
@@ -5028,7 +5028,7 @@ const ADMIN_SCREENS: Screen[] = [
           { kind: "opened_again", label: "Greeted the caller again in the middle of the call", calls_7d: 0, calls_30d: 1, accounts_30d: 1, calls_since_fix: 0, last_seen_at: "2026-08-01T04:30:00Z", fixed_at: "2026-08-05T04:30:00Z", fix_note: "Greet once.", fixed_by: null, state: "fixed" },
         ],
       },
-      "/v1/ops/call-mistakes/fixes": {
+      "/v1/ops/call-mistakes/fixes?limit=101": {
         window_days: 30,
         items: [
           { id: "01a1a188-0000-7000-8000-000000000001", client_slug: "acme", agent_id: "01a1a188-0000-7000-8000-000000000002", agent_name: "Asha", kind: "said_again", label: "Said the same line again", state: "live", ended_because: null, attempts: 1, version_before: 3, version_after: 4, live_at: "2026-08-13T05:00:00Z", settled_at: null, created_at: "2026-08-13T04:40:00Z", found_by: "call" },

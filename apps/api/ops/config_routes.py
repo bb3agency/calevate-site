@@ -2220,6 +2220,12 @@ async def record_rate_card(
     fx = usd_inr_rate_now()
     inputs = await _deployment_floor_inputs(session, fx=fx)
     _refuse_bad_card(card, own_model_prompt_tokens=prompt_tokens, inputs=inputs)
+    # Held to commit, before the check the INSERT depends on: two saves at one instant both
+    # found no card and the second INSERT hit the primary key as a 500.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"rate_card:{payload.effective_from.astimezone(UTC).isoformat()}"},
+    )
     if await card_is_scheduled(session, effective_from=payload.effective_from):
         raise ProblemError(
             kind="conflict",
@@ -2229,10 +2235,9 @@ async def record_rate_card(
                 f"A rate card is already recorded for {payload.effective_from.isoformat()}, "
                 "and rate history is append-only — it cannot be overwritten."
             ),
-            remediation=(
-                "Withdraw the scheduled card first (it has not taken effect, so nothing has "
-                "been priced at it), then record this one; or choose a different instant."
-            ),
+            # Not "withdraw it first": a withdrawn card keeps its instant (the withdrawal row
+            # would apply to a new card there too), so only another instant can be used.
+            remediation="Choose a different instant. A withdrawn card's instant stays used.",
         )
     _log_margins(card, own_model_prompt_tokens=prompt_tokens, inputs=inputs)
     at = await record_card(

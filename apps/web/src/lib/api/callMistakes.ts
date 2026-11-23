@@ -92,10 +92,24 @@ export function useMarkMistakeFixed() {
 
 export const fleetFixesKey = ["admin", "ops", "call-mistakes", "fixes"] as const;
 
-export function useFleetFixes(enabled = true): UseQueryResult<FleetFixes> {
+/** How many script fixes the fleet list shows (the server's default page). */
+export const FLEET_FIXES_LIMIT = 100;
+
+/** One more than is shown is asked for, so a full list says whether it is the whole. */
+export function useFleetFixes(enabled = true): UseQueryResult<FleetFixes & { more: boolean }> {
   return useQuery({
     queryKey: fleetFixesKey,
-    queryFn: () => apiRequest<FleetFixes>(adminSession(), FLEET_FIXES_PATH),
+    queryFn: async () => {
+      const page = await apiRequest<FleetFixes>(
+        adminSession(),
+        `${FLEET_FIXES_PATH}?limit=${FLEET_FIXES_LIMIT + 1}`,
+      );
+      return {
+        ...page,
+        items: page.items.slice(0, FLEET_FIXES_LIMIT),
+        more: page.items.length > FLEET_FIXES_LIMIT,
+      };
+    },
     enabled,
   });
 }

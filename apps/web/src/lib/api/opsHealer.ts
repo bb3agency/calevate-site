@@ -48,26 +48,49 @@ export function useHealerOverview(): UseQueryResult<HealerOverview> {
   });
 }
 
-export function useHealerIncidents(): UseQueryResult<{ items: HealerIncident[] }> {
+/** How many incidents or actions a list shows. */
+export const HEALER_LIST_LIMIT = 50;
+
+/** A list cut at `HEALER_LIST_LIMIT`, and whether more exist beyond it. */
+export interface HealerPage<T> {
+  items: T[];
+  more: boolean;
+}
+
+/** One more row than is shown is asked for, so a full page says whether it is the whole. */
+function pageOf<T>(items: T[]): HealerPage<T> {
+  return { items: items.slice(0, HEALER_LIST_LIMIT), more: items.length > HEALER_LIST_LIMIT };
+}
+
+export function useHealerIncidents(): UseQueryResult<HealerPage<HealerIncident>> {
   return useQuery({
     queryKey: opsHealerKeys.incidents,
-    queryFn: () =>
-      apiRequest<Schemas["IncidentsOut"]>(
-        adminSession(),
-        `${OPS_HEALER_PATH}/incidents?days=7&limit=50`,
+    queryFn: async () =>
+      pageOf(
+        (
+          await apiRequest<Schemas["IncidentsOut"]>(
+            adminSession(),
+            `${OPS_HEALER_PATH}/incidents?days=7&limit=${HEALER_LIST_LIMIT + 1}`,
+          )
+        ).items,
       ),
   });
 }
 
-export function useHealerActions(incidentId: string | null): UseQueryResult<{ items: HealerAction[] }> {
+export function useHealerActions(incidentId: string | null): UseQueryResult<HealerPage<HealerAction>> {
+  const limit = HEALER_LIST_LIMIT + 1;
   return useQuery({
     queryKey: opsHealerKeys.actions(incidentId),
-    queryFn: () =>
-      apiRequest<Schemas["ActionsOut"]>(
-        adminSession(),
-        incidentId === null
-          ? `${OPS_HEALER_PATH}/actions?limit=50`
-          : `${OPS_HEALER_PATH}/actions?limit=50&incident_id=${encodeURIComponent(incidentId)}`,
+    queryFn: async () =>
+      pageOf(
+        (
+          await apiRequest<Schemas["ActionsOut"]>(
+            adminSession(),
+            incidentId === null
+              ? `${OPS_HEALER_PATH}/actions?limit=${limit}`
+              : `${OPS_HEALER_PATH}/actions?limit=${limit}&incident_id=${encodeURIComponent(incidentId)}`,
+          )
+        ).items,
       ),
   });
 }

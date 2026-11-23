@@ -285,6 +285,42 @@ async def test_an_announced_window_may_be_moved_and_re_announces() -> None:
         await _clear_windows()
 
 
+async def test_a_cancellation_is_audited_with_the_state_it_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The row read the window after cancelling it, so it always said it was `cancelled`."""
+    from apps.api.main import app
+    from apps.api.ops import maintenance_routes
+    from apps.api.ops.maintenance_routes import maintenance_confirmation
+    from httpx import ASGITransport, AsyncClient
+    from tests.admin_security_test import _make_admin
+
+    summaries: list[dict[str, Any]] = []
+    real_write_audit = maintenance_routes.write_audit
+
+    async def recording(*args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("action") == "ops.maintenance_cancelled":
+            summaries.append(kwargs["summary"])
+        return await real_write_audit(*args, **kwargs)
+
+    monkeypatch.setattr(maintenance_routes, "write_audit", recording)
+    window_id = await _schedule()
+    try:
+        token = await _make_admin()
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as http:
+            response = await http.post(
+                f"/v1/ops/maintenance/{window_id}/cancel",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "X-Confirm-Action": maintenance_confirmation("cancel_maintenance", window_id),
+                },
+            )
+        assert response.status_code == 200, response.text
+        assert [s["was"] for s in summaries] == ["scheduled"]
+    finally:
+        await _clear_windows()
+
+
 async def test_a_window_that_has_begun_is_never_rescheduled() -> None:
     """The half of the original rule that stands. A draining or active window has already
     paused the campaigns and changed what agents say — its start is history, and there is
