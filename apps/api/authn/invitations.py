@@ -108,7 +108,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service as admin_service
-from apps.api.authn.credentials import set_password
+from apps.api.authn.credentials import credential_still_holds, set_password
 from apps.api.authn.service import has_password
 from apps.api.authn.sessions import IssuedSession, issue_session, revoke_subject_sessions
 from apps.api.authn.subjects import load_subject, mark_email_verified
@@ -241,8 +241,9 @@ async def accept_with_password(
             and not await _address_proved(user_id)
         )
 
+        proved: str | None = None
         if not created and not reclaiming:
-            await _prove_existing_account(user_id, password=password, at=at, ip=ip)
+            proved = await _prove_existing_account(user_id, password=password, at=at, ip=ip)
 
         revoked = 0
         first_password = not reclaiming and not await has_password(INVITE_REALM, user_id)
@@ -322,6 +323,12 @@ async def accept_with_password(
             )
 
     async with credential_session() as session:
+        # The membership stands either way; a password changed since it was proved signs
+        # nobody in, as `service.sign_in` refuses the same overlap.
+        if proved is not None and not await credential_still_holds(
+            session, realm=INVITE_REALM, subject_id=user_id, password_hash=proved
+        ):
+            raise _existing_password_needed()
         issued = await issue_session(session, realm=INVITE_REALM, subject_id=user_id, now=at)
     return AcceptedInvitation(
         tenant_id=tenant_id,
@@ -374,9 +381,11 @@ async def _address_proved(user_id: UUID) -> bool:
 
 async def _prove_existing_account(
     user_id: UUID, *, password: str, at: datetime, ip: str | None
-) -> None:
+) -> str | None:
     """An invitation adds a membership to an account that already exists; it must not also
-    sign the link holder in as that account, or give it a password.
+    sign the link holder in as that account, or give it a password. Answers the password
+    hash proved, which the session issue re-checks (`credentials.credential_still_holds`),
+    or `None` when the account had no password.
 
     The link is a key to the MEMBERSHIP, and it gets forwarded. Before this check a holder
     redeeming against an existing account had the password they typed ignored and was handed
@@ -390,34 +399,22 @@ async def _prove_existing_account(
     - an account with no password and an unproved address is the row an earlier redemption
       of THIS flow created before its password was refused, and the retry sets it as before.
     """
-    from apps.api.authn.credentials import authenticate_subject
+    from apps.api.authn.credentials import proved_password_hash
     from apps.api.authn.service import _equalise
     from apps.api.authn.throttle import clear_password, reserve_password
 
     if await has_password(INVITE_REALM, user_id):
         attempt = await reserve_password(realm=INVITE_REALM, subject_id=user_id, source=ip)
         async with credential_session() as session:
-            ok = await authenticate_subject(
+            proved = await proved_password_hash(
                 session, realm=INVITE_REALM, subject_id=user_id, password=password, now=at
             )
-        if not ok:
+        if proved is None:
             await _equalise(attempt)
             log.info("auth_invitation_existing_password_wrong", extra={"user_id": str(user_id)})
-            raise ProblemError(
-                kind="auth",
-                code="invitation_existing_account_password",
-                title="Enter the password of your existing account",
-                detail=(
-                    "An account already exists for this address. Joining with this "
-                    "invitation needs that account's current password."
-                ),
-                remediation=(
-                    "Type the password you sign in with, or reset it from the sign-in page "
-                    "and open this invitation again."
-                ),
-            )
+            raise _existing_password_needed()
         await clear_password(realm=INVITE_REALM, subject_id=user_id, source=ip)
-        return
+        return proved
     subject = await load_subject(INVITE_REALM, user_id)
     if subject is not None and subject.email_verified_at is not None:
         log.info("auth_invitation_password_on_proved_account", extra={"user_id": str(user_id)})
@@ -431,6 +428,23 @@ async def _prove_existing_account(
             ),
             remediation="Choose 'Accept with Google' on this page.",
         )
+    return None
+
+
+def _existing_password_needed() -> ProblemError:
+    return ProblemError(
+        kind="auth",
+        code="invitation_existing_account_password",
+        title="Enter the password of your existing account",
+        detail=(
+            "An account already exists for this address. Joining with this "
+            "invitation needs that account's current password."
+        ),
+        remediation=(
+            "Type the password you sign in with, or reset it from the sign-in page "
+            "and open this invitation again."
+        ),
+    )
 
 
 async def invited_address(token: str) -> str | None:

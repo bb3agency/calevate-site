@@ -76,7 +76,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.authn import otp, tokens
-from apps.api.authn.credentials import authenticate_subject, set_password
+from apps.api.authn.credentials import (
+    authenticate_subject,
+    credential_still_holds,
+    proved_password_hash,
+    set_password,
+)
 from apps.api.authn.hashing import verify_password
 from apps.api.authn.locks import lock_subject_credentials
 from apps.api.authn.models import refuse_unknown_realm
@@ -295,10 +300,10 @@ async def sign_in(
 
     attempt = await reserve_password(realm=realm, subject_id=subject.subject_id, source=ip)
     async with credential_session() as session:
-        ok = await authenticate_subject(
+        proved = await proved_password_hash(
             session, realm=realm, subject_id=subject.subject_id, password=password, now=at
         )
-    if not ok:
+    if proved is None:
         await _audit(
             action="auth.login_failed",
             realm=realm,
@@ -313,6 +318,16 @@ async def sign_in(
 
     needs_second_factor = realm in MFA_REQUIRED_REALMS
     async with credential_session() as session:
+        # A reset or change that committed since the check above revoked every session
+        # that existed then, and this one did not exist yet.
+        if not await credential_still_holds(
+            session, realm=realm, subject_id=subject.subject_id, password_hash=proved
+        ):
+            log.info(
+                "auth_login_password_changed_meanwhile",
+                extra={"realm": realm, "subject_id": str(subject.subject_id)},
+            )
+            raise _invalid_credentials()
         issued = await issue_session(session, realm=realm, subject_id=subject.subject_id, now=at)
         mail_code = needs_second_factor
         if needs_second_factor:

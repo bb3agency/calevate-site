@@ -100,14 +100,14 @@ async def test_a_concurrent_burst_of_wrong_passwords_is_bounded_by_the_budget(
     _user_id, email = live_user
     monkeypatch.setattr(service, "_equalise", _no_delay)
     verified = 0
-    real = service.authenticate_subject
+    real = service.proved_password_hash
 
-    async def counting(*args: object, **kwargs: object) -> bool:
+    async def counting(*args: object, **kwargs: object) -> str | None:
         nonlocal verified
         verified += 1
         return await real(*args, **kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(service, "authenticate_subject", counting)
+    monkeypatch.setattr(service, "proved_password_hash", counting)
 
     codes = await _burst_sign_in(email)
 
@@ -176,10 +176,10 @@ async def test_an_unreachable_counter_refuses_rather_than_verifying(
 
     monkeypatch.setattr(throttle, "get_redis", lambda: _Down())
 
-    async def must_not_run(*_args: object, **_kwargs: object) -> bool:
+    async def must_not_run(*_args: object, **_kwargs: object) -> str | None:
         raise AssertionError("a password was verified with no budget to charge it to")
 
-    monkeypatch.setattr(service, "authenticate_subject", must_not_run)
+    monkeypatch.setattr(service, "proved_password_hash", must_not_run)
 
     with pytest.raises(ProblemError) as refused:
         await service.sign_in(realm=REALM, email=email, password=PASSWORD, ip=None)

@@ -111,7 +111,15 @@ MIN_EXEMPTION_REASON = 40
 #: CLIENT'S OWN STAFF or to ours — a different data principal on a different lawful basis,
 #: whose data ends with the ENGAGEMENT and not with one caller's §12 request. That is the
 #: same distinction `_erase_handoff_briefs` makes about `destination_e164`.
-_SUBJECT_HANDLE_COLUMNS = ("phone", "subject_ref", "erased_subject_ref", "caller_ref")
+#: `test_numbers` (`organizations`) is a list of E.164 numbers a test call rang, which can be
+#: anybody's phone.
+_SUBJECT_HANDLE_COLUMNS = (
+    "phone",
+    "subject_ref",
+    "erased_subject_ref",
+    "caller_ref",
+    "test_numbers",
+)
 
 _SUBJECT_HANDLE_SQL = text(
     "SELECT DISTINCT c.relname FROM pg_class c "

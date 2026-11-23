@@ -106,7 +106,29 @@ async def authenticate_subject(
     password: str,
     now: datetime | None = None,
 ) -> bool:
-    """Does this plaintext match this subject's stored password?
+    """Does this plaintext match this subject's stored password? See `proved_password_hash`."""
+    return (
+        await proved_password_hash(
+            session, realm=realm, subject_id=subject_id, password=password, now=now
+        )
+        is not None
+    )
+
+
+async def proved_password_hash(
+    session: AsyncSession,
+    *,
+    realm: str,
+    subject_id: UUID,
+    password: str,
+    now: datetime | None = None,
+) -> str | None:
+    """The stored hash this plaintext matched (the upgraded one after a re-hash), or `None`.
+
+    A caller that issues a session afterwards hands the hash to `credential_still_holds` in
+    the issuing transaction. The password can change between this check and that write, and
+    the change revokes the sessions that exist when it commits, so without the re-check a
+    sign-in overlapping a reset keeps a session the reset was meant to end.
 
     A subject with NO credential row is answered `False` — after a full-cost dummy
     verification, so that "this account has no password yet" and "wrong password" take the
@@ -141,10 +163,10 @@ async def authenticate_subject(
     stored = str(row[0]) if row is not None else None
 
     verdict = await verify_password(password, stored)
-    if not verdict.ok:
+    if not verdict.ok or stored is None:
         log.info("password_rejected", extra={"realm": realm, "subject_id": str(subject_id)})
-        return False
-    if verdict.needs_rehash and stored is not None:
+        return None
+    if verdict.needs_rehash:
         try:
             fresh = await hash_password(password)
         except ProblemError:
@@ -154,8 +176,8 @@ async def authenticate_subject(
             log.warning(
                 "password_rehash_refused", extra={"realm": realm, "subject_id": str(subject_id)}
             )
-            return True
-        await session.execute(
+            return stored
+        upgraded = await session.execute(
             text(
                 "UPDATE auth_credentials SET password_hash = :fresh, updated_at = :now "
                 "WHERE realm = :realm AND subject_id = :sub AND password_hash = :stale"
@@ -168,8 +190,37 @@ async def authenticate_subject(
                 "stale": stored,
             },
         )
+        if rowcount_of(upgraded) == 0:
+            # A concurrent `set_password` replaced the hash first; `credential_still_holds`
+            # refuses the one this plaintext matched.
+            return stored
         log.info("password_rehashed", extra={"realm": realm, "subject_id": str(subject_id)})
-    return True
+        return fresh
+    return stored
+
+
+async def credential_still_holds(
+    session: AsyncSession, *, realm: str, subject_id: UUID, password_hash: str
+) -> bool:
+    """Is `password_hash` (from `proved_password_hash`) still this subject's password?
+    Asked in the transaction that issues the session.
+
+    `FOR SHARE` holds the answer until that transaction commits: a `set_password` or
+    `delete_password` arriving meanwhile waits on the row, and its session revocation then
+    runs after the new session is committed and revokes it too. One that committed first has
+    already changed or removed the row, and this answers `False`.
+    """
+    refuse_unknown_realm(realm)
+    row = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM auth_credentials WHERE realm = :realm AND subject_id = :sub "
+                "AND password_hash = :hash FOR SHARE"
+            ),
+            {"realm": realm, "sub": subject_id, "hash": password_hash},
+        )
+    ).first()
+    return row is not None
 
 
 async def subjects_with_password(
@@ -235,4 +286,11 @@ async def delete_password(session: AsyncSession, *, realm: str, subject_id: UUID
     return removed
 
 
-__all__ = ["authenticate_subject", "delete_password", "set_password", "subjects_with_password"]
+__all__ = [
+    "authenticate_subject",
+    "credential_still_holds",
+    "delete_password",
+    "proved_password_hash",
+    "set_password",
+    "subjects_with_password",
+]
