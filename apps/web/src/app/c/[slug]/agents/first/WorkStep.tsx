@@ -27,12 +27,17 @@ export function WorkStep({
   run,
   agent,
   work,
+  readError = null,
+  onRetryRead,
   onBack,
   onDone,
 }: {
   run: FirstRun;
   agent: Agent;
   work: FirstWork | null;
+  /** The work's own read failed: its script is unknown, not still being written. */
+  readError?: Error | null;
+  onRetryRead?: () => void;
   onBack: () => void;
   onDone: () => void;
 }) {
@@ -80,7 +85,9 @@ export function WorkStep({
       </fieldset>
 
       {work && !work.ready ? (
-        work.failed ? (
+        readError ? (
+          <ProblemNotice error={readError} onRetry={onRetryRead} />
+        ) : work.failed ? (
           <div role="alert" className="space-y-2">
             <p className="text-body text-ink">{FIRST.workFailed}</p>
             <Link href={href(workHref(session.orgSlug, work))} className={SECONDARY_BUTTON}>

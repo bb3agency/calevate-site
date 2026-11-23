@@ -107,6 +107,9 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const line = useInboundLine(session, lineId ?? "", lineId !== null);
   const campaign = useCampaignWorkspace(session, campaignId ?? "", campaignId !== null);
   const work = firstWorkOf(run.data, { line: line.data, campaign: campaign.data });
+  // The read behind `work`: when it fails the work has no script to show, which must read as
+  // the failure it is rather than as Pip still writing.
+  const workRead = work?.kind === "campaign" ? campaign : line;
   const [stage, setStage] = useState<Stage | null>(null);
   const [pip, setPip] = useState(false);
   const [lastCall, setLastCall] = useState<CallSummary | null>(null);
@@ -206,6 +209,8 @@ export function MeetYourAgent({ slug }: { slug: string }) {
             run={data}
             agent={agent}
             work={work}
+            readError={work && workRead.data === undefined ? workRead.error : null}
+            onRetryRead={() => void workRead.refetch()}
             onBack={() => setStage("agent")}
             onDone={() => setStage("hear")}
           />

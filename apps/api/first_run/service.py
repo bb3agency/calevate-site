@@ -151,6 +151,27 @@ def _questions_status(row: Any, *, now: datetime | None = None) -> str:
     return "failed" if status == "writing" and stale else status
 
 
+async def live_work_ids(session: AsyncSession, row: Any) -> tuple[UUID | None, UUID | None]:
+    """The run's line and campaign, each only while it is not archived.
+
+    Archiving keeps the row, so the run's link to it survives; read as it stands, the
+    screen would wait on a work whose read is a 404, and "What first?" would hand the
+    archived one back instead of drafting another. A deleted campaign needs no check: its
+    foreign key clears the link."""
+    if row.line_id is None and row.campaign_id is None:
+        return None, None
+    found = (
+        await session.execute(
+            text(
+                "SELECT (SELECT id FROM inbound_lines WHERE id = :lid AND archived_at IS NULL), "
+                "(SELECT id FROM campaigns WHERE id = :cid AND archived_at IS NULL)"
+            ),
+            {"lid": row.line_id, "cid": row.campaign_id},
+        )
+    ).one()
+    return found[0], found[1]
+
+
 def _state(
     row: Any,
     *,
@@ -158,6 +179,7 @@ def _state(
     due: bool,
     vertical: str | None,
     documents: Sequence[Document] = (),
+    work_ids: tuple[UUID | None, UUID | None] = (None, None),
 ) -> RunState:
     return RunState(
         id=row.id,
@@ -179,8 +201,8 @@ def _state(
         recordings_used=recordings_used,
         due=due,
         documents=tuple(documents),
-        line_id=row.line_id,
-        campaign_id=row.campaign_id,
+        line_id=work_ids[0],
+        campaign_id=work_ids[1],
     )
 
 
@@ -280,6 +302,7 @@ async def read_state(session: AsyncSession, *, tenant_id: UUID) -> RunState:
         due=due,
         vertical=await _vertical(session),
         documents=await read_documents(session, list(row.document_ids or [])),
+        work_ids=await live_work_ids(session, row),
     )
 
 
