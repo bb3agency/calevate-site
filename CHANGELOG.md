@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.18 — 23-Nov-2026
+
+- A test call or publish of a script that greets the caller by name and title no longer fails
+  with "script did not read back as sent": the read-back checks the script as it was sent.
+- Call outcomes save on their own a moment after you stop typing; there is no Save button.
+
 ## 0.5.17 — 23-Nov-2026
 
 - Company training is written by Pip in the background when an account's first agent is made,

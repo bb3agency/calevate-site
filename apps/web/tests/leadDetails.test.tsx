@@ -318,7 +318,7 @@ describe("how calls end (D-836)", () => {
     expect([...moves.options].map((o) => o.text)).toEqual(["Contacted", "Interested", "Goal reached"]);
   });
 
-  it("saves the owner's list with known keys kept and a new one without a key", async () => {
+  it("saves the owner's list on its own, known keys kept and a new one without a key", async () => {
     const { calls } = await renderClientPage(<LeadDetailsScreen />, {
       "/v1/me": OWNER,
       "/v1/lead-fields": leadFields(),
@@ -330,16 +330,20 @@ describe("how calls end (D-836)", () => {
     fireEvent.change(screen.getAllByRole("textbox", { name: "Outcome name" }).at(-1) as HTMLElement, {
       target: { value: "Asked price only" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save outcomes" }));
-    await waitFor(() => {
-      const put = calls.find((c) => c.path === "/v1/agents/a1/call-outcomes");
-      const sent = JSON.parse(put?.body ?? "{}") as { outcomes: { key: string | null; label: string }[] };
-      expect(sent.outcomes.map((o) => [o.key, o.label])).toEqual([
-        ["wants_to_buy", "Wants to buy or book"],
-        ["not_interested", "Not interested"],
-        [null, "Asked price only"],
-      ]);
-    });
+    expect(screen.queryByRole("button", { name: "Save outcomes" })).toBeNull();
+    await waitFor(
+      () => {
+        const put = calls.find((c) => c.path === "/v1/agents/a1/call-outcomes");
+        const sent = JSON.parse(put?.body ?? "{}") as { outcomes: { key: string | null; label: string }[] };
+        expect(sent.outcomes.map((o) => [o.key, o.label])).toEqual([
+          ["wants_to_buy", "Wants to buy or book"],
+          ["not_interested", "Not interested"],
+          [null, "Asked price only"],
+        ]);
+      },
+      { timeout: 4000 },
+    );
+    expect(calls.filter((c) => c.path === "/v1/agents/a1/call-outcomes")).toHaveLength(1);
   });
 
   it("refuses two outcomes with one name before asking the server", async () => {
@@ -352,8 +356,9 @@ describe("how calls end (D-836)", () => {
     fireEvent.change(screen.getAllByRole("textbox", { name: "Outcome name" })[1], {
       target: { value: "wants to buy or book" },
     });
-    expect(screen.getByText("Two outcomes have the same name.")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Save outcomes" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Two outcomes have the same name./)).toBeTruthy();
+    // Past the autosave pause: a list with a problem is never sent.
+    await new Promise((resolve) => setTimeout(resolve, 1600));
     expect(calls.some((c) => c.method === "PUT")).toBe(false);
   });
 });

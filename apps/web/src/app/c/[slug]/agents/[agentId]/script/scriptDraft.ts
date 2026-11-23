@@ -140,8 +140,7 @@ export function mergeParts(base: CallScript, local: CallScript, incoming: CallSc
   return out as unknown as CallScript;
 }
 
-/** How long typing must pause before the draft is saved. */
-export const AUTOSAVE_DELAY_MS = 1200;
+export { AUTOSAVE_DELAY_MS } from "@/lib/autosave";
 
 export type SaveState =
   | { kind: "clean"; savedAt: string | null }

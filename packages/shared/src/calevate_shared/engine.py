@@ -3526,6 +3526,17 @@ def mark_caller_name(script: str) -> str:
     return _CALLER_NAME_WITH_TITLE.sub(CALLER_NAME_MARK, script)
 
 
+def fenced_script(script: str) -> str:
+    """The client's script exactly as `compose_engine_prompt` puts it inside the client fence.
+
+    The one place the composer and the publish read-back (`agents/verification`) prepare the
+    script: the read-back asks whether the engine holds THIS text, so a transform applied on
+    the way out and not on the way back (`mark_caller_name`) refused every script that greets
+    a caller by name and title.
+    """
+    return neutralise_markers(mark_caller_name(script.strip()))
+
+
 #: Days after today that `today_value` names with their weekday (D-945). A model counting
 #: weekdays in its head is the weak point (SPAN, arXiv 2511.09993: 34.5% average on date
 #: arithmetic, 95% with a tool; `docs/research/reports/Sales call scripts and generation.md`),
@@ -5125,8 +5136,7 @@ def engine_prompt_layers(
         # it reads as an instruction that went missing.
         (
             "client_script",
-            f"{CLIENT_SCRIPT_OPEN}\n{neutralise_markers(mark_caller_name(script))}\n"
-            f"{CLIENT_SCRIPT_CLOSE}"
+            f"{CLIENT_SCRIPT_OPEN}\n{fenced_script(script)}\n{CLIENT_SCRIPT_CLOSE}"
             if script
             else "",
         ),
@@ -7071,6 +7081,7 @@ __all__ = [
     "call_variable_value",
     "contact_call_variables",
     "engine_prompt_layers",
+    "fenced_script",
     "mark_caller_name",
     "named_lead_opening",
     "neutralise_markers",

@@ -73,7 +73,7 @@ from calevate_shared.engine import (
     HeldVoice,
     VoiceEngine,
     compose_first_utterance,
-    neutralise_markers,
+    fenced_script,
     quoted_client_words,
     said_notices,
 )
@@ -384,12 +384,11 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     its own read (`carries_greeting_marker`) and it is what `disclosure_applied` means;
     the prompt copy is reported beside it, never instead of it.
     """
-    # The script as the composer fences it: a script that wrote our marker shape is held
-    # with those runs neutralised (`neutralise_markers`), and only that text can read back;
-    # the quoted first words below likewise.
+    # The script as the composer fences it (`fenced_script`), and only that text can read
+    # back; the quoted first words below likewise.
     # The engine holds the script without Telugu join marks (`_steps_body`, the prompt
     # layers), so the stored script is compared the same way.
-    prompt = snapshot.carries_prompt_marker(plain_joins(neutralise_markers(cfg.system_prompt)))
+    prompt = snapshot.carries_prompt_marker(plain_joins(fenced_script(cfg.system_prompt or "")))
     disclosure = _greeting_verdict(engine, cfg, snapshot)
     # The whole first turn, which START OF THE CALL quotes verbatim: an introducing agent's
     # notices are said on either side of its opening line (D-865), so `cfg.opening_line`

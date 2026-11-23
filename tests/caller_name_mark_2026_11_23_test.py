@@ -51,6 +51,17 @@ def test_the_composed_prompt_carries_the_mark_in_place_of_the_name_and_title() -
     assert "{{lead_name}} గారు" not in prompt
 
 
+def test_the_publish_read_back_looks_for_the_script_as_it_was_sent() -> None:
+    """The read-back asks whether the engine holds `fenced_script(...)`; with the mark applied
+    on the way out only, every script greeting by name and title failed it ("script did
+    not read back as sent", 23 Nov 2026)."""
+    from calevate_shared.engine import fenced_script
+    from calevate_shared.invisible_text import plain_joins
+
+    cfg = _cfg("Step 1: say నమస్కారం {{lead_name}} గారు, then why.")
+    assert plain_joins(fenced_script(cfg.system_prompt)) in plain_joins(compose_engine_prompt(cfg))
+
+
 @pytest.mark.parametrize(
     "name", ["CALLER_NAME_MARK", "TEST_CALL_OPENING_RULE", "PLACED_CALL_OPENING_RULE"]
 )

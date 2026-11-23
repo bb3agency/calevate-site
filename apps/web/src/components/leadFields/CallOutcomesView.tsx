@@ -10,8 +10,8 @@
  * edits them here. A call keeps the name it was given, so an edit never rewrites a past call.
  */
 
-import { useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, PenLine, Plus, Save, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, ChevronUp, PenLine, Plus, Trash2 } from "lucide-react";
 import type { UseMutationResult } from "@tanstack/react-query";
 
 import { Section } from "@/components/console/section";
@@ -22,7 +22,6 @@ import {
   FIELD,
   FIELD_LABEL,
   FilterChip,
-  PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
@@ -35,6 +34,7 @@ import type {
 } from "@/lib/api/callOutcomes";
 import { OutcomeDot } from "@/app/c/[slug]/calls/callColumns";
 import { businessOutcomeKind } from "@/lib/callReview";
+import { AUTOSAVE_DELAY_MS } from "@/lib/autosave";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { examplesFor, type VerticalExamples } from "@/lib/verticalExamples";
 
@@ -179,7 +179,27 @@ function OutcomesEditor({
   const dirty = JSON.stringify(toWire(rows)) !== saved;
   useUnsavedGuard(dirty);
   const problem = outcomesProblem(rows, max);
-  const disabled = !canWrite || save.isPending;
+  // The fields stay open while a save is on its way: the list saves itself as it is edited,
+  // so locking it during each save would swallow what the owner types next.
+  const disabled = !canWrite;
+  const wire = JSON.stringify(toWire(rows));
+  // The list a save was refused for: not sent again until the owner changes it, so a
+  // refusal is read rather than retried every pause.
+  const [refused, setRefused] = useState<string | null>(null);
+  const { mutate, isPending } = save;
+
+  // Saves on its own once typing pauses and the list is whole (founder, 23 Nov 2026), the
+  // script editor's delay. One save at a time: an edit made during a save is sent after it.
+  useEffect(() => {
+    if (!canWrite || !dirty || problem || isPending || wire === refused) return;
+    const timer = window.setTimeout(() => {
+      mutate(
+        { agentId: agent.id, outcomes: JSON.parse(wire) as CallOutcomeIn[] },
+        { onError: () => setRefused(wire) },
+      );
+    }, AUTOSAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [agent.id, canWrite, dirty, isPending, mutate, problem, refused, wire]);
 
   function patch(id: string, change: Partial<OutcomeRow>) {
     setRows((current) => current.map((row) => (row.uid === id ? { ...row, ...change } : row)));
@@ -199,8 +219,8 @@ function OutcomesEditor({
       noValidate
       className="space-y-4"
       onSubmit={validation.onSubmit(() => {
-        if (disabled || !dirty || problem) return;
-        save.mutate({ agentId: agent.id, outcomes: toWire(rows) });
+        if (disabled || !dirty || problem || isPending) return;
+        mutate({ agentId: agent.id, outcomes: toWire(rows) }, { onError: () => setRefused(wire) });
       })}
     >
       <p className="max-w-prose text-xs text-ink-muted [text-wrap:pretty]">{originLine(agent)}</p>
@@ -215,7 +235,7 @@ function OutcomesEditor({
             <PenLine aria-hidden className="h-4 w-4" />
             {draft.isPending ? "Asking…" : "Write them for me"}
           </button>
-          {dirty && <p className="text-xs text-ink-muted">Save or undo your changes first.</p>}
+          {dirty && <p className="text-xs text-ink-muted">Your changes are saving; ask once they are saved.</p>}
           {draft.error && <ProblemNotice error={draft.error} />}
         </div>
       )}
@@ -317,14 +337,16 @@ function OutcomesEditor({
 
       {save.error && <ProblemNotice error={save.error} />}
 
-      <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
-        <button type="submit" className={PRIMARY_BUTTON} disabled={disabled || !dirty || Boolean(problem)}>
-          <Save aria-hidden className="h-4 w-4" />
-          {save.isPending ? "Saving…" : "Save outcomes"}
-        </button>
-        <SavedTick at={save.isSuccess ? save.submittedAt : 0} />
+      <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4" role="status" aria-live="polite">
+        <SavedTick at={save.isSuccess && !dirty ? save.submittedAt : 0} />
         <span className="text-xs text-ink-muted">
-          {problem ?? (dirty ? "You have unsaved changes." : "Calls already sorted keep their outcome.")}
+          {problem
+            ? `Not saved yet: ${problem}`
+            : isPending || (dirty && wire !== refused)
+              ? "Saving…"
+              : dirty
+                ? "Not saved. Change it to try again."
+                : "Changes save on their own. Calls already sorted keep their outcome."}
         </span>
       </div>
     </form>
