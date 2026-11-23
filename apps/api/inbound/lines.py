@@ -168,7 +168,7 @@ async def _lock(session: AsyncSession, line_id: UUID) -> Any:
     row = (
         await session.execute(
             text(
-                "SELECT id, agent_id, main_task, script, script_proposal, version "
+                "SELECT id, tenant_id, agent_id, main_task, script, script_proposal, version "
                 "FROM inbound_lines WHERE id = :lid AND archived_at IS NULL FOR UPDATE"
             ),
             {"lid": line_id},
@@ -334,12 +334,15 @@ async def set_actions_off(session: AsyncSession, line_id: UUID, slugs: list[str]
 
 
 async def save_script(session: AsyncSession, line_id: UUID, script: CallScript) -> int:
-    """The owner's edit, or a reviewed Pip draft they kept. Held to its agent's limits, so a
-    publish is never refused for its length. Returns the new version."""
+    """The owner's edit, or a reviewed Pip draft they kept. Measured as the line's own engine
+    agent put-live sends, notes and call-back rules included, so a publish is never refused
+    for its length. Returns the new version."""
     from apps.api.agents import script_builder
 
     row = await _lock(session, line_id)
-    await script_builder.refuse_if_too_long(session, row.agent_id, script)
+    await script_builder.refuse_line_if_too_long(
+        session, tenant_id=UUID(str(row.tenant_id)), line_id=line_id, script=script
+    )
     version = (
         await session.execute(
             text(

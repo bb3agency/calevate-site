@@ -4265,12 +4265,16 @@ async def line_config(
     tenant_id: UUID,
     line_id: UUID,
     agent: AgentRow | None = None,
+    script: CallScript | None = None,
 ) -> AgentConfig:
     """An inbound line's engine agent as our tables say it should be (D-997), before any
     workspace placement: the agent's config over the line's script, named for the line, with
     the agent's actions the line switches off left out. What `publish_line` writes, and what a
     knowledge attach on the line's ref re-sends, because an attach replaces the whole agent
-    on the platform (`kb/service._publish_config`, D-488), as it does for an arm."""
+    on the platform (`kb/service._publish_config`, D-488), as it does for an arm.
+
+    `script` stands in for the saved one, so a save is measured on what put-live would send
+    before it is stored (`script_builder.refuse_line_if_too_long`)."""
     from apps.api.actions import service as actions_service
     from apps.api.agents.script_builder import line_collect_fields
 
@@ -4285,7 +4289,7 @@ async def line_config(
     ).first()
     if line is None:
         raise ProblemError.not_found("Inbound line")
-    if not line.script:
+    if script is None and not line.script:
         raise ProblemError.business_rule(
             "line_has_no_script",
             "This line has no script yet.",
@@ -4295,7 +4299,8 @@ async def line_config(
     if agent is None:
         agent = await _load_agent(session, tenant_id, agent_id)
     engine = get_engine()
-    script = CallScript.model_validate(line.script)
+    if script is None:
+        script = CallScript.model_validate(line.script)
     body = compile_call_script(script, collect=await line_collect_fields(session, line_id))
     handoff, _duty = await handoff_module.spec_for(session, dict(agent))
     off = set(line.actions_off or ())

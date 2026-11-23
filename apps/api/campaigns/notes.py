@@ -130,7 +130,25 @@ async def save_notes(
         ),
         {"f": json.dumps(stored), "jid": job_id},
     )
+    if kind == "line":
+        await _refuse_line_over_limit(session, job_id)
     return True
+
+
+async def _refuse_line_over_limit(session: AsyncSession, line_id: UUID) -> None:
+    """A line's notes are compiled into its script, so more of them can push a saved script
+    past the engine's box. Measured after the write, on the line as put-live would build it,
+    so the refusal rolls the write back with the transaction."""
+    from apps.api.agents.script_builder import refuse_line_if_too_long
+
+    tenant_id = (
+        await session.execute(
+            text("SELECT tenant_id FROM inbound_lines WHERE id = :lid"), {"lid": line_id}
+        )
+    ).scalar_one()
+    await refuse_line_if_too_long(
+        session, tenant_id=UUID(str(tenant_id)), line_id=line_id, for_notes=True
+    )
 
 
 async def starting_fields(session: AsyncSession, *, tenant_id: UUID) -> list[dict[str, Any]]:
