@@ -447,6 +447,14 @@ async def test_a_callback_is_booked_moved_and_cancelled() -> None:
                 "note": None,
             },
         )
+    # The route keeps at most 200 characters of a note; a longer one is refused, not cut.
+    with pytest.raises(write_tools.WriteRefusedError):
+        await _propose(
+            tenant_id,
+            token,
+            "callback_book",
+            {"lead_id": str(lead_id), "agent_id": str(agent_id), "at": _later(), "note": "x" * 201},
+        )
     booked = await _propose(
         tenant_id,
         token,

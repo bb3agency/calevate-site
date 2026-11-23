@@ -60,6 +60,7 @@ from apps.api.agents import lifecycle
 from apps.api.agents.languages import BUILT_LANGUAGES, LANGUAGE_LABELS, OfferedLanguage
 from apps.api.billing.display import display_inr
 from apps.api.billing.plans import IST
+from apps.api.callbacks.service import MAX_NOTE as CALLBACK_NOTE_MAX
 from apps.api.campaigns import controls as campaign_controls
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot.actions import (
@@ -632,7 +633,9 @@ class _CallbackBookArgs(BaseModel):
     lead_id: UUID
     agent_id: UUID
     at: str
-    note: Annotated[str, Field(max_length=500)] | None
+    #: The call-back route's own bound (`crm/swipe`): past it the stored note is cut short,
+    #: so a longer one is refused and Pip shortens it.
+    note: Annotated[str, Field(max_length=CALLBACK_NOTE_MAX)] | None
 
 
 def _callback_time(raw: str, *, field: str) -> datetime:
