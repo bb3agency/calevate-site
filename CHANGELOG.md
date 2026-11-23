@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.19 — 23-Nov-2026
+
+- Call flow: dragging a scenario's dot onto another scenario links them even when you let go
+  on its edge or arrowhead; the scenario under the pointer is highlighted while you drag, and a
+  drop that links nothing says why.
+
 ## 0.5.18 — 23-Nov-2026
 
 - A test call or publish of a script that greets the caller by name and title no longer fails

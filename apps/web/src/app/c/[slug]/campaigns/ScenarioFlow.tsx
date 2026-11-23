@@ -67,6 +67,8 @@ const COL_GAP = 88;
 const ROW_GAP = 18;
 /** A step's heading: its name and "Scenario" button, then its outcome field. */
 const HEAD_H = 150;
+/** How far outside a card a dragged link still lands on it. */
+const DROP_MARGIN = 16;
 const PAD = 20;
 /** A step's band reaches `BAND_INSET` past its cards on each side, so the side padding must
  * hold it: with less, the first band and its "Step 1" heading start left of the canvas and
@@ -331,18 +333,17 @@ export function ScenarioFlow({
         onOutcome={(step, text) => onChange(setOutcome(script, step, text))}
         onLink={(from, to) => {
           const source = items.find((p) => p.section.id === from)?.section;
-          if (
-            !source ||
-            source.branches.some((b) => b.target === to) ||
-            source.branches.length >= limits.maxBranches
-          )
-            return;
+          if (!source) return "That scenario is gone.";
+          if (source.branches.some((b) => b.target === to)) return "It already goes there.";
+          if (source.branches.length >= limits.maxBranches)
+            return `A scenario can go to at most ${limits.maxBranches} next scenarios.`;
           onChange(
             setNext(script, from, [
               ...source.branches.map((b) => b.target),
               to,
             ]),
           );
+          return null;
         }}
       />
     ) : (
@@ -428,7 +429,8 @@ function Columns({
   onSelect: (id: string | null) => void;
   onAdd: (step: number, opts?: { after?: string; newStep?: boolean }) => void;
   onMenu: (e: ReactMouseEvent, id: string | null, step: number) => void;
-  onLink: (from: string, to: string) => void;
+  /** Links `from` to `to`; returns why it did not, or null when it did. */
+  onLink: (from: string, to: string) => string | null;
   outcome: (step: number) => string;
   onOutcome: (step: number, text: string) => void;
 }) {
@@ -436,6 +438,7 @@ function Columns({
   const [linking, setLinking] = useState<{ from: string; to: Point } | null>(
     null,
   );
+  const [linkNote, setLinkNote] = useState<string | null>(null);
   const colX = (step: number) => PAD_X + (step - 1) * (BOX_W + COL_GAP);
   const boxes = new Map<string, Box>();
   for (const p of items) {
@@ -466,19 +469,31 @@ function Columns({
     const r = plane.current?.getBoundingClientRect();
     return r ? { x: e.clientX - r.left, y: e.clientY - r.top } : { x: 0, y: 0 };
   };
+  // A drop counts on a card or just around it: people let go on the arrowhead at a card's
+  // edge, a few pixels outside its box, and that used to link nothing and say nothing.
   const boxAt = (p: Point, except: string) => {
     for (const [id, b] of boxes) {
       if (
         id !== except &&
-        p.x >= b.x &&
-        p.x <= b.x + b.w &&
-        p.y >= b.y &&
-        p.y <= b.y + b.h
+        p.x >= b.x - DROP_MARGIN &&
+        p.x <= b.x + b.w + DROP_MARGIN &&
+        p.y >= b.y - DROP_MARGIN &&
+        p.y <= b.y + b.h + DROP_MARGIN
       )
         return id;
     }
     return null;
   };
+  // The card under the pointer as the page lays it out, before the drawn geometry.
+  const dropTarget = (e: { clientX: number; clientY: number }, except: string) => {
+    const under =
+      typeof document.elementFromPoint === "function"
+        ? document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-scenario]")
+        : null;
+    const id = under?.dataset.scenario;
+    return id && id !== except ? id : boxAt(local(e), except);
+  };
+  const hovered = linking ? boxAt(linking.to, linking.from) : null;
 
   const links = items.flatMap((p) =>
     p.section.branches.map((b, j) => {
@@ -500,6 +515,7 @@ function Columns({
   );
 
   return (
+    <>
     <div
       className="relative max-h-[78dvh] overflow-auto rounded-card border border-line bg-surface-muted"
       role="region"
@@ -636,7 +652,8 @@ function Columns({
           return (
             <div
               key={p.section.id}
-              className="absolute"
+              data-scenario={p.section.id}
+              className={`absolute rounded-card ${hovered === p.section.id ? "ring-2 ring-brand ring-offset-2" : ""}`}
               style={{ left: b.x, top: b.y, width: b.w, height: b.h }}
             >
               <button
@@ -697,6 +714,7 @@ function Columns({
                       if (e.button !== 0) return;
                       e.stopPropagation();
                       e.currentTarget.setPointerCapture(e.pointerId);
+                      setLinkNote(null);
                       setLinking({ from: p.section.id, to: local(e) });
                     }}
                     onPointerMove={(e) =>
@@ -704,9 +722,13 @@ function Columns({
                     }
                     onPointerUp={(e) => {
                       if (!linking) return;
-                      const target = boxAt(local(e), linking.from);
+                      const target = dropTarget(e, linking.from);
                       setLinking(null);
-                      if (target) onLink(linking.from, target);
+                      setLinkNote(
+                        target
+                          ? onLink(linking.from, target)
+                          : "Let go on a scenario to make it a next scenario.",
+                      );
                     }}
                     onPointerCancel={() => setLinking(null)}
                   />
@@ -723,6 +745,10 @@ function Columns({
         })}
       </div>
     </div>
+    <p role="status" className="mt-2 min-h-5 text-meta text-ink-muted">
+      {linkNote}
+    </p>
+    </>
   );
 }
 
