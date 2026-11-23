@@ -224,9 +224,16 @@ _FIND_CLIENT_SCHEDULED: Final = (
     "SELECT id FROM scheduled_callbacks WHERE lead_id = :lid AND status = 'scheduled' "
     "AND source_execution_id LIKE :prefix ORDER BY created_at DESC LIMIT 1"
 )
+#: A moved call-back waits for its new time, so the refusal the tick last deferred it on no
+#: longer explains it (the screen and `expire_stale` both read it). A campaign's hold mark
+#: stays: the pause still holds it, and `release_resumed` finds it by that mark.
+_CLEAR_REFUSAL: Final = (
+    "last_refusal_rule = CASE WHEN last_refusal_rule = :held THEN last_refusal_rule END, "
+    "last_refusal_reason = CASE WHEN last_refusal_rule = :held THEN last_refusal_reason END"
+)
 _MOVE: Final = (
     "UPDATE scheduled_callbacks SET requested_at = :at, booked_at = now(), note = :note, "
-    "agent_id = :aid, next_attempt_at = NULL, updated_at = now() "
+    f"agent_id = :aid, next_attempt_at = NULL, {_CLEAR_REFUSAL}, updated_at = now() "
     "WHERE id = :id AND status = 'scheduled' RETURNING requested_at"
 )
 #: The account's first live agent that places calls — the fallback when the lead's own
@@ -325,7 +332,14 @@ async def schedule_lead_callback(
     if existing is not None:
         moved = (
             await session.execute(
-                text(_MOVE), {"id": existing, "at": at, "note": clean_note, "aid": agent_id}
+                text(_MOVE),
+                {
+                    "id": existing,
+                    "at": at,
+                    "note": clean_note,
+                    "aid": agent_id,
+                    "held": callbacks.CAMPAIGN_PAUSED_RULE,
+                },
             )
         ).first()
         if moved is not None:
@@ -379,7 +393,7 @@ _WAITING_ROW: Final = (
 )
 _MOVE_WAITING: Final = (
     "UPDATE scheduled_callbacks SET requested_at = :at, booked_at = now(), "
-    "next_attempt_at = NULL, grace_from = NULL, updated_at = now() "
+    f"next_attempt_at = NULL, grace_from = NULL, {_CLEAR_REFUSAL}, updated_at = now() "
     "WHERE id = :id AND status = 'scheduled' RETURNING requested_at"
 )
 
@@ -419,7 +433,12 @@ async def change_callback(
             status="blocked",
             reason=refused.reason or "The calling rules do not allow this call-back.",
         )
-    moved = (await session.execute(text(_MOVE_WAITING), {"id": callback_id, "at": at})).first()
+    moved = (
+        await session.execute(
+            text(_MOVE_WAITING),
+            {"id": callback_id, "at": at, "held": callbacks.CAMPAIGN_PAUSED_RULE},
+        )
+    ).first()
     assert moved is not None  # the row is locked and was waiting
     return CallbackChangeOut(callback_id=callback_id, status="moved", requested_at=moved[0])
 

@@ -21,6 +21,7 @@ from typing import Any
 
 import httpx
 import pytest
+from apps.api.callbacks import service as callbacks_service
 from apps.api.compliance.consent import record_messaging_consent
 from apps.api.compliance.service import DispatchDecision
 from apps.api.core.errors import ProblemError
@@ -441,6 +442,75 @@ async def test_a_waiting_call_back_is_moved_inside_the_window_and_not_once_it_en
     assert ended.status_code == 409 and _code(ended) == "callback_not_stoppable"
     assert await _audit(callback_id, "callback.rescheduled") == 1
     assert await _audit(callback_id, "callback.cancelled") == 1
+
+
+async def test_a_moved_call_back_drops_the_last_refusal_it_was_waiting_on() -> None:
+    """A call-back the tick deferred ("all our lines were busy") and a person then moved, by
+    the Call-backs screen or by booking the lead again, waits for its new time: the screen
+    does not keep explaining it with the old refusal, and running out of time later would
+    not report it either."""
+    tenant_id, headers, lead_id, _phone = await _tenant()
+    await _outbound_agent(tenant_id)
+    callback_id = await _booked(headers, lead_id, 16)
+
+    async def _defer() -> None:
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text(
+                    "UPDATE scheduled_callbacks SET last_refusal_rule = 'lines_busy', "
+                    "last_refusal_reason = 'All our phone lines were busy.' WHERE id = :id"
+                ),
+                {"id": callback_id},
+            )
+
+    async def _refusal() -> tuple[Any, ...]:
+        async with tenant_session(tenant_id) as session:
+            row = (
+                await session.execute(
+                    text(
+                        "SELECT last_refusal_rule, last_refusal_reason FROM scheduled_callbacks "
+                        "WHERE id = :id"
+                    ),
+                    {"id": callback_id},
+                )
+            ).one()
+        return tuple(row)
+
+    await _defer()
+    async with _client() as http:
+        moved = await http.patch(
+            f"/v1/callbacks/{callback_id}", headers=headers, json={"at": _tomorrow_ist(18)}
+        )
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["explanation"] == "Waiting for the time they asked for."
+
+    await _defer()
+    again = await _booked(headers, lead_id, 17)
+    assert again == callback_id
+    assert await _refusal() == (None, None)
+
+    # A campaign's hold is not a refusal the move answers: the pause still holds it.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE scheduled_callbacks SET last_refusal_rule = :rule, "
+                "last_refusal_reason = :reason WHERE id = :id"
+            ),
+            {
+                "id": callback_id,
+                "rule": callbacks_service.CAMPAIGN_PAUSED_RULE,
+                "reason": callbacks_service.CAMPAIGN_PAUSED_REASON,
+            },
+        )
+    async with _client() as http:
+        held = await http.patch(
+            f"/v1/callbacks/{callback_id}", headers=headers, json={"at": _tomorrow_ist(19)}
+        )
+    assert held.status_code == 200, held.text
+    assert await _refusal() == (
+        callbacks_service.CAMPAIGN_PAUSED_RULE,
+        callbacks_service.CAMPAIGN_PAUSED_REASON,
+    )
 
 
 async def test_many_call_backs_are_moved_or_called_off_each_on_its_own() -> None:
