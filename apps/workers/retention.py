@@ -2902,23 +2902,27 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # `compliance/deletion.refile_erasure_for_late_records`). Finding it again is the
         # difference between a standing instruction and one certificate.
         subject_handle = _hash(phone)
-        calls = (
+        leads = (
             (
                 await session.execute(
-                    text(
-                        "SELECT id FROM calls WHERE from_e164 = :phone OR to_e164 = :phone "
-                        "OR erased_subject_ref = :ref"
-                    ),
-                    {"phone": phone, "ref": subject_handle},
+                    text("SELECT id FROM leads WHERE phone_e164 = :phone"), {"phone": phone}
                 )
             )
             .scalars()
             .all()
         )
-        leads = (
+        # `lead_id` as well as the number columns: a forwarded call that showed the
+        # business's own number (`caller_id_hidden`, D-746) carries that number in
+        # `from_e164` and reaches this person only through the lead the pipeline filed
+        # under the call-back number they gave.
+        calls = (
             (
                 await session.execute(
-                    text("SELECT id FROM leads WHERE phone_e164 = :phone"), {"phone": phone}
+                    text(
+                        "SELECT id FROM calls WHERE from_e164 = :phone OR to_e164 = :phone "
+                        "OR erased_subject_ref = :ref OR lead_id = ANY(:leads)"
+                    ),
+                    {"phone": phone, "ref": subject_handle, "leads": list(leads)},
                 )
             )
             .scalars()
@@ -2976,7 +2980,11 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             result = await session.execute(
                 text(
                     "UPDATE transcript_turns SET text = :mark, text_redacted = :mark, "
-                    "text_en = NULL, updated_at = now() WHERE call_id = ANY(:ids)"
+                    "text_en = NULL, updated_at = now() WHERE call_id = ANY(:ids) "
+                    # Turns an earlier certificate already erased (a call found again
+                    # through `erased_subject_ref`) are not counted as erased by this one.
+                    "AND (text IS DISTINCT FROM :mark OR text_redacted IS DISTINCT FROM :mark "
+                    "OR text_en IS NOT NULL)"
                 ),
                 {"mark": REDACTED_MARK, "ids": list(calls)},
             )
