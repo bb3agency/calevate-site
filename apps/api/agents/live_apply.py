@@ -252,6 +252,15 @@ def platform_prompt_revision() -> str:
             caller_has_screen=callbacks,
         )
         parts.append(compose_engine_prompt(cfg))
+    # Each offered language as the only one: the primary's register examples and full pack
+    # are composed for the primary alone, so with only the first language as primary a
+    # change to another language's would not move the revision.
+    parts += [
+        compose_engine_prompt(
+            cfg.model_copy(update={"language_primary": tag, "languages_extra": []})
+        )
+        for tag in offered_language_tags()
+    ]
     # Our call rules (D-850), and which agents send them with the console's switch off: a
     # screen agent does (D-906), so a change to that rule republishes every live agent.
     parts += [CALL_INSTRUCTIONS, SCREEN_CALL_INSTRUCTIONS]
@@ -264,9 +273,7 @@ def platform_prompt_revision() -> str:
     # scripts above have neither, so the start-of-call rules an opening adds and how the
     # name field is marked for the model (`mark_caller_name`) would not move the revision,
     # and live agents would keep the old text until each was republished by hand.
-    opening_script = (
-        f"{OPENING_HEADER}\nHello {{{{{NAME_VARIABLE}}}}} ji, O\n{COLLECT_HEADER}\n- a"
-    )
+    opening_script = f"{OPENING_HEADER}\nHello {{{{{NAME_VARIABLE}}}}} ji, O\n{COLLECT_HEADER}\n- a"
     for direction, line_calls_back in (("inbound", False), ("inbound", True), ("both", False)):
         parts.append(
             compose_engine_prompt(
