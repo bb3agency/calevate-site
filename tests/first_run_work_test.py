@@ -509,3 +509,65 @@ async def test_an_agent_made_again_after_its_deletion_gets_its_own_first_work(
         tenant_id, f"SELECT agent_id FROM {table} WHERE id = :h", h=again.json()[holder]
     )
     assert str(owner.agent_id) == new_agent
+
+
+async def test_renaming_the_agent_renames_it_in_its_first_works_scripts() -> None:
+    """Back on "Name and voice" after "What first?": the line's and the campaign's scripts
+    give the new name, not the one they were written with. A save that changes only the
+    languages leaves them alone."""
+    from apps.api.campaigns import workspace
+
+    tenant_id = await _tenant()
+    headers = await _owner(tenant_id)
+    await _made(tenant_id, headers)
+    async with _client() as http:
+        line_id = (
+            await http.post("/v1/first-run/work", headers=headers, json={"job": "answer_calls"})
+        ).json()["line_id"]
+        campaign_id = (
+            await http.post("/v1/first-run/work", headers=headers, json={"job": "call_leads"})
+        ).json()["campaign_id"]
+    written = CallScript(
+        schema_version=2,
+        opening_line=SCRIPT.opening_line,
+        identity="Your name is Anjali. You help callers.",
+    )
+    async with tenant_session(tenant_id) as session:
+        await lines.save_script(session, uuid.UUID(line_id), written)
+        await workspace.save_script(session, uuid.UUID(campaign_id), written)
+    async with _client() as http:
+        renamed = await http.put(
+            "/v1/first-run/agent",
+            headers=headers,
+            json={"name": "Priya", "language_primary": "te-IN", "languages_extra": ["en-IN"]},
+        )
+        assert renamed.status_code == 200, renamed.text
+        same_name = await http.put(
+            "/v1/first-run/agent",
+            headers=headers,
+            json={"name": "Priya", "language_primary": "te-IN", "languages_extra": []},
+        )
+        assert same_name.status_code == 200, same_name.text
+    async with tenant_session(tenant_id) as session:
+        line = await lines.read_line(session, uuid.UUID(line_id))
+        space = await workspace.read_workspace(session, uuid.UUID(campaign_id))
+    assert line.script is not None and space.script is not None
+    assert line.script.identity == "Your name is Priya. You help callers."
+    assert space.script.identity == "Your name is Priya. You help callers."
+    assert line.version == 2, "saved once for the rename, not again for the languages"
+
+    # A version 1 script has no identity to rename and is left as it is.
+    async with tenant_session(tenant_id) as session:
+        await lines.save_script(session, uuid.UUID(line_id), SCRIPT)
+    async with _client() as http:
+        again = await http.put(
+            "/v1/first-run/agent",
+            headers=headers,
+            json={"name": "Meera", "language_primary": "te-IN", "languages_extra": []},
+        )
+        assert again.status_code == 200, again.text
+    async with tenant_session(tenant_id) as session:
+        line = await lines.read_line(session, uuid.UUID(line_id))
+        space = await workspace.read_workspace(session, uuid.UUID(campaign_id))
+    assert line.script == SCRIPT
+    assert space.script is not None and space.script.identity.startswith("Your name is Meera.")

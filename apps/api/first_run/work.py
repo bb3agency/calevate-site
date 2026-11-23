@@ -27,6 +27,7 @@ import json
 from typing import Any, Final, Literal
 from uuid import UUID
 
+from calevate_shared.call_script import CallScript
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -175,6 +176,11 @@ async def save_agent(
         )
     else:
         assert row.agent_id is not None
+        before = (
+            await session.execute(
+                text("SELECT name FROM agents WHERE id = :aid"), {"aid": row.agent_id}
+            )
+        ).scalar_one()
         await update_agent(
             session,
             tenant_id=tenant_id,
@@ -190,9 +196,35 @@ async def save_agent(
             ),
             {"lang": language_primary, "extra": extra, "id": row.id},
         )
+        if clean != before:
+            await _rename_in_work(session, row=row, name=clean)
     if may_spend_ai:
         await _queue_training(session, tenant_id=tenant_id, user_id=user_id)
     return await read_state(session, tenant_id=tenant_id)
+
+
+async def _rename_in_work(session: AsyncSession, *, row: Any, name: str) -> None:
+    """The run's line and campaign scripts give the agent's new name. Their identity was
+    written with the old one (`save_ready_made`, Pip's draft), and the call's opening already
+    introduces the agent by its current name, so without this a renamed agent says one name
+    and answers "who is this?" with the other."""
+    from apps.api.campaigns import workspace
+    from apps.api.inbound import lines
+
+    def renamed(script: CallScript | None) -> CallScript | None:
+        # A version 1 script has no identity section to carry the name.
+        if script is None or script.schema_version < 2:
+            return None
+        return script.model_copy(update={"identity": identity_with_name(script.identity, name)})
+
+    if row.line_id is not None:
+        line_script = renamed((await lines.read_line(session, row.line_id)).script)
+        if line_script is not None:
+            await lines.save_script(session, row.line_id, line_script)
+    if row.campaign_id is not None:
+        campaign_script = renamed((await workspace.read_workspace(session, row.campaign_id)).script)
+        if campaign_script is not None:
+            await workspace.save_script(session, row.campaign_id, campaign_script)
 
 
 async def _within_ai_allowance(session: AsyncSession, tenant_id: UUID) -> bool:
