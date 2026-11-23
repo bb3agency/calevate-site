@@ -315,7 +315,9 @@ async def test_the_lead_page_shows_the_list_columns_the_call_page_shows() -> Non
             ),
             {"id": campaign_id, "t": tenant_id, "a": agent_id},
         )
-        await notes.save_notes(session, campaign_id, [PLAN, VISITS, AREA], expected_digest=None)
+        await notes.save_notes(
+            session, "campaign", campaign_id, [PLAN, VISITS, AREA], expected_digest=None
+        )
         await session.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, campaign_id, engine_call_id, "

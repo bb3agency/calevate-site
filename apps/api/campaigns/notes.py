@@ -175,26 +175,30 @@ CALL_JOB_SQL: Final = (
 )
 
 
-#: Every open campaign's and line's list, newest edit first; RLS scopes both to the tenant.
+#: Every campaign's and line's list, open ones first (archived ones only when asked), newest
+#: edit first; RLS scopes both to the tenant.
 _ACCOUNT_LISTS_SQL: Final = (
-    "SELECT fields FROM (SELECT extraction_fields AS fields, updated_at AS at, agent_id "
-    "FROM campaigns WHERE archived_at IS NULL "
-    "UNION ALL SELECT extraction_fields, updated_at, agent_id FROM inbound_lines "
-    "WHERE archived_at IS NULL) lists "
+    "SELECT fields FROM (SELECT extraction_fields AS fields, updated_at AS at, agent_id, "
+    "archived_at IS NOT NULL AS archived FROM campaigns "
+    "UNION ALL SELECT extraction_fields, updated_at, agent_id, archived_at IS NOT NULL "
+    "FROM inbound_lines) lists "
     "WHERE jsonb_array_length(fields) > 0 AND (CAST(:aid AS uuid) IS NULL OR agent_id = :aid) "
-    "ORDER BY at DESC LIMIT 500"
+    "AND (CAST(:archived AS boolean) OR NOT archived) "
+    "ORDER BY archived, at DESC LIMIT 500"
 )
 
 
 async def account_fields(
-    session: AsyncSession, *, agent_id: UUID | None = None
+    session: AsyncSession, *, agent_id: UUID | None = None, archived: bool = False
 ) -> list[ExtractionField]:
-    """Every detail the account's campaigns and lines note, one per key, the most recently
-    edited job's wording first: the Leads columns, alerts and filters across jobs.
-    `agent_id` narrows it to the jobs in that agent's voice."""
+    """Every detail the account's open campaigns and lines note, one per key, the most
+    recently edited job's wording first: alerts, actions and filters across jobs.
+    `agent_id` narrows it to the jobs in that agent's voice. `archived` adds what archived
+    jobs noted, after the open ones: their leads keep those details (the Leads columns)."""
     rows = (
         await session.execute(
-            text(_ACCOUNT_LISTS_SQL), {"aid": str(agent_id) if agent_id else None}
+            text(_ACCOUNT_LISTS_SQL),
+            {"aid": str(agent_id) if agent_id else None, "archived": archived},
         )
     ).all()
     out: list[ExtractionField] = []

@@ -89,7 +89,7 @@ from calevate_shared.lead_fields import with_core
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.crm.captured import holder_fields
+from apps.api.crm.captured import leads_holder_fields
 from apps.api.crm.lead_projection import LEAD_SUBJECT_KIND, project_lead
 from apps.api.retrieval.caller_projections import (
     CallerProjection,
@@ -169,16 +169,17 @@ async def _project(
 ) -> dict[UUID, tuple[Any, list[tuple[int, str, tuple[str, ...]]]]]:
     """Every candidate lead's chunks, keyed by lead id. One schema read per (agent, version).
 
-    A lead whose latest call's campaign or line has its own What it notes is projected
-    under that list (D-1003): its details were captured under it, and the agent's list
-    would leave them out of the projection.
+    A lead whose calls' campaigns or lines have their own What it notes is projected under
+    those lists, its latest call's first (D-1003, `captured.leads_holder_fields`): its
+    details were captured under them, and the agent's list, or the latest call's alone,
+    would leave some out of the projection.
     """
     schemas: dict[tuple[UUID, int | None], list[ExtractionField]] = {}
-    held = await holder_fields(session, [UUID(str(r[6])) for r in rows if r[6] is not None])
+    held = await leads_holder_fields(session, [UUID(str(r[0])) for r in rows])
     named = await core_labels(session) if held else None
     out: dict[UUID, tuple[Any, list[tuple[int, str, tuple[str, ...]]]]] = {}
     for row in rows:
-        holder = held.get(UUID(str(row[6]))) if row[6] is not None else None
+        holder = held.get(UUID(str(row[0])))
         if holder:
             fields = with_core(holder, named)
         else:
