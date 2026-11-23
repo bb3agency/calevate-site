@@ -34,7 +34,7 @@ from typing import Final
 from calevate_shared.call_script import CallScript, substitute_variables
 
 from apps.api.agents import turn_checks
-from apps.api.agents.call_rules import opening_redone_line_problems
+from apps.api.agents.call_rules import opening_redone_line_problems, reacted_line_problems
 from apps.api.agents.mistake_fixes import fix_paths
 from apps.api.agents.script_lint import (
     OPENING_FIELDS,
@@ -313,7 +313,7 @@ def _delegate(lint: Callable[[CallScript], list[str]]) -> _Check:
 #: finds go to that lint, so the readiness card and the healer read one check.
 _CHECKS: Final[dict[str, _Check]] = {
     "opened_again": _opened_again,
-    "same_opening": _delegate(same_opener_problems),
+    "same_opening": _delegate(lambda s: [*same_opener_problems(s), *reacted_line_problems(s)]),
     "said_again": _delegate(repeated_line_problems),
     "too_long": _too_long,
     "asked_again": _asked_again,

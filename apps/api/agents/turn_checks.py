@@ -373,6 +373,12 @@ def _content(sentence: str) -> set[str]:
     return {w for w in _words(sentence) if w not in _FILLER() and len(w) > 1}
 
 
+def content_words(text: str) -> set[str]:
+    """The words of `text` that carry meaning when two lines are compared: lower case,
+    punctuation and the filler list (`turn_checks._FILLER`) gone."""
+    return _content(text)
+
+
 def _same_question(a: str, b: str) -> bool:
     """Two questions asking one thing: most of the shorter one's meaningful words recur in
     the other. Overlap over the shorter set, so a longer rewording still matches."""
@@ -2143,6 +2149,7 @@ __all__ = [
     "caller_signs_off",
     "claims_done",
     "claims_said_before",
+    "content_words",
     "conversation_problems",
     "false_history",
     "false_recall",

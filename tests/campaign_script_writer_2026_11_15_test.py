@@ -44,12 +44,24 @@ def _stage(sid: str, line: str) -> ConversationStage:
     return ConversationStage(id=sid, name=sid.title(), instruction="Help them.", sounds_like=line)
 
 
+#: The step that asks what every job's calls ask (`script_builder.job_details`): the core
+#: name, call-back time and other number, under the platform's names for them.
+ASKS_DETAILS = ConversationStage(
+    id="details",
+    name="Details",
+    instruction="Ask their name if it is not known.",
+    sounds_like="Is this the best number to reach you on?",
+    collect=["Name", "Preferred time", "Other number"],
+)
+
+
 def _script(*lines: str) -> CallScript:
     return CallScript(
         schema_version=2,
         opening_line=OPENING,
         stages=[
             *(_stage(f"s{i}", line) for i, line in enumerate(lines)),
+            ASKS_DETAILS,
             _stage("close", "Thank you."),
         ],
     )

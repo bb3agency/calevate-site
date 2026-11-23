@@ -17,6 +17,7 @@ broken-off "ఒక" finished as "one kg", and a 173-character greeting.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -40,6 +41,7 @@ from apps.api.agents.turn_checks import (
     asked_opening_again,
     claims_done,
     claims_said_before,
+    content_words,
     is_question,
     opened_again,
     reaction_lead,
@@ -327,8 +329,10 @@ OPENING_LINE_RULE: Final = (
 #:   next step. On the Varsha call of 21 Nov 2026 the first step said "you gave your name in
 #:   the app" before any reason (docs/evidence/script-generation-2026-11-21/FLOW.md §2.5).
 SCRIPT_FLOW_RULE: Final = (
-    "Every detail to collect is asked in a stage, named in the instruction of the stage "
-    "where the call reaches it, one question a turn, so none is left over at the end. "
+    "Every detail to collect is asked in a stage, named in the instruction and the collect "
+    "list of the stage where the call reaches it, one question a turn, so none is left over "
+    "at the end; a detail the brief says is asked only in some case is asked only on that "
+    "path. "
     "Stages go in the order the call can reach them: nothing is asked before what it "
     "depends on has happened, and nothing the caller cannot answer yet is asked at all; "
     "someone who has only just set something up on this call is not asked how they use or "
@@ -348,7 +352,9 @@ SCRIPT_FLOW_RULE: Final = (
     "stage closes on the one next step. No two stages' sounds_like open with the same "
     "words, and no spoken line opens "
     "with a reaction (OK, good, very good, understood, happy) before its point; each opens "
-    "with its own point, the answer, the step or the question. A "
+    "with its own point, the answer, the step or the question; nor do the lines of one "
+    "language, or a stage's small steps, all end with the same tag, such as asking them to "
+    "say when it is done: the agent waits after each small step anyway. A "
     "stage that walks the caller through doing something puts each action in its "
     "procedure, one action an item, and the agent waits for the caller to say it is done "
     "before the next; never several actions in one instruction followed by asking whether "
@@ -411,6 +417,7 @@ def opening_redone_line_problems(script: CallScript) -> list[str]:
     if not any(line.strip() for line in openings):
         return []
     questions = [s for line in openings for s in sentences(line) if is_question(s)]
+    said = [clause for line in openings for clause in _clauses(line)]
     found: list[str] = []
     # A step's line in each language too: the in-call model says the one in the caller's
     # language, and a Rytu Khata step's Telugu line greeted again after the opening
@@ -424,7 +431,95 @@ def opening_redone_line_problems(script: CallScript) -> list[str]:
                 f"{path}: greets again or asks again whether now is a good time, which the "
                 "opening line already did; start this step from what comes after their yes."
             )
+        elif (again := restated_clause(line, said)) is not None:
+            found.append(
+                f'{path}: says "{again}" again, which the opening line already said: who is '
+                "calling, why, or whether now suits; start this step from what comes after "
+                "their answer."
+            )
     return found
+
+
+#: What ends a clause inside a sentence. A Telugu or Hindi line is often one sentence of
+#: comma-joined clauses, so the opening's question is compared clause by clause.
+_CLAUSE_END: Final = re.compile("[,;:\N{EN DASH}\N{EM DASH}]")
+#: Meaningful words two clauses share before one is the other said again. Three, so "a good
+#: time" in a question about a delivery is not the opening's "is now a good time" again.
+_RESTATED_MIN_SHARED: Final = 3
+#: Share of the shorter clause's meaningful words the two share.
+_RESTATED_OVERLAP: Final = 0.6
+#: The letters two forms of one word share at their start. Telugu and other Indian languages
+#: join endings to a word, so "is it convenient" is written two ways in one call
+#: (the opening's and the first step's on the Rytu Khata call of 23 Nov 2026, 23:19); a
+#: common start of four letters and most of the shorter word counts them as one word.
+_STEM_MIN: Final = 4
+_STEM_SHARE: Final = 0.6
+
+
+def _clauses(text: str) -> list[str]:
+    plain_text = _MERGE_FIELD.sub(" ", text)
+    return [c.strip() for s in sentences(plain_text) for c in _CLAUSE_END.split(s) if c.strip()]
+
+
+def _same_word(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    if min(len(a), len(b)) < _STEM_MIN:
+        return False
+    common = 0
+    for x, y in zip(a, b, strict=False):
+        if x != y:
+            break
+        common += 1
+    return common >= _STEM_MIN and common >= _STEM_SHARE * min(len(a), len(b))
+
+
+def restated_clause(line: str, said: Sequence[str]) -> str | None:
+    """The clause of `line` that says again one of the clauses in `said` (the opening's), or
+    None. Read by shared words, so it works in any language and in romanised text: who is
+    calling, the reason and "can you talk now" said a second time all share most of their
+    words with the opening's clause, in whatever words the opening put them."""
+    for clause in _clauses(line):
+        mine = content_words(clause)
+        for theirs in (content_words(c) for c in said):
+            if not mine or not theirs:
+                continue
+            shared = sum(1 for word in mine if any(_same_word(word, t) for t in theirs))
+            if (
+                shared >= _RESTATED_MIN_SHARED
+                and shared / min(len(mine), len(theirs)) >= _RESTATED_OVERLAP
+            ):
+                return clause
+    return None
+
+
+def reacted_line_problems(script: CallScript) -> list[str]:
+    """A step's line in a call language (`ConversationStage.scripts`) or a small step of its
+    procedure that opens with a reaction ("OK", "very good") before its point
+    (`turn_checks.reaction_lead`). `said_line_problem` reads the "sounds like" lines; these
+    are the lines the in-call model says in the caller's language and the actions it walks
+    them through, and on the Rytu Khata call of 23 Nov 2026 (23:19) nearly every reply opened
+    with one. A model told to vary its words does so ("If responses sound repetitive or
+    robotic, include an explicit variety instruction", cdn.openai.com/API/docs/
+    realtime-prompting-guide.pdf, read 23 Nov 2026), but it copies a written opener first.
+    The close is left out: thanks before the goodbye is its point."""
+    last = len(script.stages) - 1
+    lines = [
+        (path, text)
+        for path, text in scenario_lines(script)
+        if not path.startswith(f"stages.{last}.")
+    ]
+    lines += [
+        (f"stages.{i}.procedure.{j}.action", step.action)
+        for i, stage in enumerate(script.stages)
+        for j, step in enumerate(stage.procedure)
+    ]
+    return [
+        f'{path}: opens with the reaction "{reaction}"; the agent copies it into every reply. '
+        "Start it with its own point, or vary how the lines open."
+        for path, text in lines
+        if (reaction := reaction_lead(text)) is not None
+    ]
 
 
 __all__ = [
@@ -443,6 +538,8 @@ __all__ = [
     "opening_most",
     "opening_redone_line_problems",
     "placed_opening_problems",
+    "reacted_line_problems",
+    "restated_clause",
     "said_line_problem",
     "writer_rules",
 ]

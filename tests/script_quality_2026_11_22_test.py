@@ -49,6 +49,15 @@ FIELDS = [
     {"key": "visit_day", "label": "Visit day", "type": "string", "reason": "to book the visit"},
     {"key": "budget", "label": "Budget", "type": "string"},
 ]
+#: What the writer is told the calls ask: the core details a call asks, each with when, around
+#: the holder's own (`script_builder.job_details`).
+ASKED = (
+    "Name: only if not known",
+    "Visit day: to book the visit",
+    "Budget",
+    "Preferred time: only if they want a call later",
+    "Other number: only if a call back is agreed",
+)
 
 
 def _seen(inputs: Any) -> tuple[Any, ...]:
@@ -97,10 +106,8 @@ async def test_a_campaign_draft_asked_for_at_creation_reads_what_a_later_press_r
     assert "Why these people are called: They asked about plots last month" in (
         at_creation.situation
     )
-    assert at_creation.context.collect == ("Visit day: to book the visit", "Budget")
-    assert "Details to collect: Visit day: to book the visit; Budget" in (
-        at_creation.context.user_message()
-    )
+    assert at_creation.context.collect == ASKED
+    assert "Details to collect: " + "; ".join(ASKED) in (at_creation.context.user_message())
 
 
 async def test_a_lines_draft_asked_for_at_creation_reads_what_a_later_press_reads() -> None:
@@ -130,7 +137,7 @@ async def test_a_lines_draft_asked_for_at_creation_reads_what_a_later_press_read
     later = await campaign_script.line_inputs(tenant_id, line_id)
 
     assert _seen(at_creation) == _seen(later)
-    assert at_creation.context.collect == ("Visit day: to book the visit", "Budget")
+    assert at_creation.context.collect == ASKED
     assert at_creation.context.direction in ("inbound", "both")
 
 

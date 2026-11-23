@@ -36,6 +36,7 @@ from apps.api.agents.script_lint import (
     CapabilityManifest,
     LintContext,
     asks_a_time,
+    collected_label,
     next_steps,
     reachable_steps,
     step_numbers_broken,
@@ -183,21 +184,53 @@ def without_empty_titles(script: CallScript, mine: set[str]) -> CallScript:
     return script if out == script else out
 
 
-def time_taken(script: CallScript, mine: set[str]) -> CallScript:
+def time_taken(script: CallScript, mine: set[str], labels: Sequence[str] = ()) -> CallScript:
     """`script` with each of Pip's steps that asks when to call back noting the time and going
-    to the call back once it is given (`script_lint.untaken_time_problems`)."""
+    to the call back once it is given (`script_lint.untaken_time_problems`). `labels`: the
+    job's own names for what a call back takes (`LintContext.call_back`), each noted there;
+    with none, the step notes `CALL_BACK_TIME` unless it already notes something."""
     stages = []
     for stage in script.stages:
         if stage.id not in mine or not asks_a_time(stage):
             stages.append(stage)
             continue
         collect = list(stage.collect)
-        if not collect and len(collect) < MAX_STAGE_COLLECT:
-            collect.append(CALL_BACK_TIME)
+        has = {c.casefold() for c in collect}
+        wanted = [label for label in labels if label.casefold() not in has]
+        if not labels and not collect:
+            wanted = [CALL_BACK_TIME]
+        collect += wanted[: max(MAX_STAGE_COLLECT - len(collect), 0)]
         branches = list(stage.branches)
         if CALL_BACK not in _explicit_exits(stage) and len(branches) < MAX_STAGE_BRANCHES:
             branches.insert(0, StageBranch(when=TIME_GIVEN, target=CALL_BACK))
         stages.append(stage.model_copy(update={"collect": collect, "branches": branches}))
+    return script.model_copy(update={"stages": stages})
+
+
+def collected(script: CallScript, labels: Sequence[str], mine: set[str]) -> CallScript:
+    """`script` with each of Pip's steps noting only details the job notes (`labels`), each
+    under the job's own name: an entry the writer copied with its "when" hint ("Name: only if
+    not known") is cut to the label, and one the job does not note is dropped, since what a
+    call asks and what is written down agree (D-1028). With no `labels` (an agent's own
+    script, or a job that notes none) the steps are left as they are."""
+    if not labels:
+        return script
+    named = {label.casefold(): label for label in labels}
+    stages = []
+    for stage in script.stages:
+        if stage.id not in mine:
+            stages.append(stage)
+            continue
+        kept = list(
+            dict.fromkeys(
+                named[key]
+                for entry in stage.collect
+                if (key := collected_label(entry).casefold()) in named
+            )
+        )
+        stages.append(
+            stage if kept == stage.collect else stage.model_copy(update={"collect": kept})
+        )
     return script.model_copy(update={"stages": stages})
 
 
@@ -229,9 +262,9 @@ def settled(
     script: CallScript, context: LintContext, *, base: CallScript | None = None
 ) -> CallScript:
     """`script` with its structure mended (see the module): step numbers, outcomes of steps it
-    lacks, Pip's unreached steps, titles with no name, call-back times, and spellings of taught
-    words. A raw script is returned as it is. Validated again, so a mend that would break a
-    rule never reaches the owner."""
+    lacks, Pip's unreached steps, titles with no name, the details each step notes, call-back
+    times, and spellings of taught words. A raw script is returned as it is. Validated again,
+    so a mend that would break a rule never reaches the owner."""
     if script.raw_override is not None:
         return script
     mine = _mine(script, base)
@@ -239,7 +272,8 @@ def settled(
     out = without_stray_outcomes(out)
     out = reached(out, mine)
     out = without_empty_titles(out, mine)
-    out = time_taken(out, mine)
+    out = collected(out, context.collect, mine)
+    out = time_taken(out, mine, context.call_back)
     out = pronounced(out, context)
     return CallScript.model_validate(out.model_dump())
 
@@ -268,6 +302,7 @@ def policies_for_job(
 __all__ = [
     "CALL_BACK_TIME",
     "TIME_GIVEN",
+    "collected",
     "policies_for_job",
     "pronounced",
     "reached",
