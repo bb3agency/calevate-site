@@ -2981,3 +2981,50 @@ cancelled or archived, or when a campaign that is not running or paused has not 
 for the idle period (`agents/service.CAMPAIGN_AGENT_UNNEEDED_WHERE`); a test-call holder an hour
 after its last use (D-1020). Each takes that agent's call history on ThinnestAI's side with it.
 This is the cost the held note under §56 describes, now confirmed.
+
+## 58. How we use agents, the problems it causes, and asking for their advice (DRAFTED 23 Nov 2026, for the founder to send)
+
+Raises the note held under §56 now that §57 confirmed a deleted agent loses its call history.
+
+> Subject: How we use agents, and your advice on a better way
+>
+> Hi Ashutosh,
+>
+> Your note that the call history went with the deleted agent made us look again at how we use
+> agents. I'd value your advice, since you know the platform best.
+>
+> How we work today: each client has its own customer workspace. Each answering line and each
+> running campaign gets its own agent, because each has its own script and the details it
+> notes. When a campaign ends we delete its agent, and a test call uses a short-lived agent
+> we delete after an hour. So we create and delete agents often.
+>
+> The problems we see from this:
+> 1. When an agent is deleted, its call history goes with it, so neither of us can look into
+>    a call afterwards.
+> 2. With 2 agents per customer workspace, a client with a line and a campaign cannot start a
+>    second campaign or test.
+> 3. A setting made on one agent does not reach the next, since each test or campaign starts
+>    on a new agent.
+> 4. Every campaign start creates an agent, so a brief hiccup at that moment fails the start.
+>
+> Could you advise on:
+> 1. Can a call's history (transcript, recording, logs) be kept after its agent is deleted,
+>    for some period?
+> 2. Is one agent per line and per campaign the pattern you'd recommend, or is there a
+>    better one? For example, can Place Call carry a campaign's own instructions per call, so
+>    one agent per voice could serve several campaigns? If so, how long may those per-call
+>    instructions be?
+> 3. If we keep agents instead of deleting them, is there any cost for an agent that is not
+>    taking calls, and could the limit per customer workspace be raised to 20?
+> 4. Is updating an existing agent preferred over creating a new one, for reliability?
+> 5. Can settings be set once for a workspace, so every agent created in it starts with them?
+>
+> Whatever you suggest, we'll adapt our side to it.
+>
+> Best regards,
+> Umesh Chandra J
+> Calevate
+> +918019857559
+
+When answered: record §59 with a "what it closes" table, then decide the engine-agent model
+(the options held under §56) from the answers.
