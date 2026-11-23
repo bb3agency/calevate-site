@@ -372,6 +372,24 @@ class Executed:
     #: may fail. The confirm card says "Started", never "Done", and follows the job where it
     #: can (`ProposalCard`); `applied` still says the request was accepted.
     queued: bool = False
+    #: Further audit rows the screen's route writes for the same act, beside the action's
+    #: own (a caller-memory flip, a request the change answered). `audit_log` keeps no
+    #: summary, so a fact the route records in an action name is lost without its row.
+    also_audit: tuple[AuditEntry, ...] = ()
+    #: The client the act concerns, for a platform-scope admin action whose route audits it
+    #: under that client (a healer incident's). `None` keeps the caller's tenant.
+    audit_tenant_id: UUID | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AuditEntry:
+    """One extra `audit_log` row an action writes (`Executed.also_audit`). Ids and closed-set
+    values only (hard rule 6). `tenant_id` None means the action's own row's tenant."""
+
+    action: str
+    object_type: str
+    object_id: str
+    tenant_id: UUID | None = None
 
 
 #: A tool's read half: session (tenant-scoped) → described plan. READS ONLY, on every tier.

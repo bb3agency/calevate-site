@@ -112,6 +112,23 @@ async def _action_row(tenant_id: UUID, action_id: str) -> Any:
     )
 
 
+async def _give_script(tenant_id: UUID) -> None:
+    """Something for the account's agent to say: Schedule and Repeat refuse an agent with
+    nothing written, on the screen and through Pip alike (`check_before_schedule`)."""
+    from apps.api.agents import prompts
+
+    agent_id = await _agent_of(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await prompts.write_prompt_version(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            body="[IDENTITY]\nYou are the front desk.\n",
+            notes=None,
+            created_by=None,
+        )
+
+
 def _later(days: int = 2, hour: int = 11) -> str:
     when = (datetime.now(IST) + timedelta(days=days)).replace(hour=hour, minute=0, second=0)
     return when.strftime("%Y-%m-%dT%H:%M")
@@ -579,6 +596,7 @@ async def test_campaign_clone_copies_the_settings_and_not_the_contacts() -> None
 
 async def test_a_campaign_is_scheduled_unscheduled_and_resumed_by_confirm_only() -> None:
     tenant_id, _slug, token = await _make_tenant()
+    await _give_script(tenant_id)
     created = await _run(
         tenant_id,
         token,
@@ -619,6 +637,104 @@ async def test_a_campaign_is_scheduled_unscheduled_and_resumed_by_confirm_only()
         await session.execute(
             text("UPDATE campaigns SET status = 'paused' WHERE id = :i"), {"i": UUID(cid)}
         )
+
+
+async def test_a_trial_account_cannot_schedule_or_repeat_a_campaign_through_pip() -> None:
+    """FAILS IF Pip schedules or repeats a campaign the Schedule and Repeat routes refuse
+    (`engine_agent.check_before_schedule`): on a free trial the screen says no at once, and
+    Pip said "Scheduled" and left the refusal to the start."""
+    from apps.api.billing.trials import start_trial
+
+    tenant_id, _slug, token = await _make_tenant()
+    await _give_script(tenant_id)
+    created = await _run(
+        tenant_id,
+        token,
+        "campaign_create",
+        {
+            "name": "Recall",
+            "agent_id": str(await _agent_of(tenant_id)),
+            "classification": "service",
+        },
+    )
+    cid = created.object_id
+    planned = await _propose(
+        tenant_id, token, "campaign_schedule", {"campaign_id": cid, "start_at": _later()}
+    )
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=14, actor_user_id=None)
+    for name, args in (
+        ("campaign_schedule", {"campaign_id": cid, "start_at": _later()}),
+        ("campaign_repeat", {"campaign_id": cid, "days": [1], "at": "10:30", "until": None}),
+    ):
+        with pytest.raises(ProblemError) as refused:
+            await _propose(tenant_id, token, name, args)
+        assert refused.value.code == "trial_campaigns_unavailable"
+    # A card shown before the trial is refused at the click too.
+    with pytest.raises(ProblemError):
+        await _confirm(tenant_id, _user_of(token), planned.token)
+    assert (await _one(tenant_id, "SELECT status FROM campaigns WHERE id = :i", i=UUID(cid)))[
+        0
+    ] == "draft"
+
+
+async def test_a_callback_move_confirmed_after_its_time_passed_is_refused() -> None:
+    """FAILS IF a call-back move whose card is confirmed once its time has passed lands in
+    the past (and rings at once): `PATCH /v1/callbacks/{id}` checks the window first."""
+    from apps.api.copilot.console_actions import _move_callback
+
+    tenant_id, _slug, token = await _make_tenant()
+    lead_id, agent_id = await _lead_of(tenant_id), await _agent_of(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text("UPDATE agents SET direction = 'outbound', status = 'live'"))
+    booked = await _propose(
+        tenant_id,
+        token,
+        "callback_book",
+        {"lead_id": str(lead_id), "agent_id": str(agent_id), "at": _later(), "note": None},
+    )
+    await _confirm(tenant_id, _user_of(token), booked.token)
+    callback_id = UUID(str((await _one(tenant_id, "SELECT id FROM scheduled_callbacks"))[0]))
+    actor = write_tools.actor_for(_principal(tenant_id, _user_of(token)))
+    assert actor is not None
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError):
+            await _move_callback(
+                session, actor, callback_id, datetime.now(IST) - timedelta(hours=1)
+            )
+
+
+async def test_booking_over_a_waiting_callback_says_so_and_undo_restores_its_note() -> None:
+    """FAILS IF booking a call-back for a lead with one already waiting reads as a new
+    booking, or its Undo puts the time back but keeps the new note and agent
+    (`swipe.schedule_lead_callback` moves the waiting one and overwrites both)."""
+    tenant_id, _slug, token = await _make_tenant()
+    lead_id, agent_id = await _lead_of(tenant_id), await _agent_of(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text("UPDATE agents SET direction = 'outbound', status = 'live'"))
+
+    def book(at: str, note: str) -> dict[str, Any]:
+        return {"lead_id": str(lead_id), "agent_id": str(agent_id), "at": at, "note": note}
+
+    first = await _propose(tenant_id, token, "callback_book", book(_later(2), "first"))
+    await _confirm(tenant_id, _user_of(token), first.token)
+    second = await _propose(tenant_id, token, "callback_book", book(_later(3), "second"))
+    assert second.current is not None and "moves the call-back" in second.summary
+    await _confirm(tenant_id, _user_of(token), second.token)
+    assert (await _one(tenant_id, "SELECT note FROM scheduled_callbacks"))[0] == "second"
+    from apps.api.copilot.undo import undo_client_action
+
+    action_id = (
+        await _one(
+            tenant_id,
+            "SELECT id FROM copilot_actions WHERE tool = 'callback_book' ORDER BY id DESC LIMIT 1",
+        )
+    )[0]
+    async with tenant_session(tenant_id) as session:
+        await undo_client_action(
+            session, UUID(str(action_id)), principal=_principal(tenant_id, _user_of(token)), ip=None
+        )
+    assert (await _one(tenant_id, "SELECT note FROM scheduled_callbacks"))[0] == "first"
 
 
 # --- agents --------------------------------------------------------------------------------

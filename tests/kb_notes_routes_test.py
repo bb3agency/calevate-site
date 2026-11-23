@@ -7,6 +7,7 @@ The buttons call the same `kb/store` functions Pip's `knowledge_rename` and
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
@@ -79,6 +80,42 @@ async def test_a_note_is_listed_renamed_removed_and_put_back(s3: FakeS3) -> None
         items, _total = await store.find_items(session, tenant_id=tenant_id, kinds=["note"])
     assert list(actions) == ["kb.renamed", "kb.removed", "kb.restored"]
     assert any(item.name == "Car park" and item.state == "in_use" for item in items)
+
+
+async def test_pip_never_removes_a_removed_note_or_puts_back_one_in_use(s3: FakeS3) -> None:
+    """FAILS IF Pip's `knowledge_remove` proposes, or confirms as done, a removal of a note
+    already removed or a put-back of one still in use: a removed note keeps its ref, and
+    `restore_note` on a note in use would republish its newest approved version."""
+    import json
+
+    import pytest
+    from apps.api.copilot import write_tools
+    from apps.api.copilot.write_tools_test import _confirm, _principal
+
+    del s3
+    tenant_id, _agent = await _tenant_with_published_agent()
+    note_id = await _note(tenant_id)
+    user_id, _token = await _member(tenant_id, "owner")
+    actor = write_tools.actor_for(_principal(tenant_id, user_id))
+    item = f"note:{note_id}"
+
+    async def propose(put_back: bool | None) -> Any:
+        return await write_tools.plan_write(
+            "knowledge_remove", json.dumps({"item": item, "put_back": put_back}), actor=actor
+        )
+
+    with pytest.raises(write_tools.WriteRefusedError):
+        await propose(True)
+    removal = await propose(None)
+    second = await propose(None)
+    assert (await _confirm(tenant_id, user_id, removal.token)).applied is True
+    # The second card, shown before the first was confirmed, changes nothing and says so.
+    again = await _confirm(tenant_id, user_id, second.token)
+    assert again.applied is False and "already removed" in again.detail
+    with pytest.raises(write_tools.WriteRefusedError):
+        await propose(None)
+    back = await propose(True)
+    assert (await _confirm(tenant_id, user_id, back.token)).applied is True
 
 
 async def test_a_removed_note_is_not_knowledge_but_stays_listed_to_be_put_back(

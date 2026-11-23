@@ -455,6 +455,10 @@ async def test_the_backup_phone_is_set_and_removed_and_a_landline_is_refused() -
     )
     await _do(tenant_id, token, "line_protection_phone", {"phone": None})
     assert await _one(tenant_id, "SELECT 1 FROM heal_fallback_phones") is None
+    # Each act is recorded under its own button's action (`healer/routes.py`), Remove too.
+    actions = [action for action, _o, _i in await _audit(tenant_id)]
+    assert "healer.fallback_phone_set" in actions
+    assert "healer.fallback_phone_removed" in actions
 
 
 async def test_a_lead_source_shows_its_secret_once_and_never_logs_it() -> None:
@@ -668,6 +672,22 @@ async def test_spending_limits_are_set_on_confirm() -> None:
     assert done.applied is True
     row = await _one(tenant_id, "SELECT client_cap_spend, client_cap_min FROM plans")
     assert (Decimal(str(row[0])), row[1]) == (Decimal("2500"), 300)
+
+
+async def test_a_zero_minute_limit_is_never_shown_as_no_limit() -> None:
+    """FAILS IF the card for a 0-minute limit reads "no minute limit": zero stops every
+    outgoing call (`caps.apply_client_caps`), the opposite of no limit."""
+    tenant_id, _slug, token = await _make_tenant()
+    zero = await _propose(
+        tenant_id, token, "spend_caps_set", {"cap_spend_inr": None, "cap_minutes": 0}
+    )
+    assert "0 minute limit" in zero.proposed and "no minute" not in zero.proposed
+    await _confirm(tenant_id, _user_of(token), zero.token)
+    again = await _propose(
+        tenant_id, token, "spend_caps_set", {"cap_spend_inr": None, "cap_minutes": None}
+    )
+    assert again.current is not None and "0 minute limit" in again.current
+    assert "no minute limit" in again.proposed
 
 
 async def test_auto_recharge_cannot_be_switched_on_without_an_approved_method() -> None:

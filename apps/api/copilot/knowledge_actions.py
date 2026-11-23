@@ -321,9 +321,21 @@ async def _plan_remove(session: AsyncSession, actor: ToolActor, args: Mapping[st
     parsed = parse_args(_RemoveArgs, args)
     kind, source_id, _upload, name = await _source_of(session, parsed.item)
     note = kind == "note"
+    # A removed note keeps its ref, so either direction can be asked of a note already there.
+    state = (await store.read_note(session, source_id)) if note else None
     if parsed.put_back:
-        if not note:
+        if state is None:
             raise WriteRefusedError("only a removed note can be put back; send a file again")
+        if state.state != "removed":
+            raise WriteRefusedError(
+                "that note is not removed, so there is nothing to put back",
+                plain="That note was not removed. Nothing to put back.",
+            )
+        if not state.restorable:
+            raise WriteRefusedError(
+                "that note has no approved version to put back; offer to write it again",
+                plain="That note cannot be put back. Write it again.",
+            )
         return Plan(
             object_id=str(source_id),
             title="Put a note back",
@@ -333,6 +345,11 @@ async def _plan_remove(session: AsyncSession, actor: ToolActor, args: Mapping[st
             cost=None,
             reversal="Remove it again at any time.",
             args={"item": parsed.item, "put_back": True},
+        )
+    if state is not None and state.state == "removed":
+        raise WriteRefusedError(
+            "that note is already removed; offer to put it back instead",
+            plain="That note is already removed.",
         )
     return Plan(
         object_id=str(source_id),
@@ -363,6 +380,13 @@ async def _execute_remove(
     parsed = parse_args(_RemoveArgs, args)
     kind, source_id, upload_id, _name = await _source_of(session, parsed.item)
     if parsed.put_back and kind == "note":
+        if (await store.read_note(session, source_id)).state != "removed":
+            return Executed(
+                applied=False,
+                detail="That note is not removed any more, so nothing changed.",
+                audit_summary={"source_id": str(source_id), "put_back": True},
+                audit_action="kb.restored",
+            )
         version = await store.restore_note(session, tenant_id=actor.tenant_id, source_id=source_id)
         return Executed(
             applied=True,
@@ -371,7 +395,12 @@ async def _execute_remove(
             audit_action="kb.restored",
         )
     if kind == "note":
-        await store.remove_note(session, tenant_id=actor.tenant_id, source_id=source_id)
+        if not await store.remove_note(session, tenant_id=actor.tenant_id, source_id=source_id):
+            return Executed(
+                applied=False,
+                detail="That note was already removed, so nothing changed.",
+                audit_summary={"source_id": str(source_id), "kind": kind},
+            )
         detail = "The note is off every agent. Ask me to put it back if you need it."
     else:
         assert upload_id is not None

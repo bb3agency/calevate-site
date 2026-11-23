@@ -240,6 +240,12 @@ async def _execute_agent_create(
         starter=parsed.job,
         created_by=actor.user_id,
     )
+    if parsed.job is None:
+        # What `POST /v1/agents` gives an agent with no job: a first prompt from what the
+        # business has told us, so it can be got ready and tried before any line uses it.
+        await lifecycle.first_body_from_facts(
+            session, tenant_id=actor.tenant_id, agent_id=agent_id, created_by=actor.user_id
+        )
     if parsed.job is not None and parsed.direction == "both":
         # Widened after the starter is written, through the edit the Direction control makes,
         # so the starter's own direction check stays the one `POST /v1/agents` meets.

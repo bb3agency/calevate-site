@@ -177,6 +177,10 @@ async def test_a_starter_explains_what_the_account_lacks_then_is_made() -> None:
     assert "Call with Sales" in proposal.proposed
     row = await _row(t, (await _done(t, proposal)).object_id)
     assert row.starter == "missed_call_callback"
+    # A blank name keeps the starter's, rather than failing the save's name check as a 500.
+    blank = await _propose(t, "follow_up_draft", {"starter": "missed_call_callback", "name": "  "})
+    named = await _row(t, (await _done(t, blank)).object_id)
+    assert named.name == row.name and named.name.strip()
 
 
 # --- publish, pause, resume, turn off ----------------------------------------------------

@@ -32,6 +32,7 @@ from apps.api.billing.plans import IST
 from apps.api.campaigns import archive as campaign_archive
 from apps.api.campaigns import brief, scheduling
 from apps.api.campaigns import controls as campaign_controls
+from apps.api.campaigns import engine_agent as campaign_engine_agent
 from apps.api.campaigns import service as campaigns_service
 from apps.api.campaigns.routes import (
     MAX_CONTACT_CUSTOM_FIELDS,
@@ -425,6 +426,9 @@ async def _plan_repeat(session: AsyncSession, actor: ToolActor, args: Mapping[st
     name, status = await _campaign(session, parsed.campaign_id)
     if status not in ("draft", "scheduled"):
         raise WriteRefusedError(f"“{name}” is {status}; only a draft or scheduled one can repeat")
+    await campaign_engine_agent.check_before_schedule(
+        session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id
+    )
     days = sorted(set(parsed.days))
     words = ", ".join(_DAY_WORDS[d - 1] for d in days)
     ends = f" until {parsed.until:%d %b %Y}" if parsed.until else " until you stop it"
@@ -461,6 +465,9 @@ async def _execute_repeat(
 ) -> Executed:
     """`scheduling.schedule_recurrence` — `POST /v1/campaigns/{id}/recurrence`'s call."""
     parsed = parse_args(_RepeatArgs, args)
+    await campaign_engine_agent.check_before_schedule(
+        session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id
+    )
     result = await scheduling.schedule_recurrence(
         session,
         tenant_id=actor.tenant_id,

@@ -144,7 +144,7 @@ async def test_a_booked_callback_is_the_routes_kind_and_its_undo_cancels_it() ->
     )
     assert str(booked[1]).startswith("client-schedule:"), "the route's own booking"
     action = await _latest_action(tenant_id, "callback_book")
-    assert action[1] == {"callback_id": None, "requested_at": None}
+    assert action[1] == {"callback_id": None, "requested_at": None, "note": None, "agent_id": None}
     assert action[2]["callback_id"] == str(booked[0]) and action[3] is not None
     response = await _undo(token, slug, str(action[0]))
     assert response.status_code == 200, response.text
@@ -330,8 +330,21 @@ async def test_new_business_hours_can_be_undone_while_unchanged() -> None:
 
 
 async def test_a_campaign_schedule_can_be_undone_back_to_a_draft() -> None:
+    from apps.api.agents import prompts
+
     tenant_id, slug, token = await _make_tenant()
     agent_id = (await _ids(tenant_id))[1]
+    # Something to say: Schedule refuses an agent with nothing written, on the screen and
+    # through Pip alike (`engine_agent.check_before_schedule`).
+    async with tenant_session(tenant_id) as session:
+        await prompts.write_prompt_version(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            body="[IDENTITY]\nYou are the front desk.\n",
+            notes=None,
+            created_by=None,
+        )
     created = await write_tools.run_immediate(
         "campaign_create",
         json.dumps({"name": "Later", "agent_id": str(agent_id), "classification": "service"}),

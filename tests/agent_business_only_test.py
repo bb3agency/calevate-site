@@ -388,6 +388,50 @@ async def test_a_new_agent_carries_what_the_business_knows_and_asks_no_one_for_a
     assert all(str(sentence).strip() for sentence in notices), "both notice sentences are on file"
 
 
+async def test_an_agent_pip_makes_carries_what_the_business_knows_as_the_screens_does() -> None:
+    """FAILS IF Pip's `agent_create` leaves an agent with no script where `POST /v1/agents`
+    gives it one from the business profile (`lifecycle.first_body_from_facts`): it could
+    not be got ready or tried on "Just the business"."""
+    import json
+
+    from apps.api.copilot import write_tools
+    from apps.api.copilot.write_tools_test import _principal, _user_of
+
+    tenant_id, _slug, token = await _make_tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO business_profiles (id, tenant_id) VALUES (:id, :tid) "
+                "ON CONFLICT (tenant_id) DO NOTHING"
+            ),
+            {"id": uuid7(), "tid": tenant_id},
+        )
+        await session.execute(
+            text(
+                "UPDATE business_profiles SET services = CAST(:s AS jsonb) WHERE tenant_id = :tid"
+            ),
+            {"s": '[{"name": "Haircut", "price_inr": "150", "notes": null}]', "tid": tenant_id},
+        )
+    made = await write_tools.run_immediate(
+        "agent_create",
+        json.dumps({"name": "Desk two", "direction": "inbound", "language_primary": "en-IN"}),
+        principal=_principal(tenant_id, _user_of(token)),
+        seed=f"first-body-{uuid.uuid4()}",
+        ip=None,
+    )
+    async with tenant_session(tenant_id) as session:
+        body = (
+            await session.execute(
+                text(
+                    "SELECT pv.body FROM agents a JOIN prompt_versions pv "
+                    "ON pv.id = a.system_prompt_id WHERE a.id = :a"
+                ),
+                {"a": UUID(made.object_id)},
+            )
+        ).scalar()
+    assert body is not None and "Haircut" in str(body)
+
+
 async def test_a_new_agent_with_no_script_is_published_inside_every_platform_layer() -> None:
     """Name, voice, done: the agent goes on the platform with the business's facts and the
     company training inside every platform layer."""

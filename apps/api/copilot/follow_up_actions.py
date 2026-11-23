@@ -389,7 +389,8 @@ async def _plan_draft(session: AsyncSession, actor: ToolActor, args: Mapping[str
         if existing is not None:
             raise WriteRefusedError("a ready-made one starts a new Follow-up; leave out the id")
         name, trigger, steps, settings = await _from_starter(session, parsed.starter)
-        name = (parsed.name or name).strip()
+        # A blank name keeps the starter's: an empty one would break the name check on save.
+        name = (parsed.name or "").strip() or name.strip()
     else:
         if parsed.trigger is None or parsed.steps is None:
             raise WriteRefusedError(

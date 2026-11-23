@@ -455,7 +455,18 @@ async def test_raising_call_lines_through_the_assistant_answers_the_request() ->
     assert done.applied is True
     async with tenant_session(tenant_id) as session:
         after = (await read_call_lines(session, tenant_id=tenant_id)).lines
+        # The panel's second row: the client's trail records its request was answered.
+        answered = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM audit_log WHERE tenant_id = :t "
+                    "AND action = 'call_lines_request.done'"
+                ),
+                {"t": tenant_id},
+            )
+        ).scalar_one()
     assert after == before + 1
+    assert answered == 1
 
 
 async def test_a_change_the_clients_session_committed_keeps_its_token_spent(
