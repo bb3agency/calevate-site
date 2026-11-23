@@ -96,6 +96,9 @@ ALREADY_RUN_AND_REPAIRED_ELSEWHERE = {
     # Per-tenant walks whose tenant list was read before any tenant was set.
     "d8b2f5a7c3e1_inbound_lines.py": "bd9b4b153d5a",
     "e3c7a1d9b4f2_campaign_sources.py": "bd9b4b153d5a",
+    # The per-job "What it notes" and lead-suggestion copies (D-1028, D-1029).
+    "e2a7c4f9b1d3_notes_per_job.py": "a6c2e9f4b8d1",
+    "f3b8d2a6c1e4_lead_suggestions_per_job.py": "a6c2e9f4b8d1",
 }
 
 #: ⚠ EMPTY, AND KEPT AS A NAMED EMPTY RATHER THAN DELETED.
@@ -364,6 +367,8 @@ def test_the_exception_list_is_closed_and_names_who_pays_the_debt() -> None:
         "dc1aaeeeff02_kb_chunks_the_retrieval_projection.py",
         "d8b2f5a7c3e1_inbound_lines.py",
         "e3c7a1d9b4f2_campaign_sources.py",
+        "e2a7c4f9b1d3_notes_per_job.py",
+        "f3b8d2a6c1e4_lead_suggestions_per_job.py",
     }
     assert not UNAUDITED_PRE_EXISTING, (
         "an unaudited entry is a defect that has run in production with no repair written "
