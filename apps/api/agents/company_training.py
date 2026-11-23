@@ -1,16 +1,30 @@
 """The company training: one per client, given to every agent (founder, 16 Nov 2026).
 
 A real calling company gives every person it hires the same overview of the business before
-assigning them to work. Calevate does the same: the owner describes the business in their own
-words; Pip writes the training from them, the business profile and what the agents already
-know (`workers/company_training_draft.py`); the owner reviews it and saves it; every agent of
-the client is then given it, ahead of its own script. It is shown as the "How they speak" tab
-of What your agents know (founder, 16 Nov 2026): the knowledge holds the facts agents look up,
-the training holds how they behave, and there is one place to add material for both.
+assigning them to work. Calevate does the same: Pip writes the training from the business
+profile, the client's knowledge and the owner's own words (`workers/company_training_draft.
+py`), and every agent of the client is given it, ahead of its own script. It is shown as the
+"How they speak" tab of What your agents know: the knowledge holds the facts agents look up,
+the training holds how they behave.
+
+WRITTEN IN THE BACKGROUND, LIVE AT ONCE (D-1034, founder 23 Nov 2026). Nobody presses a
+button: the first agent's creation queues the first write, and every change to what it is
+written from (a knowledge source going live or coming down, the business profile, the
+owner's overview) queues a rewrite (`schedule_write`). Changes are debounced per client
+(`WRITE_DEBOUNCE_S`, at most `WRITE_MAX_WAIT_S` after the first), so a burst of uploads is
+one rewrite: the trailing-edge debounce with a cap that lodash's `debounce(..., {maxWait})`
+names (lodash.com/docs/#debounce). What Pip writes is saved live only after its grounding
+review passes; otherwise the previous training stays.
+
+THE OWNER'S EDITS ARE KEPT. The owner can still edit and save the training. `pip_training`
+holds what Pip last saved, so the live text differing from it is the owner's edits; the next
+rewrite is given them as constraints it must carry (`owner_edits`), and its review checks
+that each one survived. A Pip save is a compare-and-set on `version`, so a rewrite started
+before an owner's save never overwrites it.
 
 WHERE IT SITS IN THE PROMPT. Inside the client fence, as the first section of the script
-(`with_training`), not as a platform layer beside it: the business wrote it, so it is fenced
-like everything else the business wrote (`CLIENT_SCRIPT_OPEN`), and the platform rules,
+(`with_training`), not as a platform layer beside it: the business's material is fenced like
+everything else the business wrote (`CLIENT_SCRIPT_OPEN`), and the platform rules,
 confidentiality and the truthful answers still come after it and win. Its lead sentence says
 the script below wins where the two differ, so a campaign may change a company fact for its
 own calls (founder, 16 Nov 2026). An agent of a client with no training composes byte for
@@ -19,16 +33,13 @@ byte as before.
 A save reaches live agents through the live-apply seam (`queue_live_apply`, scope tenant), in
 the transaction that saved it, and is refused first if any agent's instructions would no
 longer fit the engine's box with it.
-
-The pending Pip draft lives on the row (`company_trainings.proposal`), one at a time, with the
-same compare-and-set discipline as `campaigns.script_proposal`.
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar, Final, Literal
 from uuid import UUID
 
@@ -46,7 +57,12 @@ OVERVIEW_MAX: Final = 4_000
 TRAINING_MAX: Final = 6_000
 #: The job that writes the training (`workers/company_training_draft.py`).
 TRAINING_DRAFT_JOB: Final = "draft_company_training"
-#: A draft still "drafting" after this long is shown as failed: the job died without writing.
+#: A change waits this long for the next one before Pip writes.
+WRITE_DEBOUNCE_S: Final = 60
+#: ... and never longer than this after the first change it waits with.
+WRITE_MAX_WAIT_S: Final = 10 * 60
+#: A write still "drafting" this long after it was taken, or still "queued" this long after
+#: it was due, is shown as failed: the job died without writing. The next change replaces it.
 STALE_AFTER_S: Final = 15 * 60
 FAILED_NOTE: Final = "Pip could not write the training this time. Try again."
 
@@ -57,22 +73,51 @@ TRAINING_LEAD: Final = (
     "something different, follow the script."
 )
 
-ProposalStatus = Literal["drafting", "ready", "failed"]
+ProposalStatus = Literal["queued", "drafting", "failed"]
+#: Why Pip writes: the client's first agent, a knowledge source going live or coming down,
+#: the business profile, the owner's overview, or the owner pressing Rewrite now.
+WriteReason = Literal[
+    "first_agent", "knowledge_changed", "profile_changed", "owner_words", "owner_asked"
+]
+WRITE_REASONS: Final[tuple[str, ...]] = (
+    "first_agent",
+    "knowledge_changed",
+    "profile_changed",
+    "owner_words",
+    "owner_asked",
+)
 
 
 @dataclass(frozen=True)
 class TrainingProposal:
+    """The pending background write: queued (waiting out the debounce), drafting, or failed."""
+
     id: UUID
     status: ProposalStatus
     requested_at: datetime
-    #: The training it was written from (None for the first one).
-    base_training: str | None
-    training: str | None
+    #: When a queued write starts.
+    due_at: datetime | None
+    reasons: tuple[str, ...]
     note: str | None
-    #: Who wrote it when it was not the account's own model (D-127 G-6), shown with it.
-    disclosure: str | None = None
-    #: Failed: the refusal's code, `crashed`, or `stale` for a job that never wrote back.
+    #: Failed: the refusal's code, `crashed`, `ungrounded`, `too_long`, or `stale` for a job
+    #: that never wrote back.
     reason: str | None = None
+
+
+@dataclass(frozen=True)
+class LastWrite:
+    """What Pip's last saved write was, for the screen."""
+
+    at: datetime
+    reasons: tuple[str, ...]
+    #: The owner's edits it carried.
+    owner_edits_kept: int
+    #: Owner's facts newer knowledge replaced, each as the owner had written it.
+    superseded: tuple[str, ...]
+    #: It was shortened to fit beside the longest script.
+    shortened: bool
+    #: Who wrote it when it was not the account's own model (D-127 G-6).
+    disclosure: str | None
 
 
 @dataclass(frozen=True)
@@ -82,6 +127,9 @@ class Training:
     version: int
     updated_at: datetime | None
     proposal: TrainingProposal | None
+    last_write: LastWrite | None
+    #: The live text holds edits Pip has not written into it yet: the owner's own.
+    owner_edited: bool
 
 
 # --- composing it into an agent ------------------------------------------------------------
@@ -125,25 +173,53 @@ async def live_text(session: AsyncSession) -> str:
 # --- reading -----------------------------------------------------------------------------
 
 
-def _proposal(raw: Any, *, now: datetime) -> TrainingProposal | None:
-    if not raw:
+def _when(raw: Any) -> datetime | None:
+    return datetime.fromisoformat(str(raw)) if raw else None
+
+
+def proposal_of(raw: Any, *, now: datetime) -> TrainingProposal | None:
+    """The pending write a row holds, None for none. A review draft written before D-1034
+    (`ready`) is no longer a state: it reads as none, and the next write replaces it."""
+    if not raw or raw.get("status") not in ("queued", "drafting", "failed"):
         return None
     requested_at = datetime.fromisoformat(str(raw["requested_at"]))
-    status: ProposalStatus = raw.get("status", "drafting")
-    note = raw.get("note")
-    reason = raw.get("reason")
-    if status == "drafting" and (now - requested_at).total_seconds() > STALE_AFTER_S:
+    due_at = _when(raw.get("due_at"))
+    status: ProposalStatus = raw["status"]
+    note, reason = raw.get("note"), raw.get("reason")
+    taken = _when(raw.get("claimed_at")) or requested_at
+    stale = (status == "drafting" and (now - taken).total_seconds() > STALE_AFTER_S) or (
+        status == "queued" and due_at is not None and (now - due_at).total_seconds() > STALE_AFTER_S
+    )
+    if stale:
         status, note, reason = "failed", FAILED_NOTE, "stale"
     return TrainingProposal(
         id=UUID(str(raw["id"])),
         status=status,
         requested_at=requested_at,
-        base_training=raw.get("base_training"),
-        training=raw.get("training"),
+        due_at=due_at,
+        reasons=tuple(str(r) for r in raw.get("reasons") or ()),
         note=note,
-        disclosure=raw.get("disclosure"),
         reason=reason,
     )
+
+
+def _last_write(raw: Any) -> LastWrite | None:
+    if not raw or not raw.get("at"):
+        return None
+    return LastWrite(
+        at=datetime.fromisoformat(str(raw["at"])),
+        reasons=tuple(str(r) for r in raw.get("reasons") or ()),
+        owner_edits_kept=int(raw.get("owner_edits_kept") or 0),
+        superseded=tuple(str(s) for s in raw.get("superseded") or ()),
+        shortened=bool(raw.get("shortened")),
+        disclosure=raw.get("disclosure"),
+    )
+
+
+_ROW_SQL: Final = (
+    "SELECT overview, training, proposal, version, updated_at, pip_training, owner_edits, "
+    "last_write FROM company_trainings WHERE tenant_id = :t"
+)
 
 
 async def _row(session: AsyncSession, tenant_id: UUID, *, lock: bool = False) -> Any:
@@ -156,14 +232,15 @@ async def _row(session: AsyncSession, tenant_id: UUID, *, lock: bool = False) ->
         {"id": uuid7(), "t": tenant_id},
     )
     return (
-        await session.execute(
-            text(
-                "SELECT overview, training, proposal, version, updated_at FROM company_trainings "
-                "WHERE tenant_id = :t" + (" FOR UPDATE" if lock else "")
-            ),
-            {"t": tenant_id},
-        )
+        await session.execute(text(_ROW_SQL + (" FOR UPDATE" if lock else "")), {"t": tenant_id})
     ).one()
+
+
+def owner_edited(training: str, pip_training: str | None) -> bool:
+    """Whether the live text holds words Pip did not write: a hand edit, or a training the
+    owner wrote or kept before Pip wrote any."""
+    live = training.strip()
+    return bool(live) and live != (pip_training or "").strip()
 
 
 async def read_training(session: AsyncSession, tenant_id: UUID) -> Training:
@@ -173,8 +250,150 @@ async def read_training(session: AsyncSession, tenant_id: UUID) -> Training:
         training=row.training or "",
         version=int(row.version),
         updated_at=row.updated_at if row.version else None,
-        proposal=_proposal(row.proposal, now=datetime.now(UTC)),
+        proposal=proposal_of(row.proposal, now=datetime.now(UTC)),
+        last_write=_last_write(row.last_write),
+        owner_edited=owner_edited(row.training or "", row.pip_training),
     )
+
+
+# --- scheduling Pip's write ----------------------------------------------------------------
+
+
+async def _has_agent(session: AsyncSession, tenant_id: UUID) -> bool:
+    found = await session.execute(
+        text(
+            "SELECT 1 FROM agents WHERE tenant_id = :t AND deleted_at IS NULL "
+            "AND archived_at IS NULL LIMIT 1"
+        ),
+        {"t": tenant_id},
+    )
+    return found.first() is not None
+
+
+async def _put(session: AsyncSession, tenant_id: UUID, record: dict[str, Any] | None) -> None:
+    await session.execute(
+        text("UPDATE company_trainings SET proposal = CAST(:p AS jsonb) WHERE tenant_id = :t"),
+        {"p": None if record is None else json.dumps(record), "t": tenant_id},
+    )
+
+
+def _with_reason(reasons: Any, reason: str) -> list[str]:
+    known = [str(r) for r in reasons or ()]
+    return known if reason in known else [*known, reason]
+
+
+async def _deliver(session: AsyncSession, tenant_id: UUID, proposal_id: str) -> None:
+    await enqueue_outbox(
+        session,
+        job=TRAINING_DRAFT_JOB,
+        payload={"tenant_id": str(tenant_id), "proposal_id": proposal_id},
+    )
+
+
+async def schedule_write(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    reason: WriteReason | str,
+    at_once: bool = False,
+    requested_by: UUID | None = None,
+) -> TrainingProposal | None:
+    """Queue Pip's write of the training, in the caller's transaction. Returns the pending
+    write, or None when the client has no agent yet (there is nobody to train; the first
+    agent's creation queues it).
+
+    One write per client at a time. A change while one is queued pushes it back by
+    `WRITE_DEBOUNCE_S`, never past `WRITE_MAX_WAIT_S` after the first; a change while one is
+    being written is noted on it, and the job queues one more write when it finishes, so the
+    change is never lost and never written twice at once. `at_once` (Rewrite now) starts it
+    without waiting, and is refused while one is being written.
+    """
+    from apps.api.agents.live_apply import lock_tenant_target
+
+    if reason not in WRITE_REASONS:
+        raise ValueError(f"unknown company training write reason {reason!r}")
+    await lock_tenant_target(session, tenant_id)
+    if not at_once and not await _has_agent(session, tenant_id):
+        return None
+    row = await _row(session, tenant_id, lock=True)
+    now = datetime.now(UTC)
+    pending = proposal_of(row.proposal, now=now)
+    raw: dict[str, Any] = dict(row.proposal or {})
+    if pending is not None and pending.status == "drafting":
+        if at_once:
+            raise ProblemError.conflict(
+                "company_training_in_progress",
+                "Pip is writing the training now.",
+                remediation="Wait for it to finish; it is saved for every agent when done.",
+            )
+        raw["again"] = _with_reason(raw.get("again"), reason)
+        await _put(session, tenant_id, raw)
+        return pending
+    if pending is not None and pending.status == "queued":
+        first = _when(raw.get("first_at")) or pending.requested_at
+        due = (
+            now
+            if at_once
+            else min(
+                now + timedelta(seconds=WRITE_DEBOUNCE_S),
+                first + timedelta(seconds=WRITE_MAX_WAIT_S),
+            )
+        )
+        raw.update(due_at=due.isoformat(), reasons=_with_reason(raw.get("reasons"), reason))
+        await _put(session, tenant_id, raw)
+        if at_once:
+            # The queued delivery sleeps until the old due time; this one runs now, and the
+            # claim's compare-and-set lets only one of the two write.
+            await _deliver(session, tenant_id, str(pending.id))
+        return proposal_of(raw, now=now)
+    proposal_id = str(uuid7())
+    record: dict[str, Any] = {
+        "id": proposal_id,
+        "status": "queued",
+        "requested_at": now.isoformat(),
+        "first_at": now.isoformat(),
+        "due_at": (now if at_once else now + timedelta(seconds=WRITE_DEBOUNCE_S)).isoformat(),
+        "reasons": [reason],
+        "requested_by": None if requested_by is None else str(requested_by),
+    }
+    await _put(session, tenant_id, record)
+    await _deliver(session, tenant_id, proposal_id)
+    return proposal_of(record, now=now)
+
+
+async def schedule_first_write(session: AsyncSession, tenant_id: UUID) -> None:
+    """An agent was made: queue the first training if the client has none yet."""
+    row = await _locked(session, tenant_id)
+    if int(row.version) == 0:
+        await schedule_write(session, tenant_id, reason="first_agent")
+
+
+async def request_rewrite(
+    session: AsyncSession, *, tenant_id: UUID, requested_by: UUID | None
+) -> TrainingProposal:
+    """The owner's Rewrite now: the same background write, started without waiting."""
+    proposal = await schedule_write(
+        session, tenant_id, reason="owner_asked", at_once=True, requested_by=requested_by
+    )
+    assert proposal is not None
+    return proposal
+
+
+async def clear_proposal(session: AsyncSession, tenant_id: UUID, proposal_id: UUID) -> bool:
+    """Dismiss a failed write, or stop one. The job's own writes are compare-and-sets on the
+    id, so a stopped write is never saved."""
+    done = (
+        await session.execute(
+            text(
+                "UPDATE company_trainings SET proposal = NULL WHERE tenant_id = :t "
+                "AND proposal->>'id' = :pid RETURNING id"
+            ),
+            {"t": tenant_id, "pid": str(proposal_id)},
+        )
+    ).first()
+    if done is None:
+        raise ProblemError.not_found("Draft")
+    return True
 
 
 # --- writing -----------------------------------------------------------------------------
@@ -194,13 +413,16 @@ def _clean(value: str, *, limit: int, field: str) -> str:
 
 
 async def save_overview(session: AsyncSession, tenant_id: UUID, value: str) -> str:
-    """The owner's own words about the business. Pip reads them; agents do not."""
-    await _row(session, tenant_id)
+    """The owner's own words about the business. Pip reads them; agents do not. A change
+    queues a rewrite."""
+    row = await _locked(session, tenant_id)
     overview = _clean(value, limit=OVERVIEW_MAX, field="overview")
     await session.execute(
         text("UPDATE company_trainings SET overview = :o, updated_at = now() WHERE tenant_id = :t"),
         {"o": overview or None, "t": tenant_id},
     )
+    if overview != (row.overview or "").strip():
+        await schedule_write(session, tenant_id, reason="owner_words")
     return overview
 
 
@@ -216,20 +438,30 @@ class CompanyTrainingTooLong(ProblemExtension):
     campaign_id: UUID | None = None
 
 
-async def _refuse_if_any_agent_overflows(
-    session: AsyncSession, tenant_id: UUID, training: str
-) -> None:
-    """Refuse a training with which some agent's instructions would no longer fit the
-    engine's box, naming the agent, before anything is stored or sent. The published
-    Inbound lines and the campaigns holding an engine agent are measured too: each carries
-    the training over its own script (D-997, D-1003), and the save's live apply republishes
-    them (`service.republish_lines`, `republish_campaign_agents`), so a line the training
-    pushes over the box would otherwise fail there, after the save."""
+@dataclass(frozen=True)
+class Overflow:
+    """The first script the training would push past the engine's box, and by how much."""
+
+    over: int
+    detail: str
+    remediation: str
+    extension: CompanyTrainingTooLong
+
+
+async def overflow_of(session: AsyncSession, tenant_id: UUID, training: str) -> Overflow | None:
+    """The first agent, Inbound line or campaign whose instructions would no longer fit the
+    engine's box with `training`, or None. The published Inbound lines and the campaigns
+    holding an engine agent are measured too: each carries the training over its own script
+    (D-997, D-1003), and a save's live apply republishes them (`service.republish_lines`,
+    `republish_campaign_agents`), so a line the training pushes over the box would otherwise
+    fail there, after the save."""
     from apps.api.agents.prompt_size import measure_config, publish_config
     from apps.api.engine import get_engine
 
     engine = get_engine()
-    await _refuse_if_any_job_overflows(session, tenant_id, training)
+    found = await _job_overflow(session, tenant_id, training)
+    if found is not None:
+        return found
     agents = (
         await session.execute(
             text(
@@ -253,23 +485,22 @@ async def _refuse_if_any_agent_overflows(
             continue
         size = measure_config(cfg, engine)
         if not size.fits:
-            raise ProblemError.business_rule(
-                "company_training_too_long",
-                f"With this training, {name}'s instructions are {size.over:,} characters "
-                "too long for the calling system.",
+            return Overflow(
+                over=size.over,
+                detail=f"With this training, {name}'s instructions are {size.over:,} "
+                "characters too long for the calling system.",
                 remediation=(
                     "Shorten the training, or move product and price details into "
                     "Knowledge, which every agent searches."
                 ),
-                extensions=CompanyTrainingTooLong(agent_id=agent_id),
+                extension=CompanyTrainingTooLong(agent_id=agent_id),
             )
+    return None
 
 
-async def _refuse_if_any_job_overflows(
-    session: AsyncSession, tenant_id: UUID, training: str
-) -> None:
-    """The Inbound lines and campaigns half of `_refuse_if_any_agent_overflows`: exactly the
-    ones a save republishes."""
+async def _job_overflow(session: AsyncSession, tenant_id: UUID, training: str) -> Overflow | None:
+    """The Inbound lines and campaigns half of `overflow_of`: exactly the ones a save
+    republishes."""
     from apps.api.agents.prompt_size import measure_config
     from apps.api.agents.service import (
         CAMPAIGN_HOLDING_STATUSES,
@@ -313,37 +544,66 @@ async def _refuse_if_any_job_overflows(
         size = measure_config(cfg, engine)
         if not size.fits:
             where = "Inbound line" if kind == "line" else "campaign"
-            raise ProblemError.business_rule(
-                "company_training_too_long",
-                f"With this training, the script of the {where} {name} is {size.over:,} "
-                "characters too long for the calling system.",
+            return Overflow(
+                over=size.over,
+                detail=f"With this training, the script of the {where} {name} is "
+                f"{size.over:,} characters too long for the calling system.",
                 remediation=(
                     f"Shorten the training or that {where}'s script, or move product and "
                     "price details into Knowledge, which every agent searches."
                 ),
-                extensions=(
+                extension=(
                     CompanyTrainingTooLong(inbound_line_id=job_id)
                     if kind == "line"
                     else CompanyTrainingTooLong(campaign_id=job_id)
                 ),
             )
+    return None
+
+
+async def _refuse_if_any_agent_overflows(
+    session: AsyncSession, tenant_id: UUID, training: str
+) -> None:
+    """Refuse a training with which some script would no longer fit the engine's box, naming
+    it, before anything is stored or sent."""
+    found = await overflow_of(session, tenant_id, training)
+    if found is not None:
+        raise ProblemError.business_rule(
+            "company_training_too_long",
+            found.detail,
+            remediation=found.remediation,
+            extensions=found.extension,
+        )
+
+
+async def _locked(session: AsyncSession, tenant_id: UUID) -> Any:
+    """The row, locked after the client's live-apply lock, the order every writer of it takes
+    (`live_apply.lock_tenant_target`)."""
+    from apps.api.agents.live_apply import lock_tenant_target
+
+    await lock_tenant_target(session, tenant_id)
+    return await _row(session, tenant_id, lock=True)
 
 
 async def save_training(
     session: AsyncSession, tenant_id: UUID, value: str, *, saved_by: UUID | None
 ) -> int:
-    """Save the training every agent is given and bring live agents onto it. Returns the new
-    version. An empty training is allowed: agents then carry their own scripts alone."""
+    """The owner's save of the training every agent is given; brings live agents onto it.
+    Returns the new version. An empty training is allowed: agents then carry their own
+    scripts alone. `pip_training` is left as Pip last wrote it, which is how the next rewrite
+    tells the owner's edits apart. A failed write's note is settled by it."""
     from apps.api.agents.live_apply import queue_live_apply
 
-    await _row(session, tenant_id, lock=True)
+    await _locked(session, tenant_id)
     training = _clean(value, limit=TRAINING_MAX, field="training")
     await _refuse_if_any_agent_overflows(session, tenant_id, training)
     version = (
         await session.execute(
             text(
                 "UPDATE company_trainings SET training = :tr, version = version + 1, "
-                "updated_by = :by, updated_at = now() WHERE tenant_id = :t RETURNING version"
+                "updated_by = :by, updated_at = now(), proposal = CASE WHEN "
+                "proposal->>'status' = 'failed' THEN NULL ELSE proposal END "
+                "WHERE tenant_id = :t RETURNING version"
             ),
             {"tr": training or None, "by": saved_by, "t": tenant_id},
         )
@@ -352,72 +612,44 @@ async def save_training(
     return int(version)
 
 
-async def request_proposal(
+async def save_written(
     session: AsyncSession,
-    *,
     tenant_id: UUID,
-    requested_by: UUID | None,
-    auto_save: bool = False,
-) -> TrainingProposal:
-    """Ask Pip for the training. Needs an overview; replaces a ready draft; refused while one
-    is still being written, so a second click does not spend twice.
+    *,
+    training: str,
+    base_version: int,
+    owner_edits: dict[str, Any],
+    last_write: dict[str, Any],
+) -> int | None:
+    """Pip's save: live at once, and only over the version it was written from. Returns the
+    new version, or None when the owner saved in between (their text is never overwritten by
+    a rewrite of what they had before). Refused like the owner's save when a script would no
+    longer fit the engine's box."""
+    from apps.api.agents.live_apply import queue_live_apply
 
-    `auto_save`: the draft is saved as the training as soon as it is written, with no review,
-    while no training has been saved yet (the first run's version 1, founder 16 Nov 2026)."""
-    row = await _row(session, tenant_id, lock=True)
-    if not (row.overview or "").strip():
-        raise _invalid(
-            "overview_required",
-            "Describe the business first",
-            "Write about the business first, so Pip knows what to teach the agents.",
-        )
-    now = datetime.now(UTC)
-    pending = _proposal(row.proposal, now=now)
-    if pending is not None and pending.status == "drafting":
-        raise ProblemError.conflict(
-            "company_training_in_progress",
-            "Pip is still writing the training.",
-            remediation="Wait for it to appear, or press Stop first.",
-        )
-    proposal_id = uuid7()
-    record: dict[str, Any] = {
-        "id": str(proposal_id),
-        "status": "drafting",
-        "requested_at": now.isoformat(),
-        "requested_by": None if requested_by is None else str(requested_by),
-        "base_training": row.training,
-    }
-    if auto_save:
-        record["auto_save"] = True
-    await session.execute(
-        text("UPDATE company_trainings SET proposal = CAST(:p AS jsonb) WHERE tenant_id = :t"),
-        {"p": json.dumps(record), "t": tenant_id},
-    )
-    await enqueue_outbox(
-        session,
-        job=TRAINING_DRAFT_JOB,
-        payload={"tenant_id": str(tenant_id), "proposal_id": str(proposal_id)},
-    )
-    proposal = _proposal(record, now=now)
-    assert proposal is not None
-    return proposal
-
-
-async def clear_proposal(session: AsyncSession, tenant_id: UUID, proposal_id: UUID) -> bool:
-    """Stop a draft being written, or discard / settle a written one. The job's own write is a
-    compare-and-set on the id, so a stopped draft is never written back."""
-    done = (
+    row = await _locked(session, tenant_id)
+    if int(row.version) != base_version:
+        return None
+    cleaned = _clean(training, limit=TRAINING_MAX, field="training")
+    await _refuse_if_any_agent_overflows(session, tenant_id, cleaned)
+    version = (
         await session.execute(
             text(
-                "UPDATE company_trainings SET proposal = NULL WHERE tenant_id = :t "
-                "AND proposal->>'id' = :pid RETURNING id"
+                "UPDATE company_trainings SET training = :tr, pip_training = :tr, "
+                "owner_edits = CAST(:oe AS jsonb), last_write = CAST(:lw AS jsonb), "
+                "version = version + 1, updated_by = NULL, updated_at = now() "
+                "WHERE tenant_id = :t RETURNING version"
             ),
-            {"t": tenant_id, "pid": str(proposal_id)},
+            {
+                "tr": cleaned,
+                "oe": json.dumps(owner_edits),
+                "lw": json.dumps(last_write),
+                "t": tenant_id,
+            },
         )
-    ).first()
-    if done is None:
-        raise ProblemError.not_found("Draft")
-    return True
+    ).scalar_one()
+    await queue_live_apply(session, scope="tenant", tenant_id=tenant_id, reason="company_training")
+    return int(version)
 
 
 __all__ = [
@@ -426,14 +658,25 @@ __all__ = [
     "TRAINING_DRAFT_JOB",
     "TRAINING_HEADER",
     "TRAINING_MAX",
+    "WRITE_DEBOUNCE_S",
+    "WRITE_MAX_WAIT_S",
+    "WRITE_REASONS",
+    "LastWrite",
+    "Overflow",
     "Training",
     "TrainingProposal",
     "clear_proposal",
     "live_text",
+    "overflow_of",
+    "owner_edited",
+    "proposal_of",
     "read_training",
-    "request_proposal",
+    "request_rewrite",
     "save_overview",
     "save_training",
+    "save_written",
+    "schedule_first_write",
+    "schedule_write",
     "training_section",
     "with_training",
 ]

@@ -1,7 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { HowTheySpeak, TAB_LEAD } from "@/app/c/[slug]/knowledge/HowTheySpeak";
+import { EMPTY_TRAINING, HowTheySpeak, TAB_LEAD, reasonWords } from "@/app/c/[slug]/knowledge/HowTheySpeak";
 import { KnowledgeScreen } from "@/app/c/[slug]/knowledge/KnowledgeScreen";
 import type { CompanyTraining } from "@/lib/api/companyTraining";
 
@@ -9,9 +9,8 @@ import { noReply, problem, renderClientPage } from "./harness";
 
 /*
  * HOW THEY SPEAK (D-996): the one training every agent is given, a tab of What your agents
- * know. The owner describes the business, Pip writes the training from it and the page's
- * sources, and the owner keeps it, edits it first or discards it. Keeping Pip's draft saves it
- * together with the draft's id, so the draft is settled in the same save.
+ * know. Pip writes it by itself in the background and saves it live (D-1034); the screen says
+ * when and why, the owner can still edit it, and Rewrite now runs the same write.
  */
 
 const PATH = "/v1/company-training";
@@ -30,20 +29,21 @@ function training(over: Partial<CompanyTraining> = {}): CompanyTraining {
     version: 0,
     updated_at: null,
     proposal: null,
+    last_write: null,
+    owner_edited: false,
     overview_max: 4000,
     training_max: 6000,
     ...over,
   };
 }
 
-const READY: CompanyTraining["proposal"] = {
+const QUEUED: CompanyTraining["proposal"] = {
   id: "p-1",
-  status: "ready",
+  status: "queued",
   requested_at: "2026-11-16T05:00:00Z",
-  base_training: null,
-  training: "We are Sunrise Homes. We build flats in Kompally.",
+  due_at: "2026-11-16T05:01:00Z",
+  reasons: ["knowledge_changed", "profile_changed"],
   note: null,
-  disclosure: null,
   reason: null,
 };
 
@@ -67,12 +67,64 @@ describe("How they speak", () => {
     }
   });
 
-  it("asks for the business first, with Generate held back until it is saved", async () => {
+  it("says Pip writes the training by itself, with no Generate step", async () => {
     await renderClientPage(<HowTheySpeak />, { "/v1/me": OWNER, [PATH]: training() });
     expect(await screen.findByText(TAB_LEAD)).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "About the business" })).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Generate" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText("Save About the business first.")).toBeTruthy();
+    expect(screen.getByText(EMPTY_TRAINING)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Generate" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Write it myself" })).toBeTruthy();
+  });
+
+  it("shows Pip about to rewrite it, and why", async () => {
+    await renderClientPage(<HowTheySpeak />, {
+      "/v1/me": OWNER,
+      [PATH]: training({ training: "Address people as sir or madam.", version: 2, proposal: QUEUED }),
+    });
+    expect(await screen.findByText("Pip rewrites it shortly")).toBeTruthy();
+    expect(screen.getByText(reasonWords(["knowledge_changed", "profile_changed"]))).toBeTruthy();
+    expect(screen.getByText("Address people as sir or madam.")).toBeTruthy();
+  });
+
+  it("says when Pip last wrote it, what it kept, and what newer knowledge replaced", async () => {
+    await renderClientPage(<HowTheySpeak />, {
+      "/v1/me": OWNER,
+      [PATH]: training({
+        training: "Address people as sir or madam.",
+        version: 4,
+        last_write: {
+          at: "2026-11-16T05:00:00Z",
+          reasons: ["knowledge_changed"],
+          owner_edits_kept: 2,
+          superseded: ["Delivery is 50 rupees."],
+          shortened: false,
+          disclosure: null,
+        },
+      }),
+    });
+    expect(await screen.findByText(/^Pip wrote it/)).toBeTruthy();
+    expect(screen.getByText("Your edits kept: 2")).toBeTruthy();
+    expect(screen.getByText("Newer knowledge replaced 1")).toBeTruthy();
+    expect(screen.getByText("Delivery is 50 rupees.")).toBeTruthy();
+  });
+
+  it("Rewrite now starts Pip's write", async () => {
+    const page = await renderClientPage(<HowTheySpeak />, {
+      "/v1/me": OWNER,
+      [PATH]: training({ training: "Address people as sir or madam.", version: 2 }),
+      [`POST ${PATH}/proposal`]: { ...QUEUED, reasons: ["owner_asked"] },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Rewrite now" }));
+    await waitFor(() => expect(page.calls.some((c) => c.method === "POST" && c.path === `${PATH}/proposal`)).toBe(true));
+  });
+
+  it("holds Rewrite now back while Pip is writing", async () => {
+    await renderClientPage(<HowTheySpeak />, {
+      "/v1/me": OWNER,
+      [PATH]: training({ training: "Address people as sir or madam.", proposal: { ...QUEUED, status: "drafting" } }),
+    });
+    expect(await screen.findByText("Pip is rewriting it")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Rewrite now" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("saves the owner's words about the business", async () => {
@@ -90,17 +142,19 @@ describe("How they speak", () => {
     expect(JSON.parse(sent?.body ?? "{}")).toEqual({ overview: "We build flats in Kompally." });
   });
 
-  it("keeps Pip's draft with its id, so the draft is settled by the same save", async () => {
+  it("saves the owner's edit of the training as their own words", async () => {
     const page = await renderClientPage(<HowTheySpeak />, {
       "/v1/me": OWNER,
-      [PATH]: training({ overview: "We build flats.", proposal: READY }),
-      [`PUT ${PATH}/training`]: training({ overview: "We build flats.", training: READY?.training ?? "", version: 1 }),
+      [PATH]: training({ training: "Address people as sir or madam.", version: 1 }),
+      [`PUT ${PATH}/training`]: training({ training: "Call people sir.", version: 2, owner_edited: true }),
     });
-    expect(await screen.findByText(/We build flats in Kompally/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit training" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Training" }), { target: { value: "Call people sir." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save for every agent" }));
     await waitFor(() => expect(page.calls.some((c) => c.path === `${PATH}/training`)).toBe(true));
     const sent = page.calls.find((c) => c.path === `${PATH}/training`);
-    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ training: READY?.training, proposal_id: "p-1" });
+    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ training: "Call people sir." });
+    expect(await screen.findByText("Has your edits")).toBeTruthy();
   });
 
   it("shows the saved training with its version and an Edit", async () => {

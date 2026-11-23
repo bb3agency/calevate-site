@@ -8,8 +8,10 @@
  *
  * Built like a campaign's set-up (D-992), with the same coloured folds:
  *  1. About the business: the owner's own words, many lines.
- *  2. The training: Pip writes it from 1, the business profile and every source on this page,
- *     the owner reads it, keeps it or edits it, and a save brings every agent onto it.
+ *  2. The training: Pip writes it by itself in the background (D-1034) from 1, the business
+ *     profile and every source on this page, saves it live, and rewrites it when they change.
+ *     The owner can still edit it (Pip keeps their edits in every rewrite) or press Rewrite
+ *     now, which runs the same job; there is no second writer.
  *
  * It has no sources of its own: what Pip reads is added with the page's Add area, once.
  */
@@ -19,7 +21,7 @@ import { useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
-import { TEXT_ACTION_DANGER } from "@/components/console/section";
+import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import {
   FIELD,
   PRIMARY_BUTTON_SM,
@@ -37,13 +39,13 @@ import {
   useSaveOverview,
   useSaveTraining,
   type CompanyTraining,
+  type WriteReason,
 } from "@/lib/api/companyTraining";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
 import { FoldGroup, FoldSection } from "../campaigns/FoldSection";
-import { PipGenerateBand } from "../campaigns/PipGenerateBand";
-import { PipFailed, PipWriting, retryable } from "../campaigns/PipScriptStatus";
+import { PipAskRefused, PipFailed } from "../campaigns/PipScriptStatus";
 
 export const TAB_LEAD = "Every agent learns this before any line or campaign script.";
 export const OVERVIEW_HINT = "What is your business, and how should agents talk?";
@@ -98,7 +100,7 @@ function Overview({ data, canWrite, refusal }: Props) {
 
   return (
     <FoldSection id="training-overview" title="About the business" tone="task" hint={OVERVIEW_HINT}
-      info="Write it in your own words, as much as you like: what you sell, who your customers are, how you talk to people. Pip writes the training from it and from everything on this page."
+      info="Write it in your own words, as much as you like: what you sell, who your customers are, how you talk to people. Pip rewrites the training from it, and from everything on this page, whenever it changes."
     >
       {editing ? (
         <>
@@ -170,29 +172,31 @@ function Overview({ data, canWrite, refusal }: Props) {
   );
 }
 
+/** Why Pip wrote, as the status line names it. Keys are the server's `reasons`. */
+const REASON_WORDS: Record<WriteReason, string> = {
+  first_agent: "your first agent",
+  knowledge_changed: "knowledge changed",
+  profile_changed: "business details changed",
+  owner_words: "About the business changed",
+  owner_asked: "you asked",
+};
+
+export function reasonWords(reasons: readonly WriteReason[]): string {
+  return [...new Set(reasons.map((r) => REASON_WORDS[r]))].join(", ");
+}
+
 function Training({ data, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
-  const ask = useRequestTraining(session);
+  const rewrite = useRequestTraining(session);
   const clear = useClearTrainingProposal(session);
   const save = useSaveTraining(session);
-  const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
-  const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
+  const rewriteFeedback = useActionFeedback(rewrite, { errorDisplay: "inline" });
+  const dismissFeedback = useActionFeedback(clear, { errorTitle: "Could not dismiss it" });
   useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved. Every agent gets it now." });
-  // The text being edited, and the Pip draft it started from (kept with it on Save).
-  const [draft, setDraft] = useState<{ text: string; proposalId?: string } | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
   const proposal = data.proposal;
-  const hasOverview = data.overview.trim() !== "";
-  const failed = proposal?.status === "failed";
-  const reason = !hasOverview
-    ? "Save About the business first."
-    : proposal?.status === "ready"
-      ? "Read Pip's training below first."
-      : failed
-        ? "Pip's last try did not finish. See why below."
-        : undefined;
-
-  const keep = (text: string, proposalId?: string) =>
-    save.mutate({ training: text, proposal_id: proposalId }, { onSuccess: () => setDraft(null) });
+  const writing = proposal?.status === "drafting";
+  const busy = writing || rewrite.isPending;
 
   return (
     <FoldSection
@@ -200,171 +204,151 @@ function Training({ data, canWrite, refusal }: Props) {
       title="Training"
       tone="script"
       hint={TRAINING_HINT}
-      info="Each Inbound line and campaign keeps its own script on top of this. Where a script says something different, the script wins on its own calls."
+      info="Each Inbound line and campaign keeps its own script on top of this. Where a script says something different, the script wins on its own calls. Pip writes this by itself from your business details and knowledge, rewrites it when they change, and keeps your own edits."
       aside={data.version > 0 ? `Version ${data.version}` : undefined}
     >
-      <div className="mb-4">
-        <PipGenerateBand
-          heading="Let Pip, our AI agent, write the training"
-          from="Pip writes it from your words and this page."
-          onGenerate={() => askFeedback.run(undefined)}
-          busy={ask.isPending || proposal?.status === "drafting"}
-          disabled={!canWrite || !hasOverview || (proposal != null && !(failed && retryable(proposal.reason)))}
-          reason={reason}
-          refusal={refusal}
-          label={failed ? "Try again" : "Generate"}
-          inline
-        />
-        {ask.error != null && (
-          <div className="mt-2">
-            <ProblemNotice error={ask.error} />
-          </div>
-        )}
-      </div>
-
       {save.error != null && (
         <div className="mb-3 space-y-2">
           <ProblemNotice error={save.error} />
           <ScriptPlaces error={save.error} />
         </div>
       )}
-
-      {proposal?.status === "drafting" && (
-        <PipWriting
-          proposal={proposal}
-          what="the training"
-          stopping={clear.isPending}
-          onStop={() => stopFeedback.run(proposal.id)}
-        />
+      {rewrite.error != null && (
+        <div className="mb-3">
+          <PipAskRefused error={rewrite.error} onRetry={() => rewriteFeedback.run(undefined)} />
+        </div>
       )}
 
-      {proposal?.status === "failed" && (
-        <PipFailed
-          proposal={proposal}
-          what="the training"
-          canWrite={canWrite}
-          retrying={ask.isPending}
-          dismissing={clear.isPending}
-          onRetry={() => askFeedback.run(undefined)}
-          onDismiss={() => stopFeedback.run(proposal.id)}
-        />
+      {proposal?.status === "failed" ? (
+        <div className="mb-4">
+          <PipFailed
+            proposal={proposal}
+            what="the training"
+            canWrite={canWrite}
+            retrying={rewrite.isPending}
+            dismissing={clear.isPending}
+            onRetry={() => rewriteFeedback.run(undefined)}
+            onDismiss={() => dismissFeedback.run(proposal.id)}
+          />
+        </div>
+      ) : (
+        <WriteStatus data={data} />
       )}
 
-      {draft ? (
+      {draft !== null ? (
         <TrainingEditor
-          value={draft.text}
+          value={draft}
           max={data.training_max}
           saving={save.isPending}
           canWrite={canWrite}
           refusal={refusal}
-          onChange={(text) => setDraft({ ...draft, text })}
-          onSave={() => keep(draft.text, draft.proposalId)}
+          onChange={setDraft}
+          onSave={() => save.mutate({ training: draft }, { onSuccess: () => setDraft(null) })}
           onCancel={() => {
             save.reset();
             setDraft(null);
           }}
         />
-      ) : proposal?.status === "ready" && proposal.training ? (
-        <div className="space-y-3 border-y border-line py-4">
-          <h3 className="text-body font-semibold text-ink">Pip&apos;s training</h3>
-          {proposal.disclosure && <p className="text-meta text-ink-muted">{proposal.disclosure}</p>}
-          <ExpandableText
-            lines={12}
-            moreLabel="Show all"
-            lessLabel="Show less"
-            className="text-body text-ink"
-            textClassName="whitespace-pre-wrap [overflow-wrap:anywhere]"
-          >
-            {proposal.training}
-          </ExpandableText>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className={PRIMARY_BUTTON_SM}
-              disabled={!canWrite || save.isPending || clear.isPending}
-              title={refusal}
-              onClick={() => keep(proposal.training ?? "", proposal.id)}
-            >
-              {save.isPending ? "Saving…" : "Keep it"}
-            </button>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={!canWrite || save.isPending || clear.isPending}
-              title={refusal}
-              onClick={() => {
-                save.reset();
-                setDraft({ text: proposal.training ?? "", proposalId: proposal.id });
-              }}
-            >
-              Edit first
-            </button>
-            <button
-              type="button"
-              className={TEXT_ACTION_DANGER}
-              disabled={!canWrite || save.isPending || clear.isPending}
-              title={refusal}
-              onClick={() => stopFeedback.run(proposal.id)}
-            >
-              Discard
-            </button>
-          </div>
-        </div>
-      ) : data.training.trim() ? (
-        <div>
-          <ExpandableText
-            lines={8}
-            moreLabel="Show all"
-            lessLabel="Show less"
-            className="text-body text-ink"
-            textClassName="whitespace-pre-wrap [overflow-wrap:anywhere]"
-          >
-            {data.training}
-          </ExpandableText>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={!canWrite || proposal != null}
-              title={refusal}
-              onClick={() => {
-                save.reset();
-                setDraft({ text: data.training });
-              }}
-            >
-              Edit training
-            </button>
-            {data.updated_at && (
-              <span className="text-meta text-ink-muted">Saved {formatIST(data.updated_at)}</span>
-            )}
-          </div>
-        </div>
       ) : (
-        !proposal && (
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="text-body text-ink-muted">
-              {hasOverview ? "No training yet. Press Generate above." : "Write About the business first."}
-            </p>
+        <div>
+          {data.training.trim() ? (
+            <ExpandableText
+              lines={8}
+              moreLabel="Show all"
+              lessLabel="Show less"
+              className="text-body text-ink"
+              textClassName="whitespace-pre-wrap [overflow-wrap:anywhere]"
+            >
+              {data.training}
+            </ExpandableText>
+          ) : (
+            <p className="text-body text-ink-muted">{proposal ? "Pip is on it." : EMPTY_TRAINING}</p>
+          )}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
             <button
               type="button"
               className={SECONDARY_BUTTON_SM}
               disabled={!canWrite}
               title={refusal}
-              onClick={() => setDraft({ text: "" })}
+              onClick={() => {
+                save.reset();
+                setDraft(data.training);
+              }}
             >
-              Write it myself
+              {data.training.trim() ? "Edit training" : "Write it myself"}
+            </button>
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              disabled={!canWrite || busy}
+              title={refusal}
+              onClick={() => rewriteFeedback.run(undefined)}
+            >
+              {rewrite.isPending ? "Starting…" : "Rewrite now"}
             </button>
           </div>
-        )
+        </div>
       )}
     </FoldSection>
   );
 }
 
+export const EMPTY_TRAINING = "Pip writes this once you add your first agent.";
+
 /**
- * Where the script the refusal names is shortened. The refusal names the line or campaign in
- * its sentence but carries no id, so both lists are offered rather than one guessed.
+ * One line on Pip's write: writing now, about to, or when it last wrote and why. Chips say
+ * what it kept; the facts newer knowledge replaced sit behind a tap.
  */
+function WriteStatus({ data }: { data: CompanyTraining }) {
+  const proposal = data.proposal;
+  const last = data.last_write;
+  if (proposal && proposal.status !== "failed") {
+    return (
+      <p role="status" className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <StatusPill tone="info" dot={`${STATE_DOT.waiting} animate-pulse motion-reduce:animate-none`}>
+          {proposal.status === "drafting" ? "Pip is rewriting it" : "Pip rewrites it shortly"}
+        </StatusPill>
+        {proposal.reasons.length > 0 && (
+          <span className="text-meta text-ink-muted">{reasonWords(proposal.reasons)}</span>
+        )}
+      </p>
+    );
+  }
+  if (!last && !data.owner_edited) return null;
+  return (
+    <div className="mb-4 space-y-1">
+      <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {last && (
+          <StatusPill tone="ok">
+            Pip wrote it {formatIST(last.at)}
+          </StatusPill>
+        )}
+        {last && last.reasons.length > 0 && (
+          <span className="text-meta text-ink-muted">{reasonWords(last.reasons)}</span>
+        )}
+        {last && last.owner_edits_kept > 0 && (
+          <span className="text-meta text-ink-muted">Your edits kept: {last.owner_edits_kept}</span>
+        )}
+        {last?.shortened && <span className="text-meta text-ink-muted">Shortened to fit</span>}
+        {data.owner_edited && <StatusPill tone="neutral">Has your edits</StatusPill>}
+      </p>
+      {last?.disclosure && <p className="text-meta text-ink-muted">{last.disclosure}</p>}
+      {last && last.superseded.length > 0 && (
+        <details className="text-meta text-ink-muted">
+          <summary className="cursor-pointer">Newer knowledge replaced {last.superseded.length}</summary>
+          <ul className="mt-1 space-y-1">
+            {last.superseded.map((fact) => (
+              <li key={fact} className="[overflow-wrap:anywhere]">
+                {fact}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 /**
  * The way out of a too-long refusal: a button straight to the Inbound line, campaign or
  * agent the server named, or both lists when it named none (a server older than the id).

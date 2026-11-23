@@ -6,9 +6,8 @@ from a written script. After "About your business":
 
 1. **Name and voice** (`save_agent`): the agent is made with the default agent's name
    (`agents/default_agent`), its voice and its languages, and nothing else. Its AI notice is
-   switched on by a job, as the build's last step did for the agent it made (D-864). The
-   company training is drafted from the owner's words and saved at once as version 1
-   (`_queue_training`), with no review.
+   switched on by a job, as the build's last step did for the agent it made (D-864). Making
+   it queues Pip's company training in the background (`lifecycle.create_agent`, D-1034).
 2. **What first?** (`start_work`): "Answer my calls" drafts an inbound line in the agent's
    voice, with no number needed; "Call people" drafts a campaign. Either one's script is
    written by Pip from the owner's words and documents and saved at once (`auto_save`), so
@@ -31,7 +30,6 @@ from calevate_shared.call_script import CallScript
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import company_training
 from apps.api.agents.languages import published_extra_languages
 from apps.api.agents.lifecycle import create_agent, update_agent
 from apps.api.billing.ai_quota import read_ai_quota
@@ -198,8 +196,6 @@ async def save_agent(
         )
         if clean != before:
             await _rename_in_work(session, row=row, name=clean)
-    if may_spend_ai:
-        await _queue_training(session, tenant_id=tenant_id, user_id=user_id)
     return await read_state(session, tenant_id=tenant_id)
 
 
@@ -231,22 +227,6 @@ async def _rename_in_work(session: AsyncSession, *, row: Any, name: str) -> None
 async def _within_ai_allowance(session: AsyncSession, tenant_id: UUID) -> bool:
     quota = await read_ai_quota(session, tenant_id=tenant_id)
     return not (quota.at_ceiling or quota.platform_paused)
-
-
-async def _queue_training(session: AsyncSession, *, tenant_id: UUID, user_id: UUID | None) -> None:
-    """Pip drafts the company training from the owner's words, saved at once as version 1
-    (founder, 16 Nov 2026). Only while none is saved and none is being written, and only
-    within the account's AI allowance: without it the owner writes it under How they speak."""
-    training = await company_training.read_training(session, tenant_id)
-    if training.version > 0 or not training.overview.strip():
-        return
-    if training.proposal is not None and training.proposal.status in ("drafting", "ready"):
-        return
-    if not await _within_ai_allowance(session, tenant_id):
-        return
-    await company_training.request_proposal(
-        session, tenant_id=tenant_id, requested_by=user_id, auto_save=True
-    )
 
 
 #: What leads the owner's answers in the work's main task.

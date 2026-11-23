@@ -3,7 +3,7 @@
 1. "About your business": the owner's words become the company training's overview, until a
    training is saved.
 2. "Name and voice": the agent is made with no script of its own, its AI notice is switched
-   on by a job, and Pip's training is asked for with `auto_save`.
+   on by a job, and Pip's company training is queued in the background (D-1034).
 3. "What first?": a draft inbound line (no number) or a draft campaign, its main task the
    owner's words, Pip's script asked for with `auto_save`; the agent takes the work's
    direction while it is a draft.
@@ -15,7 +15,6 @@ Every case makes its own tenant; no model is reached.
 
 from __future__ import annotations
 
-import json
 import uuid
 from types import SimpleNamespace
 from typing import Any
@@ -28,7 +27,6 @@ from apps.api.first_run import work
 from apps.api.first_run.work import NOTICE_JOB
 from apps.api.inbound import lines
 from apps.workers import campaign_script
-from apps.workers import company_training_draft as training_worker
 from calevate_shared.call_script import CallScript
 from calevate_shared.config import Settings
 from sqlalchemy import text
@@ -116,8 +114,9 @@ async def test_name_and_voice_makes_an_agent_with_no_script_and_asks_for_the_tra
         record = (
             await session.execute(text("SELECT proposal FROM company_trainings"))
         ).scalar_one()
-    assert training.proposal is not None and training.proposal.status == "drafting"
-    assert record["auto_save"] is True
+    # Pip writes the company training in the background (D-1034).
+    assert training.proposal is not None and training.proposal.status == "queued"
+    assert record["reasons"] == ["first_agent"]
 
     async with _client() as http:
         renamed = await http.put(
@@ -232,33 +231,6 @@ async def test_a_draft_never_replaces_a_script_the_owner_saved() -> None:
     async with tenant_session(tenant_id) as session:
         line = await lines.read_line(session, line_id)
     assert line.script == own and line.proposal is not None, "kept for the owner to review"
-
-
-@pytest.mark.parametrize("saved_before", [False, True])
-async def test_the_first_runs_training_is_saved_as_version_one(saved_before: bool) -> None:
-    tenant_id = await _tenant()
-    async with tenant_session(tenant_id) as session:
-        await company_training.save_overview(session, tenant_id, LONG_BRIEF)
-        if saved_before:
-            await company_training.save_training(session, tenant_id, "The owner's.", saved_by=None)
-        proposal = await company_training.request_proposal(
-            session, tenant_id=tenant_id, requested_by=None, auto_save=True
-        )
-        await session.execute(
-            text(
-                "UPDATE company_trainings SET proposal = proposal || CAST(:u AS jsonb) "
-                "WHERE tenant_id = :t"
-            ),
-            {"u": json.dumps({"status": "ready", "training": "Pip's."}), "t": tenant_id},
-        )
-        await training_worker._save_if_asked(session, tenant_id, proposal.id, "Pip's.")
-    async with tenant_session(tenant_id) as session:
-        training = await company_training.read_training(session, tenant_id)
-    if saved_before:
-        assert (training.training, training.version) == ("The owner's.", 1)
-        assert training.proposal is not None
-    else:
-        assert (training.training, training.version, training.proposal) == ("Pip's.", 1, None)
 
 
 def _no_allowance(monkeypatch: pytest.MonkeyPatch) -> None:

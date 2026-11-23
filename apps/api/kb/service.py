@@ -2753,6 +2753,7 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     # property `docs/evidence/kb-retrieval-bakeoff.md` §5.2 picked pgvector for.
     await project_chunks(session, tenant_id=tenant_id, source_id=source_id)
     refreshed = await _refresh_agents(session, tenant_id=tenant_id)
+    await _rewrite_training(session, tenant_id=tenant_id, name=name)
     # AND THE EXTERNAL SEARCH INDEX (box 3). A no-op where box 3 is not adopted; where it
     # is, it cannot fail the publish — the difference-driven sweep converges.
     indexed = await refresh_indexed_source(session, tenant_id=tenant_id, source_id=source_id)
@@ -2803,6 +2804,18 @@ def _alert_fan_out_incomplete(
         tenant_id=str(tenant_id),
         source_id=str(source_id),
     )
+
+
+async def _rewrite_training(session: AsyncSession, *, tenant_id: UUID, name: str) -> None:
+    """What the agents know changed, so Pip rewrites the company training from it (D-1034).
+    The taught facts reach every agent as known facts already and are not written from."""
+    # Deferred: `teach.facts` imports this module, and `agents/company_training` reaches
+    # `agents/service` through the box measure.
+    from apps.api.agents.company_training import schedule_write
+    from apps.api.teach.facts import FACTS_SOURCE_NAME
+
+    if name != FACTS_SOURCE_NAME:
+        await schedule_write(session, tenant_id, reason="knowledge_changed")
 
 
 async def _refresh_agents(session: AsyncSession, *, tenant_id: UUID) -> int:
@@ -2934,7 +2947,9 @@ async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: 
     copies already removed as withdrawn instead of failing on them.
     """
     exists = (
-        await session.execute(text("SELECT 1 FROM kb_sources WHERE id = :sid"), {"sid": source_id})
+        await session.execute(
+            text("SELECT name, is_active FROM kb_sources WHERE id = :sid"), {"sid": source_id}
+        )
     ).first()
     if exists is None:
         raise ProblemError.not_found("Knowledge source")
@@ -3021,6 +3036,8 @@ async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: 
     # T0, for `publish_source`'s reason in the other direction: a withdrawal that left the
     # T0 block alone would take the source off every screen while the agent went on reciting it.
     refreshed = await _refresh_agents(session, tenant_id=tenant_id)
+    if exists.is_active:
+        await _rewrite_training(session, tenant_id=tenant_id, name=str(exists.name))
     # AND THE EXTERNAL SEARCH INDEX: the chunks went inactive above, so every document this
     # source put in box 3 is an orphan and this call takes it out.
     unindexed = await refresh_indexed_source(session, tenant_id=tenant_id, source_id=source_id)

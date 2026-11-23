@@ -5,9 +5,8 @@
    truthful answers still come after it; an account with none composes exactly as before.
 3. A save moves the version and queues the live agents onto it; one that would push an
    agent past the engine's box is refused before anything is stored.
-4. Pip needs an overview first, writes one draft at a time, reads what the agents know
-   rather than a list of its own, and its draft is redacted on the way in and stored by
-   compare-and-set.
+4. Pip reads what the agents know rather than a list of its own, and what it reads is
+   redacted on the way in. The background write itself is `company_training_background_test`.
 
 SHARED DATABASE DISCIPLINE: every organisation is minted here and every assertion is scoped
 to its own ids. The model is never called: the ladder is replaced.
@@ -24,7 +23,6 @@ import pytest
 from apps.api.agents import company_training, prompts
 from apps.api.agents.prompt_size import publish_config
 from apps.api.core.errors import ProblemError
-from apps.api.crm import assist as crm_assist
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
@@ -88,8 +86,10 @@ async def test_a_tenant_cannot_see_another_tenants_training() -> None:
         await company_training.save_training(session, tenant_a, TRAINING, saved_by=None)
     async with tenant_session(tenant_b) as session:
         assert await company_training.live_text(session) == ""
-        trainings = (await session.execute(text("SELECT count(*) FROM company_trainings"))).scalar()
-    assert trainings == 0
+        tenants = (
+            (await session.execute(text("SELECT tenant_id FROM company_trainings"))).scalars().all()
+        )
+    assert tenant_a not in tenants
 
 
 # --- 2. composition ----------------------------------------------------------------------
@@ -230,19 +230,6 @@ async def test_a_training_that_would_overflow_a_published_inbound_line_is_refuse
 # --- 4. Pip ------------------------------------------------------------------------------
 
 
-async def test_pip_needs_an_overview_and_writes_one_draft_at_a_time() -> None:
-    tenant, _ = await _org()
-    async with tenant_session(tenant) as session:
-        with pytest.raises(ProblemError) as refused:
-            await company_training.request_proposal(session, tenant_id=tenant, requested_by=None)
-        assert refused.value.code == "overview_required"
-        await company_training.save_overview(session, tenant, "We build flats in Kompally.")
-        await company_training.request_proposal(session, tenant_id=tenant, requested_by=None)
-        with pytest.raises(ProblemError) as busy:
-            await company_training.request_proposal(session, tenant_id=tenant, requested_by=None)
-    assert busy.value.code == "company_training_in_progress"
-
-
 def test_an_answer_with_no_text_or_over_the_limit_is_no_answer() -> None:
     assert company_training_draft._parsed({"training": "  "}) is None
     assert company_training_draft._parsed({"training": 3}) is None
@@ -259,48 +246,6 @@ def test_the_owners_words_are_redacted_before_any_model_reads_them() -> None:
         current=None,
     )
     assert "9876543210" not in request
-
-
-async def test_pips_draft_is_stored_for_review_and_metered(monkeypatch: pytest.MonkeyPatch) -> None:
-    tenant, _ = await _org()
-    async with tenant_session(tenant) as session:
-        await company_training.save_overview(session, tenant, "We build flats in Kompally.")
-        requested = await company_training.request_proposal(
-            session, tenant_id=tenant, requested_by=None
-        )
-    asked: list[str] = []
-    metered: list[str] = []
-
-    async def ladder(request: str, instruction: str, **_kwargs: Any) -> Any:
-        asked.append(request)
-        return SimpleNamespace(
-            value=TRAINING,
-            capability=SimpleNamespace(disclosure=None),
-            usage=None,
-            model="gemini-2.5-flash-lite",
-            earlier=(),
-        )
-
-    async def meter_assist(_session: Any, **kwargs: Any) -> None:
-        metered.append(kwargs["model"])
-
-    async def meter_earlier(_session: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(company_training_draft, "ask_json", ladder)
-    monkeypatch.setattr(crm_assist, "meter_assist", meter_assist)
-    monkeypatch.setattr(crm_assist, "meter_earlier", meter_earlier)
-    payload = {"tenant_id": str(tenant), "proposal_id": str(requested.id)}
-    assert await company_training_draft.draft_company_training({}, payload) == "ready"
-    # Delivered twice by the outbox, written once.
-    assert await company_training_draft.draft_company_training({}, payload) == "not_pending"
-    async with tenant_session(tenant) as session:
-        read = await company_training.read_training(session, tenant)
-    assert read.proposal is not None and read.proposal.status == "ready"
-    assert read.proposal.training == TRAINING
-    # Nothing reaches an agent until the owner saves it.
-    assert read.training == ""
-    assert "Kompally" in asked[0] and metered == ["gemini-2.5-flash-lite"]
 
 
 async def _knowledge(tenant: UUID, name: str, words: str, *, active: bool = True) -> None:

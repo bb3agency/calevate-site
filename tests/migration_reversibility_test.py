@@ -95,6 +95,15 @@ def _function(source: str, tree: ast.AST, name: str) -> tuple[ast.FunctionDef | 
 #: below re-derives whether it is really data-only rather than trusting the listing — an
 #: exemption that took the author's word for it would be a hole with a comment over it.
 DATA_ONLY_REPAIRS: dict[str, str] = {
+    "e2a7c4f9b1d3": (
+        "copies each agent's What it notes list onto its empty campaigns and lines; no DDL, "
+        "and a copied list cannot be told from one the owner saved afterwards"
+    ),
+    "a6c2e9f4b8d1": (
+        "re-runs e2a7c4f9b1d3's and f3b8d2a6c1e4's copies that FORCE-RLS swallowed; no DDL "
+        "beyond the RLS bracket, each statement is false once applied, and its rows cannot "
+        "be told from ones the owner saved since"
+    ),
     "b7e3d9a2c5f1": (
         "queues job-step and detail-name writing for described accounts; no DDL beyond the "
         "RLS bracket, and a queued message is consumed or dead-lettered on its own"

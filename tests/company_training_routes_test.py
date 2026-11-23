@@ -1,8 +1,8 @@
 """The company training page's routes (D-995), driven over HTTP as the owner.
 
-The rules themselves are in `company_training_test.py`; this covers the seam: what each route
-answers, and that a kept Pip draft is settled by the same save. SHARED DATABASE DISCIPLINE:
-every organisation is minted here.
+The rules themselves are in `company_training_test.py` and `company_training_background_test.
+py`; this covers the seam: what each route answers. SHARED DATABASE DISCIPLINE: every
+organisation is minted here.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from apps.api.agents import company_training
 from apps.api.db.session import tenant_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
 from tests.agent_starters_test import _tenant
 
 pytestmark = pytest.mark.rls
@@ -43,37 +42,29 @@ async def test_the_owner_writes_the_overview() -> None:
     assert saved["overview"] == "We build flats."
 
 
-async def test_keeping_pips_draft_saves_it_and_settles_the_draft() -> None:
+async def test_rewrite_now_starts_pips_write_and_the_owners_save_is_their_edit() -> None:
     tenant_id, token = await _tenant("custom", "Sunrise Homes Pip")
-    code, refused = await _call(token, "POST", "/proposal")
-    assert code == 422, refused
-    assert refused["type"].endswith("/overview_required")
-
-    await _call(token, "PUT", "/overview", json={"overview": "We build flats in Kompally."})
     code, asked = await _call(token, "POST", "/proposal")
     assert code == 202, asked
-    assert asked["status"] == "drafting"
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "UPDATE company_trainings SET proposal = proposal || "
-                "jsonb_build_object('status', 'ready', 'training', 'We build flats.')"
-            )
-        )
+    assert (asked["status"], asked["reasons"][-1]) == ("queued", "owner_asked")
+    assert asked["due_at"] is not None
 
-    code, kept = await _call(
-        token,
-        "PUT",
-        "/training",
-        json={"training": "We build flats.", "proposal_id": asked["id"]},
+    code, saved = await _call(token, "PUT", "/training", json={"training": "We build flats."})
+    assert code == 200, saved
+    assert (saved["training"], saved["version"], saved["owner_edited"]) == (
+        "We build flats.",
+        1,
+        True,
     )
-    assert code == 200, kept
-    assert (kept["training"], kept["version"], kept["proposal"]) == ("We build flats.", 1, None)
+    # The owner's save leaves Pip's write queued: it carries the owner's edit.
+    assert saved["proposal"]["id"] == asked["id"]
+    assert saved["last_write"] is None
+    async with tenant_session(tenant_id) as session:
+        assert (await company_training.read_training(session, tenant_id)).owner_edited
 
 
 async def test_stopping_a_draft_clears_it_and_a_second_stop_finds_nothing() -> None:
     _tenant_id, token = await _tenant("custom", "Sunrise Homes Stop")
-    await _call(token, "PUT", "/overview", json={"overview": "We build flats."})
     _code, asked = await _call(token, "POST", "/proposal")
     code, _ = await _call(token, "DELETE", f"/proposal/{asked['id']}")
     assert code == 204

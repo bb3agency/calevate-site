@@ -649,7 +649,8 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
         await s.execute(
             text(
                 "INSERT INTO company_trainings (id, tenant_id, proposal) "
-                "VALUES (:i, :t, CAST(:p AS jsonb))"
+                "VALUES (:i, :t, CAST(:p AS jsonb)) "
+                "ON CONFLICT (tenant_id) DO UPDATE SET proposal = EXCLUDED.proposal"
             ),
             {
                 "i": uuid.uuid4(),
@@ -657,7 +658,7 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 "p": json.dumps(
                     {
                         "id": str(training_proposal_id),
-                        "status": "ready",
+                        "status": "failed",
                         "requested_at": datetime.now(UTC).isoformat(),
                     }
                 ),
@@ -1494,13 +1495,6 @@ _BODY_REFERENCE_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str],
         },
         {},
         "Credential",
-    ),
-    (
-        "PUT",
-        "/v1/company-training/training",
-        {"training": "Be brief.", "proposal_id": "{training_proposal_id}"},
-        {},
-        "Draft",
     ),
 )
 

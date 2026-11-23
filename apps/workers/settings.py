@@ -471,8 +471,8 @@ FUNCTIONS: list[Any] = [
         draft_mistake_fix,
         draft_campaign_script,
         draft_line_script,
-        # The company training Pip was asked for, from the outbox
-        # (`agents/company_training.request_proposal`).
+        # The company training Pip writes in the background, from the outbox
+        # (`agents/company_training.schedule_write`), deferring itself to its debounce.
         draft_company_training,
         # An opening line written again to say the notices switched on in its own words
         # (D-971), from the outbox (`agents/opening_notices.queue_opening_notices`).
