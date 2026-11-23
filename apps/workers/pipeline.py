@@ -1728,6 +1728,7 @@ async def _run_post_call_stages(
         transcript_text=transcript_text,
         opt_out_signal=opt_out_signal,
         business_outcomes=business_outcomes,
+        direction=direction,
     )
 
     # STEP 3d — what the call came to, in words: the summaries as the engine and the model
@@ -1963,6 +1964,7 @@ async def _extract_stage(
     transcript_text: str,
     opt_out_signal: OptOutSignal | None,
     business_outcomes: list[BusinessOutcome],
+    direction: str | None = None,
     reasoning_off: bool = False,
     reuse: bool = True,
 ) -> ExtractionOutput | None:
@@ -2028,6 +2030,7 @@ async def _extract_stage(
                     business_name=await _business_name(tenant_id),
                     called_at=snapshot.started_at,
                     agent_name=await _agent_name(tenant_id, agent_id),
+                    direction=direction,
                 ),
             )
             extraction = reconcile_goal(extraction, goal=goal, outcomes=business_outcomes)

@@ -32,6 +32,7 @@ from typing import Any, Final
 from calevate_shared.extraction import (
     CALLER_LANGUAGE_KEY,
     CALLER_LANGUAGE_REASON,
+    NEED_KEY,
     ExtractionField,
 )
 
@@ -50,7 +51,7 @@ CORE_LEAD_FIELDS: Final[tuple[ExtractionField, ...]] = (
         reason="The caller's own name, as they said it. Not a name the agent used.",
     ),
     ExtractionField(
-        key="need",
+        key=NEED_KEY,
         label="What they want",
         type="text",
         reason="What the caller wants or why they called, in a few words of their own.",
@@ -116,9 +117,9 @@ OUTPUT_KEYS: Final[frozenset[str]] = frozenset(
     }
 )
 
-#: The core field a screen shows as "what they want" — the one the leads table and the
-#: call's captured panel lead with.
-NEED_KEY: Final = "need"
+# `NEED_KEY` (imported above) is the core field a screen shows as "what they want": the one
+# the leads table and the call's captured panel lead with. It is defined beside the
+# extraction prompt, which gives it its own instruction on an outbound call.
 
 
 def _as_field(field: ExtractionField | Mapping[str, Any]) -> ExtractionField:

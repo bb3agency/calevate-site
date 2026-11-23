@@ -313,6 +313,7 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID, *, reuse: bool = Tru
         transcript_text=extractor_transcript(snapshot.transcript),
         opt_out_signal=opt_out,
         business_outcomes=business_outcomes,
+        direction=direction,
         reasoning_off=after_truncation,
         reuse=reuse,
     )

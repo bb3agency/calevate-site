@@ -84,5 +84,16 @@ export function unlistedWords(field: { value?: unknown; unlisted?: string | null
   return `“${field.unlisted}”`;
 }
 
+/**
+ * Whether a detail with no value belongs under "Not mentioned": one the call's job asks
+ * for (its "What it notes", D-1028) that nobody gave. The core details (name, what they
+ * want, a call-back time, another number, notes) are noted when the person happens to say
+ * them; no script asks for them, so on a call that never came to them their absence is not
+ * a gap (23 Nov 2026 call review).
+ */
+export function expectedButUnsaid(field: { core: boolean; current: boolean }, said: string | null): boolean {
+  return field.current && !field.core && said === null;
+}
+
 /** The note beside an unlisted answer. */
 export const UNLISTED_NOTE = "Not one of the choices";

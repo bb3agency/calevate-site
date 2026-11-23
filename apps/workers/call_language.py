@@ -188,6 +188,7 @@ def _prompt(
     summary_local: str,
     want_summaries: bool,
     summary_romanised: str = "",
+    business_name: str = "",
 ) -> str:
     lines = "\n".join(
         json.dumps({"i": idx, "text": text}, ensure_ascii=False) for idx, text in turns
@@ -219,9 +220,27 @@ def _prompt(
         summary_block = f"\nSummary:\n{summary_en or summary_local or romanised}\n"
     return (
         f"You are translating a phone call from {language} into English for a business owner."
+        f"{_name_line(business_name)}"
         "\nReturn ONLY a JSON object with these keys:\n- "
         + "\n- ".join(asks)
         + f"\n{summary_block}\nLines (one JSON object per line):\n{lines}\n"
+    )
+
+
+def _name_line(business_name: str) -> str:
+    """The business's own spelling of its name, quoted as data; empty without one.
+
+    A name written in Telugu or Hindi script is otherwise transliterated by ear, with
+    scholarly marks ("Raiṭa Khāta" for "Rytu Khata" in a 23 Nov 2026 call's summary). The
+    extraction model is told the same (`calevate_shared.extraction._business_line`), and
+    `spell_business_name` still corrects what comes back."""
+    name = " ".join(business_name.split()).replace('"', "\N{RIGHT DOUBLE QUOTATION MARK}")
+    if not name:
+        return ""
+    return (
+        f'\nThe business is called "{name}". Wherever a line or a summary names the business, '
+        "or its app or product of that name, write the name in English exactly as given here, "
+        "never a spelling of how it sounds, and never with accents or marks such as ā or ṭ."
     )
 
 
@@ -239,14 +258,16 @@ async def run_language_pass(
     summary_en: str,
     summary_local: str,
     summary_romanised: str = "",
+    business_name: str = "",
 ) -> LanguagePass:
     """Translate `turns` (idx, REDACTED text) into English and fill whichever summary is
     missing; with only `summary_romanised` (the call's language in Latin letters, which is
-    neither), both are written from it. A summary that comes back in the wrong form is
-    dropped rather than stored as the other: an English one that `reads_as_romanised`, or a
-    call-language one in Latin letters where the language has its own script. A provider
-    failure returns `failed=True` with whatever earlier chunks produced; it never raises,
-    because nothing here may cost the call its pipeline."""
+    neither), both are written from it. `business_name` is the business's own spelling of
+    its name, which the English must copy (`_name_line`). A summary that comes back in the
+    wrong form is dropped rather than stored as the other: an English one that
+    `reads_as_romanised`, or a call-language one in Latin letters where the language has its
+    own script. A provider failure returns `failed=True` with whatever earlier chunks
+    produced; it never raises, because nothing here may cost the call its pipeline."""
     result = LanguagePass()
     leg = chat.ChatLeg(
         url=SARVAM_CHAT_URL, api_key=api_key, wire_model=SARVAM_DEFAULT_LLM, dialect="sarvam"
@@ -278,6 +299,7 @@ async def run_language_pass(
                     summary_local=summary_local,
                     want_summaries=want_summaries,
                     summary_romanised=summary_romanised,
+                    business_name=business_name,
                 )
                 try:
                     outcome = await chat.complete(
