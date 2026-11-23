@@ -2094,6 +2094,23 @@ async def test_a_claim_beside_a_proposal_is_withheld_until_confirmed(
         assert "".join(e.text for e in events if e.text) == shown
 
 
+async def test_a_proposed_step_is_labelled_as_suggested(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: the step under a Confirm card reads as done ("Paused the campaign") while
+    nothing has happened until the person presses Confirm."""
+    card = cast(Any, type("Card", (), {"summary": "Pause the campaign.", "title": "Pause"})())
+
+    async def _plan(name: str, arguments: str, **kwargs: Any) -> Any:
+        return card
+
+    monkeypatch.setattr(write_tools, "plan_write", _plan)
+    _scripted(monkeypatch, [_tool_turn(("campaign_pause", "{}"))])
+    events = [e async for e in service.run_copilot(PAYLOAD, tool_context=TOOL_CONTEXT)]
+    done = [e.step for e in events if e.step is not None and e.step.status == "done"]
+    assert [step.label for step in done] == ["Suggested pausing the campaign"]
+
+
 async def test_a_lookups_words_are_shown_when_the_turn_ends(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

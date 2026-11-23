@@ -1914,8 +1914,10 @@ def _step_end(
     status: Literal["done", "refused", "failed"],
     detail: str,
     started_at: float | None,
+    proposed: bool = False,
 ) -> CopilotStepEvent:
     """The terminal frame for one call, carrying what came back and how long it took.
+    `proposed`: the call ended in a card waiting for the person (`step_labels.step_label`).
 
     `time.monotonic` rather than the wall clock: this is a DURATION, and a wall clock can
     step backwards under NTP and report a negative one.
@@ -1937,7 +1939,7 @@ def _step_end(
         elapsed_ms=None if started_at is None else int((time.monotonic() - started_at) * 1000),
         # A step that did not finish is named by what it was doing, not by a past tense
         # that would claim it happened.
-        label=step_label(call.name, running=status != "done"),
+        label=step_label(call.name, running=status != "done", proposed=proposed),
     )
 
 
@@ -2665,7 +2667,11 @@ async def _run_tool_loop(
                     held = []
                     yield CopilotEvent(
                         step=_step_end(
-                            call, status="done", detail=staged.summary, started_at=started_at
+                            call,
+                            status="done",
+                            detail=staged.summary,
+                            started_at=started_at,
+                            proposed=True,
                         )
                     )
                     yield CopilotEvent(approval=staged)
@@ -2735,7 +2741,13 @@ async def _run_tool_loop(
             for fragment in _unless_claimed(held, turn=turn_index):
                 yield CopilotEvent(text=fragment)
             yield CopilotEvent(
-                step=_step_end(call, status="done", detail=proposal.summary, started_at=started_at)
+                step=_step_end(
+                    call,
+                    status="done",
+                    detail=proposal.summary,
+                    started_at=started_at,
+                    proposed=True,
+                )
             )
             yield CopilotEvent(proposal=proposal)
             yield CopilotEvent(
