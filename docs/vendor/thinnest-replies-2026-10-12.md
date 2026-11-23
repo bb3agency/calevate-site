@@ -2903,10 +2903,16 @@ natural; the same line on the live call at 10:34 IST that day was clipped.
 > 1. Clipped endings. We ran your test. In Cartesia's playground, with our voice at 8000 Hz
 > pcm_s16le, this sentence plays complete and natural, with nothing cut:
 > "నమస్కారం, నేను రైతుఖాతా నుంచి మాట్లాడుతున్నాను, ఇప్పుడు మాట్లాడటానికి మీకు వీలుగా ఉందా అండి?"
-> The same sentence, as the agent's first words on our live call today at 10:34 IST (agent
-> Varsha, workspace org_805a8e1a-320e-4724-b6c0-19217a07fa3f), was clipped. So the 8 kHz
-> format alone doesn't seem to be the cause; it looks like something between Cartesia and the
-> caller. Could you check that call's audio on your side, and tell us what you find?
+> The same sentence, as the agent's first words on our live call today at 10:34 IST
+> (workspace org_805a8e1a-320e-4724-b6c0-19217a07fa3f), was clipped. So the 8 kHz format alone
+> doesn't seem to be the cause; it looks like something between Cartesia and the caller.
+> Could you check that call's audio on your side, and tell us what you find?
+>
+> A note on how we use agents, since it affects where to look: each live answering line and
+> each running campaign has its own agent, which we delete when the line stops or the
+> campaign ends, and test calls use a short-lived agent that we delete after an hour unused.
+> So the agent behind a call may no longer exist when you check it, but the call itself is
+> still on your side. Please look it up by the call.
 >
 > 2. Agents per customer workspace. On pay as you go each customer workspace allows 2 agents.
 > We create one agent per answering line and one per running campaign in the client's own
