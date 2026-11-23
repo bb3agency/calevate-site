@@ -152,7 +152,7 @@ def by_name(exporter: Any, name: str) -> list[Any]:
 
 
 async def _seed_tenant(engine_agent_ref: str) -> tuple[uuid.UUID, uuid.UUID]:
-    """An org + agent + extraction schema, exactly as the admin wizard would write them.
+    """An org + agent + extraction schema + the inbound line its calls come in on.
 
     Its own fresh tenant id per test: other agents run pytest against the same Postgres,
     and every read below is tenant-scoped so this cannot see — or be seen by — theirs.
@@ -198,15 +198,33 @@ async def _seed_tenant(engine_agent_ref: str) -> tuple[uuid.UUID, uuid.UUID]:
             {"sid": schema_id, "aid": agent_id},
         )
 
+        # What a call notes is its job's list (D-1028): the call comes in on a line whose
+        # engine agent this is, and ingest stamps the line on it from the route.
+        line_id = uuid.uuid4()
+        await session.execute(
+            text(
+                "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, extraction_fields) "
+                "VALUES (:id, :tid, 'Front desk', :aid, CAST(:fields AS jsonb))"
+            ),
+            {
+                "id": line_id,
+                "tid": tenant_id,
+                "aid": agent_id,
+                "fields": json.dumps(CLINIC_SCHEMA),
+            },
+        )
+
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
-                "agent_id, active, created_at, updated_at) VALUES ('fake', :ref, :tid, :aid, "
-                "true, now(), now()) ON CONFLICT (engine, engine_agent_ref) DO UPDATE SET "
-                "tenant_id = EXCLUDED.tenant_id, agent_id = EXCLUDED.agent_id, active = true"
+                "agent_id, inbound_line_id, active, created_at, updated_at) VALUES ('fake', "
+                ":ref, :tid, :aid, :lid, true, now(), now()) "
+                "ON CONFLICT (engine, engine_agent_ref) DO UPDATE SET "
+                "tenant_id = EXCLUDED.tenant_id, agent_id = EXCLUDED.agent_id, "
+                "inbound_line_id = EXCLUDED.inbound_line_id, active = true"
             ),
-            {"ref": engine_agent_ref, "tid": tenant_id, "aid": agent_id},
+            {"ref": engine_agent_ref, "tid": tenant_id, "aid": agent_id, "lid": line_id},
         )
     return tenant_id, agent_id
 

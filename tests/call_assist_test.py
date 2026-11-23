@@ -712,6 +712,26 @@ async def test_the_answer_goes_out_through_the_same_redaction_pass_as_every_summ
     assert "Ravi asked us to ring" in summary, "the sentence survived; only the digits went"
 
 
+async def test_the_second_reading_spells_the_business_name_the_businesss_way(
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The model hears the name by ear; the answer restores the business's spelling, as the
+    post-call pipeline does for the first summary."""
+    tenant_id, _slug, token = await _make_tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET name = 'Rytu Khata' WHERE id = :i"), {"i": tenant_id}
+        )
+    call_id = await _call_with_transcript(tenant_id)
+    azure = FakeAzure()
+    azure.answer = {**azure.answer, "summary": "The caller uses the Raitu Khata app daily."}
+    use_fake_azure(monkeypatch, azure)
+
+    response = await _ask(tenant_id, token, call_id)
+
+    assert response.json()["summary"] == "The caller uses the Rytu Khata app daily."
+
+
 # ---------------------------------------------- 4. the double-click (D-140, then D-821)
 
 
