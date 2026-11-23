@@ -8,6 +8,7 @@ the provider's, so they are not told whose voice it is.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 from uuid import UUID
@@ -15,8 +16,13 @@ from uuid import UUID
 import pytest
 from apps.api.agents import engine_catalogue_routes
 from apps.api.agents.engine_catalogue_routes import engine_catalogue
-from apps.api.agents.hosted_voices import name_reveals_speaker
+from apps.api.agents.hosted_voices import (
+    name_reveals_speaker,
+    set_hosted_curation,
+    set_person_clone,
+)
 from apps.api.core.context import Principal
+from apps.api.core.errors import ProblemError
 from apps.api.db.session import admin_session, untenanted_session
 from apps.api.main import app
 from apps.api.ops import hosted_voice_routes as routes
@@ -182,6 +188,27 @@ async def test_marking_an_offered_voice_without_consent_is_refused(
                 json={"voice_id": voice, "person_clone": True},
             )
     assert _code(refused) == "voice_clone_consent_missing"
+
+
+async def test_marking_a_voice_while_another_operator_enables_it_waits_and_is_refused(
+    hosted_rows: CatalogueRows,
+) -> None:
+    """Enable and mark each checked the other's column unlocked, so both passed and a clone
+    with no consent was offered. The mark now waits for the enable and sees it."""
+    voice = await hosted_rows.add("byok", state="disabled")
+
+    async def mark() -> None:
+        async with admin_session() as session:
+            await set_person_clone(session, voice_id=voice, person_clone=True)
+
+    async with admin_session() as enabling:
+        await set_hosted_curation(enabling, voice_id=voice, state="enabled")
+        marking = asyncio.create_task(mark())
+        await asyncio.sleep(0.5)
+        assert not marking.done(), "the mark did not wait for the enable's lock"
+    with pytest.raises(ProblemError) as refused:
+        await marking
+    assert refused.value.code == "voice_clone_consent_missing"
 
 
 async def test_both_clone_writes_need_their_step_up_confirmation_for_that_voice(

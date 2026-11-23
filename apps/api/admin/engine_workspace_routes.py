@@ -21,12 +21,13 @@ called and its outcome under a savepoint (BACKEND-PATTERNS §4).
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Final, Literal
+from decimal import Decimal
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.engine_scope import scope_of
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +38,7 @@ from apps.api.agents.workspace_slots import (
     workspace_agent_override,
 )
 from apps.api.billing.number_rental import RentalOutcome
+from apps.api.billing.service import refuse_json_float
 from apps.api.campaigns import engine_numbers
 from apps.api.campaigns.engine_business_details import (
     refresh_business_details,
@@ -396,6 +398,10 @@ async def send_business_details(
 ) -> BusinessDetailsStateOut:
     if not engine_has_workspaces():
         raise _off()
+    # Before the attempt: the failure row below names this client, and `audit_log.tenant_id`
+    # must reference a real one, so an unknown id would turn the refusal into a 500.
+    async with tenant_session(tenant_id) as scoped:
+        await _require_tenant(scoped, tenant_id)
 
     async def audit_sent(scoped: AsyncSession, details: BusinessDetails) -> None:
         await write_audit(
@@ -711,6 +717,15 @@ class AdminPurchaseIn(BaseModel):
     agent_id: UUID | None = None
     direction: NumberDirection = "both"
     request_key: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    #: The client's monthly price the confirmation showed (the list's `client_inr_per_month`).
+    #: Refused as `number_price_changed` when it is no longer the attested price, as on the
+    #: client's own purchase, so a client is never charged a rate the operator did not see.
+    inr_per_month: Decimal | None = Field(default=None, max_digits=12, decimal_places=2, gt=0)
+
+    @field_validator("inr_per_month", mode="before")
+    @classmethod
+    def _never_a_float(cls, value: Any) -> Any:
+        return refuse_json_float(value)
 
 
 class AdminPurchasedOut(BaseModel):
@@ -770,6 +785,7 @@ async def admin_purchase(
         direction=payload.direction,
         idempotency_key=payload.request_key,
         requested_by="admin",
+        quoted_inr_per_month=payload.inr_per_month,
     )
     if not bought.replayed:
         try:

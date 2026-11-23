@@ -31,6 +31,7 @@ from calevate_shared.spoken_style import (
 )
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Request
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.live_apply import queue_live_apply
@@ -298,6 +299,19 @@ def _new_key(kind: str, change: EntryChangeIn) -> str:
     return f"{kind.replace('_', '-')}-{secrets.token_hex(3)}"
 
 
+async def _lock_language(session: AsyncSession, tag: str) -> None:
+    """Serialise entry changes and publications of one language, held to commit.
+
+    A publication covers every revision up to the highest `seq` it reads. Unlocked, an
+    entry change that drew a lower `seq` but committed after that read would fall inside
+    the publication unreviewed, and peers that already installed it would never re-read
+    it; the add-entry cap and the "already exists" check are read-then-insert too."""
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"spoken_style:{tag}"},
+    )
+
+
 def _no_actor() -> ProblemError:
     return ProblemError(
         kind="auth",
@@ -327,6 +341,7 @@ async def change_entry(
     tag = _known(language)
     if principal.user_id is None:
         raise _no_actor()
+    await _lock_language(session, tag)
     kind = change.kind
     file_entries = {(e.kind, e.key): e for e in default_entries(tag)}
     working = await store.entry_states(session, language=tag)
@@ -451,6 +466,7 @@ async def publish_spoken_style(
     step_up.require(x_confirm_action, publish_confirmation(tag))
     if principal.user_id is None:
         raise _no_actor()
+    await _lock_language(session, tag)
     through = await store.last_revision(session, language=tag)
     previous = (await store.latest_publications(session)).get(tag)
     if through == 0 or (previous is not None and previous.through_revision == through):

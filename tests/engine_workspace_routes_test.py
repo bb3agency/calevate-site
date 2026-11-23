@@ -237,6 +237,61 @@ async def test_an_admin_sees_the_workspace_buys_releases_and_forgets(
         assert again.status_code == 200 and again.json()["status"] == "active"
 
 
+async def test_an_admin_buy_quoting_a_stale_price_is_refused_before_renting(
+    account: FakeAccount,
+) -> None:
+    """The operator's dialog states what the client pays a month; a price changed after the
+    list loaded must not be charged to the client unseen, as on the client's own Buy."""
+    await _attested()
+    tenant_id, _workspace = await _client(account)
+    headers = await _admin_headers()
+    base = f"/v1/admin/engine-workspaces/tenants/{tenant_id}"
+    async with _http() as http:
+        first = (await http.get(f"{base}/numbers/available", headers=headers)).json()["numbers"][0]
+        stale = await http.post(
+            f"{base}/numbers/purchase",
+            json={
+                "number": first["number"],
+                "request_key": f"key-{uuid.uuid4().hex}",
+                "inr_per_month": "1.00",
+            },
+            headers={**headers, "X-Confirm-Action": f"buy_number:{tenant_id}"},
+        )
+        assert stale.status_code == 409, stale.text
+        assert stale.json()["type"].endswith("/number_price_changed")
+
+        shown = await http.post(
+            f"{base}/numbers/purchase",
+            json={
+                "number": first["number"],
+                "request_key": f"key-{uuid.uuid4().hex}",
+                "inr_per_month": first["client_inr_per_month"],
+            },
+            headers={**headers, "X-Confirm-Action": f"buy_number:{tenant_id}"},
+        )
+        assert shown.status_code == 201, shown.text
+    async with tenant_session(tenant_id) as session:
+        held = (
+            await session.execute(
+                text("SELECT count(*) FROM phone_numbers WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+        ).scalar_one()
+    assert held == 1
+
+
+async def test_sending_business_details_for_an_unknown_client_is_a_404(
+    account: FakeAccount,
+) -> None:
+    del account  # an engine with workspaces, so the route reaches the client lookup
+    headers = await _admin_headers()
+    async with _http() as http:
+        sent = await http.post(
+            f"/v1/admin/engine-workspaces/tenants/{uuid.uuid4()}/business-details",
+            headers=headers,
+        )
+    assert sent.status_code == 404, sent.text
+
+
 async def test_the_ops_summary_counts_workspaces_against_the_plan(
     account: FakeAccount, monkeypatch: pytest.MonkeyPatch
 ) -> None:

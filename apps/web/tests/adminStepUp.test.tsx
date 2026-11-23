@@ -10,6 +10,7 @@ import {
   viewAsSession,
 } from "@/lib/api/admin";
 import { apiRequest } from "@/lib/api/client";
+import { useAdminLeadFields } from "@/lib/api/leadFields";
 import { useEditTenant } from "@/lib/api/tenantProfile";
 import { requireStepUp } from "@/lib/authn/stepUpPrompt";
 
@@ -387,6 +388,29 @@ describe("the notice address edit", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Save address" }));
 
     expect(await screen.findByRole("alertdialog")).toBeTruthy();
+  });
+
+  it("reads the lead details again when the business type changes", async () => {
+    const fieldsPath = "/v1/admin/tenants/t-1/lead-fields";
+    function ChangeType() {
+      useAdminLeadFields("t-1");
+      const edit = useEditTenant("t-1");
+      return (
+        <button type="button" onClick={() => edit.mutate({ vertical_template: "retail" })}>
+          Save type
+        </button>
+      );
+    }
+    const { calls } = renderAdminPage(<ChangeType />, {
+      [fieldsPath]: {},
+      "PATCH /v1/admin/tenants/t-1": { tenant_id: "t-1", changed: ["vertical_template"] },
+    });
+    const reads = () => calls.filter((c) => c.method === "GET" && c.path === fieldsPath).length;
+    await waitFor(() => expect(reads()).toBe(1));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Save type" }));
+
+    await waitFor(() => expect(reads()).toBe(2));
   });
 });
 
