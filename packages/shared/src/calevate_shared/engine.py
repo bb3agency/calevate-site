@@ -3066,6 +3066,24 @@ _REGISTER_BULLET: Final = (
 #:   (9 Nov). The punctuation bullet already says what Cartesia asks of LLM text: natural
 #:   punctuation for pauses and every sentence ended with ".", "?" or "!" (docs.cartesia.ai/
 #:   build-with-cartesia/sonic-3/prompting-tips, read 19 Nov 2026).
+#: From the founder's Rytu Khata campaign call of 23 Nov 2026 (rules for every agent):
+#: - The recogniser turned a reply into a question the caller never asked, and the agent
+#:   answered it with a reassurance no fact held. "Unclear" now covers a reply off the point,
+#:   and the agent asks what they meant: "Do not guess what the user meant from unclear audio"
+#:   (developers.openai.com/api/docs/guides/realtime-models-prompting, read 23 Nov 2026). A
+#:   reassurance joins what BUSINESS FACTS forbids guessing.
+#: - That reply ran to three sentences on three points and was cut off. "One point a turn"
+#:   bounds what the one or two sentences carry ("Keep responses to one or two sentences
+#:   maximum", docs.vapi.ai/prompting-guide, read 23 Nov 2026), and "Answer just that"
+#:   replaces "lead with the answer to it" and its "do you want to know" example: a reply that
+#:   is only the answer leaves room for neither.
+#: - Nearly every reply opened with the same acknowledgement and ended with the same "tell
+#:   me". "No reaction to open with" and "never the same way twice" sat in two bullets and read
+#:   as allowing a reaction somewhere; one sentence now says it, closing words included ("Vary
+#:   your responses so they don't sound robotic", the OpenAI page above).
+#: - A step the caller was to check was closed with "everything is right, isn't it?". The
+#:   result is asked for openly ("ask what they see"); the step-by-step and step-outcome leads
+#:   in `call_script` say the same for a script's own steps.
 _WRITTEN_FORM_BULLET: Final = f"- {WRITTEN_FORM_RULE}\n"
 #: The language `VOICE_STYLE_GUIDANCE`'s amounts bullet is written for, and the default of
 #: an `AgentConfig` built without one (every app path passes the agent's own). Not what a
@@ -3082,11 +3100,10 @@ _DEFAULT_AMOUNTS: Final = amounts_rule(DEFAULT_PRIMARY_LANGUAGE) or _NEUTRAL_AMO
 
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
-    "- Open with the point itself, the answer, step or question, in one short sentence with no "
-    "comma; one or two short sentences, then wait. No reaction to open with.\n"
-    '- Asked something? Lead with the answer to it, never your last point again or "do you '
-    'want to know". Told something? '
-    "React only if it fits what they said, never the same way twice in a call, often not.\n"
+    "- Open with the point in one short sentence with no comma; one or two short sentences, "
+    "then wait: one point a turn.\n"
+    "- Asked something? Answer just that, never your last point again. Told something? A "
+    "reaction only if it fits, often none, never to open; no two replies start or end alike.\n"
     '- One question a turn, on one thing, last; choices for times ("morning or evening?"), '
     "never for counts or amounts, not even as examples. Never re-ask what they said or repeat a "
     "sentence. Adapt to the answer.\n"
@@ -3110,11 +3127,11 @@ VOICE_STYLE_GUIDANCE: Final = (
     "- Any number or code, first time too: digit by digit, a mobile five, a comma, five; offer "
     "to repeat.\n"
     f"{_REGISTER_BULLET}"
-    '- Unclear, or a bare "OK" to your question? Ask one thing again, reworded; never pick '
-    "for them. Asked to repeat? Say it shorter.\n"
+    '- Unclear, off the point, or a bare "OK" to your question? Ask what they meant, reworded; '
+    "never guess or pick for them. Asked to repeat? Say it shorter.\n"
     "- Never narrate a search or a wait.\n"
     '- Explaining steps? One a turn, wait until done, never "understood?"; "OK" after one: '
-    "the next. "
+    "the next. To check, ask what they see. "
     '"Anything else?" once, when the task is done; "that is all"? Close.\n'
     "- Close: what happens next in one line, no recap, then one goodbye, nothing more. End "
     "only then or when asked, never while they talk."
@@ -3245,7 +3262,7 @@ def _knowledge_section(cfg: AgentConfig, pack: PackChoice | None = None) -> str:
         f"{where} Say only what your facts or the caller said, never a guess: a place or "
         "address, a project, stock or availability, a price, an offer, how long something "
         "takes, what a product is or how it is made, anything medical, legal or financial, "
-        "how such businesses usually work, or how they found you."
+        "how such businesses usually work, a reassurance, or how they found you."
         f"{'' if pack else _NAMES_RULE} Two possible answers? Ask which."
     )
 

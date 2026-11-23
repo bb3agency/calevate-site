@@ -102,20 +102,20 @@ COVERAGE: dict[str, tuple[tuple[str, str], ...]] = {
     DEFAULT_CALL_RULES[11]: ((OURS, "Never say anything is booked, fixed, confirmed or done"),),
     DEFAULT_CALL_RULES[12]: ((OURS, "a failed one plainly"),),
     DEFAULT_CALL_RULES[13]: ((OURS, "Say a tool's figure exactly"),),
-    DEFAULT_CALL_RULES[14]: ((OURS, "never the same way twice"),),
+    DEFAULT_CALL_RULES[14]: ((OURS, "no two replies start or end alike"),),
     DEFAULT_CALL_RULES[15]: (
-        (OURS, "never the same way twice"),
+        (OURS, "no two replies start or end alike"),
         (OURS, "Never re-ask what they said or repeat a sentence."),
     ),
     # Replaced, not carried: an acknowledgement before the answer became "two kg noted" with
     # nothing noted on the calls of 21 Oct 2026 (D-849).
-    DEFAULT_CALL_RULES[16]: ((OURS, "Lead with the answer"),),
+    DEFAULT_CALL_RULES[16]: ((OURS, "Answer just that"),),
     DEFAULT_CALL_RULES[17]: ((OURS, "One question a turn"),),
     DEFAULT_CALL_RULES[18]: ((OURS, "One question a turn"),),
     # Turned round: the agent read it as "skip the reaction" and asked "do you want to know the
     # price?" instead of reacting and saying it (calls of 20-22 Oct 2026). A reaction on every
     # turn then became a stock one, so it must fit what was said and is often left out (D-894).
-    DEFAULT_CALL_RULES[19]: ((OURS, "React only if it fits what they said"),),
+    DEFAULT_CALL_RULES[19]: ((OURS, "A reaction only if it fits"),),
     DEFAULT_CALL_RULES[20]: ((OURS, "Read back what you heard and wait for a yes"),),
     DEFAULT_CALL_RULES[21]: (
         (OURS, "Never re-ask what they said or repeat a sentence."),

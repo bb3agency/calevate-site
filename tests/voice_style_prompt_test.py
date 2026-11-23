@@ -96,10 +96,9 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     # each language the agent speaks; this block says to mirror the caller's register.
     assert "caller's language and register" in block
     # Not heard, or heard as none of the options: asked again, never picked (D-912).
-    assert "ask one thing again, reworded; never pick for them" in block
-    # D-714: the answer first. Turn length, one question a turn, titles in full and varied
-    # openings are ThinnestAI's own speaking rules, which every call keeps (D-814).
-    assert "lead with the answer" in block
+    assert "ask what they meant, reworded; never guess or pick for them" in block
+    # D-714: the answer first, and since 23 Nov 2026 only the answer.
+    assert "answer just that" in block
 
 
 def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
@@ -113,15 +112,14 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
         return next(line for line in lines if line.startswith(start))
 
     react = bullet("- Asked something?")
-    assert "React only if it fits what they said" in react
-    assert "never the same way twice" in react and "often not." in react
+    assert "A reaction only if it fits, often none, never to open;" in react
+    assert "no two replies start or end alike." in react
     # The voice starts on the first comma after three words (D-901), so a reply opens with a
     # short whole sentence with no comma: the first piece is a whole sentence (D-986, 20 Nov 2026).
     # That sentence is the point itself, never a reaction (21 Nov 2026: "very good" opened
     # every reply when the rule only asked for a short sentence).
-    opening = bullet("- Open with the point itself")
+    opening = bullet("- Open with the point")
     assert "in one short sentence with no comma" in opening
-    assert "No reaction to open with." in opening
     # The words it overused are not named: a named word can come back more often.
     for stock in ("సంతోషం", "మంచిది", "సరే"):
         assert stock not in VOICE_STYLE_GUIDANCE
@@ -131,7 +129,7 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     # After a bare "సరే" the agent asked both questions again word for word (D-910); since
     # D-965 only an "OK" to its own question is asked again, and one after a step goes on.
     unclear = bullet("- Unclear")
-    assert 'a bare "OK" to your question? Ask one thing again, reworded' in unclear
+    assert 'a bare "OK" to your question? Ask what they meant, reworded' in unclear
     assert '"OK" after one: the next' in bullet("- Explaining steps? One a turn")
 
     pace = bullet("- Talked over")
@@ -157,7 +155,7 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
 def test_the_founders_fixes_reach_every_prompt_and_the_floor_stays_last() -> None:
     prompt = compose_engine_prompt(_config("Call leads for Sri Estates."))
     assert '"six" stays "six"' in prompt
-    assert "React only if it fits what they said" in prompt
+    assert "A reaction only if it fits" in prompt
     assert carries_truthful_answer_floor(prompt)
     assert prompt.rindex(TRUTHFUL_ANSWER_MARKER) > prompt.index(VOICE_STYLE_GUIDANCE)
 

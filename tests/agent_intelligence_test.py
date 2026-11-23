@@ -175,7 +175,7 @@ def test_a_clarification_stops_after_two_tries_at_what_the_account_allows() -> N
     Not asking it the same way twice is ThinnestAI's own speaking rule (D-824)."""
     body = compile_call_script(V2)
     paying = compose_engine_prompt(_cfg(body))
-    assert "Ask one thing again, reworded; never pick for them." in paying
+    assert "Ask what they meant, reworded; never guess or pick for them." in paying
     assert "or no clear reply twice to one question: say so, then offer a call back" in paying
     trial = compose_engine_prompt(_cfg(body, callbacks_offered=False))
     assert (

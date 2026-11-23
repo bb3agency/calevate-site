@@ -107,7 +107,7 @@ def test_a_line_the_caller_spoke_over_comes_back_in_new_words() -> None:
 def test_a_how_question_is_answered_rather_than_the_last_point_repeated() -> None:
     cfg, _ = _cfg()
     prompt = compose_engine_prompt(cfg)
-    assert "Lead with the answer to it, never your last point again" in prompt
+    assert "Asked something? Answer just that, never your last point again." in prompt
 
 
 # --- 3. a greeting word in a later turn ------------------------------------------------------

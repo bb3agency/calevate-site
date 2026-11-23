@@ -283,6 +283,11 @@ def test_an_inbound_lines_engine_agent_that_places_calls_fits_the_same_margins()
 #: no sentence said what a turn ends on ("OK, no problem." and silence), that the plan moves
 #: with an answer, that "anything else?" is asked once and "that is all" closes, or that a name
 #: the call already has is never asked or made up.
+#: The founder's Rytu Khata campaign call of 23 Nov 2026 left both where they were (7,799/6,949,
+#: 34 and 9 under): one point a turn, an off-the-point reply asked about rather than guessed
+#: at, no two replies opening or ending alike, a step's check asked for and no reassurance
+#: without a fact, paid for by "the answer, step or question" after "the point", the "do you
+#: want to know" example (covered by "Answer just that") and one reaction sentence for two.
 PER_CALL_MAX = 7_833
 PER_CALL_ONE_LANGUAGE_MAX = 6_958
 

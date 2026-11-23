@@ -124,7 +124,7 @@ def test_step_lines_opening_with_the_same_reaction_are_found() -> None:
 
 
 def test_the_reaction_rule_holds_for_the_whole_call() -> None:
-    assert "never the same way twice in a call, often not." in VOICE_STYLE_GUIDANCE
+    assert "no two replies start or end alike." in VOICE_STYLE_GUIDANCE
 
 
 def test_a_real_call_names_the_same_opening_and_a_long_turn() -> None:
