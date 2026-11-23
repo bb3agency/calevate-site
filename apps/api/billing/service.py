@@ -82,7 +82,13 @@ from apps.api.billing.rates import (
     is_surchargeable_llm_model,
     stored_voice_tier,
 )
-from apps.api.billing.trials import ON_TRIAL_ROW_SQL, TrialState, counter_epoch, read_trial
+from apps.api.billing.trials import (
+    ON_TRIAL_ROW_SQL,
+    TrialState,
+    counter_epoch,
+    read_trial,
+    trial_overlaps,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -1551,11 +1557,21 @@ class CreditRemoval:
 #: reversal of that same purchase is being recorded (`remove_credit_from_lots`).
 CREDIT_EXPIRY_RESTATED_META_KIND: Final = "credit_expiry_restated"
 
+#: What an expiry took off one lot less everything already given back, and the expiry row.
+#: Given back is either a `credit_expiry_restated` row for the lot or an operator's
+#: credit-back naming the expiry row (`meta.corrects_entry_id`, the key `reversed_amounts`
+#: counts). Reading only the first let a lapse an operator had restored be given back a
+#: second time when its purchase was later refunded or disputed.
 _LAPSED_UNRESTATED_SQL: Final = (
-    "SELECT COALESCE(SUM(-delta) FILTER (WHERE meta->>'kind' = :lapsed), 0) "
-    "- COALESCE(SUM(delta) FILTER (WHERE meta->>'kind' = :restated), 0) "
-    "FROM credit_ledger WHERE tenant_id = :tid AND reason = 'adjustment' "
-    "AND meta->>'lot_id' = :lot"
+    "WITH lapse AS (SELECT id, -delta AS amount FROM credit_ledger WHERE tenant_id = :tid "
+    "AND reason = 'adjustment' AND meta->>'kind' = :lapsed AND meta->>'lot_id' = :lot) "
+    "SELECT COALESCE((SELECT SUM(amount) FROM lapse), 0) "
+    "- COALESCE((SELECT SUM(delta) FROM credit_ledger g WHERE g.tenant_id = :tid "
+    "AND g.reason = 'adjustment' AND g.delta > 0 AND ("
+    "(g.meta->>'kind' = :restated AND g.meta->>'lot_id' = :lot) "
+    "OR (g.meta->>'kind' IS DISTINCT FROM :restated "
+    "AND g.meta->>'corrects_entry_id' IN (SELECT CAST(id AS text) FROM lapse)))), 0), "
+    "(SELECT id FROM lapse LIMIT 1)"
 )
 
 
@@ -1567,7 +1583,7 @@ async def _restate_lapsed_credit(
     never lapsed."""
     from apps.api.billing.credit_expiry import CREDIT_EXPIRY_META_KIND
 
-    lapsed = (
+    row = (
         await session.execute(
             text(_LAPSED_UNRESTATED_SQL),
             {
@@ -1577,9 +1593,10 @@ async def _restate_lapsed_credit(
                 "restated": CREDIT_EXPIRY_RESTATED_META_KIND,
             },
         )
-    ).scalar()
+    ).one()
+    lapsed, expiry_entry_id = row[0], row[1]
     restated = min(amount_inr, Decimal(str(lapsed or 0)))
-    if restated <= 0:
+    if restated <= 0 or expiry_entry_id is None:
         return _ZERO_PAISE
     await record_entry(
         session,
@@ -1593,6 +1610,9 @@ async def _restate_lapsed_credit(
             "kind": CREDIT_EXPIRY_RESTATED_META_KIND,
             "lot_id": str(lot_id),
             "credits_inr": str(restated),
+            # So `reversed_amounts` counts this against the expiry row, and an operator
+            # cannot credit the same lapse back again on the adjustment route.
+            "corrects_entry_id": str(expiry_entry_id),
         },
         allow_negative=True,
         # The reversal the caller writes next takes at least this back.
@@ -3372,11 +3392,21 @@ async def usage_summary(
             llm_surcharge_inr=surcharge.total_inr,
         )
     )
+    # THE PLAN FEE IS WAIVED FOR ANY IST MONTH A TRIAL OVERLAPS (founder, 23 Nov 2026:
+    # "Waive it"), including a month the trial covers only part of — the same
+    # "trial in this month" reading the spend screens take (`trials.trial_overlaps`).
+    # Waived HERE, by publishing no fee, so the panel, the statement (`build_invoice`
+    # prints `monthly_fee_inr`), the margin's revenue and the spend page's retainer all
+    # read one answer. `trial_absorbed_inr` below still counts it: it is what we carried.
+    plan_fee = to_paise(Decimal(str(plan[0]))) if plan and plan[0] is not None else None
+    month_start, month_end = ist_month_window(period)
+    fee_waived = plan_fee is not None and await trial_overlaps(
+        session, tenant_id=tenant_id, start=month_start, end=month_end
+    )
+    monthly_fee = None if fee_waived else plan_fee
     charges = to_paise(
         month_charges_inr(
-            monthly_fee_inr=(
-                to_paise(Decimal(str(plan[0]))) if plan and plan[0] is not None else None
-            ),
+            monthly_fee_inr=monthly_fee,
             calling_inr=calling,
         )
     )
@@ -3438,9 +3468,8 @@ async def usage_summary(
         "llm_surcharge_models": list(surcharge.models),
         # Quantized to paise like every other money field: NUMERIC(12,4) is the
         # storage precision, two decimals is what a rupee amount means to a reader.
-        "monthly_fee_inr": (
-            to_paise(Decimal(str(plan[0]))) if plan and plan[0] is not None else None
-        ),
+        # None when the plan quotes no fee or a trial waived it (`fee_waived` above).
+        "monthly_fee_inr": monthly_fee,
         # THE TOTAL, so no screen has to add rupees in a browser. `month_charges_inr` is
         # the same expression `margin_for_tenant` books as revenue, quantized to paise here
         # because that is what a rupee amount means to the client reading it.
@@ -3471,7 +3500,11 @@ async def usage_summary(
         # whenever no trial is running, so a screen can print it unconditionally. Never our
         # supplier cost: `unit_cost_paid` is commercially ours and the client panel has
         # never shown it (`trials.trial_cost_to_us_inr` is where an OPERATOR reads that).
-        "trial_absorbed_inr": charges if period_on_us else _ZERO_PAISE,
+        "trial_absorbed_inr": (
+            to_paise(charges + (plan_fee if fee_waived and plan_fee is not None else _ZERO_PAISE))
+            if period_on_us
+            else _ZERO_PAISE
+        ),
         # WHAT EACH VOICE COST THIS MONTH (D-547), from the ledger's own lot splits.
         #
         # With two voices at two prices, "how much of this month was the dearer voice" is

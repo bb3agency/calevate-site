@@ -266,3 +266,64 @@ async def test_a_running_trial_puts_no_extra_minutes_on_the_open_months_statemen
     async with tenant_session(tenant_id) as session:
         margin = await margin_for_tenant(session, tenant_id=tenant_id)
     assert margin["revenue_inr"] == invoice["subtotal_inr"], "revenue is what is billed"
+
+
+async def test_a_running_trial_charges_nothing_on_the_spend_page() -> None:
+    """The spend page's period charge (and the per-call charges spread from it) is the
+    statement's calling: nothing for the minutes a running trial absorbs."""
+    from apps.api.billing.attribution import period_attribution
+
+    tenant_id, agent_id, _ = await _cap_tenant("trialspend")
+    await _plan(tenant_id, included_min=0)
+    now = datetime.now(UTC)
+    m = timedelta(minutes=1)
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=1, actor_user_id=None, at=now - 40 * m)
+    await _metered(tenant_id, agent_id, seconds=300, started=now - 35 * m, ended=now - 30 * m)
+
+    async with tenant_session(tenant_id) as session:
+        usage = await usage_summary(session, tenant_id=tenant_id)
+        period = await period_attribution(session, tenant_id=tenant_id)
+    assert usage["trial"]["active"] is True and usage["overage_cost_inr"] > 0
+    assert period.period_charge_inr == Decimal("0.00")
+    assert all(row.charged_inr == Decimal("0.00") for row in period.by_call)
+
+
+async def test_a_gift_trial_waives_the_plan_fee_of_every_month_it_touches() -> None:
+    """Founder, 23 Nov 2026: a gift trial waives the monthly plan fee. A trial that ended
+    earlier this month still waives it, while the paid calls after it are billed; the
+    statement, the panel and the margin's revenue agree. A month it did not touch keeps it."""
+    tenant_id, agent_id, _ = await _cap_tenant("giftfee")
+    await _plan(tenant_id, included_min=0, age_days=400)
+    await mark_paid_for_tests(tenant_id)
+    now = datetime.now(UTC)
+    m = timedelta(minutes=1)
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=1, actor_user_id=None, at=now - 40 * m)
+        await end_trial(
+            session,
+            tenant_id=tenant_id,
+            outcome=TRIAL_STOPPED,
+            reason="Gift over.",
+            at=now - 20 * m,
+        )
+    await _metered(tenant_id, agent_id, seconds=180, started=now - 5 * m, ended=now)
+
+    month = ist_billing_month(now)
+    async with tenant_session(tenant_id) as session:
+        usage = await usage_summary(session, tenant_id=tenant_id, month=month)
+        invoice = await build_invoice(session, tenant_id=tenant_id, month=month)
+        margin = await margin_for_tenant(session, tenant_id=tenant_id, month=month)
+    assert usage["monthly_fee_inr"] is None
+    descriptions = [str(item["description"]) for item in invoice["line_items"]]
+    assert "Monthly plan fee" not in descriptions
+    assert usage["month_charges_inr"] == usage["overage_cost_inr"] > 0, "paid calls still billed"
+    assert invoice["subtotal_inr"] == usage["month_charges_inr"]
+    assert margin["revenue_inr"] == invoice["subtotal_inr"]
+
+    # A month before the trial keeps its fee.
+    year, mon = (int(part) for part in month.split("-"))
+    earlier = f"{year - 1}-12" if mon == 1 else f"{year}-{mon - 1:02d}"
+    async with tenant_session(tenant_id) as session:
+        before = await build_invoice(session, tenant_id=tenant_id, month=earlier)
+    assert "Monthly plan fee" in [str(item["description"]) for item in before["line_items"]]

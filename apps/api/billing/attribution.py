@@ -661,8 +661,19 @@ async def period_attribution(
             prepaid_charged_inr=(
                 await voice_tier_usage(session, tenant_id=tenant_id, month=period)
             ).total_inr,
-            overage_cost_inr=Decimal(str(usage["overage_cost_inr"])),
-            llm_surcharge_inr=Decimal(str(usage["llm_surcharge_inr"])),
+            # While a trial runs, `usage_summary` prices these over the trial's free
+            # minutes: what the trial absorbs, not what the client owes, so they are not
+            # charged here, as `build_invoice` and `margin_for_tenant` leave them out.
+            overage_cost_inr=(
+                Decimal("0")
+                if usage["trial"]["active"]
+                else Decimal(str(usage["overage_cost_inr"]))
+            ),
+            llm_surcharge_inr=(
+                Decimal("0")
+                if usage["trial"]["active"]
+                else Decimal(str(usage["llm_surcharge_inr"]))
+            ),
         )
     )
     charges, basis, residual_reason = await _allocate_charges(
