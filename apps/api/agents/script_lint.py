@@ -39,7 +39,12 @@ import re
 from dataclasses import dataclass
 from typing import Final
 
-from calevate_shared.call_script import CallScript, ConversationStage, extract_variable_names
+from calevate_shared.call_script import (
+    CallScript,
+    ConversationStage,
+    extract_variable_names,
+    says_instruction,
+)
 from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
 from calevate_shared.engine import NAME_VARIABLE
@@ -392,10 +397,10 @@ def unasked_details(script: CallScript, collect: tuple[str, ...]) -> list[str]:
 def instruction_fields(script: CallScript) -> list[tuple[str, str]]:
     """(path, text) of every field that instructs the in-call model and is never heard.
 
-    A step in "say" mode is said as written, so its instruction is a spoken line. A step's
-    name, an objection's caller side, the facts and the legacy `steps` are not here: the
-    first two are the caller's words or the owner's label, and the AI writes none of the rest
-    as instructions."""
+    A step whose instruction is said as written (`says_instruction`) holds a spoken line; a
+    scenario's description never does, in either mode. A step's name, an objection's caller
+    side, the facts and the legacy `steps` are not here: the first two are the caller's words
+    or the owner's label, and the AI writes none of the rest as instructions."""
     fields = [
         ("business_line", script.business_line),
         ("identity", script.identity),
@@ -407,7 +412,7 @@ def instruction_fields(script: CallScript) -> list[tuple[str, str]]:
     ]
     fields += [(f"objections.{i}.response", o.response) for i, o in enumerate(script.objections)]
     for i, stage in enumerate(script.stages):
-        if stage.mode == "guide":
+        if not says_instruction(stage):
             fields.append((f"stages.{i}.instruction", stage.instruction))
         fields += [(f"stages.{i}.branches.{j}.when", b.when) for j, b in enumerate(stage.branches)]
         for j, step in enumerate(stage.procedure):
@@ -424,7 +429,7 @@ def spoken_fields(script: CallScript) -> list[tuple[str, str]]:
     ]
     for i, stage in enumerate(script.stages):
         fields.append((f"stages.{i}.sounds_like", stage.sounds_like))
-        if stage.mode == "say":
+        if says_instruction(stage):
             fields.append((f"stages.{i}.instruction", stage.instruction))
     fields += [(f"style.sample_phrases.{i}", p) for i, p in enumerate(script.style.sample_phrases)]
     fields += [
@@ -838,10 +843,10 @@ def order_problems(script: CallScript) -> list[str]:
 
 
 def step_line(script: CallScript, index: int) -> tuple[str, str]:
-    """(path, text) of what the agent says at step `index`: its instruction in "say" mode,
-    which is said as written, else its "sounds like" line, which the model copies."""
+    """(path, text) of what the agent says at step `index`: its instruction when that is said
+    as written (`says_instruction`), else its "sounds like" line, which the model copies."""
     stage = script.stages[index]
-    if stage.mode == "say":
+    if says_instruction(stage):
         return f"stages.{index}.instruction", stage.instruction
     return f"stages.{index}.sounds_like", stage.sounds_like
 
@@ -939,7 +944,7 @@ def opening_redone_problems(script: CallScript) -> list[str]:
         "which the opening line already did; leave that out and start this step from what "
         "comes after it."
         for i, stage in enumerate(script.stages)
-        if stage.mode == "guide" and _REDOES_OPENING.search(stage.instruction)
+        if not says_instruction(stage) and _REDOES_OPENING.search(stage.instruction)
     ]
 
 

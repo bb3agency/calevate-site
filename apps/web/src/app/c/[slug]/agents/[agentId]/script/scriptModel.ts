@@ -123,6 +123,7 @@ const quote = (text: string) => `"${collapse(text).replace(/"/g, "'")}"`;
 export function sectionDetail(
   section: Pick<Section, "mode" | "instruction" | "sounds_like"> & {
     name?: string;
+    step?: number | null;
     procedure?: readonly unknown[];
     scripts?: Record<string, string>;
     qa?: readonly unknown[];
@@ -130,12 +131,33 @@ export function sectionDetail(
   },
 ): string {
   const text = collapse(section.instruction);
-  let detail = section.mode === "say" ? `Say: ${quote(text)}` : text;
+  let detail = saysInstruction(section) ? `Say: ${quote(text)}` : text;
+  if (saysScenarioLine(section)) detail += ` ${SAY_EXACT_STEP}`;
   if (section.sounds_like.trim()) detail += ` It sounds like: ${quote(section.sounds_like)}`;
   if (section.procedure?.length) detail += ` ${procedurePointer(section.name ?? "")}`;
-  const scripted = Object.values(section.scripts ?? {}).some((t) => t.trim());
-  if (scripted || section.qa?.length) detail += ` ${scenarioPointer(section.name ?? "")}`;
+  if (scripted(section) || section.qa?.length) detail += ` ${scenarioPointer(section.name ?? "")}`;
   return detail;
+}
+
+/** `call_script.SAY_EXACT_STEP` (D-1035). */
+export const SAY_EXACT_STEP = "Say its line exactly as written, word for word.";
+
+const scripted = (section: { scripts?: Record<string, string> }) =>
+  Object.values(section.scripts ?? {}).some((t) => t.trim());
+
+/** `call_script.says_scenario_line`: a "say" scenario with a line to say word for word. */
+export function saysScenarioLine(section: { mode?: string; scripts?: Record<string, string> }): boolean {
+  return section.mode === "say" && scripted(section);
+}
+
+/** `call_script.says_instruction`: a "say" section from before scenarios, whose instruction
+ * is the spoken line. */
+function saysInstruction(section: {
+  mode?: string;
+  step?: number | null;
+  scripts?: Record<string, string>;
+}): boolean {
+  return section.mode === "say" && section.step == null && !scripted(section);
 }
 
 /** `call_script.SCENARIO_POINTER` as the server fills it. */
