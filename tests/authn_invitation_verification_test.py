@@ -621,3 +621,45 @@ async def test_a_google_redemption_joins_once_and_refuses_the_replay(planted: Pl
         )
     assert replay.value.code == "invitation_invalid"
     assert await _memberships(tenant_id, address) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_password_changed_while_joining_signs_nobody_in(
+    planted: Planted, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The typed password was right when it was proved, and the owner changed it before the
+    session was issued; that change revoked every session that existed then. The membership
+    is made, but no session comes back on the old password."""
+    from apps.api.authn import throttle
+    from apps.api.authn.credentials import set_password
+    from apps.api.authn.sessions import revoke_subject_sessions
+    from apps.api.db.session import credential_session
+
+    _first_tenant, first_slug, first_session = await planted.tenant()
+    second_tenant, second_slug, second_session = await planted.tenant()
+    address = planted.address("changed")
+
+    first = await _invite(first_slug, first_session, address, "staff")
+    assert (await _redeem(first, REDEMPTION_PASSWORD)).status_code == 200
+    await _mark_verified(address)
+    user_id = await _user_id(address)
+    assert user_id is not None
+
+    real_clear = throttle.clear_password
+
+    async def change_meanwhile(*, realm: str, subject_id: uuid.UUID, source: str | None) -> None:
+        await real_clear(realm=realm, subject_id=subject_id, source=source)
+        async with credential_session() as session:
+            await set_password(
+                session, realm="client", subject_id=subject_id, password=ATTACKER_PASSWORD
+            )
+            await revoke_subject_sessions(session, realm="client", subject_id=subject_id)
+
+    monkeypatch.setattr(throttle, "clear_password", change_meanwhile)
+    second = await _invite(second_slug, second_session, address, "staff")
+    joined = await _redeem(second, REDEMPTION_PASSWORD)
+
+    assert joined.status_code == 401, joined.text
+    assert joined.json()["type"].endswith("/invitation_existing_account_password")
+    assert await _memberships(second_tenant, address) == 1
+    assert await _password_signs_in(user_id, ATTACKER_PASSWORD)

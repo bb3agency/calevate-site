@@ -3117,6 +3117,15 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             text("DELETE FROM save_number_messages WHERE caller_ref = :ref"),
             {"ref": caller_ref(tenant_id, phone)},
         )
+        # A test call to this person saved their number among the account's test numbers,
+        # offered under every Test call, whoever's phone it was.
+        await session.execute(
+            text(
+                "UPDATE organizations SET test_numbers = array_remove(test_numbers, :phone), "
+                "updated_at = now() WHERE :phone = ANY (test_numbers)"
+            ),
+            {"phone": phone},
+        )
 
         # THE VECTOR STORE (D-503), and it is a THIRD reach rather than a consequence of
         # the two above. Scrubbing `transcript_turns` and emptying `call_extractions.data`
