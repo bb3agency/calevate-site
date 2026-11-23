@@ -116,7 +116,14 @@ def _script(**parts: Any) -> CallScript:
 
 def test_only_the_parts_pip_wrote_or_changed_are_reviewed() -> None:
     first = ask.reviewed_parts(_script(), None)
-    assert [p.key for p in first] == ["opening_line", "faqs", "stages.s1", "stages.s2"]
+    # The steps outcomes are read for coverage of the main task (23 Nov 2026).
+    assert [p.key for p in first] == [
+        "opening_line",
+        "faqs",
+        "step_outcomes",
+        "stages.s1",
+        "stages.s2",
+    ]
     changed = _script().model_copy(update={"opening_line": "Hello there, can you talk?"})
     assert [p.key for p in ask.reviewed_parts(changed, _script())] == ["opening_line"]
 

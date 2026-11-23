@@ -69,6 +69,7 @@ TOO_BIG_NOTE: Final = (
 #: What a part of the script is called on the Script tab, for a field a left-out part names.
 _PART_LABELS: Final[dict[str, str]] = {
     "stages": "The list of steps",
+    "step_outcomes": "What each step must reach",
     "opening_line": "The opening line",
     "outbound_opening_line": "The opening line for calls it makes",
     "goal": "The main task",
@@ -278,6 +279,14 @@ def kept_to_paths(
         before, after = _at(out, parts), _at(new, source)
         if isinstance(before, str) and isinstance(after, str) and after.strip():
             _put(out, parts, after)
+        elif source[-1] == "branches" and len(source) == 3 and isinstance(after, list):
+            # A finding on where a step goes (the review's dead end): its ways out and its
+            # otherwise come from the fix together, as a step's routing is one decision.
+            stage = out["stages"][int(parts[1])]
+            stage["branches"] = after
+            stage["otherwise"] = _at(new, [*source[:-1], "otherwise"]) or ""
+    if any(p.endswith(".branches") for p in allowed):
+        out["stages"] = ways_to_kept_steps(out["stages"])
     _fit_step_details(out, base, written)
     kept = CallScript.model_validate(out)
     if "script" in paths and unasked:

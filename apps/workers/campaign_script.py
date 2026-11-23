@@ -35,7 +35,7 @@ from functools import partial
 from typing import Any, Final
 from uuid import UUID
 
-from calevate_shared.call_script import CallScript, CollectField
+from calevate_shared.call_script import CallScript, CollectField, ScriptPolicies
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +43,7 @@ from apps.api.agents import script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.languages import LANGUAGE_LABELS
 from apps.api.agents.prompt_size import PromptSize
+from apps.api.agents.script_structure import policies_for_job
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.campaigns import workspace
 from apps.api.core.errors import ProblemError
@@ -654,26 +655,42 @@ async def _reviewed(
 
 
 #: The parts outside the steps a repair may rewrite. The openings never (hard rule 5,
-#: `mistake_fixes.PROTECTED_PARTS`); quick facts and objections are reviewed as one part each,
-#: so a finding there cannot name the one entry to rewrite and stays a warning.
+#: `mistake_fixes.PROTECTED_PARTS`); the step outcomes are read as one list, so a missing task
+#: cannot name the line to write and stays a warning the owner reads.
 _REPAIRABLE_FIELDS: Final = frozenset({"goal", "ending"})
 
 
-def _repair_paths(key: str, script: CallScript) -> list[str]:
+def _repair_paths(key: str, script: CallScript, kinds: frozenset[str] = frozenset()) -> list[str]:
     """The script check paths a review part covers that the repair may rewrite: a step's
-    instruction and line, the goal or the ending; [] for any other part."""
+    instruction, line and answers (and its ways out for a dead end), each quick fact's and
+    objection's answer, the example call's agent lines, the goal or the ending; [] for any
+    other part."""
     if key in _REPAIRABLE_FIELDS:
         return [key]
+    if key == "faqs":
+        return [f"faqs.{i}.answer" for i in range(len(script.faqs))]
+    if key == "objections":
+        return [f"objections.{i}.response" for i in range(len(script.objections))]
+    if key == "example_exchange":
+        return [
+            f"example_exchange.{i}.text"
+            for i, line in enumerate(script.example_exchange)
+            if line.speaker == "agent"
+        ]
     head, _, stage_id = key.partition(".")
     if head != "stages":
         return []
     for index, stage in enumerate(script.stages):
         if stage.id == stage_id:
-            return [
+            paths = [
                 f"stages.{index}.{name}"
                 for name in ("instruction", "sounds_like")
                 if getattr(stage, name).strip()
             ]
+            paths += [f"stages.{index}.qa.{j}.answer" for j in range(len(stage.qa))]
+            if "dead_end" in kinds:
+                paths.append(f"stages.{index}.branches")
+            return paths
     return []
 
 
@@ -693,7 +710,7 @@ def review_findings(review: Review, script: CallScript) -> ReviewFindings:
     noted: list[Noted] = []
     warned: list[tuple[LeftOut, str]] = []
     for key in review.flagged():
-        paths = _repair_paths(key, script)
+        paths = _repair_paths(key, script, review.weak_kinds.get(key, frozenset()))
         for problem in review.problems(key):
             if paths:
                 part = tuple((path, text_at(script, path) or "") for path in paths)
@@ -718,6 +735,27 @@ def too_long_left(size: PromptSize | None) -> list[LeftOut]:
         return []
     parts = ", ".join(part.label for part in size.longest_script_parts(2)) or "the steps"
     return [LeftOut("script", "", TOO_LONG_RULE.format(over=size.over, parts=parts), unfixed=True)]
+
+
+def _job_policies(inputs: _Inputs, script: CallScript, documents: str) -> CallScript:
+    """`script` with what the job cannot back switched off (`script_structure.policies_for_job`):
+    prices nothing it was written from gives, bookings with no calendar. Only while the
+    policies are not the owner's: a first script, or one whose base still has the defaults."""
+    if inputs.base is not None and inputs.base.policies != ScriptPolicies():
+        return script
+    sources = review_sources(
+        inputs.main_task,
+        documents,
+        inputs.context.facts,
+        situation=inputs.situation,
+        instruction=inputs.instruction,
+    )
+    policies = policies_for_job(
+        script.policies, sources=sources, manifest=inputs.context.capabilities
+    )
+    return (
+        script if policies == script.policies else script.model_copy(update={"policies": policies})
+    )
 
 
 Spent = ScriptDraft | JsonAnswer[WrittenOpening] | JsonAnswer[Review] | ProblemError
@@ -816,6 +854,7 @@ async def _write(
         direction=context.direction,
         purpose=inputs.main_task,
     )
+    finished = replace(finished, script=_job_policies(inputs, finished.script, documents))
     spends: list[Spent] = [
         draft,
         *refining,

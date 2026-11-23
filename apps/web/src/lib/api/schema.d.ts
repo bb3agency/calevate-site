@@ -19066,6 +19066,8 @@ export interface components {
             schema_version: 1 | 2;
             /** Stages */
             stages?: components["schemas"]["ConversationStage"][];
+            /** Step Outcomes */
+            step_outcomes?: components["schemas"]["StepOutcome"][];
             /** Steps */
             steps?: components["schemas"]["ScriptStep"][];
             style?: components["schemas"]["SpeakingStyle"];
@@ -35381,6 +35383,19 @@ export interface components {
             /** Values */
             values?: components["schemas"]["TemplateValue"][] | null;
             wait?: components["schemas"]["WaitEditIn"] | null;
+        };
+        /**
+         * StepOutcome
+         * @description What step `step` of the call must reach, however the call goes (founder, 23 Nov 2026):
+         *     a state of the conversation that shows the step is done ("The person says the app is
+         *     installed and has opened it"). A step is the `step` its scenarios share; the scenarios are
+         *     examples of how the call may reach it, not the only ways.
+         */
+        StepOutcome: {
+            /** Outcome */
+            outcome: string;
+            /** Step */
+            step: number;
         };
         /** StepResultOut */
         StepResultOut: {

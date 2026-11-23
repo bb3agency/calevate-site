@@ -11964,6 +11964,14 @@
             "title": "Stages",
             "type": "array"
           },
+          "step_outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/StepOutcome"
+            },
+            "maxItems": 12,
+            "title": "Step Outcomes",
+            "type": "array"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/ScriptStep"
@@ -56173,6 +56181,30 @@
           "step_id"
         ],
         "title": "StepEditIn",
+        "type": "object"
+      },
+      "StepOutcome": {
+        "additionalProperties": false,
+        "description": "What step `step` of the call must reach, however the call goes (founder, 23 Nov 2026):\na state of the conversation that shows the step is done (\"The person says the app is\ninstalled and has opened it\"). A step is the `step` its scenarios share; the scenarios are\nexamples of how the call may reach it, not the only ways.",
+        "properties": {
+          "outcome": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Outcome",
+            "type": "string"
+          },
+          "step": {
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Step",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "step",
+          "outcome"
+        ],
+        "title": "StepOutcome",
         "type": "object"
       },
       "StepResultOut": {

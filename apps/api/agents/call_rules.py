@@ -35,7 +35,7 @@ from calevate_shared.spoken_guard import (
     without_greeting,
 )
 
-from apps.api.agents.script_lint import NAME_FIELD, NAME_PLACEMENT_RULE, step_line
+from apps.api.agents.script_lint import NAME_FIELD, NAME_PLACEMENT_RULE, scenario_lines, step_line
 from apps.api.agents.turn_checks import (
     asked_opening_again,
     claims_done,
@@ -412,8 +412,11 @@ def opening_redone_line_problems(script: CallScript) -> list[str]:
         return []
     questions = [s for line in openings for s in sentences(line) if is_question(s)]
     found: list[str] = []
-    for i in range(len(script.stages)):
-        path, line = step_line(script, i)
+    # A step's line in each language too: the in-call model says the one in the caller's
+    # language, and a Rytu Khata step's Telugu line greeted again after the opening
+    # (23 Nov 2026) while its English example did not.
+    lines = [step_line(script, i) for i in range(len(script.stages))] + scenario_lines(script)
+    for path, line in lines:
         if not line.strip():
             continue
         if opened_again(line) or asked_opening_again(line, questions):

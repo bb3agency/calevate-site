@@ -62,6 +62,7 @@ from calevate_shared.call_script import (
     SCRIPT_SCHEMA_VERSION,
     SPECIAL_TARGETS,
     STAGE_DETAIL_MAX,
+    STEP_OUTCOME_MAX,
     CallScript,
     ConversationStage,
     ExampleLine,
@@ -69,8 +70,10 @@ from calevate_shared.call_script import (
     Objection,
     ProcedureStep,
     Pronunciation,
+    ScriptPolicies,
     SpeakingStyle,
     StageBranch,
+    StepOutcome,
     procedure_pointer,
 )
 from calevate_shared.engine import (
@@ -180,8 +183,38 @@ WAYS_OUT_RULE: Final = (
     f"only what this kind of call meets: {kind_ways_out()}. Write no way out "
     "for asking for a person, asking never to be called again, being an AI, recording, or "
     "a question off the topic: the platform handles those at any point, and an off-topic "
-    "question is answered from the knowledge and the same stage goes on. A way out's "
+    "question is answered from the knowledge and the same stage goes on. A person who says "
+    "they already did something the call asks goes on to the next thing they have not done, "
+    "never to end while the main task still has something for them. A way out's "
     "condition never says call back or transfer; where it goes says that."
+)
+
+#: How each step and its lines are written (Rytu Khata campaign script, 23 Nov 2026: a step's
+#: line greeted again after the opening, a title stood with no name, the address form was a
+#: misspelt romanisation, prices and bookings were allowed on a free app-install call and the
+#: quick facts promised what the sources never said). A step's outcome is a state of the
+#: conversation, the way an LLM-judged transition is written (elevenlabs.io/docs/eleven-agents/
+#: customization/agent-workflows, read 23 Nov 2026); the scenarios are examples of reaching it.
+STEP_RULES: Final = (
+    "step_outcomes has one entry per step number: one plain English sentence saying what is "
+    "true once that step is done, checkable from what the person says (for example: The "
+    "person says the app is open on their phone). The agent reaches it however the call goes; "
+    "the step's stages are examples of how. Each task the main task lists is the outcome of a "
+    "step, in the order the call reaches it. Each stage's instruction says, in at most three "
+    "short sentences, what this scenario does toward its step's outcome, what to check or ask, "
+    "and when it is done. The first stage goes on from the person's answer to the opening "
+    "line: no stage greets, says who is calling or asks whether now suits, in its instruction "
+    'or any line in any language. mode is "say" only for a line that must be said word for '
+    "word (a legal sentence, a price, an exact instruction such as a web address); every other "
+    'stage is "guide". No line puts an honorific where a name belongs without the name: write '
+    "{{lead_name}} before it or leave both out. address_form names the address words as the "
+    "spoken lines write them, in the call language's own letters, or describes them in "
+    "English; never a romanised spelling. pronunciations cover every spelling of a name that "
+    "any line uses. policies: share_prices only when the owner's facts or sources give prices, "
+    "take_bookings only when the call books a visit or a time, offer_call_backs unless the "
+    "owner says never. A quick fact or objection answer the sources do not give offers to find "
+    "out for them; it never promises what the team will do and never reassures beyond what "
+    "the sources say."
 )
 
 #: The instruction that turns the owner's answers into a v2 call script (first live call
@@ -225,8 +258,10 @@ _SYSTEM_INSTRUCTION = (
     "outbound_purpose is one sentence on why we are calling, the reason its opening says "
     "({{lead_name}} is the merge field for the lead's name); for an agent that only answers "
     "calls leave outbound_purpose empty. "
-    "Stages are 3 to 6, each with a short name, an English instruction, exit_when, and "
+    f"Stages are 3 to {MAX_SCRIPT_STAGES}, as few as cover the main task, each with a short "
+    "name, an English instruction, exit_when, and "
     "sounds_like: one short line in the call language showing how that stage sounds. "
+    f"{STEP_RULES} "
     "A stage's procedure lists, in order, small actions the caller does one by one on their "
     "phone (each an English instruction with wait_for, what shows it is done); it is empty "
     "for a stage with no such actions. "
@@ -301,7 +336,9 @@ EDIT_INSTRUCTION = (
     f"keeps the rules the agent's tests check: {writer_rules()} {OPENING_LINE_RULE} Outside "
     "the opening lines do not write about being an AI or recording, and nowhere about call "
     "backs, transfers or do-not-call. "
-    f"When the change adds or rewrites steps, keep to this: {WAYS_OUT_RULE} "
+    f"When the change adds or rewrites steps, keep to this: {WAYS_OUT_RULE} {STEP_RULES} "
+    "A step's outcome is in step_outcomes; when steps are added, moved or removed, keep each "
+    "outcome on its step's number. "
     "Return ONLY JSON."
 )
 
@@ -902,6 +939,7 @@ _DRAFT_PROPERTIES: Final[dict[str, object]] = {
     "stages": _array_of(
         {
             "name": _STR,
+            "mode": {"type": "string", "enum": ["guide", "say"]},
             "instruction": _STR,
             "sounds_like": _STR,
             "exit_when": _STR,
@@ -911,6 +949,17 @@ _DRAFT_PROPERTIES: Final[dict[str, object]] = {
             "ways_out": _array_of({"when": _STR, "to": _WAY_OUT_TO}),
         }
     ),
+    "step_outcomes": _array_of({"step": {"type": "integer"}, "outcome": _STR}),
+    "policies": {
+        "type": "object",
+        "properties": {
+            "share_prices": {"type": "boolean"},
+            "take_bookings": {"type": "boolean"},
+            "offer_call_backs": {"type": "boolean"},
+        },
+        "required": ["share_prices", "take_bookings", "offer_call_backs"],
+        "additionalProperties": False,
+    },
     "objections": _array_of({"objection": _STR, "response": _STR}),
     "ending": _STR,
     "quick_facts": _array_of({"question": _STR, "answer": _STR}),
@@ -1158,14 +1207,46 @@ def _ways_out(value: object, count: int, own: int) -> list[StageBranch]:
     return list({(b.when, b.target): b for b in out}.values())
 
 
-def _steps_in_order(stages: list[ConversationStage]) -> list[ConversationStage]:
+def _steps_in_order(
+    stages: list[ConversationStage],
+) -> tuple[list[ConversationStage], dict[int, int]]:
     """Stages sorted by step when the model numbered every one, so the call order is step by
-    step; otherwise as written, with no steps (each its own step)."""
+    step; otherwise as written, with no steps (each its own step). Beside them, the model's
+    step numbers as they now read, for its step outcomes."""
     if not stages or any(s.step is None for s in stages):
-        return [s.model_copy(update={"step": None}) for s in stages]
+        return [s.model_copy(update={"step": None}) for s in stages], {}
     ordered = sorted(stages, key=lambda s: s.step or 0)
     renumber = {n: i for i, n in enumerate(sorted({s.step or 0 for s in ordered}), 1)}
-    return [s.model_copy(update={"step": renumber[s.step or 0]}) for s in ordered]
+    return [s.model_copy(update={"step": renumber[s.step or 0]}) for s in ordered], renumber
+
+
+def _step_outcomes(raw: dict[str, Any], renumber: dict[int, int], count: int) -> list[StepOutcome]:
+    """The drafted outcomes on the stages' renumbered steps (each stage its own step when the
+    model numbered none), one per step, the first kept."""
+    out: dict[int, StepOutcome] = {}
+    for row in _rows(raw, "step_outcomes"):
+        step = row.get("step")
+        outcome = _text(row, "outcome", STEP_OUTCOME_MAX)
+        if not isinstance(step, int) or not outcome:
+            continue
+        step = renumber.get(step) if renumber else (step if 1 <= step <= count else None)
+        if step is not None:
+            out.setdefault(step, StepOutcome(step=step, outcome=outcome))
+    return sorted(out.values(), key=lambda o: o.step)
+
+
+def _policies(raw: dict[str, Any]) -> ScriptPolicies:
+    """The drafted policies; one the model left out keeps the default."""
+    value = raw.get("policies")
+    if not isinstance(value, dict):
+        return ScriptPolicies()
+    return ScriptPolicies(
+        **{
+            k: v
+            for k, v in value.items()
+            if k in ScriptPolicies.model_fields and isinstance(v, bool)
+        }
+    )
 
 
 def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
@@ -1208,6 +1289,7 @@ def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
             ConversationStage(
                 id=f"s{i}",
                 name=name,
+                mode="say" if row.get("mode") == "say" else "guide",
                 instruction=_text(row, "instruction", room),
                 sounds_like=sounds_like,
                 # The specific ways out first, as the compiled step reads them in order.
@@ -1222,7 +1304,7 @@ def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
                 step=step if isinstance(step, int) and 1 <= step <= MAX_SCRIPT_STAGES else None,
             )
         )
-    stages = _steps_in_order(stages)
+    stages, renumber = _steps_in_order(stages)
     objections = [
         Objection(objection=_text(row, "objection", 300), response=_text(row, "response", 1000))
         for row in _rows(raw, "objections")[:MAX_SCRIPT_OBJECTIONS]
@@ -1266,6 +1348,8 @@ def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
             pronunciations=pronunciations,
         ),
         stages=stages,
+        step_outcomes=_step_outcomes(raw, renumber, len(stages)),
+        policies=_policies(raw),
         objections=objections,
         ending=_text(raw, "ending", 1000),
         faqs=facts,

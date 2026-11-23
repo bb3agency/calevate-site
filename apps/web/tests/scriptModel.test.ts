@@ -165,6 +165,25 @@ describe("AI proposals, kept part by part", () => {
     expect(applyChanges(current, proposal, new Set()).faqs).toEqual([]);
   });
 
+  it("offers Pip's step outcomes as their own row and keeps them only when ticked (23 Nov 2026)", () => {
+    const outcomes = [{ step: 1, outcome: "They say the app is open." }];
+    const proposal: CallScript = { ...current, step_outcomes: outcomes };
+    const changes = diffScripts(current, proposal);
+    expect(changes.map((c) => c.id)).toEqual(["part:step_outcomes"]);
+    expect(changes[0]).toMatchObject({ after: "Step 1: They say the app is open." });
+    expect(applyChanges(current, proposal, new Set(["part:step_outcomes"])).step_outcomes).toEqual(outcomes);
+    expect(applyChanges(current, proposal, new Set()).step_outcomes).toBeUndefined();
+  });
+
+  it("keeps an AI example flagged unread until the owner says they read it", () => {
+    const example = [{ speaker: "agent" as const, text: "Hello." }];
+    const proposal: CallScript = { ...current, example_exchange: example, example_needs_review: true };
+    const kept = new Set(["part:example_exchange"]);
+    expect(applyChanges(current, proposal, kept).example_needs_review).toBe(true);
+    const read = { ...proposal, example_needs_review: false };
+    expect(applyChanges(current, proposal, kept, read).example_needs_review).toBe(false);
+  });
+
   it("starts a rewrite that replaces steps with its removals ticked when the new ones alone would not fit", () => {
     const old = script(...Array.from({ length: 12 }, (_, i) => stage(`o${i}`, `Old ${i}`)));
     const rewrite = script(...Array.from({ length: 12 }, (_, i) => stage(`n${i}`, `New ${i}`)));

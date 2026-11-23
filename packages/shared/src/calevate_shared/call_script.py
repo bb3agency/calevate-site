@@ -787,6 +787,35 @@ class ConversationStage(BaseModel):
         return self
 
 
+#: One step's outcome, in characters: one checkable sentence, not a paragraph.
+STEP_OUTCOME_MAX: Final = 300
+
+
+class StepOutcome(BaseModel):
+    """What step `step` of the call must reach, however the call goes (founder, 23 Nov 2026):
+    a state of the conversation that shows the step is done ("The person says the app is
+    installed and has opened it"). A step is the `step` its scenarios share; the scenarios are
+    examples of how the call may reach it, not the only ways."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    step: int = Field(ge=1, le=MAX_SCRIPT_STAGES)
+    outcome: str = Field(min_length=1, max_length=STEP_OUTCOME_MAX)
+
+    @field_validator("outcome")
+    @classmethod
+    def _one_line(cls, value: str) -> str:
+        return " ".join(value.split())
+
+
+def stage_steps(stages: Sequence[ConversationStage]) -> list[int]:
+    """The step each stage is a scenario of, in list order. A script drawn before scenarios
+    (any stage without a step) has each stage as its own step."""
+    if not stages or any(stage.step is None for stage in stages):
+        return list(range(1, len(stages) + 1))
+    return [stage.step or 0 for stage in stages]
+
+
 class Objection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -865,6 +894,9 @@ class CallScript(BaseModel):
     outbound_purpose: str = Field(default="", max_length=300)
     style: SpeakingStyle = Field(default_factory=SpeakingStyle)
     stages: list[ConversationStage] = Field(default_factory=list, max_length=MAX_SCRIPT_STAGES)
+    #: What each step must reach, at most one per step (`StepOutcome`). Empty: the steps are
+    #: followed as their scenarios say, as before outcomes existed.
+    step_outcomes: list[StepOutcome] = Field(default_factory=list, max_length=MAX_SCRIPT_STAGES)
     #: Where each end point (`SPECIAL_TARGETS`) sits on the canvas. Layout only.
     end_positions: dict[str, CanvasPosition] = Field(default_factory=dict)
     objections: list[Objection] = Field(default_factory=list, max_length=MAX_SCRIPT_OBJECTIONS)
@@ -921,6 +953,9 @@ class CallScript(BaseModel):
                     raise ValueError(
                         f"section {stage.name!r} goes to {target!r}, which is not a section"
                     )
+        steps = [outcome.step for outcome in self.step_outcomes]
+        if len(steps) != len(set(steps)):
+            raise ValueError("each step has at most one outcome")
         stray = set(self.end_positions) - SPECIAL_TARGETS
         if stray:
             raise ValueError(f"end_positions names {sorted(stray)!r}, which are not end points")
@@ -945,6 +980,7 @@ class CallScript(BaseModel):
             or self.outbound_purpose.strip()
             or self.style != SpeakingStyle()
             or self.stages
+            or self.step_outcomes
             or self.objections
             or self.policies != ScriptPolicies()
             or self.ending.strip()
@@ -1085,14 +1121,57 @@ def procedure_pointer(name: str) -> str:
 ONE_DETAIL_PER_TURN: Final = "Ask for one of these details per turn."
 
 
-def _step_detail(stage: ConversationStage) -> str:
-    """`_stage_detail`, plus `ONE_DETAIL_PER_TURN` when the step collects several details
-    and the sentence still fits the engine's step. The text compile and the editor's 600
-    counter read `_stage_detail`, so the owner's budget is not spent on this."""
+def _step_detail(stage: ConversationStage, outcome: str = "") -> str:
+    """`_stage_detail`, plus `ONE_DETAIL_PER_TURN` when the step collects several details,
+    and its step's outcome (`OUTCOME_IN_STEP`), each while it still fits the engine's step.
+    The text compile and the editor's 600 counter read `_stage_detail`, so the owner's budget
+    is not spent on these: the outcome is always in the instructions (`OUTCOMES_HEADER`)."""
     detail = _stage_detail(stage)
     if len(stage.collect) > 1 and len(detail) + 1 + len(ONE_DETAIL_PER_TURN) <= STAGE_DETAIL_MAX:
         detail = f"{detail} {ONE_DETAIL_PER_TURN}"
+    if outcome:
+        said = OUTCOME_IN_STEP.format(outcome=outcome.rstrip("."))
+        if len(detail) + 1 + len(said) <= STAGE_DETAIL_MAX:
+            detail = f"{detail} {said}"
     return detail
+
+
+#: The section saying what each step must reach. Phrased as a state the conversation is in,
+#: the way an LLM-judged transition is written ("The support request has been resolved.",
+#: elevenlabs.io/docs/eleven-agents/customization/agent-workflows, read 23 Nov 2026), and
+#: kept apart from the scenarios because the model copies sample lines closely ("Guide with
+#: examples", developers.openai.com/cookbook/examples/realtime_prompting_guide, read 23 Nov
+#: 2026): the scenarios show one way there, the outcome is what must be true. Not an
+#: `OUTLINE_HEADERS` entry, so an engine that takes the sections as its own steps still reads
+#: it in the instructions.
+OUTCOMES_HEADER: Final = "[STEP OUTCOMES]"
+OUTCOMES_LEAD: Final = (
+    "Each step of the call has one outcome to reach. Its scenarios are examples of how the call "
+    "may go, not the only ways: reach the outcome however the person answers, then go on to "
+    "the next step. If it clearly cannot be reached (they refuse, cannot do it now, or are not "
+    "the right person), take the step's way out for that, else its Otherwise."
+)
+#: The outcome as an engine step carries it, when there is room.
+OUTCOME_IN_STEP: Final = "This step is done when: {outcome}."
+
+
+def outcomes_by_stage(script: CallScript) -> list[str]:
+    """Each stage's step outcome, in list order, or "" where its step has none."""
+    by_step = {o.step: o.outcome for o in script.step_outcomes}
+    return [by_step.get(step, "") for step in stage_steps(script.stages)]
+
+
+def _outcome_lines(script: CallScript, stages: Sequence[ConversationStage]) -> str:
+    """`Step N (scenario, scenario): outcome`, for each step with an outcome and a scenario."""
+    by_step: dict[int, list[str]] = {}
+    for stage, step in zip(stages, stage_steps(stages), strict=True):
+        by_step.setdefault(step, []).append(stage.name.strip())
+    lines = [
+        f"Step {o.step} ({', '.join(by_step[o.step])}): {o.outcome}"
+        for o in sorted(script.step_outcomes, key=lambda o: o.step)
+        if o.step in by_step and o.outcome.strip()
+    ]
+    return "\n".join(lines)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1168,11 +1247,11 @@ def native_steps(script: CallScript, *, can: Capabilities | None = None) -> tupl
         return tuple(
             NativeStep(
                 title=stage.name.strip(),
-                detail=_step_detail(stage),
+                detail=_step_detail(stage, outcome),
                 branches=tuple(_stage_exits(stage, names, can)),
                 collect=tuple(stage.collect),
             )
-            for stage in script.stages
+            for stage, outcome in zip(script.stages, outcomes_by_stage(script), strict=True)
             if stage.instruction.strip()
         )
     steps = [s.instruction.strip() for s in script.steps if s.instruction.strip()]
@@ -1267,6 +1346,9 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
                 for i, stage in enumerate(stages, 1)
             ),
         )
+
+    if script.step_outcomes and stages:
+        add(f"{OUTCOMES_HEADER} {OUTCOMES_LEAD}", _outcome_lines(script, stages))
 
     with_steps = [s for s in stages if s.procedure]
     if with_steps:
@@ -1408,6 +1490,7 @@ def script_text(script: CallScript) -> str:
         script.style.address_form,
         *script.style.sample_phrases,
         *(f"{st.name} {st.instruction} {st.sounds_like}" for st in script.stages),
+        *(o.outcome for o in script.step_outcomes),
         *(f"{p.action} {p.wait_for}" for st in script.stages for p in st.procedure),
         *(text for st in script.stages for text in st.scripts.values()),
         *(f"{qa.question} {qa.answer}" for st in script.stages for qa in st.qa),
@@ -1546,6 +1629,9 @@ __all__ = [
     "NO_CALL_BACKS_POLICY",
     "OPENING_HEADER",
     "OUTBOUND_OPENING_HEADER",
+    "OUTCOMES_HEADER",
+    "OUTCOMES_LEAD",
+    "OUTCOME_IN_STEP",
     "PROCEDURE_HEADER",
     "PROCEDURE_LEAD",
     "PROCEDURE_POINTER",
@@ -1562,6 +1648,7 @@ __all__ = [
     "STAGE_DETAIL_MAX",
     "STAGE_TITLE_MAX",
     "STANDARD_VARIABLES",
+    "STEP_OUTCOME_MAX",
     "STYLE_HEADER",
     "V1_FAQ_HEADER",
     "CallScript",
@@ -1584,6 +1671,7 @@ __all__ = [
     "ScriptVariable",
     "SpeakingStyle",
     "StageBranch",
+    "StepOutcome",
     "business_line_of",
     "call_backs_withheld",
     "compile_call_script",
@@ -1592,6 +1680,7 @@ __all__ = [
     "native_steps",
     "opening_line_of",
     "outbound_opening_of",
+    "outcomes_by_stage",
     "per_call_sections_last",
     "procedure_pointer",
     "pronunciations_of",
@@ -1603,6 +1692,7 @@ __all__ = [
     "script_text",
     "splice_known_facts",
     "splice_quick_facts",
+    "stage_steps",
     "substitute_variables",
     "unplaced_lines",
     "upgrade_to_v2",
