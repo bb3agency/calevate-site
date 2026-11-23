@@ -126,11 +126,13 @@ async def captured_fields(
         rows = (await session.execute(text(_VERSIONS_SQL), {"aid": agent_id})).all()
         versions = [(int(r[0]), business_only(r[1] or [])) for r in rows]
 
+    # Only a holder's list is asked on a call now (D-1028): a call with no holder noted the
+    # core alone, so none of the agent's own fields is `current` there, and an agent field
+    # with no value is not listed as "Not mentioned" for a call that never asked it.
+    newest_keys = {f.key for f in holder} if holder else set()
     if holder:
         capturing = holder
-        newest_keys = {f.key for f in holder}
     else:
-        newest_keys = {f.key for f in versions[0][1]} if versions else set()
         capturing = next(
             (fields for version, fields in versions if version == schema_version),
             versions[0][1] if versions else [],

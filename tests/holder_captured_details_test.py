@@ -166,3 +166,28 @@ async def test_a_campaign_leads_details_are_searchable_under_the_campaigns_list(
     assert any("Visit day" in c.text and "Monday" in c.text for c in chunks)
     # The claimed re-read projects the same way, so the stored digest matches.
     assert sorted(content.values()) == sorted(c.text for c in chunks)
+
+
+async def test_a_call_with_no_job_lists_none_of_the_agents_own_fields_as_not_mentioned() -> None:
+    """A call with no campaign or line (an agent's own test call) noted only the core
+    (D-1028): the agent's own field it never asked is not `current`, so the screen does not
+    list it under "Not mentioned"; a value it holds anyway is still shown."""
+    tenant_id, call_id, _lead_id = await _campaign_call()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET campaign_id = NULL, lead_id = NULL WHERE id = :c"),
+            {"c": call_id},
+        )
+        bare = await crm_service.get_call(session, call_id)
+        await session.execute(
+            text("UPDATE call_extractions SET data = CAST(:d AS jsonb) WHERE call_id = :c"),
+            {"c": call_id, "d": json.dumps({"insurance_plan": "Gold"})},
+        )
+        held = await crm_service.get_call(session, call_id)
+
+    by_key = {f.key: f for f in bare.captured}
+    assert by_key["insurance_plan"].value is None
+    assert by_key["insurance_plan"].current is False
+    assert all(f.current for f in bare.captured if f.core)
+    kept = {f.key: f for f in held.captured}["insurance_plan"]
+    assert (kept.label, kept.value, kept.current) == ("Insurance plan", "Gold", False)
