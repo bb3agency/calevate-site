@@ -4,12 +4,16 @@ of 23 Nov 2026: with no name on the list, "నమస్కారం {{lead_name}
 
 from __future__ import annotations
 
+import pytest
+from calevate_shared import engine
 from calevate_shared.engine import (
     CALLER_NAME_MARK,
     AgentConfig,
     compose_engine_prompt,
     mark_caller_name,
 )
+
+from apps.api.agents.live_apply import platform_prompt_revision
 
 
 def test_the_name_field_and_its_title_become_one_mark() -> None:
@@ -43,3 +47,17 @@ def test_the_composed_prompt_carries_the_mark_in_place_of_the_name_and_title() -
     prompt = compose_engine_prompt(_cfg("Step 1: say నమస్కారం {{lead_name}} గారు, then why."))
     assert f"నమస్కారం {CALLER_NAME_MARK}, then why." in prompt
     assert "{{lead_name}} గారు" not in prompt
+
+
+@pytest.mark.parametrize(
+    "name", ["CALLER_NAME_MARK", "TEST_CALL_OPENING_RULE", "PLACED_CALL_OPENING_RULE"]
+)
+def test_a_change_to_the_mark_or_an_opening_rule_republishes_every_live_agent(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The platform walk at worker start is keyed on this revision: a mark or rule that only
+    a script with an opening and a name field shows must move it too, or live agents keep the
+    old text until each is republished."""
+    before = platform_prompt_revision()
+    monkeypatch.setattr(engine, name, getattr(engine, name) + " x")
+    assert platform_prompt_revision() != before

@@ -186,6 +186,7 @@ def platform_prompt_revision() -> str:
     """
     from calevate_shared.call_script import (
         COLLECT_HEADER,
+        OPENING_HEADER,
         PRONOUNCE_LEAD,
         CallScript,
         Capabilities,
@@ -196,6 +197,7 @@ def platform_prompt_revision() -> str:
     from calevate_shared.engine import (
         CALL_INSTRUCTIONS,
         INTRODUCTION_SALUTATIONS,
+        NAME_VARIABLE,
         SCREEN_CALL_INSTRUCTIONS,
         AgentConfig,
         compose_engine_prompt,
@@ -258,6 +260,25 @@ def platform_prompt_revision() -> str:
             update={"engine_call_instructions": False, "caller_has_screen": screen}
         )
         parts.append(f"ours with the switch off, screen {screen}: {sends_our_call_rules(off)}")
+    # A script with an opening that greets the caller by name and title: the reference
+    # scripts above have neither, so the start-of-call rules an opening adds and how the
+    # name field is marked for the model (`mark_caller_name`) would not move the revision,
+    # and live agents would keep the old text until each was republished by hand.
+    opening_script = (
+        f"{OPENING_HEADER}\nHello {{{{{NAME_VARIABLE}}}}} ji, O\n{COLLECT_HEADER}\n- a"
+    )
+    for direction, line_calls_back in (("inbound", False), ("inbound", True), ("both", False)):
+        parts.append(
+            compose_engine_prompt(
+                cfg.model_copy(
+                    update={
+                        "system_prompt": opening_script,
+                        "direction": direction,
+                        "places_call_backs": line_calls_back,
+                    }
+                )
+            )
+        )
     # How the greeting field orders the opening line and the notices (D-861), and the
     # introduction with its salutation in each language that has one (D-865), which the
     # reference agents above cannot show: their script has no opening line.
