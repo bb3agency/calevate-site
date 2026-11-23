@@ -406,8 +406,6 @@ async def leads_holder_fields(
     another of its calls' campaigns or lines notes. A lead met on an Inbound line and then
     called by a campaign keeps the line's details as asked, not "No longer asked". Leads
     whose calls' jobs note nothing of their own are left out."""
-    if not lead_ids:
-        return {}
     rows = (await session.execute(text(_LEAD_CALLS_SQL), {"ids": lead_ids})).all()
     held = await holder_fields(session, [UUID(str(r[1])) for r in rows])
     merged: dict[UUID, list[ExtractionField]] = {}
