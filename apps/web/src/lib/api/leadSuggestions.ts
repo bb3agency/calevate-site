@@ -20,8 +20,8 @@ import {
 } from "@tanstack/react-query";
 
 import { adminSession } from "./admin";
-import { jobNotesKey, type JobKind } from "./campaignWorkspace";
-import { apiRequest, type Session } from "./client";
+import { isSavedNotOnCalls, jobNotesKey, type JobKind } from "./campaignWorkspace";
+import { apiRequest, type ApiProblem, type Session } from "./client";
 import { untilRefused } from "./queryRetry";
 import { leadFieldsKeys } from "./leadFields";
 import type { components } from "./schema";
@@ -59,6 +59,13 @@ export interface LeadSuggestionsApi {
   acceptAll: UseMutationResult<LeadSuggestionsAccepted, Error, string[]>;
   dismiss: UseMutationResult<LeadSuggestionAnswered, Error, string>;
   check: UseMutationResult<LeadSuggestions, Error, void>;
+  /**
+   * The latest accept saved its change but could not put it on the job's calls
+   * (`SAVED_NOT_ON_CALLS_TITLE`); What it notes' Save, pressed again, finishes it.
+   */
+  kept: ApiProblem | null;
+  /** Forget `kept`, once that Save has been pressed and answers for itself. */
+  clearKept: () => void;
 }
 
 /** The three answers, shared by both realms; each realm's hook declares its own read. */
@@ -73,6 +80,10 @@ function useAnswers(
     apiRequest<LeadSuggestionAnswered>(session, `${base}/${encodeURIComponent(id)}/${verb}`, {
       method: "POST",
     });
+  // A refusal re-reads both lists: a suggestion the list overtook is gone from the server's
+  // suggestions, and a refused put-live (`SAVED_NOT_ON_CALLS_TITLE`) still saved the change,
+  // so the editor must show the list it saved rather than the one it had.
+  const refused = () => Promise.all([client.invalidateQueries({ queryKey: key }), afterAccept()]);
   const accept = useMutation({
     mutationFn: answer("accept"),
     onSuccess: (out) => {
@@ -80,9 +91,7 @@ function useAnswers(
       // The job's list changed: its editor re-reads it, as after its own Save.
       return afterAccept();
     },
-    // A suggestion the list overtook is gone from the server's list; show the list as it now
-    // is rather than the stale one.
-    onError: () => client.invalidateQueries({ queryKey: key }),
+    onError: refused,
   });
   const acceptAll = useMutation({
     mutationFn: (ids: string[]) =>
@@ -91,7 +100,7 @@ function useAnswers(
       client.setQueryData(key, out.remaining);
       return afterAccept();
     },
-    onError: () => client.invalidateQueries({ queryKey: key }),
+    onError: refused,
   });
   const dismiss = useMutation({
     mutationFn: answer("dismiss"),
@@ -101,7 +110,13 @@ function useAnswers(
     mutationFn: () => apiRequest<LeadSuggestions>(session, `${base}/check`, { method: "POST" }),
     onSuccess: (out) => client.setQueryData(key, out),
   });
-  return { accept, acceptAll, dismiss, check };
+  const latest = acceptAll.submittedAt > accept.submittedAt ? acceptAll : accept;
+  const kept = isSavedNotOnCalls(latest.error) ? latest.error : null;
+  const clearKept = () => {
+    accept.reset();
+    acceptAll.reset();
+  };
+  return { accept, acceptAll, dismiss, check, kept, clearKept };
 }
 
 export function useLeadSuggestions(session: Session, kind: JobKind, jobId: string): LeadSuggestionsApi {

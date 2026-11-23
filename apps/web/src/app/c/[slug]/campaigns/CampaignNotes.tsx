@@ -8,7 +8,8 @@
  * save over a list changed elsewhere is refused (`<kind>_notes_changed_elsewhere`) and offers
  * the current list. "Import" loads another job's list, or the business's starting set, into
  * the editor as an unsaved change; Save keeps it. The job's suggested changes (D-889) sit at
- * the top of the card.
+ * the top of the card; an accept whose put-live was refused still saved, so the editor shows
+ * the saved list and the card offers Save again.
  *
  * Where the reads and writes go is a `JobNotesSource`: the client realm's endpoints by
  * default, the operator's twins when the admin Lead details screen provides its own.
@@ -158,6 +159,9 @@ type JobProps = {
 export function JobNotes(props: JobProps) {
   const source = useSource();
   const notes = source.useNotes(props.kind, props.jobId);
+  // Here rather than in the editor: an accept changes the list's digest, which remounts the
+  // editor, and the accept's outcome (a kept change whose put-live was refused) must outlive it.
+  const suggestions = source.useSuggestions(props.kind, props.jobId);
   const noun = NOUN[props.kind];
   return (
     <FoldSection
@@ -175,6 +179,7 @@ export function JobNotes(props: JobProps) {
           key={notes.data.digest}
           data={notes.data}
           source={source}
+          suggestions={suggestions}
           onReload={() => void notes.refetch()}
           {...props}
         />
@@ -275,6 +280,7 @@ function ImportMenu({
 function NotesEditor({
   data,
   source,
+  suggestions,
   onReload,
   kind,
   jobId,
@@ -282,11 +288,10 @@ function NotesEditor({
   refusal,
   takeEffect,
   offered,
-}: JobProps & { data: Notes; source: JobNotesSource; onReload: () => void }) {
+}: JobProps & { data: Notes; source: JobNotesSource; suggestions: LeadSuggestionsApi; onReload: () => void }) {
   const eg = source.useExamples();
   const save = source.useSave(kind, jobId);
   const fetchNotes = source.useFetch(kind);
-  const suggestions = source.useSuggestions(kind, jobId);
   const alertsHref = source.useAlertsHref(data.agent_id);
   const feedback = useActionFeedback(save, { errorDisplay: "inline" });
   const valid = useFormValidation();
@@ -333,19 +338,29 @@ function NotesEditor({
     }
   };
 
+  // An accepted suggestion kept its change but did not reach the calls: Save over the same list
+  // is the retry the refusal names, so it is offered with nothing changed.
+  const kept = suggestions.kept != null;
+  const submit = () => {
+    if (disabled || (!dirty && !kept) || clientError) return;
+    // From here the save answers for itself, a refused put-live included.
+    suggestions.clearKept();
+    save.mutate(
+      { fields: wire, expected_digest: data.digest },
+      { onSuccess: () => setImported(null) },
+    );
+  };
+
   return (
-    <form
-      className="space-y-4"
-      noValidate
-      onSubmit={valid.onSubmit(() => {
-        if (disabled || !dirty || clientError) return;
-        save.mutate(
-          { fields: wire, expected_digest: data.digest },
-          { onSuccess: () => setImported(null) },
-        );
-      })}
-    >
-      <LeadSuggestions api={suggestions} canWrite={canWrite} dirty={dirty} audience={source.audience} />
+    <form className="space-y-4" noValidate onSubmit={valid.onSubmit(submit)}>
+      <LeadSuggestions
+        api={suggestions}
+        canWrite={canWrite}
+        dirty={dirty}
+        audience={source.audience}
+        onSaveAgain={submit}
+        savingAgain={save.isPending}
+      />
       {save.error != null && (
         <div>
           <ProblemNotice error={save.error} />
@@ -422,7 +437,7 @@ function NotesEditor({
           type="submit"
           status={feedback.status}
           successLabel="Saved"
-          disabled={!canWrite || (feedback.status === "idle" && (!dirty || Boolean(clientError)))}
+          disabled={!canWrite || (feedback.status === "idle" && ((!dirty && !kept) || Boolean(clientError)))}
           title={refusal}
         >
           <Save aria-hidden className="h-4 w-4" />
