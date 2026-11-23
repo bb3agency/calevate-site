@@ -80,6 +80,9 @@ export default function ClientHealthPage() {
   const breaking = rows.filter((row) => row.severity === "stop");
   // An account waiting only on its own client is listed but does not need us.
   const attention = rows.filter(needsUs);
+  // Ours and not yet a stop. Not `attention - breaking`: a stop the client must clear
+  // (undeclared numbers past the date) is broken without being in `attention`.
+  const willBreak = attention.filter((row) => row.severity !== "stop").length;
   const waiting = rows.length - attention.length;
 
   /*
@@ -108,7 +111,7 @@ export default function ClientHealthPage() {
           {
             key: "warning",
             label: "Will break (severity warn, ours to act on)",
-            value: String(attention.length - breaking.length),
+            value: String(willBreak),
           },
           { key: "waiting", label: "Waiting on the client only", value: String(waiting) },
           {
@@ -160,8 +163,8 @@ export default function ClientHealthPage() {
                 {attentionHeadline(attention.length)}
               </span>
               {breaking.length > 0 && <StatusPill tone="stop">{breaking.length} broken now</StatusPill>}
-              {attention.length > breaking.length && (
-                <StatusPill tone="warn">{attention.length - breaking.length} will break</StatusPill>
+              {willBreak > 0 && (
+                <StatusPill tone="warn">{willBreak} will break</StatusPill>
               )}
               {waiting > 0 && <StatusPill tone="neutral">{waiting} waiting on client</StatusPill>}
             </>

@@ -331,6 +331,42 @@ describe("the client health board", () => {
     expect(text).not.toContain("refusing");
   });
 
+  it("counts an account that will break even when another is broken and waiting on its client", async () => {
+    // An undeclared-numbers refusal past the enforcement date is a `stop` the client must
+    // clear: broken, but not ours. It must not cancel out an account that is ours to fix.
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
+        row({
+          tenant_id: "t-a",
+          name: "Undeclared Co",
+          severity: "stop",
+          signals: [
+            signal({
+              rule: "calling_numbers_undeclared",
+              severity: "stop",
+              count: null,
+              causes: ["calling_numbers_undeclared"],
+              waiting_on: "client",
+            }),
+          ],
+        }),
+        row({
+          tenant_id: "t-b",
+          name: "Wobbling Co",
+          severity: "warn",
+          signals: [signal({ rule: "knowledge_waiting", severity: "warn", count: 2 })],
+        }),
+      ] },
+    });
+
+    await screen.findByText("Undeclared Co");
+    const text = container.textContent ?? "";
+    expect(text).toContain("1 account needs attention");
+    expect(text).toContain("1 broken now");
+    expect(text).toContain("1 will break");
+    expect(text).toContain("1 waiting on client");
+  });
+
   it("keeps a refusal only we can clear broken now", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
       [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
