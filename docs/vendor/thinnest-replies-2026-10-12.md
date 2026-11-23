@@ -2887,7 +2887,7 @@ Still open:
 - **§52 (agents per customer workspace)** was not answered in this reply.
 - **§53 (voicemail on Place Call)** was held for this reply and can now be sent.
 
-## 56. Reply to §55: playground not clipped; agents per workspace; voicemail on Place Call (DRAFTED 23 Nov 2026, for the founder to send; folds in §52 and §53, neither sent)
+## 56. Reply to §55: playground not clipped; agents per workspace; voicemail on Place Call (SENT 23 Nov 2026, founder; folds in §52 and §53)
 
 The founder ran ThinnestAI's test (§55 item 1) on 23 Nov 2026: Varsha's opening line, played in
 Cartesia's playground with our voice at 8000 Hz `pcm_s16le`, was not clipped and sounded
@@ -2937,3 +2937,23 @@ natural; the same line on the live call at 10:34 IST that day was clipped.
 When answered: record §57 verbatim with a "what it closes" table; raise
 `thinnest_agents_per_workspace` to any granted figure; a voicemail message is built only with
 the founder's wording and on/off decision (hard rule 5).
+
+### Held for after §56's answer: our engine-agent churn (23 Nov 2026)
+
+Not sent. Raised again only if problems remain once §56 is answered (founder, 23 Nov 2026).
+
+One engine agent per live Inbound line and per running campaign, deleted when the line stops or
+the campaign ends (D-1003, hourly sweep), and a test holder deleted after an hour idle (D-1020),
+cost us this week: the 2-agents-per-workspace cap blocked a Rytu Khata campaign; a per-agent
+vendor fix did not reach the next test call (§54); each change to a live job republishes its
+agent before the screen answers; and the agent behind a bad call can be gone before anyone
+looks.
+
+Options, in order, none built:
+1. Ours: keep a campaign's engine agent until the campaign is archived or idle for days, and
+   reuse it on the next Start, instead of deleting it when the campaign ends. Needs the higher
+   per-workspace cap asked in §56.
+2. Ask ThinnestAI: can Place Call carry a job's instructions per call? Then one engine agent
+   per voice could serve all its campaigns. UNVERIFIED in their docs.
+3. Inbound lines keep one engine agent each in any case: an incoming call carries nothing per
+   call, so the line's agent holds its script.
