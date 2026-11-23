@@ -591,6 +591,86 @@ async def test_a_trial_that_ended_early_in_the_month_raises_no_fee_for_it() -> N
 
 
 @pytest.mark.usefixtures("_gate_reaches_money")
+async def test_a_signup_trial_month_still_raises_and_enforces_the_fee() -> None:
+    """Only a gift waives the fee (founder, 23 Nov 2026): the trial every account is born
+    with does not, so its month is raised the fee and an unpaid one pauses outbound."""
+    from apps.api.billing.trials import TRIAL_ORIGIN_SIGNUP, TRIAL_STOPPED, end_trial, start_trial
+    from tests.conftest import mark_paid_for_tests
+
+    tenant_id, agent_id = await _dialling_tenant()
+    await mark_paid_for_tests(tenant_id)
+    now = datetime.now(UTC)
+    async with tenant_session(tenant_id) as session:
+        await start_trial(
+            session,
+            tenant_id=tenant_id,
+            days=14,
+            actor_user_id=None,
+            at=now - timedelta(minutes=30),
+            origin=TRIAL_ORIGIN_SIGNUP,
+        )
+        await end_trial(
+            session,
+            tenant_id=tenant_id,
+            outcome=TRIAL_STOPPED,
+            reason="Paid.",
+            at=now - timedelta(minutes=10),
+        )
+        assert await exemption_of(session, tenant_id=tenant_id, at=now) is None
+    await issue_platform_fees({})
+    async with tenant_session(tenant_id) as session:
+        (charge,) = await list_charges(session, tenant_id=tenant_id)
+    await _tenant_with_late_fee(tenant_id, charge.id)
+    decision = await _gate(tenant_id, agent_id)
+    assert not decision.allowed and decision.rule == PLATFORM_FEE_RULE, decision
+
+
+async def test_a_gift_whose_operator_was_removed_still_waives_the_fee() -> None:
+    """`started_by` goes NULL when the operator's row is removed; `origin` keeps the gift."""
+    from apps.api.billing.trials import read_trial
+
+    tenant_id = await _tenant()
+    operator = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Leaver', 'operator', now(), now())"
+            ),
+            {"id": operator},
+        )
+    now = datetime.now(UTC)
+    from apps.api.billing.trials import TRIAL_STOPPED, end_trial, start_trial
+    from tests.conftest import mark_paid_for_tests
+
+    await mark_paid_for_tests(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await start_trial(
+            session,
+            tenant_id=tenant_id,
+            days=14,
+            actor_user_id=operator,
+            at=now - timedelta(minutes=30),
+        )
+        await end_trial(
+            session,
+            tenant_id=tenant_id,
+            outcome=TRIAL_STOPPED,
+            reason="Gift over.",
+            at=now - timedelta(minutes=10),
+        )
+    async with untenanted_session() as session:
+        await session.execute(text("DELETE FROM admin_users WHERE id = :id"), {"id": operator})
+    async with tenant_session(tenant_id) as session:
+        trial = await read_trial(session, tenant_id=tenant_id)
+        assert trial is not None and trial.started_by is None
+        assert await exemption_of(session, tenant_id=tenant_id, at=now) == "trial"
+    await issue_platform_fees({})
+    async with tenant_session(tenant_id) as session:
+        assert await list_charges(session, tenant_id=tenant_id) == []
+
+
+@pytest.mark.usefixtures("_gate_reaches_money")
 async def test_a_month_no_trial_touched_still_raises_and_enforces_its_fee() -> None:
     """A trial last month waives last month only: this month's fee is raised and, unpaid
     past its grace, pauses outbound."""

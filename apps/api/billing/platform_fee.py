@@ -32,8 +32,8 @@ from uuid import UUID
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.plans import ist_billing_month, ist_month_window
-from apps.api.billing.trials import read_trial, trial_overlaps
+from apps.api.billing.plans import ist_billing_month
+from apps.api.billing.trials import gift_trial_in_month, read_trial
 from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -155,12 +155,12 @@ async def exemption_of(session: AsyncSession, *, tenant_id: UUID, at: datetime) 
 
 
 async def month_on_trial(session: AsyncSession, *, tenant_id: UUID, period: str) -> bool:
-    """Did any trial touch this IST month? Such a month owes no platform fee (founder,
-    23 Nov 2026: "Skip it too"), by the same month-overlap rule that waives the plan fee
-    on the statement (`service.usage_summary`, `trials.trial_overlaps`). Including a month
-    the trial covers only part of, and a fee already raised before a trial was given."""
-    start, end = ist_month_window(period)
-    return await trial_overlaps(session, tenant_id=tenant_id, start=start, end=end)
+    """Did a GIFT trial touch this IST month? Such a month owes no platform fee (founder,
+    23 Nov 2026: "Skip it too", gift trials only), by the rule that waives the plan fee on
+    the statement (`trials.gift_trial_in_month`). Including a month the trial covers only
+    part of, and a fee already raised before the trial was given. The account's birth
+    trial is not a gift: its sign-up and conversion months raise the fee as before."""
+    return await gift_trial_in_month(session, tenant_id=tenant_id, month=period)
 
 
 async def charge_exemption(
