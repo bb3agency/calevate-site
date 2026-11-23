@@ -68,6 +68,20 @@ _CASES: list[tuple[str, CallScript, str, CallScript]] = [
         ),
     ),
     (
+        "same_closing",
+        _script(
+            _stage("s1", "Open the app on your phone and tell me when it is done."),
+            _stage("s2", "Now tap the farms tab below and tell me when it is done."),
+            _stage("s3", "Add your first crop on that screen and tell me when it is done."),
+        ),
+        "stages.1.sounds_like",
+        _script(
+            _stage("s1", "Open the app on your phone and tell me when it is done."),
+            _stage("s2", "Now tap the farms tab below. Do you see your farm?"),
+            _stage("s3", "Add your first crop on that screen. Is it saved?"),
+        ),
+    ),
+    (
         "said_again",
         _script(
             _stage("s1", "We deliver fresh vegetables to your home every morning."),

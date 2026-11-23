@@ -38,6 +38,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents.company_training import TRAINING_DRAFT_JOB
 from apps.api.compliance import tenant_erasure
 from apps.api.compliance.service import account_stopped_blocker
 from apps.api.core.errors import ProblemError
@@ -270,12 +271,13 @@ async def test_filing_the_audit_row_happens_in_the_same_transaction_as_the_reque
             (
                 await session.execute(
                     text(
-                        # Less the examples job every new account queues at birth (D-827).
+                        # Less the jobs every new account queues at birth: its examples
+                        # (D-827) and its company training draft (D-1034).
                         "SELECT job FROM outbox_messages "
                         "WHERE payload->>'tenant_id' = :tid AND status = 'pending' "
-                        "AND job <> :at_birth"
+                        "AND job <> ALL(:at_birth)"
                     ),
-                    {"tid": str(tenant_id), "at_birth": business_copy.JOB},
+                    {"tid": str(tenant_id), "at_birth": [business_copy.JOB, TRAINING_DRAFT_JOB]},
                 )
             )
             .scalars()

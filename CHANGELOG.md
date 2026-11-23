@@ -3,6 +3,24 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.21 — 24-Nov-2026
+
+Fixes from the 23 Nov test call, for every agent and language.
+
+- On a call: the agent asks again in new words when an answer is unclear or off the point,
+  moves to the next step only once the person confirms the last one, answers only what was
+  asked (no unasked reassurance), asks the person to look rather than saying all is right, and
+  varies how its replies start and end. Live agents pick this up without a republish.
+- Scripts Pip writes: no second "is now a good time?", the campaign's own details are
+  asked (name, call-back time and other number only when needed), screens and buttons are
+  called by their real names, and lines no longer all open or end alike.
+- After a call: the business name is spelt as on the account, key moments pin to the line
+  where a value was settled, notes run to the end of the call, "Help Required" on an outgoing
+  call holds only what the person asked for, and "Not mentioned" lists only details the
+  script asks. Pip's "summarise again" spells the business name too.
+- Call review: replies that all end with the same words are now named.
+- Deploys refuse to put nginx on a certificate that expires within a day (D-1037).
+
 ## 0.5.20 — 23-Nov-2026
 
 - Call flow: a scenario shows a script box only for the languages its campaign speaks (and any
