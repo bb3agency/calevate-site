@@ -153,6 +153,9 @@ class LintContext:
     #: The labels of the lead details the script's job collects (a campaign's or a line's
     #: "What it notes"; none for an agent's own script), each of which some step should ask.
     collect: tuple[str, ...] = ()
+    #: Those of `collect` a call back takes (the time and another number,
+    #: `script_builder.CALL_BACK_KEYS`), noted on the step that asks for a later time.
+    call_back: tuple[str, ...] = ()
     #: The agent's call language, against which a line in English letters is found (D-861).
     #: Empty skips that check.
     language: str = ""
@@ -372,6 +375,24 @@ def _stems(text: str) -> set[str]:
     }
 
 
+def collected_label(entry: str) -> str:
+    """The label a step's `collect` entry names: the writer is shown each detail as "Label:
+    when it is asked" and may copy the whole entry."""
+    return entry.partition(":")[0].strip()
+
+
+def unasked_problems(script: CallScript, collect: tuple[str, ...]) -> list[str]:
+    """A finding for each detail the job notes and no step asks (`unasked_details`). With no
+    steps there is nowhere to ask; the details list still reaches the call."""
+    if not script.stages:
+        return []
+    return [
+        f'script: no step asks for "{label}"; ask it in the step where the call reaches it, '
+        "as one question."
+        for label in unasked_details(script, collect)
+    ]
+
+
 def unasked_details(script: CallScript, collect: tuple[str, ...]) -> list[str]:
     """The labels in `collect` that no step asks for, in their order.
 
@@ -381,7 +402,7 @@ def unasked_details(script: CallScript, collect: tuple[str, ...]) -> list[str]:
     instructions and is never reported."""
     steps = [
         (
-            {c.casefold() for c in stage.collect},
+            {collected_label(c).casefold() for c in stage.collect},
             _stems(" ".join([stage.name, stage.instruction, *(p.action for p in stage.procedure)])),
         )
         for stage in script.stages
@@ -489,13 +510,7 @@ def script_problems(script: CallScript, context: LintContext) -> list[str]:
     found += step_number_problems(script)
     found += untaken_time_problems(script)
     found += pronunciation_problems(script, context)
-    # With no steps there is nowhere to ask; the details list still reaches the call.
-    if script.stages:
-        found += [
-            f'script: no step asks for "{label}"; ask it in the step where the call reaches '
-            "it, as one question."
-            for label in unasked_details(script, context.collect)
-        ]
+    found += unasked_problems(script, context.collect)
     return found
 
 
@@ -973,22 +988,99 @@ def same_opener_problems(script: CallScript) -> list[str]:
     """A step's line that opens with the same short reaction as an earlier step's line. The
     in-call model copies how a step's line opens, so lines that all open alike make every
     reply open alike (founder's Rytu Khata call of 9 Nov 2026: three replies running began
-    with the same "OK"). Read by words, so it works in any language."""
-    seen: dict[str, int] = {}
+    with the same "OK"). Read by words, so it works in any language. A step's line in each
+    call language (`scenario_lines`) is held to the same rule among the lines of its language:
+    on the Rytu Khata call of 23 Nov 2026 (23:19) the Telugu lines opened alike while the
+    English examples did not."""
     problems: list[str] = []
-    for i in range(len(script.stages)):
-        path, line = step_line(script, i)
-        said = _line_opener(line)
-        if said is None:
-            continue
-        if said in seen:
-            problems.append(
-                f"{path}: opens with the same words as step {seen[said] + 1}'s line; the agent "
-                "copies how lines open, so its replies would all begin alike. Open it with its "
-                "own point."
-            )
-        else:
-            seen[said] = i
+    for group in _line_groups(script, procedure=False):
+        seen: dict[str, int] = {}
+        for i, path, line in group:
+            said = _line_opener(line)
+            if said is None:
+                continue
+            if said in seen:
+                problems.append(
+                    f"{path}: opens with the same words as step {seen[said] + 1}'s line; the "
+                    "agent copies how lines open, so its replies would all begin alike. Open "
+                    "it with its own point."
+                )
+            else:
+                seen[said] = i
+    return problems
+
+
+def _line_groups(script: CallScript, *, procedure: bool) -> list[list[tuple[int, str, str]]]:
+    """(step index, path, text) of the lines the agent copies, one group per language: the
+    "sounds like" lines, each call language's scenario lines, and with `procedure` the small
+    steps' actions, which the agent says one a turn."""
+    groups: list[list[tuple[int, str, str]]] = [
+        [
+            (i, path, line)
+            for i in range(len(script.stages))
+            for path, line in [step_line(script, i)]
+            if line.strip()
+        ]
+    ]
+    by_language: dict[str, list[tuple[int, str, str]]] = {}
+    for i, stage in enumerate(script.stages):
+        for tag, text in stage.scripts.items():
+            if text.strip():
+                by_language.setdefault(tag, []).append((i, f"stages.{i}.scripts.{tag}", text))
+    groups += by_language.values()
+    if procedure:
+        groups.append(
+            [
+                (i, f"stages.{i}.procedure.{j}.action", step.action)
+                for i, stage in enumerate(script.stages)
+                for j, step in enumerate(stage.procedure)
+            ]
+        )
+    return groups
+
+
+#: The words at a line's end that count as its closing tag ("... tell me when it is done").
+_ENDING_WORDS: Final = 3
+#: A line shorter than this has no tag apart from its point.
+_ENDING_MIN_LINE_WORDS: Final = 5
+#: Lines of one group ending alike before the tag is the habit: three, and half the group.
+_ENDING_REPEATS: Final = 3
+
+
+def _line_ending(text: str) -> str | None:
+    words = [
+        word
+        for token in re.sub(r"\{\{[^}]*\}\}", " ", text).split()
+        if (word := token.strip(_TOKEN_EDGE).casefold())
+    ]
+    if len(words) < _ENDING_MIN_LINE_WORDS:
+        return None
+    return " ".join(words[-_ENDING_WORDS:])
+
+
+def same_ending_problems(script: CallScript) -> list[str]:
+    """Lines that all end with the same tag, in one language or across a step's small steps:
+    on the Rytu Khata call of 23 Nov 2026 (23:19) nearly every reply ended "tell me" in
+    Telugu, copied from lines written that way. The agent waits after each small step anyway
+    (`call_script.PROCEDURE_LEAD`), so the tag says nothing; a model told to vary repeats
+    less, but copies a line it is given ("Sample phrases (vary, don't always reuse)",
+    cdn.openai.com/API/docs/realtime-prompting-guide.pdf, read 23 Nov 2026). Read by words,
+    so it works in any language; every line after the first with the tag is named."""
+    problems: list[str] = []
+    for group in _line_groups(script, procedure=True):
+        endings: dict[str, list[str]] = {}
+        for _i, path, text in group:
+            ending = _line_ending(text)
+            if ending is not None:
+                endings.setdefault(ending, []).append(path)
+        for paths in endings.values():
+            if len(paths) >= _ENDING_REPEATS and 2 * len(paths) >= len(group):
+                problems += [
+                    f"{path}: ends with the same words as several other lines; the "
+                    "agent copies them into every reply. End it where its point ends, or "
+                    "vary the ending."
+                    for path in paths[1:]
+                ]
     return problems
 
 
@@ -1181,6 +1273,7 @@ def flow_problems(script: CallScript) -> list[str]:
         *repeated_line_problems(script),
         *opening_redone_problems(script),
         *same_opener_problems(script),
+        *same_ending_problems(script),
         *unreachable_problems(script),
         *step_outcome_problems(script),
         *empty_title_problems(script),
@@ -1199,6 +1292,7 @@ __all__ = [
     "answered_opening",
     "asks_a_time",
     "caller_paths",
+    "collected_label",
     "empty_title_problems",
     "flow_problems",
     "instruction_fields",
@@ -1218,6 +1312,7 @@ __all__ = [
     "question_count",
     "reachable_steps",
     "repeated_line_problems",
+    "same_ending_problems",
     "same_opener_problems",
     "scenario_lines",
     "script_problems",
@@ -1229,6 +1324,7 @@ __all__ = [
     "step_numbers_broken",
     "step_outcome_problems",
     "unasked_details",
+    "unasked_problems",
     "unbacked_promise",
     "unknown_figure",
     "unpronounced_spellings",

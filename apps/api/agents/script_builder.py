@@ -26,6 +26,8 @@ hard rule 8's two-step angle: nothing is rewritten, the NULL sentinel IS the old
 
 from __future__ import annotations
 
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final, Literal
@@ -48,6 +50,8 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     notice_fields,
 )
+from calevate_shared.extraction import ExtractionField
+from calevate_shared.lead_fields import CORE_KEYS, core_fields
 from calevate_shared.opening_notices import OpeningNotices, said_in
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,6 +69,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.engine import engine_capabilities, get_engine
 from apps.api.engine.hosted_platform import hosted_agent_limits
 from apps.api.teach import pinned as pinned_facts
+from apps.api.tenancy.core_labels import core_labels
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,38 +148,116 @@ def _posture(row: Any) -> DisclosurePosture:
     )
 
 
-def _collect_of(fields: list[Any]) -> list[CollectField]:
-    return [
-        CollectField(
-            label=str(f.get("label") or f.get("key") or ""),
-            reason=str(f.get("reason") or ""),
-            required=bool(f.get("required")),
+#: The core details a call ASKS, each with the one case it is asked in (founder, 23 Nov 2026:
+#: on the Rytu Khata call of that night the name, the call-back time and another number were
+#: never asked). A placed call usually knows the name, so it is asked only when it does not;
+#: the time and another number belong to the path where the person wants a call later. The
+#: other core details are heard, not asked: what they want, their language and the notes.
+#: Short, because each is a line of every job's compiled instructions.
+CORE_ASKED_WHEN: Final[dict[str, str]] = {
+    "name": "only if not known",
+    "preferred_time": "only if they want a call later",
+    "other_number": "only if a call back is agreed",
+}
+#: The core details a call back takes, asked on that path (`script_structure.time_taken`).
+CALL_BACK_KEYS: Final = ("preferred_time", "other_number")
+
+#: A business detail the extraction reads from how the call went rather than from an answer:
+#: a status, an outcome, progress or a sentiment. Asking "what is your installation status?"
+#: is not a question a person can answer; the call's events answer it.
+_HEARD_DETAIL: Final = re.compile(
+    r"\b(?:status|outcome|outcomes|progress|result|results|disposition|sentiment)\b", re.I
+)
+
+
+def heard_detail(key: str, label: str) -> bool:
+    """Whether a business detail is noted from what happens on the call, never asked."""
+    return bool(_HEARD_DETAIL.search(f"{key.replace('_', ' ')} {label}"))
+
+
+@dataclass(frozen=True, slots=True)
+class JobDetails:
+    """What a job's calls ask, from its "What it notes" (D-1028) and the core every lead
+    carries (`calevate_shared.lead_fields`): the details asked, in call order (the name, the
+    business's own, then the call-back ones), and the labels of the call-back ones."""
+
+    asked: tuple[CollectField, ...]
+    call_back: tuple[str, ...] = ()
+
+    def labels(self) -> tuple[str, ...]:
+        return tuple(f.label for f in self.asked)
+
+
+def _business_details(stored: Any) -> list[CollectField]:
+    """The stored list's business details that are asked, read leniently as the compile
+    always has: a row is a dict with a label or key, and a core key's row is the core's."""
+    out: list[CollectField] = []
+    for raw in stored if isinstance(stored, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        key, label = str(raw.get("key") or ""), str(raw.get("label") or raw.get("key") or "")
+        if not label or key in CORE_KEYS or heard_detail(key, label):
+            continue
+        out.append(
+            CollectField(
+                label=label, reason=str(raw.get("reason") or ""), required=bool(raw.get("required"))
+            )
         )
-        for f in fields
-        if isinstance(f, dict)
-    ]
+    return out
 
 
-async def campaign_collect_fields(session: AsyncSession, campaign_id: UUID) -> list[CollectField]:
-    """The details a campaign's calls ask for: its "What it notes" (D-1028), the list the
-    post-call pipeline notes, so what the call asks and what is written down agree. An
-    agent's own script asks for none: a call with no job notes only the core."""
+def job_details(stored: Any, core: Sequence[ExtractionField]) -> JobDetails:
+    """The details a job's calls ask (`JobDetails`): each core detail of `CORE_ASKED_WHEN`
+    under the client's own name for it, and each business detail of `stored` that is not
+    `heard_detail`, with the reason the owner gave."""
+    by_key = {f.key: f for f in core}
+
+    def asked_core(key: str) -> CollectField | None:
+        field = by_key.get(key)
+        return CollectField(label=field.label, reason=CORE_ASKED_WHEN[key]) if field else None
+
+    business = _business_details(stored)
+    first = [field for field in (asked_core("name"),) if field is not None]
+    last = [field for key in CALL_BACK_KEYS if (field := asked_core(key)) is not None]
+    return JobDetails(
+        asked=(*first, *business, *last), call_back=tuple(field.label for field in last)
+    )
+
+
+async def _job_details(session: AsyncSession, stored: Any) -> JobDetails:
+    return job_details(stored, core_fields(await core_labels(session)))
+
+
+async def campaign_details(session: AsyncSession, campaign_id: UUID) -> JobDetails:
+    """What a campaign's calls ask (`job_details`), from its "What it notes" (D-1028), the
+    list the post-call pipeline notes, so what the call asks and what is written down agree.
+    An agent's own script asks for none."""
     own = (
         await session.execute(
             text("SELECT extraction_fields FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
         )
     ).scalar_one_or_none()
-    return _collect_of(list(own or []))
+    return await _job_details(session, own)
 
 
-async def line_collect_fields(session: AsyncSession, line_id: UUID) -> list[CollectField]:
-    """The details an inbound line's calls ask for: its "What it notes" (D-1028)."""
+async def line_details(session: AsyncSession, line_id: UUID) -> JobDetails:
+    """What an inbound line's calls ask (`job_details`), from its "What it notes"."""
     own = (
         await session.execute(
             text("SELECT extraction_fields FROM inbound_lines WHERE id = :lid"), {"lid": line_id}
         )
     ).scalar_one_or_none()
-    return _collect_of(list(own or []))
+    return await _job_details(session, own)
+
+
+async def campaign_collect_fields(session: AsyncSession, campaign_id: UUID) -> list[CollectField]:
+    """The details a campaign's compiled script tells the agent to ask (`campaign_details`)."""
+    return list((await campaign_details(session, campaign_id)).asked)
+
+
+async def line_collect_fields(session: AsyncSession, line_id: UUID) -> list[CollectField]:
+    """The details an inbound line's compiled script tells the agent to ask (`line_details`)."""
+    return list((await line_details(session, line_id)).asked)
 
 
 async def call_backs_available(session: AsyncSession, tenant_id: UUID) -> bool:
@@ -940,9 +1023,12 @@ async def put_back_opening_line(
 
 
 __all__ = [
+    "CALL_BACK_KEYS",
+    "CORE_ASKED_WHEN",
     "MAX_VERSIONS_PAGE",
     "ClearedLines",
     "Draft",
+    "JobDetails",
     "LoadedScript",
     "Preview",
     "ReplacedOpening",
@@ -950,9 +1036,15 @@ __all__ = [
     "VersionEntry",
     "assert_agent_visible",
     "call_backs_available",
+    "campaign_collect_fields",
+    "campaign_details",
     "clear_draft",
     "clear_example_lines",
     "compiled_preview",
+    "heard_detail",
+    "job_details",
+    "line_collect_fields",
+    "line_details",
     "list_versions",
     "load_agent_script",
     "put_back_opening_line",

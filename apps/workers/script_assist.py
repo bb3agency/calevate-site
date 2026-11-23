@@ -56,6 +56,7 @@ from calevate_shared.call_script import (
     MAX_SCRIPT_OBJECTIONS,
     MAX_SCRIPT_STAGES,
     MAX_STAGE_BRANCHES,
+    MAX_STAGE_COLLECT,
     NOTICE_RECORDS,
     PROCEDURE_STEP_MAX,
     PROCEDURE_WAIT_MAX,
@@ -97,6 +98,7 @@ from apps.api.agents.call_rules import (
     OPENING_LINE_RULE,
     opening_redone_line_problems,
     placed_opening_problems,
+    reacted_line_problems,
     said_line_problem,
     writer_rules,
 )
@@ -195,6 +197,11 @@ WAYS_OUT_RULE: Final = (
 #: quick facts promised what the sources never said). A step's outcome is a state of the
 #: conversation, the way an LLM-judged transition is written (elevenlabs.io/docs/eleven-agents/
 #: customization/agent-workflows, read 23 Nov 2026); the scenarios are examples of reaching it.
+#: A product's screens and buttons keep their own names: on the call of 23 Nov 2026 (23:19)
+#: the agent said "home screen" for the app's Dashboard. Technical style guides refer to an
+#: interface element "using the element's exact label" (developer.salesforce.com/docs/
+#: atlas.en-us.194.0.salesforce_pubs_style_guide, User Interface Text Guidelines; also
+#: developers.google.com/style/ui-elements; read 23 Nov 2026), so the person can find it.
 STEP_RULES: Final = (
     "step_outcomes has one entry per step number: one plain English sentence saying what is "
     "true once that step is done, checkable from what the person says (for example: The "
@@ -214,7 +221,12 @@ STEP_RULES: Final = (
     "take_bookings only when the call books a visit or a time, offer_call_backs unless the "
     "owner says never. A quick fact or objection answer the sources do not give offers to find "
     "out for them; it never promises what the team will do and never reassures beyond what "
-    "the sources say."
+    "the sources say. A stage's collect lists the details to collect it asks, each as the "
+    "brief names it before any colon, and nothing the brief does not list. Every screen, "
+    "tab, button, menu and feature of what the business offers is called by the exact name "
+    "the brief, main task or sources give it, in instructions, small steps and spoken lines "
+    "alike (a spoken line says that name in the call language's letters), never described, "
+    "translated or renamed."
 )
 
 #: The instruction that turns the owner's answers into a v2 call script (first live call
@@ -492,19 +504,21 @@ def language_problems(
 
 def shape_problems(script: CallScript, before: CallScript | None = None) -> list[str]:
     """What the model got wrong in the call's shape (`script_lint.flow_problems`), a step
-    whose line redoes the opening (`call_rules.opening_redone_line_problems`), a step it
-    wrote with no line, and, in an edit, a close it took out. With `before` (an edit), a
-    shape problem the owner's script already had is theirs and not the model's to fix."""
-    owned = (
-        {*flow_problems(before), *opening_redone_line_problems(before)}
-        if before is not None
-        else set()
-    )
-    problems = [
-        problem
-        for problem in (*flow_problems(script), *opening_redone_line_problems(script))
-        if problem not in owned
-    ]
+    whose line redoes the opening (`call_rules.opening_redone_line_problems`), a line in a
+    call language or a small step that opens with a reaction (`reacted_line_problems`), a
+    step it wrote with no line, and, in an edit, a close it took out. With `before` (an
+    edit), a shape problem the owner's script already had is theirs and not the model's to
+    fix."""
+
+    def shape(of: CallScript) -> list[str]:
+        return [
+            *flow_problems(of),
+            *opening_redone_line_problems(of),
+            *reacted_line_problems(of),
+        ]
+
+    owned = set(shape(before)) if before is not None else set()
+    problems = [problem for problem in shape(script) if problem not in owned]
     was = {stage.id: stage for stage in before.stages} if before is not None else {}
     problems += [
         f"stages.{i}.sounds_like: is empty; write one short line in the call language "
@@ -944,6 +958,7 @@ _DRAFT_PROPERTIES: Final[dict[str, object]] = {
             "sounds_like": _STR,
             "exit_when": _STR,
             "procedure": _array_of({"action": _STR, "wait_for": _STR}),
+            "collect": {"type": "array", "items": _STR},
             "step": {"type": "integer"},
             "next": {"type": "array", "items": {"type": "integer"}},
             "ways_out": _array_of({"when": _STR, "to": _WAY_OUT_TO}),
@@ -1249,6 +1264,14 @@ def _policies(raw: dict[str, Any]) -> ScriptPolicies:
     )
 
 
+def _labels(value: object) -> list[str]:
+    """A drafted stage's details to collect, as `ConversationStage.collect` holds them; which
+    of them the job notes is `script_structure.collected`'s to settle."""
+    if not isinstance(value, list):
+        return []
+    return [v for v in value if isinstance(v, str) and v.strip()][:MAX_STAGE_COLLECT]
+
+
 def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
     """The model's JSON as a validated v2 `CallScript`.
 
@@ -1301,6 +1324,7 @@ def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
                     ),
                 ][:MAX_STAGE_BRANCHES],
                 procedure=procedure,
+                collect=_labels(row.get("collect")),
                 step=step if isinstance(step, int) and 1 <= step <= MAX_SCRIPT_STAGES else None,
             )
         )

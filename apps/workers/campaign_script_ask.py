@@ -239,10 +239,12 @@ SPECIFIC_RULE: Final = (
 #: digits and close on what happens next (`engine.VOICE_STYLE_GUIDANCE`); this places the asks.
 DETAILS_RULE: Final = (
     "Ask for each of the details to collect in the step where the call reaches it, one per "
-    "turn; on a call the agent places, only once the person has agreed to talk. Never ask "
-    "for what the call already "
-    "knows: on a call the agent places, the person's name and number, and anything the main "
-    "task or the campaign gives. A detail a booking or payment depends on (a day, a time, an "
+    "turn, and put it in that step's collect list; on a call the agent places, only once the "
+    "person has agreed to talk. A detail listed with when it is asked is asked only then: "
+    "the name only when the call does not have it ({{lead_name}} empty), a time to call back "
+    "and another number only on the way where they want a call later. Never ask for what "
+    "the call already knows: the number it is on, and anything the main task or the "
+    "campaign gives. A detail a booking or payment depends on (a day, a time, an "
     "amount, a name to spell) is read back once in that step; other answers are acknowledged "
     "in a few words and the call moves on."
 )
@@ -307,7 +309,9 @@ REFINE_TAIL: Final = (
     "already knows, a detail to collect that no step asks for, a stage missing a way out the "
     "rules ask for, a line the main task and sources do not back, a stock line, and an "
     "instruction that repeats another; a task of the main task with no step outcome, a step "
-    "whose line greets again after the opening, an already-done way out that ends the call "
+    "whose line greets, says who is calling or asks whether now suits again after the "
+    "opening, lines that all open or end with the same words, a screen or button called by "
+    "another name than the sources give it, an already-done way out that ends the call "
     "while tasks remain, and an answer that promises or reassures beyond the sources. Keep "
     "each part that already meets the ask as it is."
 )
@@ -508,7 +512,8 @@ REVIEW_INSTRUCTION: Final = (
     "from by its title. Never name an AI company or model.\n"
     "2. claims: every statement of fact in a part: a price, amount, date, time, place, offer, "
     "discount, guarantee, rule, a promise of what the business or its team will do, a "
-    "reassurance (safe, secure, no risk), or anything about the person called (what they did, "
+    "reassurance (safe, secure, no risk), the name of a screen, tab, button, menu or feature "
+    "of what the business offers, or anything about the person called (what they did, "
     "registered, bought or gave, or what records hold about them). `claim` names it in a few "
     "plain English words. `evidence` copies, word for word, the shortest passage of the "
     "SOURCES that states it, or is empty when no passage does. `about_person` is true when it "
@@ -524,7 +529,9 @@ REVIEW_INSTRUCTION: Final = (
     "outcome covers; `detail` names the task); dead_end (a step's way out ends the call for a "
     "person who already did something the call asks, while the main task still has something "
     "for them); vague (a step's instruction does not say what it must achieve, what to check, "
-    "or when it is done). Most parts fail none.\n"
+    "or when it is done); renamed (it calls a screen, tab, button, menu or feature by another "
+    "name than the SOURCES give it; `detail` gives the name used and the SOURCES' name). Most "
+    "parts fail none.\n"
     "Use only the keys given. Return ONLY JSON."
 )
 WHY_MAX: Final = 200
@@ -558,6 +565,8 @@ WEAK_PROBLEMS: Final[dict[str, str]] = {
     "them on to the next thing the main task asks of them",
     "vague": "does not say what this step must achieve or when it is done: {detail}; say what "
     "to achieve, what to check and when it is done",
+    "renamed": "calls a screen, button or feature by another name than the sources give it: "
+    "{detail}; use the sources' own name, said in the call language's letters",
 }
 
 _REVIEW_ROW: Final[dict[str, object]] = {
@@ -645,10 +654,17 @@ def _part_text(script: CallScript, key: str) -> str:
 
 
 def _stage_text(stage: ConversationStage, names: dict[str, str]) -> str:
-    """A step as the review reads it: what it does, its line, where it goes and its answers."""
+    """A step as the review reads it: what it does, its line, its line in each call language,
+    its small steps, where it goes and its answers. The language lines and small steps are
+    what the agent says on the call, so a renamed screen or an unsourced promise in them is
+    found there too (the "home screen" of the call of 23 Nov 2026, 23:19)."""
     ways = "; ".join(f"when {b.when} -> {names.get(b.target, b.target)}" for b in stage.branches)
     answers = " | ".join(f"{qa.question} -> {qa.answer}" for qa in stage.qa)
     text = f"{stage.instruction} Says: {stage.sounds_like}"
+    for tag, line in stage.scripts.items():
+        text += f" In {tag}: {line}"
+    if stage.procedure:
+        text += " Small steps: " + "; ".join(step.action for step in stage.procedure)
     if ways:
         text += f" Ways out: {ways}"
     if answers:

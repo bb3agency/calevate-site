@@ -32,7 +32,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript, CollectField, ScriptPolicies
@@ -95,6 +95,9 @@ from apps.workers.script_proposal import (
     refusal_note,
     text_at,
 )
+
+if TYPE_CHECKING:
+    from apps.api.agents.script_builder import JobDetails
 
 log = get_logger(__name__)
 
@@ -311,6 +314,8 @@ class _Inputs:
     budget: int | None = None
     #: The holder's own settings (`campaign_script_ask.situation_block`), or "".
     situation: str = ""
+    #: What the holder's calls ask (`script_builder.job_details`); each needs a step.
+    details: JobDetails | None = None
 
 
 def _asked(raw: Any) -> tuple[str | None, str]:
@@ -349,9 +354,9 @@ async def _budget(tenant_id: UUID, agent_id: UUID, base: CallScript | None) -> i
 
 
 def _collect_labels(fields: Sequence[CollectField]) -> tuple[str, ...]:
-    """The holder's "What it notes" as the writer reads them (`ScriptBrief.collect`), each with
-    why it is asked when the owner said, so the steps ask for them where the call reaches
-    them (`call_rules.SCRIPT_FLOW_RULE`)."""
+    """What the holder's calls ask as the writer reads them (`ScriptBrief.collect`), each
+    with why or when it is asked where that is known, so the steps ask for them where the
+    call reaches them (`call_rules.SCRIPT_FLOW_RULE`)."""
     return tuple(
         f"{f.label}: {f.reason}" if f.reason.strip() else f.label for f in fields if f.label
     )
@@ -376,7 +381,7 @@ async def campaign_inputs(tenant_id: UUID, campaign_id: UUID) -> tuple[_Inputs, 
     it was asked for, so a draft asked for as the campaign is made (the first run) reads the
     same main task, sources, settings and details as one asked for later from its page
     (D-1031). The one-part ask is returned beside it."""
-    from apps.api.agents.script_builder import campaign_collect_fields
+    from apps.api.agents.script_builder import campaign_details
     from apps.workers.company_training_draft import knowledge_words
 
     async with tenant_session(tenant_id) as session:
@@ -396,12 +401,13 @@ async def campaign_inputs(tenant_id: UUID, campaign_id: UUID) -> tuple[_Inputs, 
         part_language = focus.get("language") if isinstance(focus, dict) else None
         # A campaign only places calls, whatever its agent answers
         # (`agents.service.campaign_agent_row`), so its opening_line is a placed call's.
+        details = await campaign_details(session, campaign_id)
         context = replace(
             await script_proposals.brief_for(
                 session, tenant_id, space.agent_id, language=part_language or main_language
             ),
             direction="outbound",
-            collect=_collect_labels(await campaign_collect_fields(session, campaign_id)),
+            collect=_collect_labels(details.asked),
         )
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
@@ -428,6 +434,7 @@ async def campaign_inputs(tenant_id: UUID, campaign_id: UUID) -> tuple[_Inputs, 
             goal=str(goal or ""),
             consent_source=consent_source,
         ),
+        details=details,
     )
     language_name = LANGUAGE_LABELS.get(str(part_language), str(part_language))
     is_flow = isinstance(focus, dict) and focus.get("part") == FLOW_PART
@@ -459,16 +466,17 @@ async def draft_line_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str
 
 async def line_inputs(tenant_id: UUID, line_id: UUID) -> _Inputs:
     """Everything a line's draft is written from, read when the job runs (`campaign_inputs`)."""
-    from apps.api.agents.script_builder import line_collect_fields
+    from apps.api.agents.script_builder import line_details
     from apps.api.inbound import lines
     from apps.workers.company_training_draft import knowledge_words
 
     async with tenant_session(tenant_id) as session:
         line = await lines.read_line(session, line_id)
         words = await knowledge_words(session, only=line.sources) if line.sources else []
+        details = await line_details(session, line_id)
         context = replace(
             await script_proposals.brief_for(session, tenant_id, line.agent_id),
-            collect=_collect_labels(await line_collect_fields(session, line_id)),
+            collect=_collect_labels(details.asked),
         )
         # A line answers its calls; only a "both" voice also places its call-backs.
         if context.direction != "both":
@@ -498,6 +506,7 @@ async def line_inputs(tenant_id: UUID, line_id: UUID) -> _Inputs:
         situation=situation_block(
             agent_name=context.agent_name, holder_name=line.name, inbound=True
         ),
+        details=details,
     )
 
 
@@ -662,9 +671,9 @@ _REPAIRABLE_FIELDS: Final = frozenset({"goal", "ending"})
 
 def _repair_paths(key: str, script: CallScript, kinds: frozenset[str] = frozenset()) -> list[str]:
     """The script check paths a review part covers that the repair may rewrite: a step's
-    instruction, line and answers (and its ways out for a dead end), each quick fact's and
-    objection's answer, the example call's agent lines, the goal or the ending; [] for any
-    other part."""
+    instruction, lines in each language, small steps and answers (and its ways out for a
+    dead end), each quick fact's and objection's answer, the example call's agent lines, the
+    goal or the ending; [] for any other part."""
     if key in _REPAIRABLE_FIELDS:
         return [key]
     if key == "faqs":
@@ -687,6 +696,8 @@ def _repair_paths(key: str, script: CallScript, kinds: frozenset[str] = frozense
                 for name in ("instruction", "sounds_like")
                 if getattr(stage, name).strip()
             ]
+            paths += [f"stages.{index}.scripts.{tag}" for tag in stage.scripts]
+            paths += [f"stages.{index}.procedure.{j}.action" for j in range(len(stage.procedure))]
             paths += [f"stages.{index}.qa.{j}.answer" for j in range(len(stage.qa))]
             if "dead_end" in kinds:
                 paths.append(f"stages.{index}.branches")
@@ -853,6 +864,7 @@ async def _write(
         noted=found.noted,
         direction=context.direction,
         purpose=inputs.main_task,
+        details=inputs.details,
     )
     finished = replace(finished, script=_job_policies(inputs, finished.script, documents))
     spends: list[Spent] = [

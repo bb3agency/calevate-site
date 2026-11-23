@@ -27,7 +27,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript
@@ -38,7 +38,12 @@ from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.capability_manifest import lint_context_for
 from apps.api.agents.mistake_fixes import Holder, holder_table
 from apps.api.agents.mistake_lints import mistake_findings, script_mistakes
-from apps.api.agents.script_lint import LintContext, empty_title_problems, unasked_details
+from apps.api.agents.script_lint import (
+    LintContext,
+    empty_title_problems,
+    unasked_details,
+    unasked_problems,
+)
 from apps.api.agents.script_structure import settled
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.core.errors import ProblemError
@@ -58,6 +63,9 @@ from apps.workers.script_assist import (
     ScriptDraft,
     draft_script,
 )
+
+if TYPE_CHECKING:
+    from apps.api.agents.script_builder import JobDetails
 
 log = get_logger(__name__)
 
@@ -263,7 +271,11 @@ class _Fix:
         else:
             # A title left with no name in a line `script_structure.settled` could not mend
             # (one of the owner's own steps in an edit is not Pip's to mend).
-            found = [*script_mistakes(script, self.lint), *empty_title_problems(script)]
+            found = [
+                *script_mistakes(script, self.lint),
+                *empty_title_problems(script),
+                *unasked_problems(script, self.lint.collect),
+            ]
         return [*found, *(n.finding for n in self.noted if n.stands(script))]
 
     def targeted(self, script: CallScript) -> list[str]:
@@ -396,16 +408,21 @@ async def _mistakes_checked(
     script: CallScript,
     started: float,
     noted: Sequence[Noted] = (),
+    details: JobDetails | None = None,
 ) -> _Repaired:
     """Pip's script checked with every call-mistake check before it is offered (D-989), and
     the lines they find rewritten by the same targeted repair a fix uses, at most
     `script_mistake_repair_passes` rounds. Only what Pip wrote is judged: in an edit a
     finding the owner's script already had is theirs, and a fix may change only the lines
     it was asked for. Never the openings or their notices (`mistake_lints.fixable_findings`).
-    `noted`, the review's findings on lines Pip wrote, join the same rounds.
+    `noted`, the review's findings on lines Pip wrote, join the same rounds. `details`, what
+    the job's calls ask: each needs a step that asks it, whoever wrote the steps, since a
+    detail the job notes and no step asks is never noted (founder, 23 Nov 2026).
     What is still found after the rounds is returned for the owner to read."""
     async with tenant_session(tenant_id) as session:
         context = await lint_context_for(session, tenant_id=tenant_id, agent_id=agent_id)
+    if details is not None:
+        context = replace(context, collect=details.labels(), call_back=details.call_back)
     check = _Fix(replace(context, promo=False), [], frozenset())
     base = proposal.base_script
     # Code mends what it can before any paid repair is spent on it.
@@ -420,7 +437,10 @@ async def _mistakes_checked(
         n for n in noted if mistake_fixes.fix_paths([n.finding]) and n.stands(script)
     )
     check = replace(check, noted=repairable)
-    written = [p for p in check.problems(script) if _finding_at(p, script) not in had]
+    unasked = set(unasked_problems(script, context.collect))
+    written = [
+        p for p in check.problems(script) if p in unasked or _finding_at(p, script) not in had
+    ]
     if proposal.paths:
         allowed = set(proposal.paths)
         written = [p for p in written if p.partition(": ")[0] in allowed]
@@ -464,6 +484,7 @@ async def finish_written(
     noted: Sequence[Noted] = (),
     direction: str | None = None,
     purpose: str = "",
+    details: JobDetails | None = None,
 ) -> Finished:
     """What every script Pip writes goes through before an owner reviews it, a line's, a
     campaign's and a fix alike: the call-mistake checks and their repair (D-989), with the
@@ -471,13 +492,14 @@ async def finish_written(
     and its repair (D-957). Each step's failure keeps what is already written, since it is
     paid for and must be stored and metered. `direction` and `purpose`: how the holder's
     calls go when that is not the agent's own (a campaign only places calls, for the reason
-    its main task gives), for the opening repair."""
+    its main task gives), for the opening repair. `details`: what the job's calls ask, each
+    of which a step must ask (`script_builder.job_details`)."""
     repairs: list[ScriptDraft | ProblemError] = []
     left_out: list[LeftOut] = []
     if not drafted.raw_override:
         try:
             checked = await _mistakes_checked(
-                tenant_id, agent_id, proposal, drafted, started, noted
+                tenant_id, agent_id, proposal, drafted, started, noted, details
             )
         except Exception:
             log.exception("script_mistake_check_crashed", extra={"agent_id": str(agent_id)})
