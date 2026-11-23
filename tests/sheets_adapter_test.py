@@ -205,6 +205,31 @@ async def test_a_lapsed_connection_is_transient_and_writes_nothing() -> None:
     assert fake.appends == [], "nothing may be written with no token"
 
 
+async def test_a_connection_that_cannot_be_opened_yields_no_token_rather_than_raising(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An exception out of the token source escapes the append and the delivery job as a
+    non-`Retry`, so arq ends the job after one try and no delivery row says what happened.
+    A connection whose secret cannot be unsealed is a lapsed connection to the ladder."""
+    from apps.api.actions import credentials as creds
+
+    async def _unusable(*_a: Any, **_k: Any) -> creds.ResolvedCredential:
+        raise creds.CredentialUnusableError
+
+    monkeypatch.setattr(creds, "resolve_credential", _unusable)
+    created = await create_org_with_receptionist(
+        name="Sealed Sheet Clinic",
+        slug=f"sealed-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    source = sheets_sync.client_token_source(UUID(str(created["id"])), uuid7())
+    async with httpx.AsyncClient() as http:
+        assert await source(http) is None
+
+
 # --------------------------------------------------------------------------------
 # 2. The append itself: RAW, INSERT_ROWS, and the client's own tab
 # --------------------------------------------------------------------------------
@@ -615,7 +640,7 @@ async def test_google_being_busy_climbs_the_same_ladder_as_a_webhook(
     assert raised.value.defer_score is not None
     assert step_ms / 2 <= raised.value.defer_score <= step_ms, "equal jitter: within the first step"
     status, attempts, _source, reason = await _delivery_row(tenant_id, delivery_id) or ()
-    assert (status, attempts, reason) == ("failed", 1, RATE_LIMITED_REASON)
+    assert (status, attempts, reason) == (service.RETRYING, 1, RATE_LIMITED_REASON)
 
 
 async def test_a_retried_job_probes_the_sheet_before_writing(
