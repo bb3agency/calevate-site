@@ -524,6 +524,30 @@ describe("one campaign's page", () => {
     );
   });
 
+  it.each([
+    [
+      "a confirmed opt-out review",
+      { pause_reason: "complaint_spike" as const, complaint_reviewed_at: "2026-10-14T06:00:00Z" },
+    ],
+    ["a spending-limit pause once the limit may be raised", { pause_reason: "spend_cap" as const }],
+  ])("lets Start resume after %s; the server answers whether the cause still holds", async (_name, pause) => {
+    const rendered = await renderClientPage(
+      campaignPage(),
+      detail(progressFixture({ status: "paused", launched_at: "2026-10-14T04:30:00Z", ...pause }), {
+        [`/v1/campaigns/${CAMPAIGN_ID}/opt-outs`]: [],
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/resume`]: new Response(null, { status: 204 }),
+      }),
+    );
+    fireEvent.click((await screen.findAllByRole("button", { name: "Start campaign" }))[0]);
+    const box = await screen.findByRole("dialog");
+    const start = within(box).getByRole("button", { name: "Start campaign" }) as HTMLButtonElement;
+    expect(start.disabled).toBe(false);
+    fireEvent.click(start);
+    await vi.waitFor(() =>
+      expect(rendered.calls.some((c) => c.method === "POST" && c.path.endsWith("/resume"))).toBe(true),
+    );
+  });
+
   it("names an out-of-credit pause and links to adding credit", async () => {
     await renderClientPage(
       campaignPage(),

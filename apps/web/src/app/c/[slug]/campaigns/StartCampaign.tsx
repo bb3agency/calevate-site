@@ -24,9 +24,6 @@ import { blockerNote } from "./blockerCopy";
 import { peopleSectionId } from "./DraftPeople";
 import { SlotsFullProblem, isSlotsFull } from "./SlotHolders";
 
-/** A pause whose cause must be cleared first; the notice above the page says how. */
-const HELD_PAUSES = ["complaint_spike", "out_of_credit", "spend_cap"];
-
 /** The compliance card's element id, so Start can take the owner to what is left. */
 export function complianceCardId(campaignId: string): string {
   return `compliance-${campaignId}`;
@@ -120,12 +117,14 @@ export function StartCampaign({
     );
   }
 
-  // What stands in the way, before the press: the launch check, or the cause of a held pause.
+  // What stands in the way, before the press: the launch check, or an opt-out review still
+  // owed. The pause reason alone holds nothing: it stays on the campaign until it is resumed,
+  // so a raised spending limit, a new month or a confirmed review would otherwise hold Start
+  // for ever. Whether credit or the limit still stop it is the server's answer to the press
+  // (`controls.assert_resumable`), shown in this box.
   const problems: Problem[] = [];
   if (resuming) {
     if (data?.complaint_review_required === true) problems.push({ rule: "complaint_review", text: "Review the opt-outs first." });
-    else if (HELD_PAUSES.includes(data?.pause_reason ?? ""))
-      problems.push({ rule: data?.pause_reason ?? "", text: "Fix the reason shown at the top of the page first." });
   } else {
     for (const b of check.data?.blockers ?? []) {
       problems.push({ rule: b.rule, text: blockerNote(b.rule, { promotionalOpen: null })?.text ?? b.reason });
