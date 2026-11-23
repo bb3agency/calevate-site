@@ -123,3 +123,17 @@ async def test_a_call_showing_the_business_number_is_erased_through_its_lead() -
     # Another caller whose call showed the same business number is not this person.
     kept = await _content(tenant_id, theirs)
     assert kept["turns"] == [CALLER_LINE], kept
+
+
+async def test_a_second_erasure_counts_no_turn_the_first_already_erased() -> None:
+    """The second request finds the call again through `erased_subject_ref`; its
+    certificate must not claim the turns the first one cleared."""
+    subject = _phone()
+    tenant_id, agent_id = await _tenant()
+    await _hidden_caller_call(tenant_id, agent_id, await _lead(tenant_id, agent_id, subject))
+
+    first = await _erase(tenant_id, subject)
+    second = await _erase(tenant_id, subject)
+
+    assert first["scope"]["transcript_turns_erased"] == 1, first["scope"]
+    assert second["scope"]["transcript_turns_erased"] == 0, second["scope"]

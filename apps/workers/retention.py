@@ -2980,7 +2980,11 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             result = await session.execute(
                 text(
                     "UPDATE transcript_turns SET text = :mark, text_redacted = :mark, "
-                    "text_en = NULL, updated_at = now() WHERE call_id = ANY(:ids)"
+                    "text_en = NULL, updated_at = now() WHERE call_id = ANY(:ids) "
+                    # Turns an earlier certificate already erased (a call found again
+                    # through `erased_subject_ref`) are not counted as erased by this one.
+                    "AND (text IS DISTINCT FROM :mark OR text_redacted IS DISTINCT FROM :mark "
+                    "OR text_en IS NOT NULL)"
                 ),
                 {"mark": REDACTED_MARK, "ids": list(calls)},
             )
