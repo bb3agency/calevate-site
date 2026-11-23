@@ -468,6 +468,45 @@ async def refuse_if_too_long(session: AsyncSession, agent_id: UUID, script: Call
         raise PromptTooLongError(size)
 
 
+async def refuse_line_if_too_long(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    line_id: UUID,
+    script: CallScript | None = None,
+    for_notes: bool = False,
+) -> None:
+    """`refuse_if_too_long` for an inbound line, measured on the line's own engine agent as
+    put-live builds it (`service.line_config`): the line's script with its "What it notes",
+    the placed opening and its call-back rules, none of which the agent's own config carries,
+    so measuring the agent would pass a line that put-live then refuses. `script` is the one
+    being saved, else the stored one; a line with neither has nothing to measure.
+
+    `for_notes` words the refusal for a notes save, whose fix is fewer details as much as a
+    shorter script."""
+    from apps.api.agents.service import line_config
+
+    try:
+        config = await line_config(session, tenant_id=tenant_id, line_id=line_id, script=script)
+    except ProblemError as exc:
+        if exc.code == "line_has_no_script":
+            return
+        raise
+    size = prompt_size.measure_config(config, get_engine())
+    if size.fits:
+        return
+    if for_notes:
+        raise PromptTooLongError(
+            size,
+            title="These details make the line's script too long for the calling system",
+            remediation=(
+                "Note fewer details, or shorten the line's script, then save again. Each "
+                "detail a call notes adds a question to the script."
+            ),
+        )
+    raise PromptTooLongError(size)
+
+
 async def recompile_collect(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
 ) -> int | None:

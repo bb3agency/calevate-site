@@ -16,14 +16,18 @@ from typing import Any
 
 import pytest
 from apps.api.agents import live_apply, prompt_size, script_builder
+from apps.api.agents import service as agents_service
 from apps.api.agents.engine_limits import (
     PROMPT_TOO_LONG,
     PromptTooLongError,
     refuse_over_engine_limits,
 )
+from apps.api.campaigns.notes import save_notes
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
-from calevate_shared.call_script import CallScript, ScriptStep
+from apps.api.engine import get_engine
+from apps.api.inbound import lines
+from calevate_shared.call_script import SCRIPT_SCHEMA_VERSION, CallScript, Objection, ScriptStep
 from calevate_shared.engine import (
     CALL_INSTRUCTIONS,
     CONFIDENTIALITY_RULE,
@@ -32,6 +36,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     engine_prompt_layers,
 )
+from calevate_shared.extraction import ExtractionField
 from sqlalchemy import text
 from tests.thinnest_publish_limits_test import _agent_with_script, _selected, _thinnest
 
@@ -236,6 +241,109 @@ async def test_save_and_put_live_refuse_before_anything_is_stored() -> None:
             await script_builder.refuse_if_too_long(session, agent_id, _long_script(10))
     assert "characters too long for the calling system" in caught.value.detail
     assert before == after
+
+
+# --- an inbound line is measured as its own engine agent -------------------------------
+
+#: Enough "What it notes" to add thousands of characters to a line's compiled script.
+LINE_NOTES = [
+    ExtractionField(
+        key=f"detail_{n}", label=f"Detail {n}", type="text", reason="to follow up " * 35
+    )
+    for n in range(20)
+]
+
+
+async def _line_total(
+    session: Any, tenant_id: uuid.UUID, line_id: uuid.UUID, script: CallScript
+) -> int:
+    config = await agents_service.line_config(
+        session, tenant_id=tenant_id, line_id=line_id, script=script
+    )
+    return prompt_size.measure_config(config, get_engine()).total
+
+
+def _v2_script(filler: int) -> CallScript:
+    """A v2 script (the version that compiles a job's notes) carrying about `filler` more
+    characters of objection answers than the bare one."""
+    chunks = [950] * (max(filler, 0) // 950) + [max(filler, 0) % 950]
+    return CallScript(
+        schema_version=SCRIPT_SCHEMA_VERSION,
+        opening_line="Namaskaram, Raghava Organics nunchi.",
+        goal="Help the caller with what they need.",
+        objections=[
+            Objection(objection=f"Doubt {n}", response=("word " * (size // 5)).strip() or "Yes.")
+            for n, size in enumerate(chunks)
+            if size
+        ],
+    )
+
+
+def _sized(bare_total: int, target: int) -> CallScript:
+    """A script whose measured total lands near `target`, a few characters out per objection."""
+    return _v2_script(target - bare_total)
+
+
+async def _line_extraction(tenant_id: uuid.UUID, line_id: uuid.UUID) -> Any:
+    async with tenant_session(tenant_id) as session:
+        return (
+            await session.execute(
+                text("SELECT script, extraction_fields FROM inbound_lines WHERE id = :l"),
+                {"l": line_id},
+            )
+        ).one()
+
+
+async def test_a_lines_script_save_counts_its_notes_and_its_call_back_rules() -> None:
+    tenant_id, agent_id = await _agent_with_script("Greet, then help.")
+    with _selected(_thinnest()):
+        async with tenant_session(tenant_id) as session:
+            line_id = await lines.create_line(
+                session, tenant_id=tenant_id, agent_id=agent_id, name="Desk", created_by=None
+            )
+            await save_notes(session, "line", line_id, LINE_NOTES, expected_digest=None)
+            agent_bare = (
+                await script_builder.compiled_preview(session, agent_id, _v2_script(0))
+            ).size.total
+            line_bare = await _line_total(session, tenant_id, line_id, _v2_script(0))
+            added = line_bare - agent_bare
+            assert added > 4_000
+            # Fits the agent's own config, over once the line's notes are compiled in: the
+            # agent-only measurement let this through to fail at put-live.
+            script = _sized(agent_bare, 20_000 - added // 2)
+            assert (await script_builder.compiled_preview(session, agent_id, script)).size.fits
+        with pytest.raises(PromptTooLongError) as caught:
+            async with tenant_session(tenant_id) as session:
+                await lines.save_script(session, line_id, script)
+        assert (await _line_extraction(tenant_id, line_id)).script is None
+        async with tenant_session(tenant_id) as session:
+            assert await lines.save_script(session, line_id, _v2_script(0)) >= 1
+    assert "characters too long for the calling system" in caught.value.detail
+
+
+async def test_notes_that_push_a_lines_saved_script_over_are_refused_and_not_stored() -> None:
+    tenant_id, agent_id = await _agent_with_script("Greet, then help.")
+    with _selected(_thinnest()):
+        async with tenant_session(tenant_id) as session:
+            line_id = await lines.create_line(
+                session, tenant_id=tenant_id, agent_id=agent_id, name="Desk", created_by=None
+            )
+            await save_notes(session, "line", line_id, [], expected_digest=None)
+            bare = await _line_total(session, tenant_id, line_id, _v2_script(0))
+            await save_notes(session, "line", line_id, LINE_NOTES, expected_digest=None)
+            added = await _line_total(session, tenant_id, line_id, _v2_script(0)) - bare
+            await save_notes(session, "line", line_id, [], expected_digest=None)
+            await lines.save_script(session, line_id, _sized(bare, 20_000 - added // 2))
+        with pytest.raises(PromptTooLongError) as caught:
+            async with tenant_session(tenant_id) as session:
+                await save_notes(session, "line", line_id, LINE_NOTES, expected_digest=None)
+        assert (await _line_extraction(tenant_id, line_id)).extraction_fields == []
+        async with tenant_session(tenant_id) as session:
+            assert await save_notes(session, "line", line_id, LINE_NOTES[:2], expected_digest=None)
+    assert caught.value.code == PROMPT_TOO_LONG
+    assert caught.value.title.startswith("These details make the line's script too long")
+    assert caught.value.remediation is not None
+    assert caught.value.remediation.startswith("Note fewer details")
 
 
 # --- a refused live update is shown on the agent ---------------------------------------

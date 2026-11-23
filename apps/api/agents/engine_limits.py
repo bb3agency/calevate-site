@@ -379,15 +379,18 @@ class PromptTooLongError(ProblemError):
     """`engine_prompt_too_long`, carrying the measurement so a live-apply failure and a
     screen can say how far over and which parts are longest (counts only)."""
 
-    def __init__(self, size: PromptSize) -> None:
+    def __init__(
+        self, size: PromptSize, *, title: str | None = None, remediation: str | None = None
+    ) -> None:
         self.size = size
         longest = ", ".join(f"{p.label.lower()} {p.chars:,}" for p in size.longest_script_parts())
         super().__init__(
             kind="business_rule",
             code=PROMPT_TOO_LONG,
-            title="This script is too long for the calling system",
+            title=title or "This script is too long for the calling system",
             detail=too_long_sentence(size),
-            remediation=(
+            remediation=remediation
+            or (
                 "Shorten the longest parts of your script"
                 + (f" ({longest} characters)" if longest else "")
                 + ", or move product and price details into Knowledge, which the agent "
