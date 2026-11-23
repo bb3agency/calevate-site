@@ -43,12 +43,17 @@ export function LeadSuggestions({
   canWrite,
   dirty,
   audience,
+  onSaveAgain,
+  savingAgain,
 }: {
   api: LeadSuggestionsApi;
   canWrite: boolean;
   /** The editor below holds unsaved edits. */
   dirty: boolean;
   audience: "client" | "operator";
+  /** The editor's Save, offered when an accept kept its change but did not reach the calls. */
+  onSaveAgain: () => void;
+  savingAgain: boolean;
 }) {
   const { query, accept, acceptAll, dismiss, check } = api;
   const data = query.data;
@@ -108,8 +113,19 @@ export function LeadSuggestions({
       {dirty && count > 0 && canWrite && (
         <p className="mt-2 text-xs text-ink-muted">Save or undo the changes below to accept one.</p>
       )}
-      {(accept.error ?? acceptAll.error) && (
-        <div className="mt-2"><ProblemNotice error={(accept.error ?? acceptAll.error)!} /></div>
+      {api.kept ? (
+        <div className="mt-2 space-y-2">
+          <ProblemNotice error={api.kept} />
+          {canWrite && (
+            <button type="button" className={SECONDARY_BUTTON_SM} disabled={savingAgain} onClick={onSaveAgain}>
+              {savingAgain ? "Saving…" : "Save again"}
+            </button>
+          )}
+        </div>
+      ) : (
+        (accept.error ?? acceptAll.error) && (
+          <div className="mt-2"><ProblemNotice error={(accept.error ?? acceptAll.error)!} /></div>
+        )
       )}
       {dismiss.error && <div className="mt-2"><ProblemNotice error={dismiss.error} /></div>}
       {check.error && <div className="mt-2"><ProblemNotice error={check.error} /></div>}

@@ -64,6 +64,44 @@ async def put_live(tenant_id: UUID, kind: JobKind, job_id: UUID) -> None:
         await put_line_live(tenant_id=tenant_id, line_id=job_id)
 
 
+#: How a kept edit is put live again: `save` is an unchanged Save of the same list or script
+#: (every such save puts a job that holds calls live again); `put_live` is the line page's
+#: header button.
+Retry = Literal["save", "put_live"]
+
+
+def kept_not_live(
+    exc: ProblemError, *, retry: Retry = "save", operator: bool = False
+) -> ProblemError:
+    """Retitle a put-live refusal that followed a committed edit, so the reader learns the
+    edit is kept and presses the retry their screen offers rather than typing it again. The
+    web screens match on the title (`SAVED_NOT_ON_CALLS_TITLE`, `SAVED_NOT_LIVE_TITLE`)."""
+    if retry == "put_live":
+        exc.title = "Saved, but not live yet"
+        lead = "Press Put it live to finish; your change is kept."
+    else:
+        exc.title = "Saved, but not on its calls yet"
+        lead = (
+            "The change is kept. Save again to put it on the calls."
+            if operator
+            else "Your change is kept. Save again to put it on the calls."
+        )
+    exc.remediation = f"{lead} {exc.remediation or ''}".strip()
+    return exc
+
+
+async def put_live_after_save(
+    tenant_id: UUID, kind: JobKind, job_id: UUID, *, operator: bool = False
+) -> None:
+    """`put_live` after an edit to the job's list committed. A refusal asks for Save again,
+    which What it notes offers on the job's page and on Lead details alike."""
+    try:
+        await put_live(tenant_id, kind, job_id)
+    except ProblemError as exc:
+        kept_not_live(exc, operator=operator)
+        raise
+
+
 async def put_live_each(tenant_id: UUID, jobs: list[tuple[JobKind, UUID]]) -> int:
     """`put_live` for several jobs after one apply. A refusal leaves that job on its previous
     list until its next put-live and does not stop the others; returns how many were refused.
@@ -108,7 +146,9 @@ __all__ = [
     "PUT_LIVE_JOB",
     "JobKind",
     "holds_calls",
+    "kept_not_live",
     "put_live",
+    "put_live_after_save",
     "put_live_each",
     "queue_put_live",
     "queued_jobs",

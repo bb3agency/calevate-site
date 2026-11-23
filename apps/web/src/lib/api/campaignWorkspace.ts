@@ -18,7 +18,7 @@ import {
 } from "@tanstack/react-query";
 import { useRef } from "react";
 
-import { apiRequest, apiUpload, type Session } from "./client";
+import { ApiProblem, apiRequest, apiUpload, type Session } from "./client";
 import { invalidateKnowledgeLists } from "./kb";
 import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
@@ -355,6 +355,17 @@ export const campaignNotesKey = (org: string, jobId: string) => ["campaign-notes
 export const lineNotesKey = (org: string, jobId: string) => ["line-notes", org, jobId] as const;
 export const jobNotesKey = (org: string, kind: JobKind, jobId: string) =>
   kind === "campaign" ? campaignNotesKey(org, jobId) : lineNotesKey(org, jobId);
+
+/**
+ * The title the api gives an edit to a job's list (or a campaign's script or settings) it kept
+ * while the put-live after it was refused (`campaigns/notes_live.kept_not_live`). The retry is
+ * the same Save pressed again: an unchanged save puts a job that holds calls live again.
+ */
+export const SAVED_NOT_ON_CALLS_TITLE = "Saved, but not on its calls yet";
+
+export function isSavedNotOnCalls(error: unknown): error is ApiProblem {
+  return error instanceof ApiProblem && error.title === SAVED_NOT_ON_CALLS_TITLE;
+}
 
 export function jobNotesPath(kind: JobKind, jobId: string): string {
   return kind === "campaign" ? `${base(jobId)}/notes` : `/v1/inbound-lines/${encodeURIComponent(jobId)}/notes`;

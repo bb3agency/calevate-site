@@ -13,7 +13,9 @@ kinds (`_mount`); the path names the job the way the job's own routes do.
 
 Accepting saves the job's list through `campaigns/notes.save_notes`, the write the What it notes
 Save uses, and then puts a job that holds calls live again (`campaigns/notes_live`), so its
-next call asks for the change. Leads captured earlier keep what they noted.
+next call asks for the change. Leads captured earlier keep what they noted. A refused put-live
+says the edit is kept (`notes_live.kept_not_live`): the accepted change is
+committed, and the retry is What it notes' Save pressed again over the same list.
 """
 
 from __future__ import annotations
@@ -246,7 +248,7 @@ def _mount(client: APIRouter, admin: APIRouter, kind: Kind, id_param: str) -> No
                     ip=client_request_ip(request),
                     summary=_audit_summary(kind, one),
                 )
-        await notes_live.put_live(tenant_id, kind, job_id)
+        await notes_live.put_live_after_save(tenant_id, kind, job_id)
         async with tenant_session(tenant_id) as session:
             return LeadSuggestionsAcceptedOut(
                 accepted=[_one(s) for s in accepted], remaining=await _state(session, kind, job_id)
@@ -286,7 +288,7 @@ def _mount(client: APIRouter, admin: APIRouter, kind: Kind, id_param: str) -> No
                 ip=client_request_ip(request),
                 summary=_audit_summary(kind, accepted),
             )
-        await notes_live.put_live(tenant_id, kind, job_id)
+        await notes_live.put_live_after_save(tenant_id, kind, job_id)
         async with tenant_session(tenant_id) as session:
             return LeadSuggestionAnsweredOut(
                 answered=_one(accepted), remaining=await _state(session, kind, job_id)
@@ -404,7 +406,7 @@ def _mount(client: APIRouter, admin: APIRouter, kind: Kind, id_param: str) -> No
                     ip=client_request_ip(request),
                     summary=_audit_summary(kind, one),
                 )
-        await notes_live.put_live(tenant_id, kind, job_id)
+        await notes_live.put_live_after_save(tenant_id, kind, job_id, operator=True)
         async with tenant_session(tenant_id) as scoped:
             return LeadSuggestionsAcceptedOut(
                 accepted=[_one(s) for s in accepted], remaining=await _state(scoped, kind, job_id)
@@ -437,7 +439,7 @@ def _mount(client: APIRouter, admin: APIRouter, kind: Kind, id_param: str) -> No
                 ip=client_request_ip(request),
                 summary=_audit_summary(kind, accepted),
             )
-        await notes_live.put_live(tenant_id, kind, job_id)
+        await notes_live.put_live_after_save(tenant_id, kind, job_id, operator=True)
         async with tenant_session(tenant_id) as scoped:
             return LeadSuggestionAnsweredOut(
                 answered=_one(accepted), remaining=await _state(scoped, kind, job_id)

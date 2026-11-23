@@ -9,7 +9,7 @@ import { businessTypeLabel } from "@/lib/businessTypes";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
 import { BUSINESS_TYPES_FIXTURE } from "./businessTypesFixture";
-import { renderClientPage } from "./harness";
+import { problem, renderClientPage } from "./harness";
 
 /**
  * Lead details (founder decision 15; per campaign and line since D-1029): the fixed core shown
@@ -480,6 +480,52 @@ describe("suggested changes to what a job notes (D-889, D-1029)", () => {
     await waitFor(() => expect(screen.queryByText("New detail: Facing")).toBeNull());
     const posts = calls.filter((c) => c.method === "POST" && c.path.startsWith(BASE));
     expect(posts.map((c) => [c.path, JSON.parse(c.body ?? "null")])).toEqual([[`${BASE}/accept`, { ids: [ADD.id, NEW.id] }]]);
+  });
+
+  it("shows the saved list when an accept could not reach the calls, and offers Save again", async () => {
+    let accepted = false;
+    const NOTES_PATH = "/v1/inbound-lines/l1/notes";
+    const SAVED = { ...notes(), fields: [{ ...BHK, enum_values: [...BHK.enum_values, "6BHK"] }], digest: "d2" };
+    const { calls } = await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/call-outcomes": callOutcomes(),
+      "/v1/lead-fields": withBhk(),
+      [NOTES_PATH]: () => (accepted ? SAVED : BHK_NOTES),
+      [`PUT ${NOTES_PATH}`]: SAVED,
+      [BASE]: () => (accepted ? suggestions({ suggestions: [NEW] }) : suggestions()),
+      [`POST ${BASE}/0123456789abcdef/accept`]: () => {
+        accepted = true;
+        return problem(422, {
+          type: "https://calevate.tech/problems/engine_unavailable",
+          title: "Saved, but not on its calls yet",
+          status: 422,
+          kind: "business_rule",
+          detail: "The calling platform did not answer.",
+          remediation: "Your change is kept. Save again to put it on the calls.",
+        });
+      },
+    });
+    await screen.findByRole("heading", { name: "Suggested changes (2)" });
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    const reads = () => calls.filter((c) => c.method === "GET" && c.path === NOTES_PATH).length;
+    const before = reads();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Accept" })[0]);
+    expect(await screen.findByText("The calling platform did not answer.")).toBeTruthy();
+    // The editor re-read the list the accept saved, and the message outlived its remount.
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Suggested changes (1)" })).toBeTruthy());
+    expect(screen.getByText("The calling platform did not answer.")).toBeTruthy();
+    // Nothing is unsaved, and Save over the saved list is still offered: it is the retry.
+    expect(screen.queryByText("You have unsaved changes.")).toBeNull();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save again" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT" && c.path === NOTES_PATH)).toBe(true));
+    const put = calls.find((c) => c.method === "PUT" && c.path === NOTES_PATH)!;
+    expect(JSON.parse(put.body ?? "null").expected_digest).toBe("d2");
+    await waitFor(() => expect(screen.queryByText("The calling platform did not answer.")).toBeNull());
+    expect(screen.queryByRole("button", { name: "Save again" })).toBeNull();
   });
 
   it("turns one down, and holds Accept while the owner has unsaved edits", async () => {

@@ -33,6 +33,7 @@ from apps.api.billing.models import (
     ASSIST_FEATURE_FIELD_SUGGESTIONS,
     ASSIST_FEATURE_FIELD_SUGGESTIONS_ABSORBED,
 )
+from apps.api.campaigns import notes_live
 from apps.api.core.errors import ProblemError
 from apps.api.crm import service as crm_service
 from apps.api.crm.captured import lead_unlisted
@@ -737,6 +738,68 @@ async def test_accept_all_saves_what_still_fits_in_one_request_for_owner_and_ope
     by_operator = await _post_ids(f"{admin_base}/accept", operator, [more.id])
     assert by_operator.status_code == 200, by_operator.text
     assert (await _fields(tenant_id, line_id))[0]["enum_values"][-1] == "7BHK"
+
+
+def _refuse_put_live(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _refused(*_args: object) -> None:
+        raise ProblemError.business_rule(
+            "engine_unavailable", "Not reachable.", remediation="Try again shortly."
+        )
+
+    monkeypatch.setattr(notes_live, "put_live", _refused)
+
+
+async def test_an_accept_whose_put_live_is_refused_keeps_the_change_and_says_so(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, slug, token, line_id = await _bhk_line()
+    add, new = await _seed(
+        tenant_id,
+        line_id,
+        _item("add_choices", values=["6BHK"]),
+        _item("new_field", label="Facing", values=["East", "West"], source="script"),
+    )
+    _refuse_put_live(monkeypatch)
+    base = f"/v1/inbound-lines/{line_id}/lead-suggestions"
+
+    one = await _http("POST", f"{base}/{add.id}/accept", token, slug)
+    assert one.status_code == 422, one.text
+    assert one.json()["title"] == "Saved, but not on its calls yet"
+    assert one.json()["remediation"] == (
+        "Your change is kept. Save again to put it on the calls. Try again shortly."
+    )
+    assert (await _fields(tenant_id, line_id))[0]["enum_values"][-1] == "6BHK"
+    left = (await _http("GET", base, token, slug)).json()["suggestions"]
+    assert [s["id"] for s in left] == [new.id], "the accepted one is answered, not offered again"
+
+    _admin_id, headers = await _operator()
+    operator = headers["Authorization"].removeprefix("Bearer ")
+    admin_base = f"/v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions"
+    many = await _post_ids(f"{admin_base}/accept", operator, [new.id])
+    assert many.status_code == 422, many.text
+    assert many.json()["title"] == "Saved, but not on its calls yet"
+    assert many.json()["remediation"].startswith("The change is kept. Save again")
+    assert [f["key"] for f in await _fields(tenant_id, line_id)][-1] == new.field_key
+
+
+async def test_the_owners_accept_all_reports_a_refused_put_live_as_the_save_does(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, slug, token, line_id = await _bhk_line()
+    (add,) = await _seed(tenant_id, line_id, _item("add_choices", values=["6BHK"]))
+    _refuse_put_live(monkeypatch)
+    done = await _post_ids(
+        f"/v1/inbound-lines/{line_id}/lead-suggestions/accept", token, [add.id], slug
+    )
+    assert done.status_code == 422 and done.json()["title"] == "Saved, but not on its calls yet"
+    assert (await _fields(tenant_id, line_id))[0]["enum_values"][-1] == "6BHK"
+
+
+def test_the_line_pages_own_saves_name_its_put_it_live() -> None:
+    refused = ProblemError.business_rule("x_refused", "No.")
+    kept = notes_live.kept_not_live(refused, retry="put_live")
+    assert kept.title == "Saved, but not live yet"
+    assert kept.remediation == "Press Put it live to finish; your change is kept."
 
 
 async def test_staff_cannot_answer_and_nobody_reaches_another_accounts_line() -> None:

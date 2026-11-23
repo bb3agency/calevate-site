@@ -27,7 +27,7 @@ from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import notes as job_notes
-from apps.api.campaigns import number_catalog
+from apps.api.campaigns import notes_live, number_catalog
 from apps.api.campaigns.workspace import MAIN_TASK_MAX
 from apps.api.campaigns.workspace_routes import (
     TEST_CALLS_SHOWN,
@@ -135,10 +135,7 @@ async def _put_live_after_save(tenant_id: UUID, line_id: UUID) -> None:
     try:
         await put_line_live(tenant_id=tenant_id, line_id=line_id)
     except ProblemError as exc:
-        exc.title = "Saved, but not live yet"
-        exc.remediation = (
-            "Press Put it live to finish; your change is kept. " + (exc.remediation or "")
-        ).strip()
+        notes_live.kept_not_live(exc, retry="put_live")
         raise
 
 

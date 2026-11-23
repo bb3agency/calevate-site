@@ -31,7 +31,7 @@ from apps.api.agents.service import (
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
-from apps.api.campaigns import learning, workspace
+from apps.api.campaigns import learning, notes_live, workspace
 from apps.api.campaigns import notes as campaign_notes
 from apps.api.campaigns import settings as campaign_settings_rules
 from apps.api.campaigns.engine_agent import needs_its_own, put_campaign_live
@@ -247,10 +247,7 @@ async def _put_live_after_save(tenant_id: UUID, campaign_id: UUID) -> None:
     try:
         await put_campaign_live(tenant_id=tenant_id, campaign_id=campaign_id, require_holding=True)
     except ProblemError as exc:
-        exc.title = "Saved, but not on its calls yet"
-        exc.remediation = (
-            "Your change is kept. Save again to put it on the calls. " + (exc.remediation or "")
-        ).strip()
+        notes_live.kept_not_live(exc)
         raise
 
 

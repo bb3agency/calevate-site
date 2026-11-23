@@ -625,14 +625,7 @@ def _mount_admin_notes(router: APIRouter, kind: JobKind, id_param: str) -> None:
                     summary={"fields": [field.key for field in payload.fields]},
                 )
         # Unchanged too: an unchanged save is the Save again a refused put-live asks for.
-        try:
-            await notes_live.put_live(tenant_id, kind, job_id)
-        except ProblemError as exc:
-            exc.title = "Saved, but not on its calls yet"
-            exc.remediation = (
-                "The change is kept. Save again to put it on the calls. " + (exc.remediation or "")
-            ).strip()
-            raise
+        await notes_live.put_live_after_save(tenant_id, kind, job_id, operator=True)
         return await _admin_notes_out(tenant_id, kind, job_id)
 
 
