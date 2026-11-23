@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.14 — 23-Nov-2026
+
+- Go live: a line on your number counts as live only once its agent is switched on too, and
+  the last step shows that agent's switch beside the line. Before, the guide said "You're
+  live" while callers heard nothing.
+
 ## 0.5.13 — 23-Nov-2026
 
 - Knowledge: a note put back after an unapproved edit is in use again, and adding a link

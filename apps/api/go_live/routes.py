@@ -73,10 +73,11 @@ class GoLiveOut(Strict):
     #: On a rejected or withdrawn business-details application, what to correct.
     business_review_note: str | None
     numbers: int
-    #: `done` once any agent is taking calls, or an inbound line is live on a number.
+    #: `done` once calls are answered: an inbound line live on a number with its agent
+    #: switched on, or, for an account with no lines, any agent switched on.
     switch_on: guide.SwitchState
     live_agents: int
-    #: Inbound lines live on at least one of the account's numbers.
+    #: Inbound lines live on at least one of the account's numbers whose agent is switched on.
     live_lines: int
 
 

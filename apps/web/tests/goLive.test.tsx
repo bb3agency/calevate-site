@@ -267,6 +267,9 @@ describe("the guide", () => {
       }),
     );
     expect(await screen.findByText(/is a draft\. Callers hear nothing until it is live\./)).toBeTruthy();
+    // The line answers only while its agent is switched on too, so its switch sits here.
+    expect(await screen.findByRole("link", { name: "Anjali" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Switch on" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Put it live" }));
     await waitFor(() =>
       expect(calls.some((call) => call.method === "POST" && call.path === "/v1/inbound-lines/l1/publish")).toBe(true),

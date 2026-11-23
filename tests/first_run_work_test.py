@@ -439,9 +439,10 @@ async def test_making_the_first_agent_rewrites_the_business_examples_once() -> N
     assert sorted(p["trigger"] for p in queued) == ["first_run", "signup"]
 
 
-async def test_go_live_is_done_once_a_line_is_live_on_a_number() -> None:
-    """The first run's draft line on the bought number answers nobody until it is put live,
-    so the guide's last step stays open until then, though no agent is ever switched on."""
+async def test_go_live_is_done_once_a_line_and_its_agent_are_live_on_a_number() -> None:
+    """The first run's draft line on the bought number answers nobody until it is put live AND
+    its agent is switched on (routing releases a number whose line's agent is not live), so
+    the guide's last step stays open until both are."""
     from apps.api.go_live.guide import read_go_live
 
     tenant_id = await _tenant()
@@ -471,9 +472,14 @@ async def test_go_live_is_done_once_a_line_is_live_on_a_number() -> None:
             ),
             {"l": line_id},
         )
+        line_only = await read_go_live(session, tenant_id=tenant_id)
+        await session.execute(
+            text("UPDATE agents SET status = 'live' WHERE id = :a"), {"a": agent_id}
+        )
         live = await read_go_live(session, tenant_id=tenant_id)
     assert (draft.switch_on, draft.live_lines, draft.live_agents) == ("todo", 0, 0)
-    assert (live.switch_on, live.live_lines, live.live_agents) == ("done", 1, 0)
+    assert (line_only.switch_on, line_only.live_lines, line_only.live_agents) == ("todo", 0, 0)
+    assert (live.switch_on, live.live_lines, live.live_agents) == ("done", 1, 1)
 
 
 @pytest.mark.parametrize(

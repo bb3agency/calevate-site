@@ -158,8 +158,7 @@ export const GO_LIVE = {
   noAgent: "No agent to switch on yet",
   makeAgent: "Make an agent",
   taking: "Taking calls",
-  notReady: "Not ready yet",
-  ready: "Ready",
+  off: "Off. Callers hear nothing until you switch it on.",
   switchOn: "Switch on",
 } as const;
 

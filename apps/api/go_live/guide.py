@@ -9,8 +9,9 @@ the guide can never say something the screens it links to disagree with:
 2. **Get your number**: the account's numbers and the purchase gates
    (`campaigns/engine_number_purchase.purchase_readiness`), each gate its own state so the
    screen names the real reason a number cannot be bought yet.
-3. **Switch it on**: whether any agent is live; switching one on is the agent's own switch,
-   with its own gate reasons.
+3. **Switch it on**: whether calls are answered. With inbound lines that is a line live on a
+   number whose agent is switched on (the line and the agent each have their own switch and
+   gate reasons); an account with no lines answers through any agent switched on.
 
 The agents' move into the account's own calling set-up (`go_live.moves`) is published beside
 the steps but is never one of them: it is our work, and the owner carries on while it runs.
@@ -200,13 +201,17 @@ async def read_go_live(session: AsyncSession, *, tenant_id: UUID) -> GoLive:
             )
         ).scalar_one()
     )
-    # Since Inbound lines (D-997) a number is answered by its line, not by an agent switched
-    # on: a line put live on a number takes calls while its agent stays a draft.
+    # A number answers with its line (D-997), but routing releases a number whose line's agent
+    # is not live (`agents/service._LINE_ANSWERS_SQL`), so a line counts only once its agent is
+    # switched on too. Counting the line alone would mark the step done while callers hear
+    # nothing.
     live_lines = int(
         (
             await session.execute(
                 text(
                     "SELECT count(DISTINCT l.id) FROM inbound_lines l "
+                    "JOIN agents a ON a.id = l.agent_id AND a.deleted_at IS NULL "
+                    "AND a.status = 'live' "
                     "JOIN phone_numbers n ON n.inbound_line_id = l.id AND n.released_at IS NULL "
                     "WHERE l.tenant_id = :tid AND l.archived_at IS NULL "
                     "AND l.published_at IS NOT NULL AND l.engine_agent_ref IS NOT NULL"
@@ -215,6 +220,18 @@ async def read_go_live(session: AsyncSession, *, tenant_id: UUID) -> GoLive:
             )
         ).scalar_one()
     )
+    # An account with lines takes calls only through them, so an agent switched on with no
+    # line live on a number answers nobody; an account without lines still answers by agent.
+    has_lines = (
+        await session.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM inbound_lines "
+                "WHERE tenant_id = :tid AND archived_at IS NULL)"
+            ),
+            {"tid": tenant_id},
+        )
+    ).scalar_one()
+    answering = live_lines if has_lines else live
     return GoLive(
         marker=marker,
         move=move,
@@ -228,7 +245,7 @@ async def read_go_live(session: AsyncSession, *, tenant_id: UUID) -> GoLive:
             else None
         ),
         numbers=numbers,
-        switch_on="done" if live > 0 or live_lines > 0 else "todo",
+        switch_on="done" if answering > 0 else "todo",
         live_agents=live,
         live_lines=live_lines,
     )

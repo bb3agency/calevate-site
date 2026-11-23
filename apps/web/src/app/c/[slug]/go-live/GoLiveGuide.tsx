@@ -438,9 +438,17 @@ function SwitchOnStep({
   const live = guide.switch_on === "done";
   const listed = agents.isSuccess ? agents.data.filter((agent) => !isDeleted(agent)) : [];
   const lines = useInboundLines(session);
-  // An agent answers no number of its own once the account has lines, so its old switch is
-  // offered only to an account that has none.
-  const switches = lines.isSuccess && lines.data.length === 0 ? listed : [];
+  // Once the account has lines a number answers with its line, and only while the line's
+  // agent is switched on too, so the switches offered are those of the agents behind the
+  // lines on a number. An account with no lines answers by agent, so every agent's switch.
+  const onNumbers = new Set(
+    lines.isSuccess ? lines.data.filter((line) => line.numbers.length > 0).map((line) => line.agent_id) : [],
+  );
+  const switches = !lines.isSuccess
+    ? []
+    : lines.data.length === 0
+      ? listed
+      : listed.filter((agent) => onNumbers.has(agent.id));
   return (
     <StepScreen
       title={live ? GO_LIVE.liveTitle : GO_LIVE.switchTitle}
@@ -519,7 +527,7 @@ function SwitchRow({ agent, agentHref }: { agent: Agent; agentHref: string }) {
           <Link href={agentHref} className="block break-words text-body font-medium text-ink hover:underline">
             {agent.name}
           </Link>
-          <p className="text-meta text-ink-muted">{isLive ? GO_LIVE.taking : agent.status === "draft" ? GO_LIVE.notReady : GO_LIVE.ready}</p>
+          <p className="text-meta text-ink-muted">{isLive ? GO_LIVE.taking : GO_LIVE.off}</p>
         </div>
         {isLive ? null : (
           <ActionButton
