@@ -29,6 +29,10 @@ export type KycReviewIn = Schemas["KycReviewIn"];
 
 export const KYC_REVIEWS_PATH = "/v1/admin/kyc/reviews";
 
+/** The api's default and ceiling for one read of the queue (`KYC_QUEUE_PAGE` in
+ * `apps/api/compliance/kyc_admin_routes.py`). A full read means more may be waiting. */
+export const KYC_QUEUE_PAGE = 200;
+
 const QUEUE_KEY = ["admin", "kyc-reviews"] as const;
 
 /**

@@ -115,6 +115,10 @@ async def run_after_call_actions(ctx: dict[str, Any], payload: dict[str, Any]) -
     ran: list[str] = []
     retry_kinds: list[str] = []
     unmarked = False
+    # The call and the actions are read in one short transaction, and each action then runs
+    # in its own: an action waits on a vendor (a WhatsApp send, a CRM write), and one
+    # transaction around them all would hold a pooled connection, and the row locks taken
+    # along the way, for the sum of every vendor's latency.
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
@@ -130,25 +134,29 @@ async def run_after_call_actions(ctx: dict[str, Any], payload: dict[str, Any]) -
         ).first()
         if row is None or not await actions_enabled(session, agent_id=UUID(str(row[0]))):
             return "none"
-        caller = row[4] if row[2] == "outbound" else row[3]
-        facts = CallFacts(call_ref=row[1] or str(call_id), caller_e164=caller, direction=row[2])
-        extracted = row[5] if isinstance(row[5], dict) else {}
-        received = {k: v for k, v in extracted.items() if isinstance(v, str | int | float | bool)}
         # The actions the inbound line that took the call switched off (D-997).
         off = set(row[6] or ())
-        for tool in await list_tools(session, agent_id=UUID(str(row[0]))):
-            if not tool.enabled or tool.trigger != "after_call" or tool.name in off:
-                continue
-            if await _after_call_done(call_id, tool.id):
-                continue
+        tools = [
+            tool
+            for tool in await list_tools(session, agent_id=UUID(str(row[0])))
+            if tool.enabled and tool.trigger == "after_call" and tool.name not in off
+        ]
+    caller = row[4] if row[2] == "outbound" else row[3]
+    facts = CallFacts(call_ref=row[1] or str(call_id), caller_e164=caller, direction=row[2])
+    extracted = row[5] if isinstance(row[5], dict) else {}
+    received = {k: v for k, v in extracted.items() if isinstance(v, str | int | float | bool)}
+    for tool in tools:
+        if await _after_call_done(call_id, tool.id):
+            continue
+        async with tenant_session(tenant_id) as session:
             result = await execute_action(
                 session, tool=tool, received=received, source="after_call", call=facts
             )
-            ran.append(result.status)
-            if not result.ok and _transient(result.status, result.payload):
-                retry_kinds.append(f"{tool.kind}:{result.status}")
-            elif not await _mark_after_call_done(call_id, tool.id):
-                unmarked = True
+        ran.append(result.status)
+        if not result.ok and _transient(result.status, result.payload):
+            retry_kinds.append(f"{tool.kind}:{result.status}")
+        elif not await _mark_after_call_done(call_id, tool.id):
+            unmarked = True
     ids = {"tenant_id": str(tenant_id), "call_id": str(call_id)}
     log.info("after_call_actions_ran", extra={**ids, "count": len(ran)})
     if retry_kinds:

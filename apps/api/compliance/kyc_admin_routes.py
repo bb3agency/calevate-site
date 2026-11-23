@@ -69,6 +69,9 @@ from apps.api.db.session import tenant_session
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
+#: Most records the review queue returns in one read, oldest submission first.
+KYC_QUEUE_PAGE = 200
+
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 KycOperator = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 
@@ -106,7 +109,10 @@ class KycReviewItem(BaseModel):
 async def kyc_review_queue(
     session: AdminSession,
     principal: KycOperator,
-    limit: Annotated[int, Query(ge=1, le=200)] = 100,
+    # The screen asks for the whole page and says when it is full (`KYC_QUEUE_PAGE` in
+    # `apps/web/src/lib/api/kycReview.ts`), so the default is the ceiling rather than a
+    # silent cut below it.
+    limit: Annotated[int, Query(ge=1, le=KYC_QUEUE_PAGE)] = KYC_QUEUE_PAGE,
 ) -> list[KycReviewItem]:
     """`kyc_review.waiting_reviews`, oldest submission first."""
     del principal

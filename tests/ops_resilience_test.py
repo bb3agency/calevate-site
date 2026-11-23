@@ -226,9 +226,20 @@ async def test_the_stall_probe_counts_only_calls_the_pipeline_actually_dropped()
     tenant_id, agent_id = await _tenant_with_agent("probe")
     await _publish_route(tenant_id, agent_id)
     stalled_id = await _completed_call(tenant_id, agent_id, ended_minutes_ago=30)
-    await _completed_call(tenant_id, agent_id, ended_minutes_ago=1)
+    recent_id = await _completed_call(tenant_id, agent_id, ended_minutes_ago=1)
 
     async with tenant_session(tenant_id) as session:
+        # A transcript makes each call owed an extraction (`EXTRACTION_OWED_SQL`); since
+        # D-1028 the agent's own field list no longer does.
+        for call_id in (stalled_id, recent_id):
+            await session.execute(
+                text(
+                    "INSERT INTO transcript_turns (id, tenant_id, call_id, idx, speaker, text, "
+                    "text_redacted, created_at, updated_at) VALUES (:id, :tid, :cid, 0, "
+                    "'caller', 'Hello', 'Hello', now(), now())"
+                ),
+                {"id": uuid.uuid4(), "tid": tenant_id, "cid": call_id},
+            )
         assert await dispatcher._count_stalled(session) == 1
 
         await session.execute(

@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import { ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
-import { useKycReviewQueue } from "@/lib/api/kycReview";
+import { KYC_QUEUE_PAGE, useKycReviewQueue } from "@/lib/api/kycReview";
 
 const ID_TYPE_LABEL: Record<string, string> = { aadhaar: "Aadhaar", pan: "PAN" };
 
@@ -31,6 +31,11 @@ export default function KycReviewsPage() {
   return (
     <div className={ADMIN_PAGE_WIDE}>
       <PageHeader description="Identity checks waiting for a reviewer, oldest first. Open one to see the files and decide." />
+      {items.length >= KYC_QUEUE_PAGE ? (
+        <p role="status" className="mb-3 text-meta text-ink-muted">
+          {`Showing the oldest ${KYC_QUEUE_PAGE}. More are waiting; decide these to see the rest.`}
+        </p>
+      ) : null}
       {items.length === 0 ? (
         <EmptyState message="Nothing is waiting for review." />
       ) : (

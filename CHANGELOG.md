@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.15 — 23-Nov-2026
+
+- An owner whose hot-lead email stood down for a team alert to the same inbox is told after
+  all when that team alert fails.
+- After-call actions each run in their own short database transaction, so a slow WhatsApp,
+  CRM or sheet send no longer holds a connection open for all of them.
+- Admin identity reviews: the queue reads up to 200 and says so when more are waiting.
+- The stalled-calls alarm test follows where the notes list lives since 0.5.3.
+
 ## 0.5.14 — 23-Nov-2026
 
 - Go live: a line on your number counts as live only once its agent is switched on too, and

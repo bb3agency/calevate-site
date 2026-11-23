@@ -37,6 +37,7 @@ from apps.api.crm.service import redacted_summary
 from apps.api.db.session import tenant_session
 from apps.api.forwarding.service import published_numbers
 from apps.api.forwarding.testing import classify_caller
+from apps.api.team_alerts import service as team_alert_service
 from apps.api.team_alerts import whatsapp as team_whatsapp
 from apps.workers.email_render import Email, from_text
 
@@ -275,6 +276,9 @@ async def deliver_team_alert(ctx: dict[str, Any], payload: dict[str, Any]) -> st
             )
         elif attempt >= WORKER_MAX_TRIES:
             await _finish(session, alert_id, "failed", attempt)
+            await team_alert_service.owner_after_team_failed(
+                session, tenant_id=tenant_id, alert_id=alert_id, call_id=UUID(str(call_id))
+            )
             await write_audit(
                 session,
                 action="team_alert.failed",

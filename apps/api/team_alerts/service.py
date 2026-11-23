@@ -509,12 +509,13 @@ async def team_covers(session: AsyncSession, *, call_id: UUID, channel: str, add
     """Was a team alert about this call queued to this owner address? Then the owner's own
     alert on that channel is skipped: the team alert reaches the same inbox or phone, with
     more. Asked of the call's alerts rather than of the list, so an address added after the
-    call was told cannot swallow the owner's alert."""
+    call was told cannot swallow the owner's alert. A team alert that finally failed covers
+    nobody: `owner_after_team_failed` then asks the owner's alert again."""
     row = (
         await session.execute(
             text(
                 "SELECT 1 FROM team_alerts a JOIN team_alert_contacts c ON c.id = a.contact_id "
-                "WHERE a.call_id = :cid AND a.status <> 'cancelled' "
+                "WHERE a.call_id = :cid AND a.status NOT IN ('cancelled', 'failed') "
                 "AND c.channel = :channel AND c.address = :address LIMIT 1"
             ),
             {"cid": call_id, "channel": channel, "address": address.strip().lower()},
@@ -950,6 +951,39 @@ async def tell_everyone(
             session, tenant_id=tenant_id, lead_id=lead_id, call_id=call_id, reasons=reasons
         )
     return "queued" if told else "already_told"
+
+
+async def owner_after_team_failed(
+    session: AsyncSession, *, tenant_id: UUID, alert_id: UUID, call_id: UUID
+) -> bool:
+    """A team alert about this call failed for good. The owner's own alert may have stood
+    down for it (`team_covers`), so it is asked again under its own key; it sends only when
+    nothing else reached the owner (`notify_hot_lead` checks what was delivered). A call
+    with no lead has no owner alert to ask. True when one was queued."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT c.lead_id, a.reasons FROM team_alerts a JOIN calls c ON c.id = a.call_id "
+                "WHERE a.id = :aid"
+            ),
+            {"aid": alert_id},
+        )
+    ).first()
+    if row is None or row[0] is None:
+        return False
+    lead_id = UUID(str(row[0]))
+    queued = await enqueue_outbox_once(
+        session,
+        job=OWNER_JOB,
+        payload={
+            "tenant_id": str(tenant_id),
+            "lead_id": str(lead_id),
+            "call_id": str(call_id),
+            "triggers": [label for label in (reason_label(r) for r in row[1] or []) if label],
+        },
+        dedupe_key=f"{owner_dedupe_key(lead_id=lead_id, call_id=call_id)}:team-failed:{alert_id}",
+    )
+    return queued is not None
 
 
 async def _told_in_call(session: AsyncSession, call_id: UUID) -> bool:

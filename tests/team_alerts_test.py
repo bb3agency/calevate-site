@@ -475,6 +475,52 @@ async def test_an_owner_address_on_the_team_list_hears_it_once() -> None:
         ), "an address told about another call does not cover this one"
 
 
+async def test_an_owner_covered_by_a_team_alert_that_fails_is_told_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The owner's own email stands down for a team alert to the same inbox; when that team
+    alert fails for good, the owner's alert is asked again and no longer covered."""
+    _mail(monkeypatch, delivered=False)
+    monkeypatch.setattr(worker, "alert", lambda *_, **__: None)
+    t = await _tenant()
+    await _verified_contact(t, "owner@example.com")
+    call_id = await _call(t)
+    lead_id = uuid7()
+    async with tenant_session(t.tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, data, "
+                "created_at, updated_at) VALUES (:i, :t, :a, :p, 'inbound_call', 'new', "
+                "'{}'::jsonb, now(), now())"
+            ),
+            {"i": lead_id, "t": t.tenant_id, "a": t.agent_id, "p": CALLER},
+        )
+        await session.execute(
+            text("UPDATE calls SET lead_id = :l WHERE id = :c"), {"l": lead_id, "c": call_id}
+        )
+        await service.tell_everyone(
+            session,
+            tenant_id=t.tenant_id,
+            agent_id=t.agent_id,
+            call_id=call_id,
+            lead_id=lead_id,
+            trigger="after_call",
+            reasons=[{"kind": "in_call"}],
+        )
+        assert await service.team_covers(
+            session, call_id=call_id, channel="email", address="owner@example.com"
+        )
+    assert len(await _owner_payloads(t.tenant_id)) == 1
+    payload = (await _alert_payloads(t.tenant_id))[0]
+    assert await worker.deliver_team_alert({"job_try": 3}, payload) == "exhausted after 3"
+    async with tenant_session(t.tenant_id) as session:
+        assert not await service.team_covers(
+            session, call_id=call_id, channel="email", address="owner@example.com"
+        ), "a failed team alert reached nobody, so it covers nobody"
+    owner = await _owner_payloads(t.tenant_id)
+    assert len(owner) == 2 and {p["lead_id"] for p in owner} == {str(lead_id)}
+
+
 async def test_an_exhausted_alert_is_failed_and_alarmed(monkeypatch: pytest.MonkeyPatch) -> None:
     _mail(monkeypatch, delivered=False)
     fired: list[str] = []
