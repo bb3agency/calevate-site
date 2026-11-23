@@ -111,11 +111,16 @@ function useClientOthers(kind: JobKind, jobId: string, wanted: boolean): OtherJo
   };
 }
 
+// Named so the feedback guard reads it as a hook definition; its caller (`NotesEditor`'s
+// `save`) is the use that gets `useActionFeedback`.
+const useClientSaveJobNotes: JobNotesSource["useSave"] = (kind, jobId) =>
+  useSaveJobNotes(useClientRealm().session, kind, jobId);
+
 /** The client realm's endpoints: the default, so the campaign and line pages provide nothing. */
 export const CLIENT_JOB_NOTES: JobNotesSource = {
   audience: "client",
   useNotes: (kind, jobId) => useJobNotes(useClientRealm().session, kind, jobId),
-  useSave: (kind, jobId) => useSaveJobNotes(useClientRealm().session, kind, jobId),
+  useSave: useClientSaveJobNotes,
   useFetch: (kind) => useFetchJobNotes(useClientRealm().session, kind),
   useOthers: useClientOthers,
   useSuggestions: (kind, jobId) => useLeadSuggestions(useClientRealm().session, kind, jobId),

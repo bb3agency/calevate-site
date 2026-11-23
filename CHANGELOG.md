@@ -3,6 +3,28 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.16 — 23-Nov-2026
+
+- Billing (D-1033): a trial month has no monthly plan fee on the statement, spend page or
+  margin; credit given back after it lapsed lowers "credit expired" instead of showing as
+  credit added. Lapsed credit can no longer be given back twice, a running trial charges
+  nothing on the spend page, and a prepaid model upgrade is no longer on the statement twice.
+- Campaigns: a second opening under test is checked for sales wording; an archived campaign
+  cannot be scheduled and is not restarted when its line comes back.
+- Numbers bought through Pip or by an operator go to the first Inbound line, like a client's
+  own purchase; an operator purchase is held to the price its dialog showed.
+- Alerts and after-call: an owner whose WhatsApp or email alert stood down for a team alert
+  that failed or was cancelled is told; a re-read of a call that ended early reaches no
+  outcome; two bookings of one lead at once make one call-back; more network failures retry.
+- Pip follows the screens' rules for scheduling, call-back moves, team-alert addresses, notes
+  and new agents, says when nothing changed, and audits what the screens audit.
+- Admin: hosted-voice consent, spoken-style publishing and rate cards are safe against two
+  operators at once; cut lists say there is more; business-type changes refresh the screens.
+- Client screens: an archived first line or campaign no longer stalls the first run, and a
+  failed read is said instead of telling a paying account to add credit.
+- Security: a sign-in that overlaps a password change gets no session, and erasing a person
+  removes their number from the saved test numbers.
+
 ## 0.5.15 — 23-Nov-2026
 
 - An owner whose hot-lead email stood down for a team alert to the same inbox is told after

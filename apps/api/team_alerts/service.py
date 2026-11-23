@@ -987,17 +987,21 @@ async def owner_after_team_failed(
         if whatsapp
         else owner_dedupe_key(lead_id=lead_id, call_id=call_id)
     )
-    queued = await enqueue_outbox_once(
-        session,
-        job=OWNER_WHATSAPP_JOB if whatsapp else OWNER_JOB,
-        payload={
-            "tenant_id": str(tenant_id),
-            "lead_id": str(lead_id),
-            "call_id": str(call_id),
-            "triggers": [label for label in (reason_label(r) for r in row[1] or []) if label],
-        },
-        dedupe_key=f"{key}:team-failed:{alert_id}",
-    )
+    payload = {
+        "tenant_id": str(tenant_id),
+        "lead_id": str(lead_id),
+        "call_id": str(call_id),
+        "triggers": [label for label in (reason_label(r) for r in row[1] or []) if label],
+    }
+    dedupe_key = f"{key}:team-failed:{alert_id}"
+    if whatsapp:
+        queued = await enqueue_outbox_once(
+            session, job=OWNER_WHATSAPP_JOB, payload=payload, dedupe_key=dedupe_key
+        )
+    else:
+        queued = await enqueue_outbox_once(
+            session, job=OWNER_JOB, payload=payload, dedupe_key=dedupe_key
+        )
     return queued is not None
 
 

@@ -89,14 +89,6 @@ async def agent_check(session: AsyncSession, agent_id: UUID) -> AgentPromoCheck:
     )
 
 
-async def live_script_report(session: AsyncSession, agent_id: UUID) -> PromoReport:
-    """What every call this agent places now says, read as a placed call."""
-    from apps.api.agents import script_builder
-
-    loaded = await script_builder.load_agent_script(session, agent_id, applied=True)
-    return lint(script_parts(loaded.script, outbound=True))
-
-
 def wording_report(parts: list[ScriptPart]) -> PromoReport:
     return lint(parts)
 
@@ -184,7 +176,6 @@ __all__ = [
     "agent_check",
     "campaign_check",
     "campaign_script_report",
-    "live_script_report",
     "script_promotional_blocker",
     "wording_report",
 ]

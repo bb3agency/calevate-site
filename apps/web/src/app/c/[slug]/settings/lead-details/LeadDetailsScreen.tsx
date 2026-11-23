@@ -43,6 +43,7 @@ export function LeadDetailsScreen() {
   useActionFeedback(saveOutcomes, { errorDisplay: "inline" });
   useActionFeedback(draftOutcomes, { errorDisplay: "inline" });
   useActionFeedback(reviewDraft, { errorDisplay: "inline" });
+  useActionFeedback(replaceFields, { errorDisplay: "inline" });
   useActionFeedback(nameCore, { errorDisplay: "inline" });
   const writes = { review: reviewDraft, replace: replaceFields, nameCore };
   const links: JobLinks = {

@@ -133,8 +133,14 @@ BODIES: dict[str, dict[str, Any] | None] = {
         "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}"
         "/lead-suggestions/{suggestion_id}/dismiss"
     ): None,
+    "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/lead-suggestions/accept": {
+        "ids": ["0" * 16]
+    },
     "GET /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions": None,
     "POST /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions/check": None,
+    "POST /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/lead-suggestions/accept": {
+        "ids": ["0" * 16]
+    },
     (
         "POST /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}"
         "/lead-suggestions/{suggestion_id}/accept"
