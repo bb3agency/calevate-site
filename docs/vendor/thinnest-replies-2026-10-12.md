@@ -2772,7 +2772,7 @@ agent and its Start and test call were refused (`engine_agent_allowance_full`; r
 When answered: record §53 verbatim with a "what it closes" table, then raise the console
 setting `thinnest_agents_per_workspace` to the granted figure.
 
-## 53. A voicemail message on calls we place one at a time (DRAFTED 23 Nov 2026, unsent; HOLD until Ashutosh answers §52)
+## 53. A voicemail message on calls we place one at a time (DRAFTED 23 Nov 2026, unsent; READY TO SEND: §55 answered our last mail)
 
 Why we ask: `voicemailMessage` (up to 600 characters) is a field of create-campaign only (mirror
 2026-11-12 `openapi.json`, the campaign schema near line 29415); Place Call has no such field.
@@ -2809,3 +2809,80 @@ decision under hard rule 5; this email only asks for the capability.
 When answered: record §54 verbatim with a "what it closes" table. Building it then needs the
 founder's wording and an on/off decision for the message (hard rule 5) before any code reads
 the field.
+
+## 54. Endings still clipped; defaults for every agent (SENT 21 Nov 2026, 21:17 IST, founder)
+
+Verbatim as the founder relayed it (23 Nov 2026):
+
+> Hi Ashutosh,
+>
+> Thanks again for today's fix. We made a test call tonight and the endings were still
+> clipped. We traced why: each of our test calls runs on a new agent.
+>
+> out_d595986f (09:42) used ag_5e0741ec-fe96-4599-8953-0e35326353fb
+> out_1b35cfc5 (10:14) used ag_c1325bbc-7a8c-4e0c-841f-3ac869924759
+> out_541eb0de (21:03) used ag_3d065383-8c2e-4133-aa6e-c0da4cb28b53
+> All are in workspace org_805a8e1a-320e-4724-b6c0-19217a07fa3f.
+>
+> We create agents per test, per campaign and per line, so a change on one agent doesn't
+> reach the next call. Could you please:
+>
+> Make "each reply sent to Cartesia as a single request" the default for every agent in our
+> developer workspace and in every customer workspace under our account, including agents
+> created from now on.
+> Also make the default "a line written in English letters gets no language label", the
+> same way.
+> Hold speech recognition to each agent's own languages list for every agent, as offered in
+> your last mail.
+> If any of these should be set through the API on each agent instead, please tell us the
+> field and we'll send it on every publish.
+>
+> Could you check out_541eb0de and confirm it still had the old splitting?
+>
+> Best regards,
+> Umesh Chandra J
+
+## 55. Ashutosh's reply to §54, received 23 Nov 2026 (09:37 IST)
+
+Verbatim as the founder relayed it:
+
+> Hi Umesh,
+>
+> Thanks for testing so quickly. Good news first: nothing needs to be set per agent.
+>
+> 1. Whole replies to Cartesia. This is platform-wide. Every agent on a Cartesia voice gets
+> it, in your developer workspace, every customer workspace, and every agent created from now
+> on. No API field is needed. We checked out_541eb0de (21 Nov, 21:03): it already ran on the
+> new behaviour, and each reply went to Cartesia as one request. So the clipped endings you
+> still heard are not from splitting on our side. We are testing Cartesia's audio at higher
+> rates to see whether the 8 kHz phone format is the cause. We'll come back to you, but
+> because your voice is private to your account, we can only reproduce it exactly with your
+> voice. If you can, please play one affected sentence in Cartesia's playground with your
+> voice at 8000 Hz (pcm_s16le) and tell us whether the ending is clipped there too.
+>
+> 2. No language label on lines in English letters. Also platform-wide since the same
+> update, for every agent. Nothing to send.
+>
+> 3. Holding recognition to each agent's languages. This is already in place for every agent
+> with two or more languages chosen. Any line recognised in a language outside the agent's
+> list is heard again in the call's language before the model sees it. So there's nothing new
+> to set. Our recognition service accepts one language or auto-detect, not a list, which is
+> why the check runs right after it.
+>
+> Ashutosh K
+
+What it closes (VENDOR-STATED, 23 Nov 2026):
+
+| Asked | Answer | Our side |
+|---|---|---|
+| Whole replies to Cartesia for every agent | Platform-wide, every workspace and every new agent; no API field | Nothing to send per agent |
+| out_541eb0de still split? | No: it already sent each reply whole | Clipped endings are NOT their splitting; open, see below |
+| No language label on English-letter lines | Platform-wide, nothing to send | Nothing to build |
+| Recognition held to the agent's languages | In place for agents with 2+ languages: a line recognised outside the list is re-heard in the call's language | One-language agents are not covered by this check (their recognition runs in the one language) |
+
+Still open:
+- **Clipped endings.** ThinnestAI suspects Cartesia at 8 kHz phone audio. They ask us to play one
+  affected sentence in Cartesia's playground with our voice at 8000 Hz, `pcm_s16le`, and say
+  whether the ending clips there too. A founder action (our Cartesia account).
+- **§52 (agents per customer workspace)** was not answered in this reply.
+- **§53 (voicemail on Place Call)** was held for this reply and can now be sent.

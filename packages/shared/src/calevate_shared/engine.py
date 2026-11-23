@@ -3500,6 +3500,31 @@ TODAY_LINE: Final = f"Today: {{{{{TODAY_VARIABLE}}}}}"
 NAME_VARIABLE: Final = "lead_name"
 NAME_LINE: Final = f"Name: {{{{{NAME_VARIABLE}}}}}"
 
+#: The caller's name field followed by its title, the one word before a break ("{{lead_name}}
+#: గారు,"), as `call_script.fill_spoken_line` reads a title. A field with no title is left to
+#: the engine's fill: empty, it leaves nothing said that needs a name.
+_CALLER_NAME_WITH_TITLE: Final = re.compile(
+    rf"\{{\{{\s*{NAME_VARIABLE}\s*\}}\}}[ \t]+[^\s,.!?।{{}}]+(?=[ \t]*[,.!?।])"
+)
+
+
+#: What the model reads in place of the caller's name field and its title. It explains itself
+#: rather than leaning on a rule beside it: a rule is read on every turn of every agent, and
+#: the starter scripts sit at the edge of the instructions budget.
+CALLER_NAME_MARK: Final = "[name+title if known]"
+
+
+def mark_caller_name(script: str) -> str:
+    """`script` with the caller's name field and the title after it as `CALLER_NAME_MARK`.
+
+    The engine fills the field per call and fills it with nothing when the list has no name,
+    so on the founder's Rytu Khata call of 23 Nov 2026 "నమస్కారం {{lead_name}} గారు" reached
+    the model as a title with no name and the agent said "నమస్కారం గారు". The engine has no
+    "if known" for a field inside the instructions; THIS CALL's `Name:` line carries the
+    value, and the mark tells the model to use it or leave the slot and its title out.
+    """
+    return _CALLER_NAME_WITH_TITLE.sub(CALLER_NAME_MARK, script)
+
 
 #: Days after today that `today_value` names with their weekday (D-945). A model counting
 #: weekdays in its head is the weak point (SPAN, arXiv 2511.09993: 34.5% average on date
@@ -5100,7 +5125,8 @@ def engine_prompt_layers(
         # it reads as an instruction that went missing.
         (
             "client_script",
-            f"{CLIENT_SCRIPT_OPEN}\n{neutralise_markers(script)}\n{CLIENT_SCRIPT_CLOSE}"
+            f"{CLIENT_SCRIPT_OPEN}\n{neutralise_markers(mark_caller_name(script))}\n"
+            f"{CLIENT_SCRIPT_CLOSE}"
             if script
             else "",
         ),
@@ -6929,6 +6955,7 @@ __all__ = [
     "ACTION_CLAIM_RULE",
     "CALLER_HIDDEN_LINE",
     "CALLER_HIDDEN_VARIABLE",
+    "CALLER_NAME_MARK",
     "CALL_BACK_TIME_RULE",
     "CALL_INSTRUCTIONS",
     "CALL_NUMBER_RULE",
@@ -7044,6 +7071,7 @@ __all__ = [
     "call_variable_value",
     "contact_call_variables",
     "engine_prompt_layers",
+    "mark_caller_name",
     "named_lead_opening",
     "neutralise_markers",
     "phone_value",

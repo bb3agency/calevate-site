@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.10 — 23-Nov-2026
+
+- An agent no longer says a title such as గారు on its own when the call list has no name
+  for the person: a script line with the caller's name and its title now reaches the agent
+  as "name and title if known".
+
 ## 0.5.9 — 23-Nov-2026
 
 - "Accept all" on suggested lead details saves them together and updates the agent once,
