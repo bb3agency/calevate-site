@@ -276,6 +276,52 @@ async def test_a_clients_kyc_can_be_asked_by_slug_from_any_screen() -> None:
     assert missing.startswith("No client")
 
 
+async def _tenant_reads_by(tenant_id: UUID, admin_id: UUID) -> int:
+    from apps.api.core.auth import ADMIN_TENANT_READ_ACTION
+
+    async with tenant_session(tenant_id) as session:
+        return int(
+            (
+                await session.execute(
+                    text(
+                        "SELECT count(*) FROM audit_log WHERE tenant_id = :tid "
+                        "AND action = :action AND actor_id = :aid"
+                    ),
+                    {"tid": tenant_id, "action": ADMIN_TENANT_READ_ACTION, "aid": admin_id},
+                )
+            ).scalar_one()
+        )
+
+
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        ("admin_client_standing", {}),
+        ("admin_diagnose", {"question": "call"}),
+    ],
+)
+async def test_asking_about_a_named_client_is_a_recorded_read_of_that_client(
+    name: str, args: dict[str, Any]
+) -> None:
+    """FAILS IF an operator can read a client's standing through the assistant, from a screen
+    that is not that client's, and leave nothing in that client's audit trail: the screens
+    showing the same facts record the read (D-482 L-1)."""
+    token = await _make_admin(role="operator")
+    principal = _admin(token, "operator")
+    assert principal.user_id is not None
+    tenant_id, slug, _client_token = await _make_tenant()
+    result = await tools.run_read_tool(
+        name,
+        json.dumps({"client": slug, **args}),
+        context=tools.ToolContext(
+            tenant_id=None, role="operator", unmasked=tools.Unmasked(actor=principal, ip=None)
+        ),
+        registry=service._read_tool_registry("admin"),
+    )
+    assert "Refused" not in result, result
+    assert await _tenant_reads_by(tenant_id, principal.user_id) == 1
+
+
 @pytest.mark.parametrize(
     "name",
     ["admin_held_accounts", "admin_alerts", "admin_voices", "admin_dead_letters"],

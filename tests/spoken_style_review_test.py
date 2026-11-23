@@ -20,7 +20,7 @@ import pytest
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from apps.api.ops import spoken_style_store
-from apps.api.ops.spoken_style_routes import publish_confirmation
+from apps.api.ops.spoken_style_routes import MAX_ADDED_ENTRIES, publish_confirmation
 from calevate_shared.config import Settings
 from calevate_shared.spoken_style import default_entries, style_for
 from httpx import ASGITransport, AsyncClient
@@ -309,3 +309,33 @@ async def test_approving_the_file_words_follows_the_file_and_an_edit_stays_the_r
         kept = await http.post(f"{BASE}/entries", headers=_auth(token), json=approve)
     assert register_of(kept.json())["value"]["text"] == "Their own line."  # type: ignore[index]
     assert not await _latest_follows_file("register")
+
+
+async def test_retiring_an_added_entry_frees_room_for_another() -> None:
+    """FAILS IF the added-entry ceiling counts retired entries: the refusal tells the reviewer
+    to retire one, and retiring one has to make room."""
+    token, admin_id = await _make_admin()
+    async with untenanted_session() as session:
+        for n in range(MAX_ADDED_ENTRIES):
+            await spoken_style_store.add_revision(
+                session,
+                language=LANGUAGE,
+                kind="punctuation",
+                key=f"punctuation-cap{n}",
+                value={"text": f"Rule {n}."},
+                approved=True,
+                actor_id=admin_id,
+            )
+    add = {"kind": "punctuation", "action": "add", "value": {"text": "One more rule."}}
+    async with _client() as http:
+        full = await http.post(f"{BASE}/entries", headers=_auth(token), json=add)
+        assert full.status_code == 422, full.text
+        assert full.json()["type"].endswith("spoken_style_too_many")
+        retired = await http.post(
+            f"{BASE}/entries",
+            headers=_auth(token),
+            json={"kind": "punctuation", "key": "punctuation-cap0", "action": "retire"},
+        )
+        assert retired.status_code == 200, retired.text
+        room = await http.post(f"{BASE}/entries", headers=_auth(token), json=add)
+    assert room.status_code == 200, room.text

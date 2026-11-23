@@ -357,7 +357,11 @@ async def change_entry(
             "That entry already exists",
             "Edit the existing entry instead of adding it again.",
         )
-    added = sum(1 for k in working if k not in file_entries)
+    # Live ones only: a retired entry keeps its revisions, and the refusal below tells the
+    # reviewer to retire one to make room.
+    added = sum(
+        1 for k, state in working.items() if k not in file_entries and state.value is not None
+    )
     if change.action == "add" and added >= MAX_ADDED_ENTRIES:
         raise _refuse(
             "spoken_style_too_many",
