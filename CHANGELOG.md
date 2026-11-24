@@ -3,6 +3,28 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.36 — 24-Nov-2026
+
+- Pip shows its work live: a "Working" header with a timer and Stop, a one-line plan of what
+  it is doing next, each lookup as a step you can open to see what it read, and "Waiting for
+  you" when it needs your yes. Stop ends the answer and cancels a script draft still being
+  written; nothing half-written is saved.
+- A script rewrite opens right under the confirmed card in Pip's chat (and on the campaign or
+  Inbound line page): it shows what Pip is doing, then the changes line by line in red and
+  green, with Keep (saves and puts it live) and Discard.
+- Step outcomes hold for every caller, not one case (an outcome never names only Android when
+  the call covers iPhone too), and all of them use one word for the person. Pip keeps the
+  outcomes it wrote up to date and never touches one you typed or edited. "Let Pip rewrite
+  the outcomes" in the call flow hands today's outcomes back to Pip.
+- Alerts after a call are set on each campaign and Inbound line, for its own calls only; the
+  agent's page keeps who hears and the in-call team message, which now reaches every
+  campaign and line of that agent.
+- The call page says "Looked up your information when it was needed" and names a stuck caller
+  with no lookup as a mistake, instead of counting every reply.
+- Remove a link in the call flow from the link itself, the box's menu, or the "Next" chip on
+  a phone, with Undo.
+- The Telugu speaking guide no longer offers the agreement tag at the end of a reply.
+
 ## 0.5.35 — 24-Nov-2026
 
 - The call flow starts with the opening: a first box shows your opening line, with arrows
