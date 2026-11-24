@@ -154,12 +154,14 @@ _EXPIRY_KIND_SQL: Final = f"'{CREDIT_EXPIRY_META_KIND}'"
 #: the window it lands in, never as "credit added". Counted where it lands rather than in
 #: the month of the lapse, so a closed month's statement never changes after the fact and
 #: a window's figures still sum to the balance movement over it. Binds `:tid`.
+#: COALESCE(..., FALSE) because a row with no `kind` or no `corrects_entry_id` makes the
+#: OR NULL, and `NOT (NULL)` in `CREDIT_ADDED_SQL` would drop it from credit added.
 _RESTORED_SQL: Final = (
-    "delta > 0 AND reason = 'adjustment' AND ("
+    "delta > 0 AND reason = 'adjustment' AND COALESCE("
     f"(meta->>'kind') = '{CREDIT_EXPIRY_RESTATED_META_KIND}' "
     "OR (meta->>'corrects_entry_id') IN (SELECT CAST(x.id AS text) FROM credit_ledger x "
     "WHERE x.tenant_id = :tid AND x.reason = 'adjustment' "
-    f"AND x.meta->>'kind' = {_EXPIRY_KIND_SQL}))"
+    f"AND x.meta->>'kind' = {_EXPIRY_KIND_SQL}), FALSE)"
 )
 DRAWDOWN_BUCKETS_SQL: Final = (
     "COALESCE(SUM(-delta) FILTER ("

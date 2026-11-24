@@ -479,6 +479,39 @@ async def test_restored_lapsed_credit_reduces_credit_expired_not_credit_added(
     assert balance == month.credit_added_inr - month.wallet_spent_inr - month.credit_expired_inr
 
 
+async def test_a_positive_adjustment_naming_no_entry_is_still_credit_added_after_a_lapse(
+    expiry_on: None,
+) -> None:
+    """A dispute release or any positive adjustment with no `corrects_entry_id` is credit
+    added even once the account has an expiry row: `NULL IN (<expiry ids>)` is NULL, and a
+    NULL inside `NOT (...)` drops the row from the sum instead of keeping it."""
+    from apps.api.billing.history import statement_page
+    from apps.api.billing.wallet import read_runway
+
+    tenant_id, _agent = await _tenant(monthly_fee=None)
+    lot_id = await _buy(tenant_id, "1000")
+    await _lapse(tenant_id, lot_id)
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("250"),
+            reason="adjustment",
+            ref=f"DISPUTE-RELEASE-{uuid.uuid4().hex[:8]}",
+            meta={"kind": "dispute_release"},
+        )
+    async with tenant_session(tenant_id) as session:
+        page = await statement_page(session, tenant_id=tenant_id, limit=1, before=None)
+        current = await get_balance(session, tenant_id=tenant_id)
+        _runway, drawdown = await read_runway(session, tenant_id=tenant_id, balance=current)
+        balance = current.amount_inr
+    (month,) = page.statements
+    assert month.credit_added_inr == Decimal("1250.00")
+    assert month.credit_expired_inr == Decimal("1000.00")
+    assert drawdown.added_inr == Decimal("1250")
+    assert balance == month.credit_added_inr - month.wallet_spent_inr - month.credit_expired_inr
+
+
 async def test_a_lapse_a_reversal_gave_back_cannot_be_credited_back_by_an_operator(
     expiry_on: None,
 ) -> None:
