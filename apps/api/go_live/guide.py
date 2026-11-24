@@ -31,6 +31,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.service import INBOUND_SILENCE_TRUTHFUL_ANSWER
 from apps.api.campaigns.engine_business_details import RESUBMITTABLE
 from apps.api.campaigns.engine_number_purchase import PurchaseReadiness, purchase_readiness
 from apps.api.compliance.kyc import read_kyc
@@ -190,33 +191,32 @@ async def read_go_live(session: AsyncSession, *, tenant_id: UUID) -> GoLive:
     )
     readiness = None if numbers > 0 else await purchase_readiness(session, tenant_id=tenant_id)
     number: NumberState = "done" if readiness is None else number_state(readiness, numbers=numbers)
-    live = int(
-        (
-            await session.execute(
-                text(
-                    "SELECT count(*) FROM agents WHERE tenant_id = :tid AND deleted_at IS NULL "
-                    "AND status = 'live'"
-                ),
-                {"tid": tenant_id},
-            )
-        ).scalar_one()
-    )
+    live, answering_agents = (
+        await session.execute(
+            text(
+                "SELECT count(*), count(*) FILTER (WHERE inbound_silence_reason IS DISTINCT "
+                "FROM :truthful) FROM agents WHERE tenant_id = :tid AND deleted_at IS NULL "
+                "AND status = 'live'"
+            ),
+            {"tid": tenant_id, "truthful": INBOUND_SILENCE_TRUTHFUL_ANSWER},
+        )
+    ).one()
     # A number answers with its line (D-997), but routing releases a number whose line's agent
-    # is not live (`agents/service._LINE_ANSWERS_SQL`), so a line counts only once its agent is
-    # switched on too. Counting the line alone would mark the step done while callers hear
-    # nothing.
+    # is not live or is under the compliance silence (`agents/service._LINE_ANSWERS_SQL`), so a
+    # line counts only once its agent may answer too. Counting the line alone would mark the
+    # step done while callers hear nothing.
     live_lines = int(
         (
             await session.execute(
                 text(
                     "SELECT count(DISTINCT l.id) FROM inbound_lines l "
                     "JOIN agents a ON a.id = l.agent_id AND a.deleted_at IS NULL "
-                    "AND a.status = 'live' "
+                    "AND a.status = 'live' AND a.inbound_silence_reason IS DISTINCT FROM :truthful "
                     "JOIN phone_numbers n ON n.inbound_line_id = l.id AND n.released_at IS NULL "
                     "WHERE l.tenant_id = :tid AND l.archived_at IS NULL "
                     "AND l.published_at IS NOT NULL AND l.engine_agent_ref IS NOT NULL"
                 ),
-                {"tid": tenant_id},
+                {"tid": tenant_id, "truthful": INBOUND_SILENCE_TRUTHFUL_ANSWER},
             )
         ).scalar_one()
     )
@@ -231,7 +231,7 @@ async def read_go_live(session: AsyncSession, *, tenant_id: UUID) -> GoLive:
             {"tid": tenant_id},
         )
     ).scalar_one()
-    answering = live_lines if has_lines else live
+    answering = live_lines if has_lines else int(answering_agents)
     return GoLive(
         marker=marker,
         move=move,
@@ -246,7 +246,7 @@ async def read_go_live(session: AsyncSession, *, tenant_id: UUID) -> GoLive:
         ),
         numbers=numbers,
         switch_on="done" if answering > 0 else "todo",
-        live_agents=live,
+        live_agents=int(live),
         live_lines=live_lines,
     )
 
