@@ -3,6 +3,21 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.46 — 25-Nov-2026
+
+- Pip writes better scripts: the first step says in one sentence why we are calling, then
+  asks one thing; no step asks for a name the list already has or for what the agent
+  should judge itself (comfort, interest, whether the goal was met); every numbered item
+  of the main task gets a step; nothing comes after the close; a way out is a real
+  condition, not the next step's name; one action or one question per line; the agent
+  never says it will note what the caller enters themselves.
+- Every script Pip wrote and nobody has edited since is rewritten once under these rules
+  and put live.
+- On calls: an unclear reply after an instruction no longer counts as done; the agent asks
+  what the caller sees instead of repeating the step; "tell me when done" is said in new
+  words each time; sample phrases are used once a call.
+- Calls cost less: the reusable part of every prompt now covers the whole script.
+
 ## 0.5.45 — 25-Nov-2026
 
 - A call page no longer claims a step the call never reached. Captured details, notes,
