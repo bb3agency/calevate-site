@@ -29,7 +29,8 @@ export default function ImprovePage({ params }: { params: Promise<{ slug: string
   const { slug } = use(params);
   const { session } = useClientRealm();
   const me = useMe(session);
-  if (me.data !== undefined && !me.data.permissions.includes("leads:read")) {
+  const refused = me.data !== undefined && !me.data.permissions.includes("leads:read");
+  if (refused) {
     return <RestrictionNote reason="Your role cannot see how your campaigns are doing." />;
   }
   return (
