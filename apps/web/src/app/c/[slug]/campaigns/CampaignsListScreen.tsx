@@ -523,7 +523,9 @@ function ShelfButton({
         <ArchiveRestore aria-hidden className="h-3.5 w-3.5" />
         Restore
       </ActionButton>
-      <DeleteDraftButton campaign={campaign} canWrite={canWrite} refusal={refusal} />
+      {DELETABLE_WHEN_ARCHIVED.has(campaign.status) && (
+        <DeleteDraftButton campaign={campaign} canWrite={canWrite} refusal={refusal} />
+      )}
       </span>
     );
   }
@@ -560,6 +562,12 @@ function ShelfButton({
     </>
   );
 }
+
+/**
+ * The statuses `campaigns/archive.delete_campaign` can ever delete. An archived campaign in any
+ * other (one paused by its archiving) is refused whatever the switch says, so it gets no button.
+ */
+const DELETABLE_WHEN_ARCHIVED: ReadonlySet<string> = new Set(["draft", "completed", "cancelled"]);
 
 /**
  * Delete a campaign from its row, behind a confirm: a draft that never called anyone, or an

@@ -230,6 +230,21 @@ describe("archived campaigns (F-10)", () => {
     );
   });
 
+  it("offers Delete only on an archived campaign the server could delete", async () => {
+    const DONE = { ...FINISHED, id: "0192f0aa-2222-7000-8000-000000000012", name: "Done list", archived_at: SHELVED.archived_at };
+    await renderClientPage(listPage(), {
+      "/v1/me": ME,
+      [LIST_PATH]: { ...pageFixture([RUNNING]), archived_total: 2 },
+      "/v1/campaigns/page?limit=25&offset=0&archived=true": { ...pageFixture([SHELVED, DONE]), archived_total: 2 },
+    });
+    const segments = await screen.findByRole("radiogroup", { name: "Show campaigns by status" });
+    fireEvent.click(await within(segments).findByRole("radio", { name: /Archived/ }));
+    expect(await screen.findByRole("button", { name: "Delete Done list" })).toBeTruthy();
+    // Archiving paused it mid-run; `delete_campaign` refuses a paused one with history.
+    expect(screen.getByRole("button", { name: "Restore Old reminders" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Delete Old reminders" })).toBeNull();
+  });
+
   it("archives a finished campaign from its row only after a one-line confirm", async () => {
     const rendered = await renderClientPage(listPage(), {
       "/v1/me": ME,
