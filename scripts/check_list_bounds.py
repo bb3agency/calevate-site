@@ -166,6 +166,7 @@ _CAMPAIGN_WORKSPACE_ROUTES = (
     "PUT /v1/campaigns/{campaign_id}/main-task",
     "PUT /v1/campaigns/{campaign_id}/script",
     "POST /v1/campaigns/{campaign_id}/script/restore-before-pip",
+    "POST /v1/campaigns/{campaign_id}/script-draft/{proposal_id}/keep-live",
     "PUT /v1/campaigns/{campaign_id}/sources",
     "POST /v1/campaigns/{campaign_id}/sources/note",
     "POST /v1/campaigns/{campaign_id}/sources/link",
@@ -334,6 +335,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "PUT /v1/inbound-lines/{line_id}/sources": _INBOUND_LINE,
     "PUT /v1/inbound-lines/{line_id}/actions": _INBOUND_LINE,
     "PUT /v1/inbound-lines/{line_id}/script": _INBOUND_LINE,
+    "POST /v1/inbound-lines/{line_id}/script-draft/{line_proposal_id}/keep-live": _INBOUND_LINE,
     "POST /v1/inbound-lines/{line_id}/publish": _INBOUND_LINE,
     "POST /v1/inbound-lines/{line_id}/numbers": _INBOUND_LINE,
     "POST /v1/inbound-lines/{line_id}/proposal": BoundedByConstruction(

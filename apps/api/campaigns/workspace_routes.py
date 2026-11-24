@@ -8,6 +8,7 @@ import csv
 import io
 import json
 import re
+from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Annotated, Final, Literal
 from uuid import UUID
@@ -17,6 +18,7 @@ from calevate_shared.call_script import CallScript
 from calevate_shared.extraction import ExtractionField
 from calevate_shared.lead_fields import core_fields
 from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,7 +33,7 @@ from apps.api.agents.service import (
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
-from apps.api.campaigns import learning, notes_live, workspace
+from apps.api.campaigns import learning, notes_live, script_draft, workspace
 from apps.api.campaigns import notes as campaign_notes
 from apps.api.campaigns import settings as campaign_settings_rules
 from apps.api.campaigns.engine_agent import needs_its_own, put_campaign_live
@@ -267,11 +269,36 @@ async def save_script(
     """Stored in its own transaction, then, when the campaign holds its engine agent, put live
     on it: Resume does not republish, so a running or paused campaign would otherwise keep
     its old script until it was stopped. A draft's reaches its calls at Start."""
+    return await _save_then_put_live(
+        session,
+        request,
+        principal,
+        campaign_id,
+        script=payload.script,
+        proposal_id=payload.proposal_id,
+    )
+
+
+async def _save_then_put_live(
+    session: AsyncSession,
+    request: Request,
+    principal: Principal,
+    campaign_id: UUID,
+    *,
+    script: CallScript | None,
+    proposal_id: UUID | None,
+) -> WorkspaceOut:
+    """Save, settle the draft it came from, then put it live: the one way the page's Save and
+    Keep on a streamed draft both take. `script` None keeps the draft exactly as Pip wrote
+    it, read under the row lock (`script_draft.ready_script`), so a stale draft is refused."""
     assert principal.tenant_id is not None
     async with tenant_session(principal.tenant_id) as own:
-        await workspace.save_script(own, campaign_id, payload.script)
-        if payload.proposal_id is not None and not await workspace.clear_proposal(
-            own, campaign_id, payload.proposal_id
+        if script is None:
+            assert proposal_id is not None
+            script = await script_draft.ready_script(own, "campaign", campaign_id, proposal_id)
+        await workspace.save_script(own, campaign_id, script)
+        if proposal_id is not None and not await workspace.clear_proposal(
+            own, campaign_id, proposal_id
         ):
             raise ProblemError.not_found("Draft")
         await write_audit(
@@ -282,11 +309,92 @@ async def save_script(
             object_type="campaign",
             object_id=str(campaign_id),
             ip=client_request_ip(request),
-            summary={"from_draft": payload.proposal_id is not None},
+            summary={"from_draft": proposal_id is not None},
         )
     if await _holds_engine_agent(session, campaign_id):
         await _put_live_after_save(principal.tenant_id, campaign_id)
     return await _workspace_out(session, campaign_id)
+
+
+_DRAFT_STREAM_DESCRIPTION = """\
+A `text/event-stream` following the campaign's Pip draft (`campaigns/script_draft`). Events:
+
+* `phase` · `{"phase": "reading"|"writing"|"checking"|"repairing"|"ready"|"failed"|"cancelled",
+  "detail": str|null}`, whenever it moves. `detail` is the failure note.
+* `line` · `{"path": "stages.2.sounds_like", "label": "Step 3 · Greeting", "text": "..."}`,
+  every line of the written draft in script order, sent at `ready`.
+* `diff` · `{"changes": [{"path", "label", "op": "added"|"removed"|"changed"|"same",
+  "before", "after"}], "proposal_id": "<uuid>"}`, once, after the lines.
+
+The stream ends after `ready`, `failed` or `cancelled`. Opening it again replays the draft's
+current state; with no draft it answers 404, which stops the browser reconnecting.\
+"""
+
+
+async def _campaign_draft_open(campaign_id: UUID, principal: Reader) -> None:
+    """The stream's checks as a dependency, so another account's campaign, or one with no
+    draft, is an ordinary 404 before the stream opens (`copilot/routes._job_is_yours`)."""
+    assert principal.tenant_id is not None
+    async with tenant_session(principal.tenant_id) as own:
+        if (await script_draft.read_draft(own, "campaign", campaign_id)).proposal is None:
+            raise ProblemError.not_found("Draft")
+
+
+@router.get(
+    "/{campaign_id}/script-draft/stream",
+    response_class=EventSourceResponse,
+    openapi_extra=permission_meta("leads:read"),
+    summary="Follow Pip's draft of the campaign's script as it is written (server-sent events)",
+    description=_DRAFT_STREAM_DESCRIPTION,
+)
+async def stream_script_draft(
+    campaign_id: UUID, principal: Reader, _open: None = Depends(_campaign_draft_open)
+) -> AsyncIterator[ServerSentEvent]:
+    """NO `Depends(db)`: a stream must not hold a pooled connection while it waits."""
+    assert principal.tenant_id is not None
+    async for event in script_draft.draft_events(principal.tenant_id, "campaign", campaign_id):
+        yield event
+
+
+@router.post(
+    "/{campaign_id}/script-draft/{proposal_id}/keep-live",
+    response_model=WorkspaceOut,
+    responses={409: {"description": "The draft is not the one ready now"}},
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Keep Pip's written draft as the campaign's script and put it live, as Save does",
+)
+async def keep_script_draft_live(
+    campaign_id: UUID,
+    proposal_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Dispatcher,
+) -> WorkspaceOut:
+    """The script before Pip's draft stays as the switch-back copy (`restore-before-pip`)."""
+    return await _save_then_put_live(
+        session, request, principal, campaign_id, script=None, proposal_id=proposal_id
+    )
+
+
+@router.post(
+    "/{campaign_id}/script-draft/{proposal_id}/cancel",
+    response_model=script_draft.DraftCancelOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Cancel Pip's draft while it is written; the campaign stays as it was",
+)
+async def cancel_script_draft(
+    campaign_id: UUID, proposal_id: UUID, session: Session, principal: Dispatcher
+) -> script_draft.DraftCancelOut:
+    assert principal.tenant_id is not None
+    await script_draft.read_draft(session, "campaign", campaign_id)
+    cancelled = await script_draft.cancel_draft(
+        session,
+        tenant_id=principal.tenant_id,
+        holder_kind="campaign",
+        holder_id=campaign_id,
+        proposal_id=proposal_id,
+    )
+    return script_draft.DraftCancelOut(cancelled=cancelled)
 
 
 class CampaignSourcesIn(BaseModel):

@@ -430,6 +430,14 @@ async def request_proposal(
         )
     now = datetime.now(UTC)
     pending = _proposal(row.script_proposal, now=now)
+    # The copy this request replaces, kept on the draft so a draft cancelled while it is
+    # written puts it back (`script_draft.cancel_draft`) and the switch-back is unchanged.
+    held = (
+        await session.execute(
+            text("SELECT script_before_pip, script_before_pip_at FROM campaigns WHERE id = :cid"),
+            {"cid": campaign_id},
+        )
+    ).one()
     if pending is None or pending.status != "drafting":
         await _keep_before_pip(session, campaign_id)
     if pending is not None and pending.status == "drafting":
@@ -446,6 +454,13 @@ async def request_proposal(
         "requested_by": None if requested_by is None else str(requested_by),
         "base_script": row.script,
     }
+    if row.script is not None:
+        record["before_pip"] = {
+            "script": held.script_before_pip,
+            "at": None
+            if held.script_before_pip_at is None
+            else held.script_before_pip_at.isoformat(),
+        }
     if focus is not None:
         record["focus"] = focus
     if ask:

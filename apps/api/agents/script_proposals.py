@@ -36,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import script_builder
 from apps.api.agents.business_fit import business_fit
 from apps.api.agents.capability_manifest import manifest_for, owner_facts
-from apps.api.agents.script_lint import order_problems, placeholder_instruction
+from apps.api.agents.script_lint import order_problems, placeholder_instruction, plain
 from apps.api.agents.starter_plans import stored_plans
 from apps.api.agents.starters import JOB_STEP_COUNTS
 from apps.api.core.errors import ProblemError
@@ -442,11 +442,153 @@ def fix_left(problems: Sequence[str], script: CallScript) -> list[LeftOut]:
     return left
 
 
+#: Where a holder's draft is while Pip writes it, as the draft stream reports it. The job
+#: stores the first four on the draft (`workers/campaign_script._phase`); `ready` and `failed`
+#: are the draft's own status, and `cancelled` is a draft stopped before it was written.
+DraftPhase = Literal["reading", "writing", "checking", "repairing", "ready", "failed", "cancelled"]
+WORKING_PHASES: Final[frozenset[str]] = frozenset({"reading", "writing", "checking", "repairing"})
+
+
+@dataclass(frozen=True, slots=True)
+class ScriptLine:
+    """One line of words in a script, at its check path (`stages.2.sounds_like`), with the
+    owner's name for where it is. `key` matches the same line across two versions: a step's
+    lines by the step's id, so a step inserted before it does not read as every later step
+    changed."""
+
+    path: str
+    label: str
+    text: str
+    key: str
+
+
+LineOp = Literal["added", "removed", "changed", "same"]
+
+
+@dataclass(frozen=True, slots=True)
+class LineChange:
+    path: str
+    label: str
+    op: LineOp
+    before: str | None
+    after: str | None
+
+
+def line_label(path: str, script: CallScript) -> str:
+    """Where `path` is, in the words the client screens already use for it: the script
+    check's place names (`script_lint.plain`: "Step 3", "The opening line"), the Script tab's
+    part names (`_PART_LABELS`) where those have none, and a step's own name beside its
+    number."""
+    top = path.split(".")[0]
+    place = plain(f"{path}: -").removesuffix(": -")
+    if place == top.replace("_", " ").capitalize() and top in _PART_LABELS:
+        place = _PART_LABELS[top]
+    parts = path.split(".")
+    if top == "stages" and len(parts) > 1 and parts[1].isdigit():
+        index = int(parts[1])
+        if index < len(script.stages) and script.stages[index].name.strip():
+            return f"{place} · {script.stages[index].name.strip()}"
+    return place
+
+
+def _stage_lines(stage: ConversationStage, index: int) -> list[tuple[str, str, str]]:
+    """(path, key, text) of a step's words, in the order the step editor lists them."""
+    at, key = f"stages.{index}", f"stages#{stage.id}"
+    rows = [
+        ("name", stage.name),
+        ("instruction", stage.instruction),
+        ("sounds_like", stage.sounds_like),
+        *((f"scripts.{tag}", said) for tag, said in sorted(stage.scripts.items())),
+        *((f"procedure.{j}.action", p.action) for j, p in enumerate(stage.procedure)),
+        *((f"procedure.{j}.wait_for", p.wait_for) for j, p in enumerate(stage.procedure)),
+        *((f"qa.{j}.question", qa.question) for j, qa in enumerate(stage.qa)),
+        *((f"qa.{j}.answer", qa.answer) for j, qa in enumerate(stage.qa)),
+        *((f"branches.{j}.when", b.when) for j, b in enumerate(stage.branches)),
+    ]
+    return [(f"{at}.{sub}", f"{key}.{sub}", said) for sub, said in rows]
+
+
+def script_lines(script: CallScript) -> list[ScriptLine]:
+    """Every non-blank line of words in `script`, in script order: how the call opens, who
+    the agent is and what it is for, how it speaks, the steps, then the answers, the ending
+    and the example call. Ids, positions and switches are not words and are not listed."""
+    rows: list[tuple[str, str]] = [
+        ("opening_line", script.opening_line),
+        ("outbound_opening_line", script.outbound_opening_line),
+        ("business_line", script.business_line),
+        ("identity", script.identity),
+        ("goal", script.goal),
+        ("outbound_purpose", script.outbound_purpose),
+        ("style.tone", script.style.tone),
+        ("style.address_form", script.style.address_form),
+        *((f"style.sample_phrases.{i}", p) for i, p in enumerate(script.style.sample_phrases)),
+        *((f"steps.{i}.instruction", s.instruction) for i, s in enumerate(script.steps)),
+    ]
+    keyed = [(path, path, said) for path, said in rows]
+    for index, stage in enumerate(script.stages):
+        keyed += _stage_lines(stage, index)
+    tail: list[tuple[str, str]] = [
+        *((f"step_outcomes.{i}.outcome", o.outcome) for i, o in enumerate(script.step_outcomes)),
+        *((f"faqs.{i}.question", f.question) for i, f in enumerate(script.faqs)),
+        *((f"faqs.{i}.answer", f.answer) for i, f in enumerate(script.faqs)),
+        *((f"objections.{i}.objection", o.objection) for i, o in enumerate(script.objections)),
+        *((f"objections.{i}.response", o.response) for i, o in enumerate(script.objections)),
+        ("ending", script.ending),
+        *((f"example_exchange.{i}.text", e.text) for i, e in enumerate(script.example_exchange)),
+    ]
+    keyed += [(path, path, said) for path, said in tail]
+    return [
+        ScriptLine(path, line_label(path, script), said, key)
+        for path, key, said in keyed
+        if said.strip()
+    ]
+
+
+def _spoken(text: str) -> str:
+    """A line as a caller hears it: a re-wrapped line or a trailing space is no change."""
+    return " ".join(text.split())
+
+
+def script_diff(before: CallScript | None, after: CallScript) -> list[LineChange]:
+    """`after` against `before`, line by line in script order. A line `after` no longer has
+    is listed where it stood, after the lines that came before it in both."""
+    old = script_lines(before) if before is not None else []
+    new = script_lines(after)
+    old_at = {line.key: index for index, line in enumerate(old)}
+    kept = {line.key for line in new}
+    changes: list[LineChange] = []
+    shown = 0
+
+    def removed_until(stop: int) -> None:
+        nonlocal shown
+        for line in old[shown:stop]:
+            if line.key not in kept:
+                changes.append(LineChange(line.path, line.label, "removed", line.text, None))
+        shown = max(shown, stop)
+
+    for line in new:
+        index = old_at.get(line.key)
+        if index is None:
+            changes.append(LineChange(line.path, line.label, "added", None, line.text))
+            continue
+        removed_until(index)
+        was = old[index].text
+        op: LineOp = "same" if _spoken(was) == _spoken(line.text) else "changed"
+        changes.append(LineChange(line.path, line.label, op, was, line.text))
+    removed_until(len(old))
+    return changes
+
+
 __all__ = [
     "FAILED_NOTE",
     "TOO_BIG_NOTE",
+    "WORKING_PHASES",
+    "DraftPhase",
+    "LineChange",
+    "LineOp",
     "ProposalMode",
     "ProposalStatus",
+    "ScriptLine",
     "ScriptProposal",
     "brief_for",
     "finding_key",
@@ -455,7 +597,10 @@ __all__ = [
     "kept_to_paths",
     "left_out_of",
     "left_out_record",
+    "line_label",
     "owner_rule",
     "part_label",
+    "script_diff",
+    "script_lines",
     "unwritten_note",
 ]
