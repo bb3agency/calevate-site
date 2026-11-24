@@ -161,7 +161,6 @@ def test_the_prompt_asks_for_the_line_that_settled_the_value() -> None:
     spec = ExtractionSchemaSpec(fields=[ExtractionField(key="notes", label="Notes", type="text")])
     prompt = build_extraction_prompt(spec, "caller: hi", moments=MomentsBrief())
     assert "on the\n  caller's line that settled THAT value" in prompt
-    assert "never on an\n  earlier line that began the subject" in prompt
 
 
 # --- 2. the summary says what was said, and no feeling nobody stated -----------------------

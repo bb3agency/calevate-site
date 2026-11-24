@@ -43,6 +43,7 @@ from calevate_shared.extraction import (
     MOMENT_KINDS,
     MomentCandidate,
     MomentKind,
+    whole_call_detail,
 )
 
 #: What produced a marker. Selects the wording and the trust a reader places in it.
@@ -268,6 +269,8 @@ def derive_moments(
     heard = [turn for turn in turns if turn.idx not in unheard]
     said_by_caller = [turn for turn in heard if turn.speaker == "caller"]
     for key, value in extraction.items():
+        if whole_call_detail(key, field_labels.get(key) or ""):
+            continue
         turn = anchor_turn(value, said_by_caller)
         if turn is None:
             continue
@@ -456,6 +459,11 @@ def field_backed(
     agent's own name, and it can point at the agent's question instead of the caller's
     answer. Such a marker says "Location captured" beside "Not mentioned: Location". Kept:
     every other kind, and a field marker whose field `captured` holds, on a caller turn.
+
+    A marker for a detail read from the whole call (`whole_call_detail`: a status, progress,
+    an outcome) is dropped whatever its turn: no single line says it, and asking the model
+    for the line that "settled" it still pinned "Installation Status" on "Android" (24 Nov
+    2026). Judged by the field key and the stored label, so it needs no field list.
     `caller_turns=None` skips the turn check, for a reader that has no turns loaded; a
     stored marker with no `turn_idx` (written before it existed) is not turn-checked.
 
@@ -469,6 +477,8 @@ def field_backed(
     for item in stored:
         if isinstance(item, dict) and item.get("kind") == "field_captured":
             if item.get("field") not in captured:
+                continue
+            if whole_call_detail(str(item.get("field") or ""), str(item.get("label") or "")):
                 continue
             turn_idx = item.get("turn_idx")
             if caller_turns is not None and turn_idx is not None and turn_idx not in caller_turns:
