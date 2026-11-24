@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.33 — 24-Nov-2026
+
+- Pip writes the outcome of every call step that has none, so you never fill them in by
+  hand; a step waits for its outcome before the call moves on to the next one.
+- Each call page shows "Where the call got to": the furthest step the caller actually
+  reached, and progress is counted from the steps reached, not from what the agent said.
+
 ## 0.5.32 — 24-Nov-2026
 
 - Agents say a filler such as "okay" at most once a call and never to open a reply, so replies
