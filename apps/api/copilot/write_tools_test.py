@@ -410,18 +410,20 @@ async def test_a_proposal_never_carries_the_phone_number_it_is_about() -> None:
 
 
 async def test_a_lead_from_another_tenant_is_not_found_rather_than_described() -> None:
-    """RLS's answer, and it is the same answer as "no such lead" — deliberately."""
+    """RLS's answer, and it is the same answer as "no such lead" — deliberately: a
+    correction the model can act on, naming no other account's object."""
     tenant_a, _slug_a, token_a = await _make_tenant()
     tenant_b, _slug_b, _token_b = await _make_tenant()
     foreign_lead = await _lead_of(tenant_b)
 
-    with pytest.raises(ProblemError) as refused:
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
         await write_tools.plan_write(
             "dnc_add",
             json.dumps({"lead_id": str(foreign_lead), "reason": "manual"}),
             actor=_actor(tenant_a, _user_of(token_a)),
         )
-    assert refused.value.status == 404
+    assert "`lead_id` names nothing in this account" in refused.value.reason
+    assert "`leads_search`" in refused.value.reason
 
 
 async def test_a_malformed_tool_call_is_a_refusal_the_model_can_fix() -> None:
@@ -766,12 +768,18 @@ async def test_the_campaign_state_machine_refuses_a_draft_through_the_confirm_pa
     """
     tenant_id, _slug, token = await _make_tenant()
     user_id = _user_of(token)
-    campaign_id = await _make_campaign(tenant_id, status="draft")
+    campaign_id = await _make_campaign(tenant_id, status="running")
     proposal = await write_tools.plan_write(
         "campaign_pause",
         json.dumps({"campaign_id": str(campaign_id)}),
         actor=_actor(tenant_id, user_id),
     )
+    # The planner now refuses a draft before any card; the state changes under the card
+    # instead, which is the race the executor's own state machine must still answer.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET status = 'draft' WHERE id = :i"), {"i": campaign_id}
+        )
 
     with pytest.raises(ProblemError) as blocked:
         await _confirm(tenant_id, user_id, proposal.token)

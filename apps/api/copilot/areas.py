@@ -770,8 +770,16 @@ class AreaSurface:
             raise AreaCallError(f"the `{call.name}` call was not an object")
         name = body.get("action")
         if not isinstance(name, str) or name not in acts:
+            # The action may exist under another area (`campaign_launch` sent to the agents
+            # area); naming that area is the one-step way back.
+            elsewhere = next(
+                (area for area, theirs in self.actions.items() if name in theirs), None
+            )
             raise AreaCallError(
-                f"`{call.name}` has no action of that name; its actions are: " + ", ".join(acts)
+                f"`{call.name}` has no action `{name}`; it is in `{elsewhere}`, so call that"
+                if isinstance(name, str) and elsewhere is not None
+                else f"`{call.name}` has no action of that name; its actions are: "
+                + ", ".join(acts)
             )
         action = acts[name]
         raw_args = body.get("args", {})

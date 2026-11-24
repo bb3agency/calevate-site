@@ -668,6 +668,8 @@ def _lead_line(lead: LeadOut) -> str:
             lead.phone_e164,
             f"updated {ist_date(lead.updated_at)}",
             f"owner {lead.assigned_to_name}" if lead.assigned_to_name else None,
+            # The id the lead actions take; the console reads send the model here for it.
+            f"[lead_id {lead.id}]",
         )
         if part
     )
@@ -842,6 +844,8 @@ async def _calls_recent(
                 f"Inbound line {call.inbound_line.name}" if call.inbound_line else None,
                 call.outcome_tag,
                 (call.summary or "")[:120] or None,
+                # The id `call_detail` and the call actions take.
+                f"[call_id {call.id}]",
             )
             if part
         )
@@ -915,11 +919,28 @@ async def _campaigns_list(
                 f"blocked: {row['consent_provenance_blocker']}"
                 if row["consent_provenance_blocker"]
                 else None,
+                # The id every campaign action takes; without it a campaign the person
+                # names from the dashboard has nothing to act on.
+                f"[campaign_id {row['id']}]",
             )
             if part
         )
         for row in rows
     ]
+    # The Archived tab is on the person's screen too; without these the model told an
+    # owner looking at an archived campaign that it did not exist.
+    archived = await campaigns_service.list_campaigns(session, limit=_ARCHIVED_SHOWN, archived=True)
+    footer = (
+        " Archived (restore one with `campaign_restore` before acting on it): "
+        + "; ".join(
+            f"{row['name']} · {row['status']} [campaign_id {row['id']}]" for row in archived
+        )
+        + "."
+        if archived
+        else ""
+    )
+    if not rows and archived:
+        return _clean("Every campaign in this account is archived." + footer)
     return _clean(
         _listing(
             lines,
@@ -934,6 +955,7 @@ async def _campaigns_list(
                 ),
             ),
         )
+        + footer
     )
 
 
@@ -1035,6 +1057,9 @@ async def _agents_list(session: AsyncSession, context: ToolContext, args: Mappin
 #: Deleted agents named after the roster, newest first, so `agent_restore` has an id. A
 #: handful: the archive is the one unbounded bucket (`roster.list_agents`).
 _DELETED_SHOWN: Final = 5
+
+#: Archived campaigns named after the list, newest first, so `campaign_restore` has an id.
+_ARCHIVED_SHOWN: Final = 10
 
 
 def _deleted_footer(deleted: Sequence[AgentOut]) -> str:
@@ -1779,6 +1804,16 @@ async def run_read_tool(
             result = await _run_scoped(tool, context, parsed)
         finally:
             _UNMASKED.reset(token)
+    except ProblemError as problem:
+        # An answer, not an outage: the id names nothing here, or a value was refused.
+        # Reporting it as "could not be read just now" sent the model to tell the person
+        # the system was down, and paged an operator for a wrong id.
+        log.info("copilot_tool_refused", extra={"tool": name, "code": problem.code})
+        return (
+            f"Not read: {problem.title}. {problem.detail} Check the ids and values against "
+            "the lookup that lists them and call again, or ask the person which one they "
+            "mean. Do not tell them it does not exist until you have checked."
+        )
     except Exception:
         # Ids only (hard rule 6) — never the arguments, which the model composed from
         # screen content, and never the result.

@@ -356,11 +356,12 @@ async def test_a_neighbours_campaign_is_a_404_and_is_never_described() -> None:
     theirs, _their_slug, _their_token = await _make_tenant()
     their_campaign = await _make_campaign(theirs)
     actor = _actor(mine, _user_of(my_token))
-    with pytest.raises(ProblemError) as refused:
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
         await write_tools.plan_write(
             "campaign_pause", json.dumps({"campaign_id": str(their_campaign)}), actor=actor
         )
-    assert refused.value.status == 404
+    assert "names nothing in this account" in refused.value.reason
+    assert "Winter checkup" not in refused.value.reason
     # NOT VACUOUS: my own campaign plans fine through the identical call.
     my_campaign = await _make_campaign(mine)
     event = await write_tools.plan_write(

@@ -32,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
-from apps.api.copilot import action_log
+from apps.api.copilot import action_log, plan_refusals
 from apps.api.copilot.actions import (
     PROPOSES_ONLY,
     ActionTier,
@@ -1315,10 +1315,13 @@ async def plan_admin_action(
                 "the operator to open that client's page first"
             )
         async with tenant_session(viewing_tenant_id) as session:
-            plan = await tool.plan(session, actor, parsed)
+            plan = await plan_refusals.plan_correctably(tool.plan, session, actor, parsed)
     else:
         async with untenanted_session() as session:
-            plan = await tool.plan(session, actor, parsed)
+            # A platform-wide session: RLS would not hide another account, so no probe.
+            plan = await plan_refusals.plan_correctably(
+                tool.plan, session, actor, parsed, probe=False
+            )
     issued_at = datetime.now(UTC)
     expires_at = (issued_at + write_tools.PROPOSAL_TTL).replace(microsecond=0)
     claims: dict[str, Any] = {

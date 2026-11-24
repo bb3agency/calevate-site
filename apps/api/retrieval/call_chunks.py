@@ -398,7 +398,8 @@ async def describe_hits(
         passage = _passage(hit, turns.get(hit.call_id or UUID(int=0), {}), summary)
         if passage is None:
             continue
-        lines.append(f"- {who} (call {str(hit.call_id)[:8]}): {passage[:max_chars]}")
+        # The whole id: `call_detail` and the call actions take nothing shorter.
+        lines.append(f"- {who} [call_id {hit.call_id}]: {passage[:max_chars]}")
     return lines
 
 

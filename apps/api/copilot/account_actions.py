@@ -124,15 +124,20 @@ async def _plan_number_assign(
     row = (
         await session.execute(
             text(
-                "SELECT n.e164, a.name, n.direction FROM phone_numbers n "
-                "LEFT JOIN agents a ON a.id = n.agent_id "
-                "WHERE n.id = :nid AND n.released_at IS NULL"
+                "SELECT n.e164, a.name, n.direction, n.released_at IS NOT NULL "
+                "FROM phone_numbers n LEFT JOIN agents a ON a.id = n.agent_id WHERE n.id = :nid"
             ),
             {"nid": parsed.number_id},
         )
     ).first()
     if row is None:
         raise ProblemError.not_found("Phone number")
+    if row[3]:
+        raise WriteRefusedError(
+            "that number has been released, so it cannot be put on an agent; read "
+            "`numbers_list` for the numbers the account still has, or offer `number_buy`",
+            plain="That number has been released, so it can't be used any more.",
+        )
     masked = _masked(str(row[0]))
     line = await number_inbound_line(session, parsed.number_id)
     if line is not None:
@@ -877,14 +882,28 @@ async def _plan_invitation(
     row = (
         await session.execute(
             text(
-                "SELECT email, role FROM invitations "
-                "WHERE id = :i AND used_at IS NULL AND expires_at > now()"
+                "SELECT email, role, used_at IS NOT NULL, expires_at <= now() FROM invitations "
+                "WHERE id = :i"
             ),
             {"i": parsed.invitation_id},
         )
     ).first()
     if row is None:
         raise ProblemError.not_found("Invitation")
+    # Neither can be resent or cancelled (`members.resend_invitation` refuses an expired
+    # one too); the person needs to know which, and what to do instead.
+    if row[2]:
+        raise WriteRefusedError(
+            "that invitation was already accepted, so the person is a team member now; "
+            "read `team_members` and use `team_member_role` or `team_member_remove`",
+            plain="That invitation was already accepted.",
+        )
+    if row[3]:
+        raise WriteRefusedError(
+            "that invitation has expired and can be neither resent nor cancelled; offer "
+            "`team_invite` to invite them again",
+            plain="That invitation has expired. Send a new one.",
+        )
     assert_role_is_grantable(actor.role, str(row[1]))
     email = str(row[0])
     resend = parsed.action == "resend"
@@ -1642,22 +1661,43 @@ class _HeldArgs(BaseModel):
 async def _plan_held(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
     del actor
     parsed = parse_args(_HeldArgs, args)
-    row = (
+    # `integrations_status` prints a held lead's `[hold_id]` beside its `[lead_id]`, so the
+    # lead's id is the commonest slip; a lead held once names its hold unambiguously.
+    rows = (
         await session.execute(
             text(
-                "SELECT a.name FROM lead_call_holds h JOIN leads l ON l.id = h.lead_id "
+                "SELECT h.id, a.name FROM lead_call_holds h JOIN leads l ON l.id = h.lead_id "
                 "LEFT JOIN agents a ON a.id = h.agent_id "
-                "WHERE h.id = :hid AND h.status = 'held' AND l.deleted_at IS NULL"
+                "WHERE (h.id = :hid OR h.lead_id = :hid) AND h.status = 'held' "
+                "AND l.deleted_at IS NULL ORDER BY h.id = :hid DESC LIMIT 2"
             ),
             {"hid": parsed.hold_id},
         )
-    ).first()
-    if row is None:
+    ).all()
+    if len(rows) > 1 and rows[0][0] != parsed.hold_id:
+        raise WriteRefusedError(
+            "that lead is waiting for more than one agent; take the `[hold_id …]` of the "
+            "one the person means from `integrations_status` and call again",
+            plain="That lead is waiting in more than one place. Say which agent should call.",
+        )
+    if not rows:
+        settled = (
+            await session.execute(
+                text("SELECT status FROM lead_call_holds WHERE id = :hid"),
+                {"hid": parsed.hold_id},
+            )
+        ).scalar()
+        if settled is not None:
+            raise WriteRefusedError(
+                f"that held lead was already settled ({settled}); it is no longer waiting, "
+                "so tell the person and do not propose it again",
+                plain="That lead was already decided and is no longer waiting.",
+            )
         raise ProblemError.not_found("Held lead")
-    agent = strip_invisible(str(row[0] or "its agent"))
+    hold_id, agent = rows[0][0], strip_invisible(str(rows[0][1] or "its agent"))
     call = parsed.decision == "call"
     return Plan(
-        object_id=str(parsed.hold_id),
+        object_id=str(hold_id),
         title="Call a held lead" if call else "Do not call a held lead",
         summary=(
             f"“{agent}” calls this lead as soon as your hours and 9 AM-9 PM allow."
@@ -1670,7 +1710,7 @@ async def _plan_held(session: AsyncSession, actor: ToolActor, args: Mapping[str,
         reversal="A call cannot be taken back once it has started ringing."
         if call
         else "Call it from its lead page later if you change your mind.",
-        args={"hold_id": str(parsed.hold_id), "decision": parsed.decision},
+        args={"hold_id": str(hold_id), "decision": parsed.decision},
     )
 
 
@@ -2276,19 +2316,34 @@ class _AutoRechargeArgs(BaseModel):
 async def _plan_auto_recharge(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Plan:
-    from apps.api.billing.auto_recharge import read_auto_recharge
+    from apps.api.billing.auto_recharge import read_auto_recharge, validate_amounts
 
     parsed = parse_args(_AutoRechargeArgs, args)
     state = await read_auto_recharge(session, tenant_id=actor.tenant_id)
     enabled = state.enabled if parsed.enabled is None else parsed.enabled
-    threshold = _rupees(parsed.threshold_inr, field="threshold_inr") or state.threshold_inr
-    amount = _rupees(parsed.amount_inr, field="amount_inr") or state.amount_inr
-    cap = _rupees(parsed.monthly_cap_inr, field="monthly_cap_inr") or state.monthly_cap_inr
+
+    def kept(given: Decimal | None, current: Decimal) -> Decimal:
+        # `is None`, not `or`: a typed ₹0 threshold is a value, not "keep the current one".
+        return current if given is None else given
+
+    threshold = kept(_rupees(parsed.threshold_inr, field="threshold_inr"), state.threshold_inr)
+    amount = kept(_rupees(parsed.amount_inr, field="amount_inr"), state.amount_inr)
+    cap = kept(_rupees(parsed.monthly_cap_inr, field="monthly_cap_inr"), state.monthly_cap_inr)
     if enabled and state.mandate_status != "confirmed":
         raise WriteRefusedError(
             "auto-recharge needs an automatic payment method approved first, which the person "
-            "does themselves on Credits & billing; the assistant never sets up payments"
+            "does themselves on Credits & billing; the assistant never sets up payments",
+            plain="Approve automatic payments on Credits & billing first.",
         )
+    try:
+        # `save_auto_recharge`'s own bounds, asked before the card rather than after it.
+        validate_amounts(threshold, amount, cap)
+    except ProblemError as problem:
+        raise WriteRefusedError(
+            f"{problem.detail} {problem.remediation or ''} Ask the person for amounts that "
+            "fit, then call again",
+            plain=problem.detail,
+        ) from problem
 
     def words(on: bool, th: Decimal, am: Decimal, mc: Decimal) -> str:
         return (

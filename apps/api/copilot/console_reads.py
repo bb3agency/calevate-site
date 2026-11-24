@@ -61,6 +61,7 @@ from apps.api.compliance.outbound_pledge import pledge_blocker
 from apps.api.compliance.service import credits_exhausted
 from apps.api.copilot.agent_reads import AGENT_SETTINGS_READ
 from apps.api.copilot.knowledge_reads import KNOWLEDGE_SOURCES
+from apps.api.copilot.plan_refusals import unread_id
 from apps.api.copilot.tools import (
     MAX_ROWS,
     ReadTool,
@@ -162,7 +163,7 @@ async def _agent_detail(
         return _missing_id("agent_id", "an `agents_list` lookup")
     agent = await roster.agent_by_id(session, agent_id)
     if agent is None:
-        return "No agent with that id in this account."
+        return await unread_id(session, "agent_id", agent_id)
     staged = (
         await session.execute(
             text(
@@ -245,7 +246,7 @@ async def _lead_detail(session: AsyncSession, context: ToolContext, args: Mappin
     try:
         lead = await crm_service.get_lead(session, lead_id)
     except ProblemError:
-        return "No lead with that id in this account."
+        return await unread_id(session, "lead_id", lead_id)
     timeline = await crm_service.lead_timeline(session, lead_id, limit=10)
     captured = sorted(key for key, value in lead.data.items() if value not in (None, "", []))
     unmasked = context.unmasked is not None
@@ -299,7 +300,7 @@ async def _call_detail(session: AsyncSession, context: ToolContext, args: Mappin
     try:
         call = await crm_service.get_call(session, call_id, raw=raw is not None)
     except ProblemError:
-        return "No call with that id in this account."
+        return await unread_id(session, "call_id", call_id)
     if raw is not None:
         await write_audit(
             session,
@@ -885,7 +886,7 @@ async def _campaign_detail(
     try:
         progress = await campaigns_service.campaign_progress(session, campaign_id)
     except ProblemError:
-        return "No campaign with that id in this account."
+        return await unread_id(session, "campaign_id", campaign_id)
     counts = ", ".join(f"{k} {v}" for k, v in progress["contacts"].items()) or "no contacts yet"
     lines = [f"Status {progress['status']}; {progress['total']} contact(s) ({counts})."]
     lines.append(f"Why it calls: {progress['purpose'] or 'not said'}.")
@@ -1087,7 +1088,7 @@ async def _script_promo_check(
     try:
         check = await promo_checks.agent_check(session, agent_id)
     except ProblemError:
-        return "No agent with that id in this account."
+        return await unread_id(session, "agent_id", agent_id)
     report = check.report
     header = f"Checked the agent's {check.reading} script."
     if not check.places_calls:
@@ -1178,7 +1179,7 @@ async def _agent_known_facts(
     if agent_id is None:
         return _missing_id("agent_id", "an `agents_list` lookup")
     if context.tenant_id is None or await roster.agent_by_id(session, agent_id) is None:
-        return "No agent with that id in this account."
+        return await unread_id(session, "agent_id", agent_id)
     found = await hot_facts.view(
         session, tenant_id=context.tenant_id, agent_id=agent_id, engine=get_engine()
     )
