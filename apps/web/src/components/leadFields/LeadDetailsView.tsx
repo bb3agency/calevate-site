@@ -29,14 +29,13 @@ import {
   type JobNotesSource,
 } from "@/app/c/[slug]/campaigns/CampaignNotes";
 import { FoldGroup } from "@/app/c/[slug]/campaigns/FoldSection";
-import { useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { EmptyState } from "@/components/console/emptyState";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import {
   FIELD,
-  PRIMARY_BUTTON,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
@@ -229,9 +228,9 @@ function CoreFields({
           </ul>
           {rename.error ? <ProblemNotice error={rename.error} /> : null}
           <div className="flex flex-wrap items-center gap-3">
-            <button type="submit" className={PRIMARY_BUTTON} disabled={rename.isPending}>
-              {rename.isPending ? "Saving…" : "Save names"}
-            </button>
+            <ActionButton type="submit" status={rename.isPending ? "pending" : "idle"} pendingLabel="Saving…">
+              Save names
+            </ActionButton>
             <button type="button" className={SECONDARY_BUTTON} onClick={() => setNames(null)}>
               Cancel
             </button>
@@ -360,14 +359,15 @@ function DraftOffer({
         </div>
       )}
       {draft ? (
-        <button
-          type="button"
-          className={`${PRIMARY_BUTTON} mt-3`}
-          disabled={!canWrite || draft.isPending}
+        <ActionButton
+          className="mt-3"
+          status={draft.isPending ? "pending" : "idle"}
+          pendingLabel="Starting…"
+          disabled={!canWrite}
           onClick={() => draft.mutate()}
         >
-          {draft.isPending ? "Starting…" : failed ? "Try again" : "Draft from the business details"}
-        </button>
+          {failed ? "Try again" : "Draft from the business details"}
+        </ActionButton>
       ) : (
         <AskAssistant
           label={`Let ${ASSISTANT_NAME} draft them`}
@@ -405,6 +405,7 @@ function DraftReview({
   const count = kept.size;
   const owner = audience === "client" && review !== undefined;
   const busy = review?.isPending ?? false;
+  const keepingNone = review?.variables?.keep.length === 0;
   return (
     <section aria-labelledby="draft-review-heading" className="space-y-4 rounded-card border border-line p-4">
       <div>
@@ -452,22 +453,24 @@ function DraftReview({
           <ApplyToJobs jobs={jobs} picks={picks} disabled={!canWrite || busy} legend="Add them to" />
           {review.error && <ProblemNotice error={review.error} />}
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className={PRIMARY_BUTTON}
-              disabled={!canWrite || count === 0 || busy}
+            {/* The pressed one spins; the other is held. "Keep none" is the only press that
+                sends an empty `keep`, since Keep needs at least one ticked. */}
+            <ActionButton
+              status={busy && !keepingNone ? "pending" : "idle"}
+              pendingLabel="Keeping…"
+              disabled={!canWrite || count === 0 || (busy && keepingNone)}
               onClick={() => review.mutate({ keep: [...kept], jobs: picks.refs })}
             >
-              {busy ? "Keeping…" : count === draft.fields.length ? `Keep all ${count}` : `Keep ${count} of ${draft.fields.length}`}
-            </button>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON}
-              disabled={!canWrite || busy}
+              {count === draft.fields.length ? `Keep all ${count}` : `Keep ${count} of ${draft.fields.length}`}
+            </ActionButton>
+            <ActionButton
+              variant="secondary"
+              status={busy && keepingNone ? "pending" : "idle"}
+              disabled={!canWrite || (busy && !keepingNone)}
               onClick={() => review.mutate({ keep: [], jobs: [] })}
             >
               Keep none
-            </button>
+            </ActionButton>
           </div>
         </>
       )}
@@ -540,9 +543,8 @@ function StartAgainPanel({
       )}
       {replace.error && !confirming && <ProblemNotice error={replace.error} />}
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className={PRIMARY_BUTTON}
+        {/* Opens the confirmation, whose own button carries the work; held while it runs. */}
+        <ActionButton
           disabled={picks.refs.length === 0 || replace.isPending}
           onClick={() => {
             replace.reset();
@@ -550,7 +552,7 @@ function StartAgainPanel({
           }}
         >
           Replace on {picks.refs.length}
-        </button>
+        </ActionButton>
         <button type="button" className={SECONDARY_BUTTON} onClick={onClose}>
           Close
         </button>

@@ -19,7 +19,7 @@ import { Field } from "@/components/arc/field";
 import { NumberField } from "@/components/arc/number-field";
 import { TEXT_ACTION } from "@/components/console/section";
 import { ModalDialog } from "@/components/modalDialog";
-import { FIELD, ProblemNotice, SECONDARY_BUTTON, formatISTDay } from "@/components/ui";
+import { FIELD, ProblemNotice, formatISTDay } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { callsAtOnce, useAskForMoreLines, useMyCallLines, type MyCallLines } from "@/lib/api/callLines";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -114,9 +114,9 @@ function AskDialog({ session, data, onClose }: { session: Session; data: MyCallL
       }}
       actions={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onClose} disabled={pending}>
+          <ActionButton variant="secondary" onClick={onClose} disabled={pending}>
             Cancel
-          </button>
+          </ActionButton>
           <ActionButton
             status={feedback.status}
             pendingLabel="Sending…"

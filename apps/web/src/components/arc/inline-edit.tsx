@@ -18,12 +18,12 @@
  */
 
 import { useEffect, useId, useRef, useState, type ElementType } from "react";
-import { Check, LoaderCircle, Pencil, X } from "lucide-react";
+import { Check, Pencil, X } from "lucide-react";
 import clsx from "clsx";
 
 import { FieldMessage } from "@/components/formValidation";
 
-import type { FeedbackStatus } from "./feedback";
+import { ActionButton, type FeedbackStatus } from "./feedback";
 
 export type InlineEditProps = {
   value: string;
@@ -233,23 +233,27 @@ export function InlineEdit({
             textClassName,
           )}
         />
-        <button
+        {/* Icon-only, so the pending face is the spinner alone (`pendingLabel=""`) and the
+            text variant's row padding is taken off for a square target. */}
+        <ActionButton
           type="submit"
+          variant="text"
           aria-label={saveLabel}
-          disabled={busy}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-brand-strong hover:bg-ink/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:w-11"
+          status={busy ? "pending" : "idle"}
+          pendingLabel=""
+          className="mx-0! min-h-0! px-0! h-8 w-8 shrink-0 touch:h-11 touch:w-11"
         >
-          {busy ? <LoaderCircle aria-hidden className="h-4 w-4 motion-safe:animate-spin" /> : <Check aria-hidden className="h-4 w-4" />}
-        </button>
-        <button
-          type="button"
+          <Check aria-hidden className="h-4 w-4" />
+        </ActionButton>
+        <ActionButton
+          variant="text"
           aria-label={cancelLabel}
           onClick={cancel}
           disabled={busy}
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-ink-muted hover:bg-ink/[0.05] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:w-11"
+          className="mx-0! min-h-0! px-0! h-8 w-8 shrink-0 text-ink-muted! hover:text-ink! touch:h-11 touch:w-11"
         >
           <X aria-hidden className="h-4 w-4" />
-        </button>
+        </ActionButton>
       </form>
       {problem ? <FieldMessage id={messageId}>{problem}</FieldMessage> : null}
     </div>

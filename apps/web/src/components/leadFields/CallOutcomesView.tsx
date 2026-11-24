@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, PenLine, Plus, Trash2 } from "lucide-react";
 import type { UseMutationResult } from "@tanstack/react-query";
 
+import { ActionButton } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import { SavedTick } from "@/components/console/savedTick";
 import { useFormValidation } from "@/components/formValidation";
@@ -227,16 +228,16 @@ function OutcomesEditor({
       <p className="max-w-prose text-xs text-ink-muted [text-wrap:pretty]">{originLine(agent)}</p>
       {canWrite && canAskForDraft(agent) && (
         <div className="space-y-2">
-          <button
-            type="button"
-            className={SECONDARY_BUTTON}
-            disabled={draft.isPending || dirty}
+          <ActionButton
+            variant="secondary"
+            status={draft.isPending ? "pending" : "idle"}
+            pendingLabel="Asking…"
+            waitingFor={dirty ? "Your changes are saving; ask once they are saved." : null}
             onClick={() => draft.mutate({ agentId: agent.id })}
           >
             <PenLine aria-hidden className="h-4 w-4" />
-            {draft.isPending ? "Asking…" : "Write them for me"}
-          </button>
-          {dirty && <p className="text-xs text-ink-muted">Your changes are saving; ask once they are saved.</p>}
+            Write them for me
+          </ActionButton>
           {draft.error && <ProblemNotice error={draft.error} />}
         </div>
       )}

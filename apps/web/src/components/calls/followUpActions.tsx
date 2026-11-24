@@ -672,9 +672,9 @@ function WhatsAppDialog({
       onClose={onClose}
       actions={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onClose} disabled={status === "pending"}>
+          <ActionButton variant="secondary" onClick={onClose} disabled={status === "pending"}>
             {canSend ? "Cancel" : "Close"}
-          </button>
+          </ActionButton>
           {canSend ? (
             <ActionButton status={answered ? "idle" : status} successLabel="Sent" pendingLabel="Sending…" onClick={submit}>
               Send

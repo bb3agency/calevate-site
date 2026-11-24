@@ -44,7 +44,7 @@
 import { useCallback, useEffect } from "react";
 
 import { useMutation } from "@tanstack/react-query";
-import { LogOut } from "lucide-react";
+import { LoaderCircle, LogOut } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { SIDEBAR_ROW_CLASS, SidebarLabel } from "@/components/sidebarCollapse";
@@ -109,22 +109,29 @@ export function SidebarSignOut({ authn, signInPath, isCollapsed }: SidebarSignOu
     <div className="space-y-2">
     <button
       type="button"
-      // `disabled` while in flight rather than a guard inside the handler: a second click
-      // would issue a second POST against a session the first one is already revoking, and
-      // the second reliably 401s — turning a successful sign-out into the incomplete
-      // notice.
-      disabled={busy}
+      // Presses are ignored while in flight: a second click would issue a second POST
+      // against a session the first one is already revoking, and the second reliably 401s,
+      // turning a successful sign-out into the incomplete notice. `aria-disabled` rather
+      // than `disabled`, as `ActionButton` does, so focus stays on the pressed row. Not an
+      // `ActionButton` itself: its centred faces would break this row's rail geometry.
+      aria-disabled={busy || undefined}
       aria-busy={busy || undefined}
-      onClick={() => feedback.run()}
+      onClick={() => {
+        if (!busy) feedback.run();
+      }}
       title={isCollapsed ? "Sign out" : undefined}
       aria-label="Sign out"
       // `px-4` inside the footer's `px-3` puts this glyph's centre on 36px — the collapsed
       // rail's centre line, the same one every other leading glyph in the panel sits on
       // (`components/sidebarCollapse.tsx`). It therefore does not move while the panel
       // animates; only the label beside it does. Geometry and focus ring are the nav rows'.
-      className={`${SIDEBAR_ROW_CLASS} w-full text-ink-muted transition-colors hover:bg-ink/[0.04] hover:text-ink disabled:cursor-not-allowed disabled:opacity-60 dark:hover:bg-white/5`}
+      className={`${SIDEBAR_ROW_CLASS} w-full text-ink-muted transition-colors hover:bg-ink/[0.04] hover:text-ink aria-disabled:cursor-progress dark:hover:bg-white/5`}
     >
-      <LogOut aria-hidden className="h-4 w-4 shrink-0" />
+      {busy ? (
+        <LoaderCircle aria-hidden className="h-4 w-4 shrink-0 motion-safe:animate-spin" />
+      ) : (
+        <LogOut aria-hidden className="h-4 w-4 shrink-0" />
+      )}
       {/* Mounted in both states and faded, not unmounted: the only way out of the console
           keeps its accessible name on the collapsed rail. */}
       <SidebarLabel isCollapsed={isCollapsed}>{busy ? "Signing out…" : "Sign out"}</SidebarLabel>

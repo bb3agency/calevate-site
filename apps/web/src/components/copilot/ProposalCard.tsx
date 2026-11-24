@@ -306,15 +306,17 @@ function SingleProposalCard({
                 >
                   Confirm
                 </ActionButton>
-                <button
-                  type="button"
+                <ActionButton
+                  variant="secondary"
+                  // Never shown (this button stays idle), but the kit keeps every face in the
+                  // DOM, and a stray "Done" beside an unconfirmed proposal would read as one.
+                  successLabel="Dismissed"
                   disabled={confirm.isPending}
                   onClick={onDismiss}
                   aria-label={`Dismiss — ${proposal.title}`}
-                  className={SECONDARY_BUTTON}
                 >
                   Dismiss
-                </button>
+                </ActionButton>
               </div>
             )
           )}

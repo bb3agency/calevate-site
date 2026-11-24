@@ -13,11 +13,11 @@ import { useCallback, useState } from "react";
 
 import { useMutation } from "@tanstack/react-query";
 
-import { useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { EmailVerificationPanel } from "@/components/authn/emailVerificationPanel";
 import { AuthProblemNotice } from "@/components/authn/fields";
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
+import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { StatusPill } from "@/components/console/statusPill";
 import type { RealmAuthn } from "@/lib/authn/realm";
@@ -130,35 +130,31 @@ export function SessionsSection({
         <SettingRow
           label="This browser"
           action={
-            <button
-              type="button"
-              className={TEXT_ACTION}
-              disabled={busy}
-              aria-busy={signOutFeedback.status === "pending" || undefined}
-              onClick={() => {
-                if (!signOut.isPending) signOutFeedback.run();
-              }}
+            <ActionButton
+              variant="text"
+              status={signOutFeedback.status}
+              pendingLabel="Signing out…"
+              disabled={signOutAllFeedback.status === "pending"}
+              onClick={() => signOutFeedback.run()}
             >
-              {signOutFeedback.status === "pending"
-                ? "Signing out…"
-                : signOutFeedback.status === "error"
-                  ? "Try again"
-                  : "Sign out"}
-            </button>
+              Sign out
+            </ActionButton>
           }
         />
         <SettingRow
           label="Every device"
           hint={everywhereHint}
           action={
-            <button
-              type="button"
-              className={TEXT_ACTION_DANGER}
+            // Held, not spinning, while either sign-out runs: it only opens the dialog, and
+            // the dialog's own button carries the work.
+            <ActionButton
+              variant="text"
               disabled={busy}
               onClick={() => setConfirming(true)}
+              className="text-danger! dark:text-rose-400! [&:not(:disabled)]:hover:bg-danger/10! [&:not(:disabled)]:active:bg-danger/15! focus-visible:ring-danger!"
             >
               Sign out everywhere
-            </button>
+            </ActionButton>
           }
         />
       </SettingRows>

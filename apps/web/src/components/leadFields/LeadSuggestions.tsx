@@ -15,8 +15,8 @@
 import { useState } from "react";
 import { X } from "lucide-react";
 
-import { TEXT_ACTION } from "@/components/console/section";
-import { PRIMARY_BUTTON_SM, ProblemNotice, QUIET_ICON_BUTTON, SECONDARY_BUTTON_SM, formatISTStamp } from "@/components/ui";
+import { ActionButton } from "@/components/arc/feedback";
+import { ProblemNotice, QUIET_ICON_BUTTON, SECONDARY_BUTTON_SM, formatISTStamp } from "@/components/ui";
 import type { LeadSuggestion, LeadSuggestionsApi } from "@/lib/api/leadSuggestions";
 
 const SOURCE: Readonly<Record<LeadSuggestion["source"], string>> = {
@@ -70,9 +70,15 @@ export function LeadSuggestions({
           {count ? `Suggested changes (${count})` : "Suggested changes"}
         </h3>
         {canWrite && !reading && (
-          <button type="button" className={`${TEXT_ACTION} shrink-0 text-xs`} disabled={check.isPending} onClick={() => check.mutate()}>
-            {check.isPending ? "Starting…" : data.state === "none" ? "Check now" : "Check again"}
-          </button>
+          <ActionButton
+            variant="text"
+            className="shrink-0 text-xs"
+            status={check.isPending ? "pending" : "idle"}
+            pendingLabel="Starting…"
+            onClick={() => check.mutate()}
+          >
+            {data.state === "none" ? "Check now" : "Check again"}
+          </ActionButton>
         )}
       </div>
 
@@ -105,9 +111,16 @@ export function LeadSuggestions({
 
       {canWrite && count > 1 && (
         <div className="mt-3">
-          <button type="button" className={PRIMARY_BUTTON_SM} disabled={busy || dirty} onClick={() => acceptAll.mutate(suggestions.map((s) => s.id))}>
-            {acceptAll.isPending ? "Accepting…" : `Accept all ${count}`}
-          </button>
+          <ActionButton
+            variant="primary-sm"
+            status={acceptAll.isPending ? "pending" : "idle"}
+            pendingLabel="Accepting…"
+            // `dirty`'s reason is printed below; a single accept or dismiss holds it too.
+            disabled={dirty || accept.isPending || dismiss.isPending}
+            onClick={() => acceptAll.mutate(suggestions.map((s) => s.id))}
+          >
+            {`Accept all ${count}`}
+          </ActionButton>
         </div>
       )}
       {dirty && count > 0 && canWrite && (
@@ -117,9 +130,14 @@ export function LeadSuggestions({
         <div className="mt-2 space-y-2">
           <ProblemNotice error={api.kept} />
           {canWrite && (
-            <button type="button" className={SECONDARY_BUTTON_SM} disabled={savingAgain} onClick={onSaveAgain}>
-              {savingAgain ? "Saving…" : "Save again"}
-            </button>
+            <ActionButton
+              variant="secondary-sm"
+              status={savingAgain ? "pending" : "idle"}
+              pendingLabel="Saving…"
+              onClick={onSaveAgain}
+            >
+              Save again
+            </ActionButton>
           )}
         </div>
       ) : (

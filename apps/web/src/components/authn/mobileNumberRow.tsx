@@ -199,9 +199,8 @@ export function MobileNumberRow({ phone }: { phone: string | null }) {
             >
               Save
             </ActionButton>
-            <button
-              type="button"
-              className={TEXT_ACTION}
+            <ActionButton
+              variant="text"
               disabled={save.isPending}
               onClick={() => {
                 save.reset();
@@ -209,7 +208,7 @@ export function MobileNumberRow({ phone }: { phone: string | null }) {
               }}
             >
               Change
-            </button>
+            </ActionButton>
           </div>
         </div>
       )}
