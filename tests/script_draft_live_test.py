@@ -270,7 +270,7 @@ async def test_keep_puts_the_draft_live_and_keeps_the_switch_back(
     async def put_campaign_live(*, tenant_id: UUID, campaign_id: UUID, **_kwargs: Any) -> None:
         put_live.append(campaign_id)
 
-    monkeypatch.setattr(workspace_routes, "_holds_engine_agent", holds)
+    monkeypatch.setattr(workspace_routes.workspace, "holds_engine_agent", holds)
     monkeypatch.setattr(workspace_routes, "put_campaign_live", put_campaign_live)
     kept = await _http(
         token, "POST", f"/v1/campaigns/{campaign_id}/script-draft/{proposal_id}/keep-live"

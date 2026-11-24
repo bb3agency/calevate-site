@@ -148,7 +148,7 @@ async def test_a_restore_is_compare_and_set_and_puts_the_script_live(
     async def put_campaign_live(*, tenant_id: UUID, campaign_id: UUID, **_kwargs: Any) -> None:
         put_live.append(campaign_id)
 
-    monkeypatch.setattr(workspace_routes, "_holds_engine_agent", holds)
+    monkeypatch.setattr(workspace_routes.workspace, "holds_engine_agent", holds)
     monkeypatch.setattr(workspace_routes, "put_campaign_live", put_campaign_live)
     path = f"/v1/campaigns/{campaign_id}/script"
     seen = (await _http(tenant_id, "GET", f"{path}/versions")).json()

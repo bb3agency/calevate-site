@@ -40,8 +40,9 @@ from apps.api.copilot.schemas import (
 #: leads to one Inbound line as it already does to one campaign. The client prefix carries
 #: the rule that a script is always rewritten through script_draft (founder, 24 Nov 2026,
 #: after Pip told an owner it could not; measured 17,521), and `follow_up_campaign_whatsapp`
-#: (D-1041, the campaign card's one-press set-up as a Pip action; measured 17,557).
-PREFIX_BUDGET_TOKENS = {"client": 17_570, "admin_account": 11_050, "admin_console": 6_700}
+#: (D-1041, the campaign card's one-press set-up as a Pip action; measured 17,557; 17,617 on
+#: the tree that also carries D-1039 and D-1042).
+PREFIX_BUDGET_TOKENS = {"client": 17_630, "admin_account": 11_050, "admin_console": 6_700}
 
 #: The client tool array alone (PIP-AGENT-PLAN §2a): every read and action of every area.
 TOOL_ARRAY_BUDGET_TOKENS = 12_000
