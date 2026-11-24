@@ -60,6 +60,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "call",
     "calls",
     "calls-log",
+    // The account Improve page reads every job's calls; the weekly summary is written from them.
+    "account-improve",
+    "weekly-summaries",
     // Where the log's live calls stand (D-886); it polls on its own while one runs.
     "calls-live",
     // The calls one inbound line took (D-997), and the test calls rung through it.
@@ -151,6 +154,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "campaign-whatsapp",
     // The saved versions of a campaign's script, written with the campaign row (D-1039).
     "script-versions",
+    // "Give callers time" is a campaign's or line's own call setting, read with its script.
+    "holder-give-time",
     // A mistake's repair state on the Improve tab is the campaign's script-heal pass.
     "holder-diagnosis",
     "campaign-notes",
@@ -241,6 +246,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "line-notes",
     // The saved versions of a line's script, written with the line row (D-1039).
     "script-versions",
+    "holder-give-time",
     // An agent's jobs: its inbound lines and its campaigns (D-1000).
     "agent-jobs",
     "agent-stats",
