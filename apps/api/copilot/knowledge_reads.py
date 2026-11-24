@@ -18,6 +18,8 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.copilot import step_results
+from apps.api.copilot.step_results import ResultRow
 from apps.api.copilot.tools import ReadTool, ToolContext, _clean, _nothing, ist_date
 from apps.api.core.errors import ProblemError
 from apps.api.kb import store
@@ -85,6 +87,17 @@ async def _knowledge_sources(
             account_has_any=None,
             next_step="Facts, files and links are added on the What your agents know screen.",
         )
+    step_results.offer(
+        (
+            ResultRow(
+                title=item.name,
+                subtitle=f"{item.kind} · {_STATE_WORDS[item.state]}",
+                href="/c/{slug}/knowledge",
+            )
+            for item in items
+        ),
+        total=total,
+    )
     lines = []
     for item in items:
         line = f"- {item.name} · {item.kind} · {_STATE_WORDS[item.state]}"

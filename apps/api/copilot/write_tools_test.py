@@ -1214,7 +1214,7 @@ async def test_the_proposal_reaches_the_browser_as_its_own_sse_event(
     # frame when `plan_write` starts and a terminal one when it returns. They are filtered
     # out here rather than pinned in sequence, because this test is about the PROPOSAL
     # reaching the browser as its own event — `actions_test.py` pins the step contract.
-    assert [frame for frame, _ in frames if frame != "step"] == ["proposal", "done"]
+    assert [frame for frame, _ in frames if frame != "step"] == ["run", "proposal", "done"]
     proposal = next(data for frame, data in frames if frame == "proposal")
     assert proposal["tool"] == "campaign_pause"
     assert proposal["object_id"] == str(campaign_id)

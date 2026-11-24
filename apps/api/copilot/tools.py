@@ -64,9 +64,10 @@ from apps.api.analytics import service as analytics
 from apps.api.analytics.schemas import CallGroupBy, SummaryBucket
 from apps.api.billing.plans import IST
 from apps.api.campaigns import service as campaigns_service
-from apps.api.copilot import id_kinds, lens_args
+from apps.api.copilot import id_kinds, lens_args, step_results
 from apps.api.copilot.prompt import defuse, function_tool
 from apps.api.copilot.sanitize import strip_invisible
+from apps.api.copilot.step_results import ResultRow
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -714,6 +715,18 @@ async def _leads_search(
         field_filters=scope.field_filters,
         more=scope.more,
     )
+    # The rows the step can open (`step_results`). No phone: a row is for recognising.
+    step_results.offer(
+        (
+            ResultRow(
+                title=lead.name or "No name",
+                subtitle=f"{lead.status} · {lead.call_count} call(s)",
+                href=f"/c/{{slug}}/leads/{lead.id}",
+            )
+            for lead in page.items
+        ),
+        total=page.total,
+    )
     lines = [_lead_line(lead) for lead in page.items]
     label = f"leads{f' with status {asked}' if asked else ''}"
     if narrowed:
@@ -831,6 +844,24 @@ async def _calls_recent(
             return "No calls match these filters."
     else:
         total = 0
+    step_results.offer(
+        (
+            ResultRow(
+                title=" · ".join(
+                    part
+                    for part in (
+                        ist_date(call.started_at) if call.started_at else "Not started",
+                        call.direction,
+                    )
+                    if part
+                ),
+                subtitle=" · ".join(part for part in (call.status, call.agent_name) if part),
+                href=f"/c/{{slug}}/calls/{call.id}",
+            )
+            for call in rows
+        ),
+        total=total,
+    )
     lines = [
         " · ".join(
             part
@@ -892,6 +923,17 @@ async def _campaigns_list(
     # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
     del context
     rows = await campaigns_service.list_campaigns(session, limit=MAX_ROWS)
+    step_results.offer(
+        (
+            ResultRow(
+                title=str(row["name"]),
+                subtitle=str(row["status"]),
+                href=f"/c/{{slug}}/campaigns/{row['id']}",
+            )
+            for row in rows
+        ),
+        total=len(rows),
+    )
     lines = [
         " · ".join(
             part
@@ -990,6 +1032,17 @@ async def _agents_list(session: AsyncSession, context: ToolContext, args: Mappin
     # answered from a page silently capped at ten, reported as "there may be more", is the
     # truncation this module's docstring names as how a copilot comes to miscount.
     rows = await roster.list_agents(session, limit=_cap(args.get("limit"), default=MAX_ROWS))
+    step_results.offer(
+        (
+            ResultRow(
+                title=agent.name,
+                subtitle=f"{agent.direction} · {agent.status}",
+                href=f"/c/{{slug}}/agents/{agent.id}",
+            )
+            for agent in rows
+        ),
+        total=len(rows),
+    )
     lines = [
         " · ".join(
             part

@@ -58,6 +58,7 @@ from apps.api.copilot import (
     model_tiers,
     plans,
     quality,
+    run_control,
     service,
     session_run,
     transcript,
@@ -86,6 +87,9 @@ from apps.api.copilot.schemas import (
     CopilotJobOut,
     CopilotJobPageOut,
     CopilotJobProgressOut,
+    CopilotRunEvent,
+    CopilotStopOut,
+    CopilotStoppedEvent,
     CopilotTextEvent,
     CopilotTurnIds,
     CopilotUndoOut,
@@ -115,6 +119,17 @@ account's own business by reading it (calls, leads, campaigns, agents, performan
 read-only, under the caller's own permissions and RLS scope), can fill that screen's
 form fields, and can open another screen of the console. Streams `text/event-stream`:
 
+* `event: run` · `data: {"run_id": "...", "started_at": "..."}` — the FIRST frame of every
+  answer. Time the "Working" header from `started_at`; `POST /v1/copilot/runs/{run_id}/stop`
+  stops it.
+* `event: thought` · `data: {"delta": "...", "turn": 0}` — a fragment of Pip's one-line plan
+  for the current model turn (the Thinking line). A higher `turn` starts a new line. Never
+  part of the answer, never stored.
+* `event: draft` · `data: {"holder_kind": "campaign"|"inbound_line", "holder_id": "...",
+  "proposal_id": "..."}` — this answer started a script draft; open its draft stream.
+* `event: stopped` · `data: {"reason": "person"}` — the person pressed Stop. The LAST
+  frame: no `done` follows. What was already said stands; drafts this answer started are
+  cancelled.
 * `event: text` · `data: {"delta": "..."}` — one fragment of the answer.
 * `event: fill` · `data: {"items": [{"field_id": "...", "value": ...}]}` — at most one
   per response. Every item has been re-validated server-side against the `fields` this
@@ -170,8 +185,12 @@ form fields, and can open another screen of the console. Streams `text/event-str
   `POST /v1/copilot/pins` and the card re-runs under each viewer's permissions.
 * `event: step` · `data: {"id": "...", "tool": "...", "status":
   "running"|"done"|"refused"|"failed", "args": "...", "detail": null|"...",
-  "elapsed_ms": null|123}` — one tool call as it happens, two frames per call sharing an
-  `id`: `running` when it starts, then one terminal frame with `elapsed_ms`. Purely
+  "elapsed_ms": null|123, "results": null|{"kind": "list", "items": [{"title": "...",
+  "subtitle": null|"...", "href": null|"/c/{slug}/..."}], "total": N}}` — one tool call as
+  it happens, two frames per call sharing an `id`: `running` when it starts, then one
+  terminal frame with `elapsed_ms`. A lookup that lists campaigns, agents, sources, calls
+  or leads puts up to eight of its rows in `results` (`href` is a route template: put your
+  own slug in and check it against your own routes). Purely
   observational — dropping every one of them loses no outcome — and safe to render live so
   a person can see which of their data was read and how long it took.
 * `event: done` · `data: {"disclosure": null|"...", "metered": true}` — `disclosure` is
@@ -740,9 +759,19 @@ async def ask_copilot(
 
     # The scores' clock starts here, once the question is admitted (D-937).
     capture = quality.AnswerCapture()
+    # THE RUN'S STOP SWITCH (`run_control`). Opened inside the `try` so the `finally` below
+    # closes it on every way out, the disconnect included.
+    run = run_control.RunControl(
+        owner=run_control.owner_of(principal), run_id=uuid7(), tenant_id=tenant_id
+    )
     try:
+        await run.open()
+        yield ServerSentEvent(
+            event="run", data=CopilotRunEvent(run_id=run.run_id, started_at=run.started_at)
+        )
         async for event in service.run_copilot(
             payload,
+            control=run,
             # The assistant is FREE (D-694): no allowance ceiling applies, so there is no
             # quota verdict to pass. The fair-use gate above refuses rather than answers.
             tenant_leg=tenant_leg,
@@ -829,6 +858,12 @@ async def ask_copilot(
                 # before this frame; the panel follows it on the jobs routes below.
                 started_job = event.job.job_id
                 yield ServerSentEvent(event="job", data=event.job)
+            if event.thought is not None:
+                # The Thinking line. Like `step`, shown and never accumulated: it reaches no
+                # memory row, transcript, audit summary or log line.
+                yield ServerSentEvent(event="thought", data=event.thought)
+            if event.draft is not None:
+                yield ServerSentEvent(event="draft", data=event.draft)
             if event.spend is not None:
                 spends.append(event.spend)
         # AN ANSWER THAT ONLY ACTED still says so in words. The prompt asks for a sentence
@@ -845,6 +880,14 @@ async def ask_copilot(
                 answer_parts.append(said)
                 yield ServerSentEvent(event="text", data=CopilotTextEvent(delta=said))
         completed = True
+    except service.RunStoppedError:
+        # THE PERSON PRESSED STOP. The completed turns are metered like a disconnect's
+        # (`paid`), what was said is kept, the drafts this run started are cancelled, and
+        # `stopped` is the last frame: no `done` follows.
+        await _record()
+        await run.cancel_drafts()
+        yield ServerSentEvent(event="stopped", data=CopilotStoppedEvent(reason="person"))
+        return
     except ProblemError as refusal:
         # The selector refused before a request was made — `assist_unavailable` is raised
         # ahead of the first leg — so `spends` is empty and `_record` writes nothing. It is
@@ -888,6 +931,8 @@ async def ask_copilot(
             await asyncio.shield(_finish())
         except Exception:
             log.exception("copilot_meter_failed", extra={"tenant_id": str(tenant_id)})
+        finally:
+            await asyncio.shield(run.close())
 
     # 4. THE METER AND THE AUDIT ran in `_record` above, on whichever path got here.
 
@@ -901,6 +946,33 @@ async def ask_copilot(
             metered=metered,
         ),
     )
+
+
+_STOP_DESCRIPTION = """\
+Stop an answer that is still running: the `run_id` from its `event: run` frame. The answer's
+stream ends with `event: stopped` once the loop reaches its next checkpoint (between model
+frames and between tool calls); a tool call already running finishes, nothing after it
+starts, and any script draft the answer started is cancelled.
+
+Always `202`, with the same body, whatever the id: a run that is not the caller's own, has
+already finished or never existed is left alone and reported exactly like one that was
+stopped, so the route tells nobody anything about a run. Idempotent.\
+"""
+
+
+@router.post(
+    "/copilot/runs/{run_id}/stop",
+    response_model=CopilotStopOut,
+    status_code=202,
+    openapi_extra=permission_meta("copilot:use"),
+    summary="Stop an answer that is still running",
+    description=_STOP_DESCRIPTION,
+)
+async def stop_copilot_run(
+    run_id: UUID, principal: Principal = Depends(requires("copilot:use"))
+) -> CopilotStopOut:
+    await run_control.request_stop(run_id, owner=run_control.owner_of(principal))
+    return CopilotStopOut(run_id=run_id)
 
 
 _CONFIRM_DESCRIPTION = """\

@@ -71,6 +71,7 @@ from apps.api.copilot import (
     memory,
     model_tiers,
     quality,
+    run_control,
     service,
     session_run,
     transcript,
@@ -92,6 +93,9 @@ from apps.api.copilot.schemas import (
     CopilotDoneEvent,
     CopilotFact,
     CopilotFillEvent,
+    CopilotRunEvent,
+    CopilotStopOut,
+    CopilotStoppedEvent,
     CopilotTextEvent,
     CopilotTurnIds,
     CopilotUndoOut,
@@ -137,7 +141,8 @@ the live-state block and memory recall. Inside a view-as session it is ignored i
 the impersonated account, which is proven by the grant rather than claimed in a body.
 
 Streams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents —
-`text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a
+`run`, `thought`, `text`, `fill`, `step`, `proposal`, `action`, `done`, `stopped`, `error`;
+`POST /v1/admin/copilot/runs/{run_id}/stop` stops a run. A `proposal` is NOT a
 change. The admin realm proposes its OWN platform actions (D-694; today: halting all
 outbound calling), confirmed on `POST /v1/admin/copilot/confirm` with the same step-up the
 console button asks for, and may answer with `navigate` to open an admin screen. The
@@ -596,9 +601,18 @@ async def ask_admin_copilot(
 
     # The scores' clock starts here, once the question is admitted (D-937).
     capture = quality.AnswerCapture()
+    # The run's Stop switch, as on the client route (`run_control`).
+    run = run_control.RunControl(
+        owner=run_control.owner_of(principal), run_id=uuid7(), tenant_id=tenant_id
+    )
     try:
+        await run.open()
+        yield ServerSentEvent(
+            event="run", data=CopilotRunEvent(run_id=run.run_id, started_at=run.started_at)
+        )
         async for event in service.run_copilot(
             payload,
+            control=run,
             # THE CONSOLE TIER, never the viewed account's model (D-694): an operator's
             # question runs on the platform's own assistant model, chosen by the same
             # deterministic rule as the client's (`model_tiers.route_tier`), and is priced
@@ -683,9 +697,20 @@ async def ask_admin_copilot(
             if event.chart is not None:
                 # A chart or table drawn in the panel (D-934): data, never markup.
                 yield ServerSentEvent(event="chart", data=event.chart)
+            if event.thought is not None:
+                # The Thinking line: shown, never accumulated, stored or logged.
+                yield ServerSentEvent(event="thought", data=event.thought)
+            if event.draft is not None:
+                yield ServerSentEvent(event="draft", data=event.draft)
             if event.spend is not None:
                 spends.append(event.spend)
         completed = True
+    except service.RunStoppedError:
+        # Stop, as on the client route: metered, kept, drafts cancelled, `stopped` last.
+        await _record()
+        await run.cancel_drafts()
+        yield ServerSentEvent(event="stopped", data=CopilotStoppedEvent(reason="person"))
+        return
     except ProblemError as refusal:
         # The selector refused before a request was made, so `spends` is empty and `_record`
         # writes nothing — checked rather than asserted, for the client route's reason.
@@ -717,6 +742,8 @@ async def ask_admin_copilot(
             log.exception(
                 "admin_copilot_meter_failed", extra={"admin_user_id": str(principal.user_id)}
             )
+        finally:
+            await asyncio.shield(run.close())
 
     yield ServerSentEvent(
         event="done",
@@ -727,6 +754,23 @@ async def ask_admin_copilot(
             metered=metered,
         ),
     )
+
+
+@router.post(
+    "/copilot/runs/{run_id}/stop",
+    response_model=CopilotStopOut,
+    status_code=202,
+    openapi_extra=permission_meta("copilot:admin"),
+    summary="Stop an admin assistant answer that is still running",
+    description=(
+        "The admin twin of `POST /v1/copilot/runs/{run_id}/stop`: the answer's stream ends "
+        "with `event: stopped`. Always `202` with the same body, whatever the id; only the "
+        "operator who asked can stop a run."
+    ),
+)
+async def stop_admin_copilot_run(run_id: UUID, principal: AdminCopilotUser) -> CopilotStopOut:
+    await run_control.request_stop(run_id, owner=run_control.owner_of(principal))
+    return CopilotStopOut(run_id=run_id)
 
 
 @router.get(
