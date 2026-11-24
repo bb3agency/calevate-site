@@ -428,7 +428,9 @@ def collected_label(entry: str) -> str:
     return entry.partition(":")[0].strip()
 
 
-def unasked_problems(script: CallScript, collect: tuple[str, ...]) -> list[str]:
+def unasked_problems(
+    script: CallScript, collect: tuple[str, ...], call_back: tuple[str, ...] = ()
+) -> list[str]:
     """A finding for each detail the job notes and no step asks (`unasked_details`). With no
     steps there is nowhere to ask; the details list still reaches the call."""
     if not script.stages:
@@ -436,17 +438,20 @@ def unasked_problems(script: CallScript, collect: tuple[str, ...]) -> list[str]:
     return [
         f'script: no step asks for "{label}"; ask it in the step where the call reaches it, '
         "as one question."
-        for label in unasked_details(script, collect)
+        for label in unasked_details(script, collect, call_back)
     ]
 
 
-def unasked_details(script: CallScript, collect: tuple[str, ...]) -> list[str]:
+def unasked_details(
+    script: CallScript, collect: tuple[str, ...], call_back: tuple[str, ...] = ()
+) -> list[str]:
     """The labels in `collect` that no step asks for, in their order.
 
     A step asks for a detail when its `collect` names it, or when its name, instruction and
     step-by-step list carry at least half of the label's words (their first five letters, so
     word forms meet). A label with no English-letter word cannot be compared with English
-    instructions and is never reported."""
+    instructions and is never reported. The details a call back takes (`call_back`) are asked
+    on the call-back path, so a script with a way out to the call back asks them there."""
     steps = [
         (
             {collected_label(c).casefold() for c in stage.collect},
@@ -454,8 +459,15 @@ def unasked_details(script: CallScript, collect: tuple[str, ...]) -> list[str]:
         )
         for stage in script.stages
     ]
+    calls_back = any(
+        CALL_BACK in {stage.otherwise, *(b.target for b in stage.branches)}
+        for stage in script.stages
+    )
+    later = {label.casefold() for label in call_back} if calls_back else set()
     missing: list[str] = []
     for label in collect:
+        if label.casefold() in later:
+            continue
         wanted = _stems(label)
         if not wanted:
             continue
@@ -526,10 +538,11 @@ def script_problems(script: CallScript, context: LintContext) -> list[str]:
     if script.raw_override:
         return instruction_problems("script", script.raw_override, context)
     callers = caller_paths(script)
+    # Each step's line in each language and each of its answers too (`agent_lines`): the
+    # in-call model copies them, so a promise or a figure in one is said on the call.
     found = [
         problem
-        for path, text in spoken_fields(script)
-        if text.strip() and path not in callers
+        for path, text in agent_lines(script)
         for problem in spoken_line_problems(path, text, context)
     ]
     # Here and not in `spoken_line_problems`, whose writers check it already
@@ -558,7 +571,7 @@ def script_problems(script: CallScript, context: LintContext) -> list[str]:
     found += untaken_time_problems(script)
     found += unwired_way_out_problems(script, context.manifest)
     found += pronunciation_problems(script, context)
-    found += unasked_problems(script, context.collect)
+    found += unasked_problems(script, context.collect, context.call_back)
     return found
 
 
@@ -1454,6 +1467,65 @@ def flow_problems(script: CallScript) -> list[str]:
     ]
 
 
+# --- the shape checks of 25 Nov 2026, by the names the script-writer scorer reads ----------
+# (`scripts/eval_script_writer.py` adopts any one- or two-argument `<check>_problems` here).
+# They live in `script_shape`, which imports this module, hence the imports inside.
+
+
+def multi_question_line_problems(script: CallScript) -> list[str]:
+    """A line the agent says or copies that asks more than one question."""
+    return [
+        f"{path}: asks {question_count(text)} questions; ask one and wait."
+        for path, text in agent_lines(script)
+        if path not in OPENING_FIELDS and question_count(text) > 1
+    ]
+
+
+def multi_action_line_problems(script: CallScript) -> list[str]:
+    from apps.api.agents.script_shape import several_action_problems
+
+    return several_action_problems(script)
+
+
+def agent_claims_caller_action_problems(script: CallScript) -> list[str]:
+    from apps.api.agents.script_shape import caller_action_claimed_problems
+
+    return caller_action_claimed_problems(script)
+
+
+def fake_branch_problems(script: CallScript) -> list[str]:
+    from apps.api.agents.script_shape import echo_problems, named_way_problems
+
+    return [*echo_problems(script), *named_way_problems(script)]
+
+
+def steps_after_close_problems(script: CallScript) -> list[str]:
+    from apps.api.agents.script_shape import trailing_problems
+
+    return trailing_problems(script)
+
+
+def judged_field_asked_problems(script: CallScript) -> list[str]:
+    """A step that collects a detail judged from the call (`extraction.whole_call_detail`),
+    which code takes out of a Pip script (`script_structure.without_judged_asks`)."""
+    from calevate_shared.extraction import whole_call_detail
+
+    return [
+        f'stages.{i}.collect: collects "{collected_label(entry)}", which is worked out after '
+        "the call, never asked."
+        for i, stage in enumerate(script.stages)
+        for entry in stage.collect
+        if whole_call_detail("", collected_label(entry))
+    ]
+
+
+def known_value_asked_problems(script: CallScript) -> list[str]:
+    """A step's line asking the name the opening already greets them by."""
+    from apps.api.agents.mistake_lints import known_name_problems
+
+    return known_name_problems(script)
+
+
 __all__ = [
     "BRACKETED",
     "NAME_FIELD",
@@ -1462,6 +1534,7 @@ __all__ = [
     "PLACED_OPENING_BRIEF",
     "CapabilityManifest",
     "LintContext",
+    "agent_claims_caller_action_problems",
     "agent_lines",
     "answer_lines",
     "answered_opening",
@@ -1471,10 +1544,15 @@ __all__ = [
     "caller_paths",
     "collected_label",
     "empty_title_problems",
+    "fake_branch_problems",
     "flow_problems",
     "instruction_fields",
     "instruction_problems",
+    "judged_field_asked_problems",
+    "known_value_asked_problems",
     "line_ending",
+    "multi_action_line_problems",
+    "multi_question_line_problems",
     "name_segment_problem",
     "next_steps",
     "opening_redone_problems",
@@ -1502,6 +1580,7 @@ __all__ = [
     "step_number_problems",
     "step_numbers_broken",
     "step_outcome_problems",
+    "steps_after_close_problems",
     "tells_caller_to_act",
     "unasked_details",
     "unasked_problems",

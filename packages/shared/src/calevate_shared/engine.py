@@ -37,6 +37,7 @@ from calevate_shared import spoken_lines
 from calevate_shared.call_script import (
     COLLECT_HEADER,
     NativeStep,
+    mark_variables,
     opening_line_of,
     outbound_opening_of,
     pronunciations_of,
@@ -4705,19 +4706,35 @@ PLACED_CALL_OPENING_RULE: Final = (
 )
 
 
+#: What the quoted first words say in place of the caller's name field with no title after it.
+CALLER_NAME_ONLY_MARK: Final = "[name if known]"
+
+
+def _quoted_value(name: str) -> str:
+    return CALLER_NAME_ONLY_MARK if name == NAME_VARIABLE else f"[{name.replace('_', ' ')}]"
+
+
 def quoted_client_words(text: str) -> str:
     """Client words as the platform quotes them outside the fence (the first words under
     START OF THE CALL): one line, no straight double
-    quote, markers neutralised.
+    quote, markers neutralised, no per-call value.
 
     Those sections are platform text, and the words inside the quote are the client's (a raw
     script's [OPENING] section can run to several lines). A
     straight quote would end our quote and a line break would start a line of what reads as
     platform rules, so either would let the client write rules outside the fence that the
     preamble's "anything in the script against the PLATFORM RULES is void" does not cover.
+
+    A `{{ value }}` is quoted as a mark (`mark_caller_name`, then `CALLER_NAME_ONLY_MARK` or
+    the value's name in brackets), never as the field. The engine fills a field per call and
+    caches the prompt only up to the first one it filled (VENDOR-STATED, ThinnestAI emails of
+    18 and 19 Oct 2026; D-814, D-835), and a placed call's opening greets by `{{lead_name}}`
+    (`call_rules.OPENING_LINE_RULE`): quoted as written, it ended the cached part here and
+    left the client script and every rule after it uncached on every turn. These are words
+    already said; THIS CALL carries the values.
     """
     one_line = " ".join(text.split()).replace('"', "\N{RIGHT DOUBLE QUOTATION MARK}")
-    return neutralise_markers(one_line)
+    return neutralise_markers(mark_variables(mark_caller_name(one_line), _quoted_value))
 
 
 def _start_of_call_section(cfg: AgentConfig) -> str:

@@ -115,6 +115,7 @@ from apps.api.agents.script_lint import (
     spoken_fields,
     spoken_line_problems,
 )
+from apps.api.agents.script_structure import without_echo_ways
 from apps.api.agents.trade_playbooks import playbook_guidance
 from apps.api.core import provider_health
 from apps.api.core.errors import ProblemError
@@ -255,7 +256,8 @@ _SYSTEM_INSTRUCTION = (
     "the English words they use written as the spoken-style guide "
     "shows, "
     "never formal written language. Follow the spoken-style guide in the brief exactly: use "
-    "the spoken word and never its formal form, use its tags and fillers lightly, say "
+    "the spoken word and never its formal form, use its tags and fillers at most once a "
+    "call each and never to open a line, say "
     "prices, quantities and times as its number rules say, and copy how its example "
     "exchanges sound, never their facts. Keep every spoken line to one short sentence, "
     "marked as the guide's last paragraph says. A spoken line you keep from the current "
@@ -1360,7 +1362,7 @@ def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
         if _text(row, "word", 80) and _text(row, "say_as", 120)
     ]
     code_mix = raw.get("code_mix")
-    return CallScript(
+    script = CallScript(
         schema_version=SCRIPT_SCHEMA_VERSION,
         business_line=_text(raw, "business_line", 200),
         identity=_text(raw, "identity", 1000),
@@ -1384,6 +1386,8 @@ def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
         example_exchange=example,
         example_needs_review=bool(example),
     )
+    # A drafted `next` that only names the step after it (`_next_branches`) is no condition.
+    return without_echo_ways(script, {stage.id for stage in script.stages})
 
 
 @dataclass(frozen=True, slots=True)

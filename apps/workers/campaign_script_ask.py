@@ -21,6 +21,7 @@ from typing import Any, Final, Literal
 from calevate_shared.business_frame import BUSINESS_FRAME
 from calevate_shared.call_script import CallScript, ConversationStage, stage_steps
 
+from apps.api.agents.script_shape import main_task_items
 from apps.api.tenancy.business_copy import provider_words
 
 #: The last step's name (founder, 16 Nov 2026): a booking is one scenario of many, so the step
@@ -47,7 +48,9 @@ CLOSING_STEP: Final = (
 #:   intimidation and misleading statements on recovery calls.
 #: - Qualifying: only the questions that matter, each its own step (docs.telli.com/prompt-best-
 #:   practices, cited at `call_rules.SCRIPT_FLOW_RULE`).
-#: - Guiding: one action, then wait for what shows it is done (`SCRIPT_FLOW_RULE`).
+#: - Guiding: one action, then wait for what shows it is done (`SCRIPT_FLOW_RULE`); the check
+#:   before the close asks what they see, as every call is told ("To check, ask what they see",
+#:   `engine.VOICE_STYLE_GUIDANCE`), because a yes to "is it all working?" checks nothing.
 #: Each kind also names the ways out only that kind meets, which `script_assist.WAYS_OUT_RULE`
 #: reads from here, so a kind is added in this one place for both the step shape and the ways
 #: out. The ways out are from the calls of 20-21 Nov 2026 (docs/evidence/
@@ -116,7 +119,7 @@ CALL_KINDS: Final[tuple[CallKind, ...]] = (
         "guiding",
         "to help the person do something on their phone or at home",
         "the actions one by one in the step's procedure, each with what shows it is done; "
-        "check it worked before the close.",
+        "check it worked before the close by asking what they see.",
         "already done (on to the stage after it), using a different phone or device than "
         "expected, and stuck on an action after trying it one other way (to call_back)",
     ),
@@ -240,6 +243,10 @@ SPECIFIC_RULE: Final = (
 #: details are read back once, a soft intake is acknowledged instead (docs.vapi.ai/
 #: prompting-guide "Confirming details", read 22 Nov 2026). The composed call rules read back
 #: digits and close on what happens next (`engine.VOICE_STYLE_GUIDANCE`); this places the asks.
+#: Opinion and outcome fields are never asked, since they invite made-up values after the call
+#: and an outcome comes from the steps done (docs/evidence/voice-agent-research-2026-11-25.md
+#: §C "Field collection"). Departure: that checklist also drops "another number"; here it stays
+#: a detail of the call-back path only (`script_builder.CORE_ASKED_WHEN`, founder 23 Nov 2026).
 DETAILS_RULE: Final = (
     "Ask for each of the details to collect in the step where the call reaches it, one per "
     "turn, and put it in that step's collect list; on a call the agent places, only once the "
@@ -249,7 +256,53 @@ DETAILS_RULE: Final = (
     "the call already knows: the number it is on, and anything the main task or the "
     "campaign gives. A detail a booking or payment depends on (a day, a time, an "
     "amount, a name to spell) is read back once in that step; other answers are acknowledged "
-    "in a few words and the call moves on."
+    "in a few words and the call moves on. Only the details to collect are asked: what judges "
+    "the call or the person (whether the goal was met, an outcome, status or progress, how "
+    "comfortable, interested or aware they seem) is never asked, because it is worked out "
+    "after the call. A step collects at most one detail, and no line asks two things."
+)
+
+#: The Rytu Khata campaign script of 25 Nov 2026 put "they do not remember registering" as a
+#: step after the close, gave each step a way out that was only the next step's name, dropped
+#: the main task's screen-by-screen install for each phone, and had the agent "note" what the
+#: farmer entered in the app (`script_shape` checks each). Each sentence follows
+#: docs/evidence/voice-agent-research-2026-11-25.md §C "Branches" (a condition is a caller
+#: state, never a step's name; opening exits branch from step 1, never after Finalise) and
+#: "Step design" (one caller action per step; the caller acts in their app, the agent never
+#: notes what they type). Written as what to do, never as a list of words not to say, which
+#: primes them (same document, §A1).
+SHAPE_RULE: Final = (
+    "A case that arises in one step (they do not remember it, it is the wrong person, they "
+    "use another kind of phone) is a scenario of that step, reached by a way out of it whose "
+    "condition names the case, never a step after the close. A way out states a condition the "
+    "person shows, never only the name of the step it goes to; the next step in order needs "
+    "no way out. Cover every item the main task numbers or lists, with the detail it asks for: "
+    "a path for each device, plan or case it names is a scenario of the same step, walked one "
+    "screen at a time. What the person does on their phone or in the app is theirs to do: the "
+    "agent asks for one action per line and waits, and never says it will note or enter what "
+    "they enter."
+)
+
+#: A placed call says why it calls before it asks anything of the person (founder, 25 Nov
+#: 2026: his test call went from "is now a good time?" straight to "check your home screen",
+#: and he never heard why). The opening may already say it (`call_rules.OPENING_LINE_RULE`),
+#: so the first step says it only when the opening does not. The purpose comes once, after the
+#: yes, with the time it takes, and the first line is then one question about where the person
+#: is, never a bundle of instructions (docs/evidence/voice-agent-research-2026-11-25.md §C
+#: "Call start").
+PURPOSE_RULE: Final = (
+    "The first step's line, said right after the person agrees to talk, first says in one "
+    "short sentence why the call is made, from the main task (what they did with the business "
+    "and what the call will help them do, and how long it takes when the sources say), unless "
+    "the opening line already says it, then asks one question about where the person is with "
+    "the task. It never asks again whether now suits them."
+)
+
+#: On a line the caller called, so the first step answers them rather than explaining itself.
+LINE_FIRST_RULE: Final = (
+    "The first step answers what the caller called about: it asks in one short question what "
+    "they need, or answers it when they already said, and never explains why the business is "
+    "calling."
 )
 
 #: Every extra instruction makes the in-call model slower and worse at following the others,
@@ -258,15 +311,17 @@ DETAILS_RULE: Final = (
 #: possible", elevenlabs.io/docs/agents-platform/best-practices/prompting-guide; a system
 #: prompt is read on every turn, so its length is dead air, docs.vapi.ai/prompting-guide;
 #: all read 22 Nov 2026). Personality as speech behaviour rather than adjectives:
-#: docs.livekit.io/agents/start/prompting (read 22 Nov 2026).
+#: docs.livekit.io/agents/start/prompting (read 22 Nov 2026). The tone example names no
+#: reaction: "thanks them for each answer" became a tone line that asked for one every turn,
+#: against the in-call "a reaction only if it fits, often none".
 CONCISE_RULE: Final = (
     "Each step's instruction says in at most three short sentences what this scenario does "
     "toward its step's outcome, what to check or ask, and when it is done, and the fewest "
     "steps reach the main task. Say each thing once. Never write "
     "rules for how to speak, be polite, handle silence or interruptions, or read numbers: the "
     "platform gives the agent those on every call. style.tone says in a few English words how "
-    "the agent sounds in what it does (for example: short sentences, thanks them for each "
-    "answer), not only adjectives."
+    "the agent sounds in what it does (for example: short sentences, plain everyday "
+    "words), not only adjectives."
 )
 
 CAMPAIGN_ASK: Final = (
@@ -280,7 +335,7 @@ CAMPAIGN_ASK: Final = (
     "note or document says how the agent should handle the call, follow it. Set policies from "
     "this campaign: prices only if the sources give prices, bookings only if it books. "
     f"{CALL_KINDS_TEXT} {OUTCOMES_RULE} {OBJECTIONS_RULE} {GROUNDING_RULE} {PERSON_RULE} "
-    f"{SPECIFIC_RULE} {TURN_RULE} {DETAILS_RULE} {CONCISE_RULE}"
+    f"{SPECIFIC_RULE} {TURN_RULE} {DETAILS_RULE} {SHAPE_RULE} {PURPOSE_RULE} {CONCISE_RULE}"
 ) + CLOSING_STEP
 
 #: An inbound line's ask (D-997): the calls are answered, not placed, so it has no call kinds.
@@ -293,7 +348,7 @@ LINE_ASK: Final = (
     "answer, and how the call ends. Where a source says how the agent should handle the "
     "call, follow it. Set policies from this line: prices only if the sources give prices, "
     f"bookings only if callers book. {OUTCOMES_RULE} {GROUNDING_RULE} {PERSON_RULE} "
-    f"{SPECIFIC_RULE} {TURN_RULE} {DETAILS_RULE} {CONCISE_RULE}"
+    f"{SPECIFIC_RULE} {TURN_RULE} {DETAILS_RULE} {SHAPE_RULE} {LINE_FIRST_RULE} {CONCISE_RULE}"
 ) + CLOSING_STEP
 
 EDIT_TAIL: Final = (
@@ -315,9 +370,38 @@ REFINE_TAIL: Final = (
     "whose line greets, says who is calling or asks whether now suits again after the "
     "opening, lines that all open or end with the same words, a screen or button called by "
     "another name than the sources give it, an already-done way out that ends the call "
-    "while tasks remain, and an answer that promises or reassures beyond the sources. Keep "
-    "each part that already meets the ask as it is."
+    "while tasks remain, and an answer that promises or reassures beyond the sources; a step "
+    "that collects more than one detail or asks one that judges the call or the person, a "
+    "line that gives several actions or has the agent note what the person does in the app, "
+    "a way out that only names the next step, a case placed after the close instead of as a "
+    "way out of the step where it arises, an item of the main task with no step or scenario, "
+    "and a first step that does not say why the call is made, or says it again when the "
+    "opening already did. Keep each part that already meets the ask as it is."
 )
+
+#: The one whole-script pass a draft gets when it is built wrong (`workers/campaign_script.
+#: _restructured`), followed by the problems it must fix, one per line.
+RESTRUCTURE_TAIL: Final = (
+    " The current script below is built wrong in the ways listed here. Rewrite its stages to "
+    "fix each one: move a detail, a case or a task to the step where it belongs, and add the "
+    "steps or scenarios a task of the main task needs. Keep every other part as it is."
+)
+
+#: The main task's numbered or listed items, named one by one so a draft covers each
+#: (`script_shape.uncovered_items` checks the ones in English words).
+ITEMS_HEAD: Final = (
+    "THE MAIN TASK'S ITEMS (each one is a step or a scenario of a step, with the detail it "
+    "asks for):\n"
+)
+
+
+def items_block(main_task: str) -> str:
+    """The main task's items as a numbered list, or "" when it lists none."""
+    items = main_task_items(main_task)
+    if not items:
+        return ""
+    return ITEMS_HEAD + "\n".join(f"{n}. {item}" for n, item in enumerate(items, 1)) + "\n"
+
 
 #: Long sources sit between the ask and the end of the message; the task is said again after
 #: them. "Provide all context first and put the specific instructions near the end"
@@ -337,11 +421,13 @@ PART_ASK: Final = (
 
 #: The part name the Script section's "Let Pip map the scenarios" sends (`CampaignFlow`).
 FLOW_PART: Final = "flow"
-#: The call's steps rewritten as the ways it is likely to go, each with its way out.
+#: The call's steps rewritten as the ways it is likely to go, each with its way out. Its
+#: example moments start after the opening line, which already greets (`SCRIPT_FLOW_RULE`): an
+#: example "the greeting" step was a step that greets or asks again whether now suits.
 FLOW_ASK: Final = (
     "Rewrite only the stages of the campaign's call script as a flow of steps and scenarios. "
-    "Each step is a moment of the call (for example: the greeting, whether they know the "
-    "business, what they need, the close); each stage is one scenario of a step, a way that "
+    "Each step is a moment of the call after the opening line (for example: whether they know "
+    "the business, what they need, the close); each stage is one scenario of a step, a way that "
     "moment can go: for example the person recognises the business, does not remember it, is "
     "busy, is not interested, or has already done what the call asks. Give each stage its "
     "step number and in next the stages it can go on to (0 to end the call), so a step's "
@@ -353,11 +439,13 @@ FLOW_ASK: Final = (
 ) + CLOSING_STEP
 
 Tone = Literal["warm", "respectful", "brief"]
-#: The owner's tone (D-1004), as the writer reads it. Keys are the request's `tone`.
+#: The owner's tone (D-1004), as the writer reads it. Keys are the request's `tone`. None asks
+#: for formal words: every call's register forbids them (`engine._REGISTER_BULLET`), and the
+#: tone reaches the call as the script's `Tone:` line.
 TONES: Final[dict[str, str]] = {
     "warm": "friendly and warm, like a helpful neighbour, still polite",
-    "respectful": "respectful and formal, with the polite address form the spoken-style "
-    "guide gives",
+    "respectful": "respectful, with the polite address form the spoken-style guide gives, "
+    "in everyday spoken words",
     "brief": "short and direct, every line as few words as it can be",
 }
 #: The owner's note for one draft, in characters. Real rewrite notes (who the agent is, what
@@ -455,15 +543,16 @@ def campaign_change(
     refine: bool = False,
 ) -> str:
     """What the script is written from: the ask, the owner's tone and instruction, the length
-    it may take, the main task, the campaign's own settings (`situation_block`), the notes and
-    the documents, then the task again after the documents. A one-part rewrite replaces the
-    whole ask, edit tail included. `refine`: the edit is of Pip's own first draft
-    (`REFINE_TAIL`) rather than of a script the owner has."""
+    it may take, the main task and its items (`items_block`), the campaign's own settings
+    (`situation_block`), the notes and the documents, then the task again after the documents.
+    A one-part rewrite replaces the whole ask, edit tail included. `refine`: the edit is of Pip's
+    own first draft (`REFINE_TAIL`) rather than of a script the owner has."""
     tail = REFINE_TAIL if refine else EDIT_TAIL if edit else ""
     lead = part_ask if part_ask is not None else f"{ask}{tail}"
+    items = items_block(main_task) if part_ask is None else ""
     change = (
         f"{lead}\n{tone_line(tone)}{instruction_line(instruction)}{length_line(budget)}"
-        f"MAIN TASK:\n{main_task.strip()}\n{situation}"
+        f"MAIN TASK:\n{main_task.strip()}\n{items}{situation}"
     )
     if notes:
         change += f"OWNER'S NOTES AND LINKS:\n{notes}\n"
@@ -533,8 +622,15 @@ REVIEW_INSTRUCTION: Final = (
     "person who already did something the call asks, while the main task still has something "
     "for them); vague (a step's instruction does not say what it must achieve, what to check, "
     "or when it is done); renamed (it calls a screen, tab, button, menu or feature by another "
-    "name than the SOURCES give it; `detail` gives the name used and the SOURCES' name). Most "
-    "parts fail none.\n"
+    "name than the SOURCES give it; `detail` gives the name used and the SOURCES' name); "
+    "no_purpose (only on the first step of a call the agent places: neither its line nor the "
+    "opening line says in one short sentence why the call is made); purpose_repeated (only on "
+    "the first step: its line says again the reason the opening line already gave); "
+    "several_asks (a line, in any language, asks for more than one thing, or gives more than "
+    "one action to do); wrong_actor (a line has the agent say it will note, enter or do what "
+    "the person does themselves on their phone or in the app); broken_line (a line in the "
+    "call language is ungrammatical, cut off or hard to follow when heard). Most parts fail "
+    "none.\n"
     "Use only the keys given. Return ONLY JSON."
 )
 WHY_MAX: Final = 200
@@ -570,6 +666,16 @@ WEAK_PROBLEMS: Final[dict[str, str]] = {
     "to achieve, what to check and when it is done",
     "renamed": "calls a screen, button or feature by another name than the sources give it: "
     "{detail}; use the sources' own name, said in the call language's letters",
+    "no_purpose": "starts the call's work without saying why the call is made: {detail}; open "
+    "the line with one short sentence of why, from the main task, then one simple question",
+    "purpose_repeated": "says again why the call is made, which the opening already said: "
+    "{detail}; start with the step's one question instead",
+    "several_asks": "asks for several things or gives several actions in one line: {detail}; "
+    "ask one thing or give one action, then wait",
+    "wrong_actor": "has the agent say it does what the person does themselves: {detail}; ask "
+    "the person to do it and to say when it is done",
+    "broken_line": "is hard to follow when heard: {detail}; say it as one short, complete "
+    "sentence people say",
 }
 
 _REVIEW_ROW: Final[dict[str, object]] = {
@@ -721,10 +827,14 @@ def review_sources(
     return "\n".join(lines)
 
 
-def review_request(parts: Sequence[ReviewedPart], sources: str) -> str:
-    """The review pass's message: the sources (`review_sources`), then the parts by key."""
+def review_request(parts: Sequence[ReviewedPart], sources: str, opening: str = "") -> str:
+    """The review pass's message: the sources (`review_sources`), then the parts by key, then
+    the opening line the call starts with, so whether the first step says why the call is
+    made is judged with it even when the opening is not among the parts reviewed."""
     lines = [f"SOURCES:\n{sources}", "THE SCRIPT'S PARTS:"]
     lines += [f"[{part.key}] {part.label}: {part.text}" for part in parts]
+    if opening.strip():
+        lines.append(f"THE OPENING LINE THE CALL STARTS WITH: {opening.strip()}")
     return "\n".join(lines)
 
 
@@ -862,12 +972,16 @@ __all__ = [
     "FLOW_PART",
     "GROUNDING_RULE",
     "LINE_ASK",
+    "LINE_FIRST_RULE",
     "OBJECTIONS_RULE",
     "PART_ASK",
     "PERSON_RULE",
+    "PURPOSE_RULE",
     "REFINE_TAIL",
+    "RESTRUCTURE_TAIL",
     "REVIEW_FORMAT",
     "REVIEW_INSTRUCTION",
+    "SHAPE_RULE",
     "SHORTEN_ASK",
     "SPECIFIC_RULE",
     "TASK_REMINDER",
@@ -882,6 +996,7 @@ __all__ = [
     "budget_of",
     "campaign_change",
     "instruction_line",
+    "items_block",
     "kind_ways_out",
     "length_line",
     "owners_words",

@@ -64,7 +64,7 @@ def test_telugu_has_the_expanded_list() -> None:
     for word in ("ధన్యవాదాలు", "మరియు", "కొనుగోలు", "సుమారు", "అవసరం", "సహజంగా పండించిన"):
         assert word in formal, word
     assert len(style.fillers) >= 10 and style.number_rules and style.punctuation
-    for tag in ("అవునా", "కదా", "ఏంటి", "సరే అండి", "హా", "అంటే", "ఒక్క సెకండ్ అండి", "ఓకే"):
+    for tag in ("అవునా", "ఏంటి", "సరే అండి", "హా", "అంటే", "ఒక్క సెకండ్ అండి", "ఓకే"):
         assert any(f.text == tag for f in style.fillers), tag
 
 
@@ -219,7 +219,7 @@ def test_test_callers_are_written_in_the_caller_style() -> None:
         call_is_recorded=True,
     )
     text = brief_text(brief)
-    assert "Tags and fillers callers use" in text and "కదా" in text
+    assert "Tags and fillers callers use" in text and "అవునా" in text
     assert "How callers sound" in text and "ఎండు మిర్చి" in text
     assert "Follow the spoken style in the brief" in GENERATE_INSTRUCTION
 

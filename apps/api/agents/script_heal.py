@@ -47,7 +47,13 @@ from apps.api.agents.call_rules import opening_redone_line_problems, reacted_lin
 from apps.api.agents.mistake_fixes import fix_paths
 from apps.api.agents.mistake_lints import SCRIPT_FIXABLE_KINDS, mistake_findings, script_mistakes
 from apps.api.agents.script_lint import LintContext, agent_lines, flow_problems
-from apps.api.agents.script_structure import ways_out_wired
+from apps.api.agents.script_shape import line_problems
+from apps.api.agents.script_structure import (
+    ways_out_wired,
+    without_echo_ways,
+    without_judged_asks,
+)
+from apps.api.campaigns.script_history import REWRITE_RULES
 from apps.api.copilot.consent import account_content_may_reach_models
 
 #: The ARQ name of the pass (`workers/script_heal`).
@@ -57,7 +63,10 @@ JOB: Final = "repair_holder_script"
 DEBOUNCE_S: Final = 30
 #: Joined to the script before it is hashed into `script_heal_inputs`: a new or changed check
 #: changes it, so every script is checked once more by the next sweep.
-CHECKS_VERSION: Final = "heal-3"
+CHECKS_VERSION: Final = "heal-4"
+#: The key in `script_heal_fixed` that records a whole-script rewrite asked for under the
+#: current rules (`workers/script_heal._ask_rewrite`), so it is asked once per holder.
+REWRITE_KEY: Final = f"pip_rewrite:{REWRITE_RULES}"
 
 HolderKind = Literal["campaign", "line"]
 
@@ -124,9 +133,10 @@ def _textbook(script: CallScript, language: str) -> list[str]:
 def heal_findings(script: CallScript | None, lint: LintContext) -> list[str]:
     """Every fault a repair may clear in `script`, each once, as script check findings
     ("<path>: <problem>"): the call's shape (`flow_problems`, brackets included), a step's
-    line that redoes the opening or opens with a reaction, every call-mistake check, and
-    textbook words in the call language. [] for no script or a hand-written one, which has
-    no lines to point at."""
+    line that redoes the opening or opens with a reaction, every call-mistake check, textbook
+    words in the call language, and a line giving several actions or noting what the caller
+    does (`script_shape.line_problems`). [] for no script or a hand-written one, which has no
+    lines to point at."""
     if script is None or script.raw_override or not script.stages:
         return []
     found = [
@@ -135,16 +145,20 @@ def heal_findings(script: CallScript | None, lint: LintContext) -> list[str]:
         *reacted_line_problems(script),
         *script_mistakes(script, lint),
         *_textbook(script, lint.language),
+        *line_problems(script),
     ]
     return list(dict.fromkeys(f for f in found if _repairable(script, f)))
 
 
 def wired_ways_out(script: CallScript, lint: LintContext) -> CallScript:
     """`script` with every step's way out that is stated only in its instruction given as a
-    branch (`script_structure.ways_out_wired`). Deterministic, so a repair pass applies it
-    before asking the model anything. A hand-written script has no stages, so nothing to
-    wire."""
-    return ways_out_wired(script, {stage.id for stage in script.stages}, lint.manifest)
+    branch (`script_structure.ways_out_wired`), and without the ways out that only name the
+    step the call goes to anyway (`without_echo_ways`). Deterministic, so a repair pass
+    applies it before asking the model anything. A hand-written script has no stages, so
+    nothing to wire."""
+    every = {stage.id for stage in script.stages}
+    mended = without_echo_ways(ways_out_wired(script, every, lint.manifest), every)
+    return without_judged_asks(mended, every)
 
 
 def mistake_kinds(script: CallScript | None, lint: LintContext) -> set[str]:
@@ -280,6 +294,7 @@ __all__ = [
     "CHECKS_VERSION",
     "DEBOUNCE_S",
     "JOB",
+    "REWRITE_KEY",
     "SLOTS",
     "CallFix",
     "HolderKind",
