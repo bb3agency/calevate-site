@@ -26,6 +26,7 @@ hard rule 8's two-step angle: nothing is rewritten, the NULL sentinel IS the old
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -170,20 +171,61 @@ class JobDetails:
 
     asked: tuple[CollectField, ...]
     call_back: tuple[str, ...] = ()
+    #: The client's label for the core name, when the job asks it.
+    name: str = ""
 
     def labels(self) -> tuple[str, ...]:
         return tuple(f.label for f in self.asked)
 
+    def placed(self) -> JobDetails:
+        """What a placed call's script places in its steps: everything but the name. A placed
+        call dials a contact from its list and greets them by `{{lead_name}}`, so a step that
+        asks the name asks what the call already has (the Rytu Khata call of 25 Nov 2026
+        asked an existing customer's name in step 1). The compiled call still lists the name
+        "only if not known" (`campaign_collect_fields`), for a contact with no name."""
+        if not self.name:
+            return self
+        return JobDetails(
+            asked=tuple(f for f in self.asked if f.label != self.name), call_back=self.call_back
+        )
+
+
+#: A business detail that is the person's own name under another label ("Caller Name",
+#: "Customer name"), which the core name already is: asked twice otherwise. A name of
+#: something else ("Shop name", "Crop name", "Spouse name") is the business's own detail.
+_PERSON_NAME: Final = re.compile(
+    r"^(?:(?:caller|customer|client|contact|lead|person|user|member|full|your)\s+)?name$",
+    re.IGNORECASE,
+)
+#: A business detail that is a phone number: the call is on one, and another is the core's
+#: "other number", asked on the call-back path. "Phone type" or "mobile model" is not one.
+_PHONE_NUMBER: Final = re.compile(
+    r"\b(?:phone|mobile|cell|contact|whatsapp|alternate|alternative|other|another|second|"
+    r"callback|call back|landline)\s+(?:number|no)\b",
+    re.IGNORECASE,
+)
+
+
+def _known_already(key: str, label: str) -> bool:
+    """Whether a business detail is one every call already has or asks as a core detail: the
+    person's name or a phone number."""
+    spellings = [" ".join(text.replace("_", " ").split()) for text in (key, label)]
+    return any(_PERSON_NAME.match(text) or _PHONE_NUMBER.search(text) for text in spellings)
+
 
 def _business_details(stored: Any) -> list[CollectField]:
     """The stored list's business details that are asked, read leniently as the compile
-    always has: a row is a dict with a label or key, and a core key's row is the core's."""
+    always has: a row is a dict with a label or key, and a core key's row is the core's. A
+    detail judged from the call (`whole_call_detail`) or one the call already has
+    (`_known_already`) is noted after the call and never asked."""
     out: list[CollectField] = []
     for raw in stored if isinstance(stored, list) else []:
         if not isinstance(raw, dict):
             continue
         key, label = str(raw.get("key") or ""), str(raw.get("label") or raw.get("key") or "")
         if not label or key in CORE_KEYS or whole_call_detail(key, label):
+            continue
+        if _known_already(key, label):
             continue
         out.append(
             CollectField(
@@ -207,7 +249,9 @@ def job_details(stored: Any, core: Sequence[ExtractionField]) -> JobDetails:
     first = [field for field in (asked_core("name"),) if field is not None]
     last = [field for key in CALL_BACK_KEYS if (field := asked_core(key)) is not None]
     return JobDetails(
-        asked=(*first, *business, *last), call_back=tuple(field.label for field in last)
+        asked=(*first, *business, *last),
+        call_back=tuple(field.label for field in last),
+        name=first[0].label if first else "",
     )
 
 

@@ -107,8 +107,10 @@ async def test_a_campaign_draft_asked_for_at_creation_reads_what_a_later_press_r
     assert "Why these people are called: They asked about plots last month" in (
         at_creation.situation
     )
-    assert at_creation.context.collect == ASKED
-    assert "Details to collect: " + "; ".join(ASKED) in (at_creation.context.user_message())
+    # A placed call has the contact's name, so its steps never ask it (`JobDetails.placed`).
+    placed = ASKED[1:]
+    assert at_creation.context.collect == placed
+    assert "Details to collect: " + "; ".join(placed) in (at_creation.context.user_message())
 
 
 async def test_a_lines_draft_asked_for_at_creation_reads_what_a_later_press_reads() -> None:

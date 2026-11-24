@@ -60,6 +60,46 @@ _REASONS: Final[dict[Author, str]] = {
 }
 
 
+#: The rules a whole-script rewrite by Pip is written under (founder, 25 Nov 2026: once the
+#: fixed writer ships, every script Pip wrote and the owner has not edited since is rewritten
+#: under the new rules). A later change of the rules names a new value, which makes the
+#: scripts Pip still owns eligible again.
+REWRITE_RULES: Final = "2026-11-25"
+#: What the version a rewrite saves says, as a `pip_draft`: Pip wrote the script.
+REWRITE_REASON: Final = "Pip rewrote its script under the script rules of 25 Nov 2026."
+#: The versions an owner's action made: their save, a version they put back, a script they
+#: copied in. Any of them after Pip's last whole script means the script is the owner's.
+_OWNER_ACTIONS: Final = ("owner", "restored", "copied")
+
+
+async def pip_owns(session: AsyncSession, kind: HolderKind, holder_id: UUID) -> bool:
+    """Whether the holder's script is still the one Pip wrote: a `pip_draft` version is on
+    file and nothing the owner did comes after the newest one (`owner_made`, or an owner's
+    action in `_OWNER_ACTIONS`). Pip's own automatic passes after it (`pip_repair`,
+    `pip_outcomes`, `pip_notices`) and a sync to the agent (`system`) keep it Pip's.
+
+    A script older than the history has only an `earlier` row, which says nothing about who
+    wrote it, so it is never Pip's here: rewriting an owner's script unasked is the costly
+    mistake, and such a script still gets the automatic line repairs (`agents/script_heal`)."""
+    column = _holder_column(kind)
+    return bool(
+        (
+            await session.execute(
+                text(
+                    f"WITH last AS (SELECT created_at, id FROM script_versions "
+                    f"WHERE {column} = :h AND author = 'pip_draft' "
+                    "ORDER BY created_at DESC, id DESC LIMIT 1) "
+                    "SELECT EXISTS (SELECT 1 FROM last) AND NOT EXISTS ("
+                    f"SELECT 1 FROM script_versions v, last WHERE v.{column} = :h "
+                    "AND (v.created_at, v.id) > (last.created_at, last.id) "
+                    "AND (v.owner_made OR v.author = ANY(:owner)))"
+                ),
+                {"h": holder_id, "owner": list(_OWNER_ACTIONS)},
+            )
+        ).scalar()
+    )
+
+
 def _holder_column(kind: HolderKind) -> str:
     """The holder's column, as a conditional of literals so `scripts/check_raw_sql.py` can
     read it."""
@@ -330,6 +370,8 @@ async def versions_out(
 
 __all__ = [
     "KEEP",
+    "REWRITE_REASON",
+    "REWRITE_RULES",
     "Author",
     "HolderKind",
     "PutBack",
@@ -339,6 +381,7 @@ __all__ = [
     "ScriptVersionsOut",
     "Version",
     "nothing_to_put_back",
+    "pip_owns",
     "put_back",
     "record",
     "restored_reason",
