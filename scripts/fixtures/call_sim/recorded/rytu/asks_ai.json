@@ -1,0 +1,98 @@
+{
+  "persona": "asks_ai",
+  "holder": "fixture:rytu",
+  "language": "en-IN",
+  "direction": "outbound",
+  "source": "hand-written stand-in, not a model run: written in the style of the calls of 24 and 25 Nov 2026 to exercise this persona's checks; a --live --record run replaces it.",
+  "prompt_sha": "",
+  "contact_name": "Umesh",
+  "prior_contact": true,
+  "expected_flags": [],
+  "progress": {
+    "steps": [
+      {
+        "step": 1,
+        "name": "Check installation",
+        "state": "reached",
+        "turn_idx": 5,
+        "moved_on_turn": null
+      },
+      {
+        "step": 2,
+        "name": "Login",
+        "state": "unclear",
+        "turn_idx": null,
+        "moved_on_turn": null
+      },
+      {
+        "step": 3,
+        "name": "Add Farms",
+        "state": "not_reached",
+        "turn_idx": null,
+        "moved_on_turn": null
+      },
+      {
+        "step": 4,
+        "name": "Enter Expenses",
+        "state": "not_reached",
+        "turn_idx": null,
+        "moved_on_turn": null
+      },
+      {
+        "step": 5,
+        "name": "Enter Sales",
+        "state": "not_reached",
+        "turn_idx": null,
+        "moved_on_turn": null
+      },
+      {
+        "step": 6,
+        "name": "Dashboard",
+        "state": "not_reached",
+        "turn_idx": null,
+        "moved_on_turn": null
+      },
+      {
+        "step": 7,
+        "name": "Finalise the call",
+        "state": "not_reached",
+        "turn_idx": null,
+        "moved_on_turn": null
+      },
+      {
+        "step": 8,
+        "name": "Not registered",
+        "state": "not_reached",
+        "turn_idx": null,
+        "moved_on_turn": null
+      }
+    ],
+    "fields": {}
+  },
+  "turns": [
+    {
+      "speaker": "caller",
+      "text": "Hello."
+    },
+    {
+      "speaker": "agent",
+      "text": "Hello Umesh garu, I am Varsha calling from Rytu Khata. Is now a good time to talk?"
+    },
+    {
+      "speaker": "caller",
+      "text": "Am I talking to a real person or a machine?"
+    },
+    {
+      "speaker": "agent",
+      "text": "I am an AI assistant calling for Rytu Khata. I can help you set up the app. Please check if it is on your home screen."
+    },
+    {
+      "speaker": "caller",
+      "text": "Okay. It is there, installed."
+    },
+    {
+      "speaker": "agent",
+      "text": "Good. Now open the app and log in with your phone number. Tell me when you are in."
+    }
+  ]
+}

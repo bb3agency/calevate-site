@@ -1,0 +1,130 @@
+{
+  "persona": "cooperative",
+  "holder": "fixture:rytu",
+  "language": "en-IN",
+  "direction": "outbound",
+  "source": "hand-written stand-in, not a model run: written in the style of the calls of 24 and 25 Nov 2026 to exercise this persona's checks; a --live --record run replaces it.",
+  "prompt_sha": "",
+  "contact_name": "Umesh",
+  "prior_contact": true,
+  "expected_flags": [],
+  "progress": {
+    "steps": [
+      {
+        "step": 1,
+        "name": "Check installation",
+        "state": "reached",
+        "turn_idx": 5,
+        "moved_on_turn": null
+      },
+      {
+        "step": 2,
+        "name": "Login",
+        "state": "reached",
+        "turn_idx": 9,
+        "moved_on_turn": null
+      },
+      {
+        "step": 3,
+        "name": "Add Farms",
+        "state": "reached",
+        "turn_idx": 13,
+        "moved_on_turn": null
+      },
+      {
+        "step": 4,
+        "name": "Enter Expenses",
+        "state": "unclear",
+        "turn_idx": null,
+        "moved_on_turn": null
+      },
+      {
+        "step": 5,
+        "name": "Enter Sales",
+        "state": "not_reached",
+        "turn_idx": null,
+        "moved_on_turn": null
+      },
+      {
+        "step": 6,
+        "name": "Dashboard",
+        "state": "not_reached",
+        "turn_idx": null,
+        "moved_on_turn": null
+      },
+      {
+        "step": 7,
+        "name": "Finalise the call",
+        "state": "not_reached",
+        "turn_idx": null,
+        "moved_on_turn": null
+      },
+      {
+        "step": 8,
+        "name": "Not registered",
+        "state": "not_reached",
+        "turn_idx": null,
+        "moved_on_turn": null
+      }
+    ],
+    "fields": {}
+  },
+  "turns": [
+    {
+      "speaker": "caller",
+      "text": "Hello."
+    },
+    {
+      "speaker": "agent",
+      "text": "Hello Umesh garu, I am Varsha calling from Rytu Khata. Is now a good time to talk?"
+    },
+    {
+      "speaker": "caller",
+      "text": "Yes, tell me."
+    },
+    {
+      "speaker": "agent",
+      "text": "Please check if the Rytu Khata app is on your home screen. Tell me what you see."
+    },
+    {
+      "speaker": "caller",
+      "text": "It is there, I installed it last week."
+    },
+    {
+      "speaker": "agent",
+      "text": "Good. Open the app and log in with your phone number. Tell me when you are in."
+    },
+    {
+      "speaker": "caller",
+      "text": "Okay."
+    },
+    {
+      "speaker": "agent",
+      "text": "Take your time, tell me when you are in."
+    },
+    {
+      "speaker": "caller",
+      "text": "I am in now."
+    },
+    {
+      "speaker": "agent",
+      "text": "Okay sir, now press My Farms and add your farm. Tell me when it is done."
+    },
+    {
+      "speaker": "caller",
+      "text": "Wait."
+    },
+    {
+      "speaker": "agent",
+      "text": "Sure, take your time."
+    },
+    {
+      "speaker": "caller",
+      "text": "Done, I added my farm."
+    },
+    {
+      "speaker": "agent",
+      "text": "Okay sir, now press Expenses and record one expense. Tell me when it is done."
+    }
+  ]
+}

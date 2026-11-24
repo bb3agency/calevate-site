@@ -1,0 +1,52 @@
+{
+  "persona": "not_now",
+  "holder": "fixture:rytu",
+  "language": "en-IN",
+  "direction": "outbound",
+  "source": "hand-written stand-in, not a model run: written in the style of the calls of 24 and 25 Nov 2026 to exercise this persona's checks; a --live --record run replaces it.",
+  "prompt_sha": "",
+  "contact_name": "Umesh",
+  "prior_contact": true,
+  "expected_flags": [],
+  "progress": null,
+  "turns": [
+    {
+      "speaker": "caller",
+      "text": "Hello."
+    },
+    {
+      "speaker": "agent",
+      "text": "Hello Umesh garu, I am Varsha calling from Rytu Khata. Is now a good time to talk?"
+    },
+    {
+      "speaker": "caller",
+      "text": "I am at work now, I cannot talk. Call me in the evening."
+    },
+    {
+      "speaker": "agent",
+      "text": "Sure. Shall I call you today at six in the evening?"
+    },
+    {
+      "speaker": "caller",
+      "text": "Yes, six is fine."
+    },
+    {
+      "speaker": "agent",
+      "text": "I will arrange a call back at six this evening. Is that right?",
+      "tools": [
+        "arrange_return_call"
+      ]
+    },
+    {
+      "speaker": "caller",
+      "text": "Yes. Bye."
+    },
+    {
+      "speaker": "agent",
+      "text": "Thank you, we will call you at six. Goodbye.",
+      "tools": [
+        "arrange_return_call"
+      ]
+    }
+  ]
+}

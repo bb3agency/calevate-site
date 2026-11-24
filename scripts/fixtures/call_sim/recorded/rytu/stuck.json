@@ -1,0 +1,50 @@
+{
+  "persona": "stuck",
+  "holder": "fixture:rytu",
+  "language": "en-IN",
+  "direction": "outbound",
+  "source": "evidence: the founder's test call of 24 Nov 2026 12:15 IST (prod 0.5.28), English stand-in of each line ('sir' stands for the Telugu honorific). The step reading is read by hand from the transcript against this fixture's steps; no reading existed for that call. Textbook words cannot show in English, and the English checks do not flag these English lines with the call's same-closing or asked-done-too-soon ('Has it opened?' after an action is not read as a done question in English).",
+  "prompt_sha": "",
+  "contact_name": "",
+  "prior_contact": true,
+  "expected_flags": ["same_opening", "too_long", "brackets", "missed_lookup", "opened_again"],
+  "progress": {
+    "steps": [
+      {"step": 1, "name": "Check installation", "state": "reached", "turn_idx": 17, "moved_on_turn": null},
+      {"step": 2, "name": "Login", "state": "reached", "turn_idx": 23, "moved_on_turn": null},
+      {"step": 3, "name": "Add Farms", "state": "unclear", "turn_idx": null, "moved_on_turn": null},
+      {"step": 4, "name": "Enter Expenses", "state": "not_reached", "turn_idx": null, "moved_on_turn": null},
+      {"step": 5, "name": "Enter Sales", "state": "not_reached", "turn_idx": null, "moved_on_turn": null},
+      {"step": 6, "name": "Dashboard", "state": "not_reached", "turn_idx": null, "moved_on_turn": null},
+      {"step": 7, "name": "Finalise the call", "state": "not_reached", "turn_idx": null, "moved_on_turn": null},
+      {"step": 8, "name": "Not registered", "state": "not_reached", "turn_idx": null, "moved_on_turn": null}
+    ],
+    "fields": {}
+  },
+  "turns": [
+    {"speaker": "caller", "text": "Hello."},
+    {"speaker": "agent", "text": "Namaskaram, I am calling from Rytu Khata. Is now a good time for you to talk?"},
+    {"speaker": "caller", "text": "Tell me."},
+    {"speaker": "agent", "text": "You registered on our Rytu Khata app, so I called to help you put it on your phone as an app in five minutes. Is now a good time for you to talk?"},
+    {"speaker": "caller", "text": "Yes tell me, it is fine."},
+    {"speaker": "agent", "text": "Okay sir, now is your phone Android or iPhone, sir?"},
+    {"speaker": "caller", "text": "Android sir."},
+    {"speaker": "agent", "text": "Okay sir, now open the Chrome browser on your phone. Tell me after you open it, sir."},
+    {"speaker": "caller", "text": "Yes I opened it sir."},
+    {"speaker": "agent", "text": "Okay sir, now type Rytu Khata dot com (rytukhata.com) in the address bar and search. Has the site opened, sir?"},
+    {"speaker": "caller", "text": "Yes it opened."},
+    {"speaker": "agent", "text": "Okay sir, now press the three dot menu at the top right. Has it opened, sir?"},
+    {"speaker": "caller", "text": "Yes it opened."},
+    {"speaker": "agent", "text": "Okay sir, now you will see an option called Add to Home screen (Add to Home screen), choose it. Tell me after that, sir."},
+    {"speaker": "caller", "text": "I can't see it sir."},
+    {"speaker": "agent", "text": "No problem sir, let us try once more. After you press the three dot menu at the top right, if you scroll down you will see the Add to Home screen (Add to Home screen) option, have a look, sir?"},
+    {"speaker": "caller", "text": "Yes it is there, I saw it, I pressed it, it came, it is added to the home screen."},
+    {"speaker": "agent", "text": "Very happy sir. Now press the Rytu Khata icon and open the app. Has it opened, sir?"},
+    {"speaker": "caller", "text": "Yes, it opened."},
+    {"speaker": "agent", "text": "Okay sir, now choose the Telugu language in the app. Have you chosen it, sir?"},
+    {"speaker": "caller", "text": "Yes, I selected it."},
+    {"speaker": "agent", "text": "Okay sir, now enter your registered mobile number and password and log in. Have you logged in, sir?"},
+    {"speaker": "caller", "text": "Yes, I logged in."},
+    {"speaker": "agent", "text": "Okay sir, now press the My Farms button at the bottom of the app. Has that screen come, sir?"}
+  ]
+}

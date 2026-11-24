@@ -1,0 +1,21 @@
+{
+  "holder": "fixture:rytu",
+  "total": 1030,
+  "personas": {
+    "cooperative": 70,
+    "silent": 60,
+    "garbled": 20,
+    "not_now": 100,
+    "not_interested": 95,
+    "wrong_person": 95,
+    "forgot_registering": 70,
+    "iphone": 65,
+    "business_question": 50,
+    "stuck": 30,
+    "asks_repeat": 40,
+    "english_letters": 75,
+    "impatient": 75,
+    "asks_ai": 85,
+    "remove_me": 100
+  }
+}
