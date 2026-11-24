@@ -178,6 +178,7 @@ _CAMPAIGN_WORKSPACE_ROUTES = (
     "PUT /v1/campaigns/{campaign_id}/main-task",
     "PUT /v1/campaigns/{campaign_id}/script",
     "POST /v1/campaigns/{campaign_id}/script/restore-before-pip",
+    "POST /v1/campaigns/{campaign_id}/script/versions/{script_version_id}/restore",
     "POST /v1/campaigns/{campaign_id}/script/step-outcomes/rewrite",
     "POST /v1/campaigns/{campaign_id}/script-draft/{proposal_id}/keep-live",
     "PUT /v1/campaigns/{campaign_id}/sources",
@@ -185,6 +186,14 @@ _CAMPAIGN_WORKSPACE_ROUTES = (
     "POST /v1/campaigns/{campaign_id}/sources/link",
     "POST /v1/campaigns/{campaign_id}/sources/upload",
     "POST /v1/campaigns/{campaign_id}/questions/answer",
+)
+#: One holder's script versions (D-1039).
+_SCRIPT_VERSIONS = BoundedByConstruction(
+    by=(
+        "ONE campaign's or line's versions, at most `campaigns/script_history.KEEP` + 1: "
+        "`record` prunes past it on every write and `versions` reads with that LIMIT; no "
+        "script in the response, only who, when and why."
+    )
 )
 _TEST_NUMBERS = BoundedByConstruction(
     by="the account's saved test numbers, at most `workspace_routes.MAX_TEST_NUMBERS` (ten)."
@@ -366,6 +375,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "PUT /v1/inbound-lines/{line_id}/sources": _INBOUND_LINE,
     "PUT /v1/inbound-lines/{line_id}/actions": _INBOUND_LINE,
     "PUT /v1/inbound-lines/{line_id}/script": _INBOUND_LINE,
+    "POST /v1/inbound-lines/{line_id}/script/restore-before-pip": _INBOUND_LINE,
+    "POST /v1/inbound-lines/{line_id}/script/versions/{script_version_id}/restore": (_INBOUND_LINE),
+    "GET /v1/campaigns/{campaign_id}/script/versions": _SCRIPT_VERSIONS,
+    "GET /v1/inbound-lines/{line_id}/script/versions": _SCRIPT_VERSIONS,
     "POST /v1/inbound-lines/{line_id}/script-draft/{line_proposal_id}/keep-live": _INBOUND_LINE,
     "POST /v1/inbound-lines/{line_id}/publish": _INBOUND_LINE,
     "POST /v1/inbound-lines/{line_id}/numbers": _INBOUND_LINE,

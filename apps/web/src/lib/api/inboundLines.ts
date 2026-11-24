@@ -26,6 +26,7 @@ import { ApiProblem, apiRequest, type Session } from "./client";
 import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 import type { CallScript } from "./script";
+import { restoreRequest, type ScriptRestore } from "./scriptVersions";
 
 type Schemas = components["schemas"];
 export type InboundLine = Omit<Schemas["InboundLineOut"], "script" | "proposal"> & {
@@ -197,6 +198,20 @@ export function useSaveLineScript(session: Session, lineId: string) {
         method: "PUT",
         body: proposalId ? { script, proposal_id: proposalId } : { script },
       }),
+    [],
+    () => true,
+  );
+}
+
+/** Put back one saved version, or the owner's own last one, and put the line live. */
+export function useRestoreLineScript(session: Session, lineId: string) {
+  return useLineMutation(
+    session,
+    lineId,
+    (input: ScriptRestore) => {
+      const { path, body } = restoreRequest({ kind: "line", id: lineId }, input);
+      return apiRequest<InboundLine>(session, path, { method: "POST", body });
+    },
     [],
     () => true,
   );

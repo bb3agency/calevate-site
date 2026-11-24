@@ -480,6 +480,12 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
             "request has nothing to match here. It ends with the engagement, which "
             "`execute_tenant_erasure` covers."
         ),
+        "script_versions": (
+            "Earlier versions of a campaign's or inbound line's call script and who wrote "
+            "each (D-1039): the business's own script, never a caller's words or number; a "
+            "caller's deletion request has nothing to match here. It ends with the "
+            "engagement, which `execute_tenant_erasure` covers."
+        ),
         "agent_voice_notes": (
             "How the owner taught one agent to sound on every call (pace, warmth, words to "
             "avoid): the business's own instruction, never a caller's words or number; a "

@@ -1,7 +1,7 @@
 """each engine agent's route records what its last publish sent
 
 Revision ID: e4b9d2a7f160
-Revises: b8e3f1c6d2a4
+Revises: 9c3e5b7a1f28
 Create Date: 2026-11-24 18:00:00.000000
 
 The admin "What it is told" screen compares what a holder's engine agent was last published
@@ -33,7 +33,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "e4b9d2a7f160"
-down_revision: str | None = "b8e3f1c6d2a4"
+down_revision: str | None = "9c3e5b7a1f28"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

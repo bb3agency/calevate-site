@@ -55,7 +55,7 @@ async def _line(tenant_id: UUID, agent_id: UUID, *, script: bool = True) -> UUID
             session, tenant_id=tenant_id, agent_id=agent_id, name="Front desk", created_by=None
         )
         if script:
-            await lines.save_script(session, line_id, SCRIPT)
+            await lines.save_script(session, line_id, SCRIPT, author="owner")
     return line_id
 
 

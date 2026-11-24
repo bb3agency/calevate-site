@@ -217,7 +217,9 @@ async def _refresh_untouched_script(
 
     structured = (await session.execute(text(_APPLIED_SCRIPT_SQL), {"aid": agent_id})).scalar()
     if structured:
-        await lines.save_script(session, line_id, CallScript.model_validate(structured))
+        await lines.save_script(
+            session, line_id, CallScript.model_validate(structured), author="system"
+        )
 
 
 async def _carry_out(

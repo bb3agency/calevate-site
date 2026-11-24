@@ -19,6 +19,7 @@ import {
   progressFixture,
   resultsFixture,
   notesFixture,
+  scriptVersionsFixture,
   settingsFixture,
   workspaceFixture,
 } from "./campaignFixtures";
@@ -3309,6 +3310,7 @@ const CLIENT_SCREENS: Screen[] = [
         calls: [{ id: "call-1", started_at: "2026-11-16T05:00:00Z", duration_s: 95, status: "completed", outcome_tag: "answered" }],
       },
       [`/v1/inbound-lines/${INBOUND_LINE.id}/test-numbers`]: { numbers: ["+919876543210"] },
+      [`/v1/inbound-lines/${INBOUND_LINE.id}/script/versions`]: scriptVersionsFixture(),
       [`/v1/inbound-lines/${INBOUND_LINE.id}/team-alert`]: jobTeamAlert("line", INBOUND_LINE.id),
       [`/v1/inbound-lines/${INBOUND_LINE.id}/notes`]: {
         agent_id: INBOUND_LINE.agent_id,

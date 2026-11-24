@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.37 — 24-Nov-2026
+
+- Every campaign and Inbound line keeps a history of its script: who changed it (you, a Pip
+  draft, a Pip repair, Pip's outcomes, a restore) and when. "Versions" lists them with Put back
+  on each.
+- "Put back the flow from before Pip" brings back your own last version, and says which one.
+  When there is nothing of yours to put back, or it is already your version, it says so
+  instead of claiming it worked. Pip's automatic passes no longer overwrite what Put back
+  restores.
+
 ## 0.5.36 — 24-Nov-2026
 
 - Pip shows its work live: a "Working" header with a timer and Stop, a one-line plan of what

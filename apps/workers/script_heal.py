@@ -9,8 +9,8 @@ those findings (`script_proposals.fix_change`), the answer is kept to the faulte
 more (`script_proposal._fixed_further`, the same targeted repair every Pip draft goes
 through), then saved by compare-and-set on the script it read, with what was spent metered in
 the same transaction, and put on the calls as the owner's Save is (`campaigns/notes_live.
-queue_put_live`). The saved script before the repair is kept as the campaign's "switch back"
-copy (`script_before_pip`), so the owner can put back what they had.
+queue_put_live`). The repair is kept as a `pip_repair` version (`campaigns/script_history`),
+so "put back" still reaches the owner's own script and the Versions list can undo it.
 
 SUBJECT -> GATE -> RUN -> METER (`crm/resummarise.second_reading`'s order): the holder is the
 subject; Pip must be on for the account and its AI allowance not used up, or the pass is
@@ -51,6 +51,7 @@ from apps.api.agents.script_heal import (
     table_of,
 )
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
+from apps.api.campaigns import script_history
 from apps.api.campaigns.notes_live import queue_put_live
 from apps.api.campaigns.workspace import read_script_proposal
 from apps.api.copilot.consent import account_content_may_reach_models
@@ -362,10 +363,15 @@ async def _meter_and_finish(
 
 
 async def _write(
-    session: AsyncSession, holder: _Holder, script: CallScript, fixed: dict[str, str]
+    session: AsyncSession,
+    tenant_id: UUID,
+    holder: _Holder,
+    script: CallScript,
+    fixed: dict[str, str],
 ) -> bool:
     """The compare-and-set save: a line's version, a campaign's script as read. The inputs
-    record the saved script as checked, so the sweep does not read it again until it moves."""
+    record the saved script as checked, so the sweep does not read it again until it moves.
+    Kept as a `pip_repair` version, which "put back" passes over to the owner's own."""
     values = {
         "s": script.model_dump_json(),
         "h": holder.id,
@@ -374,8 +380,8 @@ async def _write(
     }
     if holder.kind == "campaign":
         sql = (
-            "UPDATE campaigns SET script_before_pip = script, script_before_pip_at = now(), "
-            "script = CAST(:s AS jsonb), script_heal_fixed = script_heal_fixed || "
+            "UPDATE campaigns SET script = CAST(:s AS jsonb), "
+            "script_heal_fixed = script_heal_fixed || "
             "CAST(:fixed AS jsonb), script_heal_inputs = md5(CAST(:s AS jsonb)::text || :checks), "
             "updated_at = now() WHERE id = :h AND script = CAST(:old AS jsonb) RETURNING id"
         )
@@ -388,7 +394,17 @@ async def _write(
             "WHERE id = :h AND version = :v RETURNING id"
         )
         values["v"] = holder.version
-    return (await session.execute(text(sql), values)).first() is not None
+    if (await session.execute(text(sql), values)).first() is None:
+        return False
+    await script_history.record(
+        session,
+        tenant_id=tenant_id,
+        kind=holder.kind,
+        holder_id=holder.id,
+        script=script,
+        author="pip_repair",
+    )
+    return True
 
 
 async def _save(
@@ -416,7 +432,7 @@ async def _save(
                 session, SLOTS[holder.kind], tenant_id=tenant_id, row_id=holder.id, state="failed"
             )
             return "too_long"
-        saved = await _write(session, holder, script, fixed)
+        saved = await _write(session, tenant_id, holder, script, fixed)
         await agent_pass.finish(
             session, SLOTS[holder.kind], tenant_id=tenant_id, row_id=holder.id, state="done"
         )

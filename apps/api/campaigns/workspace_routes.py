@@ -34,7 +34,7 @@ from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import notes as campaign_notes
-from apps.api.campaigns import notes_live, script_draft, step_outcomes, workspace
+from apps.api.campaigns import notes_live, script_draft, script_history, step_outcomes, workspace
 from apps.api.campaigns import settings as campaign_settings_rules
 from apps.api.campaigns.engine_agent import needs_its_own, put_campaign_live
 from apps.api.compliance.audit import write_audit
@@ -112,8 +112,6 @@ class WorkspaceOut(_Out):
     proposal: CampaignProposalOut | None
     #: The sources from What your agents know the campaign is written from.
     source_ids: list[UUID]
-    #: When the script from before Pip's last draft was kept aside; None: nothing to put back.
-    script_before_pip_at: datetime | None = None
     #: Pip is writing the outcome of a step that has none; the call flow shows it at work.
     step_outcomes_pending: bool = False
     #: An outcome is not one Pip wrote, so the owner may give them all back to Pip to rewrite.
@@ -159,7 +157,6 @@ async def _workspace_out(session: AsyncSession, campaign_id: UUID) -> WorkspaceO
         script_live_version=w.script_live_version,
         proposal=_proposal(w.proposal),
         source_ids=list(w.sources),
-        script_before_pip_at=w.script_before_pip_at,
         step_outcomes_pending=w.step_outcomes_pending,
         step_outcomes_by_owner=w.step_outcomes_by_owner,
     )
@@ -196,33 +193,101 @@ async def save_main_task(
     return await _workspace_out(session, campaign_id)
 
 
-@router.post(
-    "/{campaign_id}/script/restore-before-pip",
-    response_model=WorkspaceOut,
-    openapi_extra=permission_meta("leads:dispatch"),
-    summary="Put back the script from before Pip's last draft (the two swap)",
+@router.get(
+    "/{campaign_id}/script/versions",
+    response_model=script_history.ScriptVersionsOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="The campaign's saved script versions, and what putting back the flow restores",
 )
-async def restore_script_before_pip(
-    campaign_id: UUID, session: Session, request: Request, principal: Dispatcher
+async def read_script_versions(
+    campaign_id: UUID, session: Session, _: Reader
+) -> script_history.ScriptVersionsOut:
+    w = await workspace.read_workspace(session, campaign_id)
+    return await script_history.versions_out(session, "campaign", campaign_id, w.script)
+
+
+async def _restore(
+    session: AsyncSession,
+    request: Request,
+    principal: Principal,
+    campaign_id: UUID,
+    *,
+    version_id: UUID | None,
+    expected_version_id: UUID | None,
 ) -> WorkspaceOut:
     # Committed on its own, then put live as `save_script` does: a running or paused campaign
-    # would otherwise keep Pip's version on its calls until it was stopped.
+    # would otherwise keep the replaced script on its calls until it was stopped.
     assert principal.tenant_id is not None
     async with tenant_session(principal.tenant_id) as own:
-        await workspace.restore_before_pip(own, campaign_id)
+        brought = await workspace.restore_version(
+            own,
+            campaign_id,
+            version_id=version_id,
+            expected_version_id=expected_version_id,
+            made_by=principal.user_id,
+        )
         await write_audit(
             own,
-            action="campaign.script_restored_before_pip",
+            action="campaign.script_version_restored",
             actor=principal,
             tenant_id=principal.tenant_id,
             object_type="campaign",
             object_id=str(campaign_id),
             ip=client_request_ip(request),
-            summary={},
+            summary={"version_id": str(brought.id), "owner_made": brought.owner_made},
         )
     if await workspace.holds_engine_agent(session, campaign_id):
         await _put_live_after_save(principal.tenant_id, campaign_id)
     return await _workspace_out(session, campaign_id)
+
+
+@router.post(
+    "/{campaign_id}/script/restore-before-pip",
+    response_model=WorkspaceOut,
+    responses={409: {"description": "Nothing to put back, or the script changed since"}},
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Put back the owner's own last version of the script, before Pip's changes",
+)
+async def restore_script_before_pip(
+    campaign_id: UUID,
+    payload: script_history.ScriptRestoreIn,
+    session: Session,
+    request: Request,
+    principal: Dispatcher,
+) -> WorkspaceOut:
+    return await _restore(
+        session,
+        request,
+        principal,
+        campaign_id,
+        version_id=None,
+        expected_version_id=payload.expected_version_id,
+    )
+
+
+@router.post(
+    "/{campaign_id}/script/versions/{script_version_id}/restore",
+    response_model=WorkspaceOut,
+    responses={409: {"description": "That version is the script now, or it changed since"}},
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Put back one saved version of the campaign's script",
+)
+async def restore_script_version(
+    campaign_id: UUID,
+    script_version_id: UUID,
+    payload: script_history.ScriptRestoreIn,
+    session: Session,
+    request: Request,
+    principal: Dispatcher,
+) -> WorkspaceOut:
+    return await _restore(
+        session,
+        request,
+        principal,
+        campaign_id,
+        version_id=script_version_id,
+        expected_version_id=payload.expected_version_id,
+    )
 
 
 class ScriptIn(BaseModel):
@@ -258,22 +323,6 @@ async def rewrite_step_outcomes(
             summary={},
         )
     return await _workspace_out(session, campaign_id)
-
-
-async def _holds_engine_agent(session: AsyncSession, campaign_id: UUID) -> bool:
-    """The campaign has its own engine agent and is still going, so an edit reaches its
-    calls now (`put_campaign_live`) rather than at its next Start or test call."""
-    return bool(
-        (
-            await session.execute(
-                text(
-                    "SELECT engine_agent_ref IS NOT NULL AND status = ANY(:holding) "
-                    "FROM campaigns WHERE id = :c"
-                ),
-                {"c": campaign_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
-            )
-        ).scalar_one_or_none()
-    )
 
 
 async def _put_live_after_save(tenant_id: UUID, campaign_id: UUID) -> None:
@@ -329,7 +378,13 @@ async def _save_then_put_live(
         if script is None:
             assert proposal_id is not None
             script = await script_draft.ready_script(own, "campaign", campaign_id, proposal_id)
-        await workspace.save_script(own, campaign_id, script)
+        await workspace.save_script(
+            own,
+            campaign_id,
+            script,
+            author="owner" if proposal_id is None else "pip_draft",
+            made_by=principal.user_id,
+        )
         if proposal_id is not None and not await workspace.clear_proposal(
             own, campaign_id, proposal_id
         ):
