@@ -7847,6 +7847,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/script/step-outcomes/rewrite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Give every step outcome back to Pip to rewrite */
+        post: operations["rewrite_step_outcomes_v1_campaigns__campaign_id__script_step_outcomes_rewrite_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/settings": {
         parameters: {
             query?: never;
@@ -40283,6 +40300,11 @@ export interface components {
             /** Status */
             status: string;
             /**
+             * Step Outcomes By Owner
+             * @default false
+             */
+            step_outcomes_by_owner: boolean;
+            /**
              * Step Outcomes Pending
              * @default false
              */
@@ -54700,6 +54722,37 @@ export interface operations {
         };
     };
     restore_script_before_pip_v1_campaigns__campaign_id__script_restore_before_pip_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rewrite_step_outcomes_v1_campaigns__campaign_id__script_step_outcomes_rewrite_post: {
         parameters: {
             query?: never;
             header?: never;

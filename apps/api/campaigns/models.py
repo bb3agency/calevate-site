@@ -184,6 +184,10 @@ class Campaign(PKMixin, TimestampMixin, Base):
     step_outcomes_state: Mapped[str | None] = mapped_column(Text)
     step_outcomes_inputs: Mapped[str | None] = mapped_column(Text)
     step_outcomes_at: Mapped[datetime | None]
+    #: The outcomes that pass wrote, word for word, and the rules version each was written
+    #: under (`campaigns/step_outcomes.PipRecord`): Pip may rewrite only these, and only while
+    #: the script still holds that text. Migration f7a3c9d1b5e2 holds the CHECK.
+    step_outcomes_pip: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: Pip's repair of the script's lines the script checks fault (`agents/script_heal`), as
     #: an agent pass: its state, when, and the md5 of the script it last checked. The CHECKs
     #: on them are migration a6d2f8c4e1b7's.

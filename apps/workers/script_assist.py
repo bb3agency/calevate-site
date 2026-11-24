@@ -206,11 +206,13 @@ STEP_RULES: Final = (
     "step_outcomes has one entry per step number: one plain English sentence saying what is "
     "true once that step is done, checkable from what the person says (for example: The "
     "person says the app is open on their phone). The agent reaches it however the call goes; "
-    "the step's stages are examples of how. Each task the main task lists is the outcome of a "
-    "step, in the order the call reaches it. Each stage's instruction says, in at most three "
-    "short sentences, what this scenario does toward its step's outcome, what to check or ask, "
-    "and when it is done. The first stage goes on from the person's answer to the opening "
-    "line: no stage greets, says who is calling or asks whether now suits, in its instruction "
+    "the step's stages are examples of how, so the outcome holds for every case the person may "
+    "be in (devices, plans, yes or no), and every outcome uses the same word for the person. "
+    "Each task the main task lists is the outcome of a step, in the order the call reaches it. "
+    "Each stage's instruction says, in at most three short sentences, what this scenario does "
+    "toward its step's outcome, what to check or ask, and when it is done. The first stage goes "
+    "on from the person's answer to the opening line: no stage greets, says who is calling or "
+    "asks whether now suits, in its instruction "
     'or any line in any language. mode is "say" only for a line that must be said word for '
     "word (a legal sentence, a price, an exact instruction such as a web address); every other "
     'stage is "guide". No line puts an honorific where a name belongs without the name: write '

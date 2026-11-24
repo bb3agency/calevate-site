@@ -69111,6 +69111,11 @@
             "title": "Status",
             "type": "string"
           },
+          "step_outcomes_by_owner": {
+            "default": false,
+            "title": "Step Outcomes By Owner",
+            "type": "boolean"
+          },
           "step_outcomes_pending": {
             "default": false,
             "title": "Step Outcomes Pending",
@@ -91317,6 +91322,46 @@
           }
         },
         "summary": "Put back the script from before Pip's last draft (the two swap)",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/script/step-outcomes/rewrite": {
+      "post": {
+        "operationId": "rewrite_step_outcomes_v1_campaigns__campaign_id__script_step_outcomes_rewrite_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Give every step outcome back to Pip to rewrite",
         "tags": [
           "campaigns"
         ],

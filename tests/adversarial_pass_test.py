@@ -906,6 +906,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/inbound-lines/{line_id}/test-numbers", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/script/proposal", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/script/restore-before-pip", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/script/step-outcomes/rewrite", {}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/script/proposal/{proposal_id}", {}, {}),
     # Pip live (24 Nov 2026): a neighbour's draft followed, kept live or cancelled.
     ("GET", "/v1/campaigns/{campaign_id}/script-draft/stream", {}, {}),

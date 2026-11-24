@@ -2316,6 +2316,9 @@ class InboundLine(PKMixin, TimestampMixin, Base):
     step_outcomes_state: Mapped[str | None] = mapped_column(Text)
     step_outcomes_inputs: Mapped[str | None] = mapped_column(Text)
     step_outcomes_at: Mapped[datetime | None]
+    #: The outcomes that pass wrote and their rules version, as on `campaigns` (migration
+    #: f7a3c9d1b5e2, which holds the CHECK).
+    step_outcomes_pip: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: Pip's repair of the script's faulted lines and its pass, as on `campaigns` (migration
     #: a6d2f8c4e1b7, which holds their CHECKs).
     script_heal_state: Mapped[str | None] = mapped_column(Text)

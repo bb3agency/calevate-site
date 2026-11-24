@@ -166,6 +166,7 @@ _CAMPAIGN_WORKSPACE_ROUTES = (
     "PUT /v1/campaigns/{campaign_id}/main-task",
     "PUT /v1/campaigns/{campaign_id}/script",
     "POST /v1/campaigns/{campaign_id}/script/restore-before-pip",
+    "POST /v1/campaigns/{campaign_id}/script/step-outcomes/rewrite",
     "POST /v1/campaigns/{campaign_id}/script-draft/{proposal_id}/keep-live",
     "PUT /v1/campaigns/{campaign_id}/sources",
     "POST /v1/campaigns/{campaign_id}/sources/note",

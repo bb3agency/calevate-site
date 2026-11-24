@@ -96,6 +96,9 @@ class Workspace:
     script_before_pip_at: datetime | None = None
     #: Pip is writing the outcome of a step that has none (`step_outcomes`).
     step_outcomes_pending: bool = False
+    #: An outcome is not one Pip wrote (the owner's, or written before Pip kept a record), so
+    #: the owner may give the outcomes back to Pip to rewrite (`step_outcomes.hand_back_to_pip`).
+    step_outcomes_by_owner: bool = False
 
 
 def _script(raw: Any) -> CallScript | None:
@@ -142,7 +145,7 @@ async def _campaign_row(session: AsyncSession, campaign_id: UUID, *, lock: bool 
         await session.execute(
             text(
                 "SELECT id, tenant_id, agent_id, status, main_task, script, script_proposal, "
-                "script_live_version, script_before_pip_at FROM campaigns "
+                "script_live_version, script_before_pip_at, step_outcomes_pip FROM campaigns "
                 "WHERE id = :cid AND archived_at IS NULL" + (" FOR UPDATE" if lock else "")
             ),
             {"cid": campaign_id},
@@ -156,17 +159,21 @@ async def _campaign_row(session: AsyncSession, campaign_id: UUID, *, lock: bool 
 async def read_workspace(session: AsyncSession, campaign_id: UUID) -> Workspace:
     row = await _campaign_row(session, campaign_id)
     picked = await read_picks(session, CAMPAIGN_PICKS, [campaign_id])
+    script = _script(row.script)
     return Workspace(
         campaign_id=row.id,
         agent_id=row.agent_id,
         status=row.status,
         main_task=row.main_task or "",
-        script=_script(row.script),
+        script=script,
         script_live_version=row.script_live_version,
         proposal=_proposal(row.script_proposal, now=datetime.now(UTC)),
         sources=tuple(picked[campaign_id]),
         script_before_pip_at=row.script_before_pip_at,
         step_outcomes_pending=await step_outcomes.pending(session, "campaign", campaign_id),
+        step_outcomes_by_owner=step_outcomes.by_owner(
+            script, step_outcomes.PipRecord.read(row.step_outcomes_pip)
+        ),
     )
 
 

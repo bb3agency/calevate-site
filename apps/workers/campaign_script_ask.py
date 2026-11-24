@@ -195,11 +195,13 @@ GROUNDING_RULE: Final = (
 OUTCOMES_RULE: Final = (
     "List every task the main task names, in the order the call can do them, and give each its "
     "own step whose outcome (step_outcomes) says what is true once it is done, checkable from "
-    "what the person says. Then write that step's scenarios: the ways the person may answer "
-    "(they do it, they already did it, they cannot now, it does not work), each saying how it "
-    "reaches the outcome or where the call goes instead. A task left out for the 12-stage "
-    "limit is named in the goal. The first step goes on from the person's answer to the "
-    "opening line and never greets, says who is calling or asks whether now suits again."
+    "what the person says, for every case the person may be in (devices, plans, yes or no), "
+    "with the same word for the person in every outcome. Then write that step's scenarios: "
+    "the ways the person may answer (they do it, they already did it, they cannot now, it "
+    "does not work), each saying how it reaches the outcome or where the call goes instead. "
+    "A task left out for the 12-stage limit is named in the goal. The first step goes on from "
+    "the person's answer to the opening line and never greets, says who is calling or asks "
+    "whether now suits again."
 )
 
 #: Two or three sentences at most per reply and one question per turn (docs.vapi.ai/
