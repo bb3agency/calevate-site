@@ -283,7 +283,7 @@ async def test_an_agent_with_no_engine_agent_gets_a_held_script_back_at_once() -
     assert await _live_body(tenant_id, agent_id) == own
 
 
-class _Reconciled(Exception):
+class _ReconciledError(Exception):
     pass
 
 
@@ -319,14 +319,14 @@ async def test_a_sound_test_copy_never_lifts_a_silence_another_route_still_earns
 
     async def reconcile(_session: Any, _engine: Any, **kw: Any) -> str:
         seen.append(kw["truthful_answer_applied"])
-        raise _Reconciled
+        raise _ReconciledError
 
     monkeypatch.setattr(engine_reconciliation, "engine_drift_for", sound)
     monkeypatch.setattr(engine_reconciliation, "reconcile_inbound_truthful_answer", reconcile)
     candidate = DriftCandidate(
         tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=copy_ref, drift_checked_at=None
     )
-    with pytest.raises(_Reconciled):
+    with pytest.raises(_ReconciledError):
         await engine_reconciliation._reconcile_one(engine.name, candidate)
     assert seen == [None], "a sound test copy was allowed to lift the line's silence"
 
@@ -336,6 +336,6 @@ async def test_a_sound_test_copy_never_lifts_a_silence_another_route_still_earns
         "RETURNING 1",
         r=line_ref,
     )
-    with pytest.raises(_Reconciled):
+    with pytest.raises(_ReconciledError):
         await engine_reconciliation._reconcile_one(engine.name, candidate)
     assert seen == [None, True], "with every route sound, the copy's verdict may lift it"
