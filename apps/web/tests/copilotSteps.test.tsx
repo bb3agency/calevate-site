@@ -201,6 +201,36 @@ describe("the assistant's steps, as the person sees them", () => {
     expect(line.className).not.toContain("text-warn");
   });
 
+  it("never shows an id or a bare not-found title as a step's line (founder, 24 Nov 2026)", () => {
+    render(
+      <StepList
+        steps={[
+          step({ id: "a", tool: "script_draft", status: "refused", label: "Preparing a new script draft…", detail: "Agent not found" }),
+          step({ id: "b", tool: "agents_list", detail: "Varsha 019a8f2e-1c3d-7b4a-9e2f-0123456789ab" }),
+        ]}
+      />,
+    );
+    open();
+    expect(document.body.textContent).not.toMatch(/not found|019a8f2e/);
+    expect(screen.getByText("Could not finish preparing a new script draft")).toBeTruthy();
+  });
+
+  it("reads a refused step that a later run of the same tool finished as tried again", () => {
+    render(
+      <StepList
+        steps={[
+          step({ id: "a", tool: "script_draft", status: "refused", label: "Preparing a new script draft…", detail: "I could not tell which one you meant. Ask again and name it." }),
+          step({ id: "b", tool: "campaigns_list", label: "Checked your campaigns" }),
+          step({ id: "c", tool: "script_draft", label: "Prepared a new script draft", detail: "" }),
+        ]}
+      />,
+    );
+    expect(screen.getByText("Checked 2 things")).toBeTruthy();
+    open();
+    expect(screen.getByText("Tried again")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/did not finish|which one you meant/);
+  });
+
   it("never echoes the machine name when the server sent no label", () => {
     render(<StepList steps={[{ id: "r1", tool: "leads_search", status: "refused", args: "" } as CopilotStep]} />);
     open();

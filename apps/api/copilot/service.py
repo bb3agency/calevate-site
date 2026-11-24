@@ -32,7 +32,7 @@ import json
 import re
 import time
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Final, Literal
 from uuid import UUID
 
@@ -50,6 +50,7 @@ from calevate_shared.spoken_guard import (
     textbook_note,
     textbook_words,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.copilot import (
     action_log,
@@ -62,6 +63,7 @@ from apps.api.copilot import (
     coverage_actions,
     diagnostics,
     follow_up_actions,
+    id_kinds,
     jobs,
     navigation,
     routine_actions,
@@ -281,9 +283,26 @@ def _standby_timeout(remaining_s: float) -> float:
     return max(STREAM_IDLE_S, min(STANDBY_ANSWER_S, remaining_s))
 
 
-#: Said to the person when the loop runs out of turns. An authored sentence with an action
-#: in it, never a spinner that stops.
+#: Said to the person when the loop runs out of turns with no refusal to explain it (it was
+#: still looking things up). An authored sentence with an action in it, never a spinner
+#: that stops.
 EXHAUSTED_MESSAGE: Final = "I could not finish this in one go. Try asking for one thing at a time."
+#: Out of turns after a refusal: the refusal's own reason is the action, so "one thing at a
+#: time" (advice about a long question) is not given for a cause it does not fit.
+EXHAUSTED_UNCHANGED: Final = "I could not finish this, and nothing was changed."
+EXHAUSTED_PART_DONE: Final = "I could not finish all of this."
+
+
+def exhausted_text(reasons: Sequence[str], *, changed: bool) -> str:
+    """What the person reads when the loop runs out of turns. One sentence about what did
+    not happen, then the last refusal's reason, which says what to do; never a second
+    "Nothing was changed" after it."""
+    said = "; ".join(r.strip().rstrip(".") for r in reasons if r.strip())
+    if not said:
+        return EXHAUSTED_MESSAGE
+    lead = EXHAUSTED_PART_DONE if changed else EXHAUSTED_UNCHANGED
+    return f"{lead} {said[0].upper()}{said[1:]}."
+
 
 #: The loop's own refusals as the owner reads them, for the out-of-turns message. What the
 #: model is told sits beside each one in the loop and names its tools; these name nothing.
@@ -1396,7 +1415,7 @@ def _read_tool_registry(realm: CopilotRealm) -> Mapping[str, tools_module.ReadTo
     the permission check that would produce it exists for callers who could plausibly hold
     the permission.
     """
-    return {tool.name: tool for tool in realm_read_tools(realm)}
+    return {tool.name: _correcting(tool) for tool in realm_read_tools(realm)}
 
 
 def tool_array(realm: CopilotRealm, *, account_open: bool = True) -> list[dict[str, Any]]:
@@ -2088,6 +2107,62 @@ def _problem_result(problem: ProblemError) -> str:
     return " ".join(parts)
 
 
+@dataclass(frozen=True, slots=True)
+class _ToolProblem:
+    """A `ProblemError` from an action, as each audience gets it."""
+
+    #: The tool result the model reads.
+    result: str
+    #: The step's line and the closing reason, in the person's words.
+    plain: str
+    #: The model put an id in the wrong place and is told how to fix it, so it may retry.
+    corrected: bool
+
+
+async def _tool_problem(
+    call: chat.ToolCall, problem: ProblemError, tenant_id: UUID | None
+) -> _ToolProblem:
+    """A not-found the model caused (an id in the wrong argument, an id that names nothing)
+    goes back as a correction it can act on in this run (`id_kinds`); anything else is a
+    fact reported as `_problem_result` says. The person never reads `problem.title`."""
+    fix: str | None = None
+    try:
+        fix = await id_kinds.correction(tenant_id, call.name, call.arguments, problem)
+    except Exception:
+        # The report below is still right, only less helpful; the lookup's failure is ours.
+        log.exception("copilot_id_correction_failed", extra={"tool": call.name})
+    if fix is not None:
+        return _ToolProblem(result=fix, plain=id_kinds.WRONG_ITEM_PLAIN, corrected=True)
+    return _ToolProblem(
+        result=_problem_result(problem), plain=id_kinds.problem_plain(problem), corrected=False
+    )
+
+
+def _correcting(tool: tools_module.ReadTool) -> tools_module.ReadTool:
+    """`tool`, whose not-found the model caused is answered with a correction it can act on
+    rather than `run_read_tool`'s "could not be read just now", which reads as an outage.
+    A not-found that is a fact becomes a sentence saying so. Same session, same RLS."""
+    if tool.scope != "tenant":
+        return tool
+    run = tool.run
+
+    async def _run(session: AsyncSession, context: ToolContext, args: Mapping[str, Any]) -> str:
+        try:
+            return await run(session, context, args)
+        except ProblemError as problem:
+            if problem.kind != "not_found":
+                raise
+            fix = await id_kinds.correction_in(session, tool.name, args, problem)
+            if fix is not None:
+                return fix
+            return (
+                f"Not found: {problem.detail} It may have been deleted. Tell the person, and "
+                "do not invent the answer."
+            )
+
+    return replace(tool, run=_run)
+
+
 async def _run_tool_loop(
     payload: CopilotAskIn,
     capability: AssistCapability,
@@ -2179,6 +2254,15 @@ async def _run_tool_loop(
     # a `ToolActor`, and it refuses rather than defaults, so a principal with no tenant
     # cannot reach a tool as a `None` id.
     actor = None if principal is None else write_tools.actor_for(principal)
+    #: The account whose objects an id the model passed is checked against (`_tool_problem`):
+    #: the open client account in the admin realm, the caller's own in the client realm.
+    run_tenant = (
+        tool_context.tenant_id
+        if tool_context is not None and tool_context.tenant_id is not None
+        else None
+        if actor is None
+        else actor.tenant_id
+    )
     #: How many TIER 1 actions this ANSWER has performed. See `MAX_ACTIONS_PER_RUN` — the
     #: bound is on what one question changed, so it lives outside the turn loop.
     actions_run = 0
@@ -2718,24 +2802,31 @@ async def _run_tool_loop(
                 messages = refused_proposal_turn(messages, outcome, call, refused.reason)
                 continue
             except ProblemError as problem:
-                # A FACT ABOUT THE WORLD THE MODEL CANNOT ARGUE WITH — a 404 agent, a
-                # campaign this account cannot see. Handed back as a tool result so the model
-                # says what the platform said — the founder's rule for a refused gate:
-                # report it, do not retry around it.
-                refusal_reasons = (problem.title,)
+                # A fact about the world (a blocked launch, a campaign gone) is reported and
+                # not retried around: the founder's rule for a refused gate. A not-found the
+                # model caused by putting an id in the wrong argument is not such a fact, and
+                # `_tool_problem` hands it back as a correction instead (founder, 24 Nov 2026).
+                handled = await _tool_problem(call, problem, run_tenant)
+                refusal_reasons = (handled.plain,)
+                guard_refused = guard_refused or handled.corrected
                 log.info(
                     "copilot_write_problem",
-                    extra={"turn": turn_index, "tool": call.name, "code": problem.code},
+                    extra={
+                        "turn": turn_index,
+                        "tool": call.name,
+                        "code": problem.code,
+                        "corrected": handled.corrected,
+                    },
                 )
                 await _log_refusal(
                     realm, principal, tool_context, call.name, "confirm", problem.title, limits
                 )
                 yield CopilotEvent(
                     step=_step_end(
-                        call, status="refused", detail=problem.detail, started_at=started_at
+                        call, status="refused", detail=handled.plain, started_at=started_at
                     )
                 )
-                messages = _with_tool_result(messages, outcome, call, _problem_result(problem))
+                messages = _with_tool_result(messages, outcome, call, handled.result)
                 continue
 
             for fragment in _unless_claimed(held, turn=turn_index):
@@ -2847,20 +2938,30 @@ async def _run_tool_loop(
                 # The platform refused: a closed account, an archived agent, an engine that
                 # would not take the publish. Same treatment as the Tier 2 arm above and for
                 # the same reason.
-                refusal_reasons = (problem.title,)
+                handled = await _tool_problem(call, problem, run_tenant)
+                refusal_reasons = (handled.plain,)
+                guard_refused = guard_refused or handled.corrected
                 log.info(
                     "copilot_action_problem",
-                    extra={"turn": turn_index, "tool": call.name, "code": problem.code},
+                    extra={
+                        "turn": turn_index,
+                        "tool": call.name,
+                        "code": problem.code,
+                        "corrected": handled.corrected,
+                    },
                 )
                 yield CopilotEvent(
                     step=_step_end(
-                        call, status="failed", detail=problem.detail, started_at=started_at
+                        call,
+                        status="refused" if handled.corrected else "failed",
+                        detail=handled.plain,
+                        started_at=started_at,
                     )
                 )
                 await _log_refusal(
                     realm, principal, tool_context, call.name, "immediate", problem.title, limits
                 )
-                messages = _with_tool_result(messages, outcome, call, _problem_result(problem))
+                messages = _with_tool_result(messages, outcome, call, handled.result)
                 continue
 
             actions_run += 1
@@ -3017,11 +3118,10 @@ async def _run_tool_loop(
     # unhelpful advice to somebody whose real problem is that the field is read-only. Every
     # reason here is the owner's version (`WriteRefusedError.plain`, `FillRefusedError.plain`
     # and the loop's own sentences); what the model was told stays with the model.
-    detail = f" ({'; '.join(refusal_reasons)})" if refusal_reasons else ""
     # STRIPPED LIKE EVERY OTHER TEXT EVENT: a fill refusal names a field by its label, and
     # the screen wrote the label.
-    yield CopilotEvent(text=strip_invisible(f"{EXHAUSTED_MESSAGE}{detail}"))
-    if attempted_change and not changed:
+    yield CopilotEvent(text=strip_invisible(exhausted_text(refusal_reasons, changed=changed)))
+    if attempted_change and not changed and not refusal_reasons:
         yield CopilotEvent(text=_unchanged_close(refusal_reasons, spoke=True))
     # A RUN THAT RAN OUT OF TURNS IS OUR COST, NOT THE CLIENT'S ALLOWANCE: the turns went on
     # our own guards and the model's slips, and the person got no answer for them.
@@ -3581,6 +3681,8 @@ def disclosure_for(capability: AssistCapability) -> str | None:
 __all__ = [
     "BACKGROUND_TOOL_NAME",
     "EXHAUSTED_MESSAGE",
+    "EXHAUSTED_PART_DONE",
+    "EXHAUSTED_UNCHANGED",
     "FALLBACK_NO_TOOLS_NOTE",
     "FALLBACK_RESERVE_S",
     "FILTERED_MESSAGE",
@@ -3608,6 +3710,7 @@ __all__ = [
     "asks_for_a_change",
     "chat_leg",
     "disclosure_for",
+    "exhausted_text",
     "interrupted_problem",
     "job_limits",
     "person_said",
