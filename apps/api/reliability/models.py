@@ -242,6 +242,17 @@ class EngineAgentRoute(Base):
     call_start_secret_dek_wrapped: Mapped[bytes | None] = mapped_column(LargeBinary)
     call_start_secret_dek_nonce: Mapped[bytes | None] = mapped_column(LargeBinary)
     call_start_secret_kek_version: Mapped[int | None] = mapped_column(Integer)
+    #: What this engine agent's last successful publish sent (migration e4b9d2a7f160): the
+    #: digest of the adapter's publish view (`engine/publish_view.publish_digest`) and its
+    #: sizes, so the admin screen can say whether a publish now would change it. A digest and
+    #: counts, never the payload (hard rule 2). Digest and timestamp both set or both NULL.
+    published_digest: Mapped[str | None] = mapped_column(Text)
+    published_instructions_chars: Mapped[int | None] = mapped_column(Integer)
+    published_greeting_chars: Mapped[int | None] = mapped_column(Integer)
+    published_payload_bytes: Mapped[int | None] = mapped_column(Integer)
+    #: Characters of the company training left out so the instructions fit (0: none).
+    published_training_cut_chars: Mapped[int | None] = mapped_column(Integer)
+    published_at: Mapped[datetime | None]
 
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

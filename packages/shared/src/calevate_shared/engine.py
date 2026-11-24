@@ -4340,6 +4340,10 @@ class AgentConfig(BaseModel):
     #: while the console's `hot_facts_enabled` is on. Excluded from every dump for
     #: `detect_machines`' reason.
     facts_inline: bool = Field(default=False, exclude=True)
+    #: Characters of the client's company training left out of `system_prompt` so the
+    #: instructions fit the engine's box (`apps/api/agents/company_training.give_way`); 0 when
+    #: it is whole. Excluded from every dump for `detect_machines`' reason.
+    training_cut_chars: int = Field(default=0, exclude=True)
     webhook_url: str | None = None
     knowledge_base_ref: str | None = None
     max_call_duration_s: int = 600

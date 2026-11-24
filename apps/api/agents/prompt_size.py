@@ -209,6 +209,7 @@ async def publish_config(
     body: str | None = None,
     structured_script: dict[str, Any] | None = None,
     company_training: str | None = None,
+    training_gives_way: bool = True,
 ) -> AgentConfig:
     """The config a publish of this agent would send right now.
 
@@ -216,8 +217,8 @@ async def publish_config(
     three steps `publish_agent` takes, so it carries everything the agent's settings add
     (languages, caller memory, a forwarded line, the account's call-back rule). `body` and
     `structured_script` stand in for the applied script, for a script not yet saved, and
-    `company_training` for the saved training, for one not yet saved. Raises
-    what `_to_config` raises (an agent with no script).
+    `company_training` for the saved training, for one not yet saved; `training_gives_way`
+    as in `_to_config`. Raises what `_to_config` raises (an agent with no script).
     """
     from apps.api.agents.handoff import spec_for
     from apps.api.agents.service import _load_agent, _to_config
@@ -228,7 +229,9 @@ async def publish_config(
     if company_training is not None:
         row = {**row, "company_training": company_training}
     handoff, _duty = await spec_for(session, dict(row))
-    return _to_config(tenant_id, row, engine=engine, handoff=handoff)
+    return _to_config(
+        tenant_id, row, engine=engine, handoff=handoff, training_gives_way=training_gives_way
+    )
 
 
 def measure_config(cfg: AgentConfig, engine: VoiceEngine) -> PromptSize:

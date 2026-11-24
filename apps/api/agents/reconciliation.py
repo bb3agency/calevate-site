@@ -142,7 +142,9 @@ def recorded_drift_state(state: str, *, truthful_answer_applied: bool | None) ->
 
 
 #: Who a route's vendor agent belongs to (`route_holder`).
-RouteHolderKind = Literal["agent", "arm", "line", "campaign", "test_copy", "retiring"]
+#: What of an agent's can hold an engine agent (`service.holder_config` builds each one's).
+HolderKind = Literal["agent", "arm", "line", "campaign", "test_copy"]
+RouteHolderKind = HolderKind | Literal["retiring"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -441,6 +443,7 @@ __all__ = [
     "TRUTHFUL_ANSWER_VERDICT_TTL_S",
     "DriftCandidate",
     "EngineDriftSummary",
+    "HolderKind",
     "RouteHolder",
     "RouteHolderKind",
     "claim_drift_batch",

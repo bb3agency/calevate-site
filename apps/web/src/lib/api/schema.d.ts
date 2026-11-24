@@ -2092,8 +2092,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What the agent is told: the composed prompt by layer, with each layer's size
-         * @description The instructions a publish of this agent would send now, in engine order, with the engine's limit and the last drift sweep's verdict. Reads our tables only; it never calls the engine. Caller memory is per call and appears unfilled.
+         * What each of the agent's engine holders is told and sent, beside its last publish
+         * @description For each campaign, Inbound line, test copy and script test arm holding an engine agent of this agent's: the instructions a publish would send now, by layer and against the engine's limit, the greeting, steps, settings, tools and knowledge it sends, whether that differs from what its last publish sent, and the last drift sweep's verdict. Reads our tables only; it never calls the engine. Caller memory is per call and appears unfilled.
          */
         get: operations["prompt_layers_v1_admin_tenants__tenant_id__agents__agent_id__prompt_layers_get"];
         put?: never;
@@ -16830,31 +16830,10 @@ export interface components {
              * Format: uuid
              */
             agent_id: string;
-            /**
-             * Caller Memory
-             * @enum {string}
-             */
-            caller_memory: "off" | "kept_by_engine";
-            /** Drift Checked At */
-            drift_checked_at: string | null;
-            /** Drift State */
-            drift_state: string | null;
-            /** Engine Added Chars */
-            engine_added_chars: number | null;
-            /** Has Script */
-            has_script: boolean;
-            /** Layers */
-            layers: components["schemas"]["PromptLayerOut"][];
-            /** Limit Chars */
-            limit_chars: number | null;
-            /** On Engine */
-            on_engine: boolean;
-            /** Over Chars */
-            over_chars: number;
-            /** Separator Chars */
-            separator_chars: number;
-            /** Total Chars */
-            total_chars: number;
+            /** Holders */
+            holders: components["schemas"]["HolderPromptOut"][];
+            /** More Holders */
+            more_holders: number;
         };
         /** AgentReadinessOut */
         AgentReadinessOut: {
@@ -21538,6 +21517,8 @@ export interface components {
             /** Owner Edited */
             owner_edited: boolean;
             proposal: components["schemas"]["TrainingProposalOut"] | null;
+            /** Shortened For */
+            shortened_for: components["schemas"]["ShortenedForOut"][];
             /** Training */
             training: string;
             /** Training Max */
@@ -26776,6 +26757,13 @@ export interface components {
             /** Total Chars */
             total_chars?: number | null;
         };
+        /** HeldDocumentOut */
+        HeldDocumentOut: {
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+        };
         /** HeldLeadOut */
         HeldLeadOut: {
             /**
@@ -26847,6 +26835,54 @@ export interface components {
             holder_type?: ("individual" | "business") | null;
             /** Recorded */
             recorded: boolean;
+        };
+        /** HolderPromptOut */
+        HolderPromptOut: {
+            /**
+             * Caller Memory
+             * @enum {string}
+             */
+            caller_memory: "off" | "kept_by_engine";
+            /** Changed Since Publish */
+            changed_since_publish: boolean | null;
+            /** Documents */
+            documents: components["schemas"]["HeldDocumentOut"][];
+            /** Documents Total */
+            documents_total: number;
+            /** Drift Checked At */
+            drift_checked_at: string | null;
+            /** Drift State */
+            drift_state: string | null;
+            /** Engine Added Chars */
+            engine_added_chars: number | null;
+            /** Has Script */
+            has_script: boolean;
+            /** Holder Id */
+            holder_id: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "agent" | "arm" | "line" | "campaign" | "test_copy";
+            /** Layers */
+            layers: components["schemas"]["PromptLayerOut"][];
+            /** Limit Chars */
+            limit_chars: number | null;
+            /** Name */
+            name: string;
+            /** Over Chars */
+            over_chars: number;
+            published: components["schemas"]["PublishedOut"] | null;
+            refused: components["schemas"]["RefusalOut"] | null;
+            sent_now: components["schemas"]["SentNowOut"] | null;
+            /** Separator Chars */
+            separator_chars: number;
+            /** Status */
+            status: string;
+            /** Total Chars */
+            total_chars: number;
+            /** Training Cut Chars */
+            training_cut_chars: number;
         };
         /** HostedVoiceAgentOut */
         HostedVoiceAgentOut: {
@@ -32591,6 +32627,25 @@ export interface components {
             /** Reviewer Name */
             reviewer_name: string;
         };
+        /**
+         * PublishedOut
+         * @description What the holder's last successful publish sent: sizes and when, never the payload.
+         */
+        PublishedOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Greeting Chars */
+            greeting_chars: number;
+            /** Instructions Chars */
+            instructions_chars: number;
+            /** Payload Bytes */
+            payload_bytes: number;
+            /** Training Cut Chars */
+            training_cut_chars: number;
+        };
         /** PurchaseOwnNumberIn */
         PurchaseOwnNumberIn: {
             /** Agent Id */
@@ -33588,6 +33643,13 @@ export interface components {
             recorded: boolean;
             /** Refund Id */
             refund_id: string;
+        };
+        /** RefusalOut */
+        RefusalOut: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
         };
         /** RegisterTemplateIn */
         RegisterTemplateIn: {
@@ -34883,6 +34945,62 @@ export interface components {
             sent?: string | null;
         };
         /**
+         * SentNowOut
+         * @description Everything else a publish of this holder sends now, from the adapter's own body.
+         */
+        SentNowOut: {
+            /** Built In Tools */
+            built_in_tools: components["schemas"]["SentToolOut"][];
+            /** Custom Actions */
+            custom_actions: string[];
+            /** Greeting */
+            greeting: string;
+            /** Greeting Chars */
+            greeting_chars: number;
+            /** Instructions Chars */
+            instructions_chars: number;
+            /** Payload Bytes */
+            payload_bytes: number;
+            /** Settings */
+            settings: components["schemas"]["SentSettingOut"][];
+            /** Steps */
+            steps: components["schemas"]["SentStepOut"][];
+            /** Thinking Lines */
+            thinking_lines: string[];
+        };
+        /** SentSettingOut */
+        SentSettingOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+        };
+        /** SentStepOut */
+        SentStepOut: {
+            /** Branches */
+            branches: [
+                string,
+                string
+            ][];
+            /** Collect */
+            collect: string[];
+            /** Detail */
+            detail: string;
+            /** Title */
+            title: string;
+        };
+        /** SentToolOut */
+        SentToolOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** On */
+            on: boolean;
+        };
+        /**
          * ServiceItem
          * @description `price_inr` is a digit STRING (hard rule 7): the price read aloud must be exactly
          *     what the client typed, which a float cannot promise. Optional, because "ask at
@@ -35123,6 +35241,28 @@ export interface components {
             languages: components["schemas"]["NoticeLanguageOut"][];
             /** Notice Markdown */
             notice_markdown: string;
+        };
+        /**
+         * ShortenedForOut
+         * @description Where the last publish left part of the training out so the instructions fit.
+         */
+        ShortenedForOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Cut Chars */
+            cut_chars: number;
+            /** Holder Id */
+            holder_id: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "line" | "campaign" | "test_copy" | "agent";
+            /** Name */
+            name: string;
         };
         /** SignInOptionsOut */
         SignInOptionsOut: {

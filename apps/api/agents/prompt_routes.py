@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import prompt_anatomy, prompts
 from apps.api.agents.prompt_anatomy import CallerMemory, LayerOwner
+from apps.api.agents.reconciliation import HolderKind
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
@@ -201,11 +202,82 @@ class PromptLayerOut(BaseModel):
     chars: int
 
 
-class AgentPromptLayersOut(BaseModel):
+class SentStepOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    agent_id: UUID
-    #: False for an agent with nothing written yet; `layers` is then empty.
+    title: str
+    detail: str
+    branches: list[tuple[str, str]]
+    collect: list[str]
+
+
+class SentSettingOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    label: str
+    value: str
+
+
+class SentToolOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    label: str
+    on: bool
+
+
+class SentNowOut(BaseModel):
+    """Everything else a publish of this holder sends now, from the adapter's own body."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    greeting: str
+    steps: list[SentStepOut]
+    settings: list[SentSettingOut]
+    thinking_lines: list[str]
+    built_in_tools: list[SentToolOut]
+    custom_actions: list[str]
+    instructions_chars: int
+    greeting_chars: int
+    payload_bytes: int
+
+
+class PublishedOut(BaseModel):
+    """What the holder's last successful publish sent: sizes and when, never the payload."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instructions_chars: int
+    greeting_chars: int
+    payload_bytes: int
+    training_cut_chars: int
+    at: datetime
+
+
+class HeldDocumentOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    kind: str
+
+
+class RefusalOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    detail: str
+
+
+class HolderPromptOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: HolderKind
+    #: The line's, campaign's or arm's id; null for the agent's own engine agent and its copy.
+    holder_id: UUID | None
+    name: str
+    status: str
+    #: False for a holder with nothing written yet; `layers` is then empty.
     has_script: bool
     #: In the order the engine reads them.
     layers: list[PromptLayerOut]
@@ -218,23 +290,127 @@ class AgentPromptLayersOut(BaseModel):
     #: About what the engine adds around this on every turn (its estimate); null if unknown.
     engine_added_chars: int | None
     caller_memory: CallerMemory
-    #: True when the agent has an engine object of its own.
-    on_engine: bool
-    #: The last scheduled comparison of the engine's copy with this composition
+    #: The last scheduled comparison of the engine's copy with this holder's composition
     #: (`engine_agent_routes.drift_state`); null when it has not been checked.
     drift_state: str | None
     drift_checked_at: datetime | None
+    #: Null with nothing written, or when the adapter refuses the config as it stands.
+    sent_now: SentNowOut | None
+    refused: RefusalOut | None
+    #: Null for a holder whose last publish recorded nothing (published before this record).
+    published: PublishedOut | None
+    #: Whether a publish now would send something else; null when there is nothing recorded.
+    changed_since_publish: bool | None
+    #: Characters of the company training a publish now leaves out so the instructions fit.
+    training_cut_chars: int
+    documents_total: int
+    documents: list[HeldDocumentOut]
+
+
+class AgentPromptLayersOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    #: Each campaign, Inbound line, test copy and script test arm holding an engine agent of
+    #: this agent's, at most `prompt_anatomy.MAX_HOLDERS`.
+    holders: list[HolderPromptOut]
+    more_holders: int
+
+
+def _holder_out(holder: prompt_anatomy.HolderAnatomy) -> HolderPromptOut:
+    size = holder.size
+    sent = holder.sent_now
+    published = holder.published
+    return HolderPromptOut(
+        kind=holder.kind,
+        holder_id=holder.holder_id,
+        name=holder.name,
+        status=holder.status,
+        has_script=holder.has_script,
+        layers=[
+            PromptLayerOut(
+                key=layer.key,
+                title=layer.title,
+                purpose=layer.guide.purpose,
+                owner=layer.guide.owner,
+                from_agent_settings=layer.guide.from_agent_settings,
+                text=layer.text,
+                chars=len(layer.text),
+            )
+            for layer in holder.layers
+        ],
+        separator_chars=(
+            sum(p.chars for p in size.layers if p.key == "separator") if size is not None else 0
+        ),
+        total_chars=size.total if size is not None else 0,
+        limit_chars=size.limit if size is not None else None,
+        over_chars=size.over if size is not None else 0,
+        engine_added_chars=size.engine_added if size is not None else None,
+        caller_memory=holder.caller_memory,
+        drift_state=holder.drift_state,
+        drift_checked_at=holder.drift_checked_at,
+        sent_now=(
+            SentNowOut(
+                greeting=sent.greeting,
+                steps=[
+                    SentStepOut(
+                        title=s.title,
+                        detail=s.detail,
+                        branches=list(s.branches),
+                        collect=list(s.collect),
+                    )
+                    for s in sent.steps
+                ],
+                settings=[
+                    SentSettingOut(key=s.key, label=s.label, value=s.value) for s in sent.settings
+                ],
+                thinking_lines=list(sent.thinking_lines),
+                built_in_tools=[
+                    SentToolOut(key=t.key, label=t.label, on=t.on) for t in sent.built_in_tools
+                ],
+                custom_actions=list(sent.custom_actions),
+                instructions_chars=sent.digest.instructions_chars,
+                greeting_chars=sent.digest.greeting_chars,
+                payload_bytes=sent.digest.payload_bytes,
+            )
+            if sent is not None
+            else None
+        ),
+        refused=(
+            RefusalOut(code=holder.refused[0], detail=holder.refused[1])
+            if holder.refused is not None
+            else None
+        ),
+        published=(
+            PublishedOut(
+                instructions_chars=published.instructions_chars,
+                greeting_chars=published.greeting_chars,
+                payload_bytes=published.payload_bytes,
+                training_cut_chars=published.training_cut_chars,
+                at=published.at,
+            )
+            if published is not None
+            else None
+        ),
+        changed_since_publish=holder.changed_since_publish,
+        training_cut_chars=holder.training_cut_chars,
+        documents_total=holder.documents_total,
+        documents=[HeldDocumentOut(name=d.name, kind=d.kind) for d in holder.documents],
+    )
 
 
 @router.get(
     "/layers",
     response_model=AgentPromptLayersOut,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="What the agent is told: the composed prompt by layer, with each layer's size",
+    summary="What each of the agent's engine holders is told and sent, beside its last publish",
     description=(
-        "The instructions a publish of this agent would send now, in engine order, with the "
-        "engine's limit and the last drift sweep's verdict. Reads our tables only; it never "
-        "calls the engine. Caller memory is per call and appears unfilled."
+        "For each campaign, Inbound line, test copy and script test arm holding an engine "
+        "agent of this agent's: the instructions a publish would send now, by layer and "
+        "against the engine's limit, the greeting, steps, settings, tools and knowledge it "
+        "sends, whether that differs from what its last publish sent, and the last drift "
+        "sweep's verdict. Reads our tables only; it never calls the engine. Caller memory is "
+        "per call and appears unfilled."
     ),
 )
 async def prompt_layers(
@@ -248,34 +424,10 @@ async def prompt_layers(
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=tenant_id
         )
-    size = anatomy.size
-    separators = (
-        sum(p.chars for p in size.layers if p.key == "separator") if size is not None else 0
-    )
     return AgentPromptLayersOut(
         agent_id=agent_id,
-        has_script=anatomy.has_script,
-        layers=[
-            PromptLayerOut(
-                key=layer.key,
-                title=layer.title,
-                purpose=layer.guide.purpose,
-                owner=layer.guide.owner,
-                from_agent_settings=layer.guide.from_agent_settings,
-                text=layer.text,
-                chars=len(layer.text),
-            )
-            for layer in anatomy.layers
-        ],
-        separator_chars=separators,
-        total_chars=size.total if size is not None else 0,
-        limit_chars=size.limit if size is not None else None,
-        over_chars=size.over if size is not None else 0,
-        engine_added_chars=size.engine_added if size is not None else None,
-        caller_memory=anatomy.caller_memory,
-        on_engine=anatomy.on_engine,
-        drift_state=anatomy.drift_state,
-        drift_checked_at=anatomy.drift_checked_at,
+        holders=[_holder_out(holder) for holder in anatomy.holders],
+        more_holders=anatomy.more_holders,
     )
 
 

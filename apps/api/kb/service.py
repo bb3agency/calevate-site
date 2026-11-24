@@ -1144,6 +1144,40 @@ def _holder(
     }
 
 
+@dataclass(frozen=True, slots=True)
+class HeldDocument:
+    name: str
+    kind: str
+
+
+#: The most documents one holder's list shows; the count beside it is the whole number.
+HELD_DOCUMENTS_SHOWN: Final = 100
+
+
+async def held_documents(
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    variant_id: UUID | None = None,
+    test_copy: bool = False,
+    inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
+) -> tuple[int, tuple[HeldDocument, ...]]:
+    """The knowledge documents one holder's engine agent has attached, as our routes record
+    them: how many, and the first `HELD_DOCUMENTS_SHOWN` by name. Tenant session."""
+    params = _holder(agent_id, variant_id, test_copy, inbound_line_id, campaign_id)
+    total = (
+        await session.execute(text(f"SELECT count(*) {_ROUTE_JOIN} {_HOLDER}"), params)
+    ).scalar_one()
+    rows = (
+        await session.execute(
+            text(f"SELECT s.name, s.kind {_ROUTE_JOIN} {_HOLDER} ORDER BY s.name, s.id LIMIT :n"),
+            {**params, "n": HELD_DOCUMENTS_SHOWN},
+        )
+    ).all()
+    return int(total), tuple(HeldDocument(name=str(r[0]), kind=str(r[1])) for r in rows)
+
+
 async def _engine_kb_ref(
     session: AsyncSession,
     source_id: UUID,

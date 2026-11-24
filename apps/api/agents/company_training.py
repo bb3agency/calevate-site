@@ -38,15 +38,17 @@ longer fit the engine's box with it.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, ClassVar, Final, Literal
 from uuid import UUID
 
-from calevate_shared.engine import AgentConfig
+from calevate_shared.engine import AgentConfig, VoiceEngine
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.prompt_size import measure_config
 from apps.api.core.errors import ProblemError, ProblemExtension
 from apps.api.db.base import uuid7
 from apps.api.reliability.service import enqueue_outbox
@@ -162,6 +164,89 @@ def with_training(cfg: AgentConfig, training: str) -> AgentConfig:
     script = (cfg.system_prompt or "").strip()
     combined = f"{section}\n\n{script}" if script else section
     return cfg.model_copy(update={"system_prompt": combined})
+
+
+def give_way(
+    compose: Callable[[str], AgentConfig], training: str, engine: VoiceEngine
+) -> AgentConfig:
+    """`compose(training)`, or, when that is over the engine's instructions box, `compose` of
+    the training's longest leading run of whole lines that fits, with `training_cut_chars`
+    saying how much was left out.
+
+    The training is the one part of a holder's instructions nobody wrote for that holder, so
+    it gives way rather than the publish being refused: a script that fits on its own is
+    never refused because the training beside it is long. Line by line from the end, since
+    the training leads with the business and ends with detail. Where the script is over even
+    with no training, the training is left out entirely and the publish still refuses, naming
+    the script's own parts. Binary search, because each `compose` cuts the known facts to fit
+    again (`hot_facts.with_known_facts`), and fitting is monotone in the lines kept.
+
+    The cut is recorded on the route at publish (`published_training_cut_chars`) and shown to
+    the owner on the training screen (`shortened_for`).
+    """
+    whole = compose(training)
+    if not training.strip() or measure_config(whole, engine).fits:
+        return whole
+    full = len(training_section(training))
+    lines = training.strip().splitlines()
+    best = compose("")
+    if not measure_config(best, engine).fits:
+        return best.model_copy(update={"training_cut_chars": full})
+    kept, too_many = 0, len(lines)
+    while too_many - kept > 1:
+        mid = (kept + too_many) // 2
+        candidate = compose("\n".join(lines[:mid]))
+        if measure_config(candidate, engine).fits:
+            kept, best = mid, candidate
+        else:
+            too_many = mid
+    cut = full - len(training_section("\n".join(lines[:kept])))
+    return best.model_copy(update={"training_cut_chars": cut})
+
+
+@dataclass(frozen=True)
+class ShortenedFor:
+    """A holder whose last publish left part of the training out so its instructions fit."""
+
+    kind: Literal["line", "campaign", "test_copy", "agent"]
+    holder_id: UUID | None
+    agent_id: UUID
+    name: str
+    cut_chars: int
+
+
+#: Each live engine agent whose last publish recorded a cut, named as the owner knows it.
+#: Tenant session: the route table is written under the tenant and read here under it too.
+_SHORTENED_SQL: Final = text(
+    "SELECT CASE WHEN l.id IS NOT NULL THEN 'line' WHEN c.id IS NOT NULL THEN 'campaign' "
+    "WHEN t.agent_id IS NOT NULL THEN 'test_copy' ELSE 'agent' END AS kind, "
+    "COALESCE(l.id, c.id) AS holder_id, a.id AS agent_id, "
+    "COALESCE(l.name, c.name, a.name) AS name, r.published_training_cut_chars AS cut "
+    "FROM engine_agent_routes r JOIN agents a ON a.id = r.agent_id AND a.deleted_at IS NULL "
+    "LEFT JOIN inbound_lines l ON l.engine_agent_ref = r.engine_agent_ref "
+    "AND l.archived_at IS NULL "
+    "LEFT JOIN campaigns c ON c.engine_agent_ref = r.engine_agent_ref AND c.archived_at IS NULL "
+    "LEFT JOIN agent_test_copies t ON t.engine_agent_ref = r.engine_agent_ref "
+    "WHERE r.tenant_id = :t AND r.active AND r.published_training_cut_chars > 0 "
+    "AND (l.id IS NOT NULL OR c.id IS NOT NULL OR t.agent_id IS NOT NULL "
+    "OR a.engine_agent_ref = r.engine_agent_ref) "
+    "ORDER BY name, r.engine_agent_ref LIMIT 20"
+)
+
+
+async def shortened_for(session: AsyncSession, tenant_id: UUID) -> tuple[ShortenedFor, ...]:
+    """The holders whose live engine agent carries a shortened training, at most 20."""
+    rows = (await session.execute(_SHORTENED_SQL, {"t": tenant_id})).all()
+    return tuple(
+        ShortenedFor(
+            kind=row.kind,
+            holder_id=row.holder_id,
+            agent_id=row.agent_id,
+            name=str(row.name or ""),
+            cut_chars=int(row.cut),
+        )
+        for row in rows
+    )
 
 
 async def live_text(session: AsyncSession) -> str:
@@ -457,7 +542,12 @@ async def overflow_of(session: AsyncSession, tenant_id: UUID, training: str) -> 
     holding an engine agent are measured too: each carries the training over its own script
     (D-997, D-1003), and a save's live apply republishes them (`service.republish_lines`,
     `republish_campaign_agents`), so a line the training pushes over the box would otherwise
-    fail there, after the save."""
+    fail there, after the save.
+
+    Measured with the whole training (`training_gives_way=False`): a publish lets the
+    training give way where a script leaves it no room (`give_way`), but the owner saving it
+    is told it does not fit rather than having it shortened unseen."""
+    # Looked up at call time, so a test can stand in a smaller box for the save measure.
     from apps.api.agents.prompt_size import measure_config, publish_config
     from apps.api.engine import get_engine
 
@@ -481,6 +571,7 @@ async def overflow_of(session: AsyncSession, tenant_id: UUID, training: str) -> 
                 agent_id=agent_id,
                 engine=engine,
                 company_training=training,
+                training_gives_way=False,
             )
         except ProblemError:
             # An agent with no script yet has nothing to measure; its first publish is
@@ -535,11 +626,19 @@ async def _job_overflow(session: AsyncSession, tenant_id: UUID, training: str) -
         try:
             if kind == "line":
                 cfg = await line_config(
-                    session, tenant_id=tenant_id, line_id=job_id, agent=agents[agent_id]
+                    session,
+                    tenant_id=tenant_id,
+                    line_id=job_id,
+                    agent=agents[agent_id],
+                    training_gives_way=False,
                 )
             else:
                 cfg = await campaign_config(
-                    session, tenant_id=tenant_id, campaign_id=job_id, agent=agents[agent_id]
+                    session,
+                    tenant_id=tenant_id,
+                    campaign_id=job_id,
+                    agent=agents[agent_id],
+                    training_gives_way=False,
                 )
         except ProblemError:
             # Not publishable as it stands for another reason; that publish says why.

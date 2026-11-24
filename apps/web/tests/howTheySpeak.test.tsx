@@ -33,6 +33,7 @@ function training(over: Partial<CompanyTraining> = {}): CompanyTraining {
     owner_edited: false,
     overview_max: 4000,
     training_max: 6000,
+    shortened_for: [],
     ...over,
   };
 }
@@ -65,6 +66,29 @@ describe("Company training", () => {
     } finally {
       window.history.replaceState(null, "", "/");
     }
+  });
+
+  it("names each script the training was shortened beside, with a way to it", async () => {
+    await renderClientPage(<HowTheySpeak />, {
+      "/v1/me": OWNER,
+      [PATH]: training({
+        training: "Be warm.",
+        version: 2,
+        shortened_for: [
+          {
+            kind: "campaign",
+            holder_id: "camp-1",
+            agent_id: "agent-1",
+            name: "Diwali orders",
+            cut_chars: 1564,
+          },
+        ],
+      }),
+    });
+    expect(await screen.findByText("Shortened beside a long script")).toBeTruthy();
+    expect(screen.getByText(/1,564 characters left out/)).toBeTruthy();
+    const open = screen.getByRole("link", { name: "Open Diwali orders" });
+    expect(open.getAttribute("href")).toContain("/campaigns/camp-1");
   });
 
   it("says Pip writes the training by itself, with no Generate step", async () => {
