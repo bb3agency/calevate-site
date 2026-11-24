@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.30 — 24-Nov-2026
+
+- Every button that runs something shows the loading circle while it runs, across the client
+  app and the admin console: saves, sends, sign-in codes, Pip's rewrites (Rewrite now keeps
+  spinning while Pip is still writing), pagers and dialogs. Buttons that only open or close
+  something stay still and are held while the pressed one works.
+- A guard test fails the build if a button ever goes back to greying out with no spinner.
+
 ## 0.5.29 — 24-Nov-2026
 
 - Pip rewrites a campaign's or Inbound line's script when asked, from any page: it no longer

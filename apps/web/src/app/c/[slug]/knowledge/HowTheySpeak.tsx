@@ -24,6 +24,7 @@ import { ExpandableText } from "@/components/arc/expandable-text";
 import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import {
   FIELD,
+  NoticeBox,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -377,16 +378,13 @@ function MissingParts({ missing }: { missing: readonly MissingPart[] }) {
   const said = missing.map((part) => MISSING_WORDS[part]);
   const list = said.length > 1 ? `${said.slice(0, -1).join(", ")} and ${said.at(-1)}` : said[0];
   return (
-    <div role="note" className="mt-2 rounded-card border border-line bg-warn-soft p-3">
-      <p className="text-meta font-medium text-ink">Pip needs more about your business</p>
-      <p className="mt-1 text-meta text-ink-muted">Your knowledge does not say {list}.</p>
-      <p className="text-meta text-ink-muted">
-        Write it under About the business, or add a file.
-      </p>
+    <NoticeBox tone="warn" title="Pip needs more about your business" className="mt-2">
+      <p>Your knowledge does not say {list}.</p>
+      <p>Write it under About the business, or add a file.</p>
       <a href="#training-overview" className={`${SECONDARY_BUTTON_SM} mt-2 inline-flex`}>
         Write about the business
       </a>
-    </div>
+    </NoticeBox>
   );
 }
 
