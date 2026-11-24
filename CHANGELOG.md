@@ -3,6 +3,18 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.44 — 25-Nov-2026
+
+- A mistake heard on a campaign's test call is now repaired on that campaign. Before, test
+  calls belonged to no campaign, so every mistake on them said "Our team has been told"
+  and nothing was fixed.
+- Saves say whether they worked, beside the button that saved: launching a campaign,
+  restoring one, renaming a line or a pinned card, sending WhatsApp templates again,
+  turning booking on, team alerts, notes, business set-up, call outcomes, low-balance
+  alerts and agent details. Typing while a save is out is kept; a second press no longer
+  sends twice; marking several leads or calls at once reports each one.
+- The account Improve page, the weekly summary and "Give callers time" update live.
+
 ## 0.5.43 — 25-Nov-2026
 
 - Screens say only what is true: a call that never rang no longer counts as calling someone;
