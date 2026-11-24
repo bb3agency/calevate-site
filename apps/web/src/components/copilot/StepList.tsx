@@ -1,10 +1,12 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Check, ChevronDown, CircleMinus, Loader2, RotateCcw } from "lucide-react";
+import { Check, ChevronDown, CircleMinus, Loader2 } from "lucide-react";
 
 import { TONE_INK } from "@/components/ui";
 import type { CopilotStep } from "@/lib/copilot/types";
+
+import { StepRow } from "./StepRow";
 
 /**
  * What the assistant DID to answer, under the answer.
@@ -12,9 +14,10 @@ import type { CopilotStep } from "@/lib/copilot/types";
  * ## In words, not in machine names
  *
  * Each step reads as the server's plain label ("Searched your calls"), never as the tool's
- * identifier or its timing: those are for logs and support, and on a business owner's
- * screen "search_calls 93 ms" is noise (ux-writing). The identifier stays on the frame
- * (`step.tool`), and in the admin realm only it is each row's hover `title` for support.
+ * identifier: on a business owner's screen "search_calls 93 ms" is noise (ux-writing). Its
+ * duration is shown the way a person says one, "2s" or "<1s" (`StepRow`; founder, 24 Nov
+ * 2026). The identifier stays on the frame (`step.tool`), and in the admin realm only it is
+ * each row's hover `title` for support.
  *
  * ## Quiet by default
  *
@@ -118,24 +121,24 @@ export function StepList({
         <ChevronDown aria-hidden className={`h-3.5 w-3.5 transition-transform duration-(--duration-fast) ${open ? "rotate-180" : ""}`} />
       </button>
       {open ? (
-        <ul id={listId} className="mt-1.5 space-y-1.5 border-l border-line pl-3">
+        <ol id={listId} className="mt-2 space-y-2">
           {steps.map((step) => {
             const again = retried.has(step.id);
             // Why a retried step was refused is no longer true of anything on screen.
             const detail = again ? null : freshDetail(step.detail, shown);
-            const failed = isProblem(step) && !again;
             return (
-              <li key={step.id} title={hover(step)}>
-                <span className={`flex items-center gap-1.5 ${failed || again ? "text-ink-muted" : "text-ink"}`}>
-                  {again ? <RotateCcw aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-faint" /> : null}
-                  {failed ? <CircleMinus aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-faint" /> : null}
-                  {again ? "Tried again" : labelOf(step)}
-                </span>
+              <StepRow
+                key={step.id}
+                step={step}
+                retried={again}
+                title={hover(step)}
+                label={again ? "Tried again" : labelOf(step)}
+              >
                 {detail ? <span className="block break-words">{detail}</span> : null}
-              </li>
+              </StepRow>
             );
           })}
-        </ul>
+        </ol>
       ) : null}
     </div>
   );
@@ -180,7 +183,7 @@ function isAreaCall(tool: string): boolean {
 }
 
 /** The server's words for the step, in the tense of its status. */
-function labelOf(step: CopilotStep): string {
+export function labelOf(step: CopilotStep): string {
   const label = step.label?.trim();
   if (step.status === "failed" || step.status === "refused") {
     if (!label) return "One step did not finish";

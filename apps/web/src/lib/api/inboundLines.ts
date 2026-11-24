@@ -19,6 +19,8 @@ import {
 } from "@tanstack/react-query";
 import { useRef } from "react";
 
+import { cancelDraftPath, keepLivePath } from "@/lib/scriptDraft/stream";
+
 import { PIP_POLL_MS, type CampaignProposal } from "./campaignWorkspace";
 import { ApiProblem, apiRequest, type Session } from "./client";
 import { untilRefused } from "./queryRetry";
@@ -220,6 +222,27 @@ export function useRequestLineScript(session: Session, lineId: string) {
 export function useClearLineProposal(session: Session, lineId: string) {
   return useLineMutation(session, lineId, (proposalId: string) =>
     apiRequest<void>(session, `${linePath(lineId)}/proposal/${encodeURIComponent(proposalId)}`, { method: "DELETE" }),
+  );
+}
+
+/** Keep Pip's streamed draft and put it live in one step, as Save does. */
+export function useKeepLineDraftLive(session: Session, lineId: string) {
+  return useLineMutation(
+    session,
+    lineId,
+    (proposalId: string) =>
+      apiRequest<InboundLine>(session, keepLivePath({ kind: "inbound_line", id: lineId }, proposalId), {
+        method: "POST",
+      }),
+    [],
+    () => true,
+  );
+}
+
+/** Stop Pip while it writes a draft; nothing half-written is saved. */
+export function useCancelLineDraft(session: Session, lineId: string) {
+  return useLineMutation(session, lineId, (proposalId: string) =>
+    apiRequest<unknown>(session, cancelDraftPath({ kind: "inbound_line", id: lineId }, proposalId), { method: "POST" }),
   );
 }
 

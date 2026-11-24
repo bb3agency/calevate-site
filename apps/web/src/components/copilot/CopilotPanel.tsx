@@ -42,6 +42,11 @@ import { PipConsentGate } from "./PipConsent";
 import { ProposalCard } from "./ProposalCard";
 import { DiagnosisCard } from "./DiagnosisCard";
 import { StepList } from "./StepList";
+import { ResultSlug } from "./StepRow";
+import { PanelDrafts } from "./PanelDrafts";
+import { RunHeader } from "./RunHeader";
+import { RunTimeline } from "./RunTimeline";
+import { useLiveRunView } from "./useLiveRunView";
 import { panelFrame, type PanelPlacement } from "./panelFrame";
 import { useKeyboardFit } from "./useKeyboardFit";
 import {
@@ -176,7 +181,7 @@ export function CopilotPanel({
     conversation.ask(words, tray.take());
   };
   const send = () => {
-    if (!canAsk) return;
+    if (!canAsk || conversation.asking) return;
     askWith(question);
     setQuestion("");
   };
@@ -279,6 +284,16 @@ export function CopilotPanel({
   }, [requestNonce, requestPrompt, prefill, onRequestTaken]);
   const reduced = useReducedMotion();
   const keyboardFit = useKeyboardFit(placement === "side");
+  const liveView = useLiveRunView(conversation, panel);
+  // Result links are client screens; the operator console has no account to fill in.
+  const resultSlug = realm === "client" ? session.orgSlug : null;
+  // Stable: the card runs it from an effect that also moves focus, once per decision.
+  const { settleProposal, proposal: offer } = conversation;
+  const { decide } = liveView;
+  const offerDecided = useCallback(() => {
+    settleProposal();
+    if (offer !== null) decide(offer.token);
+  }, [settleProposal, offer, decide]);
 
   /*
    * FOLLOW THE ANSWER, BUT ONLY WHILE THE PERSON IS STILL FOLLOWING IT.
@@ -610,6 +625,30 @@ export function CopilotPanel({
               </PipTurn>
             ),
           )}
+          {/* PIP AT WORK, LIVE: the header (time and Stop, or the wait on a decision) and,
+              while the run goes, its thinking and lookups in order, ahead of the answer they
+              lead to. An older server sends no `run` frame and keeps the line below. */}
+          {liveView.running && liveView.state !== null && (
+            <RunHeader
+              state={liveView.state}
+              since={liveView.since}
+              now={liveView.now}
+              reduced={reduced === true}
+              onStop={conversation.stop}
+            />
+          )}
+          {liveView.running && (
+            <ResultSlug.Provider value={resultSlug}>
+              <RunTimeline
+                entries={conversation.live.entries}
+                steps={conversation.steps}
+                now={liveView.now}
+                live
+                reduced={reduced === true}
+                realm={realm}
+              />
+            </ResultSlug.Provider>
+          )}
           {/* THE ANSWER ARRIVING — the one thing in this panel that is announced.
               `aria-atomic="false"` is stated rather than left to the default because the
               default is what the previous shape depended on and got wrong: it means "read
@@ -626,7 +665,7 @@ export function CopilotPanel({
               hear the whole answer as silence. */}
           <div aria-live="polite" aria-atomic="false">
             {conversation.streaming !== null &&
-            (conversation.streaming === "" && conversation.steps.length === 0 ? (
+            (conversation.streaming === "" && conversation.steps.length === 0 && conversation.live.runId === null ? (
               // THE SKELETON IS NOW THE FALLBACK RATHER THAN THE DEFAULT. Once a tool call
               // has started there is something real to show — which tool, with what, and how
               // long it has been going — and a spinner beside a live step list is two
@@ -662,11 +701,44 @@ export function CopilotPanel({
             would talk over the answer — which is the thing a screen-reader user is waiting
             for and which IS announced. Kept after the answer has arrived too, so a person
             can still see which of their data was read and what each lookup returned. */}
-        <StepList
-          steps={conversation.steps}
-          answer={latestAnswer}
+        {!liveView.running && (
+          <ResultSlug.Provider value={resultSlug}>
+            <RunTimeline
+              entries={conversation.live.entries}
+              steps={conversation.steps}
+              now={liveView.now}
+              live={false}
+              reduced={reduced === true}
+              realm={realm}
+            />
+            <StepList
+              steps={conversation.steps}
+              answer={latestAnswer}
+              realm={realm}
+              working={conversation.streaming !== null}
+            />
+          </ResultSlug.Provider>
+        )}
+
+        {/* WAITING FOR YOU: the answer is in and a suggestion or a written script waits on
+            the person; the header names the wait and how long it has been. */}
+        {liveView.state === "waiting" && (
+          <RunHeader
+            ref={liveView.header}
+            state="waiting"
+            since={liveView.since}
+            now={liveView.now}
+            reduced={reduced === true}
+          />
+        )}
+
+        {/* THE SCRIPT DRAFTS THIS CONVERSATION STARTED, written live, then the changes and
+            Keep or Discard: the same view the campaign and line pages show. */}
+        <PanelDrafts
+          session={session}
+          drafts={conversation.live.drafts}
           realm={realm}
-          working={conversation.streaming !== null}
+          onPhase={conversation.settleDraft}
         />
 
         {/* WHY SOMETHING DID NOT WORK (D-935): a troubleshoot read's checklist, the cause
@@ -704,7 +776,7 @@ export function CopilotPanel({
               confirmable={confirmable}
               realm={realm}
               onDismiss={conversation.dismissProposal}
-              onDecided={conversation.settleProposal}
+              onDecided={offerDecided}
               onCeiling={() => setConfirmAtCeiling(true)}
               // A plan's "Change" (D-893): the card goes, and the ask box takes the words
               // to say what should be different; the unapproved plan simply expires.
@@ -970,14 +1042,16 @@ export function CopilotPanel({
               `type="button"` on the Stop face, because it must not submit the form it sits
               in; the two faces are one element so the keyboard focus a person is holding
               survives the answer starting and finishing. */}
-          {conversation.asking ? (
+          {/* A run that said its id is stopped from its own header, above, which waits
+              for the server; one Stop on screen at a time. */}
+          {conversation.asking && !liveView.running ? (
             <button type="button" onClick={conversation.stop} className={SECONDARY_BUTTON}>
               Stop
             </button>
           ) : (
             <button
               type="submit"
-              disabled={!canAsk}
+              disabled={!canAsk || conversation.asking}
               className={PRIMARY_BUTTON}
             >
               Ask

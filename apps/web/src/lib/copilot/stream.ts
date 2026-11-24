@@ -13,6 +13,7 @@ import type {
   CopilotStep,
 } from "./types";
 import type { ChartSpec } from "./charts";
+import { isDraftFrame, isRunFrame, type DraftFrame, type RunFrame } from "./liveEvents";
 import type { WireFact, WireField } from "./redaction";
 
 /**
@@ -113,6 +114,14 @@ export interface CopilotStreamHandlers {
    * draw charts loses the picture but not the answer, which says the figures in words.
    */
   onChart?: (spec: ChartSpec) => void;
+  /** The run started: its id (for Stop) and when, for the live header. First frame of a run. */
+  onRun?: (run: RunFrame) => void;
+  /** A fragment of the model's thought summary for the current model turn. Never stored. */
+  onThought?: (delta: string) => void;
+  /** The run started a script draft, followed on its own draft stream. */
+  onDraft?: (draft: DraftFrame) => void;
+  /** The run was stopped on the person's request. The last frame; no `done` follows. */
+  onStopped?: () => void;
   /** The stream finished properly. `disclosure` is rendered VERBATIM when present. */
   onDone: (done: { disclosure: string | null; metered: boolean }) => void;
 }
@@ -279,6 +288,26 @@ export async function askCopilot(
         if (typeof payload?.id === "string" && payload.id !== "") {
           handlers.onStep(payload);
         }
+      } else if (event.event === "run") {
+        const payload = safeJson(event.data);
+        if (isRunFrame(payload)) handlers.onRun?.({ run_id: payload.run_id, started_at: payload.started_at });
+      } else if (event.event === "thought") {
+        const payload = safeJson(event.data) as { delta?: string } | null;
+        if (typeof payload?.delta === "string") handlers.onThought?.(payload.delta);
+      } else if (event.event === "draft") {
+        const payload = safeJson(event.data);
+        if (isDraftFrame(payload)) {
+          handlers.onDraft?.({
+            holder_kind: payload.holder_kind,
+            holder_id: payload.holder_id,
+            proposal_id: payload.proposal_id,
+          });
+        }
+      } else if (event.event === "stopped") {
+        // Ends the run as `done` does: a stopped run was not cut off, so it must not be
+        // reported as a dropped stream.
+        finished = true;
+        handlers.onStopped?.();
       } else if (event.event === "done") {
         const payload = safeJson(event.data) as {
           disclosure?: string | null;
