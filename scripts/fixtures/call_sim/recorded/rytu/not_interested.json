@@ -1,0 +1,38 @@
+{
+  "persona": "not_interested",
+  "holder": "fixture:rytu",
+  "language": "en-IN",
+  "direction": "outbound",
+  "source": "hand-written stand-in, not a model run: written in the style of the calls of 24 and 25 Nov 2026 to exercise this persona's checks; a --live --record run replaces it.",
+  "prompt_sha": "",
+  "contact_name": "Umesh",
+  "prior_contact": true,
+  "expected_flags": [],
+  "progress": null,
+  "turns": [
+    {
+      "speaker": "caller",
+      "text": "Hello."
+    },
+    {
+      "speaker": "agent",
+      "text": "Hello Umesh garu, I am Varsha calling from Rytu Khata. Is now a good time to talk?"
+    },
+    {
+      "speaker": "caller",
+      "text": "I am not interested."
+    },
+    {
+      "speaker": "agent",
+      "text": "Okay sir, it only takes five minutes to set up the app. Shall we try?"
+    },
+    {
+      "speaker": "caller",
+      "text": "No, I said I am not interested."
+    },
+    {
+      "speaker": "agent",
+      "text": "Okay sir, thank you for your time. Goodbye."
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "about": "English stand-in of the Rytu Khata campaign script Pip wrote (production, 25 Nov 2026). Simulated: no customer data. Its defects are kept on purpose (step names used as branch conditions, step 1 collecting five details, 'Not registered' placed after the close) so the scorecard measures the script as it ran.",
+  "business": "Rytu Khata",
+  "agent_name": "Varsha",
+  "contact_name": "Umesh",
+  "prior_contact": true,
+  "language": "en-IN",
+  "facts": [
+    ["What does the app cost?", "The Rytu Khata app is free for registered farmers."],
+    ["Is my data safe?", "Your farm records are kept private to your account."],
+    ["How do I install on iPhone?", "Open rytukhata.com in Safari, tap Share, then Add to Home Screen."]
+  ],
+  "collect": [
+    ["caller_name", "Caller name"],
+    ["campaign_goal_met", "Campaign goal met"],
+    ["technical_comfort", "Technical comfort level"],
+    ["primary_usage", "Primary usage interest"],
+    ["alternative_number", "Alternative number"]
+  ],
+  "script": {
+    "schema_version": 2,
+    "business_line": "Rytu Khata, a farm accounts app for farmers",
+    "goal": "Existing customers registered on the web app. Help them install it as an app on Android or iPhone, screen by screen, set the language, then set up farms in My Farms, enter an expense, enter a sale, and show how the dashboard sums them up.",
+    "opening_line": "Hello {{lead_name}} garu, I am Varsha calling from Rytu Khata. Is now a good time to talk?",
+    "stages": [
+      {
+        "id": "s1",
+        "name": "Check installation",
+        "instruction": "Ask the user to check for the Rytu Khata icon. Collect the caller name, campaign goal met, technical comfort level, primary usage interest and alternative number. If they cannot or will not reach the website rytukhata.com, offer to call back.",
+        "scripts": {"en-IN": "Please check whether the Rytu Khata app is on your home screen. If it is not there, go to rytukhata.com and press the install button at the top. Then tell me your name, your goal, how comfortable you are with phones, what you want to use it for and another number. Tell me when it is done."},
+        "branches": [
+          {"when": "Busy now", "target": "end"},
+          {"when": "Not interested", "target": "end"},
+          {"when": "Already done", "target": "s2"},
+          {"when": "They cannot reach the website", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s2",
+        "name": "Login",
+        "instruction": "Ask the user to log in. If they cannot, offer to call back.",
+        "scripts": {"en-IN": "Open the app and log in with your phone number. Tell me when you are in."},
+        "branches": [
+          {"when": "Add Farms", "target": "s3"},
+          {"when": "They cannot log in", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s3",
+        "name": "Add Farms",
+        "instruction": "Ask the user to open My Farms and add their farm details.",
+        "scripts": {"en-IN": "Press My Farms and tell me your farm details, I will note them."},
+        "branches": [
+          {"when": "Enter Expenses", "target": "s4"},
+          {"when": "They cannot add a farm", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s4",
+        "name": "Enter Expenses",
+        "instruction": "Ask the user to press Expenses and record one expense.",
+        "scripts": {"en-IN": "Press Expenses and record one expense. Tell me when it is done."},
+        "branches": [
+          {"when": "Enter Sales", "target": "s5"},
+          {"when": "They cannot enter an expense", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s5",
+        "name": "Enter Sales",
+        "instruction": "Ask the user to record one crop sale.",
+        "scripts": {"en-IN": "Tell me the crop sale details, I will note them."},
+        "branches": [
+          {"when": "Dashboard", "target": "s6"},
+          {"when": "They cannot enter a sale", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s6",
+        "name": "Dashboard",
+        "instruction": "Show the user how the dashboard sums up expenses and sales.",
+        "scripts": {"en-IN": "Open the dashboard. It shows your expenses and sales together."},
+        "branches": [
+          {"when": "Finalise the call", "target": "s7"},
+          {"when": "They cannot open the dashboard", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s7",
+        "name": "Finalise the call",
+        "instruction": "Thank them and close the call.",
+        "scripts": {"en-IN": "Thank you, the app is all set, any doubt you call us."},
+        "branches": [
+          {"when": "Not registered", "target": "s8"},
+          {"when": "They cannot finish", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s8",
+        "name": "Not registered",
+        "instruction": "Explain they have registered and offer to help.",
+        "scripts": {"en-IN": "You registered with us earlier. Shall I help you set it up?"},
+        "branches": [
+          {"when": "Yes", "target": "s1"}
+        ]
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "The app is installed on their home screen."},
+      {"step": 2, "outcome": "They are logged in."},
+      {"step": 3, "outcome": "Their farm details are added."},
+      {"step": 4, "outcome": "Their first expense is entered."},
+      {"step": 5, "outcome": "Their first sale is entered."},
+      {"step": 6, "outcome": "They have seen the dashboard."},
+      {"step": 7, "outcome": "The call is finished."},
+      {"step": 8, "outcome": "They understand they registered."}
+    ]
+  }
+}

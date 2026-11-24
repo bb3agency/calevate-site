@@ -1,0 +1,33 @@
+{
+  "persona": "remove_me",
+  "holder": "fixture:rytu",
+  "language": "en-IN",
+  "direction": "outbound",
+  "source": "hand-written stand-in, not a model run: written in the style of the calls of 24 and 25 Nov 2026 to exercise this persona's checks; a --live --record run replaces it.",
+  "prompt_sha": "",
+  "contact_name": "Umesh",
+  "prior_contact": true,
+  "expected_flags": [],
+  "progress": null,
+  "turns": [
+    {
+      "speaker": "caller",
+      "text": "Hello."
+    },
+    {
+      "speaker": "agent",
+      "text": "Hello Umesh garu, I am Varsha calling from Rytu Khata. Is now a good time to talk?"
+    },
+    {
+      "speaker": "caller",
+      "text": "Please stop calling me and remove my number."
+    },
+    {
+      "speaker": "agent",
+      "text": "Sorry for the trouble. Your number is removed, you will not get calls from us again. Goodbye.",
+      "tools": [
+        "add_number_to_do_not_call"
+      ]
+    }
+  ]
+}
