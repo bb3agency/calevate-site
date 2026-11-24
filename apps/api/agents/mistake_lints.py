@@ -32,6 +32,7 @@ from collections.abc import Callable, Sequence
 from typing import Final
 
 from calevate_shared.call_script import CallScript, substitute_variables
+from calevate_shared.spoken_guard import textbook_note
 
 from apps.api.agents import turn_checks
 from apps.api.agents.call_rules import opening_redone_line_problems, reacted_line_problems
@@ -298,6 +299,29 @@ def _stalled(script: CallScript, _context: LintContext) -> list[str]:
     ]
 
 
+def _brackets(script: CallScript, context: LintContext) -> list[str]:
+    # A name followed by itself in brackets ("the name in the call's letters (the English
+    # name)") is the commonest case: the model copies the line and the voice reads both.
+    return _turn_kind_lines(
+        script,
+        context,
+        frozenset({"brackets"}),
+        "has something in brackets, which the voice reads out; say each name once, as the "
+        "screen or the facts show it, with nothing in brackets.",
+    )
+
+
+def _formal_words(script: CallScript, context: LintContext) -> list[str]:
+    """Each agent line with a word from the language's textbook list, naming the words and
+    what people say instead, as the reply check names them."""
+    found: list[str] = []
+    for path, text in _agent_lines(script):
+        swaps = turn_checks.formal_swaps(_heard(text), context.language)
+        if swaps:
+            found.append(f"{path}: uses textbook words callers do not say: {textbook_note(swaps)}.")
+    return found
+
+
 def _opened_again(script: CallScript, _context: LintContext) -> list[str]:
     """A step told to redo the opening (its English instruction) or whose line does."""
     return [*opening_redone_problems(script), *opening_redone_line_problems(script)]
@@ -328,6 +352,8 @@ _CHECKS: Final[dict[str, _Check]] = {
     "offered_more_too_soon": _offered_more_too_soon,
     "false_history": _false_history,
     "stalled": _stalled,
+    "brackets": _brackets,
+    "formal_words": _formal_words,
 }
 
 #: The mistake kinds a script check can trace to the agent's own script.

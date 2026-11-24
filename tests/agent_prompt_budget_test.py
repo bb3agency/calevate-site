@@ -288,6 +288,10 @@ def test_an_inbound_lines_engine_agent_that_places_calls_fits_the_same_margins()
 #: at, no two replies opening or ending alike, a step's check asked for and no reassurance
 #: without a fact, paid for by "the answer, step or question" after "the point", the "do you
 #: want to know" example (covered by "Answer just that") and one reaction sentence for two.
+#: The founder's Telugu campaign call of 24 Nov 2026 left both where they were (7,792/6,953):
+#: fillers "once a call each" at their list, no reaction "twice a call", a search when stuck on
+#: a step, and the word list led by "never the left, even scripted", paid for by writing each
+#: pair as an arrow rather than 'not "X" but "Y"'.
 PER_CALL_MAX = 7_833
 PER_CALL_ONE_LANGUAGE_MAX = 6_958
 

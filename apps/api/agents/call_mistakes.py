@@ -139,6 +139,21 @@ LESSONS: Final[dict[str, Lesson]] = {
         "Say one or two short sentences, then let the caller speak.",
         'HOW TO SPEAK: "one or two short sentences, then wait"',
     ),
+    # The Telugu campaign call of 24 Nov 2026 said a button in the call's letters and again
+    # in English in brackets, and used a word the register's list names, and neither was on
+    # the call page. Both read the reply alone, so a real call judges them as a practice run.
+    "brackets": Lesson(
+        "Read out something in brackets",
+        "Say each name once, as the screen or the facts show it, with nothing in brackets.",
+        'HOW TO SPEAK: "No markdown, emoji, brackets"; the screen bullet: "naming what to tap '
+        'once ... never again in brackets"',
+    ),
+    "formal_words": Lesson(
+        "Used textbook words",
+        "Use the everyday word people say on the phone.",
+        "SPOKEN REGISTER: the word list after spoken_style.SWAPS_LEAD; HOW TO SPEAK's register "
+        "bullet",
+    ),
     "false_history": Lesson(
         "Said the caller had enquired or spoken to you before, when they had not",
         "Say why you are calling without claiming an earlier enquiry or call.",

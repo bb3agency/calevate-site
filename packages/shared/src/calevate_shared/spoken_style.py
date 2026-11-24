@@ -694,6 +694,21 @@ def native_reviewed(tag: str | None) -> bool:
     return style is not None and style.review == "native_reviewed"
 
 
+#: Leads the word list in the register line. "Even from a script" because the agent copies a
+#: script's step line word for word, and a textbook word in an old line reached the caller
+#: although the list named it (Telugu campaign call of 24 Nov 2026); the platform rules
+#: already void a script line that breaks them.
+SWAPS_LEAD: Final = "Never the left, even scripted:"
+#: Leads the fillers. The limit sits AT the list because "a reaction only if it fits, often
+#: none" in HOW TO SPEAK, read far from a list introduced as "lightly", did not hold: the
+#: first filler opened nine of twelve replies on the same call. A list of sample phrases is
+#: itself what makes a voice model repeat them ("Sample phrases (vary, don't always reuse)",
+#: OpenAI Realtime prompting guide, cdn.openai.com/API/docs/realtime-prompting-guide.pdf;
+#: Retell's agent handbook "limits filler acknowledgments", docs.retellai.com/build/
+#: agent-handbook; both read 24 Nov 2026), so the cap is said with the words it caps.
+FILLERS_LEAD: Final = "Fillers, once a call each:"
+
+
 def register_guidance(tag: str | None) -> str | None:
     """The register line, then the prompt's do/don't list as concrete pairs, then the tags
     and fillers. Concrete pairs because an open in-call model (GPT-OSS 120B, founder decision
@@ -704,10 +719,10 @@ def register_guidance(tag: str | None) -> str | None:
     parts = [style.register]
     if style.prompt_swaps:
         swaps = "; ".join(_swap(formal, spoken) for formal, spoken in style.prompt_swaps)
-        parts.append(f"Spoken words: {swaps}.")
+        parts.append(f"{SWAPS_LEAD} {swaps}.")
     if style.fillers:
         said = ", ".join(f.text for f in style.fillers[:PROMPT_FILLERS])
-        parts.append(f"Fillers, lightly: {said}.")
+        parts.append(f"{FILLERS_LEAD} {said}.")
     return " ".join(parts)
 
 
@@ -840,8 +855,10 @@ def example_sentence(exchanges: Sequence[Sequence[ExampleTurn]]) -> str:
 def _swap(formal: str, spoken: str) -> str:
     # "(leave it out)" in the data marks an instruction, not a word to say: it is neither quoted
     # nor bracketed, because the model copies a bracket into what it says (D-986).
+    # An arrow rather than 'not "X" but "Y"': six characters a pair on every turn, and the
+    # list's lead says which side is never said.
     said = spoken.strip("()") if spoken.startswith("(") else f'"{spoken}"'
-    return f'not "{formal}" but {said}'
+    return f'"{formal}" → {said}'
 
 
 def example_exchange(tag: str | None, business_type: str | None) -> tuple[ExampleTurn, ...]:
@@ -984,7 +1001,10 @@ def writer_guidance(tag: str | None, business_type: str | None = None, *, exampl
         )
     if style.fillers:
         lines.append(
-            "Spoken tags and light fillers, used where they help and not in every line: "
+            # A filler in every line of a script becomes a filler in every reply, since the
+            # in-call model copies its lines; the cap is the in-call one (`FILLERS_LEAD`).
+            "Spoken tags and light fillers, each at most once a call, never to open a line, "
+            "most lines none: "
             + "; ".join(f"{f.text} ({f.use})" if f.use else f.text for f in style.fillers)
         )
     if style.number_rules:
@@ -1029,6 +1049,7 @@ __all__ = [
     "COMPACT_SAY",
     "DEFAULT_EXAMPLES",
     "ENTRY_KINDS",
+    "FILLERS_LEAD",
     "NAME_CHECK_KEY",
     "OPENING_KEYS",
     "PACK_APPROVED",
@@ -1040,6 +1061,7 @@ __all__ = [
     "REGISTER_KEY",
     "SPOKEN_DATES_FALLBACK",
     "SPOKEN_DATE_TEMPLATES",
+    "SWAPS_LEAD",
     "AvoidForm",
     "EntryKind",
     "ExampleTurn",
