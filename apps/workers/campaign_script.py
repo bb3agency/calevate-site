@@ -211,7 +211,9 @@ async def _save_if_asked(session: AsyncSession, holder: _Holder, script: CallScr
         await session.execute(
             text(
                 f"SELECT script IS NULL AS empty, script_proposal->>'auto_save' AS auto "
-                f"FROM {_table_of(holder)} WHERE id = :hid AND script_proposal->>'id' = :pid"
+                # Locked, so an owner's save in flight is waited for and then seen.
+                f"FROM {_table_of(holder)} WHERE id = :hid AND script_proposal->>'id' = :pid "
+                "FOR UPDATE"
             ),
             {"hid": holder.holder_id, "pid": str(holder.proposal_id)},
         )
@@ -261,7 +263,8 @@ async def _ready_made_if_asked(holder: _Holder) -> None:
             await session.execute(
                 text(
                     f"SELECT script_proposal->>'auto_save' FROM {_table_of(holder)} "
-                    "WHERE id = :hid AND script_proposal->>'id' = :pid AND script IS NULL"
+                    "WHERE id = :hid AND script_proposal->>'id' = :pid AND script IS NULL "
+                    "FOR UPDATE"
                 ),
                 {"hid": holder.holder_id, "pid": str(holder.proposal_id)},
             )

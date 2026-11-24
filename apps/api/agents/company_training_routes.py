@@ -163,6 +163,8 @@ async def save_overview(
 class TrainingIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     training: str = Field(max_length=training_rules.TRAINING_MAX)
+    #: The version the edit began from; a save over a newer one is refused (409).
+    version: int | None = Field(default=None, ge=0)
 
 
 @router.put(
@@ -177,7 +179,11 @@ async def save_training(
 ) -> CompanyTrainingOut:
     tenant_id = _tenant(principal)
     version = await training_rules.save_training(
-        session, tenant_id, payload.training, saved_by=principal.user_id
+        session,
+        tenant_id,
+        payload.training,
+        saved_by=principal.user_id,
+        edited_version=payload.version,
     )
     await write_audit(
         session,

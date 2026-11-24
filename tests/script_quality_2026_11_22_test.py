@@ -16,6 +16,7 @@ to its own ids. The model is never called.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from types import SimpleNamespace
 from typing import Any
@@ -278,3 +279,42 @@ def test_the_refining_edit_and_the_closing_reminder_reach_the_change() -> None:
 def test_the_details_to_collect_reach_the_writers_brief() -> None:
     brief = ScriptBrief(business_name="Sunrise Homes", collect=("Visit day", "Budget"))
     assert "Details to collect: Visit day; Budget" in brief.user_message()
+
+
+async def test_a_first_run_draft_never_replaces_a_script_the_owner_saved_meanwhile() -> None:
+    """FAILS IF: the first run's `auto_save` reads "the campaign has no script" without the
+    row lock, so an owner's save that commits between that read and Pip's save is
+    overwritten by the draft."""
+    tenant_id, campaign_id = await _campaign()
+    async with tenant_session(tenant_id) as session:
+        made = await workspace.request_proposal(
+            session, tenant_id=tenant_id, campaign_id=campaign_id, requested_by=None, auto_save=True
+        )
+    holder = campaign_script._campaign(tenant_id, campaign_id, made.id)
+    owners, pips = _script("Which day suits you?"), _script(ONE_QUESTION)
+    owner_holds_lock, release = asyncio.Event(), asyncio.Event()
+
+    async def owner_saves() -> None:
+        async with tenant_session(tenant_id) as session:
+            await workspace.save_script(session, campaign_id, owners)
+            owner_holds_lock.set()
+            await release.wait()
+
+    async def pip_saves() -> None:
+        async with tenant_session(tenant_id) as session:
+            await campaign_script._save_if_asked(session, holder, pips)
+
+    owner = asyncio.create_task(owner_saves())
+    await owner_holds_lock.wait()
+    pip = asyncio.create_task(pip_saves())
+    await asyncio.sleep(0.5)
+    release.set()
+    await asyncio.gather(owner, pip)
+
+    async with tenant_session(tenant_id) as session:
+        saved = (
+            await session.execute(
+                text("SELECT script FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar_one()
+    assert CallScript.model_validate(saved) == owners
