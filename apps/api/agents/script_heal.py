@@ -19,9 +19,12 @@ WHAT A REPAIR NEVER TOUCHES. The openings and their notice records (`mistake_fix
 PROTECTED_PARTS`: the AI and recording notices are said in them, D-971); the step outcomes,
 which their own pass writes (`campaigns/step_outcomes`); any part that is not one line (a
 whole step, the list of steps). A line the owner wrote by hand is changed only when a check
-faults that line. The pass and the step-outcomes pass may read one script at once; each
-writes by compare-and-set on what it read (a line's `version`, a campaign's script itself,
-which has no version), and the one that loses queues itself again rather than overwrite.
+faults that line. The one structural edit is code's, never the model's: a way out a step
+states only in words ("if they cannot, offer to call back") becomes that step's branch
+(`wired_ways_out`), its words kept. The pass and the step-outcomes pass may read one script
+at once; each writes by compare-and-set on what it read (a line's `version`, a campaign's
+script itself, which has no version), and the one that loses queues itself again rather
+than overwrite.
 
 The queue is the shared agent pass (`agents/agent_pass`), so a pass asked for while one waits
 or runs is coalesced and a change made mid-pass is never lost.
@@ -44,6 +47,7 @@ from apps.api.agents.call_rules import opening_redone_line_problems, reacted_lin
 from apps.api.agents.mistake_fixes import fix_paths
 from apps.api.agents.mistake_lints import SCRIPT_FIXABLE_KINDS, mistake_findings, script_mistakes
 from apps.api.agents.script_lint import LintContext, agent_lines, flow_problems
+from apps.api.agents.script_structure import ways_out_wired
 from apps.api.copilot.consent import account_content_may_reach_models
 
 #: The ARQ name of the pass (`workers/script_heal`).
@@ -53,7 +57,7 @@ JOB: Final = "repair_holder_script"
 DEBOUNCE_S: Final = 30
 #: Joined to the script before it is hashed into `script_heal_inputs`: a new or changed check
 #: changes it, so every script is checked once more by the next sweep.
-CHECKS_VERSION: Final = "heal-2"
+CHECKS_VERSION: Final = "heal-3"
 
 HolderKind = Literal["campaign", "line"]
 
@@ -133,6 +137,14 @@ def heal_findings(script: CallScript | None, lint: LintContext) -> list[str]:
         *_textbook(script, lint.language),
     ]
     return list(dict.fromkeys(f for f in found if _repairable(script, f)))
+
+
+def wired_ways_out(script: CallScript, lint: LintContext) -> CallScript:
+    """`script` with every step's way out that is stated only in its instruction given as a
+    branch (`script_structure.ways_out_wired`). Deterministic, so a repair pass applies it
+    before asking the model anything. A hand-written script has no stages, so nothing to
+    wire."""
+    return ways_out_wired(script, {stage.id for stage in script.stages}, lint.manifest)
 
 
 def mistake_kinds(script: CallScript | None, lint: LintContext) -> set[str]:
@@ -279,4 +291,5 @@ __all__ = [
     "queue_after_save",
     "queue_now",
     "table_of",
+    "wired_ways_out",
 ]

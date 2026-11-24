@@ -49,6 +49,7 @@ from apps.api.agents.script_heal import (
     heal_findings,
     mistake_kinds,
     table_of,
+    wired_ways_out,
 )
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.campaigns import script_history
@@ -251,8 +252,13 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
     async with tenant_session(tenant_id) as session:
         lint = await lint_context_for(session, tenant_id=tenant_id, agent_id=holder.agent_id)
     lint = replace(lint, promo=False, language=holder.language or lint.language)
-    findings = heal_findings(holder.script, lint)
+    # Structure first, by code: a way out stated only in words becomes a branch (no model, so
+    # no gate), then the model is asked only about the lines.
+    wired = wired_ways_out(holder.script, lint)
+    findings = heal_findings(wired, lint)
     if not findings:
+        if wired != holder.script:
+            return await _save(tenant_id, holder, lint, wired, [])
         await _finish(tenant_id, kind, holder_id, "done", checked=holder.digest)
         return "clean"
     async with tenant_session(tenant_id) as session:
@@ -261,12 +267,15 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
     if not allowed or quota.at_ceiling or quota.platform_paused:
         await _finish(tenant_id, kind, holder_id, "skipped")
         return "skipped"
-    return await _repair(tenant_id, holder, lint, findings)
+    return await _repair(tenant_id, holder, lint, findings, wired)
 
 
-async def _repair(tenant_id: UUID, holder: _Holder, lint: Any, findings: list[str]) -> str:
+async def _repair(
+    tenant_id: UUID, holder: _Holder, lint: Any, findings: list[str], base: CallScript
+) -> str:
+    """`base` is the script as read with its structure already mended; the save compares
+    with the script as read."""
     assert holder.script is not None
-    base = holder.script
     started = time.monotonic()
     paths = fix_paths(findings)
     fix = _Fix(
@@ -313,9 +322,10 @@ async def _repair(tenant_id: UUID, holder: _Holder, lint: Any, findings: list[st
     except Exception:
         # The first answer is paid for and must reach the meter (hard rule 7).
         log.exception("script_heal_check_crashed", extra={"holder_id": str(holder.id)})
-    if repaired == base:
-        # Nothing the model wrote cleared a fault. Recorded as checked so the sweep does not
-        # pay for the same answer every hour; a call showing the mistake asks again.
+    if repaired == holder.script:
+        # Nothing the model wrote cleared a fault, and code mended nothing either. Recorded
+        # as checked so the sweep does not pay for the same answer every hour; a call showing
+        # the mistake asks again.
         await _meter_and_finish(tenant_id, holder, spends, state="done", checked=holder.digest)
         return "unchanged_by_model"
     return await _save(tenant_id, holder, lint, repaired, spends)

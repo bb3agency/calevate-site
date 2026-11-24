@@ -41,8 +41,12 @@ from typing import Final
 
 from calevate_shared.call_script import (
     CALL_BACK,
+    END_OF_CALL,
+    HAND_OVER,
+    MAX_STAGE_BRANCHES,
     CallScript,
     ConversationStage,
+    StageBranch,
     extract_variable_names,
     says_instruction,
     stage_steps,
@@ -524,6 +528,7 @@ def script_problems(script: CallScript, context: LintContext) -> list[str]:
     found += flow_problems(script)
     found += step_number_problems(script)
     found += untaken_time_problems(script)
+    found += unwired_way_out_problems(script, context.manifest)
     found += pronunciation_problems(script, context)
     found += unasked_problems(script, context.collect)
     return found
@@ -1303,6 +1308,102 @@ def pronunciation_problems(script: CallScript, context: LintContext) -> list[str
     ]
 
 
+#: A conditional sentence of an English instruction, condition first ("If they cannot, offer
+#: to call back") or action first ("End politely if they are not interested"). "unless" is
+#: left out: its condition is the negation of what it says, which code cannot write.
+_CONDITION_FIRST: Final = re.compile(
+    r"^(?:\w+\s+)?(?:if|when|whenever|in case)\s+(?P<cond>[^,]{2,200}?)\s*(?:,|\bthen\b)"
+    r"\s*(?P<act>.+)$",
+    re.IGNORECASE,
+)
+_ACTION_FIRST: Final = re.compile(
+    r"^(?P<act>.+?)\s+(?:if|when|whenever|in case)\s+(?P<cond>.{2,200})$", re.IGNORECASE
+)
+#: An action that tells the agent NOT to take the way out ("do not end the call").
+_ACTION_NEGATED: Final = re.compile(r"\b(?:do not|don'?t|never|not|without)\b", re.IGNORECASE)
+#: The ways out a stated action names, each to a branch target (`call_script.SPECIAL_TARGETS`).
+_WAY_OUT_ACTIONS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
+    (CALL_BACK, re.compile(r"\bcall[\s-]?(?:them\s+)?back\b|\bcallback\b", re.IGNORECASE)),
+    (
+        HAND_OVER,
+        re.compile(
+            r"\bhand(?:s|ing)?\s+(?:them\s+|the\s+call\s+|it\s+)?over\b|"
+            r"\btransfer\s+(?:them|the\s+call|it)\b|\bput\s+them\s+through\b|"
+            r"\bconnect\s+them\s+(?:to|with)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        END_OF_CALL,
+        re.compile(
+            r"\bend(?:s|ing)?\s+(?:the\s+call\b|it\b|politely\b)|"
+            r"\bclose\s+(?:the\s+call\b|politely\b)|\bhang\s+up\b|\bsay\s+goodbye\b",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+
+def stated_ways_out(
+    stage: ConversationStage, *, last_step: bool, manifest: CapabilityManifest | None
+) -> list[StageBranch]:
+    """The ways out `stage`'s instruction states as conditions in words ("If they cannot,
+    offer to call back") that the stage does not have as a way out, each as the branch it
+    should be: the condition as written, to the call back, the end or a person.
+
+    The call flow draws and the engine is sent only a stage's branches, so a way out left in
+    the instruction is one nobody sees on the canvas. Leaves out: an end in the call's last
+    step, where the call ends anyway; a hand to a person on an agent with hand-over off, a
+    promise `unbacked_promise` already reports; and any past `MAX_STAGE_BRANCHES`. A call back
+    is wired whatever the account can do, as every call-back branch is: it compiles to what
+    the account can do at publish (`call_script._target_action`)."""
+    has = {stage.otherwise, *(b.target for b in stage.branches)}
+    room = MAX_STAGE_BRANCHES - len(stage.branches)
+    out: list[StageBranch] = []
+    for sentence in re.split(r"(?<=[.?!;])\s+|;\s*", " ".join(stage.instruction.split())):
+        text = sentence.strip().rstrip(".?!;").strip()
+        found = _CONDITION_FIRST.match(text) or _ACTION_FIRST.match(text)
+        if found is None:
+            continue
+        act, cond = found.group("act"), found.group("cond").strip(" ,")
+        # "If they agree, explain it and end politely when they are done": two conditions,
+        # and which one the way out hangs on is a guess, so the sentence is left as written.
+        if _ACTION_FIRST.match(act) or _ACTION_FIRST.match(cond):
+            continue
+        for target, verb in _WAY_OUT_ACTIONS:
+            hit = verb.search(act)
+            if hit is None or _ACTION_NEGATED.search(act[: hit.start()]):
+                continue
+            if (
+                target in has
+                or (target == END_OF_CALL and last_step)
+                or (target == HAND_OVER and manifest is not None and not manifest.hand_over)
+                or len(out) >= room
+            ):
+                break
+            has.add(target)
+            out.append(StageBranch(when=(cond[:1].upper() + cond[1:])[:300], target=target))
+            break
+    return out
+
+
+def unwired_way_out_problems(
+    script: CallScript, manifest: CapabilityManifest | None = None
+) -> list[str]:
+    """A way out written in a step's instruction but not given as a way out
+    (`stated_ways_out`). Code wires it (`script_structure.ways_out_wired`), so it is
+    `script_problems`' alone, never the writer's to repair."""
+    steps = stage_steps(script.stages)
+    last = max(steps, default=0)
+    return [
+        f'stages.{i}.branches: the instruction says what to do when "{way.when}", but that '
+        f"is not a way out of the step, so the call flow does not show it; give the step a "
+        f"way out to {way.target} whose condition says so."
+        for i, (stage, step) in enumerate(zip(script.stages, steps, strict=True))
+        for way in stated_ways_out(stage, last_step=step == last, manifest=manifest)
+    ]
+
+
 def flow_problems(script: CallScript) -> list[str]:
     """What the whole call's shape gets wrong: a placeholder step, a question asked before
     the caller can answer it, the same thing said twice, a step that redoes the opening,
@@ -1367,6 +1468,7 @@ __all__ = [
     "spoken_fields",
     "spoken_line_problems",
     "stacked_actions",
+    "stated_ways_out",
     "step_line",
     "step_number_problems",
     "step_numbers_broken",
@@ -1380,4 +1482,5 @@ __all__ = [
     "unreachable_problems",
     "unreached_steps",
     "untaken_time_problems",
+    "unwired_way_out_problems",
 ]

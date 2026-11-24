@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { OPENING_KEY, layoutFlow, type Box, type FlowLayout, type Point } from "@/app/c/[slug]/campaigns/flowLayout";
+import { OPENING_KEY, layoutFlow, thenOf, type Box, type FlowLayout, type Point } from "@/app/c/[slug]/campaigns/flowLayout";
 import { placed } from "@/app/c/[slug]/campaigns/scenarioModel";
 import { CALL_BACK, END, SPECIAL_TARGETS, sectionsOf } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
 import { EMPTY_SCRIPT, type ConversationStage } from "@/lib/api/script";
@@ -92,11 +92,12 @@ describe("call flow routing", () => {
     }
   });
 
-  it("never starts a line beside a box that has no next", () => {
+  it("never starts a line beside a box but its own", () => {
     const l = lay(RYTU);
     const quiet = l.boxes.get("android") as Box;
     const dot = { x: quiet.x + quiet.w, y: quiet.y + quiet.h / 2 };
-    for (const link of l.links) {
+    // 2.1's only line is its own way on to step 3; no other link surfaces at its dot.
+    for (const link of l.links.filter((k) => k.from !== "android")) {
       const near = link.samples.filter((p) => Math.hypot(p.x - dot.x, p.y - dot.y) < 16);
       expect(near, `${link.key} passes 2.1's dot`).toEqual([]);
     }
@@ -149,5 +150,66 @@ describe("call flow routing", () => {
     expect(opening.x + opening.w).toBeLessThan((l.boxes.get("one") as Box).x);
     expect(l.notNow?.target).toBe(CALL_BACK);
     expect(lay(stages, false).opening).toBeNull();
+  });
+});
+
+describe("the call's own order", () => {
+  // The founder's flow after a Pip rewrite: no scenario had a next, and none looked connected.
+  const LOOSE = [
+    stage({ id: "login", name: "Login", step: 1 }),
+    stage({ id: "farms", name: "Add farms", step: 2 }),
+    stage({ id: "farms2", name: "No farm yet", step: 2 }),
+    stage({ id: "expenses", name: "Enter expenses", step: 3 }),
+  ];
+  const implicit = (l: FlowLayout) => l.links.filter((k) => k.via === "then");
+
+  it("goes on to every scenario of the next step from a scenario with no Otherwise", () => {
+    const l = lay(LOOSE);
+    expect(implicit(l).map((k) => `${k.from}>${k.to}`)).toEqual([
+      "login>farms",
+      "login>farms2",
+      "farms>expenses",
+      "farms2>expenses",
+    ]);
+    for (const link of implicit(l)) {
+      expect(link.kind).toBe("next");
+      for (const [id, b] of cards(l))
+        expect(link.samples.filter((p) => inside(p, b)), `${link.key} enters ${id}`).toEqual([]);
+    }
+    // The last step goes on to nothing drawn: the call ends there.
+    expect(l.links.filter((k) => k.from === "expenses")).toEqual([]);
+  });
+
+  it("gives way to an Otherwise, which is drawn as the way it goes", () => {
+    const stages = [{ ...LOOSE[0], otherwise: "farms2" }, ...LOOSE.slice(1)];
+    const l = lay(stages);
+    expect(implicit(l).filter((k) => k.from === "login")).toEqual([]);
+    const otherwise = linkOf(l, "login", "farms2");
+    expect(otherwise.via).toBe("otherwise");
+    // An Otherwise to an end point puts that end on the canvas.
+    const ended = lay([{ ...LOOSE[0], otherwise: END }, ...LOOSE.slice(1)]);
+    expect(ended.usedEnds).toContain(END);
+    expect(linkOf(ended, "login", END).via).toBe("otherwise");
+  });
+
+  it("never doubles a link the scenario already has, nor the opening's", () => {
+    const stages = [{ ...LOOSE[0], branches: [{ when: "Add farms", target: "farms" }] }, ...LOOSE.slice(1)];
+    const l = lay(stages);
+    const pairs = l.links.filter((k) => k.kind !== "not-now").map((k) => `${k.from}>${k.to}`);
+    expect(new Set(pairs).size).toBe(pairs.length);
+    expect(linkOf(l, "login", "farms").via).toBe("branch");
+    expect(linkOf(l, "login", "farms2").via).toBe("then");
+    expect(linkOf(l, OPENING_KEY, "login").via).toBe("opening");
+    expect(implicit(l).some((k) => k.from === OPENING_KEY || k.to === "login")).toBe(false);
+  });
+
+  it("names where each scenario goes when no way out applies", () => {
+    const items = placed(sectionsOf({ ...EMPTY_SCRIPT, stages: [{ ...LOOSE[0], otherwise: END }, ...LOOSE.slice(1)] }));
+    expect(items.map((p) => thenOf(p, 3))).toEqual([
+      { kind: "otherwise", target: END },
+      { kind: "step", step: 3 },
+      { kind: "step", step: 3 },
+      { kind: "end" },
+    ]);
   });
 });

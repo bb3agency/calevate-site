@@ -188,7 +188,9 @@ WAYS_OUT_RULE: Final = (
     "question is answered from the knowledge and the same stage goes on. A person who says "
     "they already did something the call asks goes on to the next thing they have not done, "
     "never to end while the main task still has something for them. A way out's "
-    "condition never says call back or transfer; where it goes says that."
+    "condition never says call back or transfer; where it goes says that. An instruction "
+    "that says what to do if the person cannot or will not go on (offer a call back, end "
+    "politely) has that as a way out too."
 )
 
 #: How each step and its lines are written (Rytu Khata campaign script, 23 Nov 2026: a step's

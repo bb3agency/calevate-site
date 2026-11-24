@@ -24,6 +24,14 @@
  *    drops in the gap left of its target.
  * Each vertical run takes its own lane in its gap and each horizontal run its own lane in its
  * channel, so two links never draw on top of each other.
+ *
+ * Two kinds of way on. An EXPLICIT link is a branch or an Otherwise the script holds. An
+ * IMPLICIT link is the call's own order: a scenario with no Otherwise goes on to the next
+ * step once that step's outcome is reached (`call_script.OUTCOMES_LEAD`; ThinnestAI takes the
+ * steps as "the conversation script, in order" with no next field, update-agent.md:818-825,
+ * snapshot 2026-10-29). It always runs to the very next column, so it is a curve inside the
+ * gap and never passes behind a card; one into a scenario the source already links to is not
+ * drawn twice.
  */
 
 import type { Placed } from "./scenarioModel";
@@ -70,6 +78,8 @@ const NO =
 export const YES_COLOR = "var(--series-1)";
 export const NO_COLOR = "var(--series-3)";
 const OTHER_COLOR = "var(--series-2)";
+/** The call's own order: neutral, so it never reads as a way out somebody chose. */
+export const THEN_COLOR = "var(--text-muted)";
 
 /** The arrow's colour by the words of its way out: green yes, orange no, blue otherwise. */
 export function toneColor(when: string): string {
@@ -153,9 +163,14 @@ export interface Routed {
   end: Point;
   dir: "right" | "down";
   color: string;
+  /** `branch` and `otherwise` are the script's own ways out, `then` the implicit way on to
+   * the next step, `opening` the opening's links. */
+  via: LinkVia;
   /** Points along the drawn line, for the tests. */
   samples: Point[];
 }
+
+export type LinkVia = "branch" | "otherwise" | "then" | "opening";
 
 export interface FlowLayout {
   colX: (column: number) => number;
@@ -181,6 +196,7 @@ interface Edge {
   from: string;
   to: string;
   color: string;
+  via: LinkVia;
   fromCol: number;
   toCol: number;
   fromRow: number;
@@ -200,7 +216,9 @@ export function layoutFlow(
   const first = opening ? 0 : 1;
   const colX = (column: number) => PAD_X + (column - first) * (BOX_W + COL_GAP);
   const usedEnds = ends.filter((t) =>
-    items.some((p) => p.section.branches.some((b) => b.target === t)),
+    items.some(
+      (p) => p.section.otherwise === t || p.section.branches.some((b) => b.target === t),
+    ),
   );
   const endCol = steps + 1;
   const where = new Map<string, { col: number; row: number }>();
@@ -215,6 +233,7 @@ export function layoutFlow(
         from: OPENING_KEY,
         to: p.section.id,
         color: YES_COLOR,
+        via: "opening",
         fromCol: 0,
         toCol: 1,
         fromRow: 1,
@@ -229,12 +248,45 @@ export function layoutFlow(
         from: p.section.id,
         to: b.target,
         color: toneColor(b.when),
+        via: "branch",
         fromCol: p.step,
         toCol: to.col,
         fromRow: p.row,
         toRow: to.row,
       });
     });
+  for (const p of items) {
+    if (p.section.otherwise) {
+      const to = where.get(p.section.otherwise);
+      if (to)
+        edges.push({
+          key: `${p.section.id}-otherwise`,
+          from: p.section.id,
+          to: p.section.otherwise,
+          color: OTHER_COLOR,
+          via: "otherwise",
+          fromCol: p.step,
+          toCol: to.col,
+          fromRow: p.row,
+          toRow: to.row,
+        });
+      continue;
+    }
+    const explicit = new Set(p.section.branches.map((b) => b.target));
+    for (const q of items)
+      if (q.step === p.step + 1 && !explicit.has(q.section.id))
+        edges.push({
+          key: `${p.section.id}~then~${q.section.id}`,
+          from: p.section.id,
+          to: q.section.id,
+          color: THEN_COLOR,
+          via: "then",
+          fromCol: p.step,
+          toCol: q.step,
+          fromRow: p.row,
+          toRow: q.row,
+        });
+  }
   const kindOf = (e: Edge): LinkKind =>
     e.toCol === e.fromCol + 1 ? "next" : e.toCol > e.fromCol ? "skip" : "back";
 
@@ -339,6 +391,7 @@ export function layoutFlow(
       to: notNow.target,
       kind: "not-now",
       color: NO_COLOR,
+      via: "opening",
       d: `M ${top.x} ${top.y} L ${tip.x} ${tip.y}`,
       end: tip,
       dir: "down",
@@ -357,7 +410,21 @@ export function layoutFlow(
 }
 
 function base(e: Edge, kind: LinkKind) {
-  return { key: e.key, from: e.from, to: e.to, kind, color: e.color };
+  return { key: e.key, from: e.from, to: e.to, kind, color: e.color, via: e.via };
+}
+
+export type Then =
+  | { kind: "otherwise"; target: string }
+  | { kind: "step"; step: number }
+  | { kind: "end" };
+
+/**
+ * Where a scenario goes once none of its ways out applies: its Otherwise when it has one,
+ * else the next step, else the end of the call. The canvas's label and its implicit link.
+ */
+export function thenOf(item: Placed, steps: number): Then {
+  if (item.section.otherwise) return { kind: "otherwise", target: item.section.otherwise };
+  return item.step < steps ? { kind: "step", step: item.step + 1 } : { kind: "end" };
 }
 
 /** The arrowhead at a link's end. */

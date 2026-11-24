@@ -88,7 +88,9 @@ import {
   arrowHead,
   curve,
   layoutFlow,
+  thenOf,
   type Box,
+  type LinkVia,
   type Point,
 } from "./flowLayout";
 
@@ -100,6 +102,17 @@ const OUTCOME_HINT =
 /** An empty outcome is Pip's to write (D-1036), never a box asking the owner to invent it. */
 export const OUTCOME_PLACEHOLDER = "Pip writes this from the step.";
 export const OUTCOME_WRITING = "Pip is writing this";
+const THEN_HINT = "A dashed line is the call moving on to the next step by itself, once the step's outcome is reached.";
+
+/**
+ * Where a scenario goes when none of its ways out applies, in the canvas's words: "Then
+ * step 3", "Then end of call", or its Otherwise. `named` gives a target's short name.
+ */
+export function thenWords(item: Placed, steps: number, named: (id: string) => string): string {
+  const then = thenOf(item, steps);
+  if (then.kind === "otherwise") return `Otherwise ${named(then.target)}`;
+  return then.kind === "step" ? `Then step ${then.step}` : "Then end of call";
+}
 
 /**
  * A step's outcome (founder, 23 Nov 2026): what the agent must reach before the call leaves
@@ -260,15 +273,19 @@ export function ScenarioFlow({
     }
   }, [script, toasts]);
 
-  /** Removes one link: the same `setNext` the editor's "Next scenarios" ticks go through. */
-  const unlink = (from: string, to: string) => {
+  /** Removes one link: a branch through the same `setNext` the editor's "Next scenarios"
+   * ticks go through, or the scenario's Otherwise, after which it goes on to the next step. */
+  const unlink = (from: string, to: string, via: LinkVia = "branch") => {
     const source = items.find((p) => p.section.id === from);
     if (!source) return;
-    const after = setNext(
-      script,
-      from,
-      source.section.branches.map((b) => b.target).filter((t) => t !== to),
-    );
+    const after =
+      via === "otherwise"
+        ? updateSection(script, from, { otherwise: "" })
+        : setNext(
+            script,
+            from,
+            source.section.branches.map((b) => b.target).filter((t) => t !== to),
+          );
     onChange(after, true);
     const toast = toasts.toast({
       id: "flow-unlink",
@@ -365,6 +382,13 @@ export function ScenarioFlow({
           label: `Unlink from ${named(b.target).full}`,
           icon: <Unlink className="h-3.5 w-3.5" />,
           run: () => unlink(item.section.id, b.target),
+        });
+      const otherwise = item.section.otherwise;
+      if (otherwise)
+        list.push({
+          label: `Remove Otherwise ${named(otherwise).full}`,
+          icon: <Unlink className="h-3.5 w-3.5" />,
+          run: () => unlink(item.section.id, otherwise, "otherwise"),
         });
       list.push({
         label: "Delete scenario",
@@ -475,7 +499,7 @@ export function ScenarioFlow({
           <div className="min-w-0">
             {items.length > 0 && (
               <p className="mb-2 text-meta text-ink-muted">
-                Outcome of a step: {OUTCOME_HINT}
+                Outcome of a step: {OUTCOME_HINT} {THEN_HINT}
               </p>
             )}
             {picture}
@@ -532,7 +556,7 @@ function Columns({
   named,
 }: {
   /** Removes the link `from` → `to`; absent for a person who cannot change the flow. */
-  onUnlink?: (from: string, to: string) => void;
+  onUnlink?: (from: string, to: string, via?: LinkVia) => void;
   /** "3.1 Setup farms", or an end's words, for a link's spoken name. */
   named: (id: string) => string;
   items: Placed[];
@@ -612,8 +636,10 @@ function Columns({
     if (leave.current) clearTimeout(leave.current);
   }, []);
   const unlinkButtons = useRef(new Map<string, HTMLButtonElement>());
-  const removable = (l: { from: string; kind: string }) =>
-    Boolean(onUnlink) && l.from !== OPENING_KEY && l.kind !== "not-now";
+  // The opening's links and the call's own order (`then`) are not the owner's to remove: only
+  // a branch or an Otherwise somebody set is.
+  const removable = (l: { via: LinkVia }) =>
+    Boolean(onUnlink) && (l.via === "branch" || l.via === "otherwise");
   const hoverOn = (key: string) => {
     if (leave.current) clearTimeout(leave.current);
     setHoverLink(key);
@@ -623,10 +649,10 @@ function Columns({
     if (leave.current) clearTimeout(leave.current);
     leave.current = setTimeout(() => setHoverLink((h) => (h === key ? null : h)), 150);
   };
-  const removeLink = (l: { from: string; to: string }) => {
+  const removeLink = (l: { from: string; to: string; via: LinkVia }) => {
     setChosenLink(null);
     setHoverLink(null);
-    onUnlink?.(l.from, l.to);
+    onUnlink?.(l.from, l.to, l.via);
     // The button goes with its link; focus lands on the box the link left, not the page.
     Array.from(plane.current?.querySelectorAll<HTMLElement>("[data-scenario]") ?? [])
       .find((el) => el.dataset.scenario === l.from)
@@ -644,6 +670,7 @@ function Columns({
       ? activeLink === l.key
       : focus == null || focus === l.from || focus === l.to,
   }));
+  const drawn = [...links.filter((l) => l.via === "then"), ...links.filter((l) => l.via !== "then")];
   const strong = activeLink != null || focus != null;
   const middle = (l: (typeof links)[number]) =>
     l.samples[Math.floor(l.samples.length / 2)] ?? l.end;
@@ -749,15 +776,18 @@ function Columns({
           height={height}
           aria-hidden
         >
-          {links.map((l) => (
+          {/* The call's own order is dashed, thinner and drawn first, under every way out. */}
+          {drawn.map((l) => (
             <path
               key={l.key}
               data-link={l.key}
               data-kind={l.kind}
+              data-via={l.via}
               d={l.d}
               fill="none"
-              style={{ stroke: l.color, opacity: l.lit ? 1 : 0.25 }}
-              strokeWidth={l.lit && strong ? 2.25 : 1.75}
+              style={{ stroke: l.color, opacity: l.lit ? (l.via === "then" ? 0.8 : 1) : 0.25 }}
+              strokeWidth={l.via === "then" ? 1.25 : l.lit && strong ? 2.25 : 1.75}
+              strokeDasharray={l.via === "then" ? "5 4" : undefined}
             />
           ))}
           {/* Each removable link's wide, invisible hit path: a click or a tap chooses it. */}
@@ -780,11 +810,11 @@ function Columns({
               }}
             />
           ))}
-          {links.map((l) => (
+          {drawn.map((l) => (
             <path
               key={`${l.key}-head`}
               d={arrowHead(l.end, l.dir)}
-              style={{ fill: l.color, opacity: l.lit ? 1 : 0.25 }}
+              style={{ fill: l.color, opacity: l.lit ? (l.via === "then" ? 0.8 : 1) : 0.25 }}
             />
           ))}
           {linking && boxes.get(linking.from) && (
@@ -868,7 +898,7 @@ function Columns({
               <button
                 type="button"
                 aria-pressed={on}
-                aria-label={`Scenario ${p.label}: ${p.section.name}${wrong ? ", needs finishing" : ""}`}
+                aria-label={`Scenario ${p.label}: ${p.section.name}${wrong ? ", needs finishing" : ""}. ${thenWords(p, steps, named)}.`}
                 className={`flex h-full w-full flex-col rounded-card border bg-surface p-3 text-left shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
                   on
                     ? "border-brand ring-1 ring-brand"
@@ -890,16 +920,17 @@ function Columns({
                 <span className="mt-1 line-clamp-2 text-meta text-ink-muted">
                   {p.section.instruction.trim() || "No description yet."}
                 </span>
-                <span className="mt-auto truncate text-[11px] text-ink-faint">
+                <span className="mt-auto truncate text-[11px] text-ink-faint" data-then={p.section.id}>
                   {[
+                    thenWords(p, steps, named),
+                    p.section.branches.length
+                      ? `${p.section.branches.length} ${p.section.branches.length === 1 ? "way" : "ways"} out`
+                      : null,
                     p.section.mode === "say" ? "Exact words" : null,
                     scripts
                       ? `Script in ${scripts} ${scripts === 1 ? "language" : "languages"}`
                       : null,
                     qa ? `${qa} Q&A` : null,
-                    p.section.branches.length
-                      ? `${p.section.branches.length} next`
-                      : "No next yet",
                   ]
                     .filter(Boolean)
                     .join(" · ")}
@@ -1083,7 +1114,7 @@ function Stacked({
 }: {
   opening: FlowOpening;
   onEditOpening?: () => void;
-  onUnlink?: (from: string, to: string) => void;
+  onUnlink?: (from: string, to: string, via?: LinkVia) => void;
   named: (id: string) => string;
   items: Placed[];
   steps: number;
@@ -1192,9 +1223,35 @@ function Stacked({
                     </span>
                   </button>
                   {/* Outside the box's button, so each chip can carry its own remove button. */}
-                  {p.section.branches.length > 0 && (
                     <div className="-mt-1 flex flex-wrap items-center gap-1.5 px-3 pb-3 text-[11px] text-ink-faint">
                       <span>Next:</span>
+                      {p.section.otherwise ? (
+                        <span
+                          data-then-chip={p.section.id}
+                          className={`inline-flex items-center rounded-full border border-line text-ink-muted ${onUnlink ? "py-0.5 pl-2 pr-0.5" : "px-2 py-0.5"}`}
+                        >
+                          Otherwise {labelOf(p.section.otherwise)}
+                          {onUnlink && (
+                            <button
+                              type="button"
+                              aria-label={`Remove Otherwise from ${named(p.section.id)} to ${named(p.section.otherwise)}`}
+                              className="relative ml-0.5 flex h-5 w-5 items-center justify-center rounded-full text-ink-faint transition-transform duration-press ease-out before:absolute before:-inset-2 before:content-[''] hover:bg-ink/[0.06] hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand active:scale-[0.97] motion-reduce:transition-none"
+                              onClick={() => onUnlink(p.section.id, p.section.otherwise, "otherwise")}
+                            >
+                              <X aria-hidden className="h-3 w-3" />
+                            </button>
+                          )}
+                        </span>
+                      ) : (
+                        // The call's own order: dashed like its line on the canvas, never removable.
+                        <span
+                          data-then-chip={p.section.id}
+                          className="inline-flex items-center rounded-full border border-dashed border-ink-faint px-2 py-0.5 text-ink-muted"
+                        >
+                          {thenWords(p, steps, labelOf)}
+                          <span className="ml-1 text-ink-faint">(automatic)</span>
+                        </span>
+                      )}
                       {p.section.branches.map((b) => (
                         <span
                           key={b.target}
@@ -1215,7 +1272,6 @@ function Stacked({
                         </span>
                       ))}
                     </div>
-                  )}
                   {selected === p.section.id && (
                     <div className="border-t border-line">{editor}</div>
                   )}

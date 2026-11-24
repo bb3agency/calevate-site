@@ -39,6 +39,7 @@ from apps.api.agents.script_lint import (
     collected_label,
     next_steps,
     reachable_steps,
+    stated_ways_out,
     step_numbers_broken,
     unpronounced_spellings,
     unreached_steps,
@@ -207,6 +208,29 @@ def time_taken(script: CallScript, mine: set[str], labels: Sequence[str] = ()) -
     return script.model_copy(update={"stages": stages})
 
 
+def ways_out_wired(
+    script: CallScript, mine: set[str], manifest: CapabilityManifest | None
+) -> CallScript:
+    """`script` with each way out that one of the `mine` steps states only in its instruction
+    ("If they cannot, offer to call back") given as the branch it states
+    (`script_lint.stated_ways_out`), so the call flow draws it and the engine is sent it. The
+    instruction keeps its words: they still tell the agent how to take the way out."""
+    steps = stage_steps(script.stages)
+    last = max(steps, default=0)
+    stages = []
+    for stage, step in zip(script.stages, steps, strict=True):
+        found = (
+            stated_ways_out(stage, last_step=step == last, manifest=manifest)
+            if stage.id in mine
+            else []
+        )
+        stages.append(
+            stage.model_copy(update={"branches": [*stage.branches, *found]}) if found else stage
+        )
+    out = script.model_copy(update={"stages": stages})
+    return script if out == script else out
+
+
 def collected(script: CallScript, labels: Sequence[str], mine: set[str]) -> CallScript:
     """`script` with each of Pip's steps noting only details the job notes (`labels`), each
     under the job's own name: an entry the writer copied with its "when" hint ("Name: only if
@@ -263,8 +287,9 @@ def settled(
 ) -> CallScript:
     """`script` with its structure mended (see the module): step numbers, outcomes of steps it
     lacks, Pip's unreached steps, titles with no name, the details each step notes, call-back
-    times, and spellings of taught words. A raw script is returned as it is. Validated again,
-    so a mend that would break a rule never reaches the owner."""
+    times, ways out stated only in words, and spellings of taught words. A raw script is
+    returned as it is. Validated again, so a mend that would break a rule never reaches the
+    owner."""
     if script.raw_override is not None:
         return script
     mine = _mine(script, base)
@@ -274,6 +299,7 @@ def settled(
     out = without_empty_titles(out, mine)
     out = collected(out, context.collect, mine)
     out = time_taken(out, mine, context.call_back)
+    out = ways_out_wired(out, mine, context.manifest)
     out = pronounced(out, context)
     return CallScript.model_validate(out.model_dump())
 
@@ -309,6 +335,7 @@ __all__ = [
     "renumbered",
     "settled",
     "time_taken",
+    "ways_out_wired",
     "without_empty_titles",
     "without_stray_outcomes",
 ]
