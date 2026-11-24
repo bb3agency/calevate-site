@@ -1499,9 +1499,9 @@
         "review": "founder_approved",
         "approved_on": "2026-10-23",
         "native_review": "needs_native_review",
-        "note": "In-call examples for the SPOKEN REGISTER section (D-778), rewritten 23 Oct 2026 for D-861 to teach punctuation that breathes: a comma after an opener, one idea per sentence, a question mark on every question (often two choices), an occasional exclamation for warmth, and the caller's answer said back before the next question. Written by us, every word in the language's own letters. The founder approved the approach and asked for them on calls (23 Oct 2026); the wording NEEDS NATIVE-SPEAKER REVIEW. Introduced as how a turn sounds, never words to copy, and carrying no fact. Edited here, not on Ops > Spoken style. Shop-only exchanges (asking for delivery, taking an item) left out on 5 Nov 2026: this line reaches every business's prompt, and many sell nothing.",
+        "note": "In-call examples for the SPOKEN REGISTER section (D-778), rewritten 23 Oct 2026 for D-861 to teach punctuation that breathes: a comma after an opener, one idea per sentence, a question mark on every question (often two choices), an occasional exclamation for warmth, and the caller's answer said back before the next question. Written by us, every word in the language's own letters. The founder approved the approach and asked for them on calls (23 Oct 2026); the wording NEEDS NATIVE-SPEAKER REVIEW. Introduced as how a turn sounds, never words to copy, and carrying no fact. Edited here, not on Ops > Spoken style. Shop-only exchanges (asking for delivery, taking an item) left out on 5 Nov 2026: this line reaches every business's prompt, and many sell nothing. 25 Nov 2026: the reply no longer opens with \"Sure,\" (a reaction and a comma before the point), which the in-call rules now forbid (an opening sentence with no comma, 20 Nov 2026; never a reaction to open, 23 Nov 2026).",
         "exchanges": [
-          [["caller", "Can it be tomorrow?"], ["agent", "Sure, tomorrow. Morning or evening?"]]
+          [["caller", "Can it be tomorrow?"], ["agent", "Morning or evening tomorrow?"]]
         ]
       },
       "candidate_prompt_examples": {

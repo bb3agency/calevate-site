@@ -138,7 +138,7 @@ def test_no_clear_reply_twice_ends_on_what_the_account_allows_after_the_script()
     assert trial.index(CLIENT_SCRIPT_CLOSE) < trial.index(rule)
     paying = compose_engine_prompt(_anjali(callbacks_offered=True))
     assert "or no clear reply twice to one question: say so, then offer a call back" in paying
-    assert "Ask what they meant, reworded; never guess or pick for them." in paying
+    assert "Ask what they meant, reworded; never guess, pick for them or count it done." in paying
     assert "Never re-ask what they said or repeat a sentence." in paying
 
 

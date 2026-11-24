@@ -47,7 +47,9 @@ CLOSING_STEP: Final = (
 #:   intimidation and misleading statements on recovery calls.
 #: - Qualifying: only the questions that matter, each its own step (docs.telli.com/prompt-best-
 #:   practices, cited at `call_rules.SCRIPT_FLOW_RULE`).
-#: - Guiding: one action, then wait for what shows it is done (`SCRIPT_FLOW_RULE`).
+#: - Guiding: one action, then wait for what shows it is done (`SCRIPT_FLOW_RULE`); the check
+#:   before the close asks what they see, as every call is told ("To check, ask what they see",
+#:   `engine.VOICE_STYLE_GUIDANCE`), because a yes to "is it all working?" checks nothing.
 #: Each kind also names the ways out only that kind meets, which `script_assist.WAYS_OUT_RULE`
 #: reads from here, so a kind is added in this one place for both the step shape and the ways
 #: out. The ways out are from the calls of 20-21 Nov 2026 (docs/evidence/
@@ -116,7 +118,7 @@ CALL_KINDS: Final[tuple[CallKind, ...]] = (
         "guiding",
         "to help the person do something on their phone or at home",
         "the actions one by one in the step's procedure, each with what shows it is done; "
-        "check it worked before the close.",
+        "check it worked before the close by asking what they see.",
         "already done (on to the stage after it), using a different phone or device than "
         "expected, and stuck on an action after trying it one other way (to call_back)",
     ),
@@ -258,15 +260,17 @@ DETAILS_RULE: Final = (
 #: possible", elevenlabs.io/docs/agents-platform/best-practices/prompting-guide; a system
 #: prompt is read on every turn, so its length is dead air, docs.vapi.ai/prompting-guide;
 #: all read 22 Nov 2026). Personality as speech behaviour rather than adjectives:
-#: docs.livekit.io/agents/start/prompting (read 22 Nov 2026).
+#: docs.livekit.io/agents/start/prompting (read 22 Nov 2026). The tone example names no
+#: reaction: "thanks them for each answer" became a tone line that asked for one every turn,
+#: against the in-call "a reaction only if it fits, often none".
 CONCISE_RULE: Final = (
     "Each step's instruction says in at most three short sentences what this scenario does "
     "toward its step's outcome, what to check or ask, and when it is done, and the fewest "
     "steps reach the main task. Say each thing once. Never write "
     "rules for how to speak, be polite, handle silence or interruptions, or read numbers: the "
     "platform gives the agent those on every call. style.tone says in a few English words how "
-    "the agent sounds in what it does (for example: short sentences, thanks them for each "
-    "answer), not only adjectives."
+    "the agent sounds in what it does (for example: short sentences, plain everyday "
+    "words), not only adjectives."
 )
 
 CAMPAIGN_ASK: Final = (
@@ -337,11 +341,13 @@ PART_ASK: Final = (
 
 #: The part name the Script section's "Let Pip map the scenarios" sends (`CampaignFlow`).
 FLOW_PART: Final = "flow"
-#: The call's steps rewritten as the ways it is likely to go, each with its way out.
+#: The call's steps rewritten as the ways it is likely to go, each with its way out. Its
+#: example moments start after the opening line, which already greets (`SCRIPT_FLOW_RULE`): an
+#: example "the greeting" step was a step that greets or asks again whether now suits.
 FLOW_ASK: Final = (
     "Rewrite only the stages of the campaign's call script as a flow of steps and scenarios. "
-    "Each step is a moment of the call (for example: the greeting, whether they know the "
-    "business, what they need, the close); each stage is one scenario of a step, a way that "
+    "Each step is a moment of the call after the opening line (for example: whether they know "
+    "the business, what they need, the close); each stage is one scenario of a step, a way that "
     "moment can go: for example the person recognises the business, does not remember it, is "
     "busy, is not interested, or has already done what the call asks. Give each stage its "
     "step number and in next the stages it can go on to (0 to end the call), so a step's "
@@ -353,11 +359,13 @@ FLOW_ASK: Final = (
 ) + CLOSING_STEP
 
 Tone = Literal["warm", "respectful", "brief"]
-#: The owner's tone (D-1004), as the writer reads it. Keys are the request's `tone`.
+#: The owner's tone (D-1004), as the writer reads it. Keys are the request's `tone`. None asks
+#: for formal words: every call's register forbids them (`engine._REGISTER_BULLET`), and the
+#: tone reaches the call as the script's `Tone:` line.
 TONES: Final[dict[str, str]] = {
     "warm": "friendly and warm, like a helpful neighbour, still polite",
-    "respectful": "respectful and formal, with the polite address form the spoken-style "
-    "guide gives",
+    "respectful": "respectful, with the polite address form the spoken-style guide gives, "
+    "in everyday spoken words",
     "brief": "short and direct, every line as few words as it can be",
 }
 #: The owner's note for one draft, in characters. Real rewrite notes (who the agent is, what

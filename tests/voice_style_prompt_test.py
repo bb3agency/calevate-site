@@ -96,7 +96,7 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     # each language the agent speaks; this block says to mirror the caller's register.
     assert "caller's language and register" in block
     # Not heard, or heard as none of the options: asked again, never picked (D-912).
-    assert "ask what they meant, reworded; never guess or pick for them" in block
+    assert "ask what they meant, reworded; never guess, pick for them or count it done" in block
     # D-714: the answer first, and since 23 Nov 2026 only the answer.
     assert "answer just that" in block
 
@@ -129,8 +129,8 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     # After a bare "సరే" the agent asked both questions again word for word (D-910); since
     # D-965 only an "OK" to its own question is asked again, and one after a step goes on.
     unclear = bullet("- Unclear")
-    assert 'a bare "OK" to your question? Ask what they meant, reworded' in unclear
-    assert '"OK" after one: the next' in bullet("- Steps? One a turn")
+    assert 'a bare "OK" to a question? Ask what they meant, reworded' in unclear
+    assert '"OK" after one' not in bullet("- Steps? One a turn")
 
     pace = bullet("- Talked over")
     # "I'll speak slowly from now on" promised a speed the model cannot set (D-912).

@@ -65,8 +65,9 @@ def test_only_a_hello_or_yes_goes_on_and_a_no_asks_when_or_closes() -> None:
 
 
 def test_a_bare_ok_asks_again_only_after_a_question() -> None:
-    assert 'a bare "OK" to your question? Ask what they meant' in VOICE_STYLE_GUIDANCE
-    assert '"OK" after one: the next.' in VOICE_STYLE_GUIDANCE
+    assert 'a bare "OK" to a question? Ask what they meant' in VOICE_STYLE_GUIDANCE
+    # An action is done only when their words show it (25 Nov 2026), so no "OK" clause.
+    assert '"OK" after one' not in VOICE_STYLE_GUIDANCE
     assert 'A bare "OK"? Ask one thing' not in VOICE_STYLE_GUIDANCE
 
 
