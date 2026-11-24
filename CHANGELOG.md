@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.31 — 24-Nov-2026
+
+- Key moments no longer pin a whole-call detail (an installation status, a call outcome, a
+  progress) to one line the caller said; past calls lose those wrong pins too.
+- A status or progress detail names only the furthest step the caller actually confirmed,
+  never a later or finished state the call did not reach.
+
 ## 0.5.30 — 24-Nov-2026
 
 - Every button that runs something shows the loading circle while it runs, across the client
