@@ -135,6 +135,8 @@ from calevate_shared.extraction import (
     clean_unlisted,
     clip_headline,
     goal_verdict,
+    grounded,
+    line_speakers,
     next_step_owner,
     refusal_reason_of,
     settled_next_step,
@@ -483,6 +485,7 @@ class SarvamExtractor:
             called_at=setting.called_at if setting else None,
             agent_name=setting.agent_name if setting else None,
             direction=setting.direction if setting else None,
+            steps=setting.steps if setting else None,
         )
         schema = build_response_schema(
             spec, moments=moments is not None, outcomes=outcomes, unlisted=unlisted, goal=goal
@@ -647,7 +650,9 @@ def build_response_schema(
     """The strict JSON Schema that makes valid, schema-shaped JSON a MODEL-SIDE guarantee.
 
     Both model legs send it: Azure (below) and Sarvam (`SarvamExtractor`). `moments` adds
-    the key-moments list for a request that asks for it; `unlisted=False` leaves out the
+    the key-moments list and the `evidence` object (the numbered lines each value rests on,
+    `calevate_shared.extraction.grounded`) for a request that numbers the transcript's
+    lines; `unlisted=False` leaves out the
     D-889 `unlisted` object, matching `build_extraction_prompt(unlisted=False)`.
 
     THE GUARANTEE IS BACK, and this function is the whole of it. Azure documents
@@ -718,6 +723,19 @@ def build_response_schema(
             "properties": {key: {"type": ["string", "null"]} for key in choice_keys},
             "required": choice_keys,
             "additionalProperties": False,
+        }
+    cited = [f.key for f in spec.fields if f.key not in fixed and f.key != "evidence"]
+    if moments and cited:
+        # First among the fixed keys: written right after the values it cites, and before
+        # the summary, which must not state a value the evidence did not hold.
+        fixed = {
+            "evidence": {
+                "type": "object",
+                "properties": {k: {"type": "array", "items": {"type": "integer"}} for k in cited},
+                "required": cited,
+                "additionalProperties": False,
+            },
+            **fixed,
         }
     properties: dict[str, Any] = {
         field.key: _schema_property(field) for field in spec.fields if field.key not in fixed
@@ -2534,6 +2552,8 @@ class CallSetting:
     called_at: datetime | None = None
     agent_name: str | None = None
     direction: str | None = None
+    #: Where the call got to against its script's steps (`workers/step_truth.prompt_note`).
+    steps: str | None = None
 
 
 #: What `extract_call` files as a model failure rather than letting it fail the call.
@@ -2677,6 +2697,22 @@ async def extract_call(
     outcome = validate_extraction(spec, raw)
     if outcome.errors:
         record_extraction_failure(reason="schema_validation")
+    evidence = raw.get("evidence")
+    if moments is not None and isinstance(evidence, dict):
+        kept, ungrounded = grounded(spec, outcome.data, evidence, line_speakers(transcript))
+        if ungrounded:
+            log.info(
+                "extraction_value_without_evidence",
+                extra={"model": runner.model_name, "fields": sorted(ungrounded)},
+            )
+            outcome = outcome.model_copy(
+                update={
+                    "data": kept,
+                    "needs_review": {
+                        k: v for k, v in outcome.needs_review.items() if k not in ungrounded
+                    },
+                }
+            )
 
     sentiment = raw.get("sentiment")
     out_of_scope = bool(raw.get("out_of_scope"))

@@ -171,7 +171,7 @@ from apps.api.core.observability import set_span_attributes, span, tracing_enabl
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
 from apps.api.crm.outcomes import CallFacts, derive_outcome, hint_of
 from apps.api.crm.service import emit_lead_created, emit_lead_updated
-from apps.api.crm.step_progress import progress_values, stored_progress
+from apps.api.crm.step_progress import StepProgress, holder_script, stored_progress
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
@@ -200,7 +200,7 @@ from apps.api.team_alerts import service as team_alerts
 from apps.api.tenancy.business_copy import capabilities_for
 from apps.api.tenancy.business_profile import BUSINESS_LANGUAGE_SQL
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, workspace_for_tenant
-from apps.workers import call_language, call_timeline, step_progress, storage
+from apps.workers import call_language, call_timeline, step_progress, step_truth, storage
 from apps.workers import extraction as extraction_module
 from apps.workers.after_call_callbacks import book_requested_callback, callback_number
 from apps.workers.caller_evidence import brief_texts, without_borrowed
@@ -1431,26 +1431,41 @@ async def _post_call_stages(
         raise
 
 
-async def _step_progress_stage(
+async def _step_facts(
     tenant_id: UUID,
     call_id: UUID,
     snapshot: ExecutionSnapshot,
     spec: ExtractionSchemaSpec,
-    extraction: ExtractionOutput | None,
-) -> ExtractionOutput | None:
-    """STEP 3a (`workers/step_progress`). A progress-type detail takes the choice of the
-    furthest step the transcript shows reached, over the extraction's own guess; with no
-    reading (no script of steps, Pip off, the model unavailable) the extraction stands.
+    business_outcomes: Sequence[BusinessOutcome],
+) -> step_truth.StepFacts | None:
+    """STEP 3a: where the call got to against its script's steps, BEFORE the extraction, so
+    the extraction is asked against it and settled by it before the notes, the summary, the
+    lead and the CRM see anything (`workers/step_truth`). None for a call on no script of
+    steps or with no words.
+
+    The judge (`workers/step_progress`) adds its reading when the owner has turned Pip on;
+    without it, or when it is unavailable, the transcript's own bound still holds.
 
     A database error propagates for the retry ladder (the reading is stored once and
-    reused). Any other failure is a defect or an unavailable model and must not cost the
-    call its lead: logged with the call id and the exception's class only (hard rule 6)."""
+    reused). Any other judge failure is a defect or an unavailable model and must not cost
+    the call its lead: logged with the call id and the exception's class only (hard rule 6)."""
     if not snapshot.transcript:
-        return extraction
+        return None
+    async with tenant_session(tenant_id) as session:
+        script = await holder_script(session, call_id)
+    if script is None:
+        return None
+    goal = await _campaign_goal(tenant_id, call_id)
+    progress: StepProgress | None = None
     try:
         with span("pipeline.step_progress", call_id=str(call_id)) as stage:
             progress = await step_progress.judge_call_steps(
-                tenant_id, call_id, snapshot.transcript, spec
+                tenant_id,
+                call_id,
+                snapshot.transcript,
+                spec,
+                goal=goal,
+                outcomes=business_outcomes,
             )
             set_span_attributes(
                 stage, judged=progress is not None, furthest=(progress and progress.furthest) or 0
@@ -1462,22 +1477,7 @@ async def _step_progress_stage(
             "pipeline_step_progress_failed",
             extra={"call_id": str(call_id), "error": type(exc).__name__},
         )
-        return extraction
-    if progress is None or extraction is None:
-        return extraction
-    changed = {
-        key: value
-        for key, value in progress_values(progress).items()
-        if extraction.data.get(key) != value
-    }
-    if not changed:
-        return extraction
-    await step_progress.apply_to_notes(tenant_id, call_id, changed)
-    log.info(
-        "pipeline_progress_detail_from_steps",
-        extra={"call_id": str(call_id), "fields": sorted(changed)},
-    )
-    return extraction.model_copy(update={"data": {**extraction.data, **changed}})
+    return step_truth.facts_of(script, progress, snapshot.transcript)
 
 
 async def _owner_insights_stage(
@@ -1782,6 +1782,9 @@ async def _run_post_call_stages(
         set_span_attributes(stage, recording_notice_filed=filed)
 
     business_outcomes = await _agent_business_outcomes(tenant_id, agent_id)
+    # STEP 3a — where the call got to against its script's steps, before the extraction
+    # that must agree with it.
+    facts = await _step_facts(tenant_id, call_id, snapshot, spec, business_outcomes)
     extraction = await _extract_stage(
         tenant_id,
         call_id,
@@ -1792,18 +1795,15 @@ async def _run_post_call_stages(
         opt_out_signal=opt_out_signal,
         business_outcomes=business_outcomes,
         direction=direction,
+        facts=facts,
     )
-    # STEP 3a — where the call got to against its script's step outcomes, and the
-    # progress-type details that reading decides. After extraction, before the reading, the
-    # lead and the CRM fan-out, so all of them see the value the evidence supports.
-    extraction = await _step_progress_stage(tenant_id, call_id, snapshot, spec, extraction)
 
     # STEP 3d — what the call came to, in words: the summaries as the engine and the model
     # wrote them, the headline and the next step (founder decisions 4, 5, 12). After
     # extraction because the model's summary is one input; the engine's own summary is the
     # other. What is missing in the other language is STEP 10's job (D-931).
     with span("pipeline.call_reading", call_id=str(call_id)) as stage:
-        reading = await _record_reading(tenant_id, call_id, snapshot, extraction)
+        reading = await _record_reading(tenant_id, call_id, snapshot, extraction, facts=facts)
         set_span_attributes(
             stage, summary_state=reading.state, translation_state=reading.translation_state
         )
@@ -2034,6 +2034,7 @@ async def _extract_stage(
     direction: str | None = None,
     reasoning_off: bool = False,
     reuse: bool = True,
+    facts: step_truth.StepFacts | None = None,
 ) -> ExtractionOutput | None:
     """STEP 3 and 3b: read the call against the agent's schema, mark its key moments and
     store both. Shared by the post-call pipeline and the failed-extraction re-read
@@ -2041,7 +2042,9 @@ async def _extract_stage(
     same way, and never a second copy of it. `reasoning_off` is the re-read of a truncated
     reading: Sarvam is asked with reasoning off from the first request. `reuse=False` reads
     the call even when a stored reading would be reused: the operator's re-read of readings
-    that stored nothing (`scripts/reread_extractions`)."""
+    that stored nothing (`scripts/reread_extractions`). `facts` is where the call got to
+    (`_step_facts`): the reading is asked against it and settled by it before it is stored,
+    a reused reading included."""
     schema_version = spec.version
     # `snapshot.transcript`, NOT `transcript_text`: the two agreed until
     # `extractor_transcript` started dropping wordless turns, and this one has to keep agreeing with
@@ -2073,6 +2076,9 @@ async def _extract_stage(
         # say whether a model or the offline baseline produced it (first-call review F-4).
         # None on a reuse: the stored name stands.
         extraction_model: str | None = None
+        # A campaign's goal is judged in the same request (no second model call) and settles
+        # the verdict against the steps below.
+        goal = await _campaign_goal(tenant_id, call_id) if needs_extraction else None
         if needs_extraction and extraction is None:
             # Through the module, so a test that substitutes `extraction.get_extractor`
             # substitutes the pass that is metered too.
@@ -2082,8 +2088,6 @@ async def _extract_stage(
             # Key moments ride in the SAME request (founder, 11 Oct 2026): no second model
             # call, only the extra output tokens, metered below with the rest.
             brief = await load_moments_brief(tenant_id, agent_id)
-            # A campaign's goal is judged in the same request: no second model call.
-            goal = await _campaign_goal(tenant_id, call_id)
             extraction = await extract_call(
                 spec,
                 transcript_text,
@@ -2098,6 +2102,7 @@ async def _extract_stage(
                     called_at=snapshot.started_at,
                     agent_name=await _agent_name(tenant_id, agent_id),
                     direction=direction,
+                    steps=step_truth.prompt_note(facts) if facts is not None else None,
                 ),
             )
             extraction = reconcile_goal(extraction, goal=goal, outcomes=business_outcomes)
@@ -2132,6 +2137,17 @@ async def _extract_stage(
             extract_reused=reused,
         )
 
+    if extraction is not None and facts is not None:
+        # Before the moments and the persist, so nothing stored or shown claims a step the
+        # call did not reach (`workers/step_truth`).
+        settled, changed = step_truth.settle(
+            extraction, facts, spec, goal=goal, outcomes=business_outcomes
+        )
+        if changed:
+            extraction = reconcile_goal(settled, goal=goal, outcomes=business_outcomes)
+            log.info(
+                "extraction_settled_by_steps", extra={"call_id": str(call_id), "fields": changed}
+            )
     if extraction is not None:
         # Before the moments and the persist, so a rejected name is neither a "Name
         # captured" marker on the call nor a lead's name (`caller_name`).
@@ -3144,6 +3160,7 @@ def _settle_summaries(
     stored_local: str,
     language: str,
     caller_said: str = "",
+    facts: step_truth.StepFacts | None = None,
 ) -> tuple[str, str, str | None, str]:
     """`(english, local, source, romanised)` before any translation.
 
@@ -3172,16 +3189,31 @@ def _settle_summaries(
     check changes the English and the call-language summary beside it is the engine's own,
     which no check of ours can read, that one is not kept: the language pass writes it again
     from the cleaned English, so the claim cannot survive in the other language.
+
+    The same again for a summary that says a step of the script happened which the call
+    did not reach (`facts`, `workers/step_truth`; 25 Nov 2026: "recorded an expense" on a
+    call that ended as the agent asked for one): ours, settled against the steps before it
+    got here, takes the engine's place; whatever English is kept has the false clause taken
+    out.
     """
     english, local, source = "", stored_local, None
     romanised: tuple[str, str] | None = None
+
+    def overstates(summary: str) -> bool:
+        return facts is not None and step_truth.claims_unreached(summary, facts)
+
     neutral_model = (
         bool(model_summary)
         and not call_language.reads_as_romanised(model_summary)
         and not genders_a_person(model_summary)
         and not asserts_feeling(model_summary)
+        and not overstates(model_summary)
     )
-    engine_guesses = genders_a_person(engine_summary) or asserts_feeling(engine_summary)
+    engine_guesses = (
+        genders_a_person(engine_summary)
+        or asserts_feeling(engine_summary)
+        or overstates(engine_summary)
+    )
     if engine_summary and call_language.has_indic_script(engine_summary):
         local = engine_summary
     elif engine_summary and call_language.reads_as_romanised(engine_summary):
@@ -3194,6 +3226,8 @@ def _settle_summaries(
         elif romanised is None:
             romanised = (model_summary, "extraction")
     cleaned = without_feelings(english, said=caller_said)
+    if facts is not None:
+        cleaned = step_truth.without_unreached(cleaned, facts)
     if cleaned != english:
         english = cleaned
         if local and local == engine_summary:
@@ -3233,8 +3267,11 @@ async def _record_reading(
     call_id: UUID,
     snapshot: ExecutionSnapshot,
     extraction: ExtractionOutput | None,
+    *,
+    facts: step_truth.StepFacts | None = None,
 ) -> _Reading:
     """STEP 3d: the summaries as the call already has them, the headline and the next step.
+    `facts` is where the call got to: no summary kept may say an unreached step happened.
 
     No model round trip (D-931): what the engine and the extraction wrote is stored as it
     is, and what is missing in the other language is owed to the language pass, which
@@ -3282,6 +3319,7 @@ async def _record_reading(
         caller_said=call_language.caller_english(
             [(str(t[3]), str(t[1]), t[2]) for t in turns], language=language
         ),
+        facts=facts,
     )
 
     stored_english = str(row[3] or "")

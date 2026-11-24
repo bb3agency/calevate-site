@@ -13,7 +13,12 @@ it; the code checks the line is the caller's and the quote is in it word for wor
 that fails is stored as `unclear`. A `moved_on_turn` must name an agent line. The model also
 maps the choices of each detail the call notes onto the steps, where the choices follow them;
 the mapping is a property of the script and the details, and which choice is noted is then
-decided by the furthest step the evidence shows (`crm/step_progress.progress_values`).
+decided by the furthest step the evidence shows (`crm/step_progress.progress_values`). The
+campaign goal and the agent's business outcomes are mapped onto steps the same way, for the
+goal verdict and the outcome tag (`workers/step_truth`).
+
+The reading is taken BEFORE the extraction, so the extraction is asked against it and
+settled by it before anything is stored (`pipeline._step_facts`).
 
 Idempotent per call: a stored reading is reused, so a re-driven pipeline never pays twice.
 Metered at our cost (`ASSIST_FEATURE_STEP_PROGRESS`, absorbed like the language pass).
@@ -21,16 +26,15 @@ Metered at our cost (`ASSIST_FEATURE_STEP_PROGRESS`, absorbed like the language 
 
 from __future__ import annotations
 
-import json
 from collections import defaultdict
 from collections.abc import Sequence
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.business_outcomes import BusinessOutcome
 from calevate_shared.call_script import CallScript, ConversationStage, stage_steps
 from calevate_shared.events import TranscriptTurn
 from calevate_shared.extraction import ExtractionSchemaSpec
-from sqlalchemy import text
 
 from apps.api.agents.assist_leg import google_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref
@@ -73,7 +77,11 @@ ASK: Final = (
     "not apply. Under fields, for each detail under DETAILS whose choices follow the steps of "
     "the call (a status or how far they got), map each choice to the step whose outcome it "
     "means, leaving out a choice that means no step; leave out a detail whose choices do not "
-    "follow the steps."
+    "follow the steps. A yes-or-no detail (choices true) that means one step's outcome was "
+    "reached, such as the goal being met or the set-up being done, maps true to that step. "
+    "goal_step: the step whose outcome means the GOAL is met, else -1. Under outcomes, map "
+    "each outcome under OUTCOMES that means a step's outcome was reached to that step; leave "
+    "out an outcome that means no step."
 )
 
 _FORMAT: Final[dict[str, object]] = {
@@ -122,8 +130,18 @@ _FORMAT: Final[dict[str, object]] = {
                         "additionalProperties": False,
                     },
                 },
+                "goal_step": {"type": "integer"},
+                "outcomes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"key": {"type": "string"}, "step": {"type": "integer"}},
+                        "required": ["key", "step"],
+                        "additionalProperties": False,
+                    },
+                },
             },
-            "required": ["steps", "fields"],
+            "required": ["steps", "fields", "goal_step", "outcomes"],
             "additionalProperties": False,
         },
     },
@@ -152,7 +170,12 @@ def redacted_lines(turns: Sequence[TranscriptTurn]) -> dict[int, tuple[str, str]
 
 
 def request_text(
-    script: CallScript, lines: dict[int, tuple[str, str]], spec: ExtractionSchemaSpec
+    script: CallScript,
+    lines: dict[int, tuple[str, str]],
+    spec: ExtractionSchemaSpec,
+    *,
+    goal: str | None = None,
+    outcomes: Sequence[BusinessOutcome] = (),
 ) -> str:
     said = {o.step: o.outcome for o in script.step_outcomes}
     steps = []
@@ -161,10 +184,13 @@ def request_text(
         aim = said.get(n) or " ".join(s.instruction for s in stages)
         steps.append(redact(f"Step {n} ({names}): {aim}").text)
     details = [
-        f"{f.key} ({redact(f.label).text}): {'; '.join(f.enum_values or [])}"
+        f"{f.key} ({redact(f.label).text}): "
+        + ("true" if f.type == "bool" else "; ".join(f.enum_values or []))
         for f in spec.fields
-        if f.type == "enum" and f.enum_values
+        if (f.type == "enum" and f.enum_values) or f.type == "bool"
     ]
+    ends = [redact(f"{o.key}: {o.label}. {o.meaning}".strip()).text for o in outcomes]
+    goal_text = redact(" ".join((goal or script.goal or "").split())).text
     transcript = "\n".join(
         f"[{idx}] {'Person' if speaker == 'caller' else 'Agent'}: {words}"
         for idx, (speaker, words) in sorted(lines.items())
@@ -173,6 +199,8 @@ def request_text(
         [
             "STEPS\n" + "\n".join(steps),
             "DETAILS\n" + ("\n".join(details) if details else "None."),
+            "GOAL\n" + (goal_text or "None."),
+            "OUTCOMES\n" + ("\n".join(ends) if ends else "None."),
             "TRANSCRIPT\n" + transcript,
         ]
     )
@@ -184,10 +212,12 @@ def checked(
     names: dict[int, str],
     lines: dict[int, tuple[str, str]],
     spec: ExtractionSchemaSpec,
+    outcomes: Sequence[BusinessOutcome] = (),
 ) -> StepProgress:
     """What the code can stand behind: a `reached` whose caller line and quote check out, a
     `moved_on_turn` that is an agent line, every step present (`unclear` when not judged),
-    and a detail's choices mapped onto at least two different steps."""
+    a detail's choices mapped onto steps (`_fields`), and a goal step and outcome keys that
+    name real steps and real outcomes."""
     last = max(names) if names else 0
     found: dict[int, StepReading] = {}
     rows = raw.get("steps")
@@ -217,41 +247,74 @@ def checked(
             )
         found[step] = reading
     steps = tuple(found.get(n, StepReading(n, name, "unclear")) for n, name in names.items())
-    return StepProgress(steps=steps, fields=_fields(raw, names, spec))
+    goal_step = raw.get("goal_step")
+    return StepProgress(
+        steps=steps,
+        fields=_fields(raw, names, spec),
+        goal_step=goal_step if isinstance(goal_step, int) and goal_step in names else None,
+        outcomes=_outcomes(raw, names, outcomes),
+    )
 
 
 def _fields(
     raw: dict[str, Any], names: dict[int, str], spec: ExtractionSchemaSpec
 ) -> dict[str, dict[str, int]]:
-    enums = {
+    """A choice detail's choices mapped onto at least two different steps (one step is not
+    progress), and a true/false detail's "true" mapped onto one step."""
+    choices = {
         f.key: {v.casefold(): v for v in f.enum_values or []}
         for f in spec.fields
         if f.type == "enum" and f.enum_values
     }
+    choices.update({f.key: {"true": "true"} for f in spec.fields if f.type == "bool"})
+    yes_no = {f.key for f in spec.fields if f.type == "bool"}
     out: dict[str, dict[str, int]] = {}
     rows = raw.get("fields")
     for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict) or row.get("key") not in enums:
+        if not isinstance(row, dict) or row.get("key") not in choices:
             continue
         key = str(row["key"])
         mapping: dict[str, int] = {}
         for item in row.get("choices") or []:
             if not isinstance(item, dict):
                 continue
-            choice = enums[key].get(str(item.get("choice", "")).strip().casefold())
+            choice = choices[key].get(str(item.get("choice", "")).strip().casefold())
             step = item.get("step")
             if choice is not None and isinstance(step, int) and step in names:
                 mapping.setdefault(choice, step)
-        if len(set(mapping.values())) >= 2:
+        if len(set(mapping.values())) >= (1 if key in yes_no else 2):
             out[key] = mapping
     return out
 
 
+def _outcomes(
+    raw: dict[str, Any], names: dict[int, str], outcomes: Sequence[BusinessOutcome]
+) -> dict[str, int]:
+    keys = {o.key for o in outcomes}
+    out: dict[str, int] = {}
+    rows = raw.get("outcomes")
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        key, step = row.get("key"), row.get("step")
+        if key in keys and isinstance(step, int) and step in names:
+            out.setdefault(str(key), step)
+    return out
+
+
 async def judge_call_steps(
-    tenant_id: UUID, call_id: UUID, turns: Sequence[TranscriptTurn], spec: ExtractionSchemaSpec
+    tenant_id: UUID,
+    call_id: UUID,
+    turns: Sequence[TranscriptTurn],
+    spec: ExtractionSchemaSpec,
+    *,
+    goal: str | None = None,
+    outcomes: Sequence[BusinessOutcome] = (),
 ) -> StepProgress | None:
     """The call's stored reading, else a new one stored now; None for a call with no script
-    of steps, no words, or an account whose owner has not turned Pip on."""
+    of steps, no words, or an account whose owner has not turned Pip on. `goal` is the
+    campaign's goal (the script's own when None) and `outcomes` the agent's business
+    outcomes, each mapped onto the step it means."""
     async with tenant_session(tenant_id) as session:
         known = await stored_progress(session, call_id)
         if known is not None:
@@ -270,11 +333,11 @@ async def judge_call_steps(
     def parse(raw: dict[str, Any]) -> StepProgress | None:
         if not isinstance(raw.get("steps"), list):
             return None
-        return checked(raw, names=names, lines=lines, spec=spec)
+        return checked(raw, names=names, lines=lines, spec=spec, outcomes=outcomes)
 
     try:
         answer: JsonAnswer[StepProgress] = await ask_json(
-            request_text(script, lines, spec),
+            request_text(script, lines, spec, goal=goal, outcomes=outcomes),
             ASK,
             parse=parse,
             azure_format=_FORMAT,
@@ -318,24 +381,8 @@ async def judge_call_steps(
     return answer.value
 
 
-async def apply_to_notes(tenant_id: UUID, call_id: UUID, values: dict[str, str]) -> None:
-    """Write the progress-type details the reading decides onto the call's newest reading,
-    so the call page, the lead and the CRM read the same value."""
-    if not values:
-        return
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "UPDATE call_extractions "
-                "SET data = COALESCE(data, '{}'::jsonb) || CAST(:v AS jsonb) WHERE call_id = :c"
-            ),
-            {"v": json.dumps(values), "c": call_id},
-        )
-
-
 __all__ = [
     "ASK",
-    "apply_to_notes",
     "checked",
     "judge_call_steps",
     "redacted_lines",
