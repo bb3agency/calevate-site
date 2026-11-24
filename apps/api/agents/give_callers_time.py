@@ -39,8 +39,9 @@ agent's own calls or a value the owner chose, and it follows the script as it ch
 owner may switch it off or on for that holder (`campaigns.give_callers_time`,
 `inbound_lines.give_callers_time`); that choice is kept and the script no longer decides.
 It is per holder rather than the agent's `caller_has_screen` because one agent's campaigns
-can differ (one guides an install, another only books) and the screen switch also changes
-the agent's prompt on every holder.
+can differ (one guides an install, another only books). The holder's screen frame follows
+its script the same way (`holder_has_screen`), so "Can you see it?" is asked on a holder
+whose script guides the caller's phone and nowhere else.
 """
 
 from __future__ import annotations
@@ -269,24 +270,48 @@ def holder_gives_time(owner_choice: bool | None, script: CallScript | None) -> b
     return script is not None and asks_caller_to_act(script)
 
 
-def holder_row(row: dict[str, Any], *, on: bool) -> dict[str, Any]:
-    """A holder's agent row as `_to_config` builds its engine agent, with the preset marked
-    for the call settings and the longest call raised where the agent has none of its own.
-    Pure: the agent's stored values are never written."""
-    if not on:
-        return row
-    held = {**row, HOLDER_ROW_KEY: True}
+def holder_has_screen(script: CallScript | None, *, agent_switch: bool) -> bool:
+    """Does a holder's caller follow along on their phone (the screen frame, D-906)? Read from
+    the holder's own script (founder, 25 Nov 2026), because one agent's campaigns and lines
+    differ: one guides an install, another only books. A raw script is not read
+    (`asks_caller_to_act`) and a holder with no script speaks its agent's prompt, so those two
+    keep the agent's switch, the one control their owner has."""
+    if script is None or script.raw_override is not None:
+        return agent_switch
+    return asks_caller_to_act(script)
+
+
+def holder_row(
+    row: dict[str, Any], *, owner_choice: bool | None, script: CallScript | None
+) -> dict[str, Any]:
+    """A holder's agent row as `_to_config` builds its engine agent: the screen frame its
+    script calls for in place of the agent's switch, and, where the holder carries the preset
+    (`holder_gives_time`), the preset marked for the call settings and the longest call raised
+    where the agent has none of its own. Pure: the agent's stored values are never written."""
+    held = {
+        **row,
+        "caller_has_screen": holder_has_screen(
+            script, agent_switch=bool(row.get("caller_has_screen", False))
+        ),
+    }
+    if not holder_gives_time(owner_choice, script):
+        return held
+    held[HOLDER_ROW_KEY] = True
     if held.get("max_call_duration_s") is None and preset_call_cap_s() > effective_call_cap(None):
         held["max_call_duration_s"] = preset_call_cap_s()
     return held
 
 
-def over_platform_level(resolved: ResolvedSettings, language: str) -> CallSettings:
+def over_platform_level(
+    resolved: ResolvedSettings, language: str, *, caller_has_screen: bool
+) -> CallSettings:
     """The settings in force with the preset laid over each one still at Calevate's level:
-    a value the agent or the account chose is kept, as `apply_where_default` keeps it."""
+    a value the agent or the account chose is kept, as `apply_where_default` keeps it. "Can
+    you see it?" only where the caller is on a screen; otherwise the question stays the one
+    every other call asks."""
     changes = {
         field: value
-        for field, value in preset_changes(language, caller_has_screen=True).items()
+        for field, value in preset_changes(language, caller_has_screen=caller_has_screen).items()
         if resolved.sources[field] == "platform"
     }
     return call_handling.settings_of({**call_handling.as_mapping(resolved.values), **changes})
@@ -376,6 +401,7 @@ __all__ = [
     "apply_give_callers_time",
     "apply_where_default",
     "holder_gives_time",
+    "holder_has_screen",
     "holder_row",
     "is_applied",
     "nudge_phrase_for",

@@ -84,7 +84,6 @@ from apps.api.copilot.actions import (
 from apps.api.copilot.actions import (
     principal_of as _principal_of,
 )
-from apps.api.copilot.agent_setup_actions import screen_guide_hint
 from apps.api.copilot.campaign_actions import (
     BRIEF_SCHEMA,
     brief_line,
@@ -1171,10 +1170,9 @@ async def _execute_campaign_create(
         purpose=brief_line(parsed.purpose, goal=False),
         goal=brief_line(parsed.goal, goal=True),
     )
-    hint = await screen_guide_hint(session, parsed.agent_id, parsed.name)
     return Executed(
         applied=True,
-        detail=f"“{parsed.name}” exists as a draft. Add contacts to it, then launch it.{hint}",
+        detail=f"“{parsed.name}” exists as a draft. Add contacts to it, then launch it.",
         audit_summary={"campaign_id": str(campaign_id), "classification": parsed.classification},
         object_id=str(campaign_id),
     )

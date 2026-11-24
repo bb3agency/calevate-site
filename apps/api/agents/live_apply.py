@@ -359,6 +359,9 @@ def platform_prompt_revision() -> str:
 
     preset = gct.preset_changes("", caller_has_screen=False)
     parts.append(f"holder_give_callers_time:{json.dumps(preset, sort_keys=True)}:{gct.CALL_CAP_S}")
+    # A holder's screen frame and its "Can you see it?" follow its own script (D-1045), which
+    # reaches a live holder's engine agent only by a publish.
+    parts.append("holder_screen_frame:script")
     # Which agents a platform run converges: widening it (ready agents, D-876) walks the fleet
     # once more, so agents a narrower walk skipped are brought onto this build's text.
     from apps.api.agents.models import PUBLISHED_STATUSES
