@@ -295,6 +295,10 @@ def test_an_inbound_lines_engine_agent_that_places_calls_fits_the_same_margins()
 #: The same call's 12:15 review left both where they were (7,795/6,956): a step's turn ends on
 #: an invitation to say when it is done, never "done?", paid for by "Steps?" and "Hesitant
 #: or"; the guided call's step-list lead pays for its own and the rest.
+#: The founder's test call of 25 Nov 2026 (01:37) CUT both by 3 (7,793/6,954): an unclear reply
+#: is never counted done and each step's invitation is in new words, paid for by dropping
+#: '"OK" after one: the next', "a question" for "your question" and one bullet joined to
+#: another.
 PER_CALL_MAX = 7_833
 PER_CALL_ONE_LANGUAGE_MAX = 6_958
 

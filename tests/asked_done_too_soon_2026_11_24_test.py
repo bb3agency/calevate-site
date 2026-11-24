@@ -242,7 +242,7 @@ async def test_the_repair_pass_rewrites_the_line_into_an_invitation(
 
 
 def test_every_agent_is_told_to_invite_rather_than_ask_if_done() -> None:
-    assert 'inviting them to say when done; never "done?"' in VOICE_STYLE_GUIDANCE
+    assert 'inviting them in new words to say when done; never "done?"' in VOICE_STYLE_GUIDANCE
     assert "invite them to say when done, wait." in PROCEDURE_LEAD
     cfg = AgentConfig(
         tenant_id="t",

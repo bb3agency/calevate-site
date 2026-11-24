@@ -332,6 +332,8 @@ OPENING_LINE_RULE: Final = (
 #: - After the opening, the purpose's order: situation asked, steps, done checked, the one
 #:   next step. On the Varsha call of 21 Nov 2026 the first step said "you gave your name in
 #:   the app" before any reason (docs/evidence/script-generation-2026-11-21/FLOW.md §2.5).
+#:   The check asks what they see, as the in-call rules do ("To check, ask what they see"): on
+#:   the call of 23 Nov 2026 a check was closed with "everything is right, isn't it?".
 SCRIPT_FLOW_RULE: Final = (
     "Every detail to collect is asked in a stage, named in the instruction and the collect "
     "list of the stage where the call reaches it, one question a turn, so none is left over "
@@ -352,7 +354,8 @@ SCRIPT_FLOW_RULE: Final = (
     "now is a good time, so no stage does any of that again: the first stage starts from "
     "their yes, and its sounds_like neither greets nor asks again whether they can talk. "
     "Then the stages follow the purpose: ask, never state, what the call needs to know "
-    "about the person's situation; the steps one at a time; check it is done; the last "
+    "about the person's situation; the steps one at a time; check it is done by asking what "
+    "they see; the last "
     "stage closes on the one next step. No two stages' sounds_like open with the same "
     "words, and no spoken line opens "
     "with a reaction (OK, good, very good, understood, happy) before its point; each opens "

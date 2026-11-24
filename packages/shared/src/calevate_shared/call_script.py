@@ -40,7 +40,7 @@ the same reason `compose_engine_prompt` lives beside it rather than in `apps/api
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Final, Literal
 
@@ -124,6 +124,11 @@ def substitute_variables(
         return match.group(0) if keep_unresolved else ""
 
     return _VARIABLE_PATTERN.sub(_replace, text)
+
+
+def mark_variables(text: str, mark: Callable[[str], str]) -> str:
+    """`text` with each `{{ name }}` replaced by `mark(name)`."""
+    return _VARIABLE_PATTERN.sub(lambda match: mark(match.group(1)), text)
 
 
 #: A name field with the one word after it (its title, if the language puts one after a name)
@@ -1027,9 +1032,13 @@ PROCEDURE_HEADER: Final = "[STEP BY STEP]"
 #: the Telugu campaign call of 24 Nov 2026 (12:15) six steps were said as "do X. Is X done?" in
 #: one turn, so the person had no time to do X. The step's turn ends on an invitation to say
 #: when it is done (HOW TO SPEAK's "Steps?" bullet, which carries the guides cited there).
+#: A reply that does not show it is answered by asking what they see, never by the step's line
+#: again or "is it done?": on the founder's test call of 25 Nov 2026 (01:37) a garbled reply
+#: got the whole step line back word for word, and a side question was followed by "have you
+#: installed it?".
 PROCEDURE_LEAD: Final = (
-    "Say one, invite them to say when done, wait. Give the next only once what they say "
-    "meets its Wait for, or says done; else ask, never assume. Stuck? Help."
+    "Say one, invite them to say when done, wait. Next only once their words meet its Wait "
+    "for or say done; else ask what they see, never assume. Stuck? Help."
 )
 ADHERENCE_SENTENCES: Final[dict[str, str]] = {
     "flexible": "Sections in order as a guide. Follow the caller if they jump ahead; do not "
@@ -1349,9 +1358,11 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
     # from it is written here.
     if style.code_mix != "natural":
         style_lines.append(CODE_MIX_SENTENCES[style.code_mix])
+    # Capped as the register caps its fillers (`spoken_style.FILLERS_LEAD`): "not every turn"
+    # let a phrase open every other reply against HOW TO SPEAK's "never ... twice a call".
     if style.sample_phrases:
         phrases = " / ".join(_quote(p) for p in style.sample_phrases)
-        style_lines.append(f"Phrases you can use, not every turn: {phrases}")
+        style_lines.append(f"Phrases you can use, once a call each: {phrases}")
     if style.pronunciations:
         said = "; ".join(f"{p.word.strip()} as {_quote(p.say_as)}" for p in style.pronunciations)
         style_lines.append(f"{PRONOUNCE_LEAD}{said}")
@@ -1697,6 +1708,7 @@ __all__ = [
     "compile_call_script",
     "extract_variable_names",
     "fill_spoken_line",
+    "mark_variables",
     "native_steps",
     "opening_line_of",
     "outbound_opening_of",

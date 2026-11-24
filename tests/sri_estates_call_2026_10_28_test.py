@@ -98,7 +98,7 @@ def test_the_prompt_carries_each_fix_and_keeps_the_locked_text() -> None:
         # F2: no options for a count, not even as examples after an open question.
         "never for counts or amounts, not even as examples.",
         # F3: an answer that fits no option is asked again.
-        "Ask what they meant, reworded; never guess or pick for them.",
+        "Ask what they meant, reworded; never guess, pick for them or count it done.",
         # F4: no promise to slow down.
         "Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter",
         # F5: one line for the close.

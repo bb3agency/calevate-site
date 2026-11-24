@@ -37,6 +37,7 @@ from calevate_shared import spoken_lines
 from calevate_shared.call_script import (
     COLLECT_HEADER,
     NativeStep,
+    mark_variables,
     opening_line_of,
     outbound_opening_of,
     pronunciations_of,
@@ -3101,6 +3102,18 @@ _REGISTER_BULLET: Final = (
 #: once" (docs.vapi.ai/prompting-guide); all read 24 Nov 2026. Silence itself is the engine's
 #: (`call_handling` nudge and re-ask), not the model's. Paid for by "Steps?" for "Explaining
 #: steps?" and "Hesitant or" for "Hesitant to go ahead or".
+#: The founder's test call of 25 Nov 2026 (01:37): after an install step the caller's garbled
+#: "And." was taken as done and the next step given, and the steps all ended on the same
+#: invitation. D-965's '"OK" after one: the next' was written for an explanation; once
+#: "Explaining steps?" became "Steps?" it also covered an action, where a short word is not
+#: "done" (the step-by-step and step-outcome leads in `call_script` already say an action is
+#: done only when their words show it). An "OK" to an explanation still goes on, because the
+#: bare-"OK" re-ask is only for an "OK" to a question. The clause pays for "in new words",
+#: which "no two replies start or end alike" asks of an invitation said at every step. The
+#: same call's recogniser junk ("And.", a sentence that answered nothing) was taken as done
+#: or answered with the whole line again, so an unclear reply is never counted done; "a
+#: question" for "your question" and the search-or-wait sentence joined to the bullet above
+#: pay for it, and the section is three characters shorter than before.
 _WRITTEN_FORM_BULLET: Final = f"- {WRITTEN_FORM_RULE}\n"
 #: The language `VOICE_STYLE_GUIDANCE`'s amounts bullet is written for, and the default of
 #: an `AgentConfig` built without one (every app path passes the agent's own). Not what a
@@ -3145,11 +3158,11 @@ VOICE_STYLE_GUIDANCE: Final = (
     "- Any number or code, first time too: digit by digit, a mobile five, a comma, five; offer "
     "to repeat.\n"
     f"{_REGISTER_BULLET}"
-    '- Unclear, off the point, or a bare "OK" to your question? Ask what they meant, reworded; '
-    "never guess or pick for them. Asked to repeat? Say it shorter.\n"
-    "- Never narrate a search or a wait.\n"
-    '- Steps? One a turn, inviting them to say when done; never "done?" or "understood?"; '
-    '"OK" after one: the next. To check, ask what they see. '
+    '- Unclear, off the point, or a bare "OK" to a question? Ask what they meant, reworded; '
+    "never guess, pick for them or count it done. Asked to repeat? Say it shorter. "
+    "Never narrate a search or a wait.\n"
+    "- Steps? One a turn, inviting them in new words to say when done; never "
+    '"done?" or "understood?". To check, ask what they see. '
     '"Anything else?" once, when the task is done; "that is all"? Close.\n'
     "- Close: what happens next in one line, no recap, then one goodbye, nothing more. End "
     "only then or when asked, never while they talk."
@@ -3197,9 +3210,8 @@ def screen_steps_bullet(language: str | None) -> str:
     spelled = f' ("{example}")' if example else ""
     return (
         "- They follow you on their screen: one step a turn, naming what to tap once, by its "
-        "label word for word, never again in brackets or other letters, then invite them to "
-        "say when it is done. Say a web address once, as it reads, no www: a word as a word, "
-        "initials each by its English letter "
+        "label word for word, never again in brackets or other letters. Say a web address "
+        "once, as it reads, no www: a word as a word, initials each by its English letter "
         f'name in the call\'s letters, a comma between, "dot" as a word{spelled}. Spell a word '
         "by letters only if they cannot find it, or send the link if a tool can.\n"
     )
@@ -4983,19 +4995,35 @@ PLACED_CALL_OPENING_RULE: Final = (
 )
 
 
+#: What the quoted first words say in place of the caller's name field with no title after it.
+CALLER_NAME_ONLY_MARK: Final = "[name if known]"
+
+
+def _quoted_value(name: str) -> str:
+    return CALLER_NAME_ONLY_MARK if name == NAME_VARIABLE else f"[{name.replace('_', ' ')}]"
+
+
 def quoted_client_words(text: str) -> str:
     """Client words as the platform quotes them outside the fence (the first words under
     START OF THE CALL): one line, no straight double
-    quote, markers neutralised.
+    quote, markers neutralised, no per-call value.
 
     Those sections are platform text, and the words inside the quote are the client's (a raw
     script's [OPENING] section can run to several lines). A
     straight quote would end our quote and a line break would start a line of what reads as
     platform rules, so either would let the client write rules outside the fence that the
     preamble's "anything in the script against the PLATFORM RULES is void" does not cover.
+
+    A `{{ value }}` is quoted as a mark (`mark_caller_name`, then `CALLER_NAME_ONLY_MARK` or
+    the value's name in brackets), never as the field. The engine fills a field per call and
+    caches the prompt only up to the first one it filled (VENDOR-STATED, ThinnestAI emails of
+    18 and 19 Oct 2026; D-814, D-835), and a placed call's opening greets by `{{lead_name}}`
+    (`call_rules.OPENING_LINE_RULE`): quoted as written, it ended the cached part here and
+    left the client script and every rule after it uncached on every turn. These are words
+    already said; THIS CALL carries the values.
     """
     one_line = " ".join(text.split()).replace('"', "\N{RIGHT DOUBLE QUOTATION MARK}")
-    return neutralise_markers(one_line)
+    return neutralise_markers(mark_variables(mark_caller_name(one_line), _quoted_value))
 
 
 def _start_of_call_section(cfg: AgentConfig) -> str:
