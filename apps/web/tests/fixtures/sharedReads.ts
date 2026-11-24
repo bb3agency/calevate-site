@@ -12,7 +12,7 @@ import type { ClientLlmDefaults } from "@/lib/api/llmModels";
 import type { ClientMaintenance } from "@/lib/api/maintenance";
 import type { HostedVoices } from "@/lib/api/opsHostedVoices";
 import type { OwnNumbersStatus } from "@/lib/api/ownNumbers";
-import type { PromptLayers } from "@/lib/api/prompts";
+import type { PromptHolder, PromptLayers } from "@/lib/api/prompts";
 import type { Lanes } from "@/lib/api/publishing";
 import type { WalletLots } from "@/app/c/[slug]/billing/lots";
 import type { PlatformFee } from "@/lib/api/platformFee";
@@ -308,11 +308,12 @@ export function agentReplyLength(agentId = "agent-1") {
 }
 
 /**
- * What one agent is told (D-882): a platform layer, the client's script and the truthful
- * answers, with the engine's copy last found in step.
+ * What one campaign holding an engine agent is told and sent (D-882): a platform layer, the
+ * client's script and the truthful answers, the rest of what a publish sends, live matching
+ * the last publish and the engine's copy last found in step.
  */
-export function agentPromptLayers(agentId = "agent-1"): PromptLayers {
-  const layers: PromptLayers["layers"] = [
+export function promptHolder(over: Partial<PromptHolder> = {}): PromptHolder {
+  const layers: PromptHolder["layers"] = [
     {
       key: "preamble",
       title: "Calevate's opening rules",
@@ -342,7 +343,10 @@ export function agentPromptLayers(agentId = "agent-1"): PromptLayers {
     },
   ];
   return {
-    agent_id: agentId,
+    kind: "campaign",
+    holder_id: "camp-1",
+    name: "Diwali orders",
+    status: "running",
     has_script: true,
     layers,
     separator_chars: 4,
@@ -351,10 +355,52 @@ export function agentPromptLayers(agentId = "agent-1"): PromptLayers {
     over_chars: 0,
     engine_added_chars: 3500,
     caller_memory: "kept_by_engine",
-    on_engine: true,
     drift_state: "applied",
     drift_checked_at: "2026-10-25T04:30:00Z",
+    sent_now: {
+      greeting: "Namaskaram, Sri Bakery.",
+      steps: [
+        {
+          title: "Take the order",
+          detail: "Ask what they would like and when.",
+          branches: [["they want to speak to a person", "hand over"]],
+          collect: ["order"],
+        },
+      ],
+      settings: [
+        { key: "languages", label: "Languages", value: "Telugu, English" },
+        { key: "temperature", label: "Temperature", value: "0.3" },
+        { key: "max_call_seconds", label: "Longest call", value: "600 s" },
+      ],
+      thinking_lines: ["One moment."],
+      built_in_tools: [
+        { key: "escalate_to_human", label: "Hand over to a person", on: true },
+        { key: "send_sms", label: "Send an SMS", on: false },
+      ],
+      custom_actions: ["save_order"],
+      instructions_chars: 205,
+      greeting_chars: 23,
+      payload_bytes: 4100,
+    },
+    refused: null,
+    published: {
+      instructions_chars: 205,
+      greeting_chars: 23,
+      payload_bytes: 4100,
+      training_cut_chars: 0,
+      at: "2026-10-25T04:00:00Z",
+    },
+    changed_since_publish: false,
+    training_cut_chars: 0,
+    documents_total: 1,
+    documents: [{ name: "Menu", kind: "file" }],
+    ...over,
   };
+}
+
+/** `GET .../prompt/layers` with one campaign holding an engine agent. */
+export function agentPromptLayers(agentId = "agent-1"): PromptLayers {
+  return { agent_id: agentId, holders: [promptHolder()], more_holders: 0 };
 }
 
 /** The lane rules — `GET /v1/agents/lanes`, with the platform's call-cap bounds. */

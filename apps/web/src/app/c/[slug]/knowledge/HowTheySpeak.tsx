@@ -29,6 +29,7 @@ import {
   RestrictionNote,
   SECONDARY_BUTTON_SM,
   Skeleton,
+  formatCount,
   formatIST,
 } from "@/components/ui";
 import { problemOf } from "@/lib/api/client";
@@ -244,6 +245,7 @@ function Training({ data, canWrite, refusal }: Props) {
       ) : (
         <WriteStatus data={data} />
       )}
+      <ShortenedFor data={data} />
 
       {draft !== null ? (
         <TrainingEditor
@@ -384,6 +386,48 @@ function MissingParts({ missing }: { missing: readonly MissingPart[] }) {
       <a href="#training-overview" className={`${SECONDARY_BUTTON_SM} mt-2 inline-flex`}>
         Write about the business
       </a>
+    </NoticeBox>
+  );
+}
+
+/**
+ * Where the training did not fit beside a long script and its last part was left out on that
+ * script's calls (the publish shortens it rather than refusing), each with a way to the
+ * script it gave way to.
+ */
+function ShortenedFor({ data }: { data: CompanyTraining }) {
+  const { session, href } = useClientRealm();
+  if (data.shortened_for.length === 0) return null;
+  const base = `/c/${session.orgSlug}`;
+  return (
+    <NoticeBox tone="warn" title="Shortened beside a long script" className="mb-4">
+      <p>Its last part is left out on these calls. Shorten the training or that script.</p>
+      <ul className="mt-2 space-y-2">
+        {data.shortened_for.map((s) => {
+          const to =
+            s.kind === "line" && s.holder_id
+              ? `${base}/inbound/${s.holder_id}`
+              : s.kind === "campaign" && s.holder_id
+                ? `${base}/campaigns/${s.holder_id}`
+                : `${base}/agents/${s.agent_id}`;
+          return (
+            <li
+              key={`${s.kind}-${s.holder_id ?? s.agent_id}`}
+              className="flex flex-wrap items-center justify-between gap-2"
+            >
+              <span>
+                {s.name}{" "}
+                <span className="text-meta text-ink-muted">
+                  · {formatCount(s.cut_chars)} characters left out
+                </span>
+              </span>
+              <Link href={href(to)} className={SECONDARY_BUTTON_SM}>
+                Open {s.name}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
     </NoticeBox>
   );
 }

@@ -4432,100 +4432,22 @@
             "title": "Agent Id",
             "type": "string"
           },
-          "caller_memory": {
-            "enum": [
-              "off",
-              "kept_by_engine"
-            ],
-            "title": "Caller Memory",
-            "type": "string"
-          },
-          "drift_checked_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Drift Checked At"
-          },
-          "drift_state": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Drift State"
-          },
-          "engine_added_chars": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Engine Added Chars"
-          },
-          "has_script": {
-            "title": "Has Script",
-            "type": "boolean"
-          },
-          "layers": {
+          "holders": {
             "items": {
-              "$ref": "#/components/schemas/PromptLayerOut"
+              "$ref": "#/components/schemas/HolderPromptOut"
             },
-            "title": "Layers",
+            "title": "Holders",
             "type": "array"
           },
-          "limit_chars": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Limit Chars"
-          },
-          "on_engine": {
-            "title": "On Engine",
-            "type": "boolean"
-          },
-          "over_chars": {
-            "title": "Over Chars",
-            "type": "integer"
-          },
-          "separator_chars": {
-            "title": "Separator Chars",
-            "type": "integer"
-          },
-          "total_chars": {
-            "title": "Total Chars",
+          "more_holders": {
+            "title": "More Holders",
             "type": "integer"
           }
         },
         "required": [
           "agent_id",
-          "has_script",
-          "layers",
-          "separator_chars",
-          "total_chars",
-          "limit_chars",
-          "over_chars",
-          "engine_added_chars",
-          "caller_memory",
-          "on_engine",
-          "drift_state",
-          "drift_checked_at"
+          "holders",
+          "more_holders"
         ],
         "title": "AgentPromptLayersOut",
         "type": "object"
@@ -18068,6 +17990,13 @@
               }
             ]
           },
+          "shortened_for": {
+            "items": {
+              "$ref": "#/components/schemas/ShortenedForOut"
+            },
+            "title": "Shortened For",
+            "type": "array"
+          },
           "training": {
             "title": "Training",
             "type": "string"
@@ -18102,7 +18031,8 @@
           "last_write",
           "owner_edited",
           "overview_max",
-          "training_max"
+          "training_max",
+          "shortened_for"
         ],
         "title": "CompanyTrainingOut",
         "type": "object"
@@ -32110,6 +32040,25 @@
         "title": "HeldBackOut",
         "type": "object"
       },
+      "HeldDocumentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "title": "HeldDocumentOut",
+        "type": "object"
+      },
       "HeldLeadOut": {
         "additionalProperties": false,
         "properties": {
@@ -32284,6 +32233,199 @@
           "recorded"
         ],
         "title": "HolderOut",
+        "type": "object"
+      },
+      "HolderPromptOut": {
+        "additionalProperties": false,
+        "properties": {
+          "caller_memory": {
+            "enum": [
+              "off",
+              "kept_by_engine"
+            ],
+            "title": "Caller Memory",
+            "type": "string"
+          },
+          "changed_since_publish": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed Since Publish"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/HeldDocumentOut"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "documents_total": {
+            "title": "Documents Total",
+            "type": "integer"
+          },
+          "drift_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drift Checked At"
+          },
+          "drift_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drift State"
+          },
+          "engine_added_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Added Chars"
+          },
+          "has_script": {
+            "title": "Has Script",
+            "type": "boolean"
+          },
+          "holder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder Id"
+          },
+          "kind": {
+            "enum": [
+              "agent",
+              "arm",
+              "line",
+              "campaign",
+              "test_copy"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "layers": {
+            "items": {
+              "$ref": "#/components/schemas/PromptLayerOut"
+            },
+            "title": "Layers",
+            "type": "array"
+          },
+          "limit_chars": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Chars"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "over_chars": {
+            "title": "Over Chars",
+            "type": "integer"
+          },
+          "published": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublishedOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "refused": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefusalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sent_now": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SentNowOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "separator_chars": {
+            "title": "Separator Chars",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total_chars": {
+            "title": "Total Chars",
+            "type": "integer"
+          },
+          "training_cut_chars": {
+            "title": "Training Cut Chars",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "holder_id",
+          "name",
+          "status",
+          "has_script",
+          "layers",
+          "separator_chars",
+          "total_chars",
+          "limit_chars",
+          "over_chars",
+          "engine_added_chars",
+          "caller_memory",
+          "drift_state",
+          "drift_checked_at",
+          "sent_now",
+          "refused",
+          "published",
+          "changed_since_publish",
+          "training_cut_chars",
+          "documents_total",
+          "documents"
+        ],
+        "title": "HolderPromptOut",
         "type": "object"
       },
       "HostedVoiceAgentOut": {
@@ -48326,6 +48468,42 @@
         "title": "PublishIn",
         "type": "object"
       },
+      "PublishedOut": {
+        "additionalProperties": false,
+        "description": "What the holder's last successful publish sent: sizes and when, never the payload.",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "greeting_chars": {
+            "title": "Greeting Chars",
+            "type": "integer"
+          },
+          "instructions_chars": {
+            "title": "Instructions Chars",
+            "type": "integer"
+          },
+          "payload_bytes": {
+            "title": "Payload Bytes",
+            "type": "integer"
+          },
+          "training_cut_chars": {
+            "title": "Training Cut Chars",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "instructions_chars",
+          "greeting_chars",
+          "payload_bytes",
+          "training_cut_chars",
+          "at"
+        ],
+        "title": "PublishedOut",
+        "type": "object"
+      },
       "PurchaseOwnNumberIn": {
         "additionalProperties": false,
         "properties": {
@@ -50843,6 +51021,25 @@
           "processing_days"
         ],
         "title": "RefundOut",
+        "type": "object"
+      },
+      "RefusalOut": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ],
+        "title": "RefusalOut",
         "type": "object"
       },
       "RegisterTemplateIn": {
@@ -54113,6 +54310,169 @@
         "title": "SendExits",
         "type": "object"
       },
+      "SentNowOut": {
+        "additionalProperties": false,
+        "description": "Everything else a publish of this holder sends now, from the adapter's own body.",
+        "properties": {
+          "built_in_tools": {
+            "items": {
+              "$ref": "#/components/schemas/SentToolOut"
+            },
+            "title": "Built In Tools",
+            "type": "array"
+          },
+          "custom_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Custom Actions",
+            "type": "array"
+          },
+          "greeting": {
+            "title": "Greeting",
+            "type": "string"
+          },
+          "greeting_chars": {
+            "title": "Greeting Chars",
+            "type": "integer"
+          },
+          "instructions_chars": {
+            "title": "Instructions Chars",
+            "type": "integer"
+          },
+          "payload_bytes": {
+            "title": "Payload Bytes",
+            "type": "integer"
+          },
+          "settings": {
+            "items": {
+              "$ref": "#/components/schemas/SentSettingOut"
+            },
+            "title": "Settings",
+            "type": "array"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/SentStepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "thinking_lines": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Thinking Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "greeting",
+          "steps",
+          "settings",
+          "thinking_lines",
+          "built_in_tools",
+          "custom_actions",
+          "instructions_chars",
+          "greeting_chars",
+          "payload_bytes"
+        ],
+        "title": "SentNowOut",
+        "type": "object"
+      },
+      "SentSettingOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "value"
+        ],
+        "title": "SentSettingOut",
+        "type": "object"
+      },
+      "SentStepOut": {
+        "additionalProperties": false,
+        "properties": {
+          "branches": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Branches",
+            "type": "array"
+          },
+          "collect": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Collect",
+            "type": "array"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "detail",
+          "branches",
+          "collect"
+        ],
+        "title": "SentStepOut",
+        "type": "object"
+      },
+      "SentToolOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "on": {
+            "title": "On",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "on"
+        ],
+        "title": "SentToolOut",
+        "type": "object"
+      },
       "ServiceItem": {
         "additionalProperties": false,
         "description": "`price_inr` is a digit STRING (hard rule 7): the price read aloud must be exactly\nwhat the client typed, which a float cannot promise. Optional, because \"ask at\nreception\" is a real answer.",
@@ -54719,6 +55079,56 @@
           "languages"
         ],
         "title": "ShortNoticeOut",
+        "type": "object"
+      },
+      "ShortenedForOut": {
+        "additionalProperties": false,
+        "description": "Where the last publish left part of the training out so the instructions fit.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "cut_chars": {
+            "title": "Cut Chars",
+            "type": "integer"
+          },
+          "holder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder Id"
+          },
+          "kind": {
+            "enum": [
+              "line",
+              "campaign",
+              "test_copy",
+              "agent"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "holder_id",
+          "agent_id",
+          "name",
+          "cut_chars"
+        ],
+        "title": "ShortenedForOut",
         "type": "object"
       },
       "SignInOptionsOut": {
@@ -75502,7 +75912,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/layers": {
       "get": {
-        "description": "The instructions a publish of this agent would send now, in engine order, with the engine's limit and the last drift sweep's verdict. Reads our tables only; it never calls the engine. Caller memory is per call and appears unfilled.",
+        "description": "For each campaign, Inbound line, test copy and script test arm holding an engine agent of this agent's: the instructions a publish would send now, by layer and against the engine's limit, the greeting, steps, settings, tools and knowledge it sends, whether that differs from what its last publish sent, and the last drift sweep's verdict. Reads our tables only; it never calls the engine. Caller memory is per call and appears unfilled.",
         "operationId": "prompt_layers_v1_admin_tenants__tenant_id__agents__agent_id__prompt_layers_get",
         "parameters": [
           {
@@ -75544,7 +75954,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "What the agent is told: the composed prompt by layer, with each layer's size",
+        "summary": "What each of the agent's engine holders is told and sent, beside its last publish",
         "tags": [
           "admin"
         ],

@@ -107,8 +107,9 @@ export function useRollbackPrompt(
   });
 }
 
-/** `GET .../prompt/layers`: what the agent is told, layer by layer (D-882). */
+/** `GET .../prompt/layers`: what each engine holder of the agent is told and sent (D-882). */
 export type PromptLayers = Schemas["AgentPromptLayersOut"];
+export type PromptHolder = Schemas["HolderPromptOut"];
 export type PromptLayer = Schemas["PromptLayerOut"];
 
 /**

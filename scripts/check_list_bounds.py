@@ -290,8 +290,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "PUT /v1/admin/tenants/{tenant_id}/inbound-lines/{line_id}/notes": _JOB_NOTES,
     "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/layers": BoundedByConstruction(
         by=(
-            "one entry per `calevate_shared.engine.PromptLayer` (twelve), the layers "
-            "`engine_prompt_layers` composes, whatever the agent holds (D-882)."
+            "at most `prompt_anatomy.MAX_HOLDERS` (25) engine holders, each with one entry "
+            "per `calevate_shared.engine.PromptLayer` (twelve), its native steps (the "
+            "engine's `STEPS_MAX`), its settings and tools (fixed sets), and at most "
+            "`kb/service.HELD_DOCUMENTS_SHOWN` (100) documents (D-882)."
         )
     ),
     "GET /v1/analytics/reply-speed": BoundedByConstruction(

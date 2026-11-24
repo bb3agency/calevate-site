@@ -196,7 +196,7 @@ from apps.api.agents.own_model import (
     require_developer_own_model,
 )
 from apps.api.agents.paid_test_calls import DAILY_CAP_RULE as PAID_TEST_DAILY_CAP_RULE
-from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
+from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING, HolderKind
 from apps.api.agents.reply_length import resolve_max_reply_tokens
 from apps.api.agents.t0_block import block_of, with_knowledge_of, without_block
 from apps.api.agents.verification import verify_publish
@@ -269,6 +269,7 @@ from apps.api.engine.dial_lines import (
     start_dial_backoff,
 )
 from apps.api.engine.hosted_platform import hosted_agent_limits
+from apps.api.engine.publish_view import publish_digest
 from apps.api.engine.thinnest_workspace import (
     trial_agent_in_developer_workspace,
     workspace_not_provisioned,
@@ -1010,7 +1011,14 @@ def _to_config(
     engine: VoiceEngine,
     handoff: HandoffSpec | None = None,
     keep_placed_opening: bool = False,
+    training_gives_way: bool = True,
+    holder_fields: dict[str, Any] | None = None,
 ) -> AgentConfig:
+    """`holder_fields` are the fields a line or campaign sets over its agent's (its name,
+    direction, tools), put on before the client's sections so the company training gives way
+    against the prompt that holder really sends: a line's direction and call-backs change
+    the platform layers. `training_gives_way=False` composes the whole training even where
+    it overflows, for the training save's own measurement (`company_training.overflow_of`)."""
     settings = get_settings()
     hosted = _engine_voice_fields(agent, engine=engine)
     steps, body = _steps_for(
@@ -1131,12 +1139,29 @@ def _to_config(
         # drift path both pass it deliberately rather than by default.
         handoff=handoff,
     )
-    # The company training first, so the known facts below are cut to fit beside it.
-    config = company_training.with_training(config, agent.get("company_training") or "")
-    config = voice_notes.with_voice_notes(config, agent.get("voice_notes") or ())
-    # The facts this agent knows by heart, cut to fit (D-896); a no-op on every engine that
-    # holds the facts in the prompt already.
-    return hot_facts.with_known_facts(config, agent.get("hot_facts") or (), engine)
+    if holder_fields:
+        config = config.model_copy(update=holder_fields)
+    return _with_client_sections(config, agent, engine, training_gives_way=training_gives_way)
+
+
+def _with_client_sections(
+    base: AgentConfig, agent: AgentRow, engine: VoiceEngine, *, training_gives_way: bool = True
+) -> AgentConfig:
+    """`base` with the client's sections every holder carries: the company training, the
+    voice notes and the known facts. The training goes first, so the known facts are cut to
+    fit beside it (D-896), and gives way itself where the script leaves it no room
+    (`company_training.give_way`)."""
+
+    def compose(training: str) -> AgentConfig:
+        cfg = company_training.with_training(base, training)
+        cfg = voice_notes.with_voice_notes(cfg, agent.get("voice_notes") or ())
+        # A no-op on every engine that holds the facts in the prompt already.
+        return hot_facts.with_known_facts(cfg, agent.get("hot_facts") or (), engine)
+
+    training = str(agent.get("company_training") or "")
+    if not training_gives_way:
+        return compose(training)
+    return company_training.give_way(compose, training, engine)
 
 
 def _call_prompt_for(
@@ -2852,6 +2877,51 @@ def _vendor_says_gone(exc: BaseException) -> bool:
     return isinstance(exc, ProblemError) and exc.kind == "not_found"
 
 
+async def _record_published(
+    session: AsyncSession, engine: VoiceEngine, *, ref: str, config: AgentConfig
+) -> None:
+    """Stamp `ref`'s route with what this publish sent (`engine/publish_view.publish_digest`),
+    in the publish's transaction, so a publish that rolls back leaves the last one standing.
+
+    `config` is the holder's config as composed, before the workspace placement swaps in that
+    workspace's id for the same voice: the admin screen digests `line_config` /
+    `campaign_config` and the rest the same way, and the two must be like for like. The
+    vendor already holds this publish, so a config the view cannot render is logged and the
+    previous record cleared rather than failing it; the screen then reads "not recorded"."""
+    try:
+        sent = publish_digest(engine, config)
+    except ProblemError as refused:
+        log.warning(
+            "engine_publish_digest_not_recorded",
+            extra={"agent_id": config.agent_id, "reason": refused.code},
+        )
+        await session.execute(
+            text(
+                "UPDATE engine_agent_routes SET published_digest = NULL, published_at = NULL "
+                "WHERE engine = :engine AND engine_agent_ref = :ref"
+            ),
+            {"engine": engine.name, "ref": ref},
+        )
+        return
+    await session.execute(
+        text(
+            "UPDATE engine_agent_routes SET published_digest = :digest, "
+            "published_instructions_chars = :instructions, published_greeting_chars = :greeting, "
+            "published_payload_bytes = :bytes, published_training_cut_chars = :cut, "
+            "published_at = now() WHERE engine = :engine AND engine_agent_ref = :ref"
+        ),
+        {
+            "digest": sent.sha256,
+            "instructions": sent.instructions_chars,
+            "greeting": sent.greeting_chars,
+            "bytes": sent.payload_bytes,
+            "cut": config.training_cut_chars,
+            "engine": engine.name,
+            "ref": ref,
+        },
+    )
+
+
 async def _record_test_copy(
     session: AsyncSession,
     engine: VoiceEngine | None,
@@ -3379,6 +3449,7 @@ async def publish_agent(
             )
         }
     )
+    composed = config
 
     # Before the vendor write: an engine whose fields cannot hold this agent as composed
     # refuses here rather than truncating (see `agents/engine_limits.py`). A no-op on an
@@ -3522,6 +3593,7 @@ async def publish_agent(
                 ref=ref,
                 business_only=business_only,
             )
+            await _record_published(session, engine, ref=ref, config=composed)
             await _ensure_results_webhook(
                 engine,
                 ref=ref,
@@ -3617,6 +3689,7 @@ async def publish_agent(
             ),
             {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id},
         )
+        await _record_published(session, engine, ref=ref, config=composed)
         if moved_from is not None:
             await _after_workspace_move(
                 session, tenant_id=tenant_id, agent_id=agent_id, old_ref=moved_from
@@ -3967,9 +4040,7 @@ def _variant_config(
     )
     # The arm's own body replaced the agent's above, so its known facts are spliced again:
     # an arm carries the client's knowledge like the agent (D-689), and its training.
-    arm = company_training.with_training(arm, agent.get("company_training") or "")
-    arm = voice_notes.with_voice_notes(arm, agent.get("voice_notes") or ())
-    return hot_facts.with_known_facts(arm, agent.get("hot_facts") or (), engine)
+    return _with_client_sections(arm.model_copy(update={"training_cut_chars": 0}), agent, engine)
 
 
 async def publish_variant(
@@ -4021,6 +4092,7 @@ async def publish_variant(
         engine=engine,
         handoff=handoff,
     )
+    composed = config
     # An arm's script lands in the same engine fields as its agent's, so it fits the same
     # ceilings or is refused before the write (`agents/engine_limits.py`).
     refuse_over_engine_limits(engine, config)
@@ -4093,6 +4165,7 @@ async def publish_variant(
         ),
         {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id},
     )
+    await _record_published(session, engine, ref=ref, config=composed)
     if moved_from is not None:
         from apps.api.reliability.service import enqueue_outbox
 
@@ -4266,6 +4339,7 @@ async def line_config(
     line_id: UUID,
     agent: AgentRow | None = None,
     script: CallScript | None = None,
+    training_gives_way: bool = True,
 ) -> AgentConfig:
     """An inbound line's engine agent as our tables say it should be (D-997), before any
     workspace placement: the agent's config over the line's script, named for the line, with
@@ -4311,15 +4385,15 @@ async def line_config(
         engine=engine,
         handoff=handoff,
         keep_placed_opening=True,
-    ).model_copy(
-        update={
+        training_gives_way=training_gives_way,
+        holder_fields={
             "holder": str(line_id),
             "name": f"{agent['name']} · {line.name}",
             "direction": "inbound",
             # It also places its voice's call-backs and lead calls (D-1019 D2).
             "places_call_backs": True,
             "action_tools": tuple(tool for tool in tools if tool.name not in off),
-        }
+        },
     )
 
 
@@ -4395,6 +4469,7 @@ async def publish_line(
     engine = get_engine()
     refuse_unoffered_language(str(agent["language_primary"]), tenant_id=tenant_id)
     config = await line_config(session, tenant_id=tenant_id, line_id=line_id, agent=agent)
+    composed = config
     refuse_over_engine_limits(engine, config)
     await refuse_unpriced_engine(session, engine)
     if test:
@@ -4505,6 +4580,7 @@ async def publish_line(
         ),
         {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id, "lid": line_id},
     )
+    await _record_published(session, engine, ref=ref, config=composed)
     if moved_from is not None:
         from apps.api.reliability.service import enqueue_outbox
 
@@ -4799,6 +4875,7 @@ async def campaign_config(
     campaign_id: UUID,
     agent: AgentRow | None = None,
     script: CallScript | None = None,
+    training_gives_way: bool = True,
 ) -> AgentConfig:
     """A campaign's engine agent as our tables say it should be (D-1003), before any
     workspace placement: the agent's `_to_config` over `campaign_agent_row`, so every
@@ -4817,12 +4894,17 @@ async def campaign_config(
     )
     handoff, _duty = await handoff_module.spec_for(session, dict(agent))
     tools = await actions_service.declare(session, agent_id=holder.agent_id, direction="outbound")
-    return _to_config(tenant_id, row, engine=get_engine(), handoff=handoff).model_copy(
-        update={
+    return _to_config(
+        tenant_id,
+        row,
+        engine=get_engine(),
+        handoff=handoff,
+        training_gives_way=training_gives_way,
+        holder_fields={
             "holder": f"campaign:{campaign_id}",
             "name": f"{agent['name']} · {holder.name}"[:200],
             "action_tools": tools,
-        }
+        },
     )
 
 
@@ -5062,6 +5144,7 @@ async def publish_campaign_agent(
         log.info("campaign_engine_agent_no_longer_held", extra={"campaign_id": str(campaign_id)})
         return None
     agent, engine, config = await _campaign_publishable(session, tenant_id=tenant_id, holder=holder)
+    composed = config
     if test:
         # A test holder rings the owner, so the agreements are asked as for a test copy.
         await assert_agreements_accepted(session, tenant_id=tenant_id)
@@ -5182,6 +5265,7 @@ async def publish_campaign_agent(
                 "cid": campaign_id,
             },
         )
+        await _record_published(session, engine, ref=ref, config=composed)
         # A campaign moved to another voice keeps its engine agent and its knowledge copies,
         # which now belong to that voice's claims.
         await session.execute(
@@ -6349,6 +6433,58 @@ async def held_greeting(
         )
         return None
     return compose_first_utterance(cfg) or None
+
+
+async def holder_config(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent: AgentRow,
+    kind: HolderKind,
+    holder_id: UUID | None = None,
+    business_only: bool = False,
+) -> AgentConfig | None:
+    """The config one engine holder's publish composes, before workspace placement: what
+    `publish_line`, `publish_campaign_agent`, `publish_variant` and `publish_agent` (the
+    agent's own engine agent and its test copy) build, by the same builders. None for an arm
+    whose script is gone. Raises what those builders raise (a holder with no script)."""
+    engine = get_engine()
+    if kind == "line" and holder_id is not None:
+        return await line_config(session, tenant_id=tenant_id, line_id=holder_id, agent=agent)
+    if kind == "campaign" and holder_id is not None:
+        return await campaign_config(
+            session, tenant_id=tenant_id, campaign_id=holder_id, agent=agent
+        )
+    handoff, _duty = await handoff_module.spec_for(session, dict(agent))
+    if kind == "arm" and holder_id is not None:
+        row = (await session.execute(text(_ARM_SCRIPT_SQL), {"vid": holder_id})).first()
+        if row is None:
+            return None
+        return _variant_config(
+            tenant_id,
+            agent,
+            holder_id,
+            str(row.label),
+            str(row.body),
+            str(row.disclosure_line),
+            engine=engine,
+            handoff=handoff,
+        )
+    from apps.api.actions import service as actions_service
+    from apps.api.agents.business_only import business_row
+
+    held = (
+        await business_row(session, tenant_id=tenant_id, agent=agent)
+        if kind == "test_copy" and business_only
+        else agent
+    )
+    config = _to_config(tenant_id, held, engine=engine, handoff=handoff)
+    tools = await actions_service.declare(
+        session, agent_id=UUID(str(agent["id"])), direction=held["direction"]
+    )
+    return config.model_copy(
+        update={"action_tools": tools, **({"holder": "test_copy"} if kind == "test_copy" else {})}
+    )
 
 
 async def dispatch_call(

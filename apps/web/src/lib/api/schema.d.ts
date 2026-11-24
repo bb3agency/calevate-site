@@ -468,7 +468,8 @@ export interface paths {
          *     the impersonated account, which is proven by the grant rather than claimed in a body.
          *
          *     Streams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents —
-         *     `text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a
+         *     `run`, `thought`, `text`, `fill`, `step`, `proposal`, `action`, `done`, `stopped`, `error`;
+         *     `POST /v1/admin/copilot/runs/{run_id}/stop` stops a run. A `proposal` is NOT a
          *     change. The admin realm proposes its OWN platform actions (D-694; today: halting all
          *     outbound calling), confirmed on `POST /v1/admin/copilot/confirm` with the same step-up the
          *     console button asks for, and may answer with `navigate` to open an admin screen. The
@@ -663,6 +664,26 @@ export interface paths {
         put?: never;
         /** Put a removed card back on the admin home */
         post: operations["restore_admin_pin_v1_admin_copilot_pins__pin_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/copilot/runs/{run_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop an admin assistant answer that is still running
+         * @description The admin twin of `POST /v1/copilot/runs/{run_id}/stop`: the answer's stream ends with `event: stopped`. Always `202` with the same body, whatever the id; only the operator who asked can stop a run.
+         */
+        post: operations["stop_admin_copilot_run_v1_admin_copilot_runs__run_id__stop_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2071,8 +2092,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * What the agent is told: the composed prompt by layer, with each layer's size
-         * @description The instructions a publish of this agent would send now, in engine order, with the engine's limit and the last drift sweep's verdict. Reads our tables only; it never calls the engine. Caller memory is per call and appears unfilled.
+         * What each of the agent's engine holders is told and sent, beside its last publish
+         * @description For each campaign, Inbound line, test copy and script test arm holding an engine agent of this agent's: the instructions a publish would send now, by layer and against the engine's limit, the greeting, steps, settings, tools and knowledge it sends, whether that differs from what its last publish sent, and the last drift sweep's verdict. Reads our tables only; it never calls the engine. Caller memory is per call and appears unfilled.
          */
         get: operations["prompt_layers_v1_admin_tenants__tenant_id__agents__agent_id__prompt_layers_get"];
         put?: never;
@@ -8850,6 +8871,17 @@ export interface paths {
          *     read-only, under the caller's own permissions and RLS scope), can fill that screen's
          *     form fields, and can open another screen of the console. Streams `text/event-stream`:
          *
+         *     * `event: run` · `data: {"run_id": "...", "started_at": "..."}` — the FIRST frame of every
+         *       answer. Time the "Working" header from `started_at`; `POST /v1/copilot/runs/{run_id}/stop`
+         *       stops it.
+         *     * `event: thought` · `data: {"delta": "...", "turn": 0}` — a fragment of Pip's one-line plan
+         *       for the current model turn (the Thinking line). A higher `turn` starts a new line. Never
+         *       part of the answer, never stored.
+         *     * `event: draft` · `data: {"holder_kind": "campaign"|"inbound_line", "holder_id": "...",
+         *       "proposal_id": "..."}` — this answer started a script draft; open its draft stream.
+         *     * `event: stopped` · `data: {"reason": "person"}` — the person pressed Stop. The LAST
+         *       frame: no `done` follows. What was already said stands; drafts this answer started are
+         *       cancelled.
          *     * `event: text` · `data: {"delta": "..."}` — one fragment of the answer.
          *     * `event: fill` · `data: {"items": [{"field_id": "...", "value": ...}]}` — at most one
          *       per response. Every item has been re-validated server-side against the `fields` this
@@ -8905,8 +8937,12 @@ export interface paths {
          *       `POST /v1/copilot/pins` and the card re-runs under each viewer's permissions.
          *     * `event: step` · `data: {"id": "...", "tool": "...", "status":
          *       "running"|"done"|"refused"|"failed", "args": "...", "detail": null|"...",
-         *       "elapsed_ms": null|123}` — one tool call as it happens, two frames per call sharing an
-         *       `id`: `running` when it starts, then one terminal frame with `elapsed_ms`. Purely
+         *       "elapsed_ms": null|123, "results": null|{"kind": "list", "items": [{"title": "...",
+         *       "subtitle": null|"...", "href": null|"/c/{slug}/..."}], "total": N}}` — one tool call as
+         *       it happens, two frames per call sharing an `id`: `running` when it starts, then one
+         *       terminal frame with `elapsed_ms`. A lookup that lists campaigns, agents, sources, calls
+         *       or leads puts up to eight of its rows in `results` (`href` is a route template: put your
+         *       own slug in and check it against your own routes). Purely
          *       observational — dropping every one of them loses no outcome — and safe to render live so
          *       a person can see which of their data was read and how long it took.
          *     * `event: done` · `data: {"disclosure": null|"...", "metered": true}` — `disclosure` is
@@ -9463,6 +9499,33 @@ export interface paths {
         get: operations["list_copilot_routine_runs_v1_copilot_routines__routine_id__runs_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/runs/{run_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop an answer that is still running
+         * @description Stop an answer that is still running: the `run_id` from its `event: run` frame. The answer's
+         *     stream ends with `event: stopped` once the loop reaches its next checkpoint (between model
+         *     frames and between tool calls); a tool call already running finishes, nothing after it
+         *     starts, and any script draft the answer started is cancelled.
+         *
+         *     Always `202`, with the same body, whatever the id: a run that is not the caller's own, has
+         *     already finished or never existed is left alone and reported exactly like one that was
+         *     stopped, so the route tells nobody anything about a run. Idempotent.
+         */
+        post: operations["stop_copilot_run_v1_copilot_runs__run_id__stop_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -16714,31 +16777,10 @@ export interface components {
              * Format: uuid
              */
             agent_id: string;
-            /**
-             * Caller Memory
-             * @enum {string}
-             */
-            caller_memory: "off" | "kept_by_engine";
-            /** Drift Checked At */
-            drift_checked_at: string | null;
-            /** Drift State */
-            drift_state: string | null;
-            /** Engine Added Chars */
-            engine_added_chars: number | null;
-            /** Has Script */
-            has_script: boolean;
-            /** Layers */
-            layers: components["schemas"]["PromptLayerOut"][];
-            /** Limit Chars */
-            limit_chars: number | null;
-            /** On Engine */
-            on_engine: boolean;
-            /** Over Chars */
-            over_chars: number;
-            /** Separator Chars */
-            separator_chars: number;
-            /** Total Chars */
-            total_chars: number;
+            /** Holders */
+            holders: components["schemas"]["HolderPromptOut"][];
+            /** More Holders */
+            more_holders: number;
         };
         /** AgentReadinessOut */
         AgentReadinessOut: {
@@ -21400,6 +21442,8 @@ export interface components {
             /** Owner Edited */
             owner_edited: boolean;
             proposal: components["schemas"]["TrainingProposalOut"] | null;
+            /** Shortened For */
+            shortened_for: components["schemas"]["ShortenedForOut"][];
             /** Training */
             training: string;
             /** Training Max */
@@ -22670,6 +22714,18 @@ export interface components {
             saves?: ("button" | "autosave" | "immediate" | "view") | null;
             /** Title */
             title: string;
+        };
+        /**
+         * CopilotStopOut
+         * @description The answer to Stop, the same for every run id: it says nothing about whether the run
+         *     existed, whose it was, or whether it had already finished.
+         */
+        CopilotStopOut: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
         };
         /**
          * CopilotStoredTurnOut
@@ -26608,6 +26664,13 @@ export interface components {
             /** Total Chars */
             total_chars?: number | null;
         };
+        /** HeldDocumentOut */
+        HeldDocumentOut: {
+            /** Kind */
+            kind: string;
+            /** Name */
+            name: string;
+        };
         /** HeldLeadOut */
         HeldLeadOut: {
             /**
@@ -26679,6 +26742,54 @@ export interface components {
             holder_type?: ("individual" | "business") | null;
             /** Recorded */
             recorded: boolean;
+        };
+        /** HolderPromptOut */
+        HolderPromptOut: {
+            /**
+             * Caller Memory
+             * @enum {string}
+             */
+            caller_memory: "off" | "kept_by_engine";
+            /** Changed Since Publish */
+            changed_since_publish: boolean | null;
+            /** Documents */
+            documents: components["schemas"]["HeldDocumentOut"][];
+            /** Documents Total */
+            documents_total: number;
+            /** Drift Checked At */
+            drift_checked_at: string | null;
+            /** Drift State */
+            drift_state: string | null;
+            /** Engine Added Chars */
+            engine_added_chars: number | null;
+            /** Has Script */
+            has_script: boolean;
+            /** Holder Id */
+            holder_id: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "agent" | "arm" | "line" | "campaign" | "test_copy";
+            /** Layers */
+            layers: components["schemas"]["PromptLayerOut"][];
+            /** Limit Chars */
+            limit_chars: number | null;
+            /** Name */
+            name: string;
+            /** Over Chars */
+            over_chars: number;
+            published: components["schemas"]["PublishedOut"] | null;
+            refused: components["schemas"]["RefusalOut"] | null;
+            sent_now: components["schemas"]["SentNowOut"] | null;
+            /** Separator Chars */
+            separator_chars: number;
+            /** Status */
+            status: string;
+            /** Total Chars */
+            total_chars: number;
+            /** Training Cut Chars */
+            training_cut_chars: number;
         };
         /** HostedVoiceAgentOut */
         HostedVoiceAgentOut: {
@@ -32384,6 +32495,25 @@ export interface components {
             /** Reviewer Name */
             reviewer_name: string;
         };
+        /**
+         * PublishedOut
+         * @description What the holder's last successful publish sent: sizes and when, never the payload.
+         */
+        PublishedOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Greeting Chars */
+            greeting_chars: number;
+            /** Instructions Chars */
+            instructions_chars: number;
+            /** Payload Bytes */
+            payload_bytes: number;
+            /** Training Cut Chars */
+            training_cut_chars: number;
+        };
         /** PurchaseOwnNumberIn */
         PurchaseOwnNumberIn: {
             /** Agent Id */
@@ -33381,6 +33511,13 @@ export interface components {
             recorded: boolean;
             /** Refund Id */
             refund_id: string;
+        };
+        /** RefusalOut */
+        RefusalOut: {
+            /** Code */
+            code: string;
+            /** Detail */
+            detail: string;
         };
         /** RegisterTemplateIn */
         RegisterTemplateIn: {
@@ -34676,6 +34813,62 @@ export interface components {
             sent?: string | null;
         };
         /**
+         * SentNowOut
+         * @description Everything else a publish of this holder sends now, from the adapter's own body.
+         */
+        SentNowOut: {
+            /** Built In Tools */
+            built_in_tools: components["schemas"]["SentToolOut"][];
+            /** Custom Actions */
+            custom_actions: string[];
+            /** Greeting */
+            greeting: string;
+            /** Greeting Chars */
+            greeting_chars: number;
+            /** Instructions Chars */
+            instructions_chars: number;
+            /** Payload Bytes */
+            payload_bytes: number;
+            /** Settings */
+            settings: components["schemas"]["SentSettingOut"][];
+            /** Steps */
+            steps: components["schemas"]["SentStepOut"][];
+            /** Thinking Lines */
+            thinking_lines: string[];
+        };
+        /** SentSettingOut */
+        SentSettingOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Value */
+            value: string;
+        };
+        /** SentStepOut */
+        SentStepOut: {
+            /** Branches */
+            branches: [
+                string,
+                string
+            ][];
+            /** Collect */
+            collect: string[];
+            /** Detail */
+            detail: string;
+            /** Title */
+            title: string;
+        };
+        /** SentToolOut */
+        SentToolOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** On */
+            on: boolean;
+        };
+        /**
          * ServiceItem
          * @description `price_inr` is a digit STRING (hard rule 7): the price read aloud must be exactly
          *     what the client typed, which a float cannot promise. Optional, because "ask at
@@ -34916,6 +35109,28 @@ export interface components {
             languages: components["schemas"]["NoticeLanguageOut"][];
             /** Notice Markdown */
             notice_markdown: string;
+        };
+        /**
+         * ShortenedForOut
+         * @description Where the last publish left part of the training out so the instructions fit.
+         */
+        ShortenedForOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Cut Chars */
+            cut_chars: number;
+            /** Holder Id */
+            holder_id: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "line" | "campaign" | "test_copy" | "agent";
+            /** Name */
+            name: string;
         };
         /** SignInOptionsOut */
         SignInOptionsOut: {
@@ -41582,6 +41797,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PinOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    stop_admin_copilot_run_v1_admin_copilot_runs__run_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotStopOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -57593,6 +57839,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CopilotRoutineRunPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    stop_copilot_run_v1_copilot_runs__run_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotStopOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

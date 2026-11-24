@@ -1,4 +1,6 @@
-"""What the agent is told, by layer, for the operator console (D-882)."""
+"""What the agent's own engine agent is told, by layer, for the operator console (D-882).
+
+`tests/admin_prompt_holders_test.py` covers the campaigns, lines and copies that hold the rest."""
 
 from __future__ import annotations
 
@@ -50,41 +52,10 @@ def test_every_layer_has_an_owner_and_a_purpose() -> None:
     assert all(guide.purpose for guide in LAYER_GUIDE.values())
 
 
-async def test_the_layers_join_into_exactly_what_a_publish_sends() -> None:
-    from apps.api.agents.prompt_size import publish_config
-    from apps.api.engine import get_engine
-
-    tenant_id, agent_id, _headers = await _tenant()
-    await _with_script(tenant_id, agent_id)
-    async with _client() as client:
-        got = await client.get(_path(tenant_id, agent_id), headers=await _operator())
-    assert got.status_code == 200, got.text
-    body = got.json()
-    async with tenant_session(tenant_id) as session:
-        cfg = await publish_config(
-            session, tenant_id=tenant_id, agent_id=agent_id, engine=get_engine()
-        )
-    layers = body["layers"]
-    assert LAYER_SEPARATOR.join(layer["text"] for layer in layers) == compose_engine_prompt(cfg)
-    assert all(layer["chars"] == len(layer["text"]) for layer in layers)
-    assert body["total_chars"] == sum(x["chars"] for x in layers) + body["separator_chars"]
-    keys = [layer["key"] for layer in layers]
-    assert keys[0] == "preamble" and "truthful_answers" in keys
-    [script] = [layer for layer in layers if layer["key"] == "client_script"]
-    assert SCRIPT in script["text"]
-    assert (script["owner"], script["title"]) == ("client", "The client's script")
-    assert body["has_script"] is True
-    # Never checked by the sweep, and no engine object yet.
-    assert (body["on_engine"], body["drift_state"], body["drift_checked_at"]) == (
-        False,
-        None,
-        None,
-    )
-
-
-async def test_the_last_sweep_verdict_on_the_agents_own_object_is_shown() -> None:
-    tenant_id, agent_id, _headers = await _tenant()
-    await _with_script(tenant_id, agent_id)
+async def _own_engine_agent(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID, *, drift_state: str | None = None
+) -> None:
+    """The agent's own engine agent and its route, as an agent published before D-1019 holds."""
     ref = f"fake_layers_{uuid.uuid4().hex[:8]}"
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -93,20 +64,69 @@ async def test_the_last_sweep_verdict_on_the_agents_own_object_is_shown() -> Non
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
-                "active, drift_state, drift_checked_at, created_at, updated_at) "
-                "VALUES ('fake', :r, :t, :a, true, 'applied', now(), now(), now())"
+                "active, drift_state, drift_checked_at, created_at, updated_at) VALUES ('fake', "
+                ":r, :t, :a, true, CAST(:d AS text), "
+                "CASE WHEN :d IS NULL THEN NULL ELSE now() END, now(), now())"
             ),
-            {"r": ref, "t": tenant_id, "a": agent_id},
+            {"r": ref, "t": tenant_id, "a": agent_id, "d": drift_state},
         )
+
+
+async def test_the_layers_join_into_exactly_what_a_publish_sends() -> None:
+    from apps.api.agents.prompt_size import publish_config
+    from apps.api.engine import get_engine
+
+    tenant_id, agent_id, _headers = await _tenant()
+    await _with_script(tenant_id, agent_id)
+    await _own_engine_agent(tenant_id, agent_id)
     async with _client() as client:
         got = await client.get(_path(tenant_id, agent_id), headers=await _operator())
-    body = got.json()
-    assert (body["on_engine"], body["drift_state"]) == (True, "applied")
-    assert body["drift_checked_at"] is not None
+    assert got.status_code == 200, got.text
+    [holder] = got.json()["holders"]
+    async with tenant_session(tenant_id) as session:
+        cfg = await publish_config(
+            session, tenant_id=tenant_id, agent_id=agent_id, engine=get_engine()
+        )
+    layers = holder["layers"]
+    assert LAYER_SEPARATOR.join(layer["text"] for layer in layers) == compose_engine_prompt(cfg)
+    assert all(layer["chars"] == len(layer["text"]) for layer in layers)
+    assert holder["total_chars"] == sum(x["chars"] for x in layers) + holder["separator_chars"]
+    keys = [layer["key"] for layer in layers]
+    assert keys[0] == "preamble" and "truthful_answers" in keys
+    [script] = [layer for layer in layers if layer["key"] == "client_script"]
+    assert SCRIPT in script["text"]
+    assert (script["owner"], script["title"]) == ("client", "The client's script")
+    assert (holder["kind"], holder["has_script"]) == ("agent", True)
+    # Never checked by the sweep, and published before the publish record existed.
+    assert (holder["drift_state"], holder["published"], holder["changed_since_publish"]) == (
+        None,
+        None,
+        None,
+    )
 
 
-async def test_an_agent_with_nothing_written_answers_empty_not_an_error() -> None:
+async def test_the_last_sweep_verdict_on_the_agents_own_object_is_shown() -> None:
     tenant_id, agent_id, _headers = await _tenant()
+    await _with_script(tenant_id, agent_id)
+    await _own_engine_agent(tenant_id, agent_id, drift_state="applied")
+    async with _client() as client:
+        got = await client.get(_path(tenant_id, agent_id), headers=await _operator())
+    [holder] = got.json()["holders"]
+    assert holder["drift_state"] == "applied" and holder["drift_checked_at"] is not None
+
+
+async def test_an_agent_holding_no_engine_agent_lists_no_holders() -> None:
+    tenant_id, agent_id, _headers = await _tenant()
+    await _with_script(tenant_id, agent_id)
+    async with _client() as client:
+        got = await client.get(_path(tenant_id, agent_id), headers=await _operator())
+    assert got.status_code == 200, got.text
+    assert (got.json()["holders"], got.json()["more_holders"]) == ([], 0)
+
+
+async def test_a_holder_with_nothing_written_answers_empty_not_an_error() -> None:
+    tenant_id, agent_id, _headers = await _tenant()
+    await _own_engine_agent(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET system_prompt_id = NULL, live_prompt_id = NULL WHERE id = :a"),
@@ -115,7 +135,8 @@ async def test_an_agent_with_nothing_written_answers_empty_not_an_error() -> Non
     async with _client() as client:
         got = await client.get(_path(tenant_id, agent_id), headers=await _operator())
     assert got.status_code == 200, got.text
-    assert (got.json()["has_script"], got.json()["layers"]) == (False, [])
+    [holder] = got.json()["holders"]
+    assert (holder["has_script"], holder["layers"], holder["sent_now"]) == (False, [], None)
 
 
 async def test_the_read_is_recorded_in_the_tenants_audit_ledger() -> None:

@@ -70,6 +70,17 @@ class LastWriteOut(_Out):
     missing: list[MissingPartOut] = Field(default_factory=list)
 
 
+class ShortenedForOut(_Out):
+    """Where the last publish left part of the training out so the instructions fit."""
+
+    kind: Literal["line", "campaign", "test_copy", "agent"]
+    #: The line's or campaign's id; null for an agent's own or its test copy.
+    holder_id: UUID | None
+    agent_id: UUID
+    name: str
+    cut_chars: int
+
+
 class CompanyTrainingOut(_Out):
     overview: str
     #: What every agent is given, ahead of its own script.
@@ -84,6 +95,8 @@ class CompanyTrainingOut(_Out):
     owner_edited: bool
     overview_max: int
     training_max: int
+    #: Each script the training did not fit beside whole, at most 20; empty when it fits all.
+    shortened_for: list[ShortenedForOut]
 
 
 def _reasons(values: tuple[str, ...]) -> list[WriteReasonOut]:
@@ -132,6 +145,16 @@ async def _out(session: AsyncSession, tenant_id: UUID) -> CompanyTrainingOut:
         owner_edited=t.owner_edited,
         overview_max=training_rules.OVERVIEW_MAX,
         training_max=training_rules.TRAINING_MAX,
+        shortened_for=[
+            ShortenedForOut(
+                kind=s.kind,
+                holder_id=s.holder_id,
+                agent_id=s.agent_id,
+                name=s.name,
+                cut_chars=s.cut_chars,
+            )
+            for s in await training_rules.shortened_for(session, tenant_id)
+        ],
     )
 
 
