@@ -7367,6 +7367,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/give-callers-time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether this campaign's calls give a quiet caller time
+         * @description On, a quiet caller is asked whether they are still there after 20 s, up to 3 times, and the call ends after 120 s of silence, so a caller doing what the agent asked on their phone is not hung up on. It covers the call settings the agent and account leave at Calevate's default. Until the owner chooses, it is on when the script asks the caller to act on their phone (`script_asks`); a choice is kept.
+         */
+        get: operations["campaign_give_time_v1_campaigns__campaign_id__give_callers_time_get"];
+        /**
+         * Switch giving a quiet caller time on or off for this campaign
+         * @description On, a quiet caller is asked whether they are still there after 20 s, up to 3 times, and the call ends after 120 s of silence, so a caller doing what the agent asked on their phone is not hung up on. It covers the call settings the agent and account leave at Calevate's default. Until the owner chooses, it is on when the script asks the caller to act on their phone (`script_asks`); a choice is kept. A running or paused campaign's calls carry the choice from the next call.
+         */
+        put: operations["set_campaign_give_time_v1_campaigns__campaign_id__give_callers_time_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/insights": {
         parameters: {
             query?: never;
@@ -10812,6 +10836,30 @@ export interface paths {
         /** Where this line's calls lose people, its mistakes, and why people said no */
         get: operations["line_diagnosis_v1_inbound_lines__line_id__diagnosis_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/give-callers-time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether this line's calls give a quiet caller time
+         * @description On, a quiet caller is asked whether they are still there after 20 s, up to 3 times, and the call ends after 120 s of silence, so a caller doing what the agent asked on their phone is not hung up on. It covers the call settings the agent and account leave at Calevate's default. Until the owner chooses, it is on when the script asks the caller to act on their phone (`script_asks`); a choice is kept.
+         */
+        get: operations["line_give_time_v1_inbound_lines__line_id__give_callers_time_get"];
+        /**
+         * Switch giving a quiet caller time on or off for this line
+         * @description On, a quiet caller is asked whether they are still there after 20 s, up to 3 times, and the call ends after 120 s of silence, so a caller doing what the agent asked on their phone is not hung up on. It covers the call settings the agent and account leave at Calevate's default. Until the owner chooses, it is on when the script asks the caller to act on their phone (`script_asks`); a choice is kept. A live line is put live again with the choice.
+         */
+        put: operations["set_line_give_time_v1_inbound_lines__line_id__give_callers_time_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -27236,6 +27284,31 @@ export interface components {
             refusal_reasons: components["schemas"]["RefusalReasonOut"][];
             /** Window Days */
             window_days: number;
+        };
+        /** HolderGiveTimeIn */
+        HolderGiveTimeIn: {
+            /** On */
+            on: boolean;
+        };
+        /**
+         * HolderGiveTimeOut
+         * @description "Give callers time" on this campaign or line (`agents/give_callers_time`).
+         */
+        HolderGiveTimeOut: {
+            /** Call Cap S */
+            call_cap_s: number;
+            /** End After Silence Seconds */
+            end_after_silence_seconds: number;
+            /** Nudge After Seconds */
+            nudge_after_seconds: number;
+            /** Nudge Count */
+            nudge_count: number;
+            /** On */
+            on: boolean;
+            /** Owner Choice */
+            owner_choice: boolean | null;
+            /** Script Asks */
+            script_asks: boolean;
         };
         /** HolderMistakeOut */
         HolderMistakeOut: {
@@ -54868,6 +54941,72 @@ export interface operations {
             };
         };
     };
+    campaign_give_time_v1_campaigns__campaign_id__give_callers_time_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HolderGiveTimeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_campaign_give_time_v1_campaigns__campaign_id__give_callers_time_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HolderGiveTimeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HolderGiveTimeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     campaign_insights_v1_campaigns__campaign_id__insights_get: {
         parameters: {
             query?: never;
@@ -61241,6 +61380,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HolderDiagnosisOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    line_give_time_v1_inbound_lines__line_id__give_callers_time_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HolderGiveTimeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_line_give_time_v1_inbound_lines__line_id__give_callers_time_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HolderGiveTimeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HolderGiveTimeOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -413,6 +413,7 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Only when turns end by ear. Spoken in the agent's voice and billed as voice "
         "characters on Studio.",
         _THINNEST,
+        details="Off by default: the agent waits silently while the caller pauses.",
     ),
     "thinnest_early_answers": _m(
         "voice-engine",

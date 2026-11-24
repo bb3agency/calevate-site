@@ -4430,7 +4430,7 @@ class AgentConfig(BaseModel):
     #: `thinnest_acknowledgements`, or an operator's per-agent `agents.turn_detection` (D-901).
     #: Excluded from every dump for `detect_machines`' reason.
     turn_detection: TurnDetection = Field(default="timer", exclude=True)
-    acknowledgements: bool = Field(default=True, exclude=True)
+    acknowledgements: bool = Field(default=False, exclude=True)
     #: Whether the engine starts a reply before the caller has finished (D-852): the
     #: console's `thinnest_early_answers`. Excluded from every dump for `detect_machines`'
     #: reason.

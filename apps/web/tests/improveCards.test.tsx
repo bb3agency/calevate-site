@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ImproveTab } from "@/app/c/[slug]/campaigns/CampaignBoosters";
 import { DiagnoseCards } from "@/components/improve/DiagnoseCards";
 import { DropOffCard } from "@/components/improve/DropOffCard";
+import { GiveCallersTimeCard } from "@/components/improve/GiveCallersTimeCard";
 import { MistakesCard } from "@/components/improve/MistakesCard";
 import { OpeningLossCard } from "@/components/improve/OpeningLossCard";
 import { RefusalReasonsCard } from "@/components/improve/RefusalReasonsCard";
@@ -13,7 +14,7 @@ import type { Holder, HolderDiagnosis } from "@/lib/api/improve";
 
 import { expectNoA11yViolations } from "./a11y";
 import { FIXTURE_CAMPAIGN_ID, detailRoutes } from "./campaignFixtures";
-import { EMPTY_DIAGNOSIS } from "./fixtures/diagnosis";
+import { EMPTY_DIAGNOSIS, GIVE_TIME_ON } from "./fixtures/diagnosis";
 import { renderClientPage, stillLoading, type Routes } from "./harness";
 
 /**
@@ -282,5 +283,43 @@ describe("where the cards are placed", () => {
       "Your latest test call",
     ]);
     expect(titles).toContain("Best time to call");
+    expect(titles).toContain("Give callers time");
+  });
+});
+
+describe("Give callers time on a campaign or line (founder, 25 Nov 2026)", () => {
+  const PATH = { campaign: "/v1/campaigns/camp-1/give-callers-time", line: "/v1/inbound-lines/line-1/give-callers-time" };
+
+  it("says it is on because the script asks callers to act, and the owner can turn it off", async () => {
+    const { calls, container } = await renderClientPage(
+      <GiveCallersTimeCard slug="acme" holder={LINE} canWrite />,
+      {
+        "/v1/me": OWNER,
+        [`GET ${PATH.line}`]: GIVE_TIME_ON,
+        [`PUT ${PATH.line}`]: { ...GIVE_TIME_ON, on: false, owner_choice: false },
+      },
+    );
+    expect(
+      await screen.findByText("On, because the script asks callers to do things on their phone."),
+    ).toBeTruthy();
+    await expectNoA11yViolations(container, "Give callers time, on by the script");
+    const toggle = screen.getByRole("switch", { name: /Give quiet callers time/ }) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    fireEvent.click(toggle);
+    await screen.findByText("Off. You turned it off.");
+    const sent = calls.filter((c) => c.method === "PUT" && c.path === PATH.line);
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0].body ?? "{}")).toEqual({ on: false });
+  });
+
+  it("holds the switch and says why for someone who cannot change it", async () => {
+    await renderClientPage(
+      <GiveCallersTimeCard slug="acme" holder={CAMPAIGN} canWrite={false} refusal="Only an account owner can start or run campaigns." />,
+      { "/v1/me": OWNER, [PATH.campaign]: { ...GIVE_TIME_ON, on: false, script_asks: false } },
+    );
+    const toggle = (await screen.findByRole("switch", { name: /Give quiet callers time/ })) as HTMLInputElement;
+    expect(toggle.disabled).toBe(true);
+    expect(screen.getByText("Off. The script does not ask callers to do things on their phone.")).toBeTruthy();
+    expect(screen.getByText("Only an account owner can start or run campaigns.")).toBeTruthy();
   });
 });

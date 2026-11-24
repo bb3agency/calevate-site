@@ -25,6 +25,7 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { TEXT_ACTION, TEXT_ACTION_SM } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { DiagnoseCards } from "@/components/improve/DiagnoseCards";
+import { GiveCallersTimeCard } from "@/components/improve/GiveCallersTimeCard";
 import { ScriptDraftLive } from "@/components/scriptDraft/ScriptDraftLive";
 import {
   FIELD,
@@ -204,6 +205,7 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
         <FoldSection id="line-improve" title="Improve" tone="results" hint="Where its calls lose people, and the fixes.">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <DiagnoseCards slug={slug} holder={{ kind: "inbound_line", id: data.id }} canWrite={write.allowed} refusal={refusal} />
+            <GiveCallersTimeCard slug={slug} holder={{ kind: "inbound_line", id: data.id }} canWrite={write.allowed} refusal={refusal} />
           </div>
         </FoldSection>
         <ArchiveSection {...props} slug={slug} />

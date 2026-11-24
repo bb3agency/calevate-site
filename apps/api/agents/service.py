@@ -623,6 +623,9 @@ class AgentRow(TypedDict):
     turn_detection: NotRequired[TurnDetection | None]
     #: The caller follows the agent's steps on a screen of their own (D-906).
     caller_has_screen: NotRequired[bool]
+    #: Set on a campaign's or line's row whose engine agent carries "Give callers time"
+    #: (`agents/give_callers_time.holder_row`); never on an agent's own.
+    holder_gives_time: NotRequired[bool]
 
 
 #: Where `_load_agent`'s call settings start, the account's follow, and the columns after them.
@@ -986,7 +989,13 @@ def _call_settings_fields(agent: AgentRow, *, languages: Sequence[str]) -> dict[
         turn_silence_ms=agent.get("organization_turn_silence_ms"),
         end_call_on_finish=agent.get("organization_end_call_on_finish"),
     )
-    v = resolve_settings(own, organization, own_turn_detection=agent.get("turn_detection")).values
+    resolved = resolve_settings(own, organization, own_turn_detection=agent.get("turn_detection"))
+    v = resolved.values
+    if agent.get("holder_gives_time"):
+        # Imported here: `give_callers_time` imports this module.
+        from apps.api.agents.give_callers_time import over_platform_level
+
+        v = over_platform_level(resolved, languages[0])
     after = v.nudge_after_seconds
     return {
         "turn_silence_ms": v.turn_silence_ms,
@@ -4350,12 +4359,13 @@ async def line_config(
     `script` stands in for the saved one, so a save is measured on what put-live would send
     before it is stored (`script_builder.refuse_job_if_too_long`)."""
     from apps.api.actions import service as actions_service
+    from apps.api.agents.give_callers_time import holder_gives_time, holder_row
     from apps.api.agents.script_builder import line_collect_fields
 
     line = (
         await session.execute(
             text(
-                "SELECT agent_id, name, script, actions_off FROM inbound_lines "
+                "SELECT agent_id, name, script, actions_off, give_callers_time FROM inbound_lines "
                 "WHERE id = :lid AND archived_at IS NULL"
             ),
             {"lid": line_id},
@@ -4379,9 +4389,13 @@ async def line_config(
     handoff, _duty = await handoff_module.spec_for(session, dict(agent))
     off = set(line.actions_off or ())
     tools = await actions_service.declare(session, agent_id=agent_id, direction="inbound")
+    row = holder_row(
+        dict(_line_agent_row(agent, script, body)),
+        on=holder_gives_time(line.give_callers_time, script),
+    )
     return _to_config(
         tenant_id,
-        _line_agent_row(agent, script, body),
+        cast(AgentRow, row),
         engine=engine,
         handoff=handoff,
         keep_placed_opening=True,
@@ -4836,12 +4850,16 @@ async def campaign_agent_row(
     A campaign with no script of its own (made before D-992) speaks the agent's script,
     asking for the campaign's own list. `script` stands in for the saved one, for a save
     measured before it is stored (`script_builder.refuse_job_if_too_long`)."""
+    from apps.api.agents.give_callers_time import holder_gives_time, holder_row
     from apps.api.agents.script_builder import campaign_collect_fields
     from apps.api.campaigns.settings import apply_overrides
 
     camp = (
         await session.execute(
-            text("SELECT agent_id, script, settings_overrides FROM campaigns WHERE id = :cid"),
+            text(
+                "SELECT agent_id, script, settings_overrides, give_callers_time FROM campaigns "
+                "WHERE id = :cid"
+            ),
             {"cid": campaign_id},
         )
     ).first()
@@ -4860,7 +4878,13 @@ async def campaign_agent_row(
         collect = await campaign_collect_fields(session, campaign_id)
         body = compile_call_script(script, collect=collect)
         row = _line_agent_row(agent, script, body)
-    held = cast(AgentRow, apply_overrides(dict(row), camp.settings_overrides))
+    held = cast(
+        AgentRow,
+        holder_row(
+            apply_overrides(dict(row), camp.settings_overrides),
+            on=holder_gives_time(camp.give_callers_time, script),
+        ),
+    )
     # A campaign only places calls, whatever its voice answers; it answers no number, so it
     # holds none of its own and calls out on one lent to it for each call (`dispatch_call`).
     held["direction"] = "outbound"

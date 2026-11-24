@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.40 — 25-Nov-2026
+
+- A campaign or Inbound line whose script asks the caller to do things on their phone gives
+  callers time on its own: longer before a nudge, up to three nudges, and no hang-up for two
+  minutes of quiet. "Give callers time" on Improve lets you switch it on or off yourself.
+- Agents no longer add the voice platform's short filler whenever the caller pauses.
+- Existing campaigns retry at a different time of day too, unless you changed their retries.
+- A new second-opening test counts only calls made after it starts.
+- Only the account owner can set up a campaign's WhatsApp follow-up, as on the WhatsApp page.
+
 ## 0.5.39 — 25-Nov-2026
 
 - After giving the caller something to do, the agent invites them to say when it is done and

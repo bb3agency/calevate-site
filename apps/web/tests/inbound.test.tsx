@@ -11,7 +11,7 @@ import type { InboundLine } from "@/lib/api/inboundLines";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 
 import { businessProfileFixture } from "./businessProfileFixture";
-import { EMPTY_DIAGNOSIS } from "./fixtures/diagnosis";
+import { EMPTY_DIAGNOSIS, GIVE_TIME_ON } from "./fixtures/diagnosis";
 import { scriptVersionsFixture } from "./campaignFixtures";
 import { jobTeamAlert } from "./fixtures/sharedReads";
 import { problem, renderClientPage, type ApiCall, type Routes } from "./harness";
@@ -144,6 +144,7 @@ const lineRoutes = (current: InboundLine, extra: Routes = {}): Routes => ({
   [`/v1/inbound-lines/${LINE_ID}/test-calls`]: [],
   // The Improve section's readings, for a line with no calls yet.
   [`/v1/inbound-lines/${LINE_ID}/diagnosis`]: EMPTY_DIAGNOSIS,
+  [`/v1/inbound-lines/${LINE_ID}/give-callers-time`]: GIVE_TIME_ON,
   [`/v1/inbound-lines/${LINE_ID}/test-numbers`]: { numbers: [] },
   [`/v1/inbound-lines/${LINE_ID}/script/versions`]: scriptVersionsFixture(),
   [`/v1/inbound-lines/${LINE_ID}/notes`]: { agent_id: "agent-1", agent_name: "Front desk", fields: [], core_fields: [], digest: "empty", applied_now: false },

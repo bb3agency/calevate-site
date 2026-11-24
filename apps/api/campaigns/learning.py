@@ -212,8 +212,11 @@ class OpeningResult:
 
 
 async def opening_results(session: AsyncSession, campaign_id: UUID) -> list[OpeningResult]:
-    """Per opening, over every call each person was given (all their tries), the people who
-    heard it, picked up, stayed, and reached the goal."""
+    """Per opening, over every call each person was given (all their tries) since the test
+    began (`campaigns.opening_test_started_at`), the people who heard it, picked up, stayed,
+    and reached the goal. A person's label is fixed by their contact id and outlives a test,
+    so a person counts only with a call inside this test; a test begun before the start was
+    recorded counts every call."""
     rows = (
         await session.execute(
             text(
@@ -224,10 +227,15 @@ async def opening_results(session: AsyncSession, campaign_id: UUID) -> list[Open
                 f"COALESCE(bool_or({_PICKED_UP}), false) AS picked_up, "
                 f"COALESCE(bool_or({_STAYED}), false) AS stayed, "
                 "COALESCE(bool_or(c.goal_reached = 'yes'), false) AS reached "
-                "FROM campaign_contacts cc LEFT JOIN calls c ON c.campaign_id = cc.campaign_id "
+                "FROM campaigns camp JOIN campaign_contacts cc ON cc.campaign_id = camp.id "
+                "LEFT JOIN calls c ON c.campaign_id = cc.campaign_id "
                 "AND c.to_e164 = cc.phone_e164 AND c.direction = 'outbound' "
-                "WHERE cc.campaign_id = :cid AND cc.opening_variant IS NOT NULL "
-                "GROUP BY cc.id, cc.opening_variant) person GROUP BY variant"
+                "AND (camp.opening_test_started_at IS NULL "
+                "OR c.created_at >= camp.opening_test_started_at) "
+                "WHERE camp.id = :cid AND cc.opening_variant IS NOT NULL "
+                "GROUP BY cc.id, cc.opening_variant, camp.opening_test_started_at "
+                "HAVING camp.opening_test_started_at IS NULL OR count(c.id) > 0"
+                ") person GROUP BY variant"
             ),
             {"cid": campaign_id},
         )

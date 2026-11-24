@@ -373,6 +373,34 @@ def tells_caller_to_act(clause: str) -> bool:
     return bool(_CALLER_ACTION.match(_LEAD_IN.sub("", clause.strip())))
 
 
+#: Where a spoken line's clauses end, for reading it one instruction at a time.
+_LINE_CLAUSE_END: Final = re.compile(r"[.!?;\n]+")
+
+
+def _gives_an_action(line: str) -> bool:
+    return any(tells_caller_to_act(clause) for clause in _LINE_CLAUSE_END.split(line))
+
+
+def asks_caller_to_act(script: CallScript) -> bool:
+    """Whether a script has the caller do things on their own phone during the call: a
+    section with a step-by-step list, an instruction that stacks several on-screen actions
+    (`stacked_actions`), or a line the agent says that gives one ("Now tap Register."). What
+    switches "Give callers time" on for a campaign or line (`agents/give_callers_time.
+    holder_gives_time`). English words only, as `tells_caller_to_act`; a step-by-step list is
+    read by structure, in any language. A raw script is not read: it is written to the agent
+    ("Open with a greeting"), so its verbs are not the caller's, and the owner can still
+    switch the preset on for that holder."""
+    if script.raw_override is not None:
+        return False
+    for stage in script.stages:
+        if stage.procedure or stacked_actions(stage.instruction):
+            return True
+        spoken = (stage.sounds_like, *stage.scripts.values(), *(qa.answer for qa in stage.qa))
+        if any(_gives_an_action(line) for line in spoken):
+            return True
+    return any(_gives_an_action(faq.answer) for faq in script.faqs)
+
+
 #: Words of a lead detail's label that say nothing about which detail it is.
 _GENERIC_WORDS: Final = frozenset(
     {
@@ -1438,6 +1466,7 @@ __all__ = [
     "answer_lines",
     "answered_opening",
     "asks_a_time",
+    "asks_caller_to_act",
     "bracket_problems",
     "caller_paths",
     "collected_label",
