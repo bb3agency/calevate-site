@@ -87,12 +87,18 @@ from apps.api.first_run.models import KNOWLEDGE_DOCUMENT_CHARS
 from apps.api.tenancy.business_copy import provider_words
 from apps.workers.campaign_script_ask import quoted_in
 from apps.workers.company_training_draft import figures_in, knowledge_words
+from apps.workers.extraction import SpentRefusalError
 from apps.workers.first_run import documents_block
 from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.lead_fields_draft import business_context
 from apps.workers.opening_notices import put_holder_live
 from apps.workers.redaction import redact
-from apps.workers.script_assist import JsonAnswer, UnusableAnswerError, ask_json
+from apps.workers.script_assist import (
+    ANSWER_UNUSABLE_CODE,
+    JsonAnswer,
+    UnusableAnswerError,
+    ask_json,
+)
 from apps.workers.script_proposal import PROPOSAL_REQUEST_TIMEOUT_S
 
 log = get_logger(__name__)
@@ -662,6 +668,12 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
         words = await knowledge_words(session, only=holder.source_ids or None)
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
+    if quota.at_ceiling or quota.platform_paused:
+        # Skipped, not failed, and the read not remembered: a refusal for the allowance would
+        # record this script as asked about, and the sweep would never write its outcomes
+        # once the allowance renews (`script_heal._run` waits the same way).
+        await _finish(tenant_id, kind, holder_id, "skipped")
+        return "skipped"
     business, _vertical = await business_context(tenant_id, include_type=False)
     documents = documents_block(words, budget=KNOWLEDGE_DOCUMENT_CHARS)
     request = request_text(holder, business=business, documents=documents)
@@ -696,14 +708,16 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
                 session, tenant_id=tenant_id, refusal=refused, feature=feature
             )
         log.info("step_outcomes_refused", extra={"reason": refused.code, "kind": kind})
-        # A refusal that can pass (no answer this time) is tried again; one that would only
-        # repeat on the same script waits for the script to change.
+        # A model that answered with outcomes the checks refused would only repeat itself on
+        # the same script, so that read is remembered and waits for the script to change. A
+        # ladder no model answered (an outage, a missing key) is tried again by the sweep.
+        answered = refused.code == ANSWER_UNUSABLE_CODE or isinstance(refused, SpentRefusalError)
         await _finish(
             tenant_id,
             kind,
             holder_id,
             "failed",
-            digest=None if refused.kind == "transient" else digest,
+            digest=digest if answered and refused.kind != "transient" else None,
         )
         return refused.code
     result = await _save(tenant_id, holder, request, answer, digest)

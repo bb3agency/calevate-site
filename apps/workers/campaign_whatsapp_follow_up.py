@@ -47,10 +47,11 @@ from apps.api.tenancy.business_copy import provider_words
 from apps.api.whatsapp.templates import client_template_languages
 from apps.workers.campaign_script_ask import quoted_in
 from apps.workers.company_training_draft import figures_in, knowledge_words
+from apps.workers.extraction import QUOTA_EXHAUSTED_REASON, SpentRefusalError
 from apps.workers.first_run import documents_block
 from apps.workers.lead_fields_draft import business_context
 from apps.workers.redaction import redact
-from apps.workers.script_assist import JsonAnswer, ask_json
+from apps.workers.script_assist import ANSWER_UNUSABLE_CODE, JsonAnswer, ask_json
 from apps.workers.script_proposal import PROPOSAL_REQUEST_TIMEOUT_S
 
 log = get_logger(__name__)
@@ -158,6 +159,19 @@ def accepted(raw: dict[str, Any], *, campaign: Campaign, material: str) -> Writt
     return Written(message=body, outcomes=list(dict.fromkeys(chosen)))
 
 
+def failure_of(refused: ProblemError) -> str:
+    """The card's `FAILURES` code for a refusal from the AI ladder. Only a model that answered
+    with a message the checks could not stand behind asks the owner for more detail: a
+    used-up allowance, and a ladder no model answered, are not fixed by writing more in the
+    main task. An answer `accepted` refused comes back as a paid turn on the refusal
+    (`SpentRefusalError`), whatever refusal code the ladder ends on."""
+    if refused.code == f"assist_{QUOTA_EXHAUSTED_REASON}":
+        return "allowance"
+    if refused.code == ANSWER_UNUSABLE_CODE or isinstance(refused, SpentRefusalError):
+        return "not_written"
+    return "unavailable"
+
+
 async def _read(tenant_id: UUID, campaign_id: UUID) -> Campaign | str:
     """The campaign as the pass reads it, or the `FAILURES` code that stops it."""
     from apps.api.kb.picks import CAMPAIGN_PICKS, read_picks
@@ -261,7 +275,7 @@ async def _run(tenant_id: UUID, campaign_id: UUID) -> str:
                 session, tenant_id=tenant_id, refusal=refused, feature=feature
             )
         log.info("campaign_whatsapp_follow_up_refused", extra={"reason": refused.code})
-        code = "unavailable" if refused.kind == "transient" else "not_written"
+        code = failure_of(refused)
         await _finish(tenant_id, campaign_id, "failed", code)
         return refused.code
     async with tenant_session(tenant_id) as session:
@@ -327,6 +341,7 @@ __all__ = [
     "Campaign",
     "Written",
     "accepted",
+    "failure_of",
     "request_text",
     "write_campaign_whatsapp_follow_up",
 ]

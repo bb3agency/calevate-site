@@ -28,6 +28,15 @@ from apps.api.follow_ups import definition as d
 from apps.api.follow_ups import runner, service
 from apps.api.whatsapp import accounts, graph
 from apps.workers import campaign_whatsapp_follow_up as worker
+from apps.workers.extraction import (
+    PROVIDER_UNAVAILABLE_REASON,
+    QUOTA_EXHAUSTED_REASON,
+    AssistCapability,
+    PaidTurn,
+    SpentRefusalError,
+    assist_unavailable,
+)
+from apps.workers.script_assist import ANSWER_UNUSABLE_CODE
 from sqlalchemy import text
 from tests.follow_ups_runs_test import _call
 from tests.lead_columns_test import Tenant, _client, _lead, _tenant
@@ -113,7 +122,13 @@ def _stub_model(monkeypatch: pytest.MonkeyPatch, raw: dict[str, Any]) -> None:
     async def fake_ask_json(_request: str, _instruction: str, **kwargs: Any) -> Any:
         value = kwargs["parse"](raw)
         if value is None:
-            raise ProblemError(kind="validation", code="assist_unusable", title="x", detail="x")
+            # As the ladder ends on an answer `accepted` refused: the paid turn rides along.
+            raise SpentRefusalError(
+                assist_unavailable(
+                    AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
+                ),
+                [PaidTurn(usage=None, capability=AssistCapability(available=True))],
+            )
         return SimpleNamespace(value=value, earlier=(), model=None, capability=None)
 
     async def no_meter(*_args: Any, **_kwargs: Any) -> None:
@@ -223,7 +238,9 @@ async def test_a_message_not_grounded_in_the_campaign_is_never_sent_for_review(
     await _connect(t, monkeypatch)
     invented = {**GROUNDED, "quote": "Fifty percent off this week only"}
 
-    assert await _set_up_and_write(t, campaign_id, monkeypatch, invented) == "assist_unusable"
+    assert await _set_up_and_write(t, campaign_id, monkeypatch, invented) == (
+        f"assist_{PROVIDER_UNAVAILABLE_REASON}"
+    )
 
     card = await _card(t, campaign_id)
     assert card.phase == "failed"
@@ -233,6 +250,20 @@ async def test_a_message_not_grounded_in_the_campaign_is_never_sent_for_review(
             await session.execute(text("SELECT count(*) FROM whatsapp_templates"))
         ).scalar() == 0
         assert (await session.execute(text("SELECT count(*) FROM follow_ups"))).scalar() == 0
+
+
+def test_only_an_answer_that_failed_its_checks_asks_for_more_detail() -> None:
+    nobody = assist_unavailable(
+        AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
+    )
+    paid = [PaidTurn(usage=None, capability=AssistCapability(available=True))]
+    used_up = assist_unavailable(AssistCapability(available=False, reason=QUOTA_EXHAUSTED_REASON))
+    unusable = ProblemError.business_rule(ANSWER_UNUSABLE_CODE, "Unusable.")
+    assert worker.failure_of(nobody) == "unavailable", "no model answered: try again"
+    assert worker.failure_of(SpentRefusalError(nobody, paid)) == "not_written"
+    assert worker.failure_of(unusable) == "not_written"
+    assert worker.failure_of(used_up) == "allowance"
+    assert cw.FAILURES["allowance"] != cw.FAILURES["not_written"]
 
 
 def test_a_figure_or_blank_the_material_lacks_is_refused() -> None:
