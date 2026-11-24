@@ -5,7 +5,8 @@
  * call; each box in it a scenario (2.1, 2.2, …). A scenario's green dot leads to the
  * scenarios it can go on to, drawn as arrows into the left of their boxes. A box is chosen
  * with a click (its editor opens beside the picture), and a right click offers what can be
- * done to it. Dragging from the dot onto another box links them.
+ * done to it. Dragging from the dot onto another box links them; a link is removed where it
+ * is drawn (`Columns`), from its box's menu, or from the "Next" chips when stacked.
  *
  * The call's opening is the first box, left of step 1 and linked into it, because every call
  * starts with those words and whether now suits; "not now" points to the end it reaches.
@@ -23,8 +24,11 @@ import {
   MoreHorizontal,
   Plus,
   Trash2,
+  Unlink,
+  X,
 } from "lucide-react";
 import {
+  Fragment,
   useEffect,
   useId,
   useMemo,
@@ -36,6 +40,7 @@ import {
 } from "react";
 
 import { TextShimmer } from "@/components/arc/text-shimmer";
+import { useToast } from "@/components/arc/toast";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import { FIELD, SECONDARY_BUTTON_SM, ToggleSwitch } from "@/components/ui";
 import type { WriteAccess } from "@/lib/api/hooks";
@@ -194,10 +199,13 @@ export function ScenarioFlow({
   wide,
   onSelect,
   onChange,
+  onUndo,
   agent,
   hear,
   onEditOpening,
 }: {
+  /** The canvas's own Undo, offered by the toast after a link is removed. */
+  onUndo?: () => void;
   /** Opens the script where the opening line is edited; absent when this person cannot. */
   onEditOpening?: () => void;
   /** The campaign's agent, whose voice "Hear it" speaks in; null while none is chosen. */
@@ -216,13 +224,67 @@ export function ScenarioFlow({
   /** The picture beside the editor (desktop); false stacks the steps. */
   wide: boolean;
   onSelect: (id: string | null) => void;
-  onChange: (next: CallScript) => void;
+  /** `discrete`: one deliberate act, its own Undo step (`CampaignFlow.commit`). */
+  onChange: (next: CallScript, discrete?: boolean) => void;
 }) {
   const items = useMemo(() => placed(sectionsOf(script)), [script]);
   const steps = Math.max(0, ...items.map((p) => p.step));
   const full = items.length >= limits.maxSections;
   const opening = useMemo(() => flowOpening(script), [script]);
   const [menu, setMenu] = useState<Menu | null>(null);
+  const toasts = useToast();
+
+  // Where a link goes, as people read it: "3.1 Setup farms", or an end's own words.
+  const named = (target: string) => {
+    const end = lookup(END_NAMES, target);
+    if (end) return { short: end, full: end };
+    const p = items.find((q) => q.section.id === target);
+    return p
+      ? { short: p.label, full: `${p.label} ${p.section.name.trim() || "Untitled"}` }
+      : { short: "?", full: "?" };
+  };
+
+  // The toast's Undo is the canvas's Undo, so it is offered only while the removal is still
+  // the latest change: once anything else changes, that Undo would take back something else.
+  const unlinked = useRef<{ toast: string; after: CallScript } | null>(null);
+  // The toast outlives the render that made it, whose `onUndo` still sees no history.
+  const undoLatest = useRef(onUndo);
+  useEffect(() => {
+    undoLatest.current = onUndo;
+  }, [onUndo]);
+  useEffect(() => {
+    const last = unlinked.current;
+    if (last && last.after !== script) {
+      toasts.dismiss(last.toast);
+      unlinked.current = null;
+    }
+  }, [script, toasts]);
+
+  /** Removes one link: the same `setNext` the editor's "Next scenarios" ticks go through. */
+  const unlink = (from: string, to: string) => {
+    const source = items.find((p) => p.section.id === from);
+    if (!source) return;
+    const after = setNext(
+      script,
+      from,
+      source.section.branches.map((b) => b.target).filter((t) => t !== to),
+    );
+    onChange(after, true);
+    const toast = toasts.toast({
+      id: "flow-unlink",
+      kind: "success",
+      title: `Unlinked ${source.label} → ${named(to).short}`,
+      action: onUndo
+        ? {
+            label: "Undo",
+            onClick: () => {
+              if (unlinked.current?.after === after) undoLatest.current?.();
+            },
+          }
+        : undefined,
+    });
+    unlinked.current = { toast, after };
+  };
 
   const add = (
     step: number,
@@ -298,6 +360,12 @@ export function ScenarioFlow({
         ),
         run: () => onChange(shiftInStep(script, item.section.id, 1)),
       });
+      for (const b of item.section.branches)
+        list.push({
+          label: `Unlink from ${named(b.target).full}`,
+          icon: <Unlink className="h-3.5 w-3.5" />,
+          run: () => unlink(item.section.id, b.target),
+        });
       list.push({
         label: "Delete scenario",
         icon: <Trash2 className="h-3.5 w-3.5" />,
@@ -361,6 +429,8 @@ export function ScenarioFlow({
         onOutcome={(step, text) => onChange(setOutcome(script, step, text))}
         opening={opening}
         onEditOpening={onEditOpening}
+        onUnlink={readOnly ? undefined : unlink}
+        named={(id) => named(id).full}
         onLink={(from, to) => {
           const source = items.find((p) => p.section.id === from)?.section;
           if (!source) return "That scenario is gone.";
@@ -372,6 +442,7 @@ export function ScenarioFlow({
               ...source.branches.map((b) => b.target),
               to,
             ]),
+            true,
           );
           return null;
         }}
@@ -392,6 +463,8 @@ export function ScenarioFlow({
         editor={editor}
         opening={opening}
         onEditOpening={onEditOpening}
+        onUnlink={readOnly ? undefined : unlink}
+        named={(id) => named(id).full}
       />
     );
 
@@ -455,7 +528,13 @@ function Columns({
   writing,
   opening,
   onEditOpening,
+  onUnlink,
+  named,
 }: {
+  /** Removes the link `from` → `to`; absent for a person who cannot change the flow. */
+  onUnlink?: (from: string, to: string) => void;
+  /** "3.1 Setup farms", or an end's words, for a link's spoken name. */
+  named: (id: string) => string;
   items: Placed[];
   steps: number;
   selected: string | null;
@@ -519,11 +598,55 @@ function Columns({
   };
   const hovered = linking ? boxAt(linking.to, linking.from) : null;
 
+  // A link is a target of its own, as in node-graph editors: React Flow draws an invisible
+  // wider path around each edge "to make them easier to click or tap on", and selects one
+  // with a click for its delete key (`interactionWidth`, `deleteKeyCode` default
+  // 'Backspace': reactflow.dev/api-reference/types/edge and /react-flow); n8n shows a delete
+  // button on the connection the pointer is over (docs.n8n.io/workflows/connections). Here
+  // the removal control is a real button at the link's middle, so a keyboard reaches it
+  // with Tab after the box the link leaves, and Delete, Backspace or Enter removes it.
+  const [chosenLink, setChosenLink] = useState<string | null>(null);
+  const [hoverLink, setHoverLink] = useState<string | null>(null);
+  const leave = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (leave.current) clearTimeout(leave.current);
+  }, []);
+  const unlinkButtons = useRef(new Map<string, HTMLButtonElement>());
+  const removable = (l: { from: string; kind: string }) =>
+    Boolean(onUnlink) && l.from !== OPENING_KEY && l.kind !== "not-now";
+  const hoverOn = (key: string) => {
+    if (leave.current) clearTimeout(leave.current);
+    setHoverLink(key);
+  };
+  // A short grace on leaving, so the pointer can cross from the thin line onto its button.
+  const hoverOff = (key: string) => {
+    if (leave.current) clearTimeout(leave.current);
+    leave.current = setTimeout(() => setHoverLink((h) => (h === key ? null : h)), 150);
+  };
+  const removeLink = (l: { from: string; to: string }) => {
+    setChosenLink(null);
+    setHoverLink(null);
+    onUnlink?.(l.from, l.to);
+    // The button goes with its link; focus lands on the box the link left, not the page.
+    Array.from(plane.current?.querySelectorAll<HTMLElement>("[data-scenario]") ?? [])
+      .find((el) => el.dataset.scenario === l.from)
+      ?.querySelector<HTMLButtonElement>(":scope > button")
+      ?.focus();
+  };
+
+  const activeLink = layout.links.some((l) => l.key === (chosenLink ?? hoverLink))
+    ? (chosenLink ?? hoverLink)
+    : null;
   const focus = selected ?? pointed;
   const links = layout.links.map((l) => ({
     ...l,
-    lit: focus == null || focus === l.from || focus === l.to,
+    lit: activeLink
+      ? activeLink === l.key
+      : focus == null || focus === l.from || focus === l.to,
   }));
+  const strong = activeLink != null || focus != null;
+  const middle = (l: (typeof links)[number]) =>
+    l.samples[Math.floor(l.samples.length / 2)] ?? l.end;
   const point = (id: string) => ({
     onPointerEnter: () => setPointed(id),
     onPointerLeave: () => setPointed((p) => (p === id ? null : p)),
@@ -634,7 +757,27 @@ function Columns({
               d={l.d}
               fill="none"
               style={{ stroke: l.color, opacity: l.lit ? 1 : 0.25 }}
-              strokeWidth={l.lit && focus ? 2.25 : 1.75}
+              strokeWidth={l.lit && strong ? 2.25 : 1.75}
+            />
+          ))}
+          {/* Each removable link's wide, invisible hit path: a click or a tap chooses it. */}
+          {links.filter(removable).map((l) => (
+            <path
+              key={`${l.key}-hit`}
+              data-link-hit={l.key}
+              d={l.d}
+              fill="none"
+              stroke="transparent"
+              strokeWidth={16}
+              className="cursor-pointer"
+              style={{ pointerEvents: "stroke" }}
+              onPointerEnter={() => hoverOn(l.key)}
+              onPointerLeave={() => hoverOff(l.key)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setChosenLink(l.key);
+                unlinkButtons.current.get(l.key)?.focus({ preventScroll: true });
+              }}
             />
           ))}
           {links.map((l) => (
@@ -715,8 +858,8 @@ function Columns({
           const scripts = Object.keys(p.section.scripts ?? {}).length;
           const qa = p.section.qa?.length ?? 0;
           return (
+            <Fragment key={p.section.id}>
             <div
-              key={p.section.id}
               data-scenario={p.section.id}
               className={`absolute rounded-card ${hovered === p.section.id ? "ring-2 ring-brand ring-offset-2" : ""}`}
               style={{ left: b.x, top: b.y, width: b.w, height: b.h }}
@@ -807,6 +950,50 @@ function Columns({
                 />
               )}
             </div>
+            {/* Its links' remove buttons, next in Tab order to the box they leave. */}
+            {links
+              .filter((l) => l.from === p.section.id && removable(l))
+              .map((l) => {
+                const m = middle(l);
+                const shown = activeLink === l.key;
+                return (
+                  <button
+                    key={`${l.key}-unlink`}
+                    ref={(el) => {
+                      if (el) unlinkButtons.current.set(l.key, el);
+                      else unlinkButtons.current.delete(l.key);
+                    }}
+                    type="button"
+                    data-unlink={l.key}
+                    data-shown={shown}
+                    aria-label={`Remove the link from ${named(l.from)} to ${named(l.to)}`}
+                    aria-keyshortcuts="Delete Backspace"
+                    title="Remove this link"
+                    className="absolute flex h-6 w-6 scale-90 items-center justify-center rounded-full border border-line bg-surface text-ink-muted opacity-0 shadow-raised transition-[opacity,transform] duration-fast ease-out pointer-events-none before:absolute before:-inset-2 before:content-[''] hover:border-danger hover:text-danger focus-visible:pointer-events-auto focus-visible:scale-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand active:scale-[0.97] data-[shown=true]:pointer-events-auto data-[shown=true]:scale-100 data-[shown=true]:opacity-100 motion-reduce:scale-100 motion-reduce:transition-opacity"
+                    style={{ left: m.x - 12, top: m.y - 12 }}
+                    onPointerEnter={() => hoverOn(l.key)}
+                    onPointerLeave={() => hoverOff(l.key)}
+                    onFocus={() => setChosenLink(l.key)}
+                    onBlur={() => setChosenLink((c) => (c === l.key ? null : c))}
+                    onClick={() => removeLink(l)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Delete" || e.key === "Backspace") {
+                        e.preventDefault();
+                        removeLink(l);
+                      } else if (e.key === "Escape") {
+                        // Deselects the link only; the full-screen dialog stays open.
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setChosenLink(null);
+                        e.currentTarget.blur();
+                      }
+                    }}
+                  >
+                    <X aria-hidden className="h-3.5 w-3.5" />
+                  </button>
+                );
+              })}
+            </Fragment>
           );
         })}
       </div>
@@ -891,9 +1078,13 @@ function Stacked({
   writing,
   opening,
   onEditOpening,
+  onUnlink,
+  named,
 }: {
   opening: FlowOpening;
   onEditOpening?: () => void;
+  onUnlink?: (from: string, to: string) => void;
+  named: (id: string) => string;
   items: Placed[];
   steps: number;
   selected: string | null;
@@ -999,15 +1190,32 @@ function Stacked({
                     <span className="mt-1 block text-meta text-ink-muted">
                       {p.section.instruction}
                     </span>
-                    {p.section.branches.length > 0 && (
-                      <span className="mt-1 block text-[11px] text-ink-faint">
-                        Next:{" "}
-                        {p.section.branches
-                          .map((b) => labelOf(b.target))
-                          .join(", ")}
-                      </span>
-                    )}
                   </button>
+                  {/* Outside the box's button, so each chip can carry its own remove button. */}
+                  {p.section.branches.length > 0 && (
+                    <div className="-mt-1 flex flex-wrap items-center gap-1.5 px-3 pb-3 text-[11px] text-ink-faint">
+                      <span>Next:</span>
+                      {p.section.branches.map((b) => (
+                        <span
+                          key={b.target}
+                          data-next-chip={b.target}
+                          className={`inline-flex items-center rounded-full border border-line tabular-nums text-ink-muted ${onUnlink ? "py-0.5 pl-2 pr-0.5" : "px-2 py-0.5"}`}
+                        >
+                          {labelOf(b.target)}
+                          {onUnlink && (
+                            <button
+                              type="button"
+                              aria-label={`Remove the link from ${named(p.section.id)} to ${named(b.target)}`}
+                              className="relative ml-0.5 flex h-5 w-5 items-center justify-center rounded-full text-ink-faint transition-transform duration-press ease-out before:absolute before:-inset-2 before:content-[''] hover:bg-ink/[0.06] hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand active:scale-[0.97] motion-reduce:transition-none"
+                              onClick={() => onUnlink(p.section.id, b.target)}
+                            >
+                              <X aria-hidden className="h-3 w-3" />
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   {selected === p.section.id && (
                     <div className="border-t border-line">{editor}</div>
                   )}
@@ -1059,7 +1267,7 @@ function ScenarioEditor({
   issues: Issue[];
   languages: string[];
   readOnly: boolean;
-  onChange: (next: CallScript) => void;
+  onChange: (next: CallScript, discrete?: boolean) => void;
   onDelete: () => void;
 }) {
   const s = item.section;
@@ -1082,6 +1290,7 @@ function ScenarioEditor({
         id,
         on ? [...next, target] : next.filter((t) => t !== target),
       ),
+      true,
     );
   const label = (cls = "") => `block text-meta font-medium text-ink ${cls}`;
 
@@ -1586,7 +1795,7 @@ function ContextMenu({
           <span className="w-3.5" aria-hidden>
             {item.icon}
           </span>
-          {item.label}
+          <span className="min-w-0 truncate">{item.label}</span>
         </button>
       ))}
     </div>
