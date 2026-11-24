@@ -563,12 +563,9 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
         running.extend(planned)
         settling.extend(closed)
 
-    # Outside their hours, whatever the pool holds: settling dials nobody.
-    for tenant_id, campaign_id, retry_policy in settling:
-        try:
-            await _settle_out_of_hours(tenant_id, campaign_id, retry_policy)
-        except Exception as exc:
-            _tenant_failed(failures, tenant_id, "settle", exc)
+    # Outside their hours or past the tenant's lines, whatever the pool holds: settling
+    # dials nobody.
+    await _settle_each(settling, failures)
 
     # Rule 1+2: what is left of the shared pool after the lines already in use. The
     # engine's account refuses a dial over its ceiling (`429`), so this budget is what keeps
@@ -621,6 +618,10 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
         return f"no_running_campaigns started={started} callbacks={callbacks_dialled}"
 
     if global_budget == 0:
+        # Settled even with no line to dial on, for the call-back loop's reason above: a
+        # finished campaign completes and an unanswered dial goes back on the ladder only
+        # on a visit, and a saturated pool is when nobody else visits.
+        await _settle_each([_Settling(t, c, r) for t, c, _s, r in running], failures)
         return f"pool_saturated active={total_active} callbacks={callbacks_dialled}"
 
     dialled, blocked, exhausted = 0, 0, 0
@@ -660,6 +661,7 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
             # dict.fromkeys, not a set: the order is the spend order, so the ids in the
             # alarm read the same way the runbook's query does.
             starved = list(dict.fromkeys(t for t, _c, _s, _r in running[index:] if t not in served))
+            await _settle_each([_Settling(t, c, r) for t, c, _s, r in running[index:]], failures)
             break
         take = min(slots, global_budget)
         try:
@@ -726,6 +728,15 @@ async def _settle_out_of_hours(
         await _settle_finished_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
 
 
+async def _settle_each(settling: list[_Settling], failures: list[_TenantFailure]) -> None:
+    """`_settle_out_of_hours` for every campaign this tick visits without dialling."""
+    for tenant_id, campaign_id, retry_policy in settling:
+        try:
+            await _settle_out_of_hours(tenant_id, campaign_id, retry_policy)
+        except Exception as exc:
+            _tenant_failed(failures, tenant_id, "settle", exc)
+
+
 async def _plan_tenant(
     work: TenantWork, pool: int
 ) -> tuple[int, list[tuple[UUID, UUID, int, dict[str, Any]]], list[_Settling]]:
@@ -784,6 +795,12 @@ async def _plan_tenant(
                 )
                 continue
             if tenant_budget <= 0:
+                # Every line in use by this tenant's earlier campaigns: this one waits for
+                # a line, but its finished list still completes and its unanswered dials
+                # still go back on the ladder.
+                settling.append(
+                    _Settling(work.tenant_id, UUID(str(campaign_id)), retry_policy or {})
+                )
                 continue
             # Rule 4 under rule 3: the slider, bounded by what the tenant has left.
             #

@@ -356,6 +356,77 @@ async def test_the_shared_pool_is_spent_once_and_the_second_campaign_waits(
     )
 
 
+@pytest.mark.parametrize("pool", [5, 7], ids=["pool_saturated", "tenant_lines_full"])
+async def test_a_finished_campaign_completes_while_no_line_is_free(
+    monkeypatch: pytest.MonkeyPatch, pool: int
+) -> None:
+    """A campaign that gets no line this tick is still settled: its finished list completes
+    and its unanswered dial goes back on the ladder. Before, a saturated pool (or a tenant
+    whose earlier campaign held every line) left it `running` with nobody left to call, and
+    its contact `dialing` on a call that had long ended, for as long as the lines stayed
+    busy."""
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
+    busy = await _launched_campaign(
+        tenant_id,
+        agent_id,
+        number_id,
+        template_id,
+        name="Holds the lines",
+        phones=("9876621001",),
+    )
+    finished = await _launched_campaign(
+        tenant_id,
+        agent_id,
+        number_id,
+        template_id,
+        name="Nobody left",
+        phones=("9876621002",),
+    )
+    unanswered = await _launched_campaign(
+        tenant_id,
+        agent_id,
+        number_id,
+        template_id,
+        name="Rang out",
+        phones=("9876621003", "9876621004"),
+    )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaign_contacts SET status = 'connected' WHERE campaign_id = :c"),
+            {"c": finished},
+        )
+    await _dialling_contact(
+        tenant_id,
+        agent_id,
+        unanswered,
+        "+919876621003",
+        call_status="no_answer",
+        ended_ago=timedelta(minutes=5),
+    )
+    # Five lines busy. pool 5: nothing left platform-wide. pool 7: two left, and the oldest
+    # campaign's slider of two takes both, so the later two get no line from the tenant.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET concurrency = 2 WHERE id = :c"), {"c": busy}
+        )
+    monkeypatch.setattr(campaign_dispatch, "_outbound_pool", lambda: pool)
+    _pin_scan(monkeypatch, [TenantWork(tenant_id, 5, True, False, False)])
+
+    await campaign_dispatch._run_tick()
+
+    async with tenant_session(tenant_id) as session:
+        status = (
+            await session.execute(
+                text("SELECT status FROM campaigns WHERE id = :c"), {"c": finished}
+            )
+        ).scalar_one()
+    assert status == "completed", "nobody left to call, so the campaign is finished"
+    assert sorted(await _contacts(tenant_id, unanswered)) == [("pending", 0), ("pending", 1)], (
+        "the rung-out dial is back on the ladder, the untried contact untouched"
+    )
+
+
 # ------------------------------------ the spend order does not rotate, and says so
 
 
