@@ -89,20 +89,19 @@ async def _seed_leads(
 
 
 async def _publish_enum_field(tenant_id: uuid.UUID) -> None:
-    """A newer extraction schema carrying an ENUM field, which is what a facet is made of.
+    """An inbound line that notes an ENUM field, which is what a facet is made of.
 
-    `_make_tenant`'s schema declares one TEXT field, and `crm.columns.facetable` offers
-    only extraction ENUM columns — deliberately, so the facet rail is the client's own
-    vocabulary and not every string a caller ever said. `lead_columns` reads the highest
-    version, so publishing v2 is how a test gets a filterable field without a fixture
-    change every other suite would have to absorb.
+    `crm.columns.facetable` offers only extraction ENUM columns, so the facet rail is the
+    client's own vocabulary and not every string a caller ever said. The Leads columns are
+    what the account's jobs note (D-1028, `crm.service.lead_columns`), so the field goes on
+    a job; an agent's extraction schema no longer reaches the columns.
     """
     agent_id = await _agent(tenant_id)
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
-                "created_at, updated_at) VALUES (:i, :t, :a, 2, CAST(:f AS jsonb), now(), now())"
+                "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, extraction_fields) "
+                "VALUES (:i, :t, 'Front desk', :a, CAST(:f AS jsonb))"
             ),
             {
                 "i": uuid.uuid4(),

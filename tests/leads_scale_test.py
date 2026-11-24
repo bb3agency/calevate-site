@@ -40,7 +40,10 @@ LIST = "/v1/leads"
 EXPORT = "/v1/leads/export.csv"
 SEARCH = "/v1/leads/search"
 
-SCHEMA = [{"key": "intent", "label": "Intent", "type": "text", "reason": "what they want"}]
+
+def _job_fields(n: int) -> list[dict[str, str]]:
+    """What agent `n`'s line notes: one detail no other agent's line notes."""
+    return [{"key": f"intent_{n}", "label": f"Intent {n}", "type": "text", "reason": "what"}]
 
 
 class Org:
@@ -102,21 +105,20 @@ async def _org(role: str = "owner", *, agents: int = 1) -> Org:
                 ),
                 {"id": agent_id, "tid": tenant_id, "name": f"Agent {n}"},
             )
+            # The columns are what the agent's jobs note (D-1028), so each agent's one line
+            # notes a detail of its own: a broken agent filter on the columns shows up as
+            # the other agent's detail in the header.
             await session.execute(
                 text(
-                    "INSERT INTO extraction_schemas (id, tenant_id, agent_id, version, fields, "
-                    "created_at, updated_at) VALUES (:id, :tid, :aid, :v, CAST(:f AS jsonb), "
-                    "now(), now())"
+                    "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, "
+                    "extraction_fields) VALUES (:id, :tid, :name, :aid, CAST(:f AS jsonb))"
                 ),
                 {
-                    "id": uuid.uuid4(),
+                    "id": uuid7(),
                     "tid": tenant_id,
+                    "name": f"Line {n}",
                     "aid": agent_id,
-                    # Descending versions so `lead_columns`' unfiltered "latest schema"
-                    # branch and its per-agent branch pick DIFFERENT rows — otherwise a
-                    # broken agent filter would still look right.
-                    "v": len(agent_ids) - n,
-                    "f": json.dumps(SCHEMA),
+                    "f": json.dumps(_job_fields(n)),
                 },
             )
     return Org(tenant_id, slug, f"dev:client:{user_id}", agent_ids)
@@ -275,6 +277,9 @@ async def test_agent_id_filters_rows_on_both_routes_not_just_columns() -> None:
     assert _csv_phones(exported.text) == set(second)
     for phone in first:
         assert phone not in exported.text
+    header = next(csv.reader(io.StringIO(exported.text)))
+    assert "Intent 1" in header, "the export dropped the chosen agent's own detail"
+    assert "Intent 0" not in header, "agent_id did not narrow the columns to that agent's jobs"
     # And omitting it keeps meaning "everything", so the existing contract survives.
     assert unscoped.json()["total"] == 13
 
