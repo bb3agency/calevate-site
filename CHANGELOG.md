@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.34 — 24-Nov-2026
+
+- Pip no longer gives up with "Agent not found" when it mixes up which id goes where: it
+  is told what the id really is and tries again in the same answer. Asking Pip to rewrite a
+  campaign's script now works for a campaign of any status that is not archived, a
+  cancelled one included.
+- When Pip cannot finish, it says plainly what did not happen and why, never a raw error
+  or advice that does not fit.
+
 ## 0.5.33 — 24-Nov-2026
 
 - Pip writes the outcome of every call step that has none, so you never fill them in by
