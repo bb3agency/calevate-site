@@ -78,6 +78,7 @@ from apps.api.tenancy.engine_workspace import resume_workspace_offboarding
 from apps.workers.account_closure import account_recipients
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 
 log = get_logger(__name__)
 
@@ -259,8 +260,13 @@ async def sweep_number_holds(ctx: dict[str, Any]) -> str:
     async with admin_session() as directory:
         tenants = [UUID(str(t)) for t in (await directory.execute(text(_DIRECTORY))).scalars()]
     totals: Counter[str] = Counter()
-    failed = 0
-    for tenant_id in tenants:
+    failed = probed = 0
+    # Budgeted and resumed (`fleet_walk`): past `job_timeout` arq cancels the tick and never
+    # retries it, so the newest accounts' held numbers would never be released and renew at
+    # our cost. The next hourly pass resumes after the last account reached.
+    budget = WalkBudget()
+    async for tenant_id in resumed_walk("number_holds", tenants, budget):
+        probed += 1
         try:
             tally, tenant_failed = await settle_tenant(tenant_id)
         except Exception as exc:
@@ -271,8 +277,24 @@ async def sweep_number_holds(ctx: dict[str, Any]) -> str:
             )
         totals.update(tally)
         failed += tenant_failed
-    summary = {"tenants": len(tenants), "failed": failed, **dict(sorted(totals.items()))}
+    unreached = len(tenants) - probed
+    summary = {
+        "tenants": len(tenants),
+        "failed": failed,
+        "unreached": unreached,
+        **dict(sorted(totals.items())),
+    }
     log.info("number_holds_swept", extra=summary)
+    if unreached:
+        alert(
+            "WORKER_STALL",
+            "number_holds_truncated",
+            detail=(
+                f"the held-number sweep reached {probed} of {len(tenants)} account(s) inside "
+                f"its time budget; held numbers of the other {unreached} wait for the next "
+                "hourly run, which resumes after the last one reached"
+            ),
+        )
     if failed:
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=ladder_delay_s(_RETRY_AFTER_S, attempt))

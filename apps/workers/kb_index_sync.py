@@ -62,6 +62,7 @@ from apps.api.retrieval.supermemory_index import (
     MAX_DOCUMENTS_PER_TICK,
     supermemory_indexer,
 )
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.kb_gloss import tenants_holding_knowledge
 
 log = get_logger(__name__)
@@ -96,7 +97,13 @@ async def sync_knowledge_index(ctx: dict[str, Any]) -> str:
     synced = 0
     ingested = 0
     withdrawn = 0
-    for tenant_id in tenants:
+    probed = 0
+    # Budgeted and resumed (`fleet_walk`): past `job_timeout` arq cancels the tick and never
+    # retries it, so the newest tenants' content would never reach the index. A tenant past
+    # the budget waits for the next tick, which starts after the last one reached.
+    budget = WalkBudget()
+    async for tenant_id in resumed_walk("kb_index_sync", tenants, budget):
+        probed += 1
         counts = await _sync_one_tenant(tenant_id)
         if counts is None:
             continue
@@ -104,7 +111,21 @@ async def sync_knowledge_index(ctx: dict[str, Any]) -> str:
         withdrawn += counts[1]
         if counts[0] or counts[1]:
             synced += 1
-    return f"tenants={len(tenants)} changed={synced} ingested={ingested} withdrawn={withdrawn}"
+    unreached = len(tenants) - probed
+    if unreached:
+        alert(
+            "WORKER_STALL",
+            "kb_index_sync_truncated",
+            detail=(
+                f"the knowledge index sync reached {probed} of {len(tenants)} tenant(s) inside "
+                f"its time budget; the other {unreached} wait for the next tick, which resumes "
+                "after the last one reached"
+            ),
+        )
+    return (
+        f"tenants={len(tenants)} changed={synced} ingested={ingested} withdrawn={withdrawn}"
+        + (f" unreached={unreached}" if unreached else "")
+    )
 
 
 async def _sync_one_tenant(tenant_id: UUID) -> tuple[int, int] | None:

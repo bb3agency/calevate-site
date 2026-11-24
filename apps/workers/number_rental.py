@@ -100,6 +100,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 
 log = get_logger(__name__)
 
@@ -149,96 +150,127 @@ async def _bought_numbers() -> list[tuple[UUID, UUID, str | None, Decimal | None
     every query about a client's data. The N is the number of CLIENTS, once a day, and each
     query is an index scan of a partial index over a handful of rows.
     """
-    async with admin_session() as directory:
-        tenants = list((await directory.execute(text(_ALL_TENANTS))).scalars().all())
     estate: list[tuple[UUID, UUID, str | None, Decimal | None, str | None]] = []
-    for raw in tenants:
-        tenant_id = UUID(str(raw))
-        async with tenant_session(tenant_id) as scoped:
-            for row in (await scoped.execute(text(_LIVE_BOUGHT))).all():
-                estate.append((UUID(str(row[0])), tenant_id, row[1], row[2], row[3]))
+    for tenant_id in await _directory():
+        for number_id, provider, rental_usd, ref in await _tenant_bought(tenant_id):
+            estate.append((number_id, tenant_id, provider, rental_usd, ref))
     return estate
+
+
+async def _directory() -> list[UUID]:
+    async with admin_session() as directory:
+        return [UUID(str(t)) for t in (await directory.execute(text(_ALL_TENANTS))).scalars()]
+
+
+async def _tenant_bought(
+    tenant_id: UUID,
+) -> list[tuple[UUID, str | None, Decimal | None, str | None]]:
+    """One tenant's share of the billable estate, read under its own policy."""
+    async with tenant_session(tenant_id) as scoped:
+        return [
+            (UUID(str(row[0])), row[1], row[2], row[3])
+            for row in (await scoped.execute(text(_LIVE_BOUGHT))).all()
+        ]
 
 
 async def meter_number_rentals(ctx: dict[str, Any]) -> str:
     """Write one `number_rental` usage event per bought number for the current IST month."""
     month = current_billing_month()
-    rows = await _bought_numbers()
-    rents = {
-        provider: await _console_rent(provider)
-        for provider in {row[2] for row in rows if row[2] in _CONSOLE_ENGINE_OF_PROVIDER}
-        if provider is not None
-    }
-    metered = replayed = unpriced = failed = 0
-    for number_id, tenant_id, provider, rental_usd, _ref in rows:
-        console = provider is not None and provider in _CONSOLE_ENGINE_OF_PROVIDER
-        rent = rents.get(provider) if console and provider is not None else None
-        priced = rent is not None if console else rental_usd is not None and rental_usd > 0
-        if not priced:
-            unpriced += 1
-            alert(
-                "CORE_LOGIC",
-                "number_rental_price_missing",
-                detail=(
-                    "a phone number bought through the voice platform has no monthly "
-                    "rental on file, so its recurring cost is not being recorded. It is "
-                    "still being charged to us every month."
-                    + (
-                        " Attest the number rent and the wallet top-up fee in the ops "
-                        "engine-minute panel."
-                        if console
-                        else ""
-                    )
-                ),
-                number_id=str(number_id),
-            )
-            continue
+    tenants = await _directory()
+    rents: dict[str, tuple[Decimal, Decimal] | None] = {}
+    metered = replayed = unpriced = failed = probed = 0
+    # Budgeted and resumed (`fleet_walk`), each tenant read and metered in one step: past
+    # `job_timeout` arq cancels the tick and never retries it, so the newest accounts (last in
+    # uuid7 order) would go unmetered. A pass cut short retries below; the record is
+    # idempotent on (number, month), so the accounts already reached only replay.
+    budget = WalkBudget()
+    async for tenant_id in resumed_walk("number_rental_meter", tenants, budget):
+        probed += 1
         try:
-            async with tenant_session(UUID(str(tenant_id))) as scoped:
-                if rent is not None and provider is not None:
-                    outcome = await record_engine_number_rental(
-                        scoped,
-                        tenant_id=UUID(str(tenant_id)),
-                        number_id=UUID(str(number_id)),
-                        month=month,
-                        inr_per_month=rent[0],
-                        topup_fee=rent[1],
-                        provider=provider,
-                    )
-                else:
-                    assert rental_usd is not None
-                    outcome = await record_number_rental(
-                        scoped,
-                        tenant_id=UUID(str(tenant_id)),
-                        number_id=UUID(str(number_id)),
-                        month=month,
-                        monthly_rental_usd=rental_usd,
-                        provider=provider,
-                    )
-            metered += 1 if outcome.recorded else 0
-            replayed += 0 if outcome.recorded else 1
+            numbers = await _tenant_bought(tenant_id)
         except Exception as exc:
-            # ISOLATED PER NUMBER, deliberately: one tenant's failure must not cost every
-            # other tenant their month's cost record. The failure count is what alarms.
             failed += 1
             log.error(
                 "number_rental_metering_failed",
-                extra={"number_id": str(number_id), "error": exc.__class__.__name__},
+                extra={"tenant_id": str(tenant_id), "error": exc.__class__.__name__},
             )
+            continue
+        for number_id, provider, rental_usd, _ref in numbers:
+            console = provider is not None and provider in _CONSOLE_ENGINE_OF_PROVIDER
+            if console and provider is not None and provider not in rents:
+                rents[provider] = await _console_rent(provider)
+            rent = rents.get(provider) if console and provider is not None else None
+            priced = rent is not None if console else rental_usd is not None and rental_usd > 0
+            if not priced:
+                unpriced += 1
+                alert(
+                    "CORE_LOGIC",
+                    "number_rental_price_missing",
+                    detail=(
+                        "a phone number bought through the voice platform has no monthly "
+                        "rental on file, so its recurring cost is not being recorded. It is "
+                        "still being charged to us every month."
+                        + (
+                            " Attest the number rent and the wallet top-up fee in the ops "
+                            "engine-minute panel."
+                            if console
+                            else ""
+                        )
+                    ),
+                    number_id=str(number_id),
+                )
+                continue
+            try:
+                async with tenant_session(tenant_id) as scoped:
+                    if rent is not None and provider is not None:
+                        outcome = await record_engine_number_rental(
+                            scoped,
+                            tenant_id=tenant_id,
+                            number_id=number_id,
+                            month=month,
+                            inr_per_month=rent[0],
+                            topup_fee=rent[1],
+                            provider=provider,
+                        )
+                    else:
+                        assert rental_usd is not None
+                        outcome = await record_number_rental(
+                            scoped,
+                            tenant_id=tenant_id,
+                            number_id=number_id,
+                            month=month,
+                            monthly_rental_usd=rental_usd,
+                            provider=provider,
+                        )
+                metered += 1 if outcome.recorded else 0
+                replayed += 0 if outcome.recorded else 1
+            except Exception as exc:
+                # ISOLATED PER NUMBER, deliberately: one tenant's failure must not cost every
+                # other tenant their month's cost record. The failure count is what alarms.
+                failed += 1
+                log.error(
+                    "number_rental_metering_failed",
+                    extra={"number_id": str(number_id), "error": exc.__class__.__name__},
+                )
+    unreached = len(tenants) - probed
     attempt = job_try(ctx)
-    if failed and attempt < WORKER_MAX_TRIES:
+    if (failed or unreached) and attempt < WORKER_MAX_TRIES:
         # This cron runs once a month, so a transient failure is retried here or lost for
         # the month; the record is idempotent on (number, month), so a retry costs nothing.
-        log.warning("number_rentals_metering_retry", extra={"month": month, "failed": failed})
+        log.warning(
+            "number_rentals_metering_retry",
+            extra={"month": month, "failed": failed, "unreached": unreached},
+        )
         raise Retry(defer=ladder_delay_s(_RENEWAL_RETRY_AFTER_S, attempt))
-    if failed or unpriced:
+    if failed or unpriced or unreached:
         alert(
             "WORKER_TERMINAL",
             "number_rentals_incomplete",
             detail=(
-                f"{failed} number(s) could not be metered and {unpriced} had no price on "
-                f"file for {month}. Their monthly cost is missing from this month's "
-                "figures while the vendor keeps charging for them."
+                f"{failed} number(s) could not be metered, {unpriced} had no price on file "
+                f"and {unreached} account(s) were not reached inside the time budget for "
+                f"{month}. Their monthly cost is missing from this month's figures while "
+                "the vendor keeps charging for them."
             ),
             month=month,
         )
@@ -248,6 +280,7 @@ async def meter_number_rentals(ctx: dict[str, Any]) -> str:
         "replayed": replayed,
         "unpriced": unpriced,
         "failed": failed,
+        "unreached": unreached,
     }
     log.info("number_rentals_metered", extra=summary)
     return str(summary)
@@ -374,11 +407,15 @@ async def renew_number_rentals(ctx: dict[str, Any]) -> str:
     """
     attempt = job_try(ctx)
     today = today_ist()
-    async with admin_session() as directory:
-        tenants = [UUID(str(t)) for t in (await directory.execute(text(_ALL_TENANTS))).scalars()]
+    tenants = await _directory()
     counts: Counter[str] = Counter()
-    failed = 0
-    for tenant_id in tenants:
+    failed = probed = 0
+    # Budgeted and resumed (`fleet_walk`): past `job_timeout` arq cancels the tick and never
+    # retries it, so the newest accounts would go uncharged. A pass cut short retries below;
+    # collection is idempotent on (number, period), so the accounts already reached replay.
+    budget = WalkBudget()
+    async for tenant_id in resumed_walk("number_rental_renewal", tenants, budget):
+        probed += 1
         async with tenant_session(tenant_id) as scoped:
             numbers = (await scoped.execute(text(_RENEWING))).all()
         for number_id, created_at, inr_per_month, charged_from in numbers:
@@ -402,8 +439,9 @@ async def renew_number_rentals(ctx: dict[str, Any]) -> str:
                 )
     summary: dict[str, Any] = {"day": today.isoformat(), **dict(sorted(counts.items()))}
     summary["failed"] = failed
+    summary["unreached"] = unreached = len(tenants) - probed
     log.info("number_rentals_renewed", extra=summary)
-    if failed:
+    if failed or unreached:
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=ladder_delay_s(_RENEWAL_RETRY_AFTER_S, attempt))
         alert(
@@ -411,12 +449,16 @@ async def renew_number_rentals(ctx: dict[str, Any]) -> str:
             "number_rental_renewals_unrecorded",
             detail=(
                 f"{failed} phone number rental renewal(s) for {today.isoformat()} could not "
-                f"be charged after {attempt} attempt(s). Those clients have not been "
+                f"be charged and {unreached} account(s) were not reached inside the time "
+                f"budget after {attempt} attempt(s). Those clients have not been "
                 "charged for a number that is still renewing at the carrier."
             ),
             day=today.isoformat(),
         )
-        raise RuntimeError(f"{failed} number rental renewal(s) could not be charged")
+        raise RuntimeError(
+            f"{failed} number rental renewal(s) could not be charged, {unreached} account(s) "
+            "not reached"
+        )
     return json.dumps(summary)
 
 

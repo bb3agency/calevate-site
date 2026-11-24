@@ -20,13 +20,17 @@ from arq import Retry
 def failing_meter(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     alarms: list[str] = []
 
-    async def _estate() -> list[tuple[Any, ...]]:
-        return [(uuid.uuid4(), uuid.uuid4(), "plivo", Decimal("1.00"), None)]
+    async def _directory() -> list[uuid.UUID]:
+        return [uuid.uuid4()]
+
+    async def _bought(_tenant_id: uuid.UUID) -> list[tuple[Any, ...]]:
+        return [(uuid.uuid4(), "plivo", Decimal("1.00"), None)]
 
     async def _record(*_a: Any, **_kw: Any) -> Any:
         raise RuntimeError("database went away")
 
-    monkeypatch.setattr(number_rental, "_bought_numbers", _estate)
+    monkeypatch.setattr(number_rental, "_directory", _directory)
+    monkeypatch.setattr(number_rental, "_tenant_bought", _bought)
     monkeypatch.setattr(number_rental, "record_number_rental", _record)
     monkeypatch.setattr(number_rental, "alert", lambda _s, code, **_kw: alarms.append(code))
     return alarms

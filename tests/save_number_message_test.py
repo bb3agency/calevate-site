@@ -238,6 +238,6 @@ async def test_the_forwarded_lines_sweep_keeps_going_past_a_failing_client(
     monkeypatch.setattr(worker, "_sweep_tenant_lines", _one)
     monkeypatch.setattr(worker, "alert", lambda _s, code, **_kw: alarms.append(code))
 
-    assert await worker.sweep_forwarded_lines({}) == "quiet:1 late:2 failed:1"
-    assert visited == [broken, healthy]
+    assert await worker.sweep_forwarded_lines({}) == "quiet:1 late:2 failed:1 unreached:0"
+    assert sorted(visited) == sorted([broken, healthy])
     assert alarms == ["forwarded_lines_sweep_incomplete"]

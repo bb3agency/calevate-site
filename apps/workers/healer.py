@@ -69,6 +69,7 @@ from apps.api.reliability.engine_webhooks import ensure_agent_webhook
 from apps.api.reliability.service import read_dead_letter_queue, replay_dead_letters
 from apps.api.tenancy.engine_workspace import queue_workspace_provisioning, read_workspace_state
 from apps.workers import healer_watch, mistake_fix, voice_fallback
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 
 log = get_logger(__name__)
 
@@ -238,7 +239,12 @@ async def score_agent_health(ctx: dict[str, Any]) -> str:
         ]
     broken_tenants: set[UUID] = set()
     fleet = _FleetFindings()
-    for tenant_id in tenants:
+    # Budgeted and resumed (`fleet_walk`): past `job_timeout` arq cancels the tick and never
+    # retries it, so the newest accounts' agents would never be scored. A cut-short pass
+    # skips the fleet-wide judgments below, because a partial fleet reads as a quiet one and
+    # would close an open voice-domain incident that is still burning elsewhere.
+    budget = WalkBudget()
+    async for tenant_id in resumed_walk("agent_health", tenants, budget):
         try:
             scored = await _score_tenant(tenant_id, latest=latest, now=now, tally=tally)
         except Exception as exc:
@@ -254,8 +260,21 @@ async def score_agent_health(ctx: dict[str, Any]) -> str:
             await _open_for_verdict(tenant_id, verdict, tally)
         await _act_on_calls(tenant_id, scored, tally)
         fleet.take(tenant_id, scored)
-    await _detect_outage(broken_tenants, tally, fleet=fleet)
-    _judge_objective(fleet.objective, tally)
+    if budget.exhausted:
+        tally["walk_truncated"] += 1
+        alert(
+            "WORKER_STALL",
+            "agent_health_truncated",
+            detail=(
+                "the agent health scorer did not reach every account inside its time budget; "
+                "the next pass resumes after the last one reached, and the fleet-wide voice "
+                "domain and objective judgments wait for a pass that reaches them all"
+            ),
+        )
+        await _detect_outage(broken_tenants, tally)
+    else:
+        await _detect_outage(broken_tenants, tally, fleet=fleet)
+        _judge_objective(fleet.objective, tally)
     return json.dumps(dict(tally), sort_keys=True)
 
 

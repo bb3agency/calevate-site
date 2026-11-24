@@ -36,6 +36,7 @@ from apps.api.forwarding.testing import (
 )
 from apps.api.ingest.service import normalize_phone
 from apps.api.whatsapp.caller_locale import caller_locale
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.whatsapp import (
     Destination,
     SendStatus,
@@ -117,8 +118,14 @@ async def _sweep_tenant_lines(tenant_id: UUID) -> tuple[bool, int]:
 async def sweep_forwarded_lines(ctx: dict[str, Any]) -> str:
     """Hourly: open or close quiet-line episodes, and settle tests whose job was lost. One
     client's failure is counted and alarmed after the walk; it does not stop the others."""
-    quiet_lines = late = failed = 0
-    for tenant_id in await live_tenants():
+    quiet_lines = late = failed = probed = 0
+    tenants = await live_tenants()
+    # Budgeted and resumed (`fleet_walk`): past `job_timeout` arq cancels the tick and never
+    # retries it, so the newest accounts' quiet lines and lost tests would never be seen. The
+    # next hourly pass starts after the last account reached.
+    budget = WalkBudget()
+    async for tenant_id in resumed_walk("forwarded_lines", tenants, budget):
+        probed += 1
         try:
             went_quiet, settled = await _sweep_tenant_lines(tenant_id)
         except Exception:
@@ -127,20 +134,27 @@ async def sweep_forwarded_lines(ctx: dict[str, Any]) -> str:
             continue
         quiet_lines += went_quiet
         late += settled
+    unreached = len(tenants) - probed
     log.info(
         "forwarded_lines_swept",
-        extra={"quiet": quiet_lines, "late_settled": late, "failed": failed},
+        extra={
+            "quiet": quiet_lines,
+            "late_settled": late,
+            "failed": failed,
+            "unreached": unreached,
+        },
     )
-    if failed:
+    if failed or unreached:
         alert(
             "WORKER_TERMINAL",
             "forwarded_lines_sweep_incomplete",
             detail=(
-                f"{failed} client(s) could not be checked for a quiet forwarded line or a "
-                "late forwarding test this hour; the sweep runs again in an hour"
+                f"{failed} client(s) could not be checked and {unreached} were not reached "
+                "inside the time budget for a quiet forwarded line or a late forwarding test "
+                "this hour; the sweep runs again in an hour, after the last one reached"
             ),
         )
-    return f"quiet:{quiet_lines} late:{late} failed:{failed}"
+    return f"quiet:{quiet_lines} late:{late} failed:{failed} unreached:{unreached}"
 
 
 # --- "save our number" ---------------------------------------------------------------------
