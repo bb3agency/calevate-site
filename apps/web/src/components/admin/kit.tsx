@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 
-import { SECONDARY_BUTTON_SM, formatCount } from "@/components/ui";
+import { ActionButton } from "@/components/arc/feedback";
+import { formatCount } from "@/components/ui";
 
 export { MetricRow } from "@/components/console/metric";
 export { StatusPill } from "@/components/console/statusPill";
@@ -88,8 +89,8 @@ export function PagedRows({ busy, children }: { busy: boolean; children: ReactNo
  * "Showing 26–50 of 312" with Previous and Next, for an offset-paged admin list.
  *
  * While the next page loads (`busy`) the line says so — it is a polite live region, so the
- * change is announced — and both buttons are disabled, so a second click cannot step past
- * a page whose rows have not arrived.
+ * change is announced — and both buttons spin and ignore presses, so a second click cannot
+ * step past a page whose rows have not arrived.
  */
 export function OffsetPager({
   offset,
@@ -110,6 +111,8 @@ export function OffsetPager({
   previousLabel?: string;
   nextLabel?: string;
 }) {
+  const atStart = offset === 0;
+  const atEnd = offset + shown >= total;
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 text-meta text-ink-muted">
       <span aria-live="polite">
@@ -118,24 +121,24 @@ export function OffsetPager({
           : `Showing ${formatCount(offset + 1)}–${formatCount(offset + shown)} of ${formatCount(total)}`}
       </span>
       <div className="flex items-center gap-2">
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          disabled={busy || offset === 0}
+        <ActionButton
+          variant="secondary-sm"
+          status={busy && !atStart ? "pending" : "idle"}
+          disabled={atStart}
           onClick={() => onOffset(Math.max(0, offset - pageSize))}
         >
           <ChevronLeft aria-hidden className="h-3.5 w-3.5" />
           {previousLabel}
-        </button>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          disabled={busy || offset + shown >= total}
+        </ActionButton>
+        <ActionButton
+          variant="secondary-sm"
+          status={busy && !atEnd ? "pending" : "idle"}
+          disabled={atEnd}
           onClick={() => onOffset(offset + pageSize)}
         >
           {nextLabel}
           <ChevronRight aria-hidden className="h-3.5 w-3.5" />
-        </button>
+        </ActionButton>
       </div>
     </div>
   );

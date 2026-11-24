@@ -240,9 +240,8 @@ export function PasswordRow({ realm, changePassword }: PasswordRowProps) {
             >
               Save new password
             </ActionButton>
-            <button
-              type="button"
-              className={TEXT_ACTION}
+            <ActionButton
+              variant="text"
               disabled={submit.isPending}
               onClick={() => {
                 clear();
@@ -251,7 +250,7 @@ export function PasswordRow({ realm, changePassword }: PasswordRowProps) {
               }}
             >
               Cancel
-            </button>
+            </ActionButton>
           </div>
         </form>
       )}

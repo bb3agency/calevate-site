@@ -1,13 +1,8 @@
 "use client";
 
+import { ActionButton } from "./arc/feedback";
 import { ModalDialog } from "./modalDialog";
-import {
-  PRIMARY_BUTTON,
-  ProblemNotice,
-  SECONDARY_BUTTON,
-  formatCount,
-  formatINR,
-} from "./ui";
+import { ProblemNotice, formatCount, formatINR } from "./ui";
 import type { AiQuota } from "@/lib/api/aiQuota";
 
 /**
@@ -78,12 +73,12 @@ export function AcceptChargeDialog({
       }
       actions={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={pending}>
+          <ActionButton variant="secondary" onClick={onCancel} disabled={pending}>
             Not now
-          </button>
-          <button type="button" className={PRIMARY_BUTTON} onClick={onAccept} disabled={pending}>
-            {pending ? "Adding…" : `Add ${formatINR(quota.extra_block_inr)}`}
-          </button>
+          </ActionButton>
+          <ActionButton status={pending ? "pending" : "idle"} pendingLabel="Adding…" onClick={onAccept}>
+            {`Add ${formatINR(quota.extra_block_inr)}`}
+          </ActionButton>
         </>
       }
     >

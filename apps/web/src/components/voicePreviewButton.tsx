@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { LoaderCircle, Pause, Play } from "lucide-react";
+import { Pause, Play } from "lucide-react";
 
-import { SECONDARY_BUTTON_SM } from "@/components/ui";
+import { ActionButton } from "@/components/arc/feedback";
 import { ApiProblem, type Session } from "@/lib/api/client";
 import { useVoicePreview } from "@/lib/api/voicePreview";
 
 /** 36px round, 44px on touch (WCAG 2.5.8), so a row's play target stays reachable. */
-const COMPACT_BUTTON =
-  "press inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-surface text-ink hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:opacity-50 touch:h-11 touch:w-11";
+/** The round icon-only shape, on top of `ActionButton`'s secondary-sm look. */
+const COMPACT_BUTTON = "h-9 w-9 shrink-0 rounded-full! px-0! py-0! touch:h-11 touch:w-11";
 
 /**
  * The one clip playing on the page. Pressing play on a second voice pauses the first —
@@ -120,22 +120,17 @@ export function VoicePreviewButton({
 
   return (
     <span className="inline-flex flex-col items-start gap-1">
-      <button
-        type="button"
-        className={compact ? COMPACT_BUTTON : SECONDARY_BUTTON_SM}
+      <ActionButton
+        variant="secondary-sm"
+        className={compact ? COMPACT_BUTTON : undefined}
+        status={loading ? "pending" : "idle"}
+        pendingLabel={compact ? "" : <span aria-hidden>Listen</span>}
         onClick={toggle}
-        disabled={loading}
         aria-label={`${isPlaying ? "Pause" : "Play"} the preview of ${label}`}
       >
-        {loading ? (
-          <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
-        ) : isPlaying ? (
-          <Pause aria-hidden className="h-4 w-4" />
-        ) : (
-          <Play aria-hidden className="h-4 w-4" />
-        )}
+        {isPlaying ? <Pause aria-hidden className="h-4 w-4" /> : <Play aria-hidden className="h-4 w-4" />}
         {!compact && <span aria-hidden>{isPlaying ? "Pause" : "Listen"}</span>}
-      </button>
+      </ActionButton>
       {failure && (
         <span role="status" className="text-xs text-warn">
           {failure}

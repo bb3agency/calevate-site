@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 import { ModalDialog } from "./modalDialog";
 import { ActionButton, type FeedbackStatus } from "./arc/feedback";
-import { ProblemNotice, SECONDARY_BUTTON } from "./ui";
+import { ProblemNotice } from "./ui";
 
 /**
  * "Are you sure?" for the actions a client cannot take back — ONE dialog, not one per
@@ -96,9 +96,9 @@ export function ConfirmDialog({
       }}
       actions={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={shown === "pending"}>
+          <ActionButton variant="secondary" onClick={onCancel} disabled={shown === "pending"}>
             {cancelLabel}
-          </button>
+          </ActionButton>
           <ActionButton
             variant="danger"
             status={shown}

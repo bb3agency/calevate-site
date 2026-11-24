@@ -13,7 +13,8 @@ import Link from "next/link";
 import { FileSpreadsheet } from "lucide-react";
 import { useState } from "react";
 
-import { NoticeBox, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
+import { ActionButton } from "@/components/arc/feedback";
+import { NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
 import { openSheetsPicker, useCredentials } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
 import { useClientRealm } from "@/lib/api/session";
@@ -96,15 +97,16 @@ export function SheetChooser({
             <span className="min-w-0 break-words">{value.name}</span>
           </span>
         ) : null}
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
-          disabled={disabled || busy || !connection}
+        <ActionButton
+          variant="secondary"
+          status={busy ? "pending" : "idle"}
+          pendingLabel="Opening Google…"
+          disabled={disabled || !connection}
           onClick={() => void choose()}
         >
           <FileSpreadsheet aria-hidden className="h-4 w-4" />
-          {busy ? "Opening Google…" : value ? "Choose another" : "Choose a spreadsheet"}
-        </button>
+          {value ? "Choose another" : "Choose a spreadsheet"}
+        </ActionButton>
       </div>
       {error ? (
         error instanceof Error && !("status" in error) ? (
