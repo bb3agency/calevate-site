@@ -569,7 +569,8 @@ async def test_a_trial_given_after_the_fee_was_raised_lifts_its_pause() -> None:
     decision = await _gate(tenant_id, agent_id)
     assert not decision.allowed and decision.rule == PLATFORM_FEE_RULE, decision
 
-    await _gift(tenant_id, start=now - timedelta(minutes=30), end=now - timedelta(minutes=10))
+    # From the month's first instant, so the gift falls in this IST month whenever the test runs.
+    await _gift(tenant_id, start=start, end=max(now - timedelta(minutes=10), start + timedelta(minutes=1)))
     assert (await _gate(tenant_id, agent_id)).allowed, "a month a trial touched owes no fee"
     async with tenant_session(tenant_id) as session:
         assert not await platform_fee_paused(session, tenant_id=tenant_id)
