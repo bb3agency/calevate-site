@@ -3,6 +3,22 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.39 — 25-Nov-2026
+
+- After giving the caller something to do, the agent invites them to say when it is done and
+  waits; it never asks "is it done?" in the same breath. Script repair rewrites lines that did,
+  Pip's writer never writes them, and the call page names it when it happens.
+- Improve gains one-press fixes: call only in the hours people answer (counted by people, not
+  dials, inside 9 am–9 pm, with Undo), retries at a different time of day, a re-call draft that
+  starts with the best hours and the stronger opening, and an honest second-opening test that
+  says whether the list is big enough, shows the chance the second is better, and switches to
+  the winner by itself with Undo.
+- The WhatsApp card sets up the follow-up for this campaign: Pip writes the message and picks
+  who gets it; nothing is sent until WhatsApp approves it and you switch it on.
+- The admin console shows, for each campaign and Inbound line, exactly what its agent is told
+  and every setting sent, and whether it has changed since the last publish. Company training
+  now gives way beside a long script instead of blocking a publish, and tells you.
+
 ## 0.5.38 — 24-Nov-2026
 
 - Improve, on every campaign and Inbound line, shows where calls go wrong: how many callers
