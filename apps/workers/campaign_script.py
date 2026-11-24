@@ -389,7 +389,9 @@ async def campaign_inputs(tenant_id: UUID, campaign_id: UUID) -> tuple[_Inputs, 
 
     async with tenant_session(tenant_id) as session:
         space = await workspace.read_workspace(session, campaign_id)
-        words = await knowledge_words(session, only=space.sources) if space.sources else []
+        # No sources picked means everything the agents know, as on the call itself (D-689):
+        # an empty list wrote the script from no knowledge at all (founder, 24 Nov 2026).
+        words = await knowledge_words(session, only=space.sources or None)
         # Written in the campaign's main language when it sets one over the agent's.
         main_language, focus, asked, name, purpose, goal, consent_source = (
             await session.execute(
@@ -475,7 +477,7 @@ async def line_inputs(tenant_id: UUID, line_id: UUID) -> _Inputs:
 
     async with tenant_session(tenant_id) as session:
         line = await lines.read_line(session, line_id)
-        words = await knowledge_words(session, only=line.sources) if line.sources else []
+        words = await knowledge_words(session, only=line.sources or None)
         details = await line_details(session, line_id)
         context = replace(
             await script_proposals.brief_for(session, tenant_id, line.agent_id),

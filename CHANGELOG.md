@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.25 — 24-Nov-2026
+
+- Pip writes a campaign or Inbound line script from everything your agents know when no
+  sources are picked for it. Before, it wrote from no knowledge at all, so the business
+  described in your documents never reached the script.
+
 ## 0.5.24 — 24-Nov-2026
 
 - Pip: asking for a campaign or Inbound line script to be rewritten always reaches that
