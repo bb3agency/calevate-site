@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.48 — 25-Nov-2026
+
+- Pip's script checks catch more and repair it: a step line that asks the caller about
+  something the agent should judge itself (their goal, interest or comfort), one line that
+  asks several things under one question mark, and a step placed after the close however
+  the close is named. Every script is checked once more with them.
+
 ## 0.5.47 — 25-Nov-2026
 
 - Admin: the script scorecard counts each problem once and names which check found it; the
