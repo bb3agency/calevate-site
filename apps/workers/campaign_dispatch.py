@@ -258,6 +258,10 @@ class TenantWork(NamedTuple):
     # call-back of the day has just been dialled must still be visited, or the row sits at
     # "calling now" for ever with the call long since finished.
     has_due_callback: bool
+    # A paused or cancelled campaign still holding a `dialing` contact (migration
+    # b3d7e1f94a26). Pause and Stop let a ringing call finish, and only a visit settles its
+    # contact; without one it shows "calling now" for ever. Settled, never dialled.
+    has_stopped_dialing: bool = False
 
 
 async def _tenants_with_work() -> list[TenantWork]:
@@ -305,16 +309,34 @@ async def _tenants_with_work() -> list[TenantWork]:
             await session.execute(
                 text(
                     "SELECT scanned_tenant_id, active_outbound, has_running_campaign, "
-                    "  has_due_schedule, has_due_callback "
+                    "  has_due_schedule, has_due_callback, has_stopped_dialing "
                     "FROM dispatch_scan(:statuses, :horizon)"
                 ),
                 {"statuses": list(ACTIVE_STATUSES), "horizon": ACTIVE_CALL_HORIZON},
             )
         ).all()
     return [
-        TenantWork(UUID(str(row[0])), int(row[1]), bool(row[2]), bool(row[3]), bool(row[4]))
+        TenantWork(
+            UUID(str(row[0])), int(row[1]), bool(row[2]), bool(row[3]), bool(row[4]), bool(row[5])
+        )
         for row in rows
     ]
+
+
+#: Paused or cancelled campaigns still holding a `dialing` contact: the call Pause or Stop
+#: let finish. `_settle_out_of_hours` settles them like a running campaign's, and its
+#: completion step is a CAS off `running`, so neither is completed or resumed by it.
+_STOPPED_DIALING_SQL = text(
+    "SELECT c.id, c.retry_policy FROM campaigns c "
+    "WHERE c.status IN ('paused', 'cancelled') AND EXISTS ("
+    "  SELECT 1 FROM campaign_contacts cc WHERE cc.campaign_id = c.id AND cc.status = 'dialing')"
+)
+
+
+async def _stopped_campaigns_dialing(tenant_id: UUID) -> list[_Settling]:
+    async with tenant_session(tenant_id) as session:
+        rows = (await session.execute(_STOPPED_DIALING_SQL)).all()
+    return [_Settling(tenant_id, UUID(str(row[0])), row[1] or {}) for row in rows]
 
 
 @asynccontextmanager
@@ -550,6 +572,11 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
     settling: list[_Settling] = []
     started = 0
     for work in tenants:
+        if work.has_stopped_dialing:
+            try:
+                settling.extend(await _stopped_campaigns_dialing(work.tenant_id))
+            except Exception as exc:
+                _tenant_failed(failures, work.tenant_id, "settle", exc)
         if not (work.has_running_campaign or work.has_due_schedule):
             # Holding lines but nothing to dial. It has already been counted into
             # `total_active`; there is nothing a session could add.

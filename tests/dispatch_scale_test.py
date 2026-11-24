@@ -540,7 +540,8 @@ async def _running_campaign(
 
 
 async def _census() -> tuple[int, set[uuid.UUID], set[uuid.UUID]]:
-    """(organizations, dispatchable tenants, tenants with a running campaign).
+    """(organizations, dispatchable tenants, tenants with a running campaign or a stopped
+    campaign whose last call still needs settling).
 
     The last one is the set a correct tick may open, and it comes from `dispatch_scan()`
     itself — the only cross-tenant view of `campaigns` that exists without widening RLS
@@ -565,7 +566,7 @@ async def _census() -> tuple[int, set[uuid.UUID], set[uuid.UUID]]:
     return (
         int(orgs or 0),
         {uuid.UUID(str(row)) for row in routed},
-        {w.tenant_id for w in work if w.has_running_campaign},
+        {w.tenant_id for w in work if w.has_running_campaign or w.has_stopped_dialing},
     )
 
 
