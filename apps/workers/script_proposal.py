@@ -263,7 +263,7 @@ class _Fix:
             found = [
                 *script_mistakes(script, self.lint),
                 *empty_title_problems(script),
-                *line_problems(script),
+                *line_problems(script, self.lint.judged),
                 *unasked_problems(script, self.lint.collect, self.lint.call_back),
             ]
         return [*found, *(n.finding for n in self.noted if n.stands(script))]
@@ -416,7 +416,12 @@ async def _mistakes_checked(
     async with tenant_session(tenant_id) as session:
         context = await lint_context_for(session, tenant_id=tenant_id, agent_id=agent_id)
     if details is not None:
-        context = replace(context, collect=details.labels(), call_back=details.call_back)
+        context = replace(
+            context,
+            collect=details.labels(),
+            call_back=details.call_back,
+            judged=details.judged,
+        )
     check = _Fix(replace(context, promo=False), [], frozenset())
     base = proposal.base_script
     # Code mends what it can before any paid repair is spent on it.

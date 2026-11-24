@@ -63,7 +63,7 @@ JOB: Final = "repair_holder_script"
 DEBOUNCE_S: Final = 30
 #: Joined to the script before it is hashed into `script_heal_inputs`: a new or changed check
 #: changes it, so every script is checked once more by the next sweep.
-CHECKS_VERSION: Final = "heal-4"
+CHECKS_VERSION: Final = "heal-5"
 #: The key in `script_heal_fixed` that records a whole-script rewrite asked for under the
 #: current rules (`workers/script_heal._ask_rewrite`), so it is asked once per holder.
 REWRITE_KEY: Final = f"pip_rewrite:{REWRITE_RULES}"
@@ -145,7 +145,7 @@ def heal_findings(script: CallScript | None, lint: LintContext) -> list[str]:
         *reacted_line_problems(script),
         *script_mistakes(script, lint),
         *_textbook(script, lint.language),
-        *line_problems(script),
+        *line_problems(script, lint.judged),
     ]
     return list(dict.fromkeys(f for f in found if _repairable(script, f)))
 

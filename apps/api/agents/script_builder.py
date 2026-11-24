@@ -173,6 +173,9 @@ class JobDetails:
     call_back: tuple[str, ...] = ()
     #: The client's label for the core name, when the job asks it.
     name: str = ""
+    #: The labels of the job's details judged from the whole call (`whole_call_detail`):
+    #: noted after the call, so a step that asks one asks what nobody can answer.
+    judged: tuple[str, ...] = ()
 
     def labels(self) -> tuple[str, ...]:
         return tuple(f.label for f in self.asked)
@@ -186,7 +189,9 @@ class JobDetails:
         if not self.name:
             return self
         return JobDetails(
-            asked=tuple(f for f in self.asked if f.label != self.name), call_back=self.call_back
+            asked=tuple(f for f in self.asked if f.label != self.name),
+            call_back=self.call_back,
+            judged=self.judged,
         )
 
 
@@ -235,6 +240,19 @@ def _business_details(stored: Any) -> list[CollectField]:
     return out
 
 
+def _judged_details(stored: Any) -> tuple[str, ...]:
+    """The labels of the stored list's details judged from the whole call, read as leniently
+    as `_business_details` reads the rest."""
+    out: list[str] = []
+    for raw in stored if isinstance(stored, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        key, label = str(raw.get("key") or ""), str(raw.get("label") or raw.get("key") or "")
+        if label and key not in CORE_KEYS and whole_call_detail(key, label):
+            out.append(label)
+    return tuple(out)
+
+
 def job_details(stored: Any, core: Sequence[ExtractionField]) -> JobDetails:
     """The details a job's calls ask (`JobDetails`): each core detail of `CORE_ASKED_WHEN`
     under the client's own name for it, and each business detail of `stored` that is not
@@ -252,6 +270,7 @@ def job_details(stored: Any, core: Sequence[ExtractionField]) -> JobDetails:
         asked=(*first, *business, *last),
         call_back=tuple(field.label for field in last),
         name=first[0].label if first else "",
+        judged=_judged_details(stored),
     )
 
 

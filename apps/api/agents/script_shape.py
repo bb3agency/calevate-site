@@ -26,25 +26,39 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from itertools import pairwise
 from typing import Final
 
 from calevate_shared.call_script import CallScript, ConversationStage, stage_steps
+from calevate_shared.extraction import whole_call_detail
 from calevate_shared.spoken_guard import has_indic_letters
 
 from apps.api.agents.script_lint import (
     OPENING_FIELDS,
     agent_lines,
+    closes_the_call,
     collected_label,
     next_steps,
     stacked_actions,
 )
 
-#: The close every Pip script ends on (`campaign_script_ask.CLOSING_STEP`).
+#: The name Pip gives the close (`campaign_script_ask.CLOSING_STEP`), read only for a script
+#: none of whose steps closes the call by its role.
 CLOSING_NAME: Final = re.compile(r"^\s*finali[sz]e\s+the\s+call\s*$", re.IGNORECASE)
 
 
 def closing_index(script: CallScript) -> int | None:
-    """The index of the step that closes the call, by its name, or None."""
+    """The index of the step that closes the call, or None.
+
+    By role first (`script_lint.closes_the_call`): an owner renames steps, and the 25 Nov
+    2026 close said "close the call" whatever it was called. Of several, the one in the
+    latest step: a scenario that ends the call early ("Wrong person, apologise and end the
+    call") sits in the step where that case arises, the close after every task. The name
+    is the fallback for a close that states neither."""
+    steps = stage_steps(script.stages)
+    closes = [i for i, stage in enumerate(script.stages) if closes_the_call(stage)]
+    if closes:
+        return max(closes, key=lambda i: (steps[i], i))
     return next((i for i, s in enumerate(script.stages) if CLOSING_NAME.match(s.name)), None)
 
 
@@ -330,9 +344,89 @@ def echo_problems(script: CallScript) -> list[str]:
     ]
 
 
-def line_problems(script: CallScript) -> list[str]:
-    """The lines a targeted repair rewrites (see the module). English words only."""
-    return [*several_action_problems(script), *caller_action_claimed_problems(script)]
+#: An instruction sentence that has the agent ask. "Note" is left out, since noting a
+#: judgement is the agent's own reading, and so is "confirm".
+_ASK_VERB: Final = re.compile(
+    r"\b(?:ask|asks|asking|collect|collects|get|gets|find out|request|tell me)\b", re.IGNORECASE
+)
+_ASK_NEGATED: Final = re.compile(
+    r"\b(?:do not|don'?t|never|not|without)\s+(?:\w+\s+)?(?:ask|collect|request)", re.IGNORECASE
+)
+_SENTENCE: Final = re.compile(r"[^.?!;]+[.?!;]?")
+
+
+def _judged_words(label: str) -> list[str]:
+    """The words of `label` that make it judged (`whole_call_detail`): "goal" of "Campaign
+    goal met", "interest" of "Primary usage interest", and a pair such as "tech level" only
+    where neither word is one alone."""
+    words = [w.casefold() for w in _WORD.findall(label)]
+    single = [w for w in words if whole_call_detail("", w)]
+    pairs = [
+        f"{a} {b}"
+        for a, b in pairwise(words)
+        if a not in single and b not in single and whole_call_detail("", f"{a} {b}")
+    ]
+    return [*single, *pairs]
+
+
+def _names_detail(sentence: str, label: str) -> bool:
+    """Whether `sentence` names the detail `label`: every telling word of the label ("the
+    caller name, campaign goal met"), or its judged word as the person's own ("your goal",
+    "their interest"). The judged word alone is not enough: "the interest rate" is not
+    the caller's interest."""
+    wanted = _stems(label)
+    if wanted and wanted <= _stems(sentence):
+        return True
+    return any(
+        re.search(rf"\b(?:your|their|his|her)\s+(?:\w+\s+)?{re.escape(w)}s?\b", sentence, re.I)
+        for w in _judged_words(label)
+    )
+
+
+def _asking_sentences(path: str, text: str) -> list[str]:
+    """The sentences of `text` that ask something: in an instruction, one that tells the
+    agent to ask; in a line, a question. A line in an Indian language is left to the review
+    pass, which reads every language."""
+    sentences = [s.strip() for s in _SENTENCE.findall(" ".join(text.split())) if s.strip()]
+    if path.endswith(".instruction"):
+        return [s for s in sentences if _ASK_VERB.search(s) and not _ASK_NEGATED.search(s)]
+    if has_indic_letters(text):
+        return []
+    return [s for s in sentences if s.endswith(("?", "\uff1f"))]
+
+
+def judged_ask_problems(script: CallScript, judged: Sequence[str]) -> list[str]:
+    """An instruction or a line that asks one of the job's details judged from the whole call
+    (`judged`, by `extraction.whole_call_detail`): nobody can answer "what is your technical
+    comfort level?", and the 25 Nov 2026 call asked a farmer for "your goal, your tech
+    awareness and your interest" from its instruction and line, never a collect list. The
+    openings are left out, as the other line checks leave them."""
+    if script.raw_override is not None or not judged:
+        return []
+    texts = [
+        *((f"stages.{i}.instruction", stage.instruction) for i, stage in enumerate(script.stages)),
+        *((path, text) for path, text in agent_lines(script) if path not in OPENING_FIELDS),
+    ]
+    found: list[str] = []
+    for path, text in texts:
+        asking = _asking_sentences(path, text)
+        for label in judged:
+            if any(_names_detail(sentence, label) for sentence in asking):
+                found.append(
+                    f'{path}: asks "{label}", which is worked out after the call, never asked; '
+                    "leave it out and ask only what the person can answer."
+                )
+    return found
+
+
+def line_problems(script: CallScript, judged: Sequence[str] = ()) -> list[str]:
+    """The lines a targeted repair rewrites (see the module), with each instruction or line
+    that asks a detail of `judged`. English words only."""
+    return [
+        *several_action_problems(script),
+        *caller_action_claimed_problems(script),
+        *judged_ask_problems(script, judged),
+    ]
 
 
 __all__ = [
@@ -342,6 +436,7 @@ __all__ = [
     "coverage_problems",
     "echo_branches",
     "echo_problems",
+    "judged_ask_problems",
     "line_problems",
     "main_task_items",
     "named_way_problems",

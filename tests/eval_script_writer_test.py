@@ -65,6 +65,11 @@ def test_every_defect_of_the_25_nov_script_is_caught() -> None:
     judged = " ".join(s["judged_field_asked"])
     for label in ("Campaign goal met", "Technical comfort level", "Primary usage interest"):
         assert f'"{label}"' in judged
+    # Asked in step 1's instruction and its line, never in a collect list.
+    assert set(_paths(s["judged_field_asked"])) == {
+        "stages.0.instruction",
+        "stages.0.scripts.en-IN",
+    }
     assert set(_paths(s["known_value_asked"])) == {"stages.0.instruction", "stages.0.scripts.en-IN"}
     # Five asks under one question mark.
     assert _paths(s["multi_question_line"]) == ["stages.0.scripts.en-IN"]
@@ -105,7 +110,12 @@ def test_the_writers_lints_catch_the_25_nov_script_and_make_those_checks() -> No
     fakes = set(_paths(script_lint.fake_branch_problems(script)))
     assert {f"stages.{i}.branches" for i in range(1, 6)} <= fakes
     r = _result("rytu_khata_install")
-    for name in ("multi_action_line", "agent_claims_caller_action", "steps_after_close"):
+    for name in (
+        "multi_question_line",
+        "multi_action_line",
+        "agent_claims_caller_action",
+        "steps_after_close",
+    ):
         assert r.origin[name] == f"script_lint.{name}_problems"
         assert f"{name}_problems" not in r.lints  # one count per problem
     for name in ev.EXTENDS:

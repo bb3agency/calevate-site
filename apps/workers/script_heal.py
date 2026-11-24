@@ -253,7 +253,12 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
         return "unchanged"
     async with tenant_session(tenant_id) as session:
         lint = await lint_context_for(session, tenant_id=tenant_id, agent_id=holder.agent_id)
-    lint = replace(lint, promo=False, language=holder.language or lint.language)
+        details = await (
+            script_builder.campaign_details if kind == "campaign" else script_builder.line_details
+        )(session, holder_id)
+    lint = replace(
+        lint, promo=False, language=holder.language or lint.language, judged=details.judged
+    )
     # Structure first, by code: a way out stated only in words becomes a branch (no model, so
     # no gate), then the model is asked only about the lines.
     wired = wired_ways_out(holder.script, lint)

@@ -160,6 +160,9 @@ class LintContext:
     #: Those of `collect` a call back takes (the time and another number,
     #: `script_builder.CALL_BACK_KEYS`), noted on the step that asks for a later time.
     call_back: tuple[str, ...] = ()
+    #: The labels of the job's details judged from the whole call (`extraction.
+    #: whole_call_detail`), which the post-call pipeline writes and no step may ask.
+    judged: tuple[str, ...] = ()
     #: The agent's call language, against which a line in English letters is found (D-861).
     #: Empty skips that check.
     language: str = ""
@@ -277,6 +280,36 @@ def unknown_figure(text: str, facts: str) -> str | None:
 
 def question_count(text: str) -> int:
     return text.count("?") + text.count("\uff1f")
+
+
+_SENTENCE: Final = re.compile(r"[^.?!\uff1f\u0964]+[.?!\uff1f\u0964]?")
+_LIST_SPLIT: Final = re.compile(r",|\band\b", re.IGNORECASE)
+_ASKED_THING: Final = re.compile(r"\byour\b", re.IGNORECASE)
+#: "your number or your email?" offers a choice, which is one answer.
+_CHOICE: Final = re.compile(r"\bor\b", re.IGNORECASE)
+
+
+def listed_asks(text: str) -> int:
+    """How many asks a question lists beyond its first, in English words: "your name, your
+    goal and another number?" is several asks under one question mark (step 1 of the Rytu
+    Khata script of 25 Nov 2026 put five there). Each comma- or "and"-separated part naming
+    one of the person's things ("your ...") is an ask. A line in an Indian language is left
+    to the review pass, which reads every language."""
+    if has_indic_letters(text):
+        return 0
+    extra = 0
+    for sentence in _SENTENCE.findall(text):
+        asked = sentence.strip()
+        if not asked.endswith(("?", "\uff1f")) or _CHOICE.search(asked):
+            continue
+        parts = [part for part in _LIST_SPLIT.split(asked) if _ASKED_THING.search(part)]
+        extra += max(len(parts) - 1, 0)
+    return extra
+
+
+def asks_count(text: str) -> int:
+    """How many things a line asks: its question marks and the asks listed under one."""
+    return question_count(text) + listed_asks(text)
 
 
 #: Latin letters only: an agent name is configured in them, and its Telugu or Hindi spelling
@@ -624,8 +657,8 @@ def spoken_line_problems(where: str, text: str, context: LintContext) -> list[st
         problems.append(
             f'{where}: says "{figure}", a figure no fact of the owner gives; leave it out.'
         )
-    if question_count(text) > 1:
-        problems.append(f"{where}: asks {question_count(text)} questions; ask one and wait.")
+    if (asked := asks_count(text)) > 1:
+        problems.append(f"{where}: asks {asked} questions; ask one and wait.")
     if placed_call_opening(where, context):
         opening = placed_opening_problem(where, text)
         if opening:
@@ -1428,6 +1461,26 @@ def stated_ways_out(
     return out
 
 
+_ENDS_CALL: Final = dict(_WAY_OUT_ACTIONS)[END_OF_CALL]
+
+
+def closes_the_call(stage: ConversationStage) -> bool:
+    """Whether `stage` is a close by its role: its way on, when no way out holds, is the end
+    of the call, or its instruction says outright to end it ("Thank them and close the
+    call"). An end on a condition ("If they are busy, end the call") is a way out, not a
+    close."""
+    if stage.otherwise == END_OF_CALL:
+        return True
+    for sentence in re.split(r"(?<=[.?!;])\s+|;\s*", " ".join(stage.instruction.split())):
+        text = sentence.strip().rstrip(".?!;").strip()
+        if not text or _CONDITION_FIRST.match(text) or _ACTION_FIRST.match(text):
+            continue
+        hit = _ENDS_CALL.search(text)
+        if hit is not None and not _ACTION_NEGATED.search(text[: hit.start()]):
+            return True
+    return False
+
+
 def unwired_way_out_problems(
     script: CallScript, manifest: CapabilityManifest | None = None
 ) -> list[str]:
@@ -1473,11 +1526,11 @@ def flow_problems(script: CallScript) -> list[str]:
 
 
 def multi_question_line_problems(script: CallScript) -> list[str]:
-    """A line the agent says or copies that asks more than one question."""
+    """A line the agent says or copies that asks more than one thing (`asks_count`)."""
     return [
-        f"{path}: asks {question_count(text)} questions; ask one and wait."
+        f"{path}: asks {asked} questions; ask one and wait."
         for path, text in agent_lines(script)
-        if path not in OPENING_FIELDS and question_count(text) > 1
+        if path not in OPENING_FIELDS and (asked := asks_count(text)) > 1
     ]
 
 
@@ -1505,17 +1558,26 @@ def steps_after_close_problems(script: CallScript) -> list[str]:
     return trailing_problems(script)
 
 
-def judged_field_asked_problems(script: CallScript) -> list[str]:
+def judged_field_asked_problems(
+    script: CallScript, context: LintContext | None = None
+) -> list[str]:
     """A step that collects a detail judged from the call (`extraction.whole_call_detail`),
-    which code takes out of a Pip script (`script_structure.without_judged_asks`)."""
+    which code takes out of a Pip script (`script_structure.without_judged_asks`), and an
+    instruction or line that asks one of the job's judged details (`context.judged`,
+    `script_shape.judged_ask_problems`)."""
     from calevate_shared.extraction import whole_call_detail
 
+    from apps.api.agents.script_shape import judged_ask_problems
+
     return [
-        f'stages.{i}.collect: collects "{collected_label(entry)}", which is worked out after '
-        "the call, never asked."
-        for i, stage in enumerate(script.stages)
-        for entry in stage.collect
-        if whole_call_detail("", collected_label(entry))
+        *(
+            f'stages.{i}.collect: collects "{collected_label(entry)}", which is worked out '
+            "after the call, never asked."
+            for i, stage in enumerate(script.stages)
+            for entry in stage.collect
+            if whole_call_detail("", collected_label(entry))
+        ),
+        *judged_ask_problems(script, context.judged if context is not None else ()),
     ]
 
 
@@ -1540,8 +1602,10 @@ __all__ = [
     "answered_opening",
     "asks_a_time",
     "asks_caller_to_act",
+    "asks_count",
     "bracket_problems",
     "caller_paths",
+    "closes_the_call",
     "collected_label",
     "empty_title_problems",
     "fake_branch_problems",
@@ -1551,6 +1615,7 @@ __all__ = [
     "judged_field_asked_problems",
     "known_value_asked_problems",
     "line_ending",
+    "listed_asks",
     "multi_action_line_problems",
     "multi_question_line_problems",
     "name_segment_problem",
