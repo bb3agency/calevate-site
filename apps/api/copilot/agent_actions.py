@@ -735,6 +735,18 @@ async def _plan_campaign_launch(
         # RLS makes this the same answer for a neighbour's campaign, deliberately.
         raise ProblemError.not_found("Campaign")
     name, status = strip_invisible(str(row[0])), str(row[1])
+    if status in ("running", "paused"):
+        # The gate's own "is running, not draft" names no way forward for either.
+        raise WriteRefusedError(
+            f"“{name}” is {status}, so it has already started"
+            + ("; offer `campaign_resume` to carry on calling" if status == "paused" else "")
+            + ". Do not propose `campaign_launch` for it",
+            plain=(
+                "That campaign is paused. Resume it to carry on calling."
+                if status == "paused"
+                else "That campaign is already calling."
+            ),
+        )
     blockers = await campaigns_service.launch_blockers(
         session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id
     )
@@ -745,7 +757,10 @@ async def _plan_campaign_launch(
         listed = "; ".join(f"{blocker.rule}: {blocker.reason}" for blocker in blockers)
         raise WriteRefusedError(
             f"this campaign cannot launch yet and nothing was proposed — {listed}. Tell the "
-            "person exactly this, and do not try to launch it again"
+            "person exactly this, and do not try to launch it again",
+            # The reasons are the launch check's own client-facing sentences (the same the
+            # campaign screen shows); the rule names stay with the model.
+            plain=" ".join(blocker.reason for blocker in blockers[:3]),
         )
     dialable = (
         await session.execute(

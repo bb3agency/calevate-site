@@ -33,8 +33,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.display import display_decimal, display_inr
 from apps.api.campaigns import controls as campaign_controls
+from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot import lens_args, plans
 from apps.api.copilot.actions import ToolActor, WriteRefusedError, parse_args
+from apps.api.copilot.plan_refusals import unread_id
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.errors import ProblemError
 from apps.api.crm import lens as crm_lens
@@ -75,6 +77,16 @@ async def chosen_leads(session: AsyncSession, args: Mapping[str, Any]) -> tuple[
         except ValueError as exc:
             raise WriteRefusedError("`lead_ids` holds something that is not a lead id") from exc
         targets = await crm_service.resolve_bulk_targets(session, ids=ids)
+        if targets.missing:
+            # Dropped silently, a call id or a call-back id in this list shrank the plan
+            # with nobody told, or left it empty and "nothing matches those filters".
+            first = await unread_id(session, "lead_id", targets.missing[0])
+            raise WriteRefusedError(
+                f"{len(targets.missing)} of the {len(ids)} `lead_ids` are not leads of this "
+                f"account. Of the first: {first} Send lead ids only, leaving out any that "
+                "are not leads",
+                plain="Some of those aren't leads in this account, so nothing changed.",
+            )
         return list(targets.ids), f"the {len(targets.ids)} leads you chose"
     if raw_lens is None:
         raise WriteRefusedError(
@@ -320,20 +332,30 @@ class _CampaignChange(BaseModel):
     campaign_id: UUID
 
 
-async def _campaign_name(session: AsyncSession, campaign_id: UUID) -> str:
+async def addable_campaign(session: AsyncSession, campaign_id: UUID) -> tuple[str, str]:
+    """The campaign's name and status, or the one refusal `campaigns.service.add_contacts`
+    makes: people are added to a service campaign in any state (founder, 16 Nov 2026), and
+    to a promotional one only before it starts, because its do-not-disturb scrub covered
+    the list it started with. Both of Pip's ways of adding people ask this."""
     row = (
         await session.execute(
-            text("SELECT name, status FROM campaigns WHERE id = :id"), {"id": campaign_id}
+            text("SELECT name, status, classification FROM campaigns WHERE id = :id"),
+            {"id": campaign_id},
         )
     ).first()
     if row is None:
         raise ProblemError.not_found("Campaign")
-    if str(row[1]) not in ("draft", "scheduled"):
+    name, status = strip_invisible(str(row[0])), str(row[1])
+    if str(row[2]) == "promotional" and status not in campaigns_service.PRE_LAUNCH:
         raise WriteRefusedError(
-            f"that campaign is {row[1]}; leads are added only before it is launched",
-            plain="People can be added to a campaign only before it starts.",
+            f"“{name}” is a promotional campaign that has started ({status}), so people can "
+            "no longer be added. Offer `campaign_clone` to copy it into a new draft for them",
+            plain=(
+                "People can be added to a promotional campaign only before it starts. "
+                "Copy it instead."
+            ),
         )
-    return strip_invisible(str(row[0]))
+    return name, status
 
 
 async def _prepare_add(
@@ -341,7 +363,7 @@ async def _prepare_add(
 ) -> plans.Prepared:
     del actor
     change = parse_args(_CampaignChange, args)
-    name = await _campaign_name(session, change.campaign_id)
+    name, _status = await addable_campaign(session, change.campaign_id)
     targets, lens_text = await chosen_leads(session, args)
     return plans.Prepared(
         targets=targets,
@@ -418,7 +440,7 @@ CAMPAIGN_ADD_LEADS: Final = plans.set_action_tool(
     audit_action="campaign.contacts_added",
     where="on the campaign's own screen",
     description=(
-        "Add leads to a draft or scheduled campaign's call list, chosen by `lens` (the "
+        "Add leads to a campaign's call list, chosen by `lens` (the "
         "filters from `leads_search`) or the `lead_ids` ticked on screen. A pasted or "
         "attached list: `campaign_contacts_add`. The person approves one plan."
     ),
@@ -774,6 +796,7 @@ __all__ = [
     "LEAD_IDS_SCHEMA",
     "MAX_NAMED_LEADS",
     "SET_ACTIONS",
+    "addable_campaign",
     "chosen_leads",
     "dial_estimate",
     "person_exclusions",

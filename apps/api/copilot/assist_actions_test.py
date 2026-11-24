@@ -43,7 +43,6 @@ from apps.api.copilot.schemas import CopilotProposalEvent
 from apps.api.copilot.script_actions import SCRIPT_DRAFT_ACTIONS
 from apps.api.copilot.set_actions import SET_ACTIONS
 from apps.api.copilot.write_tools_test import _audit, _confirm, _outbox_jobs, _principal, _user_of
-from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from apps.api.main import app
 from apps.api.teach import teaching
@@ -211,9 +210,9 @@ async def test_a_reviewed_draft_is_never_asked_for_again() -> None:
 
 async def test_a_second_reading_of_a_missing_call_is_refused_before_any_card() -> None:
     tenant_id, _slug, token = await _make_tenant()
-    with pytest.raises(ProblemError) as missing:
+    with pytest.raises(write_tools.WriteRefusedError) as missing:
         await _propose(tenant_id, token, "call_summarise_again", {"call_id": str(uuid.uuid4())})
-    assert missing.value.status == 404
+    assert "does not exist" in missing.value.reason
 
 
 async def test_a_second_reading_is_never_left_for_a_background_task() -> None:

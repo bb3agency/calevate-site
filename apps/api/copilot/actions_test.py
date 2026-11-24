@@ -760,7 +760,7 @@ async def test_renaming_a_neighbours_agent_is_a_404_and_touches_nothing() -> Non
     assert row is not None
     stranger_id, stranger_name = UUID(str(row[0])), str(row[1])
 
-    with pytest.raises(ProblemError) as refused:
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
         await write_tools.run_immediate(
             "agent_rename",
             json.dumps({"agent_id": str(stranger_id), "name": "Taken over"}),
@@ -768,7 +768,8 @@ async def test_renaming_a_neighbours_agent_is_a_404_and_touches_nothing() -> Non
             seed="s",
             ip=None,
         )
-    assert refused.value.kind == "not_found"
+    assert "names nothing in this account" in refused.value.reason
+    assert stranger_name not in refused.value.reason
     async with tenant_session(tenant_b) as session:
         after = (
             await session.execute(text("SELECT name FROM agents WHERE id = :i"), {"i": stranger_id})

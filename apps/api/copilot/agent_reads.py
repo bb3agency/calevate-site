@@ -56,10 +56,12 @@ from apps.api.agents import handoff as handoff_service
 from apps.api.agents import lead_fields as lead_fields_service
 from apps.api.agents.business_fit import business_fit
 from apps.api.agents.capability_manifest import books_visits
-from apps.api.agents.jobs import agent_jobs
+from apps.api.agents.jobs import MAX_JOBS_LISTED, OPEN_CAMPAIGN_STATUSES, agent_jobs
 from apps.api.agents.llm_tiers import LLM_TIER_LABELS, tier_of_model
 from apps.api.agents.models import CALL_CAP_DEFAULT_S
 from apps.api.agents.script_edits import PART_LABELS
+from apps.api.copilot.plan_refusals import unread_id
+from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.tools import ReadTool, ToolContext, _clean, ist_date
 from apps.api.core.errors import ProblemError
 from apps.api.db.ownership import assert_visible
@@ -318,10 +320,29 @@ async def _where_scripts_change(session: AsyncSession, agent_id: UUID) -> str:
     redraft."""
     # A deleted agent never gets here: `script_builder.read_draft` has already refused it.
     jobs = (await agent_jobs(session, agent_id)).jobs
+    # `agent_jobs` lists only campaigns that can still be tested (the agent page's Try it).
+    # A cancelled or completed one is still on the Campaigns screen, can be started again,
+    # and its script can be redrafted, so the person asking about it must find it here.
+    closed = (
+        await session.execute(
+            text(
+                "SELECT id, name, status FROM campaigns WHERE agent_id = :aid "
+                "AND archived_at IS NULL AND NOT (status = ANY(:open)) "
+                "ORDER BY created_at DESC, id LIMIT :limit"
+            ),
+            {"aid": agent_id, "open": list(OPEN_CAMPAIGN_STATUSES), "limit": MAX_JOBS_LISTED},
+        )
+    ).all()
     named = "; ".join(
-        f"{'Inbound line' if job.kind == 'inbound_line' else 'campaign'} “{job.name}” "
-        f"({job.kind} {job.id})"
-        for job in jobs
+        [
+            f"{'Inbound line' if job.kind == 'inbound_line' else 'campaign'} “{job.name}” "
+            f"({job.kind} {job.id})"
+            for job in jobs
+        ]
+        + [
+            f"campaign “{strip_invisible(str(row.name))}”, {row.status} (campaign {row.id})"
+            for row in closed
+        ]
     )
     return (
         "Callers hear the script of the Inbound line or campaign the call is on. To change "
@@ -629,7 +650,7 @@ async def _agent_settings(
     try:
         await assert_visible(session, "agent", agent_id)
     except ProblemError:
-        return "No agent with that id in this account."
+        return await unread_id(session, "agent_id", agent_id)
     if part == "settings":
         lines = await _settings_part(session, agent_id)
     elif part == "script":

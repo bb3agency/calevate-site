@@ -18,7 +18,6 @@ from apps.api.copilot import script_actions, write_tools
 from apps.api.copilot.actions import WriteRefusedError
 from apps.api.copilot.schemas import CopilotProposalEvent
 from apps.api.copilot.write_tools_test import _audit, _confirm, _outbox_jobs, _principal, _user_of
-from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers.campaign_script_ask import INSTRUCTION_MAX
@@ -124,9 +123,9 @@ async def test_fixes_for_a_neighbours_agent_are_not_found() -> None:
     neighbour, _, _ = await _make_tenant()
     neighbour_agent = await _agent_of(neighbour)
     await _failed_run(neighbour, neighbour_agent, verdicts=("failed",))
-    with pytest.raises(ProblemError) as missing:
+    with pytest.raises(write_tools.WriteRefusedError) as missing:
         await _propose_fix(tenant_id, token, {"agent_id": str(neighbour_agent), "test_keys": None})
-    assert missing.value.status == 404
+    assert "does not exist" in missing.value.reason
 
 
 async def test_with_several_lines_pip_asks_which_one_gets_the_script_fixes() -> None:

@@ -46,6 +46,7 @@ from apps.api.copilot.actions import (
     parse_args,
     principal_of,
 )
+from apps.api.copilot.plan_refusals import unread_id
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.errors import ProblemError
 from apps.api.crm import lead_dial, lead_message, swipe, translation
@@ -505,7 +506,18 @@ async def _chosen_callbacks(
             text("SELECT id FROM scheduled_callbacks WHERE id = ANY(:ids)"), {"ids": wanted}
         )
         found = {UUID(str(r[0])) for r in rows.all()}
-        ids = [value for value in dict.fromkeys(wanted) if value in found]
+        missing = [value for value in dict.fromkeys(wanted) if value not in found]
+        if missing:
+            # `callbacks_list` prints a lead's and a follow-up's id beside each call-back's;
+            # dropped silently, a mis-picked id shrank the plan with nobody told.
+            first = await unread_id(session, "callback_id", missing[0])
+            raise WriteRefusedError(
+                f"{len(missing)} of the `callback_ids` are not call-backs of this account. "
+                f"Of the first: {first} Send the `[callback_id …]` values from "
+                "`callbacks_list` only",
+                plain="Some of those aren't call-backs in this account, so nothing changed.",
+            )
+        ids = list(dict.fromkeys(wanted))
         return ids, f"the {len(ids)} call-backs you chose"
     if raw_lens is None:
         raise WriteRefusedError(

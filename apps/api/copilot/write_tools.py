@@ -101,9 +101,10 @@ from apps.api.agents.write_guard import assert_agent_writable
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance import dnc
 from apps.api.compliance.audit import write_audit
-from apps.api.copilot import action_log, plans
+from apps.api.copilot import action_log, plan_refusals, plans
 from apps.api.copilot.account_actions import ACCOUNT_ACTIONS
 from apps.api.copilot.actions import (
+    DELETED_AGENT_PLAIN,
     DOES_IT,
     PROPOSES_ONLY,
     ActionTier,
@@ -507,6 +508,28 @@ class _CampaignPauseArgs(BaseModel):
     campaign_id: UUID
 
 
+#: Why a campaign in each non-dialling status cannot be paused: the person's sentence, then
+#: the clause the model is told to offer.
+_NOT_PAUSABLE: Final[dict[str, tuple[str, str]]] = {
+    "draft": (
+        "That campaign hasn't started yet, so there is nothing to pause.",
+        "; it has not started",
+    ),
+    "scheduled": (
+        "That campaign hasn't started yet. Cancel its scheduled start instead.",
+        "; offer `campaign_unschedule` to cancel its scheduled start",
+    ),
+    "completed": (
+        "That campaign has finished, so there is nothing to pause.",
+        "; it has finished",
+    ),
+    "cancelled": (
+        "That campaign was stopped, so there is nothing to pause.",
+        "; it was stopped already",
+    ),
+}
+
+
 async def _plan_campaign_pause(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Plan:
@@ -529,6 +552,17 @@ async def _plan_campaign_pause(
         # RLS makes this the same answer for a neighbour's campaign, deliberately.
         raise ProblemError.not_found("Campaign")
     name, status = strip_invisible(str(row[0])), str(row[1])
+    if status not in ("running", "paused"):
+        # Refused HERE rather than by `set_campaign_status`'s 409 after the person pressed
+        # Confirm: only a running campaign is dialling, so there is nothing to pause.
+        plain, next_step = _NOT_PAUSABLE.get(
+            status, ("That campaign is not dialling, so there is nothing to pause.", "")
+        )
+        raise WriteRefusedError(
+            f"campaign “{name}” is {status}, so it is not dialling and cannot be paused. "
+            f"Tell the person so{next_step}; do not propose `campaign_pause` again",
+            plain=plain,
+        )
     return Plan(
         object_id=str(parsed.campaign_id),
         title="Pause this campaign",
@@ -1082,7 +1116,8 @@ async def _refuse_a_deleted_agent(
         raise WriteRefusedError(
             "that agent has been deleted, so nothing about it can be changed — tell the "
             "person it is deleted and that restoring it from the Agents screen is the one "
-            "thing that would let it be edited again, and do not offer to change it"
+            "thing that would let it be edited again, and do not offer to change it",
+            plain=DELETED_AGENT_PLAIN,
         ) from exc
 
 
@@ -1172,8 +1207,11 @@ async def plan_write(
             )
         await _refuse_a_deleted_agent(session, tool, parsed_arguments)
         _refuse_ungrounded(tool, parsed_arguments, said)
-        plan = await tool.plan(
-            session, actor if said is None else replace(actor, said=tuple(said)), parsed_arguments
+        plan = await plan_refusals.plan_correctably(
+            tool.plan,
+            session,
+            actor if said is None else replace(actor, said=tuple(said)),
+            parsed_arguments,
         )
 
     issued_at = datetime.now(UTC)
@@ -1440,7 +1478,7 @@ async def run_immediate(
 
         # READ, DESCRIBE, NORMALISE — and only now, with the key held.
         try:
-            plan = await tool.plan(session, actor, parsed_arguments)
+            plan = await plan_refusals.plan_correctably(tool.plan, session, actor, parsed_arguments)
         except Exception:
             # A REFUSED PLAN MUST NOT BURN THE KEY. The commonest one is a
             # `WriteRefusedError` the model is about to fix and call again with different
@@ -2018,8 +2056,11 @@ async def stage_for_approval(
             )
         await _refuse_a_deleted_agent(session, tool, parsed_arguments)
         _refuse_ungrounded(tool, parsed_arguments, said)
-        plan = await tool.plan(
-            session, actor if said is None else replace(actor, said=tuple(said)), parsed_arguments
+        plan = await plan_refusals.plan_correctably(
+            tool.plan,
+            session,
+            actor if said is None else replace(actor, said=tuple(said)),
+            parsed_arguments,
         )
         action_id = await action_log.insert(
             session,

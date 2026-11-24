@@ -315,14 +315,14 @@ async def test_lead_assign_refuses_a_stranger_and_a_neighbours_lead() -> None:
             tenant_id, token, "lead_assign", {"lead_id": str(lead_id), "user_id": str(uuid.uuid4())}
         )
     assert "not on this account's team" in stranger.value.reason
-    with pytest.raises(ProblemError) as crossed:
+    with pytest.raises(write_tools.WriteRefusedError) as crossed:
         await _run(
             tenant_id,
             token,
             "lead_assign",
             {"lead_id": str(await _lead_of(other_id)), "user_id": None},
         )
-    assert crossed.value.status == 404
+    assert "does not exist" in crossed.value.reason
 
 
 # --- lead_rename, leads_bulk_update, dnc_remove (confirm) -------------------------------------
@@ -347,17 +347,16 @@ async def test_lead_rename_is_proposed_then_confirmed_without_quoting_the_old_na
 async def test_bulk_update_previews_the_count_and_changes_each_lead() -> None:
     tenant_id, _slug, token = await _make_tenant()
     lead_id = await _lead_of(tenant_id)
-    proposal = await _propose(
-        tenant_id,
-        token,
-        "leads_bulk_update",
-        {
-            "lead_ids": [str(lead_id), str(uuid.uuid4())],
-            "action": "status",
-            "status": "hot",
-            "user_id": None,
-        },
-    )
+    args = {"lead_ids": [str(lead_id)], "action": "status", "status": "hot", "user_id": None}
+    # An id that is not a lead is named back to the model, never dropped without a word.
+    with pytest.raises(write_tools.WriteRefusedError, match="1 of the 2 `lead_ids`"):
+        await _propose(
+            tenant_id,
+            token,
+            "leads_bulk_update",
+            {**args, "lead_ids": [str(lead_id), str(uuid.uuid4())]},
+        )
+    proposal = await _propose(tenant_id, token, "leads_bulk_update", args)
     # D-893: a plan over the ids this account can see; the confirm approves it and the plan
     # worker makes the change (`plans_test.py` proves the run itself).
     assert proposal.title == "Change 1 leads"
@@ -926,7 +925,7 @@ async def test_a_neighbours_agent_is_a_404_for_every_agent_action() -> None:
     other_id, _s, _t = await _make_tenant()
     foreign = str(await _agent_of(other_id))
     for name in ("agent_edit_live", "agent_deactivate", "agent_delete", "agent_changes_apply"):
-        with pytest.raises(ProblemError) as crossed:
+        with pytest.raises(write_tools.WriteRefusedError) as crossed:
             await _propose(
                 tenant_id,
                 token,
@@ -941,7 +940,7 @@ async def test_a_neighbours_agent_is_a_404_for_every_agent_action() -> None:
                     "recording_notice_enabled": None,
                 },
             )
-        assert crossed.value.status == 404, name
+        assert "does not exist" in crossed.value.reason, name
 
 
 # --- business hours, knowledge and numbers -------------------------------------------------
@@ -974,11 +973,11 @@ async def test_knowledge_actions_refuse_what_they_cannot_name() -> None:
         await _propose(
             tenant_id, token, "knowledge_link_add", {"name": None, "url": "file:///etc/passwd"}
         )
-    with pytest.raises(ProblemError) as missing:
+    with pytest.raises(write_tools.WriteRefusedError) as missing:
         await _propose(
             tenant_id, token, "knowledge_remove", {"item": f"file:{uuid.uuid4()}", "put_back": None}
         )
-    assert missing.value.status == 404
+    assert "does not exist" in missing.value.reason
 
 
 async def test_number_actions_are_refused_where_the_platform_has_no_workspaces() -> None:

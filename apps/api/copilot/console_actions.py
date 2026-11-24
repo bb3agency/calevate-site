@@ -85,7 +85,11 @@ from apps.api.copilot.actions import (
     principal_of as _principal_of,
 )
 from apps.api.copilot.agent_setup_actions import screen_guide_hint
-from apps.api.copilot.campaign_actions import BRIEF_SCHEMA, brief_line
+from apps.api.copilot.campaign_actions import (
+    BRIEF_SCHEMA,
+    brief_line,
+    refuse_archived_campaign,
+)
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_REMOVE
 from apps.api.copilot.quotes import owners_wording
 from apps.api.copilot.sanitize import strip_invisible
@@ -885,7 +889,9 @@ async def _waiting_callback(session: AsyncSession, callback_id: UUID) -> dict[st
         raise ProblemError.not_found("Call-back")
     if row["status"] != "scheduled":
         raise WriteRefusedError(
-            f"that call-back is {row['status']}, not waiting, so it cannot be changed"
+            f"that call-back is {row['status']}, not waiting, so it cannot be changed; "
+            "offer `callback_book` for a new one",
+            plain="That call-back already happened or was called off. Book a new one instead.",
         )
     return row
 
@@ -1357,11 +1363,33 @@ class _CampaignScheduleArgs(BaseModel):
 async def _plan_campaign_schedule(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Plan:
+    from apps.api.campaigns.scheduling import MAX_HORIZON
+
     parsed = parse_args(_CampaignScheduleArgs, args)
     when = _ist_instant(parsed.start_at, field="start_at")
     name, status = await _campaign_name_status(session, parsed.campaign_id)
+    if status in ("running", "paused"):
+        raise WriteRefusedError(
+            f"“{name}” is {status}: it has already started, so it cannot be scheduled. "
+            "Tell the person; `campaign_repeat` sets it to start again on a pattern",
+            plain="That campaign has already started, so it can't be given a start time.",
+        )
     if status not in ("draft", "scheduled"):
-        raise WriteRefusedError(f"“{name}” is {status}, so it cannot be scheduled")
+        raise WriteRefusedError(
+            f"“{name}” is {status}, so it cannot be scheduled. Offer `campaign_launch` to "
+            "start it again now, or `campaign_clone` to copy it into a new draft",
+            plain="That campaign has finished. Start it again or copy it instead.",
+        )
+    await refuse_archived_campaign(session, parsed.campaign_id, name)
+    # `schedule_campaign` refuses both of these after the click; asked here, the model can
+    # ask the person for another time instead.
+    now = datetime.now(UTC)
+    if when <= now or when > now + MAX_HORIZON:
+        raise WriteRefusedError(
+            f"`start_at` must be in the future and at most {MAX_HORIZON.days} days ahead; "
+            "ask the person for another time",
+            plain=f"Pick a start time in the next {MAX_HORIZON.days} days.",
+        )
     await check_before_schedule(session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id)
     blockers = await campaigns_service.launch_blockers(
         session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id
@@ -1509,8 +1537,34 @@ async def _plan_campaign_unschedule(
     del actor
     parsed = parse_args(_CampaignIdArgs, args)
     name, status = await _campaign_name_status(session, parsed.campaign_id)
+    # Keyed on the schedule, as `unschedule_campaign` is: a RUNNING campaign that repeats
+    # has a start to cancel too (its next one), and the campaign screen offers that stop.
+    scheduled = (
+        await session.execute(
+            text("SELECT schedule IS NOT NULL FROM campaigns WHERE id = :cid"),
+            {"cid": parsed.campaign_id},
+        )
+    ).scalar()
+    if not scheduled:
+        raise WriteRefusedError(
+            f"“{name}” is {status} and has no scheduled or repeating start to cancel. "
+            "Tell the person; to stop calls going out now, `campaign_pause` does that",
+            plain="That campaign has no scheduled start to cancel.",
+        )
     if status != "scheduled":
-        raise WriteRefusedError(f"“{name}” is {status}, so it has no start to cancel")
+        return Plan(
+            object_id=str(parsed.campaign_id),
+            title="Stop this campaign repeating",
+            summary=(
+                f"“{name}” will not start again on its own. It is {status} now and that does "
+                "not change: calls already going out continue."
+            ),
+            current=f"{status}, repeating",
+            proposed=f"{status}, not repeating",
+            cost=None,
+            reversal="You can set it to repeat again from the campaign's screen.",
+            args={"campaign_id": str(parsed.campaign_id)},
+        )
     return Plan(
         object_id=str(parsed.campaign_id),
         title="Cancel this campaign's scheduled start",
@@ -1535,7 +1589,11 @@ async def _execute_campaign_unschedule(
     )
     return Executed(
         applied=True,
-        detail=f"The scheduled start is cancelled; the campaign is {result.status}.",
+        detail=(
+            "The scheduled start is cancelled; the campaign is a draft again."
+            if result.status == "draft"
+            else f"It will not start again on its own; it is still {result.status}."
+        ),
         audit_summary={"kind": result.kind},
     )
 
@@ -1561,11 +1619,26 @@ CAMPAIGN_UNSCHEDULE: Final = ActionTool(
 async def _plan_campaign_resume(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Plan:
-    del actor
     parsed = parse_args(_CampaignIdArgs, args)
     name, status = await _campaign_name_status(session, parsed.campaign_id)
     if status != "paused":
-        raise WriteRefusedError(f"“{name}” is {status}, not paused, so there is nothing to resume")
+        start_again = status in ("draft", "scheduled", "cancelled", "completed")
+        raise WriteRefusedError(
+            f"“{name}” is {status}, not paused, so there is nothing to resume"
+            + ("; `campaign_launch` starts it" if start_again else ""),
+            plain=(
+                "That campaign isn't paused, so it is started rather than resumed."
+                if start_again
+                else "That campaign isn't paused, so there is nothing to resume."
+            ),
+        )
+    # The executor's two refusals, asked before the card rather than after the click: an
+    # archived agent or campaign, or an automatic pause whose cause still holds. Their
+    # `ProblemError`s reach the model as the platform's own refusal and remedy.
+    await campaigns_service.assert_agent_still_assignable(session, campaign_id=parsed.campaign_id)
+    await campaign_controls.assert_resumable(
+        session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id
+    )
     pending = (
         await session.execute(
             text(
@@ -2297,18 +2370,28 @@ async def _plan_agent_changes_apply(
             {"aid": parsed.agent_id},
         )
     ).first()
-    if status != "live" or row is None or row[0] is None or row[0] == row[1]:
+    # Any status: `apply_to_live` moves the pointer for a paused or draft agent too (and
+    # republishes a ready one without taking calls), and `agent_detail` sends the model
+    # here whenever a change waits, whatever the status.
+    if row is None or row[0] is None or row[0] == row[1]:
         raise WriteRefusedError(
-            "that agent has no saved script change waiting to go live, so there is nothing to apply"
+            "that agent has no saved script change waiting to go live, so there is nothing "
+            "to apply; tell the person",
+            plain="That agent has no saved change waiting.",
         )
+    now_hearing = (
+        f"callers hear version {row[1]} now"
+        if status == "live"
+        else "no caller hears it until the agent is published"
+    )
     return Plan(
         object_id=str(parsed.agent_id),
         title="Put the saved script live",
         summary=(
-            f"“{name}” starts using script version {row[0]} (callers hear version {row[1]} now). "
+            f"“{name}” starts using script version {row[0]} ({now_hearing}). "
             "The platform is checked to hold the new script before anything changes."
         ),
-        current=f"version {row[1]}",
+        current="no version yet" if row[1] is None else f"version {row[1]}",
         proposed=f"version {row[0]}",
         cost=None,
         reversal=(
@@ -2358,7 +2441,7 @@ AGENT_CHANGES_APPLY: Final = ActionTool(
     where="on the agent's page",
     schema=action_schema(
         "agent_changes_apply",
-        "Propose putting a live agent's saved-but-not-live change in front of callers. "
+        "Propose putting an agent's saved-but-not-live change in front of callers. "
         "`agent_detail` says whether one is waiting." + PROPOSES_ONLY,
         {"agent_id": {"type": "string", "description": "The agent's id, never invented."}},
     ),
@@ -2374,7 +2457,10 @@ async def _plan_agent_deactivate(
     parsed = parse_args(_AgentIdArgs, args)
     name, status = await _agent_name_status(session, parsed.agent_id)
     if status != "live":
-        raise WriteRefusedError(f"“{name}” is {status}, not live, so it is already off the phone")
+        raise WriteRefusedError(
+            f"“{name}” is {status}, not live, so it is already off the phone",
+            plain="That agent is already off the phone.",
+        )
     return Plan(
         object_id=str(parsed.agent_id),
         title="Take this agent off the phone",
@@ -2430,7 +2516,13 @@ async def _plan_agent_delete(
     parsed = parse_args(_AgentIdArgs, args)
     name, status = await _agent_name_status(session, parsed.agent_id)
     if status == "live":
-        raise WriteRefusedError(f"“{name}” is live; pause it first (`agent_deactivate`)")
+        raise WriteRefusedError(
+            f"“{name}” is live; pause it first (`agent_deactivate`)",
+            plain="That agent is live. Pause it before deleting it.",
+        )
+    # `archive_agent`'s two refusals, read-only, asked before the card rather than after
+    # the click; their `ProblemError`s reach the model with the platform's own remedy.
+    await lifecycle.assert_agent_retirable(session, agent_id=parsed.agent_id)
     return Plan(
         object_id=str(parsed.agent_id),
         title="Delete this agent",
@@ -3068,7 +3160,6 @@ class _NumberReleaseArgs(BaseModel):
 async def _plan_number_release(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Plan:
-    del actor
     from apps.api.tenancy.engine_workspace import engine_has_workspaces
     from apps.workers.redaction import redact
 
@@ -3077,14 +3168,38 @@ async def _plan_number_release(
         raise WriteRefusedError(
             "numbers are not released in the app on this account's phone system"
         )
+    from apps.api.campaigns.engine_numbers import engine_number_provider, releasable_by
+    from apps.api.tenancy.engine_workspace import read_workspace_state
+
     row = (
         await session.execute(
-            text("SELECT e164 FROM phone_numbers WHERE id = :nid AND released_at IS NULL"),
+            text(
+                "SELECT e164, released_at IS NOT NULL, engine_number_ref, provider "
+                "FROM phone_numbers WHERE id = :nid"
+            ),
             {"nid": parsed.number_id},
         )
     ).first()
     if row is None:
         raise ProblemError.not_found("Phone number")
+    if row[1]:
+        raise WriteRefusedError(
+            "that number is already released; tell the person, and do not propose it again",
+            plain="That number is already released.",
+        )
+    # `release_engine_number`'s own test, asked before the card: a number it cannot release
+    # from this account answered "not found" after the person had confirmed.
+    own = (await read_workspace_state(session, actor.tenant_id)).workspace_id
+    if (
+        not row[2]
+        or row[3] != engine_number_provider()
+        or not releasable_by(str(row[2]), own_workspace=own, by_admin=False)
+    ):
+        raise WriteRefusedError(
+            "this number is held for the account by the platform and only support can "
+            "release it; tell the person to contact support, and do not propose it again",
+            plain="This number is managed for you. Contact support to release it.",
+        )
     masked = redact(str(row[0])).text
     return Plan(
         object_id=str(parsed.number_id),

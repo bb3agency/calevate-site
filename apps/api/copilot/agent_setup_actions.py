@@ -115,7 +115,8 @@ async def _plan_restore(session: AsyncSession, actor: ToolActor, args: Mapping[s
     name, status = await _name_status(session, parsed.agent_id)
     if status != "archived":
         raise WriteRefusedError(
-            f"“{name}” is {status}, not deleted, so there is nothing to restore"
+            f"“{name}” is {status}, not deleted, so there is nothing to restore",
+            plain="That agent isn't deleted, so there is nothing to restore.",
         )
     return Plan(
         object_id=str(parsed.agent_id),

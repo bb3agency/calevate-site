@@ -144,6 +144,9 @@ class WriteRefusedError(Exception):
 #: What the owner reads for a refused action whose raise site gave no `plain` sentence.
 REFUSED_PLAIN: Final = "This could not be done from here."
 
+#: What the owner reads when an action names a deleted agent.
+DELETED_AGENT_PLAIN: Final = "That agent is deleted. Restore it on the Agents screen first."
+
 
 async def agent_name(session: AsyncSession, agent_id: UUID) -> str:
     """The name of an agent an action names, ready for a card or a prompt.
@@ -159,7 +162,11 @@ async def agent_name(session: AsyncSession, agent_id: UUID) -> str:
         )
     ).first()
     if row is None:
-        raise WriteRefusedError("that agent has been deleted; choose another from `agents_list`")
+        raise WriteRefusedError(
+            "that agent has been deleted; choose another from `agents_list`, or offer "
+            "`agent_restore` if the person means this one",
+            plain=DELETED_AGENT_PLAIN,
+        )
     return strip_invisible(str(row[0]))
 
 

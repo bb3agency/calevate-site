@@ -105,9 +105,10 @@ async def test_a_neighbours_object_is_not_found_from_every_detail_read() -> None
         ("lead_detail", "lead_id", "leads"),
     ):
         result = await _read(name, tenant_id, **{key: await _first(other_id, table)})
-        assert result.startswith("No "), (name, result)
+        # The same sentence as an id that names nothing: no existence oracle across accounts.
+        assert result.startswith(f"`{key}` names nothing in this account."), (name, result)
     missing = await _read("call_detail", tenant_id, call_id=str(uuid.uuid4()))
-    assert missing == "No call with that id in this account."
+    assert missing.startswith("`call_id` names nothing in this account.")
     assert "missing" in await _read("campaign_detail", tenant_id, campaign_id="not-an-id")
 
 
