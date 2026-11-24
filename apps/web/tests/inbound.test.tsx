@@ -11,6 +11,7 @@ import type { InboundLine } from "@/lib/api/inboundLines";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 
 import { businessProfileFixture } from "./businessProfileFixture";
+import { jobTeamAlert } from "./fixtures/sharedReads";
 import { problem, renderClientPage, type ApiCall, type Routes } from "./harness";
 import { SHORT_LINE, defaultCopyUnder, longLines } from "./shortCopy";
 
@@ -141,6 +142,7 @@ const lineRoutes = (current: InboundLine, extra: Routes = {}): Routes => ({
   [`/v1/inbound-lines/${LINE_ID}/test-calls`]: [],
   [`/v1/inbound-lines/${LINE_ID}/test-numbers`]: { numbers: [] },
   [`/v1/inbound-lines/${LINE_ID}/notes`]: { agent_id: "agent-1", agent_name: "Front desk", fields: [], core_fields: [], digest: "empty", applied_now: false },
+  [`/v1/inbound-lines/${LINE_ID}/team-alert`]: jobTeamAlert("line", LINE_ID),
   "/v1/agents": AGENTS,
   "/v1/kb/notes": { notes: [] },
   "/v1/kb/uploads": [],

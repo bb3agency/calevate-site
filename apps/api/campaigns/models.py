@@ -178,6 +178,10 @@ class Campaign(PKMixin, TimestampMixin, Base):
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     field_suggestions_at: Mapped[datetime | None]
+    #: Which of its calls tell the owner and the team (D-1040): `{on_outcomes, on_fields}`
+    #: (`team_alerts/service.stored_rule`); NULL until the owner saves, which is every
+    #: positive outcome. The CHECK on its shape is migration b8e3f1c6d2a4's.
+    team_alert_rule: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: Pip's pass writing the outcome of each step that has none (D-1036, `campaigns/
     #: step_outcomes`): the agent-pass state, the hash of what it last read and when it last
     #: moved. The outcomes themselves go into `script`. Migration c4f1a8d2e7b3 holds the CHECK.

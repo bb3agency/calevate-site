@@ -73,6 +73,7 @@ import { TestCallForm } from "../campaigns/CampaignBoosters";
 import { ScriptSummary } from "../campaigns/CampaignWorkspace";
 import { JobNotes, lineNotesTakeEffect } from "../campaigns/CampaignNotes";
 import { FoldGroup, FoldSection } from "../campaigns/FoldSection";
+import { JobAlerts } from "../campaigns/JobAlerts";
 import { TestCallRows } from "../campaigns/TestCallList";
 import { SlotsFullProblem, isSlotsFull } from "../campaigns/SlotHolders";
 import { PipGenerateBand } from "../campaigns/PipGenerateBand";
@@ -186,6 +187,7 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
           refusal={refusal}
           takeEffect={lineNotesTakeEffect}
         />
+        <JobAlerts kind="line" jobId={data.id} />
         <ActionsSection {...props} slug={slug} />
         <OutsideHoursSection slug={slug} />
         <NumbersSection

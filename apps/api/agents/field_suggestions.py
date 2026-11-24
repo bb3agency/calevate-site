@@ -283,13 +283,6 @@ async def queue_account(session: AsyncSession, *, tenant_id: UUID) -> int:
     return queued
 
 
-#: The job a call was made for: its campaign, the campaign whose Test call it was, or its line.
-_CALL_JOB_SQL: Final = (
-    "SELECT c.campaign_id, (SELECT t.id FROM campaigns t WHERE c.campaign_id IS NULL "
-    "AND c.id = ANY (t.test_call_ids) LIMIT 1), c.inbound_line_id FROM calls c WHERE c.id = :cid"
-)
-
-
 async def queue_on_repeat(
     session: AsyncSession, *, tenant_id: UUID, call_id: UUID, unlisted: dict[str, str]
 ) -> bool:
@@ -303,11 +296,13 @@ async def queue_on_repeat(
     # so it waits for the owner to turn Pip on; "Check again" is the way without it.
     if not await account_content_may_reach_models(session, tenant_id=tenant_id):
         return False
-    row = (await session.execute(text(_CALL_JOB_SQL), {"cid": call_id})).first()
-    if row is None or not any(row):
+    # Local: `campaigns.notes` imports this module's neighbours.
+    from apps.api.campaigns.notes import call_job
+
+    job = await call_job(session, call_id)
+    if job is None:
         return False
-    kind: JobKind = "line" if row[0] is None and row[1] is None else "campaign"
-    job_id = UUID(str(row[0] or row[1] or row[2]))
+    kind, job_id = job
     rows = (
         await session.execute(
             text(

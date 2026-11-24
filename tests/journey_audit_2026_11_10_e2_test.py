@@ -12,7 +12,6 @@ import pytest
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.team_alerts import service as team_alerts
-from apps.api.team_alerts.service import Rule
 from apps.workers import extraction_reread, handoff, pipeline
 from apps.workers import team_alerts as team_worker
 from calevate_shared.engine import HandoffLeg
@@ -118,8 +117,8 @@ async def _in_call_alert_body(
             await session.execute(
                 text("UPDATE calls SET lead_id = :l WHERE id = :c"), {"l": lead_id, "c": call_id}
             )
-        await team_alerts.save_rule(
-            session, tenant_id=t.tenant_id, agent_id=t.agent_id, rule=Rule(in_call=True)
+        await team_alerts.save_in_call(
+            session, tenant_id=t.tenant_id, agent_id=t.agent_id, in_call=True
         )
     told = await team_alerts.queue_in_call(
         tenant_id=t.tenant_id, agent_id=t.agent_id, call_id=call_id, problem="Wants a person."

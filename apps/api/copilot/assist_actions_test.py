@@ -31,7 +31,7 @@ from apps.api.copilot.campaign_actions import (
     CAMPAIGN_ARCHIVE_ACTIONS,
     CAMPAIGN_CONSENT_SET,
 )
-from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS
+from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS, JOB_ALERT_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.follow_up_actions import FOLLOW_UP_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
@@ -102,6 +102,8 @@ def test_each_is_on_its_buttons_permission_and_only_the_form_filler_skips_the_cl
         + len(CAMPAIGN_ARCHIVE_ACTIONS)
         # The script draft APPENDS.
         + len(SCRIPT_DRAFT_ACTIONS)
+        # D-1040: a job's after-call alerts APPEND.
+        + len(JOB_ALERT_ACTIONS)
     )
     assert write_tools.WRITE_TOOLS[-count - after : -after] == assist_actions.ASSIST_ACTIONS
 

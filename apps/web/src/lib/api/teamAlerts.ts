@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * Who hears about hot leads (D-904, D-967): the business's own team addresses beside the owner,
- * and, per agent, what besides a hot lead the list hears about.
+ * Who hears about hot leads (D-904, D-967): the business's own team addresses beside the owner;
+ * per agent, whether it may message the team during a call; and per campaign and Inbound line,
+ * which of its calls the list hears about after they end (D-1040).
  *
  *   GET    /v1/team-alerts/contacts                 `org:read`
  *   POST   /v1/team-alerts/contacts                 `org:manage` (a code is sent to it)
@@ -11,6 +12,10 @@
  *   DELETE /v1/team-alerts/contacts/{id}            `org:manage`
  *   GET    /v1/agents/{agent_id}/team-alert         `agents:read`
  *   PUT    /v1/agents/{agent_id}/team-alert         `org:manage`
+ *   GET    /v1/campaigns/{id}/team-alert            `agents:read`
+ *   PUT    /v1/campaigns/{id}/team-alert            `org:manage`
+ *   GET    /v1/inbound-lines/{id}/team-alert        `agents:read`
+ *   PUT    /v1/inbound-lines/{id}/team-alert        `org:manage`
  */
 
 import {
@@ -29,8 +34,11 @@ type Schemas = components["schemas"];
 export type TeamContacts = Schemas["TeamContactsOut"];
 export type TeamContact = Schemas["TeamContactOut"];
 export type TeamContactIn = Schemas["TeamContactIn"];
-export type TeamAlertRule = Schemas["TeamAlertRuleOut"];
-export type TeamAlertRuleIn = Schemas["TeamAlertRuleIn"];
+export type AgentTeamAlert = Schemas["AgentTeamAlertOut"];
+export type AgentTeamAlertIn = Schemas["AgentTeamAlertIn"];
+export type JobTeamAlert = Schemas["JobTeamAlertOut"];
+export type JobTeamAlertIn = Schemas["JobTeamAlertIn"];
+export type AlertJobKind = JobTeamAlert["kind"];
 
 const CONTACTS_PATH = "/v1/team-alerts/contacts";
 
@@ -38,7 +46,12 @@ export const teamAlertKeys = {
   all: (org: string) => ["team-alerts", org] as const,
   contacts: (org: string) => ["team-alerts", org, "contacts"] as const,
   rule: (org: string, agentId: string) => ["team-alerts", org, "rule", agentId] as const,
+  job: (org: string, kind: AlertJobKind, jobId: string) => ["team-alerts", org, "job", kind, jobId] as const,
 };
+
+function jobPath(kind: AlertJobKind, jobId: string): string {
+  return kind === "campaign" ? `/v1/campaigns/${jobId}/team-alert` : `/v1/inbound-lines/${jobId}/team-alert`;
+}
 
 export function useTeamContacts(session: Session): UseQueryResult<TeamContacts> {
   return useQuery({
@@ -47,10 +60,17 @@ export function useTeamContacts(session: Session): UseQueryResult<TeamContacts> 
   });
 }
 
-export function useTeamAlertRule(session: Session, agentId: string): UseQueryResult<TeamAlertRule> {
+export function useAgentTeamAlert(session: Session, agentId: string): UseQueryResult<AgentTeamAlert> {
   return useQuery({
     queryKey: teamAlertKeys.rule(session.orgSlug, agentId),
-    queryFn: () => apiRequest<TeamAlertRule>(session, `/v1/agents/${agentId}/team-alert`),
+    queryFn: () => apiRequest<AgentTeamAlert>(session, `/v1/agents/${agentId}/team-alert`),
+  });
+}
+
+export function useJobTeamAlert(session: Session, kind: AlertJobKind, jobId: string): UseQueryResult<JobTeamAlert> {
+  return useQuery({
+    queryKey: teamAlertKeys.job(session.orgSlug, kind, jobId),
+    queryFn: () => apiRequest<JobTeamAlert>(session, jobPath(kind, jobId)),
   });
 }
 
@@ -98,17 +118,30 @@ export function useRemoveTeamContact(session: Session) {
   });
 }
 
-export function useSaveTeamAlertRule(
+export function useSaveAgentTeamAlert(
   session: Session,
   agentId: string,
-): UseMutationResult<TeamAlertRule, Error, TeamAlertRuleIn> {
+): UseMutationResult<AgentTeamAlert, Error, AgentTeamAlertIn> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: TeamAlertRuleIn) =>
-      apiRequest<TeamAlertRule>(session, `/v1/agents/${agentId}/team-alert`, {
+    mutationFn: (body: AgentTeamAlertIn) =>
+      apiRequest<AgentTeamAlert>(session, `/v1/agents/${agentId}/team-alert`, {
         method: "PUT",
         body,
       }),
     onSuccess: (rule) => client.setQueryData(teamAlertKeys.rule(session.orgSlug, agentId), rule),
+  });
+}
+
+export function useSaveJobTeamAlert(
+  session: Session,
+  kind: AlertJobKind,
+  jobId: string,
+): UseMutationResult<JobTeamAlert, Error, JobTeamAlertIn> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: JobTeamAlertIn) =>
+      apiRequest<JobTeamAlert>(session, jobPath(kind, jobId), { method: "PUT", body }),
+    onSuccess: (rule) => client.setQueryData(teamAlertKeys.job(session.orgSlug, kind, jobId), rule),
   });
 }

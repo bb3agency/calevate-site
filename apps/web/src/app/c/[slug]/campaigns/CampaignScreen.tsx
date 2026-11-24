@@ -37,6 +37,7 @@ import { CampaignSettings } from "./CampaignSettings";
 import { CampaignStateNotice } from "./CampaignStateNotice";
 import { CampaignWorkspace } from "./CampaignWorkspace";
 import { FoldGroup, FoldSection } from "./FoldSection";
+import { JobAlerts } from "./JobAlerts";
 import { OtherCallSettings } from "./OtherCallSettings";
 import { ContactResults } from "./ContactResults";
 import { LaunchGate } from "./LaunchGate";
@@ -396,6 +397,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                 canWrite={write.allowed && changeable}
                 refusal={refusal}
               />
+              <JobAlerts kind="campaign" jobId={campaignId} />
               <TestCallSection
                 slug={slug}
                 campaignId={campaignId}

@@ -200,6 +200,7 @@ import {
   agentPromptLayers,
   organizationCallHandling,
   teamAlertReads,
+  jobTeamAlert,
   VOICE_EFFECTIVE_DEFAULTS,
   VOICE_ORGANIZATION_NONE,
   GIVE_CALLERS_TIME,
@@ -3249,6 +3250,7 @@ const CLIENT_SCREENS: Screen[] = [
       [`/v1/campaigns/${CAMPAIGN.id}/workspace`]: workspaceFixture({ campaign_id: CAMPAIGN.id, status: "running" }),
       [`/v1/campaigns/${CAMPAIGN.id}/settings`]: settingsFixture(),
       [`/v1/campaigns/${CAMPAIGN.id}/notes`]: notesFixture(),
+      [`/v1/campaigns/${CAMPAIGN.id}/team-alert`]: jobTeamAlert("campaign", CAMPAIGN.id),
       [`/v1/campaigns/${CAMPAIGN.id}/test-calls`]: [
         { call_id: "call-2", placed_at: "2026-11-16T04:00:00Z", status: "completed", duration_s: 40, has_recording: false },
       ],
@@ -3307,6 +3309,7 @@ const CLIENT_SCREENS: Screen[] = [
         calls: [{ id: "call-1", started_at: "2026-11-16T05:00:00Z", duration_s: 95, status: "completed", outcome_tag: "answered" }],
       },
       [`/v1/inbound-lines/${INBOUND_LINE.id}/test-numbers`]: { numbers: ["+919876543210"] },
+      [`/v1/inbound-lines/${INBOUND_LINE.id}/team-alert`]: jobTeamAlert("line", INBOUND_LINE.id),
       [`/v1/inbound-lines/${INBOUND_LINE.id}/notes`]: {
         agent_id: INBOUND_LINE.agent_id,
         agent_name: INBOUND_LINE.agent_name,
