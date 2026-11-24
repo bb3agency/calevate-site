@@ -1,0 +1,34 @@
+{
+  "id": "school_admission",
+  "title": "School admission enquiries",
+  "holder": "line",
+  "business_name": "Vidya Bharati School",
+  "business_type": "education",
+  "agent_name": "Kavya",
+  "description": "A CBSE school from nursery to class 10 in Warangal.",
+  "language": "en-IN",
+  "languages": ["en-IN"],
+  "direction": "inbound",
+  "capabilities": {"call_backs": true, "team_alerts": true},
+  "main_task": "Parents call to ask about admissions for the 2027-28 year.\n1. Ask which class their child needs and the child's age.\n2. Answer from our knowledge: classes with seats, the fee range and the documents needed.\n3. Offer a campus visit and note the day they prefer; the office confirms it.",
+  "items": [
+    {"id": "child_class", "text": "Ask which class their child needs", "terms": [["class"]]},
+    {"id": "child_age", "text": "Ask the child's age", "terms": [["age", "old"]]},
+    {"id": "answer_seats_fees", "text": "Answer about seats, fees and documents", "terms": [["seat", "fee", "document"]]},
+    {"id": "campus_visit", "text": "Offer a campus visit and note the day", "terms": [["visit"], ["day"]]}
+  ],
+  "noted": [
+    {"label": "Parent name"},
+    {"label": "Child's class"},
+    {"label": "Child's age"},
+    {"label": "Preferred visit day"},
+    {"label": "Enquiry outcome"}
+  ],
+  "known": [],
+  "knowledge": [
+    {"title": "Seats 2027-28", "text": "Seats are open in nursery, class 1 and class 6; other classes have a waiting list."},
+    {"title": "Fees", "text": "The yearly fee is between 45,000 and 60,000 rupees depending on the class."},
+    {"title": "Documents", "text": "Birth certificate, the last report card, a transfer certificate from class 2 up, and two photos."}
+  ],
+  "purpose_terms": []
+}

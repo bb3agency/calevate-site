@@ -1,0 +1,47 @@
+{
+  "id": "rytu_khata_install",
+  "title": "Rytu Khata app install",
+  "holder": "campaign",
+  "business_name": "Rytu Khata",
+  "business_type": "custom",
+  "agent_name": "Varsha",
+  "description": "Rytu Khata is a farm accounts web app for farmers: they record their farms, expenses and crop sales and see the totals on a dashboard.",
+  "language": "te-IN",
+  "languages": ["te-IN", "en-IN"],
+  "direction": "outbound",
+  "capabilities": {"call_backs": true},
+  "main_task": "Call our existing customers who registered on the Rytu Khata web app and help them install it as an app on their phone.\n1. Find out whether it is installed as an app; if it is not, explain why installing it is better than using the website.\n2. Help them install it on Android or iPhone, screen by screen, and help them set the app language.\n3. Confirm it is installed, take them to the dashboard and explain that farms are set up first in My Farms.\n4. Set up their farms.\n5. Enter their expenses.\n6. Then enter their sales, and show how the dashboard summarises them.",
+  "items": [
+    {"id": "check_installed", "text": "Find out whether it is installed as an app", "terms": [["install"], ["check", "find out", "whether"]]},
+    {"id": "why_install", "text": "Explain why installing it is better than the website", "terms": [["why", "better", "benefit", "advantage"], ["install"]]},
+    {"id": "install_android", "text": "Install it on Android, screen by screen", "terms": [["android"]]},
+    {"id": "install_iphone", "text": "Install it on iPhone, screen by screen", "terms": [["iphone", "ios"]]},
+    {"id": "set_language", "text": "Help them set the app language", "terms": [["language"]]},
+    {"id": "dashboard_my_farms", "text": "On the dashboard, explain that farms are set up first in My Farms", "terms": [["dashboard"], ["my farms"]]},
+    {"id": "set_up_farms", "text": "Set up their farms", "terms": [["farm"], ["add", "set up", "setup"]]},
+    {"id": "enter_expenses", "text": "Enter their expenses", "terms": [["expense"]]},
+    {"id": "enter_sales", "text": "Enter their sales", "terms": [["sale"]]},
+    {"id": "dashboard_summary", "text": "Show how the dashboard summarises them", "terms": [["dashboard"], ["summar", "total", "overview"]]}
+  ],
+  "noted": [
+    {"label": "Caller name"},
+    {"label": "Installation status"},
+    {"label": "Setup progress"},
+    {"label": "Campaign goal met", "judged": true},
+    {"label": "Technical comfort level", "judged": true},
+    {"label": "Primary usage interest", "judged": true},
+    {"label": "Alternative number", "reason": "asked only for a call back"}
+  ],
+  "known": ["name"],
+  "knowledge": [
+    {"title": "Install steps", "text": "Open rytukhata.com in Chrome on Android and press Install app at the top, or on iPhone open it in Safari, tap Share and then Add to Home Screen."},
+    {"title": "Why the app", "text": "Installed as an app, Rytu Khata opens from the home screen with one tap and keeps working on a weak signal."},
+    {"title": "First steps", "text": "After logging in with the phone number, farms are added first in My Farms; expenses and sales are entered per farm and the dashboard shows the totals."}
+  ],
+  "purpose_terms": ["app", "install"],
+  "variants": [["android", "iphone"]],
+  "screen_terms": ["home", "screen", "icon", "chrome", "safari", "share", "login"],
+  "purpose": "Help registered customers install the web app on their phone.",
+  "goal": "The app is installed and the person has entered a first expense and sale.",
+  "consent_source": "existing_customer"
+}

@@ -1,0 +1,50 @@
+{
+  "case": "ecommerce_cod",
+  "source": "stand-in",
+  "recorded_at": "2026-11-25",
+  "notes": "A hand-written fake model output, not a real writer's: replace it with a live run's (--import-live).",
+  "script": {
+    "schema_version": 2,
+    "opening_line": "Hello {{lead_name}}, this is Meena from Kaveri Handlooms, calling to confirm your order. Can you talk for a minute?",
+    "stages": [
+      {
+        "id": "item",
+        "name": "Confirm the order",
+        "instruction": "Confirm the item they ordered and that they pay the amount in cash on delivery.",
+        "scripts": {"en-IN": "You ordered a handloom saree, to be paid in cash on delivery. Is that right?"},
+        "branches": [
+          {"when": "They no longer want it", "target": "cancel"},
+          {"when": "Confirm the address", "target": "address"},
+          {"when": "They are busy now", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "address",
+        "name": "Confirm the address",
+        "instruction": "Read back the delivery address and pin code and ask whether it is right.",
+        "scripts": {"en-IN": "Shall I read your delivery address to check it?"}
+      },
+      {
+        "id": "close",
+        "name": "Close the call",
+        "instruction": "Tell them delivery takes 4 to 6 days, then thank them.",
+        "scripts": {"en-IN": "Your order will reach you in four to six days. Thank you."}
+      },
+      {
+        "id": "cancel",
+        "name": "Cancel the order",
+        "instruction": "Cancel the order and tell them it is cancelled.",
+        "scripts": {"en-IN": "I have cancelled your order. Thank you for telling us."},
+        "branches": [
+          {"when": "Done", "target": "end"}
+        ]
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "The person confirms the order and the amount."},
+      {"step": 2, "outcome": "The address is confirmed."},
+      {"step": 3, "outcome": "The person knows when it arrives."},
+      {"step": 4, "outcome": "The order is cancelled."}
+    ]
+  }
+}

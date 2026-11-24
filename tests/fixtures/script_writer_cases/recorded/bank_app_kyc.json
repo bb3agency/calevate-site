@@ -1,0 +1,73 @@
+{
+  "case": "bank_app_kyc",
+  "source": "stand-in",
+  "recorded_at": "2026-11-25",
+  "notes": "A hand-written fake model output, not a real writer's: replace it with a live run's (--import-live). Steps 2 and 3 are scenarios of one step, one per phone.",
+  "script": {
+    "schema_version": 2,
+    "opening_line": "Hello {{lead_name}}, this is Kiran from Janata Cooperative Bank. Your KYC is due, and I can help you update it in our app in a few minutes. Can you talk now?",
+    "stages": [
+      {
+        "id": "phone",
+        "name": "App and phone",
+        "step": 1,
+        "instruction": "Ask whether they have the bank app on their phone, and whether it is Android or iPhone.",
+        "scripts": {"en-IN": "Do you have our bank app on your phone?"},
+        "branches": [
+          {"when": "They are busy now", "target": "call_back"},
+          {"when": "They do not have the app", "target": "end"}
+        ]
+      },
+      {
+        "id": "android",
+        "name": "Android path",
+        "step": 2,
+        "instruction": "On Android, guide them one screen at a time: open the app, go to Profile, tap Update KYC.",
+        "procedure": [
+          {"action": "Please open the bank app.", "wait_for": "The app is open"},
+          {"action": "Now tap Profile at the bottom.", "wait_for": "They see Profile"},
+          {"action": "Tap Update KYC.", "wait_for": "The KYC screen is open"}
+        ]
+      },
+      {
+        "id": "iphone",
+        "name": "iPhone path",
+        "step": 2,
+        "instruction": "On iPhone, guide them one screen at a time: open the app, tap the Settings tab, then KYC.",
+        "procedure": [
+          {"action": "Please open the bank app.", "wait_for": "The app is open"},
+          {"action": "Now tap the Settings tab.", "wait_for": "They see Settings"},
+          {"action": "Tap KYC.", "wait_for": "The KYC screen is open"}
+        ]
+      },
+      {
+        "id": "upload",
+        "name": "Upload the PAN",
+        "step": 3,
+        "instruction": "Have them upload a clear photo of their PAN card. Never ask for a PIN, password or OTP.",
+        "scripts": {"en-IN": "Tell me your PAN number and I will update it for you."}
+      },
+      {
+        "id": "number",
+        "name": "Request number",
+        "step": 4,
+        "instruction": "Ask them to read out the request number the app shows.",
+        "scripts": {"en-IN": "The app now shows a request number. Could you read it out to me?"}
+      },
+      {
+        "id": "close",
+        "name": "Finalise the call",
+        "step": 5,
+        "instruction": "Thank them and end the call.",
+        "scripts": {"en-IN": "Thank you, your KYC request is sent."}
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "Whether they have the app and their phone type are known."},
+      {"step": 2, "outcome": "The person has tapped Update KYC under Profile on Android."},
+      {"step": 3, "outcome": "The PAN photo is uploaded."},
+      {"step": 4, "outcome": "The request number is read out."},
+      {"step": 5, "outcome": "The person has been thanked."}
+    ]
+  }
+}

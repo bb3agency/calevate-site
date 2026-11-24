@@ -1,0 +1,35 @@
+{
+  "id": "clinic_reminder",
+  "title": "Clinic appointment line",
+  "holder": "line",
+  "business_name": "Sunshine Family Clinic",
+  "business_type": "clinic",
+  "agent_name": "Priya",
+  "description": "A family clinic with two general physicians and a paediatrician, open Monday to Saturday.",
+  "language": "en-IN",
+  "languages": ["en-IN"],
+  "direction": "inbound",
+  "capabilities": {"booking_tool": true, "call_backs": true},
+  "main_task": "Patients call after our appointment reminder.\n1. Find their appointment by their name and the appointment date.\n2. Confirm, reschedule or cancel it, as they want.\n3. For a reschedule, offer a free slot from the calendar.\n4. Remind them to bring their previous prescriptions and to arrive ten minutes early.",
+  "items": [
+    {"id": "find_appointment", "text": "Find the appointment by name and date", "terms": [["appointment"], ["name", "date"]]},
+    {"id": "confirm_or_change", "text": "Confirm, reschedule or cancel it", "terms": [["confirm", "reschedule", "cancel"]]},
+    {"id": "offer_slot", "text": "Offer a free slot for a reschedule", "terms": [["slot", "time"], ["reschedul", "new", "free"]]},
+    {"id": "remind_prescriptions", "text": "Remind them to bring previous prescriptions", "terms": [["prescription"]]},
+    {"id": "arrive_early", "text": "Remind them to arrive ten minutes early", "terms": [["early", "ten minutes"]]}
+  ],
+  "noted": [
+    {"label": "Patient name"},
+    {"label": "Appointment date"},
+    {"label": "New appointment time", "reason": "only for a reschedule"},
+    {"label": "Visit outcome"},
+    {"label": "Patient sentiment", "judged": true}
+  ],
+  "known": [],
+  "knowledge": [
+    {"title": "Timings", "text": "The clinic is open Monday to Saturday, 9 am to 1 pm and 5 pm to 9 pm."},
+    {"title": "Before the visit", "text": "Patients bring their previous prescriptions and reports, and arrive ten minutes early."}
+  ],
+  "purpose_terms": [],
+  "screen_terms": []
+}

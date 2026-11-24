@@ -1,0 +1,53 @@
+{
+  "case": "solar_lead",
+  "source": "stand-in",
+  "recorded_at": "2026-11-25",
+  "notes": "A hand-written fake model output, not a real writer's: replace it with a live run's (--import-live). The list has no names, so asking the name is right here.",
+  "script": {
+    "schema_version": 2,
+    "opening_line": "Hello {{lead_name}}, this is Arjun from SunPeak Solar, about the solar calculator you used on our website. Can you talk now?",
+    "stages": [
+      {
+        "id": "name",
+        "name": "Their name",
+        "instruction": "Ask their name.",
+        "scripts": {"en-IN": "May I know your name, please?"},
+        "branches": [
+          {"when": "They are busy now", "target": "call_back"},
+          {"when": "They are not interested", "target": "end"}
+        ]
+      },
+      {
+        "id": "house",
+        "name": "House and roof",
+        "instruction": "Ask whether they own the house, then what the roof is: concrete, sheet or tiles.",
+        "scripts": {"en-IN": "Is the house your own?"}
+      },
+      {
+        "id": "bill",
+        "name": "Electricity bill",
+        "instruction": "Ask their monthly electricity bill.",
+        "scripts": {"en-IN": "Roughly how much is your electricity bill each month?"}
+      },
+      {
+        "id": "survey",
+        "name": "Site survey",
+        "instruction": "Offer a free site survey and note the day they prefer; say the engineer will confirm it.",
+        "scripts": {"en-IN": "We can send an engineer for a free site survey. Which day suits you?"}
+      },
+      {
+        "id": "close",
+        "name": "Finalise the call",
+        "instruction": "Thank them and say the engineer will confirm the survey.",
+        "scripts": {"en-IN": "Thank you. Our engineer will call to confirm the survey."}
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "Their name is known."},
+      {"step": 2, "outcome": "Whether they own the house and the roof type are known."},
+      {"step": 3, "outcome": "The monthly bill is known."},
+      {"step": 4, "outcome": "A survey day is noted."},
+      {"step": 5, "outcome": "The person knows the engineer will confirm."}
+    ]
+  }
+}

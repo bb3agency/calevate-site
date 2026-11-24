@@ -1,0 +1,46 @@
+{
+  "case": "clinic_reminder",
+  "source": "stand-in",
+  "recorded_at": "2026-11-25",
+  "notes": "A hand-written fake model output, not a real writer's: replace it with a live run's (--import-live).",
+  "script": {
+    "schema_version": 2,
+    "opening_line": "Hello, this is Priya from Sunshine Family Clinic. How can I help you today?",
+    "stages": [
+      {
+        "id": "find",
+        "name": "Find the appointment",
+        "instruction": "Ask for the patient's name, then the date of the appointment, and find it.",
+        "scripts": {"en-IN": "Sure, may I have the patient's name? And the date of the appointment?"}
+      },
+      {
+        "id": "choice",
+        "name": "Confirm or change",
+        "instruction": "Ask whether they want to keep, reschedule or cancel the appointment.",
+        "scripts": {"en-IN": "I have found it. Would you like to keep it, move it to another day, or cancel it?"},
+        "branches": [
+          {"when": "They want another day or time", "target": "reschedule"},
+          {"when": "They want to cancel", "target": "close"}
+        ]
+      },
+      {
+        "id": "reschedule",
+        "name": "Reschedule",
+        "instruction": "Find a free slot in the calendar for the day they want and book the new time.",
+        "scripts": {"en-IN": "Which day suits you better?"}
+      },
+      {
+        "id": "close",
+        "name": "Close the call",
+        "instruction": "Remind them to bring previous prescriptions and to arrive ten minutes early, then thank them.",
+        "scripts": {"en-IN": "Please bring your previous prescriptions and come ten minutes early. Thank you for calling."}
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "The appointment is found."},
+      {"step": 2, "outcome": "The person says whether to keep, move or cancel it."},
+      {"step": 3, "outcome": "A new time is booked."},
+      {"step": 4, "outcome": "The person has heard what to bring."}
+    ]
+  }
+}

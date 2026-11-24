@@ -1,0 +1,34 @@
+{
+  "id": "insurance_renewal",
+  "title": "Motor policy renewal",
+  "holder": "campaign",
+  "business_name": "Suraksha Insurance Advisors",
+  "business_type": "insurance",
+  "agent_name": "Neha",
+  "description": "An insurance advisory firm that renews motor and health policies for its customers.",
+  "language": "hi-IN",
+  "languages": ["hi-IN", "en-IN"],
+  "direction": "outbound",
+  "capabilities": {"call_backs": true, "hand_over": true},
+  "main_task": "Call customers whose motor insurance expires within 30 days.\n1. Tell them their policy for the vehicle on our list expires soon.\n2. Ask whether they want to renew it with us.\n3. If yes, ask whether anything changed: a new address or a claim this year.\n4. Tell them an advisor will send the renewal quote and call them to finish it.",
+  "items": [
+    {"id": "tell_expiry", "text": "Tell them the policy expires soon", "terms": [["expir"]]},
+    {"id": "ask_renew", "text": "Ask whether they want to renew", "terms": [["renew"]]},
+    {"id": "ask_changes", "text": "Ask about a new address or a claim this year", "terms": [["address", "claim"]]},
+    {"id": "advisor_quote", "text": "Say an advisor will send the quote and call back", "terms": [["advisor"], ["quote"]]}
+  ],
+  "noted": [
+    {"label": "Wants to renew"},
+    {"label": "Address changed"},
+    {"label": "Claim this year"},
+    {"label": "Renewal outcome"}
+  ],
+  "known": ["name", "Vehicle number"],
+  "knowledge": [
+    {"title": "Renewal", "text": "A renewal before the expiry date keeps the no-claim bonus; after it, the vehicle may need an inspection."}
+  ],
+  "purpose_terms": ["policy", "insurance", "renew"],
+  "purpose": "Renew motor policies that expire within 30 days.",
+  "goal": "The customer agrees to get a renewal quote from an advisor.",
+  "consent_source": "existing_customer"
+}

@@ -1,0 +1,33 @@
+{
+  "id": "fee_reminder",
+  "title": "Term fee reminder",
+  "holder": "campaign",
+  "business_name": "Bright Minds Coaching",
+  "business_type": "education",
+  "agent_name": "Lakshmi",
+  "description": "A coaching centre for class 8 to 12 maths and science in Nellore.",
+  "language": "en-IN",
+  "languages": ["en-IN"],
+  "direction": "outbound",
+  "capabilities": {"call_backs": true, "hand_over": true},
+  "main_task": "Remind parents that the second term fee is due on 10 December.\n1. Confirm you are speaking to the parent before you say anything about the fee.\n2. Remind them of the due date and the ways to pay: at the office or by UPI.\n3. Ask when they plan to pay.\n4. If they have a problem paying, offer to put them through to the office manager.",
+  "items": [
+    {"id": "confirm_parent", "text": "Confirm it is the parent first", "terms": [["parent"], ["confirm", "speaking"]]},
+    {"id": "due_and_ways", "text": "Remind the due date and the ways to pay", "terms": [["due"], ["upi", "office"]]},
+    {"id": "when_pay", "text": "Ask when they plan to pay", "terms": [["when", "date"], ["pay"]]},
+    {"id": "manager", "text": "Offer the office manager for a problem paying", "terms": [["manager"]]}
+  ],
+  "noted": [
+    {"label": "Planned payment date"},
+    {"label": "Payment status"},
+    {"label": "Needs the manager"}
+  ],
+  "known": ["name"],
+  "knowledge": [
+    {"title": "Fees", "text": "The second term fee is due on 10 December. Parents pay at the office or by UPI to the centre's account."}
+  ],
+  "purpose_terms": [],
+  "purpose": "Remind parents of the second term fee.",
+  "goal": "The parent gives a date they will pay.",
+  "consent_source": "existing_customer"
+}

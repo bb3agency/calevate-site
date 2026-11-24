@@ -1,0 +1,49 @@
+{
+  "case": "service_booking",
+  "source": "stand-in",
+  "recorded_at": "2026-11-25",
+  "notes": "A hand-written fake model output, not a real writer's: the Telugu lines are English glosses keyed en-IN, and stand_in.english_words names the words a Telugu line would have left in English letters. Replace it with a live run's (--import-live).",
+  "stand_in": {
+    "for": "te-IN",
+    "english_words": {
+      "stages.0.scripts.en-IN": ["AC", "problem"],
+      "stages.2.scripts.en-IN": ["schedule", "available", "confirm"]
+    }
+  },
+  "script": {
+    "schema_version": 2,
+    "opening_line": "Hello, this is Ravi from CoolCare AC Services. How can I help you?",
+    "stages": [
+      {
+        "id": "problem",
+        "name": "The problem",
+        "instruction": "Ask what the problem with the AC is: no cooling, a water leak, noise, or a routine service.",
+        "scripts": {"en-IN": "What is the problem with your AC?"}
+      },
+      {
+        "id": "where",
+        "name": "Area and AC type",
+        "instruction": "Ask their area in Hyderabad, then whether the AC is a split or a window one.",
+        "scripts": {"en-IN": "Which area are you in?"}
+      },
+      {
+        "id": "time",
+        "name": "Visit time",
+        "instruction": "Note the day and time they want and say the team will call back to confirm the visit. Tell them the visiting charge from the knowledge.",
+        "scripts": {"en-IN": "Which day and time suits you? Our team will see who is available, schedule it and call you to confirm."}
+      },
+      {
+        "id": "close",
+        "name": "Finalise the call",
+        "instruction": "Thank them and end the call.",
+        "scripts": {"en-IN": "Thank you for calling CoolCare."}
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "The problem is known."},
+      {"step": 2, "outcome": "The area and AC type are known."},
+      {"step": 3, "outcome": "A day and time are noted."},
+      {"step": 4, "outcome": "The caller has been thanked."}
+    ]
+  }
+}
