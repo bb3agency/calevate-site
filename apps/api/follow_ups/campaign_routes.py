@@ -1,9 +1,12 @@
 """`/v1/campaigns/{campaign_id}/whatsapp-follow-up` (D-1041): the campaign card's WhatsApp
 follow-up, read, set up by Pip, and switched on or off (`follow_ups/campaign_whatsapp`).
 
-Reads are `leads:read`; the writes are `leads:dispatch`, as every `/v1/follow-ups` write,
-because the Follow-up sends messages. Setting up spends the AI allowance, so a view-as session
-is refused as on every Pip writer (`billing.ai_assist`). Every write is audited.
+Reads are `leads:read`. Setting up, and writing the message again, submits a WhatsApp
+template, so it takes the WhatsApp screen's template permission
+(`whatsapp/templates.TEMPLATE_PERMISSION`, the owner's); switching a made one on or off is
+`leads:dispatch`, as every `/v1/follow-ups` write, because the Follow-up sends messages.
+Setting up spends the AI allowance, so a view-as session is refused as on every Pip writer
+(`billing.ai_assist`). Every write is audited.
 """
 
 from __future__ import annotations
@@ -21,10 +24,12 @@ from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
 from apps.api.core.schemas import Strict
 from apps.api.follow_ups import campaign_whatsapp as cw
+from apps.api.whatsapp.templates import TEMPLATE_PERMISSION
 
 Session = Annotated[AsyncSession, Depends(db)]
 Reader = Annotated[Principal, Depends(requires("leads:read"))]
 Writer = Annotated[Principal, Depends(requires("leads:dispatch"))]
+TemplateWriter = Annotated[Principal, Depends(requires(TEMPLATE_PERMISSION))]
 
 router = APIRouter(prefix="/v1/campaigns", tags=["follow-ups"])
 
@@ -102,11 +107,11 @@ async def get_campaign_whatsapp(
 @router.post(
     "/{campaign_id}/whatsapp-follow-up",
     response_model=CampaignWhatsAppOut,
-    openapi_extra=permission_meta("leads:dispatch"),
+    openapi_extra=permission_meta(TEMPLATE_PERMISSION),
     summary="Have Pip write this campaign's WhatsApp follow-up; it is saved off",
 )
 async def set_up_campaign_whatsapp(
-    campaign_id: UUID, session: Session, request: Request, principal: Writer
+    campaign_id: UUID, session: Session, request: Request, principal: TemplateWriter
 ) -> CampaignWhatsAppOut:
     assert principal.tenant_id is not None
     assert_view_as_may(principal, "billing.ai_assist")

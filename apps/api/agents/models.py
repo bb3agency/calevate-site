@@ -2334,6 +2334,9 @@ class InboundLine(PKMixin, TimestampMixin, Base):
     actions_off: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
     )
+    #: The owner's "Give callers time" choice for this line; NULL lets its script decide
+    #: (`agents/give_callers_time.holder_gives_time`).
+    give_callers_time: Mapped[bool | None] = mapped_column(Boolean)
     engine_agent_ref: Mapped[str | None] = mapped_column(Text)
     #: When a draft's test holder was last published; it is retired once unused for an hour
     #: (`workers/campaign_engine_agents`). Not the route's `updated_at`, which sweeps rewrite.

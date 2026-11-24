@@ -159,6 +159,13 @@ class Campaign(PKMixin, TimestampMixin, Base):
     script_before_pip_at: Mapped[datetime | None]
     #: A second opening line tested against the script's own, alternating per person (D-992).
     opening_b: Mapped[str | None] = mapped_column(Text)
+    #: When the running opening test began: only calls since count toward it, so a new second
+    #: opening after a finished test starts from nothing. NULL for a test begun before this
+    #: was recorded, which counts every call as before.
+    opening_test_started_at: Mapped[datetime | None]
+    #: The owner's "Give callers time" choice for this campaign; NULL lets its script decide
+    #: (`agents/give_callers_time.holder_gives_time`).
+    give_callers_time: Mapped[bool | None] = mapped_column(Boolean)
     #: The opening test's decision (`campaigns/improve.py`): which opening won, the chance and
     #: counts it was decided on, the opening it replaced. NULL while no test has been decided.
     opening_test_result: Mapped[dict[str, object] | None] = mapped_column(JSONB)

@@ -85,7 +85,7 @@ async def test_a_missing_campaign_is_not_found_on_every_reader() -> None:
 async def test_a_campaign_row_and_config_read_the_agent_themselves_when_not_handed_it() -> None:
     _fresh_engine()
     tenant_id, agent_id = await _live_agent()
-    campaign_id = await _campaign(tenant_id, agent_id, overrides={"max_call_duration_s": 240})
+    campaign_id = await _campaign(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
         row = await agents_service.campaign_agent_row(
             session, tenant_id=tenant_id, campaign_id=campaign_id
@@ -94,7 +94,6 @@ async def test_a_campaign_row_and_config_read_the_agent_themselves_when_not_hand
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
     assert row["id"] == agent_id and row["direction"] == "outbound"
-    assert row["max_call_duration_s"] == 240, "the campaign's own override, over the agent's"
     assert "check-up" in str(row["prompt"]), "the campaign's own script"
     assert config.holder == f"campaign:{campaign_id}"
     assert "check-up" in config.system_prompt

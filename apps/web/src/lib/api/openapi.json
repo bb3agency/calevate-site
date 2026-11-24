@@ -32993,6 +32993,72 @@
         "title": "HolderDiagnosisOut",
         "type": "object"
       },
+      "HolderGiveTimeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "on": {
+            "title": "On",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "title": "HolderGiveTimeIn",
+        "type": "object"
+      },
+      "HolderGiveTimeOut": {
+        "additionalProperties": false,
+        "description": "\"Give callers time\" on this campaign or line (`agents/give_callers_time`).",
+        "properties": {
+          "call_cap_s": {
+            "title": "Call Cap S",
+            "type": "integer"
+          },
+          "end_after_silence_seconds": {
+            "title": "End After Silence Seconds",
+            "type": "integer"
+          },
+          "nudge_after_seconds": {
+            "title": "Nudge After Seconds",
+            "type": "integer"
+          },
+          "nudge_count": {
+            "title": "Nudge Count",
+            "type": "integer"
+          },
+          "on": {
+            "title": "On",
+            "type": "boolean"
+          },
+          "owner_choice": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Choice"
+          },
+          "script_asks": {
+            "title": "Script Asks",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "on",
+          "owner_choice",
+          "script_asks",
+          "nudge_after_seconds",
+          "nudge_count",
+          "end_after_silence_seconds",
+          "call_cap_s"
+        ],
+        "title": "HolderGiveTimeOut",
+        "type": "object"
+      },
       "HolderMistakeOut": {
         "additionalProperties": false,
         "properties": {
@@ -92465,6 +92531,96 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/give-callers-time": {
+      "get": {
+        "description": "On, a quiet caller is asked whether they are still there after 20 s, up to 3 times, and the call ends after 120 s of silence, so a caller doing what the agent asked on their phone is not hung up on. It covers the call settings the agent and account leave at Calevate's default. Until the owner chooses, it is on when the script asks the caller to act on their phone (`script_asks`); a choice is kept.",
+        "operationId": "campaign_give_time_v1_campaigns__campaign_id__give_callers_time_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolderGiveTimeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether this campaign's calls give a quiet caller time",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "put": {
+        "description": "On, a quiet caller is asked whether they are still there after 20 s, up to 3 times, and the call ends after 120 s of silence, so a caller doing what the agent asked on their phone is not hung up on. It covers the call settings the agent and account leave at Calevate's default. Until the owner chooses, it is on when the script asks the caller to act on their phone (`script_asks`); a choice is kept. A running or paused campaign's calls carry the choice from the next call.",
+        "operationId": "set_campaign_give_time_v1_campaigns__campaign_id__give_callers_time_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HolderGiveTimeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolderGiveTimeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Switch giving a quiet caller time on or off for this campaign",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/campaigns/{campaign_id}/insights": {
       "get": {
         "operationId": "campaign_insights_v1_campaigns__campaign_id__insights_get",
@@ -94877,7 +95033,7 @@
         "tags": [
           "follow-ups"
         ],
-        "x-calevate-permission": "leads:dispatch"
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/campaigns/{campaign_id}/whatsapp-follow-up/switch": {
@@ -100920,6 +101076,96 @@
           "inbound"
         ],
         "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/give-callers-time": {
+      "get": {
+        "description": "On, a quiet caller is asked whether they are still there after 20 s, up to 3 times, and the call ends after 120 s of silence, so a caller doing what the agent asked on their phone is not hung up on. It covers the call settings the agent and account leave at Calevate's default. Until the owner chooses, it is on when the script asks the caller to act on their phone (`script_asks`); a choice is kept.",
+        "operationId": "line_give_time_v1_inbound_lines__line_id__give_callers_time_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolderGiveTimeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether this line's calls give a quiet caller time",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "put": {
+        "description": "On, a quiet caller is asked whether they are still there after 20 s, up to 3 times, and the call ends after 120 s of silence, so a caller doing what the agent asked on their phone is not hung up on. It covers the call settings the agent and account leave at Calevate's default. Until the owner chooses, it is on when the script asks the caller to act on their phone (`script_asks`); a choice is kept. A live line is put live again with the choice.",
+        "operationId": "set_line_give_time_v1_inbound_lines__line_id__give_callers_time_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HolderGiveTimeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolderGiveTimeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Switch giving a quiet caller time on or off for this line",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/inbound-lines/{line_id}/lead-suggestions": {

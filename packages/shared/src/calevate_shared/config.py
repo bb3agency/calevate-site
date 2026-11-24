@@ -575,11 +575,14 @@ class Settings(BaseSettings):
     #: (ThinnestAI, `docs/vendor/thinnest-replies-2026-10-12.md:885`). Saving it republishes
     #: every live agent.
     thinnest_nudge_after_seconds: int = Field(default=15, ge=10, le=180)
-    #: Under `ear` only, whether the agent says a short "haan ji" while a caller explains (the
-    #: vendor's default is on; founder, 21 Oct 2026: acceptable). They are spoken on our
-    #: Cartesia key and counted in `usage.ttsCharacters` (VENDOR-STATED, ThinnestAI's email
-    #: of 21 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md` §25.0).
-    thinnest_acknowledgements: bool = True
+    #: Under `ear` only, whether the agent says a short "haan ji" when a caller pauses
+    #: mid-explanation (`voice.acknowledgements`, vendor default on; thinnest-findings
+    #: snapshots/2026-10-29/pages/api-reference/agents/update-agent.md:1745-1751). Off by the
+    #: founder's decision of 25 Nov 2026: off, the agent waits silently. When on they are
+    #: spoken on our Cartesia key and counted in `usage.ttsCharacters` (VENDOR-STATED,
+    #: ThinnestAI's email of 21 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md` §25.0).
+    #: Saving it republishes every live agent.
+    thinnest_acknowledgements: bool = False
     #: Whether the engine starts the model on a turn before the caller has finished
     #: (`voice.earlyAnswers`, D-852). On, the vendor's default, replies start sooner, but a
     #: run discarded because the caller kept talking is billed to our Google key and is not

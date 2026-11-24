@@ -95,6 +95,10 @@ def _function(source: str, tree: ast.AST, name: str) -> tuple[ast.FunctionDef | 
 #: below re-derives whether it is really data-only rather than trusting the listing — an
 #: exemption that took the author's word for it would be a hole with a comment over it.
 DATA_ONLY_REPAIRS: dict[str, str] = {
+    "d0f6b2c4a5e7": (
+        "deletes a thinnest_acknowledgements console row holding the old default true; no "
+        "DDL, and with no row the earlier release's code default is that same true"
+    ),
     "e2a7c4f9b1d3": (
         "copies each agent's What it notes list onto its empty campaigns and lines; no DDL, "
         "and a copied list cannot be told from one the owner saved afterwards"

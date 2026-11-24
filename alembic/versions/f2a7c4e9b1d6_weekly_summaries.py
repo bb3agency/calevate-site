@@ -1,7 +1,7 @@
 """Pip's weekly summary of each account's week, for the account-wide Improve page
 
 Revision ID: f2a7c4e9b1d6
-Revises: e5b9c3a7d1f4
+Revises: d0f6b2c4a5e7
 Create Date: 2026-11-25 12:00:00.000000
 
 `weekly_summaries`: one row per tenant per IST week (the Monday it began), holding the short
@@ -24,7 +24,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "f2a7c4e9b1d6"
-down_revision: str | None = "e5b9c3a7d1f4"
+down_revision: str | None = "d0f6b2c4a5e7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
