@@ -372,11 +372,15 @@ async def test_a_tenants_proposal_cannot_be_confirmed_or_seen_by_another_tenant(
         await _confirm(tenant_b, proposal.token, principal_b)
     assert refused.value.status == 403
 
-    # B cannot propose against A's agent either: RLS makes it invisible and
-    # `assert_visible` answers 404, before a token exists.
-    with pytest.raises(ProblemError) as not_found:
+    # B cannot propose against A's agent either: RLS makes it invisible, so before a token
+    # exists the refusal is word for word the one for an id no account holds, and is no
+    # oracle for whether A's agent exists.
+    with pytest.raises(write_tools.WriteRefusedError) as not_found:
         await write_tools.plan_write(TOOL, _args(agent_a), actor=_actor(principal_b))
-    assert not_found.value.status == 404
+    with pytest.raises(write_tools.WriteRefusedError) as nothing:
+        await write_tools.plan_write(TOOL, _args(uuid.uuid4()), actor=_actor(principal_b))
+    assert "names nothing in this account" in not_found.value.reason
+    assert not_found.value.reason == nothing.value.reason
 
     # A confirms its own, and B sees zero rows — through a raw select, because the
     # guarantee is the FORCEd policy and not the query.

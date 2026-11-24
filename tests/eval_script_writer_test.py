@@ -72,7 +72,7 @@ def test_every_defect_of_the_25_nov_script_is_caught() -> None:
     assert _paths(s["multi_action_line"]) == ["stages.0.scripts.en-IN", "stages.1.scripts.en-IN"]
     fakes = _paths(s["fake_branch"])
     for i in range(1, 6):  # Add Farms, Enter Expenses, Enter Sales, Dashboard, Finalise
-        assert f"stages.{i}.branches.0" in fakes
+        assert f"stages.{i}.branches" in fakes
     assert _paths(s["steps_after_close"]) == ["stages.7"]
     assert _paths(s["agent_claims_caller_action"]) == [
         "stages.2.scripts.en-IN",
@@ -88,14 +88,28 @@ def test_every_defect_of_the_25_nov_script_is_caught() -> None:
     assert s["outcome_tailored"] == []
 
 
-def test_the_existing_lints_alone_missed_the_25_nov_script() -> None:
-    """Why the structural checks exist: on this script the repo's lints find nothing the
-    founder's evidence lists. FAILS IF a lint starts catching one, which is the moment to
-    let `_upstream` take that check over."""
-    lint_paths = {
-        p for found in _result("rytu_khata_install").lints.values() for p in _paths(found)
-    }
-    assert not lint_paths & {"stages.0.scripts.en-IN", "stages.2.scripts.en-IN", "stages.7"}
+def test_the_writers_lints_catch_the_25_nov_script_and_make_those_checks() -> None:
+    """The defects the repo's lints missed when this eval was written are the writer's own
+    lints' to find now, and the eval scores those lints rather than a copy of its own.
+    FAILS IF a lint stops naming a defect's place, or a check stops being the lint's."""
+    script = ev.load_recorded(CASES["rytu_khata_install"]).script
+    assert _paths(script_lint.multi_action_line_problems(script)) == [
+        "stages.0.scripts.en-IN",
+        "stages.1.scripts.en-IN",
+    ]
+    assert _paths(script_lint.agent_claims_caller_action_problems(script)) == [
+        "stages.2.scripts.en-IN",
+        "stages.4.scripts.en-IN",
+    ]
+    assert _paths(script_lint.steps_after_close_problems(script)) == ["stages.7"]
+    fakes = set(_paths(script_lint.fake_branch_problems(script)))
+    assert {f"stages.{i}.branches" for i in range(1, 6)} <= fakes
+    r = _result("rytu_khata_install")
+    for name in ("multi_action_line", "agent_claims_caller_action", "steps_after_close"):
+        assert r.origin[name] == f"script_lint.{name}_problems"
+        assert f"{name}_problems" not in r.lints  # one count per problem
+    for name in ev.EXTENDS:
+        assert r.origin[name] == f"script_lint.{name}_problems + eval"
 
 
 def test_the_clean_control_has_no_structural_finding() -> None:
@@ -113,6 +127,10 @@ def test_a_tailored_outcome_and_a_known_value_are_found_elsewhere() -> None:
         "stages.0.instruction",
         "stages.0.scripts.en-IN",
     ]
+    # The vehicle number the list gives is the case's to know: the lint, reading the script
+    # alone, cannot see it, which is why the eval adds to it (`EXTENDS`).
+    insurance = ev.load_recorded(CASES["insurance_renewal"]).script
+    assert script_lint.known_value_asked_problems(insurance) == []
 
 
 def _bare(*stages: ConversationStage, **parts: Any) -> ev.Recorded:
@@ -129,7 +147,7 @@ def test_a_real_condition_to_the_next_step_is_not_a_fake_branch() -> None:
         ),
         ConversationStage(id="b", name="Next", instruction="Go on."),
     )
-    assert ev.fake_branch(rec, CASES["clinic_reminder"]) == []
+    assert ev.structural(rec, CASES["clinic_reminder"])[0]["fake_branch"] == []
 
 
 def test_a_telugu_line_is_faulted_for_a_bracket_and_a_register_word_not_for_code_mixing() -> None:
@@ -164,6 +182,7 @@ def test_a_lint_the_writer_grows_is_used_in_place_of_ours(monkeypatch: pytest.Mo
     assert found["fake_branch"] == ["stages.0.branches.0: from the writer's own lint."]
     assert origin["fake_branch"] == "script_lint.fake_branch_problems"
     assert "fake_branch_problems" in ev.one_argument_lints()
+    assert "fake_branch_problems" not in ev.lints(ev.load_recorded(case), case)
 
 
 def _parts() -> dict[str, str]:

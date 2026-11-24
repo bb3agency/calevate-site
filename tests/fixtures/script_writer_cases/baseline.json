@@ -45,7 +45,7 @@
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 3
+      "lint.heal_findings": 4
     },
     "clinic_reminder": {
       "check.judged_field_asked": 0,
@@ -56,7 +56,7 @@
       "check.main_task_uncovered": 0,
       "check.agent_claims_caller_action": 0,
       "check.outcome_tailored": 0,
-      "lint.script_problems": 0,
+      "lint.script_problems": 1,
       "lint.bracket_problems": 0,
       "lint.empty_title_problems": 0,
       "lint.flow_problems": 0,
@@ -97,7 +97,7 @@
       "check.multi_question_line": 0,
       "check.multi_action_line": 0,
       "check.fake_branch": 1,
-      "check.steps_after_close": 1,
+      "check.steps_after_close": 0,
       "check.no_purpose_line": 0,
       "check.main_task_uncovered": 0,
       "check.agent_claims_caller_action": 0,
@@ -239,7 +239,7 @@
       "check.main_task_uncovered": 0,
       "check.agent_claims_caller_action": 0,
       "check.outcome_tailored": 0,
-      "lint.script_problems": 0,
+      "lint.script_problems": 1,
       "lint.bracket_problems": 0,
       "lint.empty_title_problems": 0,
       "lint.flow_problems": 0,
@@ -325,7 +325,7 @@
       "check.known_value_asked": 2,
       "check.multi_question_line": 1,
       "check.multi_action_line": 2,
-      "check.fake_branch": 7,
+      "check.fake_branch": 6,
       "check.steps_after_close": 1,
       "check.no_purpose_line": 1,
       "check.main_task_uncovered": 6,
@@ -365,7 +365,7 @@
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 0
+      "lint.heal_findings": 4
     },
     "school_admission": {
       "check.judged_field_asked": 0,
@@ -465,7 +465,7 @@
       "check.main_task_uncovered": 1,
       "check.agent_claims_caller_action": 0,
       "check.outcome_tailored": 0,
-      "lint.script_problems": 2,
+      "lint.script_problems": 3,
       "lint.bracket_problems": 0,
       "lint.empty_title_problems": 0,
       "lint.flow_problems": 0,
