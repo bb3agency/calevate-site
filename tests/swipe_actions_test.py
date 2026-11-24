@@ -310,7 +310,7 @@ def _stub_whatsapp(monkeypatch: pytest.MonkeyPatch) -> tuple[uuid.UUID, list[Any
     async def _allowed(*_a: Any, **_k: Any) -> DispatchDecision:
         return DispatchDecision(allowed=True)
 
-    monkeypatch.setattr(swipe, "_connected_account", _account)
+    monkeypatch.setattr(swipe, "connected_account", _account)
     monkeypatch.setattr(swipe, "_approved", _approved)
     monkeypatch.setattr(accounts, "account_token", _token)
     monkeypatch.setattr(swipe, "_send", _send)

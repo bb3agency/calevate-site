@@ -495,7 +495,7 @@ class WhatsAppSendOut(BaseModel):
     rule: str | None = None
 
 
-async def _connected_account(session: AsyncSession) -> accounts.Account | None:
+async def connected_account(session: AsyncSession) -> accounts.Account | None:
     for account in await accounts.list_accounts(session):
         if (
             account.status == "connected"
@@ -567,7 +567,7 @@ async def _gate(
 async def whatsapp_options(
     session: AsyncSession, *, tenant_id: UUID, lead_id: UUID, agent_id: UUID | None = None
 ) -> WhatsAppOptionsOut:
-    account = await _connected_account(session)
+    account = await connected_account(session)
     if account is None:
         await lead_phone(session, lead_id)
         return WhatsAppOptionsOut(
@@ -640,7 +640,7 @@ async def send_whatsapp_follow_up(
     """The gate, the consent, then one template message. Returns the answer, the
     template's name (for the audit row and the lead's timeline) and Meta's id for a message
     it accepted (kept on the timeline row, so a later failed-delivery report finds it)."""
-    account = await _connected_account(session)
+    account = await connected_account(session)
     if account is None:
         await lead_phone(session, lead_id)
         return (
@@ -804,6 +804,7 @@ __all__ = [
     "WhatsAppTemplateChoiceOut",
     "change_callback",
     "check_schedule_time",
+    "connected_account",
     "record_whatsapp_not_delivered",
     "record_whatsapp_on_timeline",
     "schedule_lead_callback",

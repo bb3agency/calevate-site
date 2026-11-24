@@ -149,6 +149,7 @@ from apps.workers.campaign_archive_notice import notify_campaign_archived
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.campaign_engine_agents import sweep_campaign_engine_agents
 from apps.workers.campaign_script import draft_campaign_script, draft_line_script
+from apps.workers.campaign_whatsapp_follow_up import write_campaign_whatsapp_follow_up
 from apps.workers.client_actions import run_after_call_actions, run_client_action
 from apps.workers.client_health import refresh_client_health
 from apps.workers.comp_notices import notify_comp
@@ -487,6 +488,9 @@ FUNCTIONS: list[Any] = [
         # The outcome of each step that has none, written by Pip (D-1036), from the outbox
         # (`campaigns/step_outcomes.queue_after_save`), deferring itself to its debounce.
         write_step_outcomes,
+        # A campaign's WhatsApp follow-up, written by Pip on the owner's press (D-1041,
+        # `follow_ups/campaign_whatsapp.set_up`), from the outbox.
+        write_campaign_whatsapp_follow_up,
         # A notice switch migration f2477c8d623d turned back on, put onto the account's
         # calls as a flip is (D-1021, `publishing.queue_notices_reach_calls`).
         refresh_account_notices,

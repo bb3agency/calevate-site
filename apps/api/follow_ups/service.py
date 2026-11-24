@@ -319,6 +319,14 @@ async def problems_of(
                 {"id": agent_id},
             ):
                 problems.append(Problem(None, "agent_unknown", "An agent was not found."))
+    if isinstance(trigger, d.CallEndedTrigger) and trigger.campaign_ids:
+        for campaign_id in trigger.campaign_ids:
+            if not await _exists(
+                session,
+                "SELECT 1 FROM campaigns WHERE id = :id AND archived_at IS NULL",
+                {"id": campaign_id},
+            ):
+                problems.append(Problem(None, "campaign_unknown", "A campaign was not found."))
     for step in steps:
         if isinstance(step, d.CallStep):
             problems.extend(await _call_problems(session, step))
@@ -357,14 +365,31 @@ async def create(
     settings: d.Settings | None,
     starter: str | None,
     user_id: UUID | None,
+    campaign_id: UUID | None = None,
 ) -> Row:
-    """A new Follow-up, as a draft. Nothing runs until it is published."""
+    """A new Follow-up, as a draft. Nothing runs until it is published.
+
+    `campaign_id` names the campaign whose card made it (starter `campaign_whatsapp`); a
+    second one for the same campaign is refused with `follow_up_campaign_exists`."""
     follow_up_id = uuid7()
-    exists = ProblemError.conflict(
-        "follow_up_starter_exists",
-        "This account already has Call new leads.",
-        remediation="Open it from the list instead.",
-    )
+    if starter == "campaign_whatsapp":
+        exists = ProblemError.conflict(
+            "follow_up_campaign_exists",
+            "This campaign already has its WhatsApp follow-up.",
+            remediation="Open it from the campaign instead.",
+        )
+        # Each partial unique index is its own ON CONFLICT target, so the starter picks one.
+        conflict = (
+            "ON CONFLICT (campaign_id) WHERE starter = 'campaign_whatsapp' "
+            "AND campaign_id IS NOT NULL DO NOTHING"
+        )
+    else:
+        exists = ProblemError.conflict(
+            "follow_up_starter_exists",
+            "This account already has Call new leads.",
+            remediation="Open it from the list instead.",
+        )
+        conflict = "ON CONFLICT (tenant_id) WHERE starter = 'call_new_leads' DO NOTHING"
     if starter == "call_new_leads" and await _exists(
         session, "SELECT 1 FROM follow_ups WHERE starter = 'call_new_leads'", {}
     ):
@@ -374,11 +399,12 @@ async def create(
     made = await session.execute(
         text(
             "INSERT INTO follow_ups (id, tenant_id, name, status, trigger, settings, draft, "
-            "starter, created_by) VALUES (:id, :tid, :name, 'draft', CAST(:trigger AS jsonb), "
-            "CAST(:settings AS jsonb), CAST(:draft AS jsonb), :starter, :by) "
-            "ON CONFLICT (tenant_id) WHERE starter = 'call_new_leads' DO NOTHING RETURNING id"
+            "starter, created_by, campaign_id) VALUES (:id, :tid, :name, 'draft', "
+            "CAST(:trigger AS jsonb), CAST(:settings AS jsonb), CAST(:draft AS jsonb), :starter, "
+            f":by, :campaign) {conflict} RETURNING id"
         ),
         {
+            "campaign": campaign_id,
             "id": follow_up_id,
             "tid": tenant_id,
             "name": name.strip(),

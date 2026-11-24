@@ -765,6 +765,13 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Longest a follow-up runs, waits, or starts before or after a date on the lead.",
         details="At most 400 days. Published follow-ups keep their own days.",
     ),
+    "campaign_whatsapp_follow_up_wait_minutes": _m(
+        "calling-limits",
+        "limits",
+        "Wait before a campaign's WhatsApp follow-up",
+        "How long after a campaign call ends its WhatsApp follow-up sends.",
+        details="0 sends at once. Follow-ups already set up keep their own wait.",
+    ),
     "inbound_reserve_ratio": _m(
         "calling-limits",
         "limits",
@@ -1943,6 +1950,9 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
         kind="duration", unit="milliseconds", help="1,000 to 10,000."
     ),
     "follow_up_max_days": ControlHint(unit="days", help="1 to 400."),
+    "campaign_whatsapp_follow_up_wait_minutes": ControlHint(
+        kind="duration", unit="minutes", help="0 to 1,440 (a day)."
+    ),
     "campaign_max_concurrency": ControlHint(unit="calls at once", help="1 to 20."),
     "campaign_max_retry_attempts": ControlHint(unit="tries", help="1 to 10."),
     "campaign_retry_gap_max_minutes": ControlHint(

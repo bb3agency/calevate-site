@@ -30,6 +30,7 @@ import {
 
 import { apiRequest, type Session } from "./client";
 import { lensBody, type LeadLens } from "./leads";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 // ---- wire types ---------------------------------------------------------------------
@@ -236,4 +237,68 @@ export function useFollowUpResults(
     queryFn: () => apiRequest<FollowUpResultsOut>(session, `${PATH}/${id}/results`),
     enabled,
   });
+}
+
+// ---- a campaign's WhatsApp follow-up (D-1041) ---------------------------------------
+//
+//   GET  /v1/campaigns/{id}/whatsapp-follow-up          `leads:read`
+//   POST /v1/campaigns/{id}/whatsapp-follow-up          `leads:dispatch` (Pip writes it; off)
+//   POST /v1/campaigns/{id}/whatsapp-follow-up/switch   `leads:dispatch`
+
+export type CampaignWhatsApp = Schemas["CampaignWhatsAppOut"];
+export type CampaignWhatsAppMade = Schemas["CampaignWhatsAppMadeOut"];
+
+/** While Pip writes the message, the card asks every 5 seconds (live status, 5-10 s). */
+const WRITING_POLL_MS = 5_000;
+
+export const campaignWhatsAppKey = (org: string, campaignId: string) =>
+  ["campaign-whatsapp", org, campaignId] as const;
+
+const campaignWhatsAppPath = (campaignId: string) =>
+  `/v1/campaigns/${encodeURIComponent(campaignId)}/whatsapp-follow-up`;
+
+export function useCampaignWhatsApp(
+  session: Session,
+  campaignId: string,
+): UseQueryResult<CampaignWhatsApp> {
+  return useQuery({
+    queryKey: campaignWhatsAppKey(session.orgSlug, campaignId),
+    queryFn: () => apiRequest<CampaignWhatsApp>(session, campaignWhatsAppPath(campaignId)),
+    refetchInterval: untilRefused((query) =>
+      query.state.data?.phase === "writing" ? WRITING_POLL_MS : false,
+    ),
+  });
+}
+
+/** The answer is the card itself, written into the cache; the Follow-ups lists move too. */
+function useCampaignWhatsAppWrite<V>(
+  session: Session,
+  campaignId: string,
+  send: (vars: V) => Promise<CampaignWhatsApp>,
+): UseMutationResult<CampaignWhatsApp, Error, V> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: send,
+    onSuccess: (card) => {
+      client.setQueryData(campaignWhatsAppKey(session.orgSlug, campaignId), card);
+      void refresh(client, session.orgSlug);
+    },
+  });
+}
+
+/** Have Pip write the campaign's WhatsApp follow-up; it is saved off. */
+export function useSetUpCampaignWhatsApp(session: Session, campaignId: string) {
+  return useCampaignWhatsAppWrite<void>(session, campaignId, () =>
+    apiRequest<CampaignWhatsApp>(session, campaignWhatsAppPath(campaignId), { method: "POST" }),
+  );
+}
+
+/** Turn it on (publishes it as it stands) or off (stops the leads waiting in it). */
+export function useSwitchCampaignWhatsApp(session: Session, campaignId: string) {
+  return useCampaignWhatsAppWrite<boolean>(session, campaignId, (on) =>
+    apiRequest<CampaignWhatsApp>(session, `${campaignWhatsAppPath(campaignId)}/switch`, {
+      method: "POST",
+      body: { on },
+    }),
+  );
 }

@@ -829,6 +829,10 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/campaigns/{campaign_id}/pause", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/recurrence", {"days": [1], "at": "10:00"}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/resume", {}, {}),
+    # D-1041: the campaign card's WhatsApp follow-up.
+    ("GET", "/v1/campaigns/{campaign_id}/whatsapp-follow-up", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/whatsapp-follow-up", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/whatsapp-follow-up/switch", {"on": True}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/schedule", {"start_at": "2027-01-01T10:00:00+05:30"}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/schedule", {}, {}),
     # The D-773 controls and results. Each would edit, delete, stop, copy, fill, empty or

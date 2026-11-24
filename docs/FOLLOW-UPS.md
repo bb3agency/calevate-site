@@ -61,6 +61,7 @@ needed when a run has no lead row yet); nothing holds transcript text or message
 | `draft` | jsonb: the steps being edited, NULL when equal to the live version |
 | `live_version_id` | FK `follow_up_versions`, NULL until first publish |
 | `starter` | NULL or the ready-made key it came from (`call_new_leads`, ...) |
+| `campaign_id` | the campaign whose WhatsApp card made it (`campaign_whatsapp`), one per campaign |
 | `created_by`, `created_at`, `updated_at` | |
 
 `live` and `paused` require `live_version_id`. At most one `live` Follow-up per tenant may have
@@ -109,7 +110,7 @@ refusal that will never clear, e.g. `kyc_missing` is NOT one: it retries; `dnc` 
 | kind | fields | starts when |
 | - | - | - |
 | `new_lead` | `source_ids: [uuid] \| null` (null = any source) | `ingest_lead` stores a lead |
-| `call_ended` | `agent_ids: [uuid] \| null`, `calls: "inbound" \| "outbound" \| "both"`, `outcomes: ["missed", "answered", ...] \| null` | the post-call pipeline finishes a call (test calls never) |
+| `call_ended` | `agent_ids: [uuid] \| null`, `campaign_ids: [uuid] \| null` (only calls these campaigns placed), `calls: "inbound" \| "outbound" \| "both"`, `outcomes: ["missed", "answered", ...] \| null` | the post-call pipeline finishes a call (test calls never) |
 | `manual` | — | the client (or Pip, through an approved plan) starts picked leads, a leads lens or a campaign's contacts |
 | `lead_date` | `field` (a lead detail holding `YYYY-MM-DD`), `offset_days` (either side, up to `follow_up_max_days`), `at` (`HH:MM` IST) | the date falls due; once per lead per date |
 
@@ -212,6 +213,15 @@ account's **Leads & hours** and the campaign-free gate, and every WhatsApp to th
 leads the client picks is a campaign, and two ways to do it was one too many. The key stays
 valid on `follow_ups.starter` so Follow-ups already made from it keep working; it is no longer
 offered. The Follow-ups screen and Pip point a one-off call list at Campaigns.
+
+`campaign_whatsapp` (D-1041) is not offered here: a campaign's "Follow up on WhatsApp" card
+(and Pip's `follow_up_campaign_whatsapp`) makes it through `follow_ups/campaign_whatsapp`, one
+per campaign (`follow_ups.campaign_id`). Pip writes the message from the campaign and picks
+its outcomes; the trigger is `call_ended`, outbound, `campaign_ids: [the campaign]`; the steps
+are a wait (`campaign_whatsapp_follow_up_wait_minutes`) and the message; `again: never`. It
+is saved as a draft and only the card's On switch, refused until WhatsApp approves the
+message, publishes it. HTTP: `GET|POST /v1/campaigns/{id}/whatsapp-follow-up`, `POST
+/v1/campaigns/{id}/whatsapp-follow-up/switch {on}`.
 
 ## The migration of the new-lead plan
 

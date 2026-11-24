@@ -472,6 +472,9 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "follow_up_max_days": AppliesRule(
         LIVE, "new edits and publishes are held to it; a published Follow-up keeps its own days"
     ),
+    "campaign_whatsapp_follow_up_wait_minutes": AppliesRule(
+        LIVE, "read when a campaign's WhatsApp follow-up is set up; one already made keeps its wait"
+    ),
     "campaign_max_concurrency": AppliesRule(
         LIVE, "new edits are held to it; a campaign already set higher keeps its pace"
     ),

@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ActionButton, problemToast, useActionFeedback } from "@/components/arc/feedback";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
 import {
@@ -25,6 +26,7 @@ import {
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
+  ToggleSwitch,
 } from "@/components/ui";
 import { isAssignable } from "@/lib/agentState";
 import { CAMPAIGN_TEST_ANCHOR } from "@/lib/api/agentJobs";
@@ -39,6 +41,12 @@ import {
   workspaceKey,
   type CampaignInsights,
 } from "@/lib/api/campaignWorkspace";
+import {
+  useCampaignWhatsApp,
+  useSetUpCampaignWhatsApp,
+  useSwitchCampaignWhatsApp,
+  type CampaignWhatsAppMade,
+} from "@/lib/api/followUps";
 import { useClientRealm } from "@/lib/api/session";
 import { useTestRingsFrom } from "@/lib/api/trialCalls";
 import { hourWords } from "@/lib/clock";
@@ -107,7 +115,12 @@ export function ImproveTab(props: Common & { status?: string | null }) {
       <BestTime insights={insights.data} />
       <OpeningTest {...props} insights={insights.data} />
       <CallUnansweredAgain {...props} />
-      <WhatsAppFollowUp slug={props.slug} />
+      <WhatsAppFollowUp
+        slug={props.slug}
+        campaignId={props.campaignId}
+        canWrite={props.canWrite}
+        refusal={props.refusal}
+      />
       <HearItFirst {...props} />
     </div>
   );
@@ -595,33 +608,220 @@ function CallUnansweredAgain({ slug, campaignId, canWrite, refusal, status }: Co
   );
 }
 
-function WhatsAppFollowUp({ slug }: { slug: string }) {
-  const { href } = useClientRealm();
+function waitWords(minutes: number): string {
+  if (minutes <= 0) return "as soon as the call ends";
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours === 1 ? "an hour" : `${hours} hours`} after the call`;
+  }
+  return `${minutes === 1 ? "a minute" : `${minutes} minutes`} after the call`;
+}
+
+/**
+ * D-1041 (founder, 24 Nov 2026: "make the whatsapp card set it up directly"). One press has
+ * Pip write the message from this campaign and pick which of its outcomes it is for; the
+ * follow-up is saved off, and nothing is sent until the owner turns the switch on. Turning
+ * on is one press, as Publish is on the Follow-ups screen; turning off stops the people
+ * waiting in it, so it is confirmed, as there.
+ */
+export function WhatsAppFollowUp({ slug, campaignId, canWrite, refusal }: Omit<Common, "agentId">) {
+  const { session, href } = useClientRealm();
+  const card = useCampaignWhatsApp(session, campaignId);
+  const setUp = useSetUpCampaignWhatsApp(session, campaignId);
+  const setUpFeedback = useActionFeedback(setUp, { errorDisplay: "inline" });
+  const connectHref = href(`/c/${slug}/integrations/whatsapp`);
+
+  const setUpButton = (label: string) => (
+    <ActionButton
+      variant="secondary-sm"
+      status={setUpFeedback.status}
+      pendingLabel="Asking Pip…"
+      disabled={!canWrite}
+      title={!canWrite ? refusal : undefined}
+      onClick={() => setUp.mutate()}
+    >
+      {label}
+    </ActionButton>
+  );
+
   return (
     <Card
       title="Follow up on WhatsApp"
-      hint="Send a WhatsApp message after a call."
+      hint="A message after a call that did not finish, or where they asked for details."
       info={
-        <>
-          <p>
-            For example the install steps or a link, to the people who asked for
-            it or did not finish.
-          </p>
-          <p>
-            Make a follow-up that starts when a call ends, choose this
-            campaign&apos;s agent and the outcomes it is for, then add a
-            WhatsApp step.
-          </p>
-        </>
+        <p>
+          Pip writes the message from this campaign&apos;s main task and
+          knowledge, and WhatsApp checks it before it can be sent. Nothing is
+          sent until you turn it on.
+        </p>
       }
     >
-      <Link
-        href={href(`/c/${slug}/follow-ups`)}
-        className={`${SECONDARY_BUTTON_SM} inline-flex`}
-      >
-        Set up a follow-up
-      </Link>
+      {card.isLoading ? (
+        <Skeleton rows={2} label="Reading the WhatsApp follow-up" />
+      ) : !card.data ? (
+        <ProblemNotice error={card.error} onRetry={() => card.refetch()} />
+      ) : card.data.phase === "not_connected" ? (
+        <div className="space-y-2">
+          <p className="text-meta text-ink-muted">Connect WhatsApp to send messages after calls.</p>
+          <Link href={connectHref} className={`${SECONDARY_BUTTON_SM} inline-flex`}>
+            Connect WhatsApp
+          </Link>
+        </div>
+      ) : card.data.phase === "writing" ? (
+        <div className="flex items-center gap-3">
+          <span
+            className="h-3 w-3 shrink-0 animate-pulse rounded-full bg-brand motion-reduce:animate-none"
+            aria-hidden
+          />
+          <p role="status" className="text-body text-ink">
+            Pip is writing the message.
+          </p>
+        </div>
+      ) : card.data.made ? (
+        <MadeFollowUp
+          slug={slug}
+          campaignId={campaignId}
+          made={card.data.made}
+          connected={card.data.connected}
+          connectHref={connectHref}
+          canWrite={canWrite}
+          refusal={refusal}
+          writeAgain={setUpButton("Write it again")}
+        />
+      ) : (
+        <div className="space-y-2">
+          {card.data.phase === "failed" && card.data.failure && (
+            <p className="text-meta text-ink-muted">{card.data.failure}</p>
+          )}
+          {setUpButton(card.data.phase === "failed" ? "Try again" : "Set up WhatsApp follow-up")}
+        </div>
+      )}
+      {setUp.error != null && <ProblemNotice error={setUp.error} />}
     </Card>
+  );
+}
+
+function MadeFollowUp({
+  slug,
+  campaignId,
+  made,
+  connected,
+  connectHref,
+  canWrite,
+  refusal,
+  writeAgain,
+}: {
+  slug: string;
+  campaignId: string;
+  made: CampaignWhatsAppMade;
+  connected: boolean;
+  connectHref: string;
+  canWrite: boolean;
+  refusal?: string;
+  writeAgain: React.ReactNode;
+}) {
+  const { session, href } = useClientRealm();
+  const flip = useSwitchCampaignWhatsApp(session, campaignId);
+  const flipFeedback = useActionFeedback(flip, {
+    errorDisplay: "inline",
+    successToast: (_card, on) => (on ? "Turned on" : "Turned off"),
+  });
+  const [confirmOff, setConfirmOff] = useState(false);
+  const on = made.status === "live";
+  const approved = made.message_status === "approved";
+  const reviewing = made.message_status === "pending";
+  const pending = flipFeedback.status === "pending";
+  const messageId = `wa-message-${campaignId}`;
+  const outcomes = made.outcomes.map((o) => o.label).join(", ");
+
+  return (
+    <div className="space-y-3">
+      {made.message ? (
+        <blockquote
+          id={messageId}
+          lang={made.message_language ?? undefined}
+          className="whitespace-pre-line break-words rounded-card border-l-2 border-line bg-surface-muted px-3 py-2 text-body text-ink"
+        >
+          {made.message}
+        </blockquote>
+      ) : (
+        <p className="text-meta text-ink-muted">This follow-up has no message yet.</p>
+      )}
+      <p className="text-meta text-ink-muted">
+        {outcomes ? `For calls that ended as: ${outcomes}. ` : ""}
+        Sent {waitWords(made.wait_minutes)}.
+      </p>
+
+      {reviewing && (
+        <p className="text-meta text-ink-muted">
+          WhatsApp is checking the message. This can take up to a day.
+        </p>
+      )}
+      {!approved && !reviewing && (
+        <div className="space-y-2">
+          <p className="text-meta text-ink-muted">WhatsApp turned this message down.</p>
+          {writeAgain}
+        </div>
+      )}
+      {!connected && (
+        <p className="text-meta text-ink-muted">
+          WhatsApp is not connected.{" "}
+          <Link href={connectHref} className={TEXT_ACTION}>
+            Connect WhatsApp
+          </Link>
+        </p>
+      )}
+
+      <ToggleSwitch
+        label="On"
+        hint={
+          pending
+            ? on
+              ? "Turning off…"
+              : "Turning on…"
+            : approved
+              ? "Sends this message after this campaign's calls."
+              : "Can be turned on once WhatsApp approves the message."
+        }
+        checked={on}
+        disabled={!canWrite || pending || (!on && !approved)}
+        describedBy={made.message ? messageId : undefined}
+        onChange={(next) => {
+          flip.reset();
+          if (next) flip.mutate(true);
+          else setConfirmOff(true);
+        }}
+      />
+      {!canWrite && refusal && <p className="text-meta text-ink-muted">{refusal}</p>}
+      {flip.error != null && !confirmOff && <ProblemNotice error={flip.error} />}
+
+      {made.status !== "draft" && (
+        <p className="text-meta text-ink-muted tabular-nums">
+          {made.sent} sent · {made.replied} replied
+        </p>
+      )}
+      <Link href={href(`/c/${slug}/follow-ups/${made.follow_up_id}`)} className={TEXT_ACTION}>
+        Edit
+      </Link>
+
+      {confirmOff && (
+        <ConfirmDialog
+          title="Turn off the WhatsApp follow-up?"
+          confirmLabel="Turn it off"
+          pendingLabel="Turning off…"
+          cancelLabel="Keep it on"
+          status={flipFeedback.status}
+          error={flip.error}
+          onCancel={() => {
+            flip.reset();
+            setConfirmOff(false);
+          }}
+          onConfirm={() => flip.mutate(false, { onSuccess: () => setConfirmOff(false) })}
+        >
+          <p>No more messages are sent, including to people waiting for theirs.</p>
+        </ConfirmDialog>
+      )}
+    </div>
   );
 }
 

@@ -9885,6 +9885,23 @@
             "title": "Calls",
             "type": "string"
           },
+          "campaign_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 50,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Ids"
+          },
           "kind": {
             "const": "call_ended",
             "title": "Kind",
@@ -15091,6 +15108,178 @@
           "campaigns"
         ],
         "title": "CampaignTimelinesOut",
+        "type": "object"
+      },
+      "CampaignWhatsAppMadeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "follow_up_id": {
+            "format": "uuid",
+            "title": "Follow Up Id",
+            "type": "string"
+          },
+          "has_unpublished_changes": {
+            "title": "Has Unpublished Changes",
+            "type": "boolean"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "message_language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Language"
+          },
+          "message_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Status"
+          },
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/CampaignWhatsAppOutcomeOut"
+            },
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "replied": {
+            "title": "Replied",
+            "type": "integer"
+          },
+          "sent": {
+            "title": "Sent",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "live",
+              "paused",
+              "off"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "wait_minutes": {
+            "title": "Wait Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "follow_up_id",
+          "status",
+          "message",
+          "message_status",
+          "message_language",
+          "outcomes",
+          "wait_minutes",
+          "sent",
+          "replied",
+          "has_unpublished_changes"
+        ],
+        "title": "CampaignWhatsAppMadeOut",
+        "type": "object"
+      },
+      "CampaignWhatsAppOut": {
+        "additionalProperties": false,
+        "properties": {
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure"
+          },
+          "made": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CampaignWhatsAppMadeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "phase": {
+            "enum": [
+              "not_connected",
+              "none",
+              "writing",
+              "failed",
+              "made"
+            ],
+            "title": "Phase",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "connected",
+          "failure",
+          "made"
+        ],
+        "title": "CampaignWhatsAppOut",
+        "type": "object"
+      },
+      "CampaignWhatsAppOutcomeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "title": "CampaignWhatsAppOutcomeOut",
+        "type": "object"
+      },
+      "CampaignWhatsAppSwitchIn": {
+        "additionalProperties": false,
+        "properties": {
+          "on": {
+            "title": "On",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "title": "CampaignWhatsAppSwitchIn",
         "type": "object"
       },
       "CanvasPosition": {
@@ -29809,6 +29998,10 @@
                 "type": "string"
               },
               {
+                "const": "campaign_whatsapp",
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -30406,6 +30599,10 @@
                   "payment_reminder",
                   "win_back"
                 ],
+                "type": "string"
+              },
+              {
+                "const": "campaign_whatsapp",
                 "type": "string"
               },
               {
@@ -92562,6 +92759,134 @@
         "summary": "Replace the account's saved test numbers",
         "tags": [
           "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/whatsapp-follow-up": {
+      "get": {
+        "operationId": "get_campaign_whatsapp_v1_campaigns__campaign_id__whatsapp_follow_up_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignWhatsAppOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This campaign's WhatsApp follow-up, or what stops one being set up",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "post": {
+        "operationId": "set_up_campaign_whatsapp_v1_campaigns__campaign_id__whatsapp_follow_up_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignWhatsAppOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Have Pip write this campaign's WhatsApp follow-up; it is saved off",
+        "tags": [
+          "follow-ups"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/whatsapp-follow-up/switch": {
+      "post": {
+        "operationId": "switch_campaign_whatsapp_v1_campaigns__campaign_id__whatsapp_follow_up_switch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignWhatsAppSwitchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignWhatsAppOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Turn this campaign's WhatsApp follow-up on or off",
+        "tags": [
+          "follow-ups"
         ],
         "x-calevate-permission": "leads:dispatch"
       }

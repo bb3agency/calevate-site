@@ -61,7 +61,7 @@ async def test_an_unanswered_send_is_a_failed_answer_that_says_check_first(
     async def _no_answer(request: Any) -> None:
         return None
 
-    monkeypatch.setattr(swipe, "_connected_account", _account)
+    monkeypatch.setattr(swipe, "connected_account", _account)
     monkeypatch.setattr(swipe, "_approved", _approved)
     monkeypatch.setattr(swipe, "_gate", _gate)
     monkeypatch.setattr(swipe.accounts, "account_token", _token)

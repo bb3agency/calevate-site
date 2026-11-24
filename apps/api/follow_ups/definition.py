@@ -31,6 +31,7 @@ from apps.api.core.settings import get_settings
 MAX_STEPS: Final = 30
 MAX_SOURCES: Final = 50
 MAX_AGENTS: Final = 50
+MAX_CAMPAIGNS: Final = 50
 MAX_OUTCOMES: Final = 30
 MAX_VALUES: Final = 10
 MAX_WHY_CHARS: Final = 120
@@ -85,6 +86,8 @@ class NewLeadTrigger(_Strict):
 class CallEndedTrigger(_Strict):
     kind: Literal["call_ended"]
     agent_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=MAX_AGENTS)
+    #: Only calls these campaigns placed (`calls.campaign_id`). Null: any call.
+    campaign_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=MAX_CAMPAIGNS)
     calls: Literal["inbound", "outbound", "both"] = "both"
     #: The call's outcome (`missed`, `answered`, ...) or one of the agent's business
     #: outcomes. Null: any outcome.
@@ -541,6 +544,9 @@ def starts_when(trigger: AnyTrigger) -> str:
     if isinstance(trigger, NewLeadTrigger):
         return "A new lead arrives" + ("" if trigger.source_ids is None else " from chosen sources")
     if isinstance(trigger, CallEndedTrigger):
+        if trigger.campaign_ids is not None:
+            which_campaign = "campaign" if len(trigger.campaign_ids) == 1 else "campaigns"
+            return f"A call of the chosen {which_campaign} ends"
         which = {"inbound": "An incoming call", "outbound": "A call we made", "both": "A call"}
         return f"{which[trigger.calls]} ends"
     if isinstance(trigger, LeadDateTrigger):

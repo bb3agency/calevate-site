@@ -8117,6 +8117,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/whatsapp-follow-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This campaign's WhatsApp follow-up, or what stops one being set up */
+        get: operations["get_campaign_whatsapp_v1_campaigns__campaign_id__whatsapp_follow_up_get"];
+        put?: never;
+        /** Have Pip write this campaign's WhatsApp follow-up; it is saved off */
+        post: operations["set_up_campaign_whatsapp_v1_campaigns__campaign_id__whatsapp_follow_up_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/whatsapp-follow-up/switch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn this campaign's WhatsApp follow-up on or off */
+        post: operations["switch_campaign_whatsapp_v1_campaigns__campaign_id__whatsapp_follow_up_switch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/workspace": {
         parameters: {
             query?: never;
@@ -18572,6 +18607,8 @@ export interface components {
              * @enum {string}
              */
             calls: "inbound" | "outbound" | "both";
+            /** Campaign Ids */
+            campaign_ids?: string[] | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -20362,6 +20399,60 @@ export interface components {
             /** Campaigns */
             campaigns: components["schemas"]["CampaignSeriesOut"][];
             window: components["schemas"]["RangeOut"];
+        };
+        /** CampaignWhatsAppMadeOut */
+        CampaignWhatsAppMadeOut: {
+            /**
+             * Follow Up Id
+             * Format: uuid
+             */
+            follow_up_id: string;
+            /** Has Unpublished Changes */
+            has_unpublished_changes: boolean;
+            /** Message */
+            message: string | null;
+            /** Message Language */
+            message_language: string | null;
+            /** Message Status */
+            message_status: string | null;
+            /** Outcomes */
+            outcomes: components["schemas"]["CampaignWhatsAppOutcomeOut"][];
+            /** Replied */
+            replied: number;
+            /** Sent */
+            sent: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "live" | "paused" | "off";
+            /** Wait Minutes */
+            wait_minutes: number;
+        };
+        /** CampaignWhatsAppOut */
+        CampaignWhatsAppOut: {
+            /** Connected */
+            connected: boolean;
+            /** Failure */
+            failure: string | null;
+            made: components["schemas"]["CampaignWhatsAppMadeOut"] | null;
+            /**
+             * Phase
+             * @enum {string}
+             */
+            phase: "not_connected" | "none" | "writing" | "failed" | "made";
+        };
+        /** CampaignWhatsAppOutcomeOut */
+        CampaignWhatsAppOutcomeOut: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+        };
+        /** CampaignWhatsAppSwitchIn */
+        CampaignWhatsAppSwitchIn: {
+            /** On */
+            on: boolean;
         };
         /**
          * CanvasPosition
@@ -25982,7 +26073,7 @@ export interface components {
             problems: components["schemas"]["ProblemOut"][];
             settings: components["schemas"]["Settings"];
             /** Starter */
-            starter: ("call_new_leads" | "qualify_new_leads" | "missed_call_callback" | "appointment_reminder" | "payment_reminder" | "win_back") | null;
+            starter: ("call_new_leads" | "qualify_new_leads" | "missed_call_callback" | "appointment_reminder" | "payment_reminder" | "win_back") | "campaign_whatsapp" | null;
             /**
              * Status
              * @enum {string}
@@ -26122,7 +26213,7 @@ export interface components {
             /** Name */
             name: string;
             /** Starter */
-            starter: ("call_new_leads" | "qualify_new_leads" | "missed_call_callback" | "appointment_reminder" | "payment_reminder" | "win_back") | null;
+            starter: ("call_new_leads" | "qualify_new_leads" | "missed_call_callback" | "appointment_reminder" | "payment_reminder" | "win_back") | "campaign_whatsapp" | null;
             /** Starts When */
             starts_when: string;
             /**
@@ -55598,6 +55689,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TestNumbersOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_campaign_whatsapp_v1_campaigns__campaign_id__whatsapp_follow_up_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignWhatsAppOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_up_campaign_whatsapp_v1_campaigns__campaign_id__whatsapp_follow_up_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignWhatsAppOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    switch_campaign_whatsapp_v1_campaigns__campaign_id__whatsapp_follow_up_switch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignWhatsAppSwitchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignWhatsAppOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

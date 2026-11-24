@@ -455,6 +455,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("follow_up_resume", "leads", "turn a paused or off Follow-up on"),
     AreaEntry("follow_up_turn_off", "leads", "turn a Follow-up off; its leads stop"),
     AreaEntry("follow_up_start", "leads", "put leads on a Follow-up, by `lens` or lead_ids"),
+    AreaEntry("follow_up_campaign_whatsapp", "leads", "campaign WhatsApp follow-up"),
     AreaEntry(
         "script_draft",
         "agents",
