@@ -2034,8 +2034,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Everything one agent holds on the voice platform
-         * @description Our copies (held, or missing on the platform), the client's live items not on this agent and why, and documents the platform holds that we did not send.
+         * Everything one agent's engine agents hold on the voice platform
+         * @description Per engine agent carrying the agent (its own while it has one, each published inbound line, each campaign holding one, its test copy, each running script test arm): our copies (held, or missing on the platform), the client's live items not on it and why, and documents the platform holds that we did not send.
          */
         get: operations["admin_agent_knowledge_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_get"];
         put?: never;
@@ -2057,7 +2057,7 @@ export interface paths {
         put?: never;
         /**
          * Remove a document we did not send from one agent
-         * @description Deletes, on the voice platform, a document this agent holds that no record of ours names. 409 for one of the client's own items (removed from their page instead); 404 when the agent does not hold it.
+         * @description Deletes, on the voice platform, a document one of this agent's engine agents (`holder_ref`) holds that no record of ours names. 409 for one of the client's own items (removed from their page instead); 404 when that engine agent is not one of this agent's or does not hold it.
          */
         post: operations["admin_remove_unrecorded_document_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_remove_post"];
         delete?: never;
@@ -4471,7 +4471,7 @@ export interface paths {
         };
         /**
          * Read the voice platform back and report any drift from what we published
-         * @description Asks the voice platform what it is running RIGHT NOW and compares it with the script, disclosure line and voice this agent last published. This is the only read that can see an agent edited in the vendor's own dashboard, or a publish that failed on our side after the vendor had already accepted it.
+         * @description Asks the voice platform what it is running RIGHT NOW and compares it with the script, disclosure line and voice last published, for every engine agent carrying this agent (its own while it has one, its live inbound lines' and its running or paused campaigns'); the answer is the worst over them. This is the only read that can see an agent edited in the vendor's own dashboard, or a publish that failed on our side after the vendor had already accepted it.
          *
          *     A READ: it writes nothing and re-publishes nothing. It costs one call to the voice platform, so it is a separate endpoint rather than part of `/pending` — a banner must not dial a vendor on every page load.
          *
@@ -16898,10 +16898,8 @@ export interface components {
              * Format: uuid
              */
             agent_id: string;
-            /** Items */
-            items: components["schemas"]["AgentKnowledgeItemOut"][];
-            /** Listed */
-            listed: boolean;
+            /** Holders */
+            holders: components["schemas"]["HolderKnowledgeOut"][];
         };
         /** AgentLanguageOut */
         AgentLanguageOut: {
@@ -25462,6 +25460,11 @@ export interface components {
             engine_agent_ref: string | null;
             /** Handoff Applied */
             handoff_applied: boolean | null;
+            /**
+             * Holders Checked
+             * @default 0
+             */
+            holders_checked: number;
             /** In Sync */
             in_sync: boolean;
             /** Prompt Applied */
@@ -27411,6 +27414,25 @@ export interface components {
             owner_choice: boolean | null;
             /** Script Asks */
             script_asks: boolean;
+        };
+        /**
+         * HolderKnowledgeOut
+         * @description One engine agent carrying this agent's work (D-1019) and what it holds.
+         */
+        HolderKnowledgeOut: {
+            /** Engine Agent Ref */
+            engine_agent_ref: string;
+            /** Items */
+            items: components["schemas"]["AgentKnowledgeItemOut"][];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "agent" | "line" | "campaign" | "test_copy" | "arm";
+            /** Listed */
+            listed: boolean;
+            /** Name */
+            name: string | null;
         };
         /** HolderMistakeOut */
         HolderMistakeOut: {
@@ -34548,6 +34570,8 @@ export interface components {
         RemoveDocumentIn: {
             /** Handle */
             handle: string;
+            /** Holder Ref */
+            holder_ref: string;
         };
         /** RenameIn */
         RenameIn: {
@@ -37933,6 +37957,11 @@ export interface components {
             agent_id: string | null;
             /** Agent Name */
             agent_name: string | null;
+            /**
+             * Answers
+             * @default false
+             */
+            answers: boolean;
             /** Dlt Status */
             dlt_status: string;
             /** E164 */
@@ -37946,6 +37975,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Line Name */
+            line_name?: string | null;
             /** Monthly Rental Usd */
             monthly_rental_usd: string | null;
             /**
@@ -37964,6 +37995,8 @@ export interface components {
             released: boolean;
             /** Series */
             series: string;
+            /** Silent Reason */
+            silent_reason?: string | null;
         };
         /** TenantNumbersCountOut */
         TenantNumbersCountOut: {

@@ -57,7 +57,7 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
         </h3>
         <InfoTip label="Configuration drift">
           <p>
-            Every half hour a sweep reads live agents back off the voice platform and
+            Every half hour a sweep reads every engine agent (one per live inbound line, running campaign, test copy and script test arm) back off the voice platform and
             compares them with what we published. It only ever reads &mdash; whatever a live
             agent is running now, it is still running after the sweep.
           </p>
@@ -90,11 +90,11 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
         {read !== null && read.out_of_sync > 0 && (
           <NoticeBox
             tone="warn"
-            title={`${formatCount(read.out_of_sync)} of ${formatCount(read.live_agents)} live agents are running something else`}
+            title={`${formatCount(read.out_of_sync)} of ${formatCount(read.live_agents)} engine agents are running something else`}
           >
             <p className="mt-1">
               Oldest divergence: <span className="font-semibold">{formatIST(read.oldest_drift_at)}</span>.
-              Open each agent to see what differs.{" "}
+              Open the agent a line or campaign speaks for and check the voice platform now to see which differs and how.{" "}
               <InfoTip label="a drifted agent">
                 These agents answer with a script, greeting or voice other than the one we
                 published. Publishing again from here would overwrite what is live, which may be
@@ -119,10 +119,10 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
 
         {read !== null && (
           <table className="w-full text-left text-meta">
-            <caption className="sr-only">Live agents by configuration check</caption>
+            <caption className="sr-only">Engine agents by configuration check</caption>
             <tbody>
               <tr>
-                <td className="py-0.5 text-ink-muted">Live agents</td>
+                <td className="py-0.5 text-ink-muted">Engine agents (lines, campaigns, test copies)</td>
                 <td className="py-0.5 text-right tabular-nums">
                   {formatCount(read.live_agents)}
                 </td>

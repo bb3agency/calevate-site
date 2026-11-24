@@ -87,7 +87,10 @@ BODIES: dict[str, dict[str, Any] | None] = {
     # What one agent holds on the voice platform, and removing a document we did not send
     # (D-868).
     "GET /v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge": None,
-    "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge/remove": {"handle": "census"},
+    "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge/remove": {
+        "holder_ref": "census",
+        "handle": "census",
+    },
     # Marking a client's calling numbers filed (D-941).
     "POST /v1/admin/tenants/{tenant_id}/calling-number-filings": {
         "numbers": ["+919800000000"],

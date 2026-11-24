@@ -80,7 +80,7 @@ from one (hard rule 6) — version NUMBERS only.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, ClassVar, Final, Literal, cast
@@ -901,11 +901,7 @@ _HOLDERS_MISMATCH = (
 #: this agent's work: its own (whose drift reading falls back to its publish read-back), its
 #: live lines' and its running or paused campaigns'. `engine_agent_routes` carries no tenant
 #: policy, so the tenant is named.
-_HOLDER_VERDICTS_SQL: Final = (
-    "SELECT COALESCE(r.drift_state, CASE WHEN r.engine_agent_ref = a.engine_agent_ref "
-    "THEN a.live_verify_state END, 'unverified'), "
-    "CASE WHEN r.drift_state IS NOT NULL THEN r.drift_checked_at "
-    "WHEN r.engine_agent_ref = a.engine_agent_ref THEN a.live_verified_at END "
+_HOLDER_ROUTES_FROM: Final = (
     "FROM engine_agent_routes r JOIN agents a ON a.id = r.agent_id "
     "WHERE r.agent_id = :aid AND r.tenant_id = :tid AND r.active AND a.deleted_at IS NULL "
     "AND (r.engine_agent_ref = a.engine_agent_ref "
@@ -916,6 +912,15 @@ _HOLDER_VERDICTS_SQL: Final = (
     "AND g.engine_agent_ref = r.engine_agent_ref AND g.archived_at IS NULL "
     "AND g.status = ANY(:holding)))"
 )
+_HOLDER_VERDICTS_SQL: Final = (
+    "SELECT COALESCE(r.drift_state, CASE WHEN r.engine_agent_ref = a.engine_agent_ref "
+    "THEN a.live_verify_state END, 'unverified'), "
+    "CASE WHEN r.drift_state IS NOT NULL THEN r.drift_checked_at "
+    "WHEN r.engine_agent_ref = a.engine_agent_ref THEN a.live_verified_at END "
+    f"{_HOLDER_ROUTES_FROM}"
+)
+#: The same engine agents' refs, for the on-demand read-back of every one of them.
+_HOLDER_REFS_SQL: Final = f"SELECT DISTINCT r.engine_agent_ref {_HOLDER_ROUTES_FROM} ORDER BY 1"
 
 
 def worst_holder_state(states: list[str]) -> str | None:
@@ -1246,6 +1251,76 @@ async def _holder_config(
         return None
     held = await business_row(session, tenant_id=tenant_id, agent=agent) if copy[0] else agent
     return _to_config(tenant_id, held, engine=get_engine(), handoff=handoff)
+
+
+@dataclass(frozen=True, slots=True)
+class HoldersDrift:
+    """The on-demand read-back of every engine agent carrying one agent (D-1019)."""
+
+    #: The worst holder's verdict, with each property the worst over every holder read.
+    worst: EngineDrift
+    #: Every holder read, the agent's own included while it has one.
+    refs: tuple[str, ...]
+
+
+def _worst_property(values: list[bool | None]) -> bool | None:
+    """False when any holder differs, None when any could not be read, else True."""
+    if any(value is False for value in values):
+        return False
+    if any(value is None for value in values):
+        return None
+    return True
+
+
+def _worst_drift(drifts: list[EngineDrift]) -> EngineDrift:
+    def rank(drift: EngineDrift) -> int:
+        state = str(drift.state)
+        if state not in HOLDER_STATES_WORST_FIRST:
+            state = "unverified"
+        return HOLDER_STATES_WORST_FIRST.index(state)
+
+    worst = min(drifts, key=rank)
+    if len(drifts) == 1:
+        return worst
+    return replace(
+        worst,
+        prompt_applied=_worst_property([d.prompt_applied for d in drifts]),
+        disclosure_applied=_worst_property([d.disclosure_applied for d in drifts]),
+        prompt_disclosure_applied=_worst_property([d.prompt_disclosure_applied for d in drifts]),
+        truthful_answer_applied=_worst_property([d.truthful_answer_applied for d in drifts]),
+        confidentiality_applied=_worst_property([d.confidentiality_applied for d in drifts]),
+        voice_applied=_worst_property([d.voice_applied for d in drifts]),
+        handoff_applied=_worst_property([d.handoff_applied for d in drifts]),
+    )
+
+
+async def engine_drift_of_holders(*, tenant_id: UUID, agent_id: UUID) -> HoldersDrift:
+    """Read back, right now, every engine agent carrying this agent: its own while it has
+    one, its live lines' and its running or paused campaigns' (the holders
+    `holders_verification` scores).
+
+    Each is compared against the config its own publish sends (`engine_drift_for` with its
+    ref). Reading only the agent's own ref answered "not on the voice platform" for every
+    agent that holds none (D-1019) while its lines and campaigns took calls. With no holder,
+    the agent's own answer stands.
+    """
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(_HOLDER_REFS_SQL),
+                {"aid": agent_id, "tid": tenant_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
+            )
+        ).all()
+    refs = tuple(str(row[0]) for row in rows)
+    if not refs:
+        return HoldersDrift(
+            worst=await engine_drift_for(tenant_id=tenant_id, agent_id=agent_id), refs=()
+        )
+    drifts = [
+        await engine_drift_for(tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=ref)
+        for ref in refs
+    ]
+    return HoldersDrift(worst=_worst_drift(drifts), refs=refs)
 
 
 def _not_published(agent_id: UUID, engine: str, detail: str) -> EngineDrift:
@@ -2286,6 +2361,7 @@ __all__ = [
     "CallerScreenResult",
     "DisclosureResult",
     "EngineDrift",
+    "HoldersDrift",
     "Lane",
     "LaneEntry",
     "NoticeNeedsRoomOnAgent",
@@ -2298,6 +2374,7 @@ __all__ = [
     "apply_to_live",
     "audit_action_for",
     "engine_drift_for",
+    "engine_drift_of_holders",
     "holders_verification",
     "lane_of",
     "pending_state_for",

@@ -398,6 +398,65 @@ async def test_the_pending_read_carries_the_holders_answer() -> None:
 
 
 @pytest.mark.usefixtures("no_own_engine_agent")
+async def test_check_the_voice_platform_now_reads_each_live_line_of_a_ref_less_agent() -> None:
+    # The console's "Check the voice platform now" read the agent's own ref alone, so every
+    # agent holding none answered "not on the voice platform" while its lines took calls.
+    _fresh_engine()
+    tenant_id, agent_id, token = await _live_agent()
+    first = await put_line_live(tenant_id=tenant_id, line_id=await _line(tenant_id, agent_id))
+    second = await put_line_live(tenant_id=tenant_id, line_id=await _line(tenant_id, agent_id))
+
+    read = await publishing.engine_drift_of_holders(tenant_id=tenant_id, agent_id=agent_id)
+    assert set(read.refs) == {first, second}
+    assert read.worst.checked and read.worst.state != "not_published"
+    assert read.worst.engine_agent_ref in {first, second}
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        response = await http.get(
+            f"/v1/agents/{agent_id}/engine-state", headers={"Authorization": f"Bearer {token}"}
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["holders_checked"] == 2 and body["checked"] is True
+    assert body["state"] != "not_published"
+
+
+def test_the_holders_read_back_reports_the_worst_holder_and_property() -> None:
+    from apps.api.agents.verification import EngineDrift
+
+    def drift(ref: str, state: str, truthful: bool | None, voice: bool | None) -> EngineDrift:
+        return EngineDrift(
+            agent_id="a",
+            engine="fake",
+            engine_agent_ref=ref,
+            checked=True,
+            state=state,  # type: ignore[arg-type]
+            prompt_applied=True,
+            disclosure_applied=True,
+            prompt_disclosure_applied=True,
+            truthful_answer_applied=truthful,
+            confidentiality_applied=True,
+            voice_applied=voice,
+            handoff_applied=True,
+            detail=ref,
+        )
+
+    worst = publishing._worst_drift(
+        [drift("ok", "applied", True, None), drift("bad", "not_applied", True, False)]
+    )
+    assert (worst.engine_agent_ref, worst.state, worst.voice_applied) == (
+        "bad",
+        "not_applied",
+        False,
+    )
+    unread = publishing._worst_drift(
+        [drift("ok", "applied", True, True), drift("dim", "unreadable", None, True)]
+    )
+    assert (unread.engine_agent_ref, unread.truthful_answer_applied) == ("dim", None)
+    assert unread.voice_applied is True
+
+
+@pytest.mark.usefixtures("no_own_engine_agent")
 async def test_getting_a_draft_ready_with_the_setting_off_creates_no_engine_agent() -> None:
     # "Ready, not taking calls" on a new draft is a first publish; with the setting off it
     # must not take one of the client's workspace slots.

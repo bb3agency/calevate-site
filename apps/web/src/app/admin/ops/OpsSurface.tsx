@@ -243,7 +243,7 @@ export function OpsSurface() {
           },
           {
             key: "engine_drift",
-            label: "Live agents by engine-config drift",
+            label: "Engine agents by engine-config drift",
             value:
               engineDrift.status === "read"
                 ? `${engineDrift.drift.in_sync} in sync, ${engineDrift.drift.out_of_sync} out of sync, ${engineDrift.drift.undetermined} undetermined, ${engineDrift.drift.never_checked} never checked, of ${engineDrift.drift.live_agents} live`
@@ -251,7 +251,7 @@ export function OpsSurface() {
           },
           {
             key: "kb_drift",
-            label: "Live agents by knowledge-base drift",
+            label: "Engine agents by knowledge-base drift",
             value:
               kbDrift.status !== "read"
                 ? "could not be read"
@@ -325,7 +325,7 @@ export function OpsSurface() {
           title="What the voice platform is running"
           info={
             <p>
-              Sweeps read live agents back off the voice platform and compare them with what
+              Sweeps read every engine agent (one per live inbound line, running campaign, test copy and script test arm) back off the voice platform and compare them with what
               we published. They only ever read; nothing here re-publishes.
             </p>
           }

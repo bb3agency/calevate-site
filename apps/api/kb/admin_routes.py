@@ -38,18 +38,34 @@ class AgentKnowledgeItemOut(BaseModel):
     detail: str | None = None
 
 
-class AgentKnowledgeOut(BaseModel):
+class HolderKnowledgeOut(BaseModel):
+    """One engine agent carrying this agent's work (D-1019) and what it holds."""
+
     model_config = ConfigDict(extra="forbid")
 
-    agent_id: UUID
+    #: `agent` (its own, while it has one) · `line` · `campaign` · `test_copy` · `arm`.
+    kind: Literal["agent", "line", "campaign", "test_copy", "arm"]
+    #: The line's or campaign's name, or the script test arm's letter.
+    name: str | None
+    engine_agent_ref: str
     #: False when the platform's list could not be read: `held` then means "ours on record".
     listed: bool
     items: list[AgentKnowledgeItemOut]
 
 
+class AgentKnowledgeOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    #: Empty when no line, campaign or test copy carries the agent yet.
+    holders: list[HolderKnowledgeOut]
+
+
 class RemoveDocumentIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    #: The engine agent holding the document: one of `holders[].engine_agent_ref`.
+    holder_ref: str = Field(min_length=1, max_length=512)
     handle: str = Field(min_length=1, max_length=2048)
 
 
@@ -57,10 +73,12 @@ class RemoveDocumentIn(BaseModel):
     "/{tenant_id}/agents/{agent_id}/knowledge",
     response_model=AgentKnowledgeOut,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="Everything one agent holds on the voice platform",
+    summary="Everything one agent's engine agents hold on the voice platform",
     description=(
-        "Our copies (held, or missing on the platform), the client's live items not on this "
-        "agent and why, and documents the platform holds that we did not send."
+        "Per engine agent carrying the agent (its own while it has one, each published "
+        "inbound line, each campaign holding one, its test copy, each running script test "
+        "arm): our copies (held, or missing on the platform), the client's live items not on "
+        "it and why, and documents the platform holds that we did not send."
     ),
 )
 async def admin_agent_knowledge(
@@ -75,17 +93,25 @@ async def admin_agent_knowledge(
         )
     return AgentKnowledgeOut(
         agent_id=view.agent_id,
-        listed=view.listed,
-        items=[
-            AgentKnowledgeItemOut(
-                verdict=item.verdict,
-                handle=item.handle,
-                source_id=item.source_id,
-                name=item.name,
-                kind=item.kind,
-                detail=item.detail,
+        holders=[
+            HolderKnowledgeOut(
+                kind=holder.kind,
+                name=holder.name,
+                engine_agent_ref=holder.engine_agent_ref,
+                listed=holder.listed,
+                items=[
+                    AgentKnowledgeItemOut(
+                        verdict=item.verdict,
+                        handle=item.handle,
+                        source_id=item.source_id,
+                        name=item.name,
+                        kind=item.kind,
+                        detail=item.detail,
+                    )
+                    for item in holder.items
+                ],
             )
-            for item in view.items
+            for holder in view.holders
         ],
     )
 
@@ -96,9 +122,10 @@ async def admin_agent_knowledge(
     openapi_extra=permission_meta("agents:write"),
     summary="Remove a document we did not send from one agent",
     description=(
-        "Deletes, on the voice platform, a document this agent holds that no record of ours "
-        "names. 409 for one of the client's own items (removed from their page instead); "
-        "404 when the agent does not hold it."
+        "Deletes, on the voice platform, a document one of this agent's engine agents "
+        "(`holder_ref`) holds that no record of ours names. 409 for one of the client's own "
+        "items (removed from their page instead); 404 when that engine agent is not one of "
+        "this agent's or does not hold it."
     ),
 )
 async def admin_remove_unrecorded_document(
@@ -110,7 +137,12 @@ async def admin_remove_unrecorded_document(
 ) -> None:
     async with tenant_session(tenant_id) as scoped:
         await agent_view.remove_unrecorded(
-            scoped, get_engine(), tenant_id=tenant_id, agent_id=agent_id, handle=payload.handle
+            scoped,
+            get_engine(),
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            holder_ref=payload.holder_ref,
+            handle=payload.handle,
         )
         await write_audit(
             scoped,
@@ -120,8 +152,14 @@ async def admin_remove_unrecorded_document(
             object_type="agent",
             object_id=str(agent_id),
             ip=client_request_ip(request),
-            summary={"handle": payload.handle},
+            summary={"holder_ref": payload.holder_ref, "handle": payload.handle},
         )
 
 
-__all__ = ["AgentKnowledgeItemOut", "AgentKnowledgeOut", "RemoveDocumentIn", "router"]
+__all__ = [
+    "AgentKnowledgeItemOut",
+    "AgentKnowledgeOut",
+    "HolderKnowledgeOut",
+    "RemoveDocumentIn",
+    "router",
+]

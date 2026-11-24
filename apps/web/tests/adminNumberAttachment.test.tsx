@@ -63,6 +63,7 @@ function number(overrides: Partial<TenantNumberCost> = {}): TenantNumberCost {
     released: false,
     platform_held: false,
     on_engine: false,
+    answers: false,
     ...overrides,
   };
 }
@@ -166,6 +167,31 @@ describe("a number nobody answers says so, and the fix is on the row", () => {
     ).toBeTruthy();
   });
 
+  it("does not say 'Answered by' for a number set to an agent that nothing answers (D-1019)", async () => {
+    await render(
+      healthy([
+        number({
+          agent_id: AGENT,
+          agent_name: "Front desk",
+          line_name: "Bookings",
+          answers: false,
+          silent_reason: "Its inbound line Bookings is not live, so a call to it reaches nobody.",
+        }),
+      ]),
+    );
+
+    expect(await screen.findByText(/Bookings is not live/)).toBeTruthy();
+    expect(screen.queryByText(/^Answered by Front desk/)).toBeNull();
+  });
+
+  it("names the line a number answers on", async () => {
+    await render(
+      healthy([number({ agent_id: AGENT, agent_name: "Front desk", line_name: "Bookings", answers: true })]),
+    );
+
+    expect(await screen.findByText("Answered by Front desk on the line Bookings.")).toBeTruthy();
+  });
+
   it("offers every agent, including one that only makes calls, plus the detach choice", async () => {
     await render(healthy([number()]));
 
@@ -212,7 +238,7 @@ describe("a number nobody answers says so, and the fix is on the row", () => {
   it("sends null when the operator detaches, and says the platform stopped answering", async () => {
     const calls: unknown[] = [];
     await render({
-      ...healthy([number({ agent_id: AGENT, agent_name: "Front desk" })]),
+      ...healthy([number({ agent_id: AGENT, agent_name: "Front desk", answers: true })]),
       [ATTACH_PATH]: (call: { body: string | null }) => {
         calls.push(JSON.parse(call.body ?? "null"));
         return {

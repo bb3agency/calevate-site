@@ -439,6 +439,14 @@ function LiveConfirmation({
               >
                 {engineState.data.detail}
               </p>
+              {/* D-1019: the agent's lines and campaigns each hold an engine agent, and each
+                  was read; the verdicts below are the worst over them. */}
+              {(engineState.data.holders_checked ?? 0) > 1 && (
+                <p className="mt-0.5 text-meta text-ink-muted">
+                  Read back {engineState.data.holders_checked} engine agents carrying this agent
+                  (its live lines and campaigns); each verdict is the worst of them.
+                </p>
+              )}
               <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
                 <PropertyVerdict label="Script" verdict={engineState.data.prompt_applied} />
                 {/*
