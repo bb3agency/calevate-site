@@ -307,11 +307,15 @@ async def holder_of_latest_call(
     session: AsyncSession, *, agent_id: UUID, kind: str
 ) -> LatestCall | None:
     """The newest call of this agent that showed `kind`, and the line or campaign it was on
-    (`calls.inbound_line_id` / `calls.campaign_id`), or None when no call showed it."""
+    (`calls.inbound_line_id`, else its campaign, a campaign's Test call included), or None
+    when no call showed it."""
+    # Local: `campaigns.notes` reaches this module through `agents.service`, a cycle at import.
+    from apps.api.campaigns.notes import CALL_CAMPAIGN_SQL
+
     row = (
         await session.execute(
             text(
-                "SELECT c.id, c.inbound_line_id, c.campaign_id FROM call_mistakes m "
+                f"SELECT c.id, c.inbound_line_id, {CALL_CAMPAIGN_SQL} FROM call_mistakes m "
                 "JOIN calls c ON c.id = m.call_id WHERE m.agent_id = :a AND m.kind = :k "
                 "ORDER BY m.call_started_at DESC, m.id DESC LIMIT 1"
             ),
