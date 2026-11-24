@@ -3430,14 +3430,16 @@ async def _record_outcome(
 
 
 async def _campaign_goal(tenant_id: UUID, call_id: UUID) -> str | None:
-    """The goal of the campaign this call belongs to (its own dial or a call-back of one,
-    D-914), or None for a call outside a campaign or a campaign with no goal."""
+    """The goal of the campaign this call belongs to (its own dial, a call-back of one,
+    D-914, or its Test call, which the campaign keeps in `test_call_ids` as the notes do),
+    or None for a call outside a campaign or a campaign with no goal."""
     async with tenant_session(tenant_id) as session:
         goal = (
             await session.execute(
                 text(
                     "SELECT g.goal FROM calls c JOIN campaigns g ON g.id = c.campaign_id "
-                    "WHERE c.id = :cid AND c.tenant_id = :tid"
+                    "OR (c.campaign_id IS NULL AND c.id = ANY (g.test_call_ids)) "
+                    "WHERE c.id = :cid AND c.tenant_id = :tid LIMIT 1"
                 ),
                 {"cid": call_id, "tid": tenant_id},
             )

@@ -348,7 +348,7 @@ def parse_field_filters(raw: Sequence[str], allowed: frozenset[str]) -> FieldFil
                 kind="validation",
                 code="lead_filter_unknown_field",
                 title="Unknown filter",
-                detail=f"“{key}” is not a filterable field on this agent's capture list.",
+                detail=f"“{key}” is not a detail any of your campaigns or lines notes.",
                 remediation=(
                     "Clear that filter and pick one from the panel. If it was a saved "
                     "view, open it again — the view will tell you which filters it lost."

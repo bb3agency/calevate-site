@@ -33,7 +33,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.inbound import lines
 from apps.api.main import app
-from apps.workers.pipeline import _load_call_context
+from apps.workers.pipeline import _campaign_goal, _load_call_context
 from calevate_shared.call_script import SCRIPT_SCHEMA_VERSION, CallScript
 from calevate_shared.lead_fields import CORE_KEYS
 from httpx import ASGITransport, AsyncClient
@@ -328,6 +328,14 @@ async def test_each_call_notes_its_jobs_list_and_a_call_with_no_job_only_the_cor
             {"c": test_call, "g": campaign_id},
         )
     assert await _noted(tenant_id, test_call) == ["budget"]
+    # And it is judged against that campaign's goal, as its dials are.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET goal = :goal WHERE id = :g"),
+            {"goal": "The app is installed", "g": campaign_id},
+        )
+    assert await _campaign_goal(tenant_id, test_call) == "The app is installed"
+    assert await _campaign_goal(tenant_id, campaign_call) == "The app is installed"
     # The agent's own test call: only the core, whatever the agent's starting list holds.
     assert await _agent_keys(tenant_id, agent_id)
     assert await _noted(tenant_id, await _call(tenant_id, agent_id)) == []
