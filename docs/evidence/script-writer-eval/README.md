@@ -4,6 +4,12 @@ Reports of `python -m scripts.eval_script_writer`, which scores Pip's script wri
 fixed case set in `tests/fixtures/script_writer_cases/`. The module docstring is the full
 account of what each check reads and what a live run does and does not reproduce.
 
+Each structural check in a report names what makes it: the writer's own
+`script_lint.<check>_problems` where one exists (the function the writer's checks use, so
+the eval and the writer never disagree), the eval where none does, and the lint plus the
+eval where the check needs what only the case knows (which details are judged, what the
+calling list gives) or counts listed asks the lint does not.
+
 ## Files here
 
 - `<date>-recorded.md`: the recorded outputs scored with no model. Until a live run is
