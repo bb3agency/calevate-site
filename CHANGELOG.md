@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.45 — 25-Nov-2026
+
+- A call page no longer claims a step the call never reached. Captured details, notes,
+  "goal met", the outcome and the summary all agree with how far the call actually got;
+  a goal that was missed says "The call did not get as far as <step>".
+- Each captured detail must rest on something said in the call; a detail nobody talked
+  about shows as Not mentioned instead of a guess.
+- Admin: a fixed set of test businesses scores the script writer, and fifteen simulated
+  callers score a script or prompt before it reaches real calls.
+
 ## 0.5.44 — 25-Nov-2026
 
 - A mistake heard on a campaign's test call is now repaired on that campaign. Before, test
