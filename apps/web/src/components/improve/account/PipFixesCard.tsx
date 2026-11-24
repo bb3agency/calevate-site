@@ -4,14 +4,15 @@
  * PIP'S FIXES, IN ONE FEED: the changes made on their own across the account in the window:
  * script repairs, step outcomes written, notices woven into an opening (`script_versions`),
  * calling hours narrowed to the best block and an opening test's winner applied. Each opens
- * the campaign's or line's Versions, where any of them can be put back.
+ * where it can be put back: a script change the campaign's or line's Versions, narrowed hours
+ * the campaign's Improve tab (its Best hours Undo), because hours are a setting, not a version.
  */
 
 import Link from "next/link";
 
 import { TEXT_ACTION_SM } from "@/components/console/section";
 import { formatIST } from "@/components/ui";
-import { holderVersionsHref, type PipFix } from "@/lib/api/accountImprove";
+import { holderImproveHref, holderVersionsHref, type PipFix } from "@/lib/api/accountImprove";
 import { useClientRealm } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
@@ -60,13 +61,23 @@ export function PipFixesCard({ slug }: AccountCardProps) {
                       {fix.holder_name} · {formatIST(fix.at)}
                     </p>
                   </div>
-                  <Link
-                    href={href(holderVersionsHref(slug, { kind: fix.holder_kind, id: fix.holder_id }))}
-                    className={`${TEXT_ACTION_SM} -mx-2`}
-                    aria-label={`Open the versions of ${fix.holder_name}`}
-                  >
-                    Versions
-                  </Link>
+                  {fix.kind === "best_hours" ? (
+                    <Link
+                      href={href(holderImproveHref(slug, { kind: fix.holder_kind, id: fix.holder_id }))}
+                      className={`${TEXT_ACTION_SM} -mx-2`}
+                      aria-label={`Open the calling hours of ${fix.holder_name}`}
+                    >
+                      Calling hours
+                    </Link>
+                  ) : (
+                    <Link
+                      href={href(holderVersionsHref(slug, { kind: fix.holder_kind, id: fix.holder_id }))}
+                      className={`${TEXT_ACTION_SM} -mx-2`}
+                      aria-label={`Open the versions of ${fix.holder_name}`}
+                    >
+                      Versions
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>

@@ -583,8 +583,10 @@ async def contact_health(session: AsyncSession, *, now: datetime | None = None) 
     often = (
         await session.execute(
             text(
+                # A call held back that never rang (`not_placed_reason`) did not reach them.
                 "SELECT count(*) FROM (SELECT c.to_e164 FROM calls c "
                 "WHERE c.direction = 'outbound' AND c.campaign_id IS NOT NULL "
+                "AND c.not_placed_reason IS NULL "
                 f"AND c.to_e164 IS NOT NULL AND {_AT} >= :since "
                 "GROUP BY 1 HAVING count(DISTINCT c.campaign_id) >= 2) x"
             ),

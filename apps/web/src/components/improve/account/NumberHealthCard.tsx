@@ -35,7 +35,9 @@ export function NumberHealthCard({ slug }: AccountCardProps) {
           if (numbers.numbers.length === 0) {
             return <Quiet>No calls placed from your numbers yet.</Quiet>;
           }
-          const judged = numbers.numbers.filter((n) => n.recent_rate !== null);
+          // A drop needs both weeks measured: a number with a full last week and too few calls
+          // before has nothing to have dropped against, which is not "has not dropped".
+          const judged = numbers.numbers.filter((n) => n.recent_rate !== null && n.baseline_rate !== null);
           const flagged = numbers.numbers.filter((n) => n.dropped);
           return (
             <>
@@ -48,7 +50,7 @@ export function NumberHealthCard({ slug }: AccountCardProps) {
               ) : judged.length === 0 ? (
                 <p className="mb-3 text-meta text-ink-muted">
                   Too few calls to judge yet: each number needs {formatCount(numbers.min_recent_placed)} calls in
-                  a week.
+                  its last week and {formatCount(numbers.min_baseline_placed)} in the four weeks before.
                 </p>
               ) : (
                 <p className="mb-3 text-meta text-ink-muted">No number has dropped against its own weeks before.</p>

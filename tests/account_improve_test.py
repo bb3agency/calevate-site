@@ -285,6 +285,27 @@ async def test_follow_ups_contacts_and_fixes_are_counted() -> None:
     assert (fix.kind, fix.holder_id) == ("pip_repair", first)
 
 
+async def test_a_call_that_never_rang_is_not_counted_as_calling_someone() -> None:
+    """FAILS IF: a person rung by one campaign and only HELD by a second (`not_placed_reason`,
+    the call never rang) is counted as called by two campaigns."""
+    tenant_id, agent_id = await _tenant()
+    first = await _campaign(tenant_id, agent_id)
+    second = await _campaign(tenant_id, agent_id)
+    person = "+919811100004"
+    await _calls(tenant_id, agent_id, 1, campaign_id=first, to_e164=person)
+    (held,) = await _calls(tenant_id, agent_id, 1, campaign_id=second, to_e164=person, outcome=None)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET not_placed_reason = 'lines_full', status = 'failed', "
+                "started_at = NULL WHERE id = :c"
+            ),
+            {"c": held},
+        )
+
+    assert (await _read(tenant_id)).contacts.called_too_often == 0
+
+
 # --- Another account -----------------------------------------------------------------------
 
 

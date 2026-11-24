@@ -72,6 +72,17 @@ describe("Number health", () => {
     expect(screen.queryByText("May be labelled spam")).toBeNull();
   });
 
+  it("does not call a number with no weeks before to compare steady", async () => {
+    // A new number: a full last week, too few calls before it. Nothing to have dropped
+    // against, so it is too few to judge, never "no number has dropped".
+    const fresh = { ...FULL_ACCOUNT_IMPROVE.numbers.numbers[0]!, baseline_placed: 10, baseline_rate: null, dropped: false };
+    await render(<NumberHealthCard slug="acme" />, account({ numbers: { ...FULL_ACCOUNT_IMPROVE.numbers, numbers: [fresh] } }));
+    expect(
+      await screen.findByText(/Too few calls to judge yet: each number needs 30 calls in its last week and 60 in the four weeks before/),
+    ).toBeTruthy();
+    expect(screen.queryByText("No number has dropped against its own weeks before.")).toBeNull();
+  });
+
   it("flags the number that dropped and links to the phone numbers", async () => {
     const { container } = await render(<NumberHealthCard slug="acme" />, account({ numbers: FULL_ACCOUNT_IMPROVE.numbers }));
     const rows = within(await screen.findByRole("list", { name: "Your calling numbers" })).getAllByRole("listitem");
@@ -98,6 +109,10 @@ describe("Your week", () => {
     });
     expect(await screen.findByText(WEEKLY_SUMMARY.paragraph)).toBeTruthy();
     expect(screen.getByText("50%")).toBeTruthy();
+    // The rate is of outgoing calls placed (`weekly_summary.week_figures`), while Calls counts
+    // incoming too: unlabelled, it read as the share of all the week's calls answered.
+    expect(screen.getByText("Outgoing answered")).toBeTruthy();
+    expect(screen.queryByText("Answered")).toBeNull();
     await expectNoA11yViolations(container, "WeeklySummaryCard");
     fireEvent.click(screen.getByRole("button", { name: "Past weeks" }));
     const past = await screen.findByRole("list", { name: "Past weeks" });
@@ -279,6 +294,11 @@ describe("Pip's fixes", () => {
     expect(rows[1]!.textContent).toContain("Set the calling hours to 10:00 to 13:00");
     expect(within(rows[0]!).getByRole("link").getAttribute("href")).toBe("/c/acme/campaigns/camp-other");
     expect(within(rows[2]!).getByRole("link").getAttribute("href")).toBe("/c/acme/inbound/line-1#line-script");
+    // Narrowed hours are a setting, not a script version: they are put back on the campaign's
+    // Improve tab, so the row opens that rather than Versions, where they are not.
+    const hours = within(rows[1]!).getByRole("link");
+    expect(hours.textContent).toBe("Calling hours");
+    expect(hours.getAttribute("href")).toBe("/c/acme/campaigns/camp-best?tab=improve");
     await expectNoA11yViolations(container, "PipFixesCard");
   });
 });

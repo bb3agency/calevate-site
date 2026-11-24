@@ -19,6 +19,9 @@ import type { CallDetail } from "@/lib/api/client";
  * shown as zero: "not measured" and "none" send a reader in different directions.
  */
 
+/** The card's title, which its error boundary on the call screen names too. */
+export const QUALITY_TITLE = "How the call went";
+
 type Quality = NonNullable<CallDetail["quality"]>;
 type Signal = CallDetail["signals"][number];
 type Turn = NonNullable<CallDetail["timeline"]>[number];
@@ -210,7 +213,7 @@ export function CallQualityCard({
     return null;
   }
   return (
-    <Section title="How the call went">
+    <Section title={QUALITY_TITLE}>
       {problems.length > 0 && (
         <ul aria-label="Problems on this call" className="mb-3 space-y-1 text-body text-ink">
           {problems.map((p) => (
