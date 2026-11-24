@@ -142,12 +142,14 @@ export function CampaignFlow({
     // Only a new script from the server starts this; the draft is read as it stands then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [script]);
-  const commit = (next: CallScript) => {
+  // `discrete` is one deliberate act (a link removed): its own Undo step, never merged with
+  // typing just before or after it, so Undo takes back that act alone.
+  const commit = (next: CallScript, discrete = false) => {
     if (next === draft) return;
     const now = Date.now();
-    if (now - lastChange.current > MERGE_MS || past.length === 0)
+    if (discrete || now - lastChange.current > MERGE_MS || past.length === 0)
       setPast((p) => [...p, draft].slice(-HISTORY));
-    lastChange.current = now;
+    lastChange.current = discrete ? 0 : now;
     setFuture([]);
     setDraft(next);
   };
@@ -285,6 +287,7 @@ export function CampaignFlow({
       wide={desktop}
       onSelect={setSelected}
       onChange={commit}
+      onUndo={undo}
       onEditOpening={
         onEditOpening &&
         (() => {
