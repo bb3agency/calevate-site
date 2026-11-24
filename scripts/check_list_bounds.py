@@ -189,6 +189,14 @@ _CAMPAIGN_WORKSPACE_ROUTES = (
 _TEST_NUMBERS = BoundedByConstruction(
     by="the account's saved test numbers, at most `workspace_routes.MAX_TEST_NUMBERS` (ten)."
 )
+#: The Improve tab's data, which every Improve move answers with.
+_CAMPAIGN_INSIGHTS = BoundedByConstruction(
+    by=(
+        "`best_hours.hours` one per hour of the IST day (24 at most), `blocks` the fixed "
+        "three-hour grid (`call_timing.grid_blocks`, four), `gaps_minutes` one per retry "
+        "(`CAMPAIGN_RETRY_ATTEMPTS_CEILING`), `openings` the two under test."
+    )
+)
 _CAMPAIGN_SETTINGS = BoundedByConstruction(
     by=(
         "one campaign's settings; `offered_languages` and `languages_extra` are the client "
@@ -1443,11 +1451,15 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/campaigns/{campaign_id}/questions": BoundedByConstruction(
         by="`teach/struggles.list_struggles`, read with `LIMIT` `MAX_GAPS`."
     ),
-    "GET /v1/campaigns/{campaign_id}/insights": BoundedByConstruction(
-        by=(
-            "`hours` and `best_hours` one per hour of the IST day (24 at most); `openings` "
-            "the script's own opening and the second one under test, two."
-        )
+    "GET /v1/campaigns/{campaign_id}/insights": _CAMPAIGN_INSIGHTS,
+    "POST /v1/campaigns/{campaign_id}/best-hours/apply": _CAMPAIGN_INSIGHTS,
+    "POST /v1/campaigns/{campaign_id}/best-hours/undo": _CAMPAIGN_INSIGHTS,
+    "PUT /v1/campaigns/{campaign_id}/best-hours/auto": _CAMPAIGN_INSIGHTS,
+    "PUT /v1/campaigns/{campaign_id}/retry-spread": _CAMPAIGN_INSIGHTS,
+    "POST /v1/campaigns/{campaign_id}/opening-test/undo": _CAMPAIGN_INSIGHTS,
+    "POST /v1/campaigns/{campaign_id}/opening-practice": BoundedByConstruction(
+        by="`mistakes` per opening is `turn_checks.turn_problems` on one line of at most 200 "
+        "characters (`improve_routes.OPENING_MAX`), each rule firing at most a few times."
     ),
     "POST /v1/lead-sources/{webhook_id}/test": BoundedByConstruction(
         by="`steps` is the fixed dry-run ladder in `ingest/service.py`."

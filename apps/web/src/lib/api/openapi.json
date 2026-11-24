@@ -6498,6 +6498,45 @@
         "title": "AnswersIn",
         "type": "object"
       },
+      "AppliedHoursOut": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "block": {
+            "$ref": "#/components/schemas/WindowOut"
+          },
+          "by": {
+            "enum": [
+              "owner",
+              "pip"
+            ],
+            "title": "By",
+            "type": "string"
+          }
+        },
+        "required": [
+          "block",
+          "before",
+          "by",
+          "at"
+        ],
+        "title": "AppliedHoursOut",
+        "type": "object"
+      },
       "ApplyIn": {
         "additionalProperties": false,
         "description": "`expected_version` is the CAS token (BACKEND-PATTERNS \u00a75): the staged version\nthe operator actually looked at. Optional, because a caller with no screen has\nnothing to be stale about \u2014 but a UI that omits it is choosing last-write-wins.",
@@ -7229,6 +7268,136 @@
           "next_cursor"
         ],
         "title": "AvailableOwnNumbersOut",
+        "type": "object"
+      },
+      "BestHoursOut": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppliedHoursOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "auto": {
+            "title": "Auto",
+            "type": "boolean"
+          },
+          "best": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BlockOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "blocks": {
+            "items": {
+              "$ref": "#/components/schemas/BlockOut"
+            },
+            "title": "Blocks",
+            "type": "array"
+          },
+          "calling_hours": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "chance_needed": {
+            "title": "Chance Needed",
+            "type": "number"
+          },
+          "hours": {
+            "items": {
+              "$ref": "#/components/schemas/HourOut"
+            },
+            "title": "Hours",
+            "type": "array"
+          },
+          "min_people_per_block": {
+            "title": "Min People Per Block",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "empty",
+              "too_few",
+              "measuring",
+              "actionable"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "best",
+          "blocks",
+          "hours",
+          "min_people_per_block",
+          "chance_needed",
+          "calling_hours",
+          "applied",
+          "auto"
+        ],
+        "title": "BestHoursOut",
+        "type": "object"
+      },
+      "BlockOut": {
+        "additionalProperties": false,
+        "properties": {
+          "chance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chance"
+          },
+          "end": {
+            "title": "End",
+            "type": "string"
+          },
+          "people": {
+            "title": "People",
+            "type": "integer"
+          },
+          "rate": {
+            "title": "Rate",
+            "type": "number"
+          },
+          "reached": {
+            "title": "Reached",
+            "type": "integer"
+          },
+          "start": {
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "people",
+          "reached",
+          "rate",
+          "chance"
+        ],
+        "title": "BlockOut",
         "type": "object"
       },
       "BlockerOut": {
@@ -13992,60 +14161,19 @@
         "additionalProperties": false,
         "properties": {
           "best_hours": {
-            "items": {
-              "$ref": "#/components/schemas/HourOut"
-            },
-            "title": "Best Hours",
-            "type": "array"
+            "$ref": "#/components/schemas/BestHoursOut"
           },
-          "hours": {
-            "items": {
-              "$ref": "#/components/schemas/HourOut"
-            },
-            "title": "Hours",
-            "type": "array"
+          "opening": {
+            "$ref": "#/components/schemas/OpeningTestOut"
           },
-          "min_calls_per_hour": {
-            "title": "Min Calls Per Hour",
-            "type": "integer"
-          },
-          "opening_b": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Opening B"
-          },
-          "opening_verdict": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Opening Verdict"
-          },
-          "openings": {
-            "items": {
-              "$ref": "#/components/schemas/OpeningOut"
-            },
-            "title": "Openings",
-            "type": "array"
+          "retry": {
+            "$ref": "#/components/schemas/RetryOut"
           }
         },
         "required": [
-          "hours",
           "best_hours",
-          "min_calls_per_hour",
-          "opening_b",
-          "openings",
-          "opening_verdict"
+          "retry",
+          "opening"
         ],
         "title": "CampaignInsightsOut",
         "type": "object"
@@ -33173,27 +33301,27 @@
       "HourOut": {
         "additionalProperties": false,
         "properties": {
-          "answered": {
-            "title": "Answered",
-            "type": "integer"
-          },
-          "calls": {
-            "title": "Calls",
-            "type": "integer"
-          },
           "hour": {
             "title": "Hour",
+            "type": "integer"
+          },
+          "people": {
+            "title": "People",
             "type": "integer"
           },
           "rate": {
             "title": "Rate",
             "type": "number"
+          },
+          "reached": {
+            "title": "Reached",
+            "type": "integer"
           }
         },
         "required": [
           "hour",
-          "calls",
-          "answered",
+          "people",
+          "reached",
           "rate"
         ],
         "title": "HourOut",
@@ -39793,6 +39921,49 @@
         "title": "LinkIn",
         "type": "object"
       },
+      "ListSizeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Rate"
+          },
+          "answered_needed": {
+            "title": "Answered Needed",
+            "type": "integer"
+          },
+          "large_enough": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Large Enough"
+          },
+          "people": {
+            "title": "People",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "people",
+          "answer_rate",
+          "answered_needed",
+          "large_enough"
+        ],
+        "title": "ListSizeOut",
+        "type": "object"
+      },
       "LiveApplyFailureOut": {
         "additionalProperties": false,
         "properties": {
@@ -42419,7 +42590,8 @@
               "attention",
               "announcement",
               "plan",
-              "call_lines"
+              "call_lines",
+              "campaign"
             ],
             "title": "Source",
             "type": "string"
@@ -43238,6 +43410,55 @@
         "title": "OpeningBIn",
         "type": "object"
       },
+      "OpeningDecisionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "can_undo": {
+            "title": "Can Undo",
+            "type": "boolean"
+          },
+          "chance_b_better": {
+            "title": "Chance B Better",
+            "type": "number"
+          },
+          "opening_b": {
+            "title": "Opening B",
+            "type": "string"
+          },
+          "undone": {
+            "title": "Undone",
+            "type": "boolean"
+          },
+          "winner": {
+            "enum": [
+              "a",
+              "b"
+            ],
+            "title": "Winner",
+            "type": "string"
+          }
+        },
+        "required": [
+          "winner",
+          "chance_b_better",
+          "applied",
+          "opening_b",
+          "at",
+          "undone",
+          "can_undo"
+        ],
+        "title": "OpeningDecisionOut",
+        "type": "object"
+      },
       "OpeningIntroducesOnAgent": {
         "allOf": [
           {
@@ -43389,6 +43610,21 @@
             "title": "People",
             "type": "integer"
           },
+          "stayed": {
+            "title": "Stayed",
+            "type": "integer"
+          },
+          "stayed_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stayed Rate"
+          },
           "variant": {
             "enum": [
               "a",
@@ -43402,10 +43638,106 @@
           "variant",
           "people",
           "answered",
+          "stayed",
           "goal_reached",
+          "stayed_rate",
           "goal_rate"
         ],
         "title": "OpeningOut",
+        "type": "object"
+      },
+      "OpeningTestOut": {
+        "additionalProperties": false,
+        "properties": {
+          "chance_b_better": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chance B Better"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OpeningDecisionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "goal_chance_b_better": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Chance B Better"
+          },
+          "list_size": {
+            "$ref": "#/components/schemas/ListSizeOut"
+          },
+          "min_answered_per_opening": {
+            "title": "Min Answered Per Opening",
+            "type": "integer"
+          },
+          "opening_b": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening B"
+          },
+          "openings": {
+            "items": {
+              "$ref": "#/components/schemas/OpeningOut"
+            },
+            "title": "Openings",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "off",
+              "too_few",
+              "measuring",
+              "decided"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "stayed_seconds": {
+            "title": "Stayed Seconds",
+            "type": "integer"
+          },
+          "win_chance": {
+            "title": "Win Chance",
+            "type": "number"
+          }
+        },
+        "required": [
+          "opening_b",
+          "state",
+          "chance_b_better",
+          "goal_chance_b_better",
+          "openings",
+          "min_answered_per_opening",
+          "win_chance",
+          "stayed_seconds",
+          "list_size",
+          "decision"
+        ],
+        "title": "OpeningTestOut",
         "type": "object"
       },
       "OperatorCreateIn": {
@@ -47159,6 +47491,77 @@
           "applies"
         ],
         "title": "PolicyFitOut",
+        "type": "object"
+      },
+      "PracticeIn": {
+        "additionalProperties": false,
+        "properties": {
+          "opening_b": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Opening B",
+            "type": "string"
+          }
+        },
+        "required": [
+          "opening_b"
+        ],
+        "title": "PracticeIn",
+        "type": "object"
+      },
+      "PracticeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "fewer": {
+            "anyOf": [
+              {
+                "enum": [
+                  "a",
+                  "b"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fewer"
+          },
+          "own": {
+            "$ref": "#/components/schemas/PracticeSideOut"
+          },
+          "second": {
+            "$ref": "#/components/schemas/PracticeSideOut"
+          }
+        },
+        "required": [
+          "own",
+          "second",
+          "fewer"
+        ],
+        "title": "PracticeOut",
+        "type": "object"
+      },
+      "PracticeSideOut": {
+        "additionalProperties": false,
+        "properties": {
+          "line": {
+            "title": "Line",
+            "type": "string"
+          },
+          "mistakes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Mistakes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "line",
+          "mistakes"
+        ],
+        "title": "PracticeSideOut",
         "type": "object"
       },
       "PreferenceScrubIn": {
@@ -52444,6 +52847,33 @@
         "title": "RetirementRunOut",
         "type": "object"
       },
+      "RetryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "gaps_minutes": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Gaps Minutes",
+            "type": "array"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "spread": {
+            "title": "Spread",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "spread",
+          "max_attempts",
+          "gaps_minutes"
+        ],
+        "title": "RetryOut",
+        "type": "object"
+      },
       "RetryPolicyIn": {
         "additionalProperties": false,
         "description": "How many times to try each person, and how long to wait between tries (D-773).\n\n`gaps_minutes` has one entry per retry (`max_attempts - 1`), each one of\n`service.retry_gap_choices()`; the service refuses anything else by name, under the\nconsole's limits. The field bounds are the code ceilings.",
@@ -52461,6 +52891,17 @@
             "minimum": 1.0,
             "title": "Max Attempts",
             "type": "integer"
+          },
+          "spread": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spread"
           }
         },
         "required": [
@@ -52482,6 +52923,11 @@
           "max_attempts": {
             "title": "Max Attempts",
             "type": "integer"
+          },
+          "spread": {
+            "default": false,
+            "title": "Spread",
+            "type": "boolean"
           }
         },
         "required": [
@@ -58584,6 +59030,20 @@
           "spent_inr"
         ],
         "title": "SummaryRowOut",
+        "type": "object"
+      },
+      "SwitchIn": {
+        "additionalProperties": false,
+        "properties": {
+          "on": {
+            "title": "On",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "on"
+        ],
+        "title": "SwitchIn",
         "type": "object"
       },
       "TeachItemIO": {
@@ -69647,6 +70107,25 @@
           "example"
         ],
         "title": "WhatsAppTemplateVariableIn",
+        "type": "object"
+      },
+      "WindowOut": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "WindowOut",
         "type": "object"
       },
       "WordingIn": {
@@ -90240,6 +90719,136 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/best-hours/apply": {
+      "post": {
+        "operationId": "apply_best_hours_v1_campaigns__campaign_id__best_hours_apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignInsightsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Call only in the block of the day people answer most, inside the platform hours",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/best-hours/auto": {
+      "put": {
+        "operationId": "set_best_hours_auto_v1_campaigns__campaign_id__best_hours_auto_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignInsightsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Let Pip narrow the calling hours to the best block once it is measured",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/best-hours/undo": {
+      "post": {
+        "operationId": "undo_best_hours_v1_campaigns__campaign_id__best_hours_undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignInsightsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put back the calling hours from before the best hours were applied",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/campaigns/{campaign_id}/complaint-review": {
       "post": {
         "description": "Resume stays refused until this is recorded (`controls.assert_resumable`). Audited\nonce: a second click is the same confirmation.",
@@ -90717,7 +91326,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "When people answer this campaign's calls, and how its two openings compare",
+        "summary": "When people answer this campaign's calls, how it retries, and its opening test",
         "tags": [
           "campaigns"
         ],
@@ -91235,6 +91844,98 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/opening-practice": {
+      "post": {
+        "description": "For a list too small to tell two openings apart on calls. Reads and stores nothing\nbeyond the campaign's own opening.",
+        "operationId": "opening_practice_v1_campaigns__campaign_id__opening_practice_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PracticeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PracticeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Compare a second opening with the script's own through the practice checks",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/opening-test/undo": {
+      "post": {
+        "description": "Saved in its own transaction, then put on the calls as any script save is.",
+        "operationId": "undo_opening_v1_campaigns__campaign_id__opening_test_undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignInsightsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put back the opening the test's winner replaced",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/campaigns/{campaign_id}/opt-outs": {
       "get": {
         "operationId": "campaign_opt_outs_v1_campaigns__campaign_id__opt_outs_get",
@@ -91579,6 +92280,56 @@
           }
         },
         "summary": "Dial again from where it stopped \u2014 the compliance re-check is at dial time",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/retry-spread": {
+      "put": {
+        "operationId": "set_retry_spread_v1_campaigns__campaign_id__retry_spread_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignInsightsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ring each retry at a different time of day than the try that went unanswered",
         "tags": [
           "campaigns"
         ],

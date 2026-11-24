@@ -34,8 +34,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import caller_help
 from apps.api.agents.lifecycle import assert_assignable
 from apps.api.callbacks.service import call_off_for_stopped_campaigns
+from apps.api.campaigns import improve
 from apps.api.campaigns.engine_agent import end_campaign_agent
 from apps.api.campaigns.service import (
+    DEFAULT_RETRY_POLICY,
     add_contacts,
     create_campaign,
     set_campaign_status,
@@ -93,6 +95,11 @@ LIVE_STATUSES = ("scheduled", "running", "paused")
 #: call in progress. `no_answer` is in the CHECK and written by nothing, kept here so a row
 #: carrying it is not silently dropped from a re-call.
 UNREACHED_STATUSES = ("pending", "failed", "no_answer")
+#: Finished sources, whose every unreached person may be called again.
+REDO_ALL_FROM = ("completed", "cancelled")
+#: What a paused source gives: only people whose tries ran out. Its `pending` people are
+#: still its own, dialled when it is started again.
+REDO_FROM_PAUSED = ("failed",)
 
 AccountPauseReason = Literal["out_of_credit", "spend_cap"]
 
@@ -161,7 +168,16 @@ async def update_draft(
     for column in _EDITABLE:
         if column not in values:
             continue
-        if column in _JSON_COLUMNS:
+        policy = values[column] if column == "retry_policy" else None
+        if policy is not None and "spread" not in policy:
+            # An edit of the tries and gaps that does not mention the spread keeps the
+            # campaign's own choice rather than switching it off.
+            assignments.append(
+                "retry_policy = CAST(:retry_policy AS jsonb) "
+                "|| jsonb_strip_nulls(jsonb_build_object('spread', retry_policy -> 'spread'))"
+            )
+            params[column] = json.dumps(values[column])
+        elif column in _JSON_COLUMNS:
             assignments.append(f"{column} = CAST(:{column} AS jsonb)")
             params[column] = None if values[column] is None else json.dumps(values[column])
         else:
@@ -355,7 +371,13 @@ async def duplicate_campaign(
     and the gate asks for it again on the copy. The copilot's `campaign_clone` calls this.
 
     Re-calling needs the source to be finished (completed or stopped): while it runs, its
-    own retries are still working through the same people.
+    own retries are still working through the same people. A paused source gives only the
+    people whose tries ran out (`failed`, which nothing re-opens): the ones still waiting stay
+    with it and are called when it is started again, so nobody is on two live lists.
+
+    The re-call draft starts with what the source learned (`improve.carry_into_redo`): its
+    best hours when measured, retries spread over the day, and the stronger opening when
+    the test has named one.
     """
     row = (
         await session.execute(
@@ -369,16 +391,19 @@ async def duplicate_campaign(
     ).first()
     if row is None:
         raise ProblemError.not_found("Campaign")
-    if with_unreached and row[8] not in ("completed", "cancelled"):
+    if with_unreached and row[8] not in (*REDO_ALL_FROM, "paused"):
         raise ProblemError.business_rule(
             "campaign_still_running",
             "People can be called again once this campaign has finished or been stopped.",
-            # Stop on the client's screen is a pause (founder, 16 Nov 2026), so "stop it for
-            # good" is not a move the owner has; a paused campaign finishes once resumed.
-            remediation="Let it finish its calls first. A stopped one finishes once started again.",
+            remediation="Let it finish its calls first, or stop it.",
         )
     prefix = "Call again: " if with_unreached else "Copy of "
     new_name = (name or f"{prefix}{row[0]}").strip()[:120]
+    calling_hours = row[6] if isinstance(row[6], dict) else None
+    retry_policy = row[7] if isinstance(row[7], dict) else None
+    if with_unreached:
+        calling_hours = await improve.redo_hours(session, source_id, calling_hours)
+        retry_policy = {**(retry_policy or DEFAULT_RETRY_POLICY), "spread": True}
     campaign_id = await create_campaign(
         session,
         tenant_id=tenant_id,
@@ -388,21 +413,23 @@ async def duplicate_campaign(
         number_id=None if row[3] is None else UUID(str(row[3])),
         dlt_template_id=None if row[4] is None else UUID(str(row[4])),
         concurrency=int(row[5]),
-        calling_hours=row[6] if isinstance(row[6], dict) else None,
-        retry_policy=row[7] if isinstance(row[7], dict) else None,
+        calling_hours=calling_hours,
+        retry_policy=retry_policy,
         purpose=row[9],
         goal=row[10],
     )
     await copy_workspace(session, tenant_id=tenant_id, source_id=source_id, target_id=campaign_id)
     if not with_unreached:
         return campaign_id, 0
+    await improve.redo_opening(session, source_id=source_id, target_id=campaign_id)
+    unreached = UNREACHED_STATUSES if row[8] in REDO_ALL_FROM else REDO_FROM_PAUSED
     contacts = (
         await session.execute(
             text(
                 "SELECT phone_e164, name, custom FROM campaign_contacts "
                 "WHERE campaign_id = :cid AND status = ANY(:unreached) ORDER BY created_at, id"
             ),
-            {"cid": source_id, "unreached": list(UNREACHED_STATUSES)},
+            {"cid": source_id, "unreached": list(unreached)},
         )
     ).all()
     result = await add_contacts(

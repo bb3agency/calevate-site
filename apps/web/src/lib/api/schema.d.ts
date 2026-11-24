@@ -7151,6 +7151,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/best-hours/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Call only in the block of the day people answer most, inside the platform hours */
+        post: operations["apply_best_hours_v1_campaigns__campaign_id__best_hours_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/best-hours/auto": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Let Pip narrow the calling hours to the best block once it is measured */
+        put: operations["set_best_hours_auto_v1_campaigns__campaign_id__best_hours_auto_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/best-hours/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put back the calling hours from before the best hours were applied */
+        post: operations["undo_best_hours_v1_campaigns__campaign_id__best_hours_undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/complaint-review": {
         parameters: {
             query?: never;
@@ -7306,7 +7357,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** When people answer this campaign's calls, and how its two openings compare */
+        /** When people answer this campaign's calls, how it retries, and its opening test */
         get: operations["campaign_insights_v1_campaigns__campaign_id__insights_get"];
         put?: never;
         post?: never;
@@ -7509,6 +7560,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/opening-practice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compare a second opening with the script's own through the practice checks
+         * @description For a list too small to tell two openings apart on calls. Reads and stores nothing
+         *     beyond the campaign's own opening.
+         */
+        post: operations["opening_practice_v1_campaigns__campaign_id__opening_practice_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/opening-test/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put back the opening the test's winner replaced
+         * @description Saved in its own transaction, then put on the calls as any script save is.
+         */
+        post: operations["undo_opening_v1_campaigns__campaign_id__opening_test_undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/opt-outs": {
         parameters: {
             query?: never;
@@ -7671,6 +7763,23 @@ export interface paths {
          *     One exception: a campaign whose agent has been ARCHIVED is refused with `agent_archived`, because that is the one condition the per-dial check can never clear — it would refuse every contact for ever while the campaign said it was running. Restore the agent, or point the campaign at another one.
          */
         post: operations["resume_v1_campaigns__campaign_id__resume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/retry-spread": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Ring each retry at a different time of day than the try that went unanswered */
+        put: operations["set_retry_spread_v1_campaigns__campaign_id__retry_spread_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -17550,6 +17659,21 @@ export interface components {
             /** Answers */
             answers?: components["schemas"]["AnswerIn"][];
         };
+        /** AppliedHoursOut */
+        AppliedHoursOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            before: components["schemas"]["WindowOut"] | null;
+            block: components["schemas"]["WindowOut"];
+            /**
+             * By
+             * @enum {string}
+             */
+            by: "owner" | "pip";
+        };
         /**
          * ApplyIn
          * @description `expected_version` is the CAS token (BACKEND-PATTERNS §5): the staged version
@@ -17818,6 +17942,42 @@ export interface components {
             next_cursor: string | null;
             /** Numbers */
             numbers: components["schemas"]["AvailableOwnNumberOut"][];
+        };
+        /** BestHoursOut */
+        BestHoursOut: {
+            applied: components["schemas"]["AppliedHoursOut"] | null;
+            /** Auto */
+            auto: boolean;
+            best: components["schemas"]["BlockOut"] | null;
+            /** Blocks */
+            blocks: components["schemas"]["BlockOut"][];
+            calling_hours: components["schemas"]["WindowOut"] | null;
+            /** Chance Needed */
+            chance_needed: number;
+            /** Hours */
+            hours: components["schemas"]["HourOut"][];
+            /** Min People Per Block */
+            min_people_per_block: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "empty" | "too_few" | "measuring" | "actionable";
+        };
+        /** BlockOut */
+        BlockOut: {
+            /** Chance */
+            chance: number | null;
+            /** End */
+            end: string;
+            /** People */
+            people: number;
+            /** Rate */
+            rate: number;
+            /** Reached */
+            reached: number;
+            /** Start */
+            start: string;
         };
         /** BlockerOut */
         BlockerOut: {
@@ -20007,18 +20167,9 @@ export interface components {
         };
         /** CampaignInsightsOut */
         CampaignInsightsOut: {
-            /** Best Hours */
-            best_hours: components["schemas"]["HourOut"][];
-            /** Hours */
-            hours: components["schemas"]["HourOut"][];
-            /** Min Calls Per Hour */
-            min_calls_per_hour: number;
-            /** Opening B */
-            opening_b: string | null;
-            /** Opening Verdict */
-            opening_verdict: string | null;
-            /** Openings */
-            openings: components["schemas"]["OpeningOut"][];
+            best_hours: components["schemas"]["BestHoursOut"];
+            opening: components["schemas"]["OpeningTestOut"];
+            retry: components["schemas"]["RetryOut"];
         };
         /** CampaignLeadOut */
         CampaignLeadOut: {
@@ -27109,14 +27260,14 @@ export interface components {
         };
         /** HourOut */
         HourOut: {
-            /** Answered */
-            answered: number;
-            /** Calls */
-            calls: number;
             /** Hour */
             hour: number;
+            /** People */
+            people: number;
             /** Rate */
             rate: number;
+            /** Reached */
+            reached: number;
         };
         /** HoursIn */
         HoursIn: {
@@ -29579,6 +29730,17 @@ export interface components {
             /** Url */
             url: string;
         };
+        /** ListSizeOut */
+        ListSizeOut: {
+            /** Answer Rate */
+            answer_rate: number | null;
+            /** Answered Needed */
+            answered_needed: number;
+            /** Large Enough */
+            large_enough: boolean | null;
+            /** People */
+            people: number;
+        };
         /** LiveApplyFailureOut */
         LiveApplyFailureOut: {
             /**
@@ -30595,7 +30757,7 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "attention" | "announcement" | "plan" | "call_lines";
+            source: "attention" | "announcement" | "plan" | "call_lines" | "campaign";
             /** Title */
             title: string;
             /**
@@ -30902,6 +31064,29 @@ export interface components {
             /** Opening B */
             opening_b?: string | null;
         };
+        /** OpeningDecisionOut */
+        OpeningDecisionOut: {
+            /** Applied */
+            applied: boolean;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Can Undo */
+            can_undo: boolean;
+            /** Chance B Better */
+            chance_b_better: number;
+            /** Opening B */
+            opening_b: string;
+            /** Undone */
+            undone: boolean;
+            /**
+             * Winner
+             * @enum {string}
+             */
+            winner: "a" | "b";
+        };
         /**
          * OpeningIntroducesOnAgent
          * @description Switching the AI notice on for the account was refused: this agent's opening line
@@ -30986,11 +31171,39 @@ export interface components {
             goal_reached: number;
             /** People */
             people: number;
+            /** Stayed */
+            stayed: number;
+            /** Stayed Rate */
+            stayed_rate: number | null;
             /**
              * Variant
              * @enum {string}
              */
             variant: "a" | "b";
+        };
+        /** OpeningTestOut */
+        OpeningTestOut: {
+            /** Chance B Better */
+            chance_b_better: number | null;
+            decision: components["schemas"]["OpeningDecisionOut"] | null;
+            /** Goal Chance B Better */
+            goal_chance_b_better: number | null;
+            list_size: components["schemas"]["ListSizeOut"];
+            /** Min Answered Per Opening */
+            min_answered_per_opening: number;
+            /** Opening B */
+            opening_b: string | null;
+            /** Openings */
+            openings: components["schemas"]["OpeningOut"][];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "off" | "too_few" | "measuring" | "decided";
+            /** Stayed Seconds */
+            stayed_seconds: number;
+            /** Win Chance */
+            win_chance: number;
         };
         /** OperatorCreateIn */
         OperatorCreateIn: {
@@ -32174,6 +32387,25 @@ export interface components {
              * @default
              */
             reason: string;
+        };
+        /** PracticeIn */
+        PracticeIn: {
+            /** Opening B */
+            opening_b: string;
+        };
+        /** PracticeOut */
+        PracticeOut: {
+            /** Fewer */
+            fewer: ("a" | "b") | null;
+            own: components["schemas"]["PracticeSideOut"];
+            second: components["schemas"]["PracticeSideOut"];
+        };
+        /** PracticeSideOut */
+        PracticeSideOut: {
+            /** Line */
+            line: string;
+            /** Mistakes */
+            mistakes: string[];
         };
         /**
          * PreferenceScrubIn
@@ -34120,6 +34352,15 @@ export interface components {
              */
             tenant_id: string;
         };
+        /** RetryOut */
+        RetryOut: {
+            /** Gaps Minutes */
+            gaps_minutes: number[];
+            /** Max Attempts */
+            max_attempts: number;
+            /** Spread */
+            spread: boolean;
+        };
         /**
          * RetryPolicyIn
          * @description How many times to try each person, and how long to wait between tries (D-773).
@@ -34133,6 +34374,8 @@ export interface components {
             gaps_minutes?: number[];
             /** Max Attempts */
             max_attempts: number;
+            /** Spread */
+            spread?: boolean | null;
         };
         /** RetryPolicyOut */
         RetryPolicyOut: {
@@ -34140,6 +34383,11 @@ export interface components {
             gaps_minutes: number[];
             /** Max Attempts */
             max_attempts: number;
+            /**
+             * Spread
+             * @default false
+             */
+            spread: boolean;
         };
         /** RevisionOut */
         RevisionOut: {
@@ -36520,6 +36768,11 @@ export interface components {
              * Format: date
              */
             to_date: string;
+        };
+        /** SwitchIn */
+        SwitchIn: {
+            /** On */
+            on: boolean;
         };
         /** TeachItemIO */
         TeachItemIO: {
@@ -40619,6 +40872,13 @@ export interface components {
             example: string;
             /** Label */
             label: string;
+        };
+        /** WindowOut */
+        WindowOut: {
+            /** End */
+            end: string;
+            /** Start */
+            start: string;
         };
         /** WordingIn */
         WordingIn: {
@@ -53942,6 +54202,103 @@ export interface operations {
             };
         };
     };
+    apply_best_hours_v1_campaigns__campaign_id__best_hours_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignInsightsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_best_hours_auto_v1_campaigns__campaign_id__best_hours_auto_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignInsightsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    undo_best_hours_v1_campaigns__campaign_id__best_hours_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignInsightsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     complaint_review_v1_campaigns__campaign_id__complaint_review_post: {
         parameters: {
             query?: never;
@@ -54616,6 +54973,72 @@ export interface operations {
             };
         };
     };
+    opening_practice_v1_campaigns__campaign_id__opening_practice_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PracticeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PracticeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    undo_opening_v1_campaigns__campaign_id__opening_test_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignInsightsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     campaign_opt_outs_v1_campaigns__campaign_id__opt_outs_get: {
         parameters: {
             query?: {
@@ -54858,6 +55281,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_retry_spread_v1_campaigns__campaign_id__retry_spread_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwitchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignInsightsOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

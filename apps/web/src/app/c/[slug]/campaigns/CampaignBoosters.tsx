@@ -14,13 +14,16 @@ import {
 } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ActionButton, problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
+import { BestHoursCard } from "@/components/improve/BestHoursCard";
+import { CallAgainCard } from "@/components/improve/CallAgainCard";
+import { ImproveCard as Card } from "@/components/improve/ImproveCard";
+import { OpeningTestCard } from "@/components/improve/OpeningTestCard";
+import { RetrySpreadCard } from "@/components/improve/RetrySpreadCard";
 import {
   FIELD,
   ProblemNotice,
@@ -31,15 +34,13 @@ import {
 import { isAssignable } from "@/lib/agentState";
 import { CAMPAIGN_TEST_ANCHOR } from "@/lib/api/agentJobs";
 import { useAgents } from "@/lib/api/agents";
-import { useDuplicateCampaign, useUpdateCampaign } from "@/lib/api/campaigns";
+import { useUpdateCampaign } from "@/lib/api/campaigns";
 import {
   useCampaignInsights,
   useCampaignTestCall,
-  useSaveOpeningB,
   useSaveTestNumbers,
   useTestNumbers,
   workspaceKey,
-  type CampaignInsights,
 } from "@/lib/api/campaignWorkspace";
 import {
   useCampaignWhatsApp,
@@ -49,7 +50,6 @@ import {
 } from "@/lib/api/followUps";
 import { useClientRealm } from "@/lib/api/session";
 import { useTestRingsFrom } from "@/lib/api/trialCalls";
-import { hourWords } from "@/lib/clock";
 
 import { FallbackNote, RingsFromNote } from "../TestCallStatus";
 import { FoldSection } from "./FoldSection";
@@ -65,33 +65,6 @@ type Common = {
   refusal?: string;
   agentId?: string;
 };
-
-function Card({
-  title,
-  hint,
-  info,
-  children,
-}: {
-  title: string;
-  hint: string;
-  info?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-card border border-line p-4 sm:p-5">
-      <h3 className="text-body font-semibold text-ink">{title}</h3>
-      <p className="mt-0.5 flex items-center gap-1 text-meta text-ink-muted">
-        <span className="block">{hint}</span>
-        {info && (
-          <InfoTip label={title.toLowerCase()} align="start">
-            {info}
-          </InfoTip>
-        )}
-      </p>
-      <div className="mt-3">{children}</div>
-    </section>
-  );
-}
 
 function errorText(error: unknown, fallback: string): string {
   return problemToast(error, fallback).description ?? fallback;
@@ -112,9 +85,10 @@ export function ImproveTab(props: Common & { status?: string | null }) {
     );
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <BestTime insights={insights.data} />
-      <OpeningTest {...props} insights={insights.data} />
-      <CallUnansweredAgain {...props} />
+      <BestHoursCard {...props} data={insights.data.best_hours} />
+      <OpeningTestCard {...props} data={insights.data.opening} />
+      <RetrySpreadCard {...props} data={insights.data.retry} />
+      <CallAgainCard {...props} />
       <WhatsAppFollowUp
         slug={props.slug}
         campaignId={props.campaignId}
@@ -384,228 +358,6 @@ export function TestCallForm({
 function formatPhone(e164: string): string {
   const m = /^\+91(\d{5})(\d{5})$/.exec(e164);
   return m ? `+91 ${m[1]} ${m[2]}` : e164;
-}
-
-function OpeningTest({
-  campaignId,
-  canWrite,
-  refusal,
-  insights,
-}: Common & { insights?: CampaignInsights }) {
-  const { session } = useClientRealm();
-  const fallback = useCampaignInsights(session, campaignId);
-  const data = insights ?? fallback.data;
-  const save = useSaveOpeningB(session, campaignId);
-  useActionFeedback(save, { errorDisplay: "inline" });
-  const [text, setText] = useState("");
-  useEffect(() => setText(data?.opening_b ?? ""), [data?.opening_b]);
-  const running = Boolean(data?.opening_b);
-  const [a, b] = data?.openings ?? [];
-  return (
-    <Card
-      title="Test a second opening line"
-      hint="Half hear this opening, half the script's own."
-    >
-      <p className="mb-2 text-meta text-ink-muted">
-        The AI and recording notices are still said.
-      </p>
-      <label className="sr-only" htmlFor={`${campaignId}-opening-b`}>
-        Second opening line
-      </label>
-      <textarea
-        id={`${campaignId}-opening-b`}
-        className={`${FIELD} min-h-20 w-full resize-y`}
-        maxLength={200}
-        value={text}
-        placeholder="For example: a different first sentence, to hear which one gets more people talking."
-        onChange={(e) => setText(e.target.value)}
-      />
-      <div className="mt-2 flex flex-wrap gap-2">
-        <ActionButton
-          variant="primary-sm"
-          status={save.isPending && save.variables !== null ? "pending" : "idle"}
-          disabled={
-            !canWrite ||
-            !text.trim() ||
-            text.trim() === (data?.opening_b ?? "") ||
-            (save.isPending && save.variables === null)
-          }
-          title={refusal}
-          onClick={() => save.mutate(text.trim())}
-        >
-          {running ? "Save opening" : "Start the test"}
-        </ActionButton>
-        {running && (
-          <ActionButton
-            variant="secondary-sm"
-            status={save.isPending && save.variables === null ? "pending" : "idle"}
-            disabled={!canWrite || (save.isPending && save.variables !== null)}
-            onClick={() => save.mutate(null)}
-          >
-            Stop the test
-          </ActionButton>
-        )}
-      </div>
-      {save.error != null && (
-        <p role="alert" className="mt-2 text-meta text-danger">
-          {errorText(save.error, "That did not save")}
-        </p>
-      )}
-      {running && a && b && (
-        <div className="mt-3 space-y-2">
-          <table className="w-full text-meta">
-            <thead className="text-ink-muted">
-              <tr>
-                <th className="text-left font-medium">Opening</th>
-                <th className="text-right font-medium">People</th>
-                <th className="text-right font-medium">Answered</th>
-                <th className="text-right font-medium">Goal reached</th>
-              </tr>
-            </thead>
-            <tbody className="text-ink">
-              {[
-                { label: "Script's own", o: a },
-                { label: "Second", o: b },
-              ].map(({ label, o }) => (
-                <tr key={o.variant}>
-                  <td>{label}</td>
-                  <td className="text-right tabular-nums">
-                    {o.people.toLocaleString("en-IN")}
-                  </td>
-                  <td className="text-right tabular-nums">
-                    {o.answered.toLocaleString("en-IN")}
-                  </td>
-                  <td className="text-right tabular-nums">
-                    {o.goal_reached.toLocaleString("en-IN")}
-                    {o.goal_rate != null &&
-                      ` (${Math.round(o.goal_rate * 100)}%)`}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {data?.opening_verdict && (
-            <p className="text-meta text-ink-muted">{data.opening_verdict}</p>
-          )}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function BestTime({ insights }: { insights: CampaignInsights }) {
-  const max = Math.max(1, ...insights.hours.map((h) => h.calls));
-  const best = new Set(insights.best_hours.map((h) => h.hour));
-  return (
-    <Card
-      title="Best time to call"
-      hint="When people answer, by hour (IST)."
-      info={`An hour needs ${insights.min_calls_per_hour} calls before it can be judged.`}
-    >
-      {insights.hours.length === 0 ? (
-        <p className="text-meta text-ink-muted">No calls yet.</p>
-      ) : (
-        <>
-          {insights.best_hours.length > 0 ? (
-            <p className="mb-3 text-body text-ink">
-              Best:{" "}
-              {insights.best_hours
-                .map(
-                  (h) =>
-                    `${hourWords(h.hour)} (${Math.round(h.rate * 100)}% answer)`,
-                )
-                .join(", ")}
-            </p>
-          ) : (
-            <p className="mb-3 text-meta text-ink-muted">
-              Not enough calls in any hour yet to say.
-            </p>
-          )}
-          {insights.best_hours.length > 0 && (
-            <p className="mb-3 text-meta text-ink-muted">
-              Narrow the calling hours in How it calls.
-            </p>
-          )}
-          <ul className="space-y-1" aria-label="Calls and answers by hour">
-            {insights.hours.map((h) => (
-              <li key={h.hour} className="flex items-center gap-2 text-meta">
-                <span className="w-12 shrink-0 text-ink-muted tabular-nums">
-                  {hourWords(h.hour)}
-                </span>
-                <span className="relative h-3 flex-1 overflow-hidden rounded-sm bg-surface-muted">
-                  <span
-                    className="absolute inset-y-0 left-0 bg-line"
-                    style={{ width: `${(h.calls / max) * 100}%` }}
-                    aria-hidden
-                  />
-                  <span
-                    className={`absolute inset-y-0 left-0 ${best.has(h.hour) ? "bg-brand" : "bg-brand/50"}`}
-                    style={{ width: `${(h.answered / max) * 100}%` }}
-                    aria-hidden
-                  />
-                </span>
-                <span className="w-28 shrink-0 text-right text-ink tabular-nums">
-                  {h.answered}/{h.calls} answered
-                </span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </Card>
-  );
-}
-
-/** The states a campaign's unreached people can be copied from (`controls.duplicate_campaign`):
- * finished, so its own retries are no longer working through the same people. */
-const CALL_AGAIN_FROM = ["completed", "cancelled"];
-
-/** Why "Make a draft for the unanswered" is held, or undefined when it may be pressed. */
-export function callAgainHeld(status: string | null | undefined): string | undefined {
-  if (status == null || CALL_AGAIN_FROM.includes(status)) return undefined;
-  if (status === "paused") return "It is stopped with people still to call. Start it again and let it finish first.";
-  if (status === "running") return "It is still calling. This opens once it has finished.";
-  return "This opens once the campaign has run and finished.";
-}
-
-function CallUnansweredAgain({ slug, campaignId, canWrite, refusal, status }: Common & { status?: string | null }) {
-  const { session, href } = useClientRealm();
-  const router = useRouter();
-  const duplicate = useDuplicateCampaign(session, campaignId);
-  useActionFeedback(duplicate, { errorDisplay: "inline" });
-  const held = callAgainHeld(status);
-  return (
-    <Card
-      title="Call the unanswered again"
-      hint="A new draft of only the people it never reached."
-      info="Same script and settings. You start it when you are ready."
-    >
-      <ActionButton
-        variant="primary-sm"
-        status={duplicate.isPending ? "pending" : "idle"}
-        pendingLabel="Making it…"
-        disabled={!canWrite || held !== undefined}
-        title={refusal}
-        onClick={() =>
-          duplicate.mutate(
-            { with_unreached: true },
-            {
-              onSuccess: (made) =>
-                router.push(href(`/c/${slug}/campaigns/${made.id}`)),
-            },
-          )
-        }
-      >
-        Make a draft for the unanswered
-      </ActionButton>
-      {held && canWrite && <p className="mt-2 text-meta text-ink-muted">{held}</p>}
-      {duplicate.error != null && (
-        <p role="alert" className="mt-2 text-meta text-danger">
-          {errorText(duplicate.error, "The draft was not made")}
-        </p>
-      )}
-    </Card>
-  );
 }
 
 function waitWords(minutes: number): string {

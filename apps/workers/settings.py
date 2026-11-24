@@ -148,6 +148,7 @@ from apps.workers.caller_memory_refile import refile_caller_memories
 from apps.workers.campaign_archive_notice import notify_campaign_archived
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.campaign_engine_agents import sweep_campaign_engine_agents
+from apps.workers.campaign_improve import campaign_improve
 from apps.workers.campaign_script import draft_campaign_script, draft_line_script
 from apps.workers.campaign_whatsapp_follow_up import write_campaign_whatsapp_follow_up
 from apps.workers.client_actions import run_after_call_actions, run_client_action
@@ -491,6 +492,9 @@ FUNCTIONS: list[Any] = [
         # A campaign's WhatsApp follow-up, written by Pip on the owner's press (D-1041,
         # `follow_ups/campaign_whatsapp.set_up`), from the outbox.
         write_campaign_whatsapp_follow_up,
+        # The Improve tab's automatic moves for a campaign: a decided opening test, and the
+        # best hours when Pip may (`campaigns/improve.queue_improve`, after its calls end).
+        campaign_improve,
         # A notice switch migration f2477c8d623d turned back on, put onto the account's
         # calls as a flip is (D-1021, `publishing.queue_notices_reach_calls`).
         refresh_account_notices,

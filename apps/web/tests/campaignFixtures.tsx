@@ -45,7 +45,7 @@ export function progressFixture(over: Partial<CampaignProgress> = {}): CampaignP
     consent_source: null,
     consent_collected_at: null,
     created_at: "2026-08-10T06:00:00Z",
-    retry_policy: { max_attempts: 3, gaps_minutes: [30, 120] },
+    retry_policy: { max_attempts: 3, gaps_minutes: [30, 120], spread: true },
     pause_reason: null,
     complaint_review_required: false,
     complaint_reviewed_at: null,
@@ -163,12 +163,30 @@ export function workspaceFixture(over: Partial<CampaignWorkspace> = {}): Campaig
 /** `GET /v1/campaigns/{id}/insights` before any call: no hours, no second opening. */
 export function insightsFixture(over: Partial<CampaignInsights> = {}): CampaignInsights {
   return {
-    hours: [],
-    best_hours: [],
-    min_calls_per_hour: 10,
-    opening_b: null,
-    openings: [],
-    opening_verdict: null,
+    best_hours: {
+      state: "empty",
+      best: null,
+      blocks: [],
+      hours: [],
+      min_people_per_block: 50,
+      chance_needed: 0.9875,
+      calling_hours: null,
+      applied: null,
+      auto: false,
+    },
+    retry: { spread: true, max_attempts: 3, gaps_minutes: [30, 120] },
+    opening: {
+      opening_b: null,
+      state: "off",
+      chance_b_better: null,
+      goal_chance_b_better: null,
+      openings: [],
+      min_answered_per_opening: 388,
+      win_chance: 0.95,
+      stayed_seconds: 20,
+      list_size: { people: 2000, answer_rate: 0.5, answered_needed: 776, large_enough: true },
+      decision: null,
+    },
     ...over,
   };
 }

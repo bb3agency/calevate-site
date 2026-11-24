@@ -193,7 +193,7 @@ async def test_a_draft_is_edited_and_the_fields_changed_are_audited() -> None:
     )
     assert row[0] == "Renamed" and row[1] == 2
     assert row[2] == {"start": "10:00", "end": "13:00"}
-    assert row[3] == {"max_attempts": 4, "backoff_minutes": [15, 60, 1440]}
+    assert row[3] == {"max_attempts": 4, "backoff_minutes": [15, 60, 1440], "spread": True}
     assert await _audits(account.tenant_id, campaign_id) == ["campaign.updated"]
 
 
@@ -504,7 +504,7 @@ async def test_duplicate_copies_settings_and_with_unreached_only_the_people_neve
         c=uuid.UUID(recall.json()["id"]),
     )
     assert copy[0].startswith("Call again: ") and copy[1] == "draft"
-    assert copy[2] == {"max_attempts": 2, "backoff_minutes": [60]}
+    assert copy[2] == {"max_attempts": 2, "backoff_minutes": [60], "spread": True}
     assert copy[3] is None, "the consent declaration is about a list and is asked again"
 
 
@@ -842,7 +842,11 @@ async def test_a_running_campaign_that_cannot_call_says_why() -> None:
     rules = [b["rule"] for b in progress["not_calling"]]
     assert "consent_provenance_missing" in rules
     assert progress["effective_concurrency"] <= progress["concurrency"]
-    assert progress["retry_policy"] == {"max_attempts": 3, "gaps_minutes": [30, 120]}
+    assert progress["retry_policy"] == {
+        "max_attempts": 3,
+        "gaps_minutes": [30, 120],
+        "spread": True,
+    }
 
 
 async def test_results_count_outcomes_from_the_calls_and_spend_in_rupees() -> None:

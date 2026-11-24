@@ -168,7 +168,14 @@ TRANSACTIONAL_CAMPAIGN_REASON = (
 #: which is the safe direction for a gate that governs who may be telephoned.
 CLASSIFICATION_REFUSALS: dict[str, str] = {"transactional": TRANSACTIONAL_CAMPAIGN_REASON}
 
-DEFAULT_RETRY_POLICY: dict[str, Any] = {"max_attempts": 3, "backoff_minutes": [30, 120]}
+#: `spread`: each retry rings at a different time of day than the try that went unanswered
+#: (`campaigns/call_timing.spread_retry_at`). On for every campaign made from now; a stored
+#: policy without the key keeps the plain gaps it was made with (`retry_spread_on`).
+DEFAULT_RETRY_POLICY: dict[str, Any] = {
+    "max_attempts": 3,
+    "backoff_minutes": [30, 120],
+    "spread": True,
+}
 #: Every gap a client may ever be offered between tries, in minutes, up to the code ceiling
 #: (`CAMPAIGN_RETRY_GAP_CEILING_MINUTES`, a week). A fixed menu rather than a free number: a
 #: gap under fifteen minutes rings somebody back before they can reach the phone they just
@@ -209,11 +216,14 @@ def validated_concurrency(concurrency: int) -> int:
     return concurrency
 
 
-def validated_retry_policy(max_attempts: int, gaps: list[int]) -> dict[str, Any]:
+def validated_retry_policy(
+    max_attempts: int, gaps: list[int], spread: bool | None = None
+) -> dict[str, Any]:
     """The stored retry policy, or a 422 naming what is wrong with it.
 
     `gaps` holds one entry per retry, so its length is `max_attempts - 1`; the dispatcher's
-    `_record_failure` reads gap N after the Nth unanswered attempt.
+    `_record_failure` reads gap N after the Nth unanswered attempt. `spread` None leaves the
+    key out, so an edit keeps the campaign's stored choice (`controls.update_draft`).
     """
     attempts_max = max_retry_attempts()
     if not 1 <= max_attempts <= attempts_max:
@@ -234,7 +244,16 @@ def validated_retry_policy(max_attempts: int, gaps: list[int]) -> dict[str, Any]
                 f"{', '.join(str(gap) for gap in choices)} minutes."
             ),
         )
-    return {"max_attempts": max_attempts, "backoff_minutes": list(gaps)}
+    policy: dict[str, Any] = {"max_attempts": max_attempts, "backoff_minutes": list(gaps)}
+    if spread is not None:
+        policy["spread"] = spread
+    return policy
+
+
+def retry_spread_on(stored: object) -> bool:
+    """Does this stored policy move retries to another time of day? Only when it says so: a
+    policy stored before the switch existed dials with the plain gaps it was made with."""
+    return isinstance(stored, dict) and stored.get("spread") is True
 
 
 def retry_policy_view(stored: object) -> dict[str, Any]:
@@ -245,6 +264,7 @@ def retry_policy_view(stored: object) -> dict[str, Any]:
     return {
         "max_attempts": attempts,
         "gaps_minutes": [int(gaps[min(i, len(gaps) - 1)]) for i in range(attempts - 1)],
+        "spread": retry_spread_on(stored),
     }
 
 
@@ -943,7 +963,13 @@ async def create_campaign(
             "nid": number_id,
             "dlt": dlt_template_id,
             "conc": concurrency,
-            "retry": json.dumps(retry_policy or DEFAULT_RETRY_POLICY),
+            # A policy that does not say whether retries move to another time of day takes
+            # the default's answer, so every new campaign spreads them unless told not to.
+            "retry": json.dumps(
+                {"spread": DEFAULT_RETRY_POLICY["spread"], **retry_policy}
+                if retry_policy
+                else DEFAULT_RETRY_POLICY
+            ),
             "window": json.dumps(window) if window is not None else None,
         },
     )

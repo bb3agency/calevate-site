@@ -61,7 +61,7 @@ describe("where a campaign is in its run", () => {
 
   it("has no retry step for a campaign that tries each person once", () => {
     const run = campaignRun(
-      progressFixture({ ...LAUNCHED, retry_policy: { max_attempts: 1, gaps_minutes: [] } }),
+      progressFixture({ ...LAUNCHED, retry_policy: { max_attempts: 1, gaps_minutes: [], spread: false } }),
     );
     expect(run.steps.map((s) => s.id)).not.toContain("retry");
   });

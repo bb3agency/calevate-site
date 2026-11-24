@@ -104,10 +104,12 @@ from apps.api.agents.service import (
 )
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.campaigns.brief import campaign_call_reason
+from apps.api.campaigns.call_timing import spread_retry_at
 from apps.api.campaigns.complaint_spike import check_complaint_spike
 from apps.api.campaigns.contact_details import contact_details_of
 from apps.api.campaigns.controls import account_pause_reason, auto_pause
 from apps.api.campaigns.engine_agent import dial_for, end_campaign_agent
+from apps.api.campaigns.improve import queue_improve
 from apps.api.campaigns.scheduling import (
     claim_slot_at_start,
     complete_or_rearm,
@@ -119,6 +121,7 @@ from apps.api.campaigns.service import (
     campaign_dialable_now,
     campaign_hours_open,
     dispatch_blockers,
+    retry_spread_on,
     tenant_line_ceiling,
 )
 
@@ -1474,6 +1477,8 @@ async def resolve_campaign_contact(
         return None
     contact_id, attempts, retry_policy, campaign_id = row
     policy: dict[str, Any] = retry_policy or {}
+    # Pip's look at what this campaign has learned, in this call's transaction.
+    await queue_improve(session, tenant_id=tenant_id, campaign_id=UUID(str(campaign_id)))
 
     if call_status == "completed":
         await session.execute(
@@ -2035,6 +2040,9 @@ async def _record_failure(
         )
     backoffs = retry_policy.get("backoff_minutes") or [30, 120]
     minutes = int(backoffs[min(attempts - 1, len(backoffs) - 1)])
+    if retry_spread_on(retry_policy):
+        await _spread_retry(session, contact_id, minutes)
+        return False
     # ONE CLOCK ON THIS COLUMN, and it is the database's. The rung used to be computed in
     # Python (`datetime.now(UTC) + timedelta(...)`) while the claim that reads it back
     # compares against `now()` — and `_refuse_contact` and `_reap_stuck_dialing`, the two
@@ -2053,6 +2061,41 @@ async def _record_failure(
         {"minutes": minutes, "id": contact_id},
     )
     return False
+
+
+async def _spread_retry(session: Any, contact_id: UUID, minutes: int) -> None:
+    """The retry, moved to a different time of day than the try that failed
+    (`call_timing.spread_retry_at`), within the platform's and the campaign's hours.
+
+    The same one clock as the plain rung: the database's `now()` is read and the move is
+    written as an interval from it, never as a Python-clock instant. The failed try's time
+    is `last_attempt_at`, which the claim stamps before the dial."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT now(), cc.last_attempt_at, c.calling_hours FROM campaign_contacts cc "
+                "JOIN campaigns c ON c.id = cc.campaign_id WHERE cc.id = :id"
+            ),
+            {"id": contact_id},
+        )
+    ).first()
+    if row is None:
+        return
+    db_now, failed_at, calling_hours = row
+    earliest = db_now + timedelta(minutes=minutes)
+    retry_at = spread_retry_at(
+        failed_at=failed_at or db_now,
+        earliest=earliest,
+        calling_hours=calling_hours if isinstance(calling_hours, dict) else None,
+    )
+    await session.execute(
+        text(
+            "UPDATE campaign_contacts SET status = 'pending', "
+            "next_attempt_at = now() + make_interval(secs => :secs), "
+            f"updated_at = now() WHERE id = :id AND {_STILL_CLAIMED}"
+        ),
+        {"secs": max((retry_at - db_now).total_seconds(), minutes * 60.0), "id": contact_id},
+    )
 
 
 __all__ = [

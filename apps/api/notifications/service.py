@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.announcements import service as announcements
 from apps.api.announcements.models import Tone
+from apps.api.campaigns import improve
 from apps.api.core.schemas import Instant
 from apps.api.crm.attention import attention_queue
 from apps.api.db.base import uuid7
@@ -33,7 +34,7 @@ from apps.api.tenancy.call_line_requests import LineRequest
 
 MAX_FEED: Final = 100
 
-NotificationSource = Literal["attention", "announcement", "plan", "call_lines"]
+NotificationSource = Literal["attention", "announcement", "plan", "call_lines", "campaign"]
 
 #: Realm-relative: the Phone numbers screen, where the "Calls at once" tile is.
 CALL_LINES_HREF: Final = "/phone-number"
@@ -246,6 +247,23 @@ async def feed(
     items += [
         _call_lines_notice(answered, unread)
         for answered in await call_line_requests.resolved_recently(session, limit=limit)
+    ]
+    # What a campaign changed on its own (`campaigns/improve.py`): a decided opening test,
+    # hours Pip narrowed. Read from the campaigns themselves, as every source here is.
+    items += [
+        NotificationOut(
+            id=f"campaign:{notice.id}",
+            source="campaign",
+            kind="campaign_improved",
+            tone="success",
+            title=notice.title,
+            detail=notice.detail,
+            href=f"/campaigns/{notice.campaign_id}",
+            link_label="Open the campaign",
+            occurred_at=notice.occurred_at,
+            unread=unread(notice.occurred_at),
+        )
+        for notice in await improve.recent_notices(session, limit=limit)
     ]
     items.sort(key=lambda n: (n.occurred_at, n.id), reverse=True)
     items = items[:limit]
