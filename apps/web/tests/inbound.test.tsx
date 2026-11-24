@@ -11,6 +11,7 @@ import type { InboundLine } from "@/lib/api/inboundLines";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 
 import { businessProfileFixture } from "./businessProfileFixture";
+import { EMPTY_DIAGNOSIS } from "./fixtures/diagnosis";
 import { problem, renderClientPage, type ApiCall, type Routes } from "./harness";
 import { SHORT_LINE, defaultCopyUnder, longLines } from "./shortCopy";
 
@@ -139,6 +140,8 @@ const lineRoutes = (current: InboundLine, extra: Routes = {}): Routes => ({
   },
   [`/v1/inbound-lines/${LINE_ID}/calls`]: { calls: [] },
   [`/v1/inbound-lines/${LINE_ID}/test-calls`]: [],
+  // The Improve section's readings, for a line with no calls yet.
+  [`/v1/inbound-lines/${LINE_ID}/diagnosis`]: EMPTY_DIAGNOSIS,
   [`/v1/inbound-lines/${LINE_ID}/test-numbers`]: { numbers: [] },
   [`/v1/inbound-lines/${LINE_ID}/notes`]: { agent_id: "agent-1", agent_name: "Front desk", fields: [], core_fields: [], digest: "empty", applied_now: false },
   "/v1/agents": AGENTS,
@@ -289,6 +292,8 @@ describe("one inbound line", () => {
           { call_id: CALL_ID, placed_at: "2026-11-16T05:00:00Z", status: "completed", duration_s: 64, has_recording: false },
         ],
         [`POST /v1/inbound-lines/${LINE_ID}/test-call`]: { status: "queued", blocked_reason: null, blocked_rule: null, call_id: CALL_ID },
+        // The Improve section reviews the latest test call.
+        [`/v1/calls/${CALL_ID}`]: { steps: [], mistakes: [] },
       }),
     );
     const fold = (await screen.findByRole("heading", { name: "Test call" })).closest("section") as HTMLElement;

@@ -204,6 +204,15 @@ _INBOUND_LINES = BoundedByConstruction(
     )
 )
 
+#: A campaign's or line's Improve readings (`campaigns/diagnose`), each read with a LIMIT.
+_HOLDER_DIAGNOSIS = BoundedByConstruction(
+    by=(
+        "`drop_off.steps` at most `diagnose.MAX_STEPS` (thirty); `mistakes` at most "
+        "`diagnose.TOP_MISTAKES` (five); `refusal_reasons` one per "
+        "`calevate_shared.extraction.REFUSAL_REASONS` category (seven)."
+    )
+)
+
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/agents/{agent_id}/call-mistakes": _CALL_MISTAKES,
@@ -344,6 +353,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "`left_out` at most one entry per part of the script it was written over."
         )
     ),
+    "GET /v1/inbound-lines/{line_id}/diagnosis": _HOLDER_DIAGNOSIS,
     "GET /v1/inbound-lines/{line_id}/calls": BoundedByConstruction(
         by="read with `LIMIT inbound/routes.CALLS_SHOWN` (fifty); the call logs hold the rest."
     ),
@@ -1426,6 +1436,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "the script's own opening and the second one under test, two."
         )
     ),
+    "GET /v1/campaigns/{campaign_id}/diagnosis": _HOLDER_DIAGNOSIS,
     "POST /v1/lead-sources/{webhook_id}/test": BoundedByConstruction(
         by="`steps` is the fixed dry-run ladder in `ingest/service.py`."
     ),

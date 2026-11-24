@@ -3080,6 +3080,7 @@ async def _persist_extraction(
                 "UPDATE calls SET sentiment = :sentiment, "
                 "callback_requested = :callback_requested, goal_reached = :goal_reached, "
                 "goal_reason = :goal_reason, next_step_by = :next_step_by, "
+                "refusal_reason = :refusal_reason, "
                 "updated_at = now() WHERE id = :id AND tenant_id = :tid"
             ),
             {
@@ -3093,6 +3094,7 @@ async def _persist_extraction(
                     else None
                 ),
                 "next_step_by": extraction.next_step_by if answered else None,
+                "refusal_reason": extraction.refusal_reason if answered else None,
                 "id": call_id,
                 "tid": tenant_id,
             },

@@ -19,6 +19,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 
 import { formatDateLong, todayIST } from "@/components/arc/ist-dates";
 
+import { EMPTY_DIAGNOSIS } from "./fixtures/diagnosis";
 import type { Routes } from "./harness";
 
 /**
@@ -204,6 +205,8 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [`/v1/campaigns/${id}/results`]: resultsFixture(),
     [`/v1/campaigns/${id}/workspace`]: workspaceFixture({ campaign_id: id }),
     [`/v1/campaigns/${id}/insights`]: insightsFixture(),
+    // The Improve tab's Diagnose readings: no calls yet.
+    [`/v1/campaigns/${id}/diagnosis`]: EMPTY_DIAGNOSIS,
     [`/v1/campaigns/${id}/settings`]: settingsFixture(),
     [`/v1/campaigns/${id}/notes`]: notesFixture(),
     // The Test call section's list of calls made from the campaign: none yet.

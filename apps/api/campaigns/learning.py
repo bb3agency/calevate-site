@@ -21,7 +21,7 @@ MIN_CALLS_PER_HOUR: Final = 5
 MIN_PEOPLE_PER_OPENING: Final = 20
 
 #: A call someone answered: it has an outcome and it is not "not answered".
-_ANSWERED: Final = "(c.outcome_tag IS NOT NULL AND c.outcome_tag <> 'missed')"
+ANSWERED_SQL: Final = "(c.outcome_tag IS NOT NULL AND c.outcome_tag <> 'missed')"
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,7 @@ async def answer_rate_by_hour(session: AsyncSession, campaign_id: UUID) -> list[
             text(
                 "SELECT EXTRACT(HOUR FROM COALESCE(c.started_at, c.created_at) "
                 "AT TIME ZONE 'Asia/Kolkata')::int AS hour, count(*) AS calls, "
-                f"count(*) FILTER (WHERE {_ANSWERED}) AS answered "
+                f"count(*) FILTER (WHERE {ANSWERED_SQL}) AS answered "
                 "FROM calls c WHERE c.campaign_id = :cid AND c.direction = 'outbound' "
                 "GROUP BY 1 ORDER BY 1"
             ),
@@ -76,7 +76,7 @@ async def opening_results(session: AsyncSession, campaign_id: UUID) -> list[Open
         await session.execute(
             text(
                 "SELECT cc.opening_variant, count(*) AS people, "
-                f"count(*) FILTER (WHERE {_ANSWERED}) AS answered, "
+                f"count(*) FILTER (WHERE {ANSWERED_SQL}) AS answered, "
                 "count(*) FILTER (WHERE c.goal_reached = 'yes') AS reached "
                 "FROM campaign_contacts cc LEFT JOIN calls c ON c.id = cc.last_call_id "
                 "WHERE cc.campaign_id = :cid AND cc.opening_variant IS NOT NULL "

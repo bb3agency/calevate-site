@@ -113,6 +113,7 @@ OUTPUT_KEYS: Final[frozenset[str]] = frozenset(
         "next_step_by",
         "goal_reason",
         "goal_reached",
+        "refusal_reason",
         "unlisted",
     }
 )

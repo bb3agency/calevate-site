@@ -311,10 +311,11 @@ function stillComing(call: CampaignTestCallItem): boolean {
   return call.status === "completed" && !call.has_recording && recent;
 }
 
-export function useCampaignTestCalls(session: Session, campaignId: string) {
+export function useCampaignTestCalls(session: Session, campaignId: string, enabled = true) {
   return useQuery({
     queryKey: testCallsKey(session.orgSlug, campaignId),
     queryFn: () => apiRequest<CampaignTestCallItem[]>(session, `${base(campaignId)}/test-calls`),
+    enabled,
     refetchInterval: untilRefused((query: { state: { data?: CampaignTestCallItem[] } }) =>
       (query.state.data ?? []).some(stillComing) ? 10_000 : false,
     ),

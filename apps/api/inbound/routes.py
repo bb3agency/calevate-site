@@ -25,6 +25,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import service as agents_service
+from apps.api.agents.mistake_fixes import Holder
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
@@ -37,9 +38,13 @@ from apps.api.campaigns.workspace_routes import (
     CampaignTestCallIn,
     CampaignTestCallItem,
     CampaignTestCallOut,
+    HolderDiagnosisOut,
     JobNotesIn,
     JobNotesOut,
+    ScriptAskIn,
     TestNumbersOut,
+    asked_summary,
+    holder_diagnosis,
     job_notes_out,
     remember_test_number,
     saved_test_numbers,
@@ -495,14 +500,23 @@ async def publish(line_id: UUID, principal: Writer) -> InboundLineOut:
     summary="Ask Pip to write the line's script from its main task and sources",
 )
 async def request_proposal(
-    line_id: UUID, session: Session, request: Request, principal: Writer
+    line_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Writer,
+    payload: ScriptAskIn | None = None,
 ) -> CampaignProposalOut:
     tenant_id = _tenant(principal)
+    ask = payload.ask() if payload is not None else {}
     # Writing it spends the account's dashboard AI allowance, as a campaign's script does.
     assert_view_as_may(principal, "billing.ai_assist")
     await require_ai_assist(session, tenant_id=tenant_id)
     proposal = await lines.request_proposal(
-        session, tenant_id=tenant_id, line_id=line_id, requested_by=principal.user_id
+        session,
+        tenant_id=tenant_id,
+        line_id=line_id,
+        requested_by=principal.user_id,
+        ask=ask or None,
     )
     await write_audit(
         session,
@@ -512,7 +526,7 @@ async def request_proposal(
         object_type="inbound_line",
         object_id=str(line_id),
         ip=client_request_ip(request),
-        summary={"proposal_id": str(proposal.id)},
+        summary={"proposal_id": str(proposal.id), **asked_summary(ask)},
     )
     out = proposal_out(proposal)
     assert out is not None
@@ -650,6 +664,17 @@ async def line_calls(line_id: UUID, session: Session, _: Reader) -> LineCallsOut
             for r in rows
         ]
     )
+
+
+@router.get(
+    "/{line_id}/diagnosis",
+    response_model=HolderDiagnosisOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="Where this line's calls lose people, its mistakes, and why people said no",
+)
+async def line_diagnosis(line_id: UUID, session: Session, _: TestReader) -> HolderDiagnosisOut:
+    await lines.read_line(session, line_id)
+    return await holder_diagnosis(session, Holder("inbound_line", line_id))
 
 
 @router.post(

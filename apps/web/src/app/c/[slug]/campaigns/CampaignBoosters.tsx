@@ -19,6 +19,7 @@ import { useEffect, useState } from "react";
 
 import { ActionButton, problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
+import { DiagnoseCards } from "@/components/improve/DiagnoseCards";
 import { TEXT_ACTION } from "@/components/console/section";
 import {
   FIELD,
@@ -104,6 +105,7 @@ export function ImproveTab(props: Common & { status?: string | null }) {
     );
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <DiagnoseCards {...props} holder={{ kind: "campaign", id: props.campaignId }} />
       <BestTime insights={insights.data} />
       <OpeningTest {...props} insights={insights.data} />
       <CallUnansweredAgain {...props} />
