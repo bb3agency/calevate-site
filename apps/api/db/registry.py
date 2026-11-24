@@ -546,6 +546,8 @@ TENANT_TABLES = [
     "inbound_line_sources",
     # Every saved version of a campaign's or line's script (D-1039). FORCE-RLS'd.
     "script_versions",
+    # Pip's paragraph about each IST week of an account, from counts only. FORCE-RLS'd.
+    "weekly_summaries",
     "company_training_materials",
     # A client's existing number forwarded to its Calevate number (D-746, migration
     # d6f2b8a41c73): the line and its findings, each verification-call run (CAS-updated;

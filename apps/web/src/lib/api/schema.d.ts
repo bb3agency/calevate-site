@@ -10739,6 +10739,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/improve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What would make results better across every campaign and line
+         * @description Answer rate per calling number, the campaigns and lines compared, mistakes on two or more of them, follow-up counts, contact list health and Pip's recent fixes. Spend and cost per goal are null for a role without `billing:read`.
+         */
+        get: operations["get_account_improve_v1_improve_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/improve/weekly-summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pip's weekly summaries of the account, newest week first */
+        get: operations["list_weekly_summaries_v1_improve_weekly_summaries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/inbound-lines": {
         parameters: {
             query?: never;
@@ -15763,6 +15800,18 @@ export interface components {
             statement_version: string;
             /** Version */
             version: string;
+        };
+        /** AccountImproveOut */
+        AccountImproveOut: {
+            compare: components["schemas"]["CompareOut"];
+            contacts: components["schemas"]["ContactsOut"];
+            /** Fixes */
+            fixes: components["schemas"]["PipFixOut"][];
+            follow_ups: components["schemas"]["FollowUpsOut"];
+            numbers: components["schemas"]["NumbersOut"];
+            patterns: components["schemas"]["PatternsOut"];
+            /** Window Days */
+            window_days: number;
         };
         /** AccountReadinessOut */
         AccountReadinessOut: {
@@ -21950,6 +21999,27 @@ export interface components {
             /** Inbound Line Id */
             inbound_line_id?: string | null;
         };
+        /** CompareOut */
+        CompareOut: {
+            /** Best Id */
+            best_id: string | null;
+            /** Differences */
+            differences: components["schemas"]["DifferenceOut"][];
+            /** Early Seconds */
+            early_seconds: number;
+            /** Holders */
+            holders: components["schemas"]["HolderRowOut"][];
+            /** Min Answered */
+            min_answered: number;
+            /** Min Judged */
+            min_judged: number;
+            /** Total Cost Per Goal Inr */
+            total_cost_per_goal_inr: string | null;
+            /** Total Goals */
+            total_goals: number;
+            /** Total Spend Inr */
+            total_spend_inr: string | null;
+        };
         /**
          * ComplaintReviewIn
          * @description The client's confirmation that they read the opt-outs. A literal `true`, so the
@@ -22345,6 +22415,17 @@ export interface components {
             csv: string;
             /** Rows */
             rows: number;
+        };
+        /** ContactsOut */
+        ContactsOut: {
+            /** Called Too Often */
+            called_too_often: number;
+            /** On Dnc */
+            on_dnc: number;
+            /** Too Often Days */
+            too_often_days: number;
+            /** Unreachable */
+            unreachable: number;
         };
         /**
          * ConversationStage
@@ -24446,6 +24527,20 @@ export interface components {
             step: number;
             /** Unclear */
             unclear: number;
+        };
+        /** DifferenceOut */
+        DifferenceOut: {
+            /** Best */
+            best: string;
+            /** Instruction */
+            instruction: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "opening_length" | "step_count" | "calling_hours";
+            /** Others */
+            others: string;
         };
         /** DigiLockerRequirementIn */
         DigiLockerRequirementIn: {
@@ -26590,6 +26685,13 @@ export interface components {
              */
             updated_at: string;
         };
+        /** FollowUpsOut */
+        FollowUpsOut: {
+            /** Callbacks Due */
+            callbacks_due: number;
+            /** Hot Leads */
+            hot_leads: number;
+        };
         /** ForwardingOut */
         ForwardingOut: {
             /** Calevate Numbers */
@@ -27395,6 +27497,39 @@ export interface components {
             total_chars: number;
             /** Training Cut Chars */
             training_cut_chars: number;
+        };
+        /** HolderRowOut */
+        HolderRowOut: {
+            /** Answer Rate */
+            answer_rate: number | null;
+            /** Answered */
+            answered: number;
+            /** Cost Per Goal Inr */
+            cost_per_goal_inr: string | null;
+            /** Drop Off Share */
+            drop_off_share: number | null;
+            /** Early Rate */
+            early_rate: number | null;
+            /** Goal Rate */
+            goal_rate: number | null;
+            /** Goals */
+            goals: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "campaign" | "inbound_line";
+            /** Name */
+            name: string;
+            /** Placed */
+            placed: number;
+            /** Spend Inr */
+            spend_inr: string | null;
         };
         /** HostedVoiceAgentOut */
         HostedVoiceAgentOut: {
@@ -30734,6 +30869,19 @@ export interface components {
             /** Kind */
             kind: string;
         };
+        /** MistakePatternOut */
+        MistakePatternOut: {
+            /** Agents */
+            agents: components["schemas"]["PatternAgentOut"][];
+            /** Calls */
+            calls: number;
+            /** Holders */
+            holders: number;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+        };
         /** MistakeUndoOut */
         MistakeUndoOut: {
             /** Kind */
@@ -31108,6 +31256,23 @@ export interface components {
              */
             dlt_status: "pending" | "registered" | "blocked";
         };
+        /** NumberHealthOut */
+        NumberHealthOut: {
+            /** Baseline Placed */
+            baseline_placed: number;
+            /** Baseline Rate */
+            baseline_rate: number | null;
+            /** Dropped */
+            dropped: boolean;
+            /** E164 */
+            e164: string;
+            /** Recent Placed */
+            recent_placed: number;
+            /** Recent Rate */
+            recent_rate: number | null;
+            /** Weeks */
+            weeks: components["schemas"]["NumberWeekOut"][];
+        };
         /**
          * NumberOut
          * @description One number this account may dial from, or be answered on.
@@ -31217,6 +31382,29 @@ export interface components {
             inr_per_month?: string | null;
             /** Source */
             source?: string | null;
+        };
+        /** NumberWeekOut */
+        NumberWeekOut: {
+            /** Answered */
+            answered: number;
+            /** Placed */
+            placed: number;
+            /**
+             * Week Start
+             * Format: date
+             */
+            week_start: string;
+        };
+        /** NumbersOut */
+        NumbersOut: {
+            /** Drop Ratio */
+            drop_ratio: number;
+            /** Min Baseline Placed */
+            min_baseline_placed: number;
+            /** Min Recent Placed */
+            min_recent_placed: number;
+            /** Numbers */
+            numbers: components["schemas"]["NumberHealthOut"][];
         };
         /** OAuthCallbackIn */
         OAuthCallbackIn: {
@@ -32007,6 +32195,23 @@ export interface components {
             /** Revoked */
             revoked: number;
         };
+        /** PatternAgentOut */
+        PatternAgentOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
+        /** PatternsOut */
+        PatternsOut: {
+            /** Min Holders */
+            min_holders: number;
+            /** Patterns */
+            patterns: components["schemas"]["MistakePatternOut"][];
+        };
         /** PaymentAlarmOut */
         PaymentAlarmOut: {
             /** Code */
@@ -32351,6 +32556,33 @@ export interface components {
         PinnedOrderIn: {
             /** Ids */
             ids: string[];
+        };
+        /** PipFixOut */
+        PipFixOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Detail */
+            detail: string | null;
+            /**
+             * Holder Id
+             * Format: uuid
+             */
+            holder_id: string;
+            /**
+             * Holder Kind
+             * @enum {string}
+             */
+            holder_kind: "campaign" | "inbound_line";
+            /** Holder Name */
+            holder_name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "pip_repair" | "pip_outcomes" | "pip_notices" | "best_hours" | "opening_winner";
         };
         /**
          * Placeholders
@@ -40913,6 +41145,29 @@ export interface components {
              */
             status: "credited" | "refunded" | "duplicate" | "failed" | "ignored" | "authorized" | "refund_failed" | "unattributed" | "mandate" | "dispute" | "fee_paid";
         };
+        /**
+         * WeekFiguresOut
+         * @description The counts a paragraph was written from (`weekly_summary.WeekFigures`); a field a
+         *     row stored before it existed reads as null.
+         */
+        WeekFiguresOut: {
+            /** Answer Rate */
+            answer_rate?: number | null;
+            /** Answered */
+            answered?: number | null;
+            /** Best Goal Rate */
+            best_goal_rate?: number | null;
+            /** Best Name */
+            best_name?: string | null;
+            /** Calls */
+            calls?: number | null;
+            /** Drop Off Step */
+            drop_off_step?: string | null;
+            /** Fixes */
+            fixes?: number | null;
+            /** Goals */
+            goals?: number | null;
+        };
         /** WeekSpeed */
         WeekSpeed: {
             /** Answered */
@@ -40931,6 +41186,27 @@ export interface components {
             reply_slow_ms: number | null;
             /** Reply Typical Ms */
             reply_typical_ms: number | null;
+            /**
+             * Week Start
+             * Format: date
+             */
+            week_start: string;
+        };
+        /** WeeklySummaryOut */
+        WeeklySummaryOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            figures: components["schemas"]["WeekFiguresOut"];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Paragraph */
+            paragraph: string;
             /**
              * Week Start
              * Format: date
@@ -61126,6 +61402,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProposalOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_account_improve_v1_improve_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountImproveOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_weekly_summaries_v1_improve_weekly_summaries_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeeklySummaryOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */

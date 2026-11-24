@@ -24,6 +24,7 @@ import {
   workspaceFixture,
 } from "./campaignFixtures";
 import { ADMIN_FORWARDING, CODES, READY_TO_FORWARD, SETTLED_TEST, WITH_LINE } from "./fixtures/forwarding";
+import { CALLER_QUESTION, FULL_ACCOUNT_IMPROVE, WEEKLY_SUMMARY } from "./fixtures/accountImprove";
 import { FULL_DIAGNOSIS, GIVE_TIME_ON } from "./fixtures/diagnosis";
 
 import type { AiQuota } from "@/lib/api/aiQuota";
@@ -103,6 +104,7 @@ import GoLivePage from "@/app/c/[slug]/go-live/page";
 import AgentsPage from "@/app/c/[slug]/agents/page";
 import AiAssistPage from "@/app/c/[slug]/ai-assist/page";
 import AttentionPage from "@/app/c/[slug]/attention/page";
+import ImprovePage from "@/app/c/[slug]/improve/page";
 import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
 import CallsPage from "@/app/c/[slug]/calls/page";
 import CampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/page";
@@ -3150,6 +3152,19 @@ const CLIENT_SCREENS: Screen[] = [
           },
         ],
       },
+    },
+  },
+  {
+    // Every section drawn: a number that dropped, the best campaign and what works, a shared
+    // mistake, a caller's question, spend, counts and Pip's fixes, with the week's paragraph.
+    file: "c/[slug]/improve/page.tsx",
+    realm: "client",
+    element: () => <ImprovePage params={slug} />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/improve": FULL_ACCOUNT_IMPROVE,
+      "/v1/improve/weekly-summaries?limit=1": [WEEKLY_SUMMARY],
+      "/v1/teach/questions": { items: [CALLER_QUESTION], open_count: 1 },
     },
   },
   {

@@ -122,7 +122,7 @@ async def _read(tenant_id: uuid.UUID, holder: Holder) -> Any:
 
 
 def test_each_step_owns_only_the_people_it_lost() -> None:
-    steps = diagnose._with_losses(
+    steps = diagnose.with_losses(
         [
             diagnose.StepCount(1, "a", reached=12, not_reached=0, unclear=0),
             diagnose.StepCount(2, "b", reached=6, not_reached=6, unclear=0),

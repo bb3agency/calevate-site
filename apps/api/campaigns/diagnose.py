@@ -89,7 +89,7 @@ class DropOff:
     worst_step: int | None
 
 
-def _with_losses(steps: list[StepCount]) -> list[StepCount]:
+def with_losses(steps: list[StepCount]) -> list[StepCount]:
     """Each step's own loss: the calls not reaching it less those already lost before it,
     so a call that stopped at step 2 counts against step 2 alone."""
     out: list[StepCount] = []
@@ -125,7 +125,7 @@ async def drop_off(
             {"hid": holder.id, "since": _since(now), "n": MAX_STEPS},
         )
     ).all()
-    steps = _with_losses(
+    steps = with_losses(
         [
             StepCount(
                 step=int(r.step),
@@ -305,4 +305,5 @@ __all__ = [
     "early_hang_ups",
     "holder_mistakes",
     "refusal_reasons",
+    "with_losses",
 ]

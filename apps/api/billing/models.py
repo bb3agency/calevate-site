@@ -222,6 +222,9 @@ ASSIST_FEATURE_FIRST_RUN = "first_run_setup"
 #: Pip's daily memory distillation (`workers/copilot_memory`): background spend no client
 #: action triggers, so ours (D-982, founder, 10 Nov 2026), absorbed like the first run.
 ASSIST_FEATURE_COPILOT_MEMORY = "copilot_memory_distillation"
+#: Pip's weekly paragraph about an account's week (`workers/weekly_summary`): background spend
+#: no client action triggers, so ours, absorbed like the memory distillation.
+ASSIST_FEATURE_WEEKLY_SUMMARY = "weekly_summary"
 #: Features whose cost is OURS: excluded from the allowance like `FREE_ASSIST_FEATURES`, and
 #: unlike them not counted by the fair-use cap, which limits what a person asks for.
 ABSORBED_ASSIST_FEATURES = (
@@ -238,6 +241,7 @@ ABSORBED_ASSIST_FEATURES = (
     ASSIST_FEATURE_CALLER_HELP_ABSORBED,
     ASSIST_FEATURE_FIRST_RUN,
     ASSIST_FEATURE_COPILOT_MEMORY,
+    ASSIST_FEATURE_WEEKLY_SUMMARY,
 )
 
 # WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has

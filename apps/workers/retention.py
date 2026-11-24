@@ -4017,6 +4017,8 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # Every saved version of each campaign's and line's script (D-1039): the business's
         # own words, like the scripts themselves.
         await session.execute(text("DELETE FROM script_versions"))
+        # Pip's weekly paragraphs about the account: the account's own figures and names.
+        await session.execute(text("DELETE FROM weekly_summaries"))
         # Inbound lines (D-997): the owner's main task and each line's script, the business's
         # own words. Numbers and calls keep their rows; their line link empties with it.
         await session.execute(text("DELETE FROM inbound_line_sources"))

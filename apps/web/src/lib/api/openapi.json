@@ -62,6 +62,48 @@
         "title": "AcceptIn",
         "type": "object"
       },
+      "AccountImproveOut": {
+        "additionalProperties": false,
+        "properties": {
+          "compare": {
+            "$ref": "#/components/schemas/CompareOut"
+          },
+          "contacts": {
+            "$ref": "#/components/schemas/ContactsOut"
+          },
+          "fixes": {
+            "items": {
+              "$ref": "#/components/schemas/PipFixOut"
+            },
+            "title": "Fixes",
+            "type": "array"
+          },
+          "follow_ups": {
+            "$ref": "#/components/schemas/FollowUpsOut"
+          },
+          "numbers": {
+            "$ref": "#/components/schemas/NumbersOut"
+          },
+          "patterns": {
+            "$ref": "#/components/schemas/PatternsOut"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_days",
+          "numbers",
+          "compare",
+          "patterns",
+          "follow_ups",
+          "contacts",
+          "fixes"
+        ],
+        "title": "AccountImproveOut",
+        "type": "object"
+      },
       "AccountReadinessOut": {
         "additionalProperties": false,
         "properties": {
@@ -18483,6 +18525,90 @@
         "description": "What the training would push past the calling system's box, so the screen can link\nstraight to it. Exactly one of the three is set.",
         "title": "CompanyTrainingTooLong"
       },
+      "CompareOut": {
+        "additionalProperties": false,
+        "properties": {
+          "best_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Id"
+          },
+          "differences": {
+            "items": {
+              "$ref": "#/components/schemas/DifferenceOut"
+            },
+            "title": "Differences",
+            "type": "array"
+          },
+          "early_seconds": {
+            "title": "Early Seconds",
+            "type": "integer"
+          },
+          "holders": {
+            "items": {
+              "$ref": "#/components/schemas/HolderRowOut"
+            },
+            "title": "Holders",
+            "type": "array"
+          },
+          "min_answered": {
+            "title": "Min Answered",
+            "type": "integer"
+          },
+          "min_judged": {
+            "title": "Min Judged",
+            "type": "integer"
+          },
+          "total_cost_per_goal_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cost Per Goal Inr"
+          },
+          "total_goals": {
+            "title": "Total Goals",
+            "type": "integer"
+          },
+          "total_spend_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Spend Inr"
+          }
+        },
+        "required": [
+          "holders",
+          "best_id",
+          "differences",
+          "min_answered",
+          "min_judged",
+          "early_seconds",
+          "total_spend_inr",
+          "total_goals",
+          "total_cost_per_goal_inr"
+        ],
+        "title": "CompareOut",
+        "type": "object"
+      },
       "ComplaintReviewIn": {
         "additionalProperties": false,
         "description": "The client's confirmation that they read the opt-outs. A literal `true`, so the\nrequest states the act rather than toggling a flag.",
@@ -19597,6 +19723,35 @@
           "rows"
         ],
         "title": "ContactSheetOut",
+        "type": "object"
+      },
+      "ContactsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "called_too_often": {
+            "title": "Called Too Often",
+            "type": "integer"
+          },
+          "on_dnc": {
+            "title": "On Dnc",
+            "type": "integer"
+          },
+          "too_often_days": {
+            "title": "Too Often Days",
+            "type": "integer"
+          },
+          "unreachable": {
+            "title": "Unreachable",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "on_dnc",
+          "unreachable",
+          "called_too_often",
+          "too_often_days"
+        ],
+        "title": "ContactsOut",
         "type": "object"
       },
       "ConversationStage": {
@@ -24852,6 +25007,47 @@
           "lost_here"
         ],
         "title": "DiagnosisStepOut",
+        "type": "object"
+      },
+      "DifferenceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "best": {
+            "title": "Best",
+            "type": "string"
+          },
+          "instruction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruction"
+          },
+          "kind": {
+            "enum": [
+              "opening_length",
+              "step_count",
+              "calling_hours"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "others": {
+            "title": "Others",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "best",
+          "others",
+          "instruction"
+        ],
+        "title": "DifferenceOut",
         "type": "object"
       },
       "DigiLockerRequirementIn": {
@@ -30935,6 +31131,25 @@
         "title": "FollowUpSummaryOut",
         "type": "object"
       },
+      "FollowUpsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "callbacks_due": {
+            "title": "Callbacks Due",
+            "type": "integer"
+          },
+          "hot_leads": {
+            "title": "Hot Leads",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "hot_leads",
+          "callbacks_due"
+        ],
+        "title": "FollowUpsOut",
+        "type": "object"
+      },
       "ForwardingOut": {
         "additionalProperties": false,
         "properties": {
@@ -33133,6 +33348,124 @@
           "documents"
         ],
         "title": "HolderPromptOut",
+        "type": "object"
+      },
+      "HolderRowOut": {
+        "additionalProperties": false,
+        "properties": {
+          "answer_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Rate"
+          },
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "cost_per_goal_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Per Goal Inr"
+          },
+          "drop_off_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drop Off Share"
+          },
+          "early_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Early Rate"
+          },
+          "goal_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Rate"
+          },
+          "goals": {
+            "title": "Goals",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "campaign",
+              "inbound_line"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "placed": {
+            "title": "Placed",
+            "type": "integer"
+          },
+          "spend_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spend Inr"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "placed",
+          "answered",
+          "goals",
+          "answer_rate",
+          "goal_rate",
+          "early_rate",
+          "drop_off_share",
+          "spend_inr",
+          "cost_per_goal_inr"
+        ],
+        "title": "HolderRowOut",
         "type": "object"
       },
       "HostedVoiceAgentOut": {
@@ -42012,6 +42345,43 @@
         "title": "MistakeFixOut",
         "type": "object"
       },
+      "MistakePatternOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/PatternAgentOut"
+            },
+            "title": "Agents",
+            "type": "array"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "holders": {
+            "title": "Holders",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "calls",
+          "holders",
+          "agents"
+        ],
+        "title": "MistakePatternOut",
+        "type": "object"
+      },
       "MistakeUndoOut": {
         "additionalProperties": false,
         "properties": {
@@ -43051,6 +43421,67 @@
         "title": "NumberDltStatusOut",
         "type": "object"
       },
+      "NumberHealthOut": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_placed": {
+            "title": "Baseline Placed",
+            "type": "integer"
+          },
+          "baseline_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Rate"
+          },
+          "dropped": {
+            "title": "Dropped",
+            "type": "boolean"
+          },
+          "e164": {
+            "title": "E164",
+            "type": "string"
+          },
+          "recent_placed": {
+            "title": "Recent Placed",
+            "type": "integer"
+          },
+          "recent_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recent Rate"
+          },
+          "weeks": {
+            "items": {
+              "$ref": "#/components/schemas/NumberWeekOut"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "e164",
+          "weeks",
+          "recent_placed",
+          "recent_rate",
+          "baseline_placed",
+          "baseline_rate",
+          "dropped"
+        ],
+        "title": "NumberHealthOut",
+        "type": "object"
+      },
       "NumberOut": {
         "additionalProperties": false,
         "description": "One number this account may dial from, or be answered on.\n\n**`supplied_by_us` IS WHAT THE CLIENT-FACING SENTENCE HANGS OFF (D-537).** A number we\nbought for them is one they FORWARD their published number to \u2014 \"point your existing\nphone at this number\" \u2014 and their own connection is one they already publish. Those\nare opposite instructions, and a screen that cannot tell them apart gives the wrong\none to somebody about to reconfigure their clinic's phone.\n\nNO COST FIELD, deliberately. What a number costs CALEVATE is on the admin-realm view\n(`/v1/admin/numbers/tenants/{tenant_id}`); whether that cost is absorbed, passed\nthrough or an add-on is a pricing decision nobody has taken (OPERATIONS \u00a72 gate 26),\nand publishing our cost on a client's screen would take it for them.\n\n`inr_per_month` IS NOT THAT, AND THE DISTINCTION IS THE WHOLE REASON IT MAY BE HERE.\nIt is what THIS client agreed to pay for THIS number, frozen on the row at purchase\n(`phone_numbers.client_inr_per_month`) so a later change to the attested rate cannot\nsilently re-price a number somebody already bought. Showing someone the price they\nagreed to is not publishing our margin, and a recurring charge a client cannot see on\nthe thing it is charged for is the defect the other direction.",
@@ -43259,6 +43690,63 @@
           "attested"
         ],
         "title": "NumberPriceOut",
+        "type": "object"
+      },
+      "NumberWeekOut": {
+        "additionalProperties": false,
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "placed": {
+            "title": "Placed",
+            "type": "integer"
+          },
+          "week_start": {
+            "format": "date",
+            "title": "Week Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "week_start",
+          "placed",
+          "answered"
+        ],
+        "title": "NumberWeekOut",
+        "type": "object"
+      },
+      "NumbersOut": {
+        "additionalProperties": false,
+        "properties": {
+          "drop_ratio": {
+            "title": "Drop Ratio",
+            "type": "number"
+          },
+          "min_baseline_placed": {
+            "title": "Min Baseline Placed",
+            "type": "integer"
+          },
+          "min_recent_placed": {
+            "title": "Min Recent Placed",
+            "type": "integer"
+          },
+          "numbers": {
+            "items": {
+              "$ref": "#/components/schemas/NumberHealthOut"
+            },
+            "title": "Numbers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "numbers",
+          "min_recent_placed",
+          "min_baseline_placed",
+          "drop_ratio"
+        ],
+        "title": "NumbersOut",
         "type": "object"
       },
       "OAuthCallbackIn": {
@@ -45620,6 +46108,48 @@
         "title": "PasswordChangeOut",
         "type": "object"
       },
+      "PatternAgentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "PatternAgentOut",
+        "type": "object"
+      },
+      "PatternsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "min_holders": {
+            "title": "Min Holders",
+            "type": "integer"
+          },
+          "patterns": {
+            "items": {
+              "$ref": "#/components/schemas/MistakePatternOut"
+            },
+            "title": "Patterns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "patterns",
+          "min_holders"
+        ],
+        "title": "PatternsOut",
+        "type": "object"
+      },
       "PaymentAlarmOut": {
         "additionalProperties": false,
         "properties": {
@@ -46565,6 +47095,65 @@
           "ids"
         ],
         "title": "PinnedOrderIn",
+        "type": "object"
+      },
+      "PipFixOut": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "holder_id": {
+            "format": "uuid",
+            "title": "Holder Id",
+            "type": "string"
+          },
+          "holder_kind": {
+            "enum": [
+              "campaign",
+              "inbound_line"
+            ],
+            "title": "Holder Kind",
+            "type": "string"
+          },
+          "holder_name": {
+            "title": "Holder Name",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "pip_repair",
+              "pip_outcomes",
+              "pip_notices",
+              "best_hours",
+              "opening_winner"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "holder_kind",
+          "holder_id",
+          "holder_name",
+          "at",
+          "detail"
+        ],
+        "title": "PipFixOut",
         "type": "object"
       },
       "Placeholders": {
@@ -69664,6 +70253,101 @@
         "title": "WebhookAck",
         "type": "object"
       },
+      "WeekFiguresOut": {
+        "description": "The counts a paragraph was written from (`weekly_summary.WeekFigures`); a field a\nrow stored before it existed reads as null.",
+        "properties": {
+          "answer_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Rate"
+          },
+          "answered": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered"
+          },
+          "best_goal_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Goal Rate"
+          },
+          "best_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Name"
+          },
+          "calls": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calls"
+          },
+          "drop_off_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drop Off Step"
+          },
+          "fixes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixes"
+          },
+          "goals": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goals"
+          }
+        },
+        "title": "WeekFiguresOut",
+        "type": "object"
+      },
       "WeekSpeed": {
         "additionalProperties": false,
         "properties": {
@@ -69745,6 +70429,42 @@
           "reply_slow_ms"
         ],
         "title": "WeekSpeed",
+        "type": "object"
+      },
+      "WeeklySummaryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "figures": {
+            "$ref": "#/components/schemas/WeekFiguresOut"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "paragraph": {
+            "title": "Paragraph",
+            "type": "string"
+          },
+          "week_start": {
+            "format": "date",
+            "title": "Week Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "week_start",
+          "paragraph",
+          "figures",
+          "created_at"
+        ],
+        "title": "WeeklySummaryOut",
         "type": "object"
       },
       "WhatsAppAccountOut": {
@@ -99966,6 +100686,81 @@
           "healer"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/improve": {
+      "get": {
+        "description": "Answer rate per calling number, the campaigns and lines compared, mistakes on two or more of them, follow-up counts, contact list health and Pip's recent fixes. Spend and cost per goal are null for a role without `billing:read`.",
+        "operationId": "get_account_improve_v1_improve_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountImproveOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What would make results better across every campaign and line",
+        "tags": [
+          "improve"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/improve/weekly-summaries": {
+      "get": {
+        "operationId": "list_weekly_summaries_v1_improve_weekly_summaries_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 26,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WeeklySummaryOut"
+                  },
+                  "title": "Response List Weekly Summaries V1 Improve Weekly Summaries Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Pip's weekly summaries of the account, newest week first",
+        "tags": [
+          "improve"
+        ],
+        "x-calevate-permission": "leads:read"
       }
     },
     "/v1/inbound-lines": {

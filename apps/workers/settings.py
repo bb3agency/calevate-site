@@ -384,6 +384,12 @@ from apps.workers.trials import sweep_trials
 from apps.workers.voice_catalogue import REFRESH_MINUTE, refresh_voice_catalogue
 from apps.workers.voice_comparison_key import push_voice_comparison_key
 from apps.workers.wallet_alerts import notify_low_balance
+from apps.workers.weekly_summary import (
+    SUMMARY_HOUR,
+    SUMMARY_MINUTE,
+    SUMMARY_WEEKDAY,
+    write_weekly_summaries,
+)
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 from apps.workers.whatsapp_meta import (
     check_whatsapp_template,
@@ -1452,6 +1458,18 @@ CRON_JOBS = [
         weekday={DIGEST_WEEKDAY},
         hour={DIGEST_HOUR},
         minute={DIGEST_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # Pip's weekly summary of each account, from counts only (`workers/weekly_summary`).
+    # `closed_week` picks the week from the firing instant in IST, as the digest above does.
+    # Retrying is safe: a week with its row is skipped under an advisory lock, so a retried
+    # tick pays for no account twice.
+    _cron(
+        traced_job(write_weekly_summaries),
+        walk=fleet_wide("one tenant_session and one model call per account with a live agent"),
+        weekday={SUMMARY_WEEKDAY},
+        hour={SUMMARY_HOUR},
+        minute={SUMMARY_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # OPERATIONS §4's cert-expiry alarm. DAILY and not hourly: the quantity it measures

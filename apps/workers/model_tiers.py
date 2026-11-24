@@ -60,6 +60,9 @@ MODEL_CALLS: Final[Mapping[str, ModelCall]] = MappingProxyType(
         "copilot_memory": ModelCall(
             "flex", "daily sweep distilling Pip's past conversations into facts it recalls"
         ),
+        "weekly_summary": ModelCall(
+            "flex", "Monday sweep writing each account's paragraph about the week that closed"
+        ),
         "business_copy_scheduled": ModelCall(
             "flex",
             "the daily check's refresh of an account's examples, 15 days after the last; "

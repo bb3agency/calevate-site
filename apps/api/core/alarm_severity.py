@@ -589,6 +589,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "retention_sweep_truncated": "attention",
     "retention_sweep_incomplete": "attention",
     "copilot_distil_worklist_failed": "attention",
+    "weekly_summary_worklist_failed": "attention",
+    "weekly_summary_sweep_incomplete": "attention",
+    "weekly_summary_unmeterable": "attention",
     "copilot_transcript_sweep_failed": "attention",
     # The assistant's routine tick (D-694). A client's scheduled request did not start.
     "copilot_routines_tick_failed": "attention",
