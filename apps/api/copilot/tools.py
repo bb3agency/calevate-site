@@ -64,7 +64,7 @@ from apps.api.analytics import service as analytics
 from apps.api.analytics.schemas import CallGroupBy, SummaryBucket
 from apps.api.billing.plans import IST
 from apps.api.campaigns import service as campaigns_service
-from apps.api.copilot import lens_args
+from apps.api.copilot import id_kinds, lens_args
 from apps.api.copilot.prompt import defuse, function_tool
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.context import Principal
@@ -1809,6 +1809,16 @@ async def run_read_tool(
         # Reporting it as "could not be read just now" sent the model to tell the person
         # the system was down, and paged an operator for a wrong id.
         log.info("copilot_tool_refused", extra={"tool": name, "code": problem.code})
+        if tool.scope == "tenant":
+            # An id the model put in the wrong argument is named, with the way back.
+            fix: str | None = None
+            try:
+                fix = await id_kinds.correction(context.tenant_id, name, arguments, problem)
+            except Exception:
+                # The sentence below is still right, only less helpful.
+                log.exception("copilot_id_correction_failed", extra={"tool": name})
+            if fix is not None:
+                return f"Not read: {fix}."
         return (
             f"Not read: {problem.title}. {problem.detail} Check the ids and values against "
             "the lookup that lists them and call again, or ask the person which one they "

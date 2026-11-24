@@ -7,7 +7,7 @@ final word, and the owner read "I could not finish this in one go". The campaign
 cancelled, and the read Pip used to find it listed only open campaigns.
 
 ENFORCED HERE:
-- every model-facing planner call goes through `plan_refusals.plan_correctably` (AST);
+- every model-facing planner call goes through `id_kinds.plan_correctably` (AST);
 - across the whole client registry, an unknown id is never a `not_found` or `validation`
   `ProblemError` from planning (behavioural, one fresh tenant);
 - the count of refusals with no person-facing `plain` only shrinks, per module (AST).
@@ -34,7 +34,7 @@ import pytest
 from sqlalchemy import text
 from tests.conftest import make_tenant_with_pip as _make_tenant
 
-from apps.api.copilot import areas, plan_refusals, service, tools, write_tools
+from apps.api.copilot import areas, id_kinds, service, tools, write_tools
 from apps.api.copilot.actions import REFUSED_PLAIN, WriteRefusedError
 from apps.api.copilot.write_tools_test import _actor, _make_campaign, _principal, _user_of
 from apps.api.core.errors import ProblemError
@@ -89,7 +89,7 @@ def test_every_model_facing_plan_goes_through_plan_correctably() -> None:
     )
     assert stray == [], (
         "these call a planner directly, so a model's wrong id reaches the person as the "
-        f"platform's final word; route them through `plan_refusals.plan_correctably`: {stray}"
+        f"platform's final word; route them through `id_kinds.plan_correctably`: {stray}"
     )
 
 
@@ -243,7 +243,7 @@ async def test_a_campaign_id_where_an_agent_id_goes_names_the_campaigns_agent() 
         )
     assert "`agent_id` is the campaign “Winter checkup”, not an agent" in refused.value.reason
     assert f"its agent is agent_id {agent_id}" in refused.value.reason
-    assert refused.value.plain == plan_refusals.WRONG_ID_PLAIN
+    assert refused.value.plain == id_kinds.WRONG_ITEM_PLAIN
 
 
 async def test_an_agent_id_where_a_campaign_id_goes_says_so() -> None:

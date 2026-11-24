@@ -32,7 +32,7 @@ import json
 import re
 import time
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Final, Literal
 from uuid import UUID
 
@@ -50,7 +50,6 @@ from calevate_shared.spoken_guard import (
     textbook_note,
     textbook_words,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.copilot import (
     action_log,
@@ -291,13 +290,20 @@ EXHAUSTED_MESSAGE: Final = "I could not finish this in one go. Try asking for on
 #: time" (advice about a long question) is not given for a cause it does not fit.
 EXHAUSTED_UNCHANGED: Final = "I could not finish this, and nothing was changed."
 EXHAUSTED_PART_DONE: Final = "I could not finish all of this."
+#: A step's own "so nothing changed" (`id_kinds.WRONG_ITEM_PLAIN`), dropped from a reason
+#: when `EXHAUSTED_UNCHANGED` already says it.
+_ALSO_UNCHANGED: Final = re.compile(r",? so nothing (?:was )?changed$", re.IGNORECASE)
 
 
 def exhausted_text(reasons: Sequence[str], *, changed: bool) -> str:
     """What the person reads when the loop runs out of turns. One sentence about what did
     not happen, then the last refusal's reason, which says what to do; never a second
-    "Nothing was changed" after it."""
-    said = "; ".join(r.strip().rstrip(".") for r in reasons if r.strip())
+    "nothing was changed" after it."""
+    said = "; ".join(
+        reason if changed else _ALSO_UNCHANGED.sub("", reason)
+        for reason in (r.strip().rstrip(".") for r in reasons)
+        if reason
+    )
     if not said:
         return EXHAUSTED_MESSAGE
     lead = EXHAUSTED_PART_DONE if changed else EXHAUSTED_UNCHANGED
@@ -1415,7 +1421,7 @@ def _read_tool_registry(realm: CopilotRealm) -> Mapping[str, tools_module.ReadTo
     the permission check that would produce it exists for callers who could plausibly hold
     the permission.
     """
-    return {tool.name: _correcting(tool) for tool in realm_read_tools(realm)}
+    return {tool.name: tool for tool in realm_read_tools(realm)}
 
 
 def tool_array(realm: CopilotRealm, *, account_open: bool = True) -> list[dict[str, Any]]:
@@ -2122,9 +2128,11 @@ class _ToolProblem:
 async def _tool_problem(
     call: chat.ToolCall, problem: ProblemError, tenant_id: UUID | None
 ) -> _ToolProblem:
-    """A not-found the model caused (an id in the wrong argument, an id that names nothing)
-    goes back as a correction it can act on in this run (`id_kinds`); anything else is a
-    fact reported as `_problem_result` says. The person never reads `problem.title`."""
+    """A `ProblemError` that reached the loop past planning, which `id_kinds.plan_correctably`
+    already corrects: one an action raised while RUNNING, or a planner outside that wrapper.
+    A not-found the model caused there still goes back as a correction it can act on in
+    this run (`id_kinds.correction`); anything else is a fact reported as `_problem_result`
+    says. The person never reads `problem.title`."""
     fix: str | None = None
     try:
         fix = await id_kinds.correction(tenant_id, call.name, call.arguments, problem)
@@ -2132,35 +2140,14 @@ async def _tool_problem(
         # The report below is still right, only less helpful; the lookup's failure is ours.
         log.exception("copilot_id_correction_failed", extra={"tool": call.name})
     if fix is not None:
-        return _ToolProblem(result=fix, plain=id_kinds.WRONG_ITEM_PLAIN, corrected=True)
+        return _ToolProblem(
+            result=f"NOT DONE, and nothing was changed: {fix}.",
+            plain=id_kinds.WRONG_ITEM_PLAIN,
+            corrected=True,
+        )
     return _ToolProblem(
         result=_problem_result(problem), plain=id_kinds.problem_plain(problem), corrected=False
     )
-
-
-def _correcting(tool: tools_module.ReadTool) -> tools_module.ReadTool:
-    """`tool`, whose not-found the model caused is answered with a correction it can act on
-    rather than `run_read_tool`'s "could not be read just now", which reads as an outage.
-    A not-found that is a fact becomes a sentence saying so. Same session, same RLS."""
-    if tool.scope != "tenant":
-        return tool
-    run = tool.run
-
-    async def _run(session: AsyncSession, context: ToolContext, args: Mapping[str, Any]) -> str:
-        try:
-            return await run(session, context, args)
-        except ProblemError as problem:
-            if problem.kind != "not_found":
-                raise
-            fix = await id_kinds.correction_in(session, tool.name, args, problem)
-            if fix is not None:
-                return fix
-            return (
-                f"Not found: {problem.detail} It may have been deleted. Tell the person, and "
-                "do not invent the answer."
-            )
-
-    return replace(tool, run=_run)
 
 
 async def _run_tool_loop(

@@ -101,7 +101,7 @@ from apps.api.agents.write_guard import assert_agent_writable
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance import dnc
 from apps.api.compliance.audit import write_audit
-from apps.api.copilot import action_log, plan_refusals, plans
+from apps.api.copilot import action_log, id_kinds, plans
 from apps.api.copilot.account_actions import ACCOUNT_ACTIONS
 from apps.api.copilot.actions import (
     DELETED_AGENT_PLAIN,
@@ -1207,7 +1207,7 @@ async def plan_write(
             )
         await _refuse_a_deleted_agent(session, tool, parsed_arguments)
         _refuse_ungrounded(tool, parsed_arguments, said)
-        plan = await plan_refusals.plan_correctably(
+        plan = await id_kinds.plan_correctably(
             tool.plan,
             session,
             actor if said is None else replace(actor, said=tuple(said)),
@@ -1478,7 +1478,7 @@ async def run_immediate(
 
         # READ, DESCRIBE, NORMALISE — and only now, with the key held.
         try:
-            plan = await plan_refusals.plan_correctably(tool.plan, session, actor, parsed_arguments)
+            plan = await id_kinds.plan_correctably(tool.plan, session, actor, parsed_arguments)
         except Exception:
             # A REFUSED PLAN MUST NOT BURN THE KEY. The commonest one is a
             # `WriteRefusedError` the model is about to fix and call again with different
@@ -2056,7 +2056,7 @@ async def stage_for_approval(
             )
         await _refuse_a_deleted_agent(session, tool, parsed_arguments)
         _refuse_ungrounded(tool, parsed_arguments, said)
-        plan = await plan_refusals.plan_correctably(
+        plan = await id_kinds.plan_correctably(
             tool.plan,
             session,
             actor if said is None else replace(actor, said=tuple(said)),
