@@ -120,9 +120,10 @@ def _preset_in(config: AgentConfig) -> None:
     assert config.end_after_silence_seconds == gct.END_AFTER_SILENCE_S
     assert config.reask_after_ms == gct.REASK_AFTER_MS
     assert config.max_call_duration_s == gct.preset_call_cap_s()
+    # "Can you see it?" only on a holder whose script guides the caller's phone (D-1045).
     phrase = gct.NUDGE_PHRASES.get(config.language_primary)
     if phrase:
-        assert config.nudge_phrase == phrase
+        assert (config.nudge_phrase == phrase) is config.caller_has_screen
 
 
 def _platform_in(config: AgentConfig) -> None:
