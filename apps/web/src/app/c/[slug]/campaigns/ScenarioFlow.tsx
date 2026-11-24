@@ -7,6 +7,10 @@
  * with a click (its editor opens beside the picture), and a right click offers what can be
  * done to it. Dragging from the dot onto another box links them.
  *
+ * The call's opening is the first box, left of step 1 and linked into it, because every call
+ * starts with those words and whether now suits; "not now" points to the end it reaches.
+ * How the links are routed is `flowLayout`'s.
+ *
  * Laid out by the steps, not by hand: the columns ARE the structure, so a picture somebody
  * dragged out of shape cannot disagree with the call order. Below the desktop width the
  * columns stack, and the links read as "Next: 3.1, 3.2" in each box.
@@ -46,6 +50,7 @@ import {
   addScenario,
   deleteScenario,
   moveToStep,
+  openingOf,
   outcomeOf,
   placed,
   renameScenario,
@@ -55,6 +60,8 @@ import {
   type Placed,
 } from "./scenarioModel";
 import {
+  CALL_BACK,
+  END,
   SPECIAL_TARGETS,
   chars,
   saysScenarioLine,
@@ -63,46 +70,22 @@ import {
   type Issue,
   type Limits,
 } from "../agents/[agentId]/script/scriptModel";
-
-const BOX_W = 232;
-const BOX_H = 112;
-const COL_GAP = 88;
-const ROW_GAP = 18;
-/** A step's heading: its name and "Scenario" button, then its outcome field. */
-const HEAD_H = 150;
-/** How far outside a card a dragged link still lands on it. */
-const DROP_MARGIN = 16;
-const PAD = 20;
-/** A step's band reaches `BAND_INSET` past its cards on each side, so the side padding must
- * hold it: with less, the first band and its "Step 1" heading start left of the canvas and
- * are clipped by the scroll box. */
-const BAND_INSET = COL_GAP / 2 - 8;
-const PAD_X = BAND_INSET + 12;
-const END_W = 150;
-const END_H = 40;
-
-type Point = { x: number; y: number };
-type Box = Point & { w: number; h: number };
-
-const YES =
-  /\b(yes|agrees?|accepts?|interested|okay|ok|sure|confirms?|ready|happy|installed|remembers?|knows?)\b/i;
-const NO =
-  /\b(no|not|don'?t|doesn'?t|refuses?|declines?|busy|later|can'?t|won'?t|never|wrong|forgot)\b/i;
-
-/** The arrow's colour by the words of its way out: green yes, orange no, blue otherwise. */
-function toneColor(when: string): string {
-  const yes = YES.test(when);
-  const no = NO.test(when);
-  if (yes && !no) return "var(--series-1)";
-  if (no && !yes) return "var(--series-3)";
-  return "var(--series-2)";
-}
-
-/** A curve from a dot on the right of one box to the left edge of another. */
-function link(a: Point, b: Point): string {
-  const bend = Math.max(48, Math.abs(b.x - a.x) / 2);
-  return `M ${a.x} ${a.y} C ${a.x + bend} ${a.y}, ${b.x - bend} ${b.y}, ${b.x} ${b.y}`;
-}
+import {
+  BAND_INSET,
+  BOX_H,
+  BOX_W,
+  DROP_MARGIN,
+  END_H,
+  HEAD_H,
+  NOT_NOW_GAP,
+  OPENING_KEY,
+  ROW_GAP,
+  arrowHead,
+  curve,
+  layoutFlow,
+  type Box,
+  type Point,
+} from "./flowLayout";
 
 /** A coloured block of the scenario editor: each kind of content keeps its own colour. */
 const SECTION = "rounded-card border border-line border-l-4 p-3";
@@ -179,6 +162,25 @@ function StepOutcomeField({
   );
 }
 
+/** The opening as the flow draws it: the line as stored, and where "not now" goes. */
+export interface FlowOpening {
+  line: string;
+  /** The line is a "both" agent's first words on a call it places (D-920). */
+  placed: boolean;
+  /** A caller who cannot talk now is asked when suits them where call backs are offered,
+   * else the call closes politely (`OPENING_CONTINUES_RULE`, `NO_CALL_BACKS_POLICY`). */
+  notNow: string;
+}
+
+export function flowOpening(script: CallScript): FlowOpening {
+  const { line, placed: onPlaced } = openingOf(script);
+  return {
+    line,
+    placed: onPlaced,
+    notNow: script.policies?.offer_call_backs === false ? END : CALL_BACK,
+  };
+}
+
 type Menu = { x: number; y: number; id: string | null; step: number };
 
 export function ScenarioFlow({
@@ -194,7 +196,10 @@ export function ScenarioFlow({
   onChange,
   agent,
   hear,
+  onEditOpening,
 }: {
+  /** Opens the script where the opening line is edited; absent when this person cannot. */
+  onEditOpening?: () => void;
   /** The campaign's agent, whose voice "Hear it" speaks in; null while none is chosen. */
   agent: FlowAgent | null;
   /** Whether this person may hear a line ("Hear it" is the owner's, `org:manage`). */
@@ -216,6 +221,7 @@ export function ScenarioFlow({
   const items = useMemo(() => placed(sectionsOf(script)), [script]);
   const steps = Math.max(0, ...items.map((p) => p.step));
   const full = items.length >= limits.maxSections;
+  const opening = useMemo(() => flowOpening(script), [script]);
   const [menu, setMenu] = useState<Menu | null>(null);
 
   const add = (
@@ -353,6 +359,8 @@ export function ScenarioFlow({
         writing={outcomesPending}
         outcome={(step) => outcomeOf(script, step)}
         onOutcome={(step, text) => onChange(setOutcome(script, step, text))}
+        opening={opening}
+        onEditOpening={onEditOpening}
         onLink={(from, to) => {
           const source = items.find((p) => p.section.id === from)?.section;
           if (!source) return "That scenario is gone.";
@@ -382,6 +390,8 @@ export function ScenarioFlow({
         outcome={(step) => outcomeOf(script, step)}
         onOutcome={(step, text) => onChange(setOutcome(script, step, text))}
         editor={editor}
+        opening={opening}
+        onEditOpening={onEditOpening}
       />
     );
 
@@ -428,7 +438,7 @@ export function ScenarioFlow({
   );
 }
 
-/** The desktop picture: a column per step, arrows from each green dot to the next scenarios. */
+/** The desktop picture: the opening, a column per step, arrows from each green dot onwards. */
 function Columns({
   items,
   steps,
@@ -443,6 +453,8 @@ function Columns({
   outcome,
   onOutcome,
   writing,
+  opening,
+  onEditOpening,
 }: {
   items: Placed[];
   steps: number;
@@ -458,37 +470,24 @@ function Columns({
   outcome: (step: number) => string;
   onOutcome: (step: number, text: string) => void;
   writing: boolean;
+  opening: FlowOpening | null;
+  onEditOpening?: () => void;
 }) {
   const plane = useRef<HTMLDivElement>(null);
   const [linking, setLinking] = useState<{ from: string; to: Point } | null>(
     null,
   );
   const [linkNote, setLinkNote] = useState<string | null>(null);
-  const colX = (step: number) => PAD_X + (step - 1) * (BOX_W + COL_GAP);
-  const boxes = new Map<string, Box>();
-  for (const p of items) {
-    boxes.set(p.section.id, {
-      x: colX(p.step),
-      y: PAD + HEAD_H + (p.row - 1) * (BOX_H + ROW_GAP),
-      w: BOX_W,
-      h: BOX_H,
-    });
-  }
-  const usedEnds = SPECIAL_TARGETS.filter((t) =>
-    items.some((p) => p.section.branches.some((b) => b.target === t)),
+  // The box the pointer or the keyboard is on: its links stay lit, the rest dim, as for the
+  // chosen one.
+  const [pointed, setPointed] = useState<string | null>(null);
+  const layout = useMemo(
+    () =>
+      layoutFlow(items, SPECIAL_TARGETS, opening ? { notNow: opening.notNow } : null),
+    [items, opening],
   );
+  const { colX, boxes, usedEnds, width, height, cardTop } = layout;
   const endX = colX(steps + 1);
-  usedEnds.forEach((t, i) =>
-    boxes.set(t, {
-      x: endX,
-      y: PAD + HEAD_H + i * (END_H + ROW_GAP),
-      w: END_W,
-      h: END_H,
-    }),
-  );
-  const tallest = Math.max(...items.map((p) => p.row), usedEnds.length ? 1 : 0);
-  const width = endX + (usedEnds.length ? END_W : BOX_W) + PAD_X;
-  const height = PAD + HEAD_H + tallest * (BOX_H + ROW_GAP) + 56;
 
   const local = (e: { clientX: number; clientY: number }): Point => {
     const r = plane.current?.getBoundingClientRect();
@@ -520,23 +519,29 @@ function Columns({
   };
   const hovered = linking ? boxAt(linking.to, linking.from) : null;
 
-  const links = items.flatMap((p) =>
-    p.section.branches.map((b, j) => {
-      const from = boxes.get(p.section.id);
-      const to = boxes.get(b.target);
-      if (!from || !to) return null;
-      const lit =
-        selected == null || selected === p.section.id || selected === b.target;
-      return {
-        key: `${p.section.id}-${j}`,
-        d: link(
-          { x: from.x + from.w, y: from.y + from.h / 2 },
-          { x: to.x, y: to.y + to.h / 2 },
-        ),
-        color: toneColor(b.when),
-        lit,
-      };
-    }),
+  const focus = selected ?? pointed;
+  const links = layout.links.map((l) => ({
+    ...l,
+    lit: focus == null || focus === l.from || focus === l.to,
+  }));
+  const point = (id: string) => ({
+    onPointerEnter: () => setPointed(id),
+    onPointerLeave: () => setPointed((p) => (p === id ? null : p)),
+    onFocus: () => setPointed(id),
+    onBlur: () => setPointed((p) => (p === id ? null : p)),
+  });
+
+  const band = (key: string | number, left: number, children: ReactNode, step?: number) => (
+    <div
+      key={key}
+      className={`absolute top-0 rounded-card ${typeof step === "number" && step % 2 === 0 ? "" : "bg-surface/40"}`}
+      style={{ left: left - BAND_INSET, width: BOX_W + 2 * BAND_INSET, height }}
+      onContextMenu={step ? (e) => onMenu(e, null, step) : undefined}
+    >
+      <div className="px-3 pt-3" style={{ height: HEAD_H }}>
+        {children}
+      </div>
+    </div>
   );
 
   return (
@@ -549,19 +554,23 @@ function Columns({
       tabIndex={0}
     >
       <div ref={plane} className="relative" style={{ width, height }}>
+        {opening &&
+          band(
+            "opening",
+            colX(0),
+            <>
+              <span className="text-meta font-semibold text-ink">Opening</span>
+              <p className="mt-1.5 text-meta text-ink-muted">
+                Every call starts here: the first words, then whether now suits.
+              </p>
+            </>,
+          )}
         {/* Column bands, each a step: a right click on one adds to it. */}
-        {Array.from({ length: steps }, (_, i) => i + 1).map((step) => (
-          <div
-            key={step}
-            className={`absolute top-0 rounded-card ${step % 2 ? "bg-surface/40" : ""}`}
-            style={{
-              left: colX(step) - BAND_INSET,
-              width: BOX_W + 2 * BAND_INSET,
-              height,
-            }}
-            onContextMenu={(e) => onMenu(e, null, step)}
-          >
-            <div className="px-3 pt-3" style={{ height: HEAD_H }}>
+        {Array.from({ length: steps }, (_, i) => i + 1).map((step) =>
+          band(
+            step,
+            colX(step),
+            <>
               <div className="flex items-center justify-between">
                 <span className="text-meta font-semibold text-ink">
                   Step {step}
@@ -589,18 +598,19 @@ function Columns({
                   onChange={(text) => onOutcome(step, text)}
                 />
               </div>
-            </div>
-          </div>
-        ))}
+            </>,
+            step,
+          ),
+        )}
         {!readOnly && (
           <button
             type="button"
             className="absolute inline-flex items-center gap-1 rounded-card border border-dashed border-line bg-surface px-3 py-2 text-meta text-ink-muted hover:border-ink-faint hover:text-ink disabled:opacity-40"
             style={{
-              left: usedEnds.length ? endX : colX(steps + 1),
+              left: endX,
               top: usedEnds.length
-                ? PAD + HEAD_H + usedEnds.length * (END_H + ROW_GAP) + 8
-                : PAD + HEAD_H,
+                ? cardTop + usedEnds.length * (END_H + ROW_GAP) + 8
+                : cardTop,
             }}
             disabled={full}
             onClick={() => onAdd(steps + 1)}
@@ -616,32 +626,27 @@ function Columns({
           height={height}
           aria-hidden
         >
-          {links.map(
-            (l) =>
-              l && (
-                <path
-                  key={l.key}
-                  d={l.d}
-                  fill="none"
-                  style={{ stroke: l.color, opacity: l.lit ? 1 : 0.25 }}
-                  strokeWidth={l.lit && selected ? 2.25 : 1.75}
-                />
-              ),
-          )}
-          {links.map((l) => {
-            if (!l) return null;
-            const end = l.d.split(" ").slice(-2).map(Number);
-            return (
-              <path
-                key={`${l.key}-head`}
-                d={`M ${end[0] - 8} ${end[1] - 5} L ${end[0]} ${end[1]} L ${end[0] - 8} ${end[1] + 5} z`}
-                style={{ fill: l.color, opacity: l.lit ? 1 : 0.25 }}
-              />
-            );
-          })}
+          {links.map((l) => (
+            <path
+              key={l.key}
+              data-link={l.key}
+              data-kind={l.kind}
+              d={l.d}
+              fill="none"
+              style={{ stroke: l.color, opacity: l.lit ? 1 : 0.25 }}
+              strokeWidth={l.lit && focus ? 2.25 : 1.75}
+            />
+          ))}
+          {links.map((l) => (
+            <path
+              key={`${l.key}-head`}
+              d={arrowHead(l.end, l.dir)}
+              style={{ fill: l.color, opacity: l.lit ? 1 : 0.25 }}
+            />
+          ))}
           {linking && boxes.get(linking.from) && (
             <path
-              d={link(
+              d={curve(
                 {
                   x: (boxes.get(linking.from) as Box).x + BOX_W,
                   y: (boxes.get(linking.from) as Box).y + BOX_H / 2,
@@ -656,6 +661,39 @@ function Columns({
           )}
         </svg>
 
+        {opening && layout.opening && (
+          <OpeningNode
+            box={layout.opening}
+            opening={opening}
+            onEdit={onEditOpening}
+            pointer={point(OPENING_KEY)}
+          />
+        )}
+        {layout.notNow && (
+          <>
+            <span
+              className="absolute text-[11px] font-medium text-ink-muted"
+              style={{
+                left: layout.notNow.box.x + layout.notNow.box.w / 2 + 8,
+                top: layout.notNow.box.y - NOT_NOW_GAP / 2 - 8,
+              }}
+            >
+              Not now
+            </span>
+            <span
+              className="absolute flex items-center justify-center rounded-full border border-dashed border-ink-faint bg-surface px-3 text-meta text-ink-muted"
+              style={{
+                left: layout.notNow.box.x,
+                top: layout.notNow.box.y,
+                width: layout.notNow.box.w,
+                height: layout.notNow.box.h,
+              }}
+            >
+              {END_NAMES[layout.notNow.target]}
+            </span>
+          </>
+        )}
+
         {usedEnds.map((t) => {
           const b = boxes.get(t) as Box;
           return (
@@ -663,6 +701,7 @@ function Columns({
               key={t}
               className="absolute flex items-center justify-center rounded-full border border-dashed border-ink-faint bg-surface px-3 text-meta text-ink-muted"
               style={{ left: b.x, top: b.y, width: b.w, height: b.h }}
+              {...point(t)}
             >
               {END_NAMES[t]}
             </span>
@@ -681,6 +720,7 @@ function Columns({
               data-scenario={p.section.id}
               className={`absolute rounded-card ${hovered === p.section.id ? "ring-2 ring-brand ring-offset-2" : ""}`}
               style={{ left: b.x, top: b.y, width: b.w, height: b.h }}
+              {...point(p.section.id)}
             >
               <button
                 type="button"
@@ -778,6 +818,63 @@ function Columns({
   );
 }
 
+/**
+ * The call's first words, the flow's first box: read-only here, since the opening is part of
+ * the script and its notices are woven into it (D-971); a click opens the script where it is
+ * edited. No dot: nothing links out of it but the steps it always goes on to.
+ */
+function OpeningNode({
+  box,
+  opening,
+  onEdit,
+  pointer,
+}: {
+  box: Box;
+  opening: FlowOpening;
+  onEdit?: () => void;
+  pointer: Record<string, () => void>;
+}) {
+  const body = (
+    <>
+      <span className="flex w-full items-center gap-2">
+        <span className="inline-flex h-5 items-center justify-center rounded-full bg-series-1 px-2 text-[11px] font-semibold text-white">
+          {opening.placed ? "Opening when it calls" : "Opening"}
+        </span>
+      </span>
+      <span className="mt-1 line-clamp-3 text-meta text-ink">
+        {opening.line ? `“${opening.line}”` : "No opening line yet."}
+      </span>
+      {onEdit && (
+        <span className="mt-auto text-[11px] font-medium text-brand-strong">
+          Edit in the script
+        </span>
+      )}
+    </>
+  );
+  const shell =
+    "flex h-full w-full flex-col rounded-card border border-series-1/50 bg-surface p-3 text-left shadow-card";
+  return (
+    <div
+      className="absolute rounded-card"
+      style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
+      {...pointer}
+    >
+      {onEdit ? (
+        <button
+          type="button"
+          aria-label={`Opening: ${opening.line || "no opening line yet"}. Edit it in the script.`}
+          className={`${shell} hover:border-series-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand`}
+          onClick={onEdit}
+        >
+          {body}
+        </button>
+      ) : (
+        <div className={shell}>{body}</div>
+      )}
+    </div>
+  );
+}
+
 /** Below the desktop width: each step a block of scenario cards, the editor under the chosen one. */
 function Stacked({
   items,
@@ -792,7 +889,11 @@ function Stacked({
   outcome,
   onOutcome,
   writing,
+  opening,
+  onEditOpening,
 }: {
+  opening: FlowOpening;
+  onEditOpening?: () => void;
   items: Placed[];
   steps: number;
   selected: string | null;
@@ -810,6 +911,31 @@ function Stacked({
     lookup(END_NAMES, target) ?? items.find((p) => p.section.id === target)?.label ?? "?";
   return (
     <div className="space-y-5">
+      <section aria-label="Opening" className="border-l-4 border-series-1 pl-3">
+        <h4 className="text-body font-semibold text-ink">
+          {opening.placed ? "Opening when it calls" : "Opening"}
+        </h4>
+        <p className="mt-1 text-meta text-ink">
+          {opening.line ? `“${opening.line}”` : "No opening line yet."}
+        </p>
+        <p className="mt-1 text-[11px] text-ink-faint">
+          Next:{" "}
+          {items
+            .filter((p) => p.step === 1)
+            .map((p) => p.label)
+            .join(", ")}
+          {" · "}Not now: {END_NAMES[opening.notNow]}
+        </p>
+        {onEditOpening && (
+          <button
+            type="button"
+            className={`${SECONDARY_BUTTON_SM} mt-2`}
+            onClick={onEditOpening}
+          >
+            Edit in the script
+          </button>
+        )}
+      </section>
       {Array.from({ length: steps }, (_, i) => i + 1).map((step) => (
         <section
           key={step}

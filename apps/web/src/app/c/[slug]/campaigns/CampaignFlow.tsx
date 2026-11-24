@@ -72,7 +72,10 @@ export function CampaignFlow({
   restore,
   onRestore,
   outcomesPending = false,
+  onEditOpening,
 }: {
+  /** Opens the script where the opening line is edited; absent when this person cannot. */
+  onEditOpening?: () => void;
   /** Pip is writing the outcome of each step that has none (D-1036). */
   outcomesPending?: boolean;
   /** When the flow from before Pip's last draft was kept aside; null: nothing to put back. */
@@ -282,6 +285,13 @@ export function CampaignFlow({
       wide={desktop}
       onSelect={setSelected}
       onChange={commit}
+      onEditOpening={
+        onEditOpening &&
+        (() => {
+          setFull(false);
+          onEditOpening();
+        })
+      }
     />
   );
 

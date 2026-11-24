@@ -38,6 +38,15 @@ export const END_NAMES: Record<string, string> = {
 };
 
 /**
+ * The call's first words as stored: a "both" agent's line for calls it places when it has
+ * one (D-920), else the opening line. `placed` says which.
+ */
+export function openingOf(script: CallScript): { line: string; placed: boolean } {
+  const placed = (script.outbound_opening_line ?? "") !== "";
+  return { line: (placed ? script.outbound_opening_line ?? "" : script.opening_line).trim(), placed };
+}
+
+/**
  * Each section's step. A section with none (a script drawn before scenarios) is its own
  * step, the one after the section before it.
  */

@@ -47,6 +47,7 @@ import { PipAskRefused, PipFailed, PipWriting, retryable } from "./PipScriptStat
 import { FoldSection } from "./FoldSection";
 import { SourcePicker, useChosenCount } from "./SourcePicker";
 import { CampaignFlow, FLOW_PART } from "./CampaignFlow";
+import { openingOf } from "./scenarioModel";
 import { ScriptLanguagePick, languageName } from "./ScriptLanguages";
 import { MAIN_TASK_PLACEHOLDER } from "./NewCampaignSteps";
 import { MAIN_TASK_MAX_CHARS } from "@/lib/textLimits";
@@ -359,6 +360,14 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
     setEditing(false);
     backToScript();
   };
+  // The flow's opening box opens the same editor, which takes the summary's place above.
+  const openEditor = () => {
+    setEditing(true);
+    window.requestAnimationFrame(() => {
+      const section = document.getElementById("campaign-script");
+      if (section && section.getBoundingClientRect().top < 0) section.scrollIntoView({ block: "start" });
+    });
+  };
 
   const keep = async (next: CallScript) => {
     try {
@@ -481,6 +490,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                   await save.mutateAsync({ script: next });
                 }}
                 mapping={ask.isPending}
+                onEditOpening={canWrite ? openEditor : undefined}
                 beforePipAt={space.script_before_pip_at ?? null}
                 outcomesPending={space.step_outcomes_pending}
                 restore={restoreFeedback}
@@ -506,8 +516,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
  * (`scriptDiff.PARTS`), so the owner recognises each one when they open it to change it.
  */
 export function ScriptSummary({ script }: { script: CallScript }) {
-  const outbound = script.outbound_opening_line !== "";
-  const opening = script.outbound_opening_line || script.opening_line;
+  const { line: opening, placed: outbound } = openingOf(script);
   const steps =
     script.stages.length > 0
       ? script.stages.map((s) => s.name)
