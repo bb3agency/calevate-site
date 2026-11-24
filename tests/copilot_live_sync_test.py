@@ -161,7 +161,7 @@ async def test_the_question_is_stored_and_announced_before_the_answer_exists(
         events = await _stream_events(http, "/v1/copilot/ask", body)
         loaded = await http.get("/v1/copilot/conversation", headers=_HEADERS)
 
-    assert events == ["text", "done"]
+    assert events == ["run", "text", "done"]
     assert seen_mid_run["turns"] == [(question_id, "user", BODY["question"])]
     assert seen_mid_run["answering"] is True
     assert seen_mid_run["notes"] == [("client", user_id)]
@@ -194,7 +194,7 @@ async def test_a_run_that_fails_still_settles_and_keeps_the_question(
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
         events = await _stream_events(http, "/v1/copilot/ask", BODY)
 
-    assert events == ["error"]
+    assert events == ["run", "error"]
     turns = await _stored(transcript.CLIENT, user_id, tenant_id)
     assert [(role, content) for _id, role, content in turns] == [("user", BODY["question"])]
     assert await live_sync.is_answering("client", user_id, account=tenant_id) is False
@@ -224,7 +224,7 @@ async def test_a_question_that_cannot_be_stored_is_still_answered(
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
         events = await _stream_events(http, "/v1/copilot/ask", BODY)
 
-    assert events == ["text", "done"]
+    assert events == ["run", "text", "done"]
     turns = await _stored(transcript.CLIENT, user_id, tenant_id)
     assert [role for _id, role, _content in turns] == ["assistant"]
 
@@ -272,7 +272,7 @@ async def test_an_operators_question_is_stored_first_on_the_admin_table(
         loaded = await http.get("/v1/admin/copilot/conversation", headers=_HEADERS)
         cleared = await http.delete("/v1/admin/copilot/conversation", headers=_HEADERS)
 
-    assert events == ["text", "done"]
+    assert events == ["run", "text", "done"]
     assert mid_run == [(question_id, "user", BODY["question"])]
     assert [turn["id"] for turn in loaded.json()["turns"]] == [str(question_id), str(answer_id)]
     assert loaded.json()["answering"] is False
@@ -649,7 +649,7 @@ async def test_a_zero_cost_admin_answer_reaches_the_operators_other_window(
         loaded = await http.get("/v1/admin/copilot/conversation", headers=headers)
 
     assert reached == []
-    assert events == ["text", "done"]
+    assert events == ["run", "text", "done"]
     # Question stored, answer stored and the mark settled: one note each, on this person's
     # own stream (the operator stream carries no conversation note of anyone's).
     assert _changes(other_window.text) == ["conversation", "conversation"]
@@ -685,7 +685,7 @@ async def test_a_zero_cost_client_answer_is_stored_under_the_browsers_id(
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
         events = await _stream_events(http, "/v1/copilot/ask", body)
 
-    assert events == ["text", "done"]
+    assert events == ["run", "text", "done"]
     turns = await _stored(transcript.CLIENT, user_id, tenant_id)
     assert [(turn_id, role) for turn_id, role, _content in turns] == [
         (question_id, "user"),

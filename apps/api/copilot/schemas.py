@@ -470,6 +470,29 @@ class CopilotDiagnosis(BaseModel):
     checks: list[CopilotCheck]
 
 
+class CopilotResultItem(BaseModel):
+    """One row a listing read found (`step_results`). Bounded and stripped like `detail`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    subtitle: str | None = None
+    #: A client route template with a literal `{slug}` (`/c/{slug}/campaigns/<id>`), or
+    #: None. Substitute your own slug and check it against your own routes, as for
+    #: `event: navigate`'s `route`. Always None on the admin realm.
+    href: str | None = None
+
+
+class CopilotStepResults(BaseModel):
+    """What a listing read found: at most eight rows, and how many there were."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["list"]
+    items: list[CopilotResultItem]
+    total: int
+
+
 class CopilotStepEvent(BaseModel):
     """`event: step` — one tool call, as it happens. THE ANSWER IS NOT THE ONLY OUTPUT.
 
@@ -513,6 +536,57 @@ class CopilotStepEvent(BaseModel):
     #: panel reads a refused fill whose every field a later fill wrote as tried again, and
     #: one that left a field unwritten as not finished.
     field_ids: list[str] | None = None
+    #: The rows a listing read found (campaigns, agents, sources, calls, leads), on its
+    #: terminal frame only; `None` on every other step.
+    results: CopilotStepResults | None = None
+
+
+class CopilotRunEvent(BaseModel):
+    """`event: run` — the first frame of every answer. `run_id` is what Stop takes
+    (`POST .../copilot/runs/{run_id}/stop`); the panel times "Working" from `started_at`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: UUID
+    started_at: datetime
+
+
+class CopilotThoughtEvent(BaseModel):
+    """`event: thought` — a fragment of Pip's one-line plan for the current model turn
+    (`live_turn`). `turn` counts model turns from 0: a frame with a higher `turn` starts a
+    new line. Shown live, never logged and never stored."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    delta: str
+    turn: int
+
+
+class CopilotDraftEvent(BaseModel):
+    """`event: draft` — this answer started a script draft; open its draft stream."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    holder_kind: Literal["campaign", "inbound_line"]
+    holder_id: UUID
+    proposal_id: UUID
+
+
+class CopilotStopOut(BaseModel):
+    """The answer to Stop, the same for every run id: it says nothing about whether the run
+    existed, whose it was, or whether it had already finished."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: UUID
+
+
+class CopilotStoppedEvent(BaseModel):
+    """`event: stopped` — the person pressed Stop. The last frame: no `done` follows."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: Literal["person"]
 
 
 class CopilotActionEvent(BaseModel):
@@ -935,6 +1009,10 @@ class CopilotJobPageOut(BaseModel):
 #: `problem+json` body (`core/errors.ProblemError.as_problem`), which is not this module's
 #: to declare and is already the shape of every non-streamed refusal in this API.
 STREAM_FRAMES: Final[Mapping[str, type[BaseModel]]] = {
+    "run": CopilotRunEvent,
+    "thought": CopilotThoughtEvent,
+    "draft": CopilotDraftEvent,
+    "stopped": CopilotStoppedEvent,
     "text": CopilotTextEvent,
     "fill": CopilotFillEvent,
     "proposal": CopilotProposalEvent,
@@ -967,6 +1045,7 @@ __all__ = [
     "CopilotConversationOut",
     "CopilotDiagnosis",
     "CopilotDoneEvent",
+    "CopilotDraftEvent",
     "CopilotFact",
     "CopilotField",
     "CopilotFieldType",
@@ -979,10 +1058,16 @@ __all__ = [
     "CopilotNavigateEvent",
     "CopilotOption",
     "CopilotProposalEvent",
+    "CopilotResultItem",
+    "CopilotRunEvent",
     "CopilotScreen",
     "CopilotStepEvent",
+    "CopilotStepResults",
+    "CopilotStopOut",
+    "CopilotStoppedEvent",
     "CopilotStoredTurnOut",
     "CopilotTextEvent",
+    "CopilotThoughtEvent",
     "CopilotTurn",
     "CopilotUndoOut",
     "CopilotValue",

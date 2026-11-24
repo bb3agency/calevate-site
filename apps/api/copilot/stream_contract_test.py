@@ -141,8 +141,35 @@ EXPECTED: dict[str, dict[str, Any]] = {
             "field_ids": (
                 '{"anyOf": [{"items": {"type": "string"}, "type": "array"}, {"type": "null"}]}'
             ),
+            # The rows a listing read found (`step_results`).
+            "results": '{"anyOf": [{"$ref": "#/$defs/CopilotStepResults"}, {"type": "null"}]}',
         },
         "required": ["args", "id", "status", "tool"],
+    },
+    # The live working view (24 Nov 2026): the run's id and clock, the Thinking line, a
+    # draft this run started, and the end after Stop.
+    "run": {
+        "fields": {
+            "run_id": '{"format": "uuid", "type": "string"}',
+            "started_at": '{"format": "date-time", "type": "string"}',
+        },
+        "required": ["run_id", "started_at"],
+    },
+    "thought": {
+        "fields": {"delta": '{"type": "string"}', "turn": '{"type": "integer"}'},
+        "required": ["delta", "turn"],
+    },
+    "draft": {
+        "fields": {
+            "holder_kind": '{"enum": ["campaign", "inbound_line"], "type": "string"}',
+            "holder_id": '{"format": "uuid", "type": "string"}',
+            "proposal_id": '{"format": "uuid", "type": "string"}',
+        },
+        "required": ["holder_id", "holder_kind", "proposal_id"],
+    },
+    "stopped": {
+        "fields": {"reason": '{"type": "string"}'},
+        "required": ["reason"],
     },
     # D-934: a chart or table, as data. Every value is a decimal string.
     "chart": {

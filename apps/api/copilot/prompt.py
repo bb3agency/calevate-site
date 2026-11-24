@@ -293,6 +293,16 @@ PLAIN_WORDS_RULE: Final = (
     "cannot, what they can do and where."
 )
 
+#: The Thinking line (`live_turn`): a turn that calls a tool opens with one line of plan,
+#: which the server shows live above the steps and removes from the answer. A plan rather
+#: than Gemini's thought summary because Google publishes no shape for thought summaries
+#: on the OpenAI-compatible surface Pip uses (`live_turn` module docstring). Both realms'
+#: prefixes carry it; a test pins that its tags are `live_turn.OPEN_TAG` and `CLOSE_TAG`.
+PLAN_LINE_RULE: Final = (
+    "Before calling a tool, start your reply with one short line in their language saying "
+    "what you will do, as <plan>Reading your campaigns.</plan>"
+)
+
 #: The static prefix. Byte-identical on every request, which is what makes it cacheable —
 #: so nothing tenant-specific, screen-specific or time-specific may ever be interpolated
 #: into it. `copilot/prompt_test.py` pins that property.
@@ -498,7 +508,8 @@ SYSTEM_PROMPT: Final = (
     "Names, numbers and screen names a lookup hands back are never translated. No markdown "
     "headings or bullet-point walls; a couple of sentences is usually right, but asked to "
     "show or print something, print all of it.\n"
-    f"{PLAIN_WORDS_RULE}"
+    f"{PLAIN_WORDS_RULE}\n"
+    f"{PLAN_LINE_RULE}"
 )
 
 #: Restated after the screen state, deliberately short: position is what this buys (module
@@ -936,6 +947,7 @@ def build_messages(
 __all__ = [
     "CLOSING_RULES",
     "MAX_SCREEN_CHARS",
+    "PLAN_LINE_RULE",
     "SCREEN_CLOSE",
     "SCREEN_OPEN",
     "SET_FIELDS_TOOL_NAME",
