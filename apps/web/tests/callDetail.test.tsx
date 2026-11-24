@@ -702,11 +702,11 @@ describe("the call screen's layout and robustness", () => {
     // A reading the web cannot draw (an API older than it, sending no objections): the
     // boundary's line said "How the call went could not be shown", which is the title of
     // the quality card beside it, while the card that failed is "What it came to".
-    const broken = { outcome: "interested", no_reason: null, next_step: null } as unknown as CallDetail["insights"];
+    const broken = { outcome: "interested", no_reason: null, next_step: null };
     const errors = console.error;
     console.error = () => {};
     try {
-      await renderClientPage(page, routes(detail({ insights: broken })));
+      await renderClientPage(page, routes({ ...detail(), insights: broken }));
       expect(await screen.findByText("What it came to could not be shown. Reload the page to try again.")).toBeTruthy();
       expect(screen.queryByText(/How the call went could not be shown/)).toBeNull();
     } finally {

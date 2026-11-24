@@ -298,10 +298,12 @@ export function useFollowUpActions(
     successToast: (_lead, vars) => `Changed back to ${leadMarkWords(vars.status)}`,
   });
   const runUndoLead = (vars: { leadId: string; status: LeadStatus; expectedStatus: LeadStatus }) =>
-    undoLeadMutation.mutate(vars, {
-      onSettled: () => refreshLead(vars.leadId),
-      onError: (error) => conflict(error, "Could not change it back", () => runUndoLead(vars)),
-    });
+    // mutateAsync, not mutate with per-call callbacks: TanStack drops an earlier call's
+    // callbacks when a newer one starts first, so a refusal on one row would be lost.
+    void undoLeadMutation
+      .mutateAsync(vars)
+      .catch((error: unknown) => conflict(error, "Could not change it back", () => runUndoLead(vars)))
+      .finally(() => refreshLead(vars.leadId));
 
   const markCall = useMarkCallFollowUp(session);
   const undoCallMutation = useMarkCallFollowUp(session);
@@ -316,9 +318,9 @@ export function useFollowUpActions(
     successToast: (out) => (out.state ? `Changed back to ${callMarkWords(out.state)}` : "Mark taken off again"),
   });
   const runUndoCall = (vars: { callId: string; state: CallFollowUpState | null; expectedState: CallFollowUpState | null }) =>
-    undoCallMutation.mutate(vars, {
-      onError: (error) => conflict(error, "Could not change it back", () => runUndoCall(vars)),
-    });
+    void undoCallMutation
+      .mutateAsync(vars)
+      .catch((error: unknown) => conflict(error, "Could not change it back", () => runUndoCall(vars)));
 
   const chooseLeadMark = (target: FollowUpTarget, status: LeadStatus) => {
     if (!target.leadId) return;
@@ -326,16 +328,18 @@ export function useFollowUpActions(
     if (target.leadStatus) previousLead.current.set(leadId, target.leadStatus);
     close();
     const vars = { leadId, status };
-    markLead.mutate(vars, {
-      onSettled: () => refreshLead(leadId),
-      onError: (error) => conflict(error, "Could not mark this lead", () => chooseLeadMark(target, status)),
-    });
+    void markLead
+      .mutateAsync(vars)
+      .catch((error: unknown) => conflict(error, "Could not mark this lead", () => chooseLeadMark(target, status)))
+      .finally(() => refreshLead(leadId));
   };
   const chooseCallMark = (target: FollowUpTarget, state: CallFollowUpState | null) => {
     if (!target.callId) return;
     close();
     const vars = { callId: target.callId, state };
-    markCall.mutate(vars, { onError: (error) => conflict(error, "Could not mark this call", () => chooseCallMark(target, state)) });
+    void markCall
+      .mutateAsync(vars)
+      .catch((error: unknown) => conflict(error, "Could not mark this call", () => chooseCallMark(target, state)));
   };
 
   // --- WhatsApp ---

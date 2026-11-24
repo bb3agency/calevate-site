@@ -91,7 +91,7 @@ export function followServer(
     return server.map((row, index) => ({ ...row, uid: current[index]?.uid ?? row.uid }));
   }
   if (sent === null) return [...current];
-  const sentRows = JSON.parse(sent) as CallOutcomeIn[];
+  const sentRows: CallOutcomeIn[] = JSON.parse(sent);
   const taken = new Set(current.map((row) => row.key).filter((key) => key !== null));
   return current.map((row, index) => {
     const given = server[index]?.key ?? null;
@@ -228,10 +228,11 @@ function OutcomesEditor({
     sent.current = null;
     setRows((current) => followServer(current, toRows(agent), before, justSent));
   }, [saved, agent]);
+  const parseOutcomes = (body: string): CallOutcomeIn[] => JSON.parse(body);
   const send = (body: string) => {
     sent.current = body;
     mutate(
-      { agentId: agent.id, outcomes: JSON.parse(body) as CallOutcomeIn[] },
+      { agentId: agent.id, outcomes: parseOutcomes(body) },
       {
         onError: () => {
           sent.current = null;
