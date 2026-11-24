@@ -25,7 +25,7 @@ from apps.api.crm.step_progress import (
 )
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
-from apps.workers import pipeline
+from apps.workers import pipeline, step_truth
 from apps.workers import step_progress as judge
 from calevate_shared.call_script import StepOutcome
 from calevate_shared.events import TranscriptTurn
@@ -138,9 +138,12 @@ def test_the_progress_detail_is_the_furthest_step_reached() -> None:
         ),
         fields=mapping,
     )
-    assert progress_values(reached_two) == {"app_status": "Installed"}
+    assert progress_values(reached_two, {"app_status": "Logged in"}, SPEC) == {
+        "app_status": "Installed"
+    }
+    assert progress_values(reached_two, {"crop": "Paddy"}, SPEC) == {}
     nothing = StepProgress(steps=(StepReading(1, "a", "unclear"),), fields=mapping)
-    assert progress_values(nothing) == {}
+    assert progress_values(nothing, {"app_status": "Not interested"}, SPEC) == {}
 
 
 def test_a_step_left_before_its_outcome_is_a_mistake_on_the_call() -> None:
@@ -272,17 +275,14 @@ async def test_the_pipeline_notes_the_furthest_step_over_the_models_guess(
     snapshot = SimpleNamespace(transcript=_turns(call_id))
     extraction = ExtractionOutput(data={"app_status": "Logged in", "crop": "Paddy"})
 
-    out = await pipeline._step_progress_stage(tenant_id, call_id, snapshot, SPEC, extraction)  # type: ignore[arg-type]
+    facts = await pipeline._step_facts(tenant_id, call_id, snapshot, SPEC, [])  # type: ignore[arg-type]
+    assert facts is not None
+    out, changed = step_truth.settle(extraction, facts, SPEC, goal=None, outcomes=[])
 
-    assert out is not None and out.data == {"app_status": "Installed", "crop": "Paddy"}
+    assert out.data == {"app_status": "Installed", "crop": "Paddy"}
+    assert changed == ["app_status"]
     async with tenant_session(tenant_id) as session:
-        data = (
-            await session.execute(
-                text("SELECT data FROM call_extractions WHERE call_id = :c"), {"c": call_id}
-            )
-        ).scalar_one()
         detail = await crm_service.get_call(session, call_id)
-    assert data == {"app_status": "Installed", "crop": "Paddy"}
     # "Where the call got to" on the call page.
     assert [(s.step, s.state, s.turn_idx) for s in detail.steps] == [
         (1, "reached", 1),
@@ -305,9 +305,11 @@ async def test_a_model_failure_leaves_the_extraction_standing(
     extraction = ExtractionOutput(data={"app_status": "Logged in"})
     snapshot = SimpleNamespace(transcript=_turns(call_id))
 
-    out = await pipeline._step_progress_stage(tenant_id, call_id, snapshot, SPEC, extraction)  # type: ignore[arg-type]
+    facts = await pipeline._step_facts(tenant_id, call_id, snapshot, SPEC, [])  # type: ignore[arg-type]
 
-    assert out is extraction
+    assert facts is not None and facts.progress is None
+    out, changed = step_truth.settle(extraction, facts, SPEC, goal=None, outcomes=[])
+    assert out is extraction and changed == []
 
 
 async def test_another_account_cannot_read_a_calls_reading(

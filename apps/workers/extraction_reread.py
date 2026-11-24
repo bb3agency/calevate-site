@@ -52,6 +52,7 @@ from apps.workers.pipeline import (
     _record_business_outcome,
     _record_outcome,
     _record_reading,
+    _step_facts,
     _upsert_lead,
     book_asked_callback,
     call_event_data,
@@ -305,6 +306,7 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID, *, reuse: bool = Tru
     before = await _outcomes_now(tenant_id, call_id)
     business_outcomes = await _agent_business_outcomes(tenant_id, agent_id)
     opt_out = detect_opt_out(snapshot.transcript) if snapshot.transcript else None
+    facts = await _step_facts(tenant_id, call_id, snapshot, spec, business_outcomes)
     extraction = await _extract_stage(
         tenant_id,
         call_id,
@@ -317,6 +319,7 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID, *, reuse: bool = Tru
         direction=direction,
         reasoning_off=after_truncation,
         reuse=reuse,
+        facts=facts,
     )
     if extraction is None or not model_answered(extraction):
         if extraction is not None and extraction.errors.get(MODEL_FAILURE) == _TRUNCATED:
@@ -324,7 +327,7 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID, *, reuse: bool = Tru
             return "still_truncated"
         return "still_failed"
 
-    reading = await _record_reading(tenant_id, call_id, snapshot, extraction)
+    reading = await _record_reading(tenant_id, call_id, snapshot, extraction, facts=facts)
     # Before the outcome, as in the pipeline, so a booked call back reads as booked.
     await book_asked_callback(
         tenant_id,
