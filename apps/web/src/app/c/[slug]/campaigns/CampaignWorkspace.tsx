@@ -21,6 +21,8 @@ import { useRef, useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
+import { TEXT_ACTION } from "@/components/console/section";
+import { ScriptDraftLive } from "@/components/scriptDraft/ScriptDraftLive";
 import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import {
   useAddCampaignSource,
@@ -61,6 +63,7 @@ const ProposalReview = dynamic(
 export const MAIN_TASK_HINT = "What should this campaign achieve?";
 export const MAIN_TASK_INFO = "Write it in your own words, as much as you like. Pip writes the script from it.";
 export const SCRIPT_HINT = "What the agent says on each call.";
+const SCRIPT_LOCKED = "You can't change this campaign's script.";
 export const SCRIPT_INFO =
   "Pip writes it from your main task and sources; change anything, any time. Only this campaign's calls say it; your agent's own script stays as it is.";
 
@@ -315,6 +318,8 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
   const [editing, setEditing] = useState(false);
   const [asking, setAsking] = useState<Asking>({ tone: "", note: "" });
+  //: The draft the owner chose to review part by part instead of in the live view.
+  const [reviewing, setReviewing] = useState<string | null>(null);
   const proposal = space.proposal;
   const script = space.script;
   const hasTask = space.main_task.trim() !== "";
@@ -371,6 +376,32 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
     }
   };
 
+  // Pip's written draft, part by part: what the live view falls back to, and what "Review
+  // part by part" opens in its place.
+  const readyReview =
+    proposal?.status === "ready" && proposal.script ? (
+      <div className="border-y border-line py-4">
+        <ProposalReview
+          key={proposal.id}
+          current={script ?? EMPTY_SCRIPT}
+          base={proposal.base_script ?? EMPTY_SCRIPT}
+          proposal={proposal.script}
+          notes={proposal.why}
+          pending={save.isPending ? "apply" : clear.isPending ? "discard" : null}
+          onApply={(next) => void keep(next)}
+          onDiscard={() => stopFeedback.run(proposal.id)}
+        >
+          {proposal.fixes && (
+            <p className="text-sm text-ink [overflow-wrap:anywhere]">Written to fix a mistake on calls: {proposal.fixes}.</p>
+          )}
+          {proposal.disclosure && <p className="text-meta text-ink-muted">{proposal.disclosure}</p>}
+          {proposal.left_out.length > 0 && <LeftOutNotice parts={proposal.left_out} />}
+        </ProposalReview>
+      </div>
+    ) : null;
+  const liveDraft =
+    proposal != null && (proposal.status === "drafting" || readyReview !== null) && reviewing !== proposal.id;
+
   return (
     <FoldSection id="campaign-script" title="Script" tone="script" hint={SCRIPT_HINT} info={SCRIPT_INFO}>
       {/* Generate sits in the Script section (founder, 15 Nov 2026): one place to get a script and read it. */}
@@ -401,8 +432,34 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
         </div>
       )}
 
-      {proposal?.status === "drafting" && (
-        <PipWriting proposal={proposal} stopping={clear.isPending} onStop={() => stopFeedback.run(proposal.id)} />
+      {/* PIP WRITING, LIVE, and then its changes with Keep or Discard: the same view the Pip
+          panel shows, so Rewrite now here looks the same as asking Pip. Without the draft
+          stream, the page keeps its own writing line and part-by-part review. */}
+      {proposal && liveDraft && (
+        <div className="py-2">
+          <ScriptDraftLive
+            key={proposal.id}
+            session={session}
+            holder={{ kind: "campaign", id: campaignId }}
+            proposalId={proposal.id}
+            toastOutcome
+            refusal={canWrite ? null : (refusal ?? SCRIPT_LOCKED)}
+            fallback={
+              proposal.status === "drafting" ? (
+                <PipWriting proposal={proposal} stopping={clear.isPending} onStop={() => stopFeedback.run(proposal.id)} />
+              ) : (
+                readyReview
+              )
+            }
+            extra={
+              readyReview ? (
+                <button type="button" className={TEXT_ACTION} onClick={() => setReviewing(proposal.id)}>
+                  Review part by part
+                </button>
+              ) : null
+            }
+          />
+        </div>
       )}
 
       {proposal?.status === "failed" && (
@@ -416,26 +473,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
         />
       )}
 
-      {proposal?.status === "ready" && proposal.script && (
-        <div className="border-y border-line py-4">
-          <ProposalReview
-            key={proposal.id}
-            current={script ?? EMPTY_SCRIPT}
-            base={proposal.base_script ?? EMPTY_SCRIPT}
-            proposal={proposal.script}
-            notes={proposal.why}
-            pending={save.isPending ? "apply" : clear.isPending ? "discard" : null}
-            onApply={(next) => void keep(next)}
-            onDiscard={() => stopFeedback.run(proposal.id)}
-          >
-            {proposal.fixes && (
-              <p className="text-sm text-ink [overflow-wrap:anywhere]">Written to fix a mistake on calls: {proposal.fixes}.</p>
-            )}
-            {proposal.disclosure && <p className="text-meta text-ink-muted">{proposal.disclosure}</p>}
-            {proposal.left_out.length > 0 && <LeftOutNotice parts={proposal.left_out} />}
-          </ProposalReview>
-        </div>
-      )}
+      {proposal && !liveDraft && readyReview}
 
       {!proposal && editing && (
         <div className="rounded-card border border-line bg-surface p-4">

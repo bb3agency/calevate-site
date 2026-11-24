@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { ApiProblem, type Session } from "@/lib/api/client";
 import { refreshAfterConfirm } from "@/lib/api/copilot";
@@ -20,6 +20,7 @@ import {
 } from "./conversation";
 import { clearFilled, markFilled } from "./highlight";
 import { keepingOnWire } from "./keeping";
+import { IDLE_RUN, liveRunReducer, requestStop, STOP_GRACE_MS, type LiveRun } from "./liveEvents";
 import { redactForWire } from "./redaction";
 import { askCopilot, type CopilotAskBody } from "./stream";
 import type {
@@ -194,6 +195,13 @@ export interface CopilotConversation {
    * none of it and lose no outcome.
    */
   steps: CopilotStep[];
+  /**
+   * The run as it happens: its id and start (for the header and Stop), its thinking and
+   * steps in the order they came, and the script drafts it started. Never stored.
+   */
+  live: LiveRun;
+  /** A draft's own stream reached `phase`; `settled` once it was kept, discarded or ended. */
+  settleDraft: (proposalId: string, phase: string, settled: boolean) => void;
   /** True when the refusal on screen is the AI allowance ceiling (G-5, client realm). */
   atCeiling: boolean;
   ask: (question: string, files?: SentAttachment[]) => void;
@@ -215,6 +223,11 @@ export interface CopilotConversation {
    * question is still theirs and the partial answer is the thing they were reading.
    *
    * No-op when nothing is in flight, so a control bound to it is never a dead button.
+   *
+   * When the run said its id, Stop asks the server to stop it (which also ends the model
+   * call and cancels the run's drafts) and the run reads `stopping` until `stopped` arrives;
+   * a refused request or a server that stays silent past `STOP_GRACE_MS` falls back to
+   * closing the connection here.
    */
   stop: () => void;
   undo: () => void;
@@ -385,6 +398,11 @@ export function useCopilotConversation(
   const [charts, setCharts] = useState<ChartSpec[]>([]);
   const [navigation, setNavigation] = useState<CopilotNavigation | null>(null);
   const [steps, setSteps] = useState<CopilotStep[]>([]);
+  const [live, dispatchLive] = useReducer(liveRunReducer, IDLE_RUN);
+  //: The run Stop names, readable from a callback made before the `run` frame arrived.
+  const runId = useRef<string | null>(null);
+  //: Stop's fallback: closes the connection if `stopped` does not come.
+  const stopGrace = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // The in-flight request, so a second question cancels the first rather than
   // interleaving two answers into one bubble.
@@ -548,6 +566,7 @@ export function useCopilotConversation(
   useEffect(
     () => () => {
       inFlight.current?.abort();
+      if (stopGrace.current !== null) clearTimeout(stopGrace.current);
       clearFilled();
     },
     [],
@@ -594,14 +613,20 @@ export function useCopilotConversation(
     if (offerKey !== null) startedJobs.delete(offerKey);
     setNavigation(null);
     setSteps([]);
+    dispatchLive({ type: "reset" });
+    runId.current = null;
     clearFilled();
   }, [offerKey, queries, realm, session, setProposal]);
 
-  const stop = useCallback(() => {
+  /** Close the connection here and keep what arrived: Stop without the server's help. */
+  const stopLocally = useCallback(() => {
+    if (stopGrace.current !== null) clearTimeout(stopGrace.current);
+    stopGrace.current = null;
     const controller = inFlight.current;
     if (controller === null) return;
     inFlight.current = null;
     controller.abort();
+    dispatchLive({ type: "end", stopped: true, now: Date.now() });
     // KEPT, and appended here rather than left to the promise handlers: both of them
     // return early on an aborted signal (see `ask`), which is what makes a REPLACED
     // question drop its half answer. This is the one abort where that half is wanted.
@@ -617,6 +642,25 @@ export function useCopilotConversation(
     // NO `setError`: the person asked for this, and a refusal notice about their own
     // click is the console blaming them for using a control it offered.
   }, [appendTurn]);
+
+  const stop = useCallback(() => {
+    if (inFlight.current === null) return;
+    const id = runId.current;
+    // An older server sends no `run` frame, so there is nothing to name; the admin realm
+    // without a surface has no realm to pick the route by.
+    if (id === null || realm === null) {
+      stopLocally();
+      return;
+    }
+    if (stopGrace.current !== null) return;
+    dispatchLive({ type: "stopping" });
+    stopGrace.current = setTimeout(stopLocally, STOP_GRACE_MS);
+    requestStop(session, realm, id).catch(() => stopLocally());
+  }, [realm, session, stopLocally]);
+
+  const settleDraft = useCallback((proposalId: string, phase: string, settled: boolean) => {
+    dispatchLive({ type: "draftPhase", proposalId, phase, settled });
+  }, []);
 
   const dismissProposal = useCallback(() => setProposal(null), [setProposal]);
   const clearNavigation = useCallback(() => setNavigation(null), []);
@@ -666,6 +710,10 @@ export function useCopilotConversation(
       // navigate them out of the conversation they just started.
       setNavigation(null);
       setSteps([]);
+      dispatchLive({ type: "ask" });
+      runId.current = null;
+      if (stopGrace.current !== null) clearTimeout(stopGrace.current);
+      stopGrace.current = null;
       clearFilled();
       setError(null);
       setDisclosure(null);
@@ -725,12 +773,23 @@ export function useCopilotConversation(
       const priors = new Map<string, string>();
       const labels: string[] = [];
       const ids: string[] = [];
+      let stoppedByServer = false;
 
       void askCopilot(
         session,
         body,
         {
+          onRun: (run) => {
+            runId.current = run.run_id;
+            dispatchLive({ type: "run", frame: run, now: Date.now() });
+          },
+          onThought: (delta) => dispatchLive({ type: "thought", delta, now: Date.now() }),
+          onDraft: (draft) => dispatchLive({ type: "draft", frame: draft }),
+          onStopped: () => {
+            stoppedByServer = true;
+          },
           onText: (delta) => {
+            if (answerWire === "") dispatchLive({ type: "text", now: Date.now() });
             answerWire += delta;
             // Restored over the WHOLE answer, not the delta: a frame is a model chunk, and
             // a chunk boundary inside «PHONE_1» left both halves unmatched for good.
@@ -806,6 +865,7 @@ export function useCopilotConversation(
             // UPSERT BY `id`. The terminal frame REPLACES its own `running` one rather than
             // following it, so one call is one row that changes state — which is the whole
             // point of showing them.
+            dispatchLive({ type: "step", id: step.id, now: Date.now() });
             setSteps((previous) => {
               const at = previous.findIndex((existing) => existing.id === step.id);
               if (at === -1) return [...previous, step];
@@ -822,13 +882,22 @@ export function useCopilotConversation(
       )
         .then(() => {
           if (controller.signal.aborted) return;
-          appendTurn({ role: "assistant", content: answer, wire: answerWire, id: turnIds.answer });
+          if (stopGrace.current !== null) clearTimeout(stopGrace.current);
+          stopGrace.current = null;
+          // A stopped run keeps what it said, as Stop always has; an empty one adds no turn.
+          if (!stoppedByServer || answer !== "") {
+            appendTurn({ role: "assistant", content: answer, wire: answerWire, id: turnIds.answer });
+          }
           setStreaming(null);
           setAsking(false);
           setSteps(settleSteps);
+          dispatchLive({ type: "end", stopped: stoppedByServer, now: Date.now() });
         })
         .catch((cause: unknown) => {
           if (controller.signal.aborted) return;
+          if (stopGrace.current !== null) clearTimeout(stopGrace.current);
+          stopGrace.current = null;
+          dispatchLive({ type: "end", stopped: false, now: Date.now() });
           // Whatever DID arrive stays in the transcript. A dropped stream that erased
           // the half-answer would also erase the only explanation of the fields it had
           // already applied.
@@ -914,6 +983,8 @@ export function useCopilotConversation(
     navigation,
     clearNavigation,
     steps,
+    live,
+    settleDraft,
     atCeiling,
     // FETCHING, not merely pending: a paused query is `isPending` for as long as the
     // browser is offline, and a skeleton that never resolves is the un-actionable version

@@ -410,6 +410,16 @@ export function stubApi(routes: Routes): ApiCall[] {
         if (scoped === "GET /v1/live" || scoped === "GET /v1/admin/live") {
           return neverAnswers(init?.signal);
         }
+        // A SCRIPT DRAFT'S LIVE STREAM, answered "not here" by default: the campaign and line
+        // pages open it whenever Pip is writing or has written a draft, and without it they
+        // show their own writing line and part-by-part review, which is what every existing
+        // assertion was written against. A test about the live draft names the route itself.
+        if (/^GET \/v1\/(campaigns|inbound-lines)\/[^/]+\/script-draft\/stream$/.test(scoped)) {
+          return new Response(JSON.stringify({ title: "Not found", status: 404 }), {
+            status: 404,
+            headers: { "content-type": "application/problem+json" },
+          });
+        }
         recordUnanswered(scoped);
         throw new Error(
           `test stub has no route for ${scoped} — add it to the routes table, ` +

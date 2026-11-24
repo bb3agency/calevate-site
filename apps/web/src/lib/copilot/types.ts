@@ -1,3 +1,5 @@
+import type { StepResults } from "./liveEvents";
+
 /**
  * The vocabulary the screen assistant and the screens it can fill in agree on.
  *
@@ -422,6 +424,8 @@ export interface CopilotStep {
    * fill whose every field a later fill wrote reads as tried again (`StepList`).
    */
   field_ids?: string[] | null;
+  /** What a read tool found (campaigns, agents, sources, calls, leads), for the step's row. */
+  results?: StepResults | null;
 }
 
 /** One troubleshoot check's button: a console screen, or a sentence sent to Pip. */

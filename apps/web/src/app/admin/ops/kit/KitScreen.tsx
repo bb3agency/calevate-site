@@ -8,6 +8,7 @@ import { ContentSection } from "./sections/content";
 import { FeedbackSection } from "./sections/feedback";
 import { InputsSection } from "./sections/inputs";
 import { OverlaysSection } from "./sections/overlays";
+import { PipLiveSection } from "./sections/pipLive";
 import { StructureSection } from "./sections/structure";
 
 const CONTENTS = [
@@ -17,6 +18,7 @@ const CONTENTS = [
   { id: "charts", label: "Charts" },
   { id: "structure", label: "Structure" },
   { id: "content", label: "Content" },
+  { id: "pip-live", label: "Pip at work" },
 ] as const;
 
 /**
@@ -48,6 +50,7 @@ export function KitScreen() {
       <ChartsSection />
       <StructureSection />
       <ContentSection />
+      <PipLiveSection />
     </div>
   );
 }
