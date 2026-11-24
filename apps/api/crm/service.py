@@ -41,6 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_heal
 from apps.api.agents.business_hours import count_after_hours_calls
+from apps.api.agents.call_mistakes import StoredTurn, call_lookup_figures
 from apps.api.agents.call_mistakes import call_mistakes as read_call_mistakes
 from apps.api.agents.call_outcomes import outcome_lead_move
 from apps.api.billing.caps import read_spend_counters
@@ -616,6 +617,31 @@ def _timeline_out(value: object) -> list[TurnTimingOut] | None:
     ]
 
 
+async def _with_lookups(
+    session: AsyncSession,
+    quality: CallQualityOut,
+    *,
+    call_id: UUID,
+    agent_id: UUID,
+    turns: list[StoredTurn],
+    unheard: frozenset[int],
+) -> CallQualityOut:
+    """`quality` with the replies that needed a lookup and how many had one, worked out now
+    from the transcript, so a call from before the measure shows it too."""
+    if not turns:
+        return quality
+    figures = await call_lookup_figures(
+        session, call_id=call_id, agent_id=agent_id, turns=turns, unheard=unheard
+    )
+    return quality.model_copy(
+        update={
+            "lookups_needed": figures.needed,
+            "lookups_needed_done_min": figures.looked_up_min,
+            "lookups_needed_done_max": figures.looked_up_max,
+        }
+    )
+
+
 async def get_call(
     session: AsyncSession, call_id: UUID, *, raw: bool = False, operator: bool = False
 ) -> CallDetailOut:
@@ -733,6 +759,18 @@ async def get_call(
         extraction and isinstance(extraction[7], dict) and MODEL_FAILURE in extraction[7]
     )
     progress = await stored_progress(session, call_id)
+    quality = (
+        await _with_lookups(
+            session,
+            CallQualityOut.model_validate(row[31]),
+            call_id=call_id,
+            agent_id=row[1],
+            turns=[StoredTurn(t[0], t[1], t[2]) for t in turns],
+            unheard=unheard,
+        )
+        if isinstance(row[31], dict)
+        else None
+    )
     return CallDetailOut(
         id=row[0],
         agent_id=row[1],
@@ -776,7 +814,7 @@ async def get_call(
         inbound_line=_holder_ref(row[54], row[55]),
         language=_call_language(turns, agent_language=row[30]),
         extraction_model=extraction[5] if extraction else None,
-        quality=CallQualityOut.model_validate(row[31]) if isinstance(row[31], dict) else None,
+        quality=quality,
         timeline=_timeline_out(row[41]) if operator else None,
         signals=[CallSignalOut(kind=s[0], occurred_at=s[1]) for s in signals],
         transcript=[

@@ -96,7 +96,16 @@ describe("CallQualityCard", () => {
     const { container } = render(
       <CallQualityCard
         detail={detail({
-          quality: { turns: 9, answer_ms_median: 1480, reply_ms_median: 900, knowledge_turns: 3, interruptions: 2 },
+          quality: {
+            turns: 9,
+            answer_ms_median: 1480,
+            reply_ms_median: 900,
+            knowledge_turns: 3,
+            interruptions: 2,
+            lookups_needed: 2,
+            lookups_needed_done_min: 2,
+            lookups_needed_done_max: 2,
+          },
           signals: [{ kind: "slow_reply", occurred_at: null }],
           timeline: [TURN],
         })}
@@ -104,10 +113,64 @@ describe("CallQualityCard", () => {
     );
     expect(screen.getByText("Typical wait for an answer")).toBeTruthy();
     expect(screen.getByText("1.5 s")).toBeTruthy();
-    expect(screen.getByText("Replies that looked up your information")).toBeTruthy();
-    expect(screen.getByText("3 of 9")).toBeTruthy();
+    expect(screen.getByText("Looked up your information when it was needed")).toBeTruthy();
+    expect(screen.getByText("2 of 2")).toBeTruthy();
+    // Never a share of every reply: "3 of 9" read as a failure on a step-by-step call.
+    expect(screen.queryByText("3 of 9")).toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
     expect(container.textContent).not.toMatch(/first sound|filler|five seconds|talked over/i);
+  });
+
+  it("says no reply needed a lookup on a step-by-step call, never 0 of 0", () => {
+    const { container } = render(
+      <CallQualityCard
+        detail={detail({
+          quality: {
+            turns: 12,
+            knowledge_turns: 0,
+            lookups_needed: 0,
+            lookups_needed_done_min: 0,
+            lookups_needed_done_max: 0,
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText("No reply needed a lookup.")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/of 0|of 12/);
+  });
+
+  it("shows 0 of 1 when a stuck caller got no lookup, and 1 of 1 when a question did", () => {
+    const stuck = render(
+      <CallQualityCard
+        detail={detail({
+          quality: { knowledge_turns: 0, lookups_needed: 1, lookups_needed_done_min: 0, lookups_needed_done_max: 0 },
+        })}
+      />,
+    );
+    expect(stuck.getByText("0 of 1")).toBeTruthy();
+    stuck.unmount();
+    render(
+      <CallQualityCard
+        detail={detail({
+          quality: { knowledge_turns: 1, lookups_needed: 1, lookups_needed_done_min: 1, lookups_needed_done_max: 1 },
+        })}
+      />,
+    );
+    expect(screen.getByText("1 of 1")).toBeTruthy();
+  });
+
+  it("says up to when the count cannot say which replies looked up, and leaves out an unmeasured one", () => {
+    const range = render(
+      <CallQualityCard
+        detail={detail({
+          quality: { knowledge_turns: 2, lookups_needed: 2, lookups_needed_done_min: 0, lookups_needed_done_max: 2 },
+        })}
+      />,
+    );
+    expect(range.getByText("Up to 2 of 2")).toBeTruthy();
+    range.unmount();
+    render(<CallQualityCard detail={detail({ quality: { answer_ms_median: 900, lookups_needed: 1 } })} />);
+    expect(screen.queryByText("Looked up your information when it was needed")).toBeNull();
   });
 
   it("renders nothing for a call the platform reported nothing about", () => {

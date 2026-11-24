@@ -19180,6 +19180,12 @@ export interface components {
             long_silences?: number | null;
             /** Longest Silence S */
             longest_silence_s?: number | null;
+            /** Lookups Needed */
+            lookups_needed?: number | null;
+            /** Lookups Needed Done Max */
+            lookups_needed_done_max?: number | null;
+            /** Lookups Needed Done Min */
+            lookups_needed_done_min?: number | null;
             /** Model Errors */
             model_errors?: number | null;
             /** Reply Ms Max */

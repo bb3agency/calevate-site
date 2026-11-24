@@ -24,29 +24,33 @@ Only kinds the checks read without the agent's script, facts or tools are counte
 call. The rest need context a real call does not hand us here (`invented_source` needs the
 facts, `unconfirmed_action` the actions) or read digits that a real transcript's spelled-out
 numbers make unreliable, and a false mistake shown to an owner costs more trust than a
-missed one. `false_history` is the one kind read with the call's own data: whether the
-business had the person on file before the call, which the pipeline reads and hands in.
+missed one. Two kinds are read with the call's own data: `false_history`, with whether the
+business had the person on file before the call, which the pipeline reads and hands in; and
+`missed_lookup`, with the call's lookup count and the topics its script and known facts cover
+(`call_lookup_figures`).
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final, Literal, Protocol
 from uuid import UUID
 
+from calevate_shared.call_script import script_text
 from calevate_shared.cut_off import likely_cut_off_rows
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import mistake_fixes, turn_checks
+from apps.api.agents import hot_facts, mistake_fixes, turn_checks
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.crm.step_progress import StepProgress
+from apps.api.crm.step_progress import StepProgress, holder_script
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
+from apps.api.insights import detection
 
 log = get_logger(__name__)
 
@@ -184,6 +188,148 @@ def step_mistakes(progress: StepProgress | None) -> dict[str, int]:
 
 
 # --- end of the step-outcome block -----------------------------------------------------------
+
+# --- Lookups when they were needed (founder, 24 Nov 2026) ----------------------------------
+# "Replies that looked up your information: 0 of 12" read as a failure on a step-by-step call
+# that needed no lookup. The in-call rule asks for a search before answering about the
+# business, if stuck on a step, and before saying it does not know
+# (`calevate_shared.engine._knowledge_section`), so those replies are the ones measured.
+LESSONS["missed_lookup"] = Lesson(
+    "Did not look up your information when it was needed",
+    "Search the business's information before answering about it, or when the caller is "
+    "stuck on a step.",
+    "_knowledge_section: STUCK_SEARCH and FACTS_IN_KNOWLEDGE_GUIDANCE",
+)
+
+
+def needs_lookup(said: str, reply: str, *, covered: Collection[str] = ()) -> bool:
+    """Whether a reply to the caller line `said` needed a knowledge lookup.
+
+    Needed when the caller is stuck on a step (`turn_checks.says_stuck`), or asked something
+    (`detection.caller_asked`, which leaves out a request to hear it again) and either the
+    reply did not answer (`detection.is_gap`: "I don't know", a punt, "let me check") or the
+    question is about a business topic (`detection.topics_in`) that the script and the
+    agent's known facts do not cover (`covered`, from `lookup_covered_topics`). A question
+    with no topic ("how are you?") needs none: reading it as one would count a miss on every
+    pleasantry. A stuck caller needs one whatever the script says, because the step's own line
+    is what they are stuck on."""
+    if not said.strip() or turn_checks.caller_signs_off(said):
+        return False
+    if turn_checks.says_stuck(said) and not turn_checks.asks_to_repeat(said):
+        return True
+    if not detection.caller_asked(said):
+        return False
+    if detection.is_gap(said, reply) is not None:
+        return True
+    return bool(detection.topics_in(said) - set(covered))
+
+
+@dataclass(frozen=True, slots=True)
+class LookupFigures:
+    """The replies that needed a lookup and how many of them had one.
+
+    The voice platform reports only how many replies looked something up (`CallQuality.
+    knowledge_turns`), never which ones: its transcript turn is a speaker, the words and a
+    time (`CallTurn`, https://app.thinnest.ai/openapi.json, snapshot of 29 Oct 2026). So the
+    count among the needed replies is known exactly only when the bounds meet; otherwise it
+    lies between `looked_up_min` and `looked_up_max`. Both are None when the call has no
+    lookup count."""
+
+    needed: int
+    looked_up_min: int | None
+    looked_up_max: int | None
+    #: The first needed reply, when it certainly had no lookup (the call made none).
+    first_missed: int | None
+
+
+def lookup_figures(
+    turns: Sequence[SpokenTurn],
+    *,
+    unheard: Iterable[int] = (),
+    covered: Collection[str] = (),
+    knowledge_turns: int | None,
+    replies_counted: int | None = None,
+) -> LookupFigures:
+    """`LookupFigures` for a call. `replies_counted` is the platform's own count of answered
+    turns (`CallQuality.turns`), which the lookup count is a share of; ours stands in when it
+    has none."""
+    _opening, replies, _cut, _trailing = _replies(turns, frozenset(unheard))
+    needed = [
+        r.turn_idx
+        for r in replies
+        if needs_lookup(r.exchange.said, r.exchange.reply, covered=covered)
+    ]
+    if knowledge_turns is None:
+        return LookupFigures(len(needed), None, None, None)
+    total = max(replies_counted if replies_counted is not None else len(replies), len(needed))
+    looked = min(knowledge_turns, total)
+    low = max(0, looked - (total - len(needed)))
+    high = min(looked, len(needed))
+    missed = needed[0] if needed and looked == 0 else None
+    return LookupFigures(len(needed), low, high, missed)
+
+
+def lookup_mistakes(figures: LookupFigures) -> dict[str, int]:
+    """`missed_lookup` on the first needed reply, only when it certainly had no lookup. When
+    some replies looked something up and fewer than were needed, a miss is certain but its
+    turn is not, and a mistake pinned to the wrong line misleads more than one left out."""
+    return {} if figures.first_missed is None else {"missed_lookup": figures.first_missed}
+
+
+async def lookup_covered_topics(
+    session: AsyncSession, *, call_id: UUID, agent_id: UUID
+) -> frozenset[str]:
+    """The business topics the call's script and the agent's known facts already answer: the
+    agent's live script (its quick facts spliced in), the script of the campaign or inbound
+    line the call was on, and the known facts (`hot_facts`). Matched with the gap detector's
+    own topic words, so the two never disagree about what a topic is."""
+    body = (
+        await session.execute(
+            text(
+                "SELECT pv.body FROM agents a LEFT JOIN prompt_versions pv "
+                "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) WHERE a.id = :a"
+            ),
+            {"a": agent_id},
+        )
+    ).scalar()
+    holder = await holder_script(session, call_id)
+    known = await hot_facts.load_texts(session, agent_id=agent_id)
+    texts = [str(body or ""), script_text(holder) if holder is not None else "", *known]
+    return detection.topics_in(" ".join(texts))
+
+
+def _count(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+async def call_lookup_figures(
+    session: AsyncSession,
+    *,
+    call_id: UUID,
+    agent_id: UUID,
+    turns: Sequence[SpokenTurn],
+    unheard: Iterable[int] = (),
+) -> LookupFigures:
+    """`lookup_figures` with the call's stored lookup count and the topics its script and
+    known facts cover: what the pipeline records the mistake from and the call page shows, so
+    the two never disagree. Read again on every view, so a call from before this measure
+    shows it too."""
+    stored = (
+        await session.execute(
+            text("SELECT engine_quality FROM calls WHERE id = :c"), {"c": call_id}
+        )
+    ).scalar()
+    quality = stored if isinstance(stored, dict) else {}
+    return lookup_figures(
+        turns,
+        unheard=unheard,
+        covered=await lookup_covered_topics(session, call_id=call_id, agent_id=agent_id),
+        knowledge_turns=_count(quality.get("knowledge_turns")),
+        replies_counted=_count(quality.get("turns")),
+    )
+
+
+# --- end of the lookup block -----------------------------------------------------------------
 assert set(LESSONS) <= set(turn_checks.SOUND_KINDS | turn_checks.JOB_KINDS)
 
 #: How far back the owner's list and the admin roll-up look.
@@ -432,7 +578,9 @@ RECHECKED_KINDS: Final = ("said_again", "goodbye_while_asking")
 
 
 @dataclass(frozen=True, slots=True)
-class _StoredTurn:
+class StoredTurn:
+    """A `transcript_turns` row as `mistakes_in` reads it."""
+
     idx: int
     speaker: str
     text: str
@@ -466,7 +614,7 @@ async def recheck_call_mistakes(tenant_id: UUID) -> int:
                     {"c": call_id},
                 )
             ).all()
-            turns = [_StoredTurn(int(r[0]), str(r[1]), str(r[2] or "")) for r in rows]
+            turns = [StoredTurn(int(r[0]), str(r[1]), str(r[2] or "")) for r in rows]
             unheard = likely_cut_off_rows(
                 (int(r[0]), str(r[1]), len(r[2] or ""), r[3]) for r in rows
             )

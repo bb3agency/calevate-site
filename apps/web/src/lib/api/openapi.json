@@ -11705,6 +11705,39 @@
             ],
             "title": "Longest Silence S"
           },
+          "lookups_needed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lookups Needed"
+          },
+          "lookups_needed_done_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lookups Needed Done Max"
+          },
+          "lookups_needed_done_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lookups Needed Done Min"
+          },
           "model_errors": {
             "anyOf": [
               {
