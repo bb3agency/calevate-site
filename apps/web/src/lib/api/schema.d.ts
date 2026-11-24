@@ -7729,6 +7729,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/script-draft/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow Pip's draft of the campaign's script as it is written (server-sent events)
+         * @description A `text/event-stream` following the campaign's Pip draft (`campaigns/script_draft`). Events:
+         *
+         *     * `phase` · `{"phase": "reading"|"writing"|"checking"|"repairing"|"ready"|"failed"|"cancelled",
+         *       "detail": str|null}`, whenever it moves. `detail` is the failure note.
+         *     * `line` · `{"path": "stages.2.sounds_like", "label": "Step 3 · Greeting", "text": "..."}`,
+         *       every line of the written draft in script order, sent at `ready`.
+         *     * `diff` · `{"changes": [{"path", "label", "op": "added"|"removed"|"changed"|"same",
+         *       "before", "after"}], "proposal_id": "<uuid>"}`, once, after the lines.
+         *
+         *     The stream ends after `ready`, `failed` or `cancelled`. Opening it again replays the draft's
+         *     current state; with no draft it answers 404, which stops the browser reconnecting.
+         */
+        get: operations["stream_script_draft_v1_campaigns__campaign_id__script_draft_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script-draft/{proposal_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Pip's draft while it is written; the campaign stays as it was */
+        post: operations["cancel_script_draft_v1_campaigns__campaign_id__script_draft__proposal_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script-draft/{proposal_id}/keep-live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Keep Pip's written draft as the campaign's script and put it live, as Save does
+         * @description The script before Pip's draft stays as the switch-back copy (`restore-before-pip`).
+         */
+        post: operations["keep_script_draft_live_v1_campaigns__campaign_id__script_draft__proposal_id__keep_live_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/script/proposal": {
         parameters: {
             query?: never;
@@ -7774,6 +7841,23 @@ export interface paths {
         put?: never;
         /** Put back the script from before Pip's last draft (the two swap) */
         post: operations["restore_script_before_pip_v1_campaigns__campaign_id__script_restore_before_pip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script/step-outcomes/rewrite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Give every step outcome back to Pip to rewrite */
+        post: operations["rewrite_step_outcomes_v1_campaigns__campaign_id__script_step_outcomes_rewrite_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10641,6 +10725,63 @@ export interface paths {
         /** Save the line's script and put it live on its numbers */
         put: operations["save_script_v1_inbound_lines__line_id__script_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script-draft/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow Pip's draft of the line's script as it is written (server-sent events)
+         * @description A `text/event-stream` following the line's Pip draft, with exactly the events of
+         *     `GET /v1/campaigns/{campaign_id}/script-draft/stream`: `phase`, then at `ready` every `line`
+         *     and one `diff`. It ends after `ready`, `failed` or `cancelled`; opening it again replays the
+         *     draft's current state, and a line with no draft answers 404.
+         */
+        get: operations["stream_script_draft_v1_inbound_lines__line_id__script_draft_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script-draft/{line_proposal_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Pip's draft while it is written; the line stays as it was */
+        post: operations["cancel_script_draft_v1_inbound_lines__line_id__script_draft__line_proposal_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script-draft/{line_proposal_id}/keep-live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Keep Pip's written draft as the line's script and put it live, as Save does */
+        post: operations["keep_script_draft_live_v1_inbound_lines__line_id__script_draft__line_proposal_id__keep_live_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -23950,6 +24091,11 @@ export interface components {
             expires_in_s: number;
             /** Url */
             url: string;
+        };
+        /** DraftCancelOut */
+        DraftCancelOut: {
+            /** Cancelled */
+            cancelled: boolean;
         };
         /** DraftOut */
         DraftOut: {
@@ -40154,6 +40300,11 @@ export interface components {
             /** Status */
             status: string;
             /**
+             * Step Outcomes By Owner
+             * @default false
+             */
+            step_outcomes_by_owner: boolean;
+            /**
              * Step Outcomes Pending
              * @default false
              */
@@ -54403,6 +54554,108 @@ export interface operations {
             };
         };
     };
+    stream_script_draft_v1_campaigns__campaign_id__script_draft_stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    cancel_script_draft_v1_campaigns__campaign_id__script_draft__proposal_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftCancelOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    keep_script_draft_live_v1_campaigns__campaign_id__script_draft__proposal_id__keep_live_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description The draft is not the one ready now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     request_proposal_v1_campaigns__campaign_id__script_proposal_post: {
         parameters: {
             query?: never;
@@ -54469,6 +54722,37 @@ export interface operations {
         };
     };
     restore_script_before_pip_v1_campaigns__campaign_id__script_restore_before_pip_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    rewrite_step_outcomes_v1_campaigns__campaign_id__script_step_outcomes_rewrite_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -59888,6 +60172,117 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["InboundLineOut"];
                 };
+            };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    stream_script_draft_v1_inbound_lines__line_id__script_draft_stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    cancel_script_draft_v1_inbound_lines__line_id__script_draft__line_proposal_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+                line_proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftCancelOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    keep_script_draft_live_v1_inbound_lines__line_id__script_draft__line_proposal_id__keep_live_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+                line_proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundLineOut"];
+                };
+            };
+            /** @description The draft is not the one ready now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC 9457 problem+json */
             422: {

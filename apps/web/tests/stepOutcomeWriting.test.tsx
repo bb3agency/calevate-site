@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { CampaignWorkspace } from "@/app/c/[slug]/campaigns/CampaignWorkspace";
@@ -112,5 +112,45 @@ describe("withPipOutcomes", () => {
 
     const removed: CallScript = { ...SCRIPT, stages: [stage({ id: "other", name: "Other", step: 1 })] };
     expect(withPipOutcomes(removed, before, after).step_outcomes ?? []).toEqual([]);
+  });
+
+  it("takes Pip's rewrite where the draft still holds the outcome it replaced, never the owner's edit", () => {
+    const had = setOutcome(setOutcome(SCRIPT, 1, WRITTEN), 2, "They are thanked.");
+    const rewritten = setOutcome(setOutcome(had, 1, "The person says they know the shop."), 2, "The person is thanked.");
+    const draft = setOutcome({ ...had, goal: "Owner's unsaved goal." }, 2, "Owner's own thanks.");
+    const merged = withPipOutcomes(draft, had, rewritten);
+    expect(outcomeOf(merged, 1)).toBe("The person says they know the shop.");
+    expect(outcomeOf(merged, 2)).toBe("Owner's own thanks.");
+  });
+});
+
+describe("giving the outcomes back to Pip", () => {
+  it("is one button, asked in a dialog, that sends one request", async () => {
+    const { calls } = await renderClientPage(
+      <CampaignWorkspace campaignId={FIXTURE_CAMPAIGN_ID} canWrite />,
+      {
+        ...routes(workspaceFixture({ script: setOutcome(SCRIPT, 1, WRITTEN), step_outcomes_by_owner: true })),
+        [`POST ${base}/script/step-outcomes/rewrite`]: workspaceFixture({
+          script: setOutcome(SCRIPT, 1, WRITTEN),
+          step_outcomes_pending: true,
+        }),
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Let Pip rewrite the outcomes" }));
+    await screen.findByRole("dialog");
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Rewrite them" }));
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === "POST" && c.path === `${base}/script/step-outcomes/rewrite`)).toHaveLength(1),
+    );
+  });
+
+  it("is not offered while every outcome is Pip's", async () => {
+    await renderClientPage(
+      <CampaignWorkspace campaignId={FIXTURE_CAMPAIGN_ID} canWrite />,
+      routes(workspaceFixture({ script: setOutcome(SCRIPT, 1, WRITTEN), step_outcomes_by_owner: false })),
+    );
+    await screen.findAllByRole("textbox", { name: /Outcome of this step/ });
+    expect(screen.queryByRole("button", { name: "Let Pip rewrite the outcomes" })).toBeNull();
   });
 });

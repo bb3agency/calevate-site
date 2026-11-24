@@ -72,9 +72,16 @@ export function CampaignFlow({
   restore,
   onRestore,
   outcomesPending = false,
+  outcomesByOwner = false,
+  rewriteOutcomes,
+  onRewriteOutcomes,
 }: {
   /** Pip is writing the outcome of each step that has none (D-1036). */
   outcomesPending?: boolean;
+  /** An outcome is not one Pip wrote, so they can all be given back to Pip to rewrite. */
+  outcomesByOwner?: boolean;
+  rewriteOutcomes?: ActionFeedback<void>;
+  onRewriteOutcomes?: () => Promise<unknown>;
   /** When the flow from before Pip's last draft was kept aside; null: nothing to put back. */
   beforePipAt: string | null;
   restore: ActionFeedback<void>;
@@ -195,6 +202,7 @@ export function CampaignFlow({
   };
 
   const [confirmRestore, setConfirmRestore] = useState(false);
+  const [confirmRewrite, setConfirmRewrite] = useState(false);
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
       {!readOnly && (
@@ -246,6 +254,17 @@ export function CampaignFlow({
         >
           <History aria-hidden className="h-3.5 w-3.5" />
           Put back the flow from before Pip
+        </button>
+      )}
+      {outcomesByOwner && onRewriteOutcomes && (
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_SM}
+          disabled={readOnly || dirty || outcomesPending}
+          title={dirty ? "Save or discard your changes first." : undefined}
+          onClick={() => setConfirmRewrite(true)}
+        >
+          Let Pip rewrite the outcomes
         </button>
       )}
       <button
@@ -409,6 +428,33 @@ export function CampaignFlow({
             The steps and scenarios go back to how they were on{" "}
             {formatIST(beforePipAt)}, before Pip wrote. The flow you have now is
             kept, so you can switch back to it the same way.
+          </span>
+        </ConfirmDialog>
+      )}
+
+      {confirmRewrite && rewriteOutcomes && onRewriteOutcomes && (
+        <ConfirmDialog
+          title="Let Pip rewrite the outcomes?"
+          confirmLabel="Rewrite them"
+          pendingLabel="Asking Pip"
+          cancelLabel="Keep them"
+          status={rewriteOutcomes.status}
+          error={rewriteOutcomes.error ?? null}
+          onCancel={() => {
+            rewriteOutcomes.reset();
+            setConfirmRewrite(false);
+          }}
+          onConfirm={() =>
+            void onRewriteOutcomes().then(
+              () => setConfirmRewrite(false),
+              () => undefined,
+            )
+          }
+        >
+          <span className="block">
+            Pip writes every step&apos;s outcome again, ones you typed included.
+            After that, Pip keeps its own outcomes up to date and never touches one
+            you change.
           </span>
         </ConfirmDialog>
       )}

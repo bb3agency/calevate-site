@@ -29,6 +29,7 @@ import {
   useClearCampaignProposal,
   useRequestCampaignScript,
   useRestoreScriptBeforePip,
+  useRewriteStepOutcomes,
   useSaveCampaignScript,
   useSaveMainTask,
   useSetCampaignSources,
@@ -309,6 +310,8 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const save = useSaveCampaignScript(session, campaignId);
   const restore = useRestoreScriptBeforePip(session, campaignId);
   const restoreFeedback = useActionFeedback(restore, { errorDisplay: "inline", successToast: "Flow put back" });
+  const rewrite = useRewriteStepOutcomes(session, campaignId);
+  const rewriteFeedback = useActionFeedback(rewrite, { errorDisplay: "inline", successToast: "Pip is rewriting the outcomes" });
   const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
   useActionFeedback(save, { errorDisplay: "inline" });
   const ask = useRequestCampaignScript(session, campaignId);
@@ -485,6 +488,9 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                 outcomesPending={space.step_outcomes_pending}
                 restore={restoreFeedback}
                 onRestore={() => restore.mutateAsync()}
+                outcomesByOwner={space.step_outcomes_by_owner}
+                rewriteOutcomes={rewriteFeedback}
+                onRewriteOutcomes={() => rewrite.mutateAsync()}
                 onMapScenarios={
                   main ? () => askFeedback.run({ part: FLOW_PART, language: main }) : undefined
                 }
