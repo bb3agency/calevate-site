@@ -121,7 +121,10 @@ describe("stopping an endpoint is confirmed, named and explained", () => {
     // The visible label states the operation. "Turn off" described a toggle for what is
     // a delete — a match-between-system-and-real-world failure independent of the
     // missing confirmation.
-    expect(screen.getAllByText("Stop sending events")).toHaveLength(2);
+    expect(stopButtons().map((b) => b.textContent)).toEqual([
+      expect.stringContaining("Stop sending events"),
+      expect.stringContaining("Stop sending events"),
+    ]);
     // …and each button's accessible name carries its own row, so two endpoints are two
     // distinct announcements.
     expect(stopButtons().map((b) => b.getAttribute("aria-label"))).toEqual([

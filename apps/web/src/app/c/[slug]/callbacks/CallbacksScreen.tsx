@@ -21,7 +21,6 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
@@ -336,28 +335,29 @@ export function CallbacksScreen() {
         row.status === "scheduled" && write.allowed ? (
           // Two equal buttons, side by side and full width on a phone (44px targets).
           <div className="grid grid-cols-2 gap-2 max-sm:pt-1 sm:flex sm:justify-end">
-            <button
-              type="button"
+            <ActionButton
+              variant="secondary-sm"
               // Not while this call-back is being called off: there may be nothing left to move.
               disabled={cancel.isPending && cancel.variables === row.id}
               onClick={() => {
                 move.reset();
                 setMoving({ ids: [row.id], one: row });
               }}
-              className={`${SECONDARY_BUTTON_SM} justify-center whitespace-nowrap max-sm:min-h-11`}
+              className="whitespace-nowrap max-sm:min-h-11"
             >
               <CalendarClock aria-hidden className="h-3.5 w-3.5" />
               Move
-            </button>
-            <button
-              type="button"
-              disabled={cancel.isPending && cancel.variables === row.id}
+            </ActionButton>
+            <ActionButton
+              variant="secondary-sm"
+              status={cancel.isPending && cancel.variables === row.id ? "pending" : "idle"}
+              pendingLabel="Calling off…"
               onClick={() => setStopping(row)}
-              className={`${SECONDARY_BUTTON_SM} justify-center whitespace-nowrap max-sm:min-h-11`}
+              className="whitespace-nowrap max-sm:min-h-11"
             >
               <PhoneOff aria-hidden className="h-3.5 w-3.5" />
-              {cancel.isPending && cancel.variables === row.id ? "Calling off…" : "Call off"}
-            </button>
+              Call off
+            </ActionButton>
           </div>
         ) : row.status === "dialing" ? (
           <span className="text-meta text-ink-faint">Too late to stop</span>
@@ -604,9 +604,9 @@ function MoveDialog({
       onClose={onClose}
       actions={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onClose} disabled={status === "pending"}>
+          <ActionButton variant="secondary" onClick={onClose} disabled={status === "pending"}>
             Cancel
-          </button>
+          </ActionButton>
           <ActionButton status={status} successLabel="Moved" pendingLabel="Moving…" onClick={submit}>
             {one ? "Move it" : "Move them"}
           </ActionButton>

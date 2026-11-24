@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
 import { StatusPill } from "@/components/console/statusPill";
 import {
@@ -197,6 +197,8 @@ function DeskRow({
   const answers = lookup(ANSWERS, request.kind) ?? [];
   const isOpen = request.status === "open";
   const finish = (body: RightsRequestCloseIn) => close.mutate({ id: request.id, body });
+  // The answer being sent spins; the row's other answers hold until it lands.
+  const pressed = (outcome: Outcome) => close.isPending && close.variables?.body.outcome === outcome;
 
   return (
     <li className="space-y-2 px-4 py-3">
@@ -226,26 +228,26 @@ function DeskRow({
             </button>
           )}
           {answers.map((answer) => (
-            <button
+            <ActionButton
               key={answer.outcome}
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={!canWrite || close.isPending}
+              variant="secondary-sm"
+              status={pressed(answer.outcome) ? "pending" : "idle"}
+              disabled={!canWrite || (close.isPending && !pressed(answer.outcome))}
               title={writeReason ?? undefined}
               onClick={() => finish({ status: "answered", outcome: answer.outcome })}
             >
               {answer.label}
-            </button>
+            </ActionButton>
           ))}
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={!canWrite || close.isPending}
+          <ActionButton
+            variant="secondary-sm"
+            status={pressed("identity_not_confirmed") ? "pending" : "idle"}
+            disabled={!canWrite || (close.isPending && !pressed("identity_not_confirmed"))}
             title={writeReason ?? undefined}
             onClick={() => finish({ status: "refused", outcome: "identity_not_confirmed" })}
           >
             {COPY.refuseIdentity}
-          </button>
+          </ActionButton>
         </div>
       )}
       {close.error && <ProblemNotice error={close.error} />}
@@ -327,9 +329,14 @@ function LogForm({
         <span className={FIELD_HINT}>{COPY.askedHint}</span>
       </label>
       {log.error && <ProblemNotice error={log.error} />}
-      <button type="submit" className={PRIMARY_BUTTON} disabled={!phone.trim() || log.isPending}>
-        {log.isPending ? COPY.logging : COPY.logSubmit}
-      </button>
+      <ActionButton
+        type="submit"
+        status={log.isPending ? "pending" : "idle"}
+        pendingLabel={COPY.logging}
+        disabled={!phone.trim()}
+      >
+        {COPY.logSubmit}
+      </ActionButton>
     </form>
   );
 }

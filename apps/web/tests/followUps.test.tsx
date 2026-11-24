@@ -362,7 +362,7 @@ describe("the Follow-ups list", () => {
     expect(sent.steps.length).toBeGreaterThan(0);
     expect(sent.steps.some((step: Record<string, unknown>) => "summary" in step)).toBe(false);
     // Made, and the page is moving to it: a second press must not make a second draft.
-    await waitFor(() => expect((starter as HTMLButtonElement).disabled).toBe(true));
+    await waitFor(() => expect(starter.getAttribute("aria-disabled")).toBe("true"));
     await act(async () => {
       fireEvent.click(starter);
     });

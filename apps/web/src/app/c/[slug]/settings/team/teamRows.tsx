@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { LoaderCircle } from "lucide-react";
 
 import type { DataColumn } from "@/components/console/dataTable";
 import { InfoTip } from "@/components/console/infoTip";
@@ -293,14 +294,19 @@ function InviteButtons({
       >
         Send again
       </ActionButton>
+      {/* Not `ActionButton`: it has no danger-text variant. Same convention by hand: spins
+          while cancelling, and `aria-disabled` refuses a press while either action runs. */}
       <button
         type="button"
-        disabled={sending || revoking}
+        aria-disabled={sending || revoking || undefined}
         aria-busy={revoking || undefined}
-        onClick={() => ctx.onRevoke(row.invitation)}
+        onClick={() => {
+          if (!sending && !revoking) ctx.onRevoke(row.invitation);
+        }}
         aria-label={`Cancel the invitation to ${who}`}
-        className={TEXT_ACTION_DANGER}
+        className={`${TEXT_ACTION_DANGER} ${revoking ? "cursor-progress" : sending ? "cursor-not-allowed opacity-50" : ""}`}
       >
+        {revoking ? <LoaderCircle aria-hidden className="h-4 w-4 motion-safe:animate-spin" /> : null}
         {revoking ? "Cancelling…" : statusFor(ctx.revokeStatus, row.invitation.id) === "error" ? "Try again" : "Cancel"}
       </button>
     </span>
