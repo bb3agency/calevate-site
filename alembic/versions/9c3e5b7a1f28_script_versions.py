@@ -1,7 +1,7 @@
 """Every saved version of a campaign's or inbound line's script (D-1039)
 
 Revision ID: 9c3e5b7a1f28
-Revises: c4f1a8d2e7b3
+Revises: f7a3c9d1b5e2
 Create Date: 2026-11-24 22:00:00.000000
 
 `script_versions`: one row per write of a holder's script (`campaigns/script_history`), with
@@ -33,7 +33,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "9c3e5b7a1f28"
-down_revision: str | None = "c4f1a8d2e7b3"
+down_revision: str | None = "f7a3c9d1b5e2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

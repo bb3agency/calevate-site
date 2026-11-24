@@ -315,7 +315,7 @@ async def test_a_team_address_is_added_and_removed() -> None:
     contact_id = str(row[0])
     assert row[1] == "desk@example.com"
     # Another account's id is not found: RLS, not a WHERE clause.
-    with pytest.raises(ProblemError):
+    with pytest.raises(write_tools.WriteRefusedError):
         await _propose(
             other_id,
             other_token,
@@ -475,7 +475,7 @@ async def test_knowledge_refresh_takes_only_a_file_or_link() -> None:
 async def test_a_connection_from_nowhere_is_not_found() -> None:
     tenant_id, _slug, token = await _make_tenant()
     missing = str(uuid.uuid4())
-    with pytest.raises(ProblemError):
+    with pytest.raises(write_tools.WriteRefusedError):
         await _propose(tenant_id, token, "connection_disconnect", {"connection_id": missing})
     checked = await _read("connection_check", tenant_id, {"connection_id": missing})
     assert checked == "No connection with that id in this account."

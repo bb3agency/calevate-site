@@ -342,21 +342,26 @@ async def test_a_read_tools_not_found_is_a_correction_too() -> None:
     async def _raise(*_: Any) -> str:
         raise ProblemError.not_found("Agent")
 
-    tool = service._correcting(
-        tools_module.ReadTool(
-            name="agent_settings",
-            description="x",
-            parameters={},
-            permission="agents:read",
-            run=_raise,
-        )
+    tool = tools_module.ReadTool(
+        name="agent_settings",
+        description="x",
+        parameters={},
+        permission="agents:read",
+        run=_raise,
     )
-    context = tools_module.ToolContext(tenant_id=tenant_id, role="owner")
-    async with tenant_session(tenant_id) as session:
-        told = await tool.run(session, context, {"agent_id": str(campaign_id)})
-        assert "is the campaign" in told
-        told = await tool.run(session, context, {"agent_id": str(await _agent_of(tenant_id))})
-        assert told.startswith("Not found:")
+
+    async def _read(agent_id: UUID) -> str:
+        return await tools_module.run_read_tool(
+            tool.name,
+            json.dumps({"agent_id": str(agent_id)}),
+            context=tools_module.ToolContext(tenant_id=tenant_id, role="owner"),
+            registry={tool.name: tool},
+        )
+
+    told = await _read(campaign_id)
+    assert "is the campaign" in told
+    told = await _read(await _agent_of(tenant_id))
+    assert told.startswith("Not read: Agent not found.")
 
 
 # --- the guard: nothing raw reaches a person ----------------------------------------------

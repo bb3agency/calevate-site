@@ -38,6 +38,15 @@ export const END_NAMES: Record<string, string> = {
 };
 
 /**
+ * The call's first words as stored: a "both" agent's line for calls it places when it has
+ * one (D-920), else the opening line. `placed` says which.
+ */
+export function openingOf(script: CallScript): { line: string; placed: boolean } {
+  const placed = (script.outbound_opening_line ?? "") !== "";
+  return { line: (placed ? script.outbound_opening_line ?? "" : script.opening_line).trim(), placed };
+}
+
+/**
  * Each section's step. A section with none (a script drawn before scenarios) is its own
  * step, the one after the section before it.
  */
@@ -114,23 +123,27 @@ export function setOutcome(script: CallScript, step: number, outcome: string): C
 }
 
 /**
- * The owner's unsaved `draft` with the outcomes Pip wrote into the saved script since
- * `before` (D-1036). Each goes on the draft's step that holds the same scenarios, only while
- * that step has no outcome there: anything the owner typed stays theirs, and an outcome
- * whose scenarios the owner has since split up or removed is left out.
+ * The owner's unsaved `draft` with the outcomes Pip wrote or rewrote into the saved script
+ * since `before` (D-1036). Each goes on the draft's step that holds the same scenarios, only
+ * while that step has no outcome there or still has the one Pip replaced: anything the owner
+ * typed stays theirs, and an outcome whose scenarios the owner has since split up or removed
+ * is left out. Without the second case a rewrite would be lost, and saving the old text
+ * would make it the owner's.
  */
 export function withPipOutcomes(draft: CallScript, before: CallScript, after: CallScript): CallScript {
-  const had = new Set((before.step_outcomes ?? []).map((o) => o.step));
+  const had = new Map((before.step_outcomes ?? []).map((o) => [o.step, o.outcome]));
   const afterPlaced = placed(sectionsOf(after));
   const draftStep = new Map(placed(sectionsOf(draft)).map((p) => [p.section.id, p.step]));
   let out = draft;
   for (const o of after.step_outcomes ?? []) {
-    if (had.has(o.step)) continue;
+    const replaced = had.get(o.step);
+    if (replaced === o.outcome) continue;
     const ids = afterPlaced.filter((p) => p.step === o.step).map((p) => p.section.id);
     const steps = new Set(ids.map((id) => draftStep.get(id)));
     const [step] = [...steps];
     if (ids.length === 0 || steps.size !== 1 || step === undefined) continue;
-    if (outcomeOf(out, step).trim()) continue;
+    const mine = outcomeOf(out, step);
+    if (mine.trim() && mine !== replaced) continue;
     out = setOutcome(out, step, o.outcome);
   }
   return out;

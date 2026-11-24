@@ -650,7 +650,10 @@ async def _plan_pause(session: AsyncSession, actor: ToolActor, args: Mapping[str
     del actor
     row = await _row(session, parse_args(_OneArgs, args).follow_up_id)
     if row.status != "live":
-        raise WriteRefusedError(f"only a Follow-up that is on can be paused; it is {_status(row)}")
+        raise WriteRefusedError(
+            f"only a Follow-up that is on can be paused; it is {_status(row)}",
+            plain="That Follow-up is not on, so there is nothing to pause.",
+        )
     going = await _going(session, row)
     return Plan(
         object_id=str(row.id),
@@ -693,7 +696,14 @@ async def _plan_resume(session: AsyncSession, actor: ToolActor, args: Mapping[st
     del actor
     row = await _row(session, parse_args(_OneArgs, args).follow_up_id)
     if row.status not in ("paused", "off"):
-        raise WriteRefusedError(f"only a paused or turned-off one can resume; it is {_status(row)}")
+        raise WriteRefusedError(
+            f"only a paused or turned-off one can resume; it is {_status(row)}",
+            plain=(
+                "That Follow-up is already on."
+                if row.status == "live"
+                else "That Follow-up hasn't been put on yet. Publish it first."
+            ),
+        )
     if row.live_version_id is None:
         raise WriteRefusedError("it was never published; propose follow_up_publish instead")
     live = await runner.version(session, row.live_version_id)

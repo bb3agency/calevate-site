@@ -942,6 +942,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         {"expected_version_id": None},
         {},
     ),
+    ("POST", "/v1/campaigns/{campaign_id}/script/step-outcomes/rewrite", {}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/script/proposal/{proposal_id}", {}, {}),
     # Pip live (24 Nov 2026): a neighbour's draft followed, kept live or cancelled.
     ("GET", "/v1/campaigns/{campaign_id}/script-draft/stream", {}, {}),
@@ -1420,6 +1421,12 @@ _NOT_AN_OBJECT_REFERENCE: dict[str, str] = {
     ),
     "POST /v1/teach/questions/{key}/dismiss": (
         "`key` is a topic key, as for /answer; it names no row a neighbour owns."
+    ),
+    "POST /v1/copilot/runs/{run_id}/stop": (
+        "a run id names an answer in flight, not a row; the route answers 202 with the same "
+        "body to every caller and stops only a run whose recorded owner is the caller "
+        "(`copilot/run_control.request_stop`), so a neighbour's id does nothing and reveals "
+        "nothing. `copilot/run_control_test` pins that."
     ),
 }
 

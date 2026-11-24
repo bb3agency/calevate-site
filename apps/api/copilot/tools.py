@@ -64,9 +64,10 @@ from apps.api.analytics import service as analytics
 from apps.api.analytics.schemas import CallGroupBy, SummaryBucket
 from apps.api.billing.plans import IST
 from apps.api.campaigns import service as campaigns_service
-from apps.api.copilot import lens_args
+from apps.api.copilot import id_kinds, lens_args, step_results
 from apps.api.copilot.prompt import defuse, function_tool
 from apps.api.copilot.sanitize import strip_invisible
+from apps.api.copilot.step_results import ResultRow
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -668,6 +669,8 @@ def _lead_line(lead: LeadOut) -> str:
             lead.phone_e164,
             f"updated {ist_date(lead.updated_at)}",
             f"owner {lead.assigned_to_name}" if lead.assigned_to_name else None,
+            # The id the lead actions take; the console reads send the model here for it.
+            f"[lead_id {lead.id}]",
         )
         if part
     )
@@ -711,6 +714,18 @@ async def _leads_search(
         assigned_to=scope.assigned_to,
         field_filters=scope.field_filters,
         more=scope.more,
+    )
+    # The rows the step can open (`step_results`). No phone: a row is for recognising.
+    step_results.offer(
+        (
+            ResultRow(
+                title=lead.name or "No name",
+                subtitle=f"{lead.status} · {lead.call_count} call(s)",
+                href=f"/c/{{slug}}/leads/{lead.id}",
+            )
+            for lead in page.items
+        ),
+        total=page.total,
     )
     lines = [_lead_line(lead) for lead in page.items]
     label = f"leads{f' with status {asked}' if asked else ''}"
@@ -829,6 +844,24 @@ async def _calls_recent(
             return "No calls match these filters."
     else:
         total = 0
+    step_results.offer(
+        (
+            ResultRow(
+                title=" · ".join(
+                    part
+                    for part in (
+                        ist_date(call.started_at) if call.started_at else "Not started",
+                        call.direction,
+                    )
+                    if part
+                ),
+                subtitle=" · ".join(part for part in (call.status, call.agent_name) if part),
+                href=f"/c/{{slug}}/calls/{call.id}",
+            )
+            for call in rows
+        ),
+        total=total,
+    )
     lines = [
         " · ".join(
             part
@@ -842,6 +875,8 @@ async def _calls_recent(
                 f"Inbound line {call.inbound_line.name}" if call.inbound_line else None,
                 call.outcome_tag,
                 (call.summary or "")[:120] or None,
+                # The id `call_detail` and the call actions take.
+                f"[call_id {call.id}]",
             )
             if part
         )
@@ -888,6 +923,17 @@ async def _campaigns_list(
     # Tenancy is the RLS session this was handed, not an argument — see `_Executor`.
     del context
     rows = await campaigns_service.list_campaigns(session, limit=MAX_ROWS)
+    step_results.offer(
+        (
+            ResultRow(
+                title=str(row["name"]),
+                subtitle=str(row["status"]),
+                href=f"/c/{{slug}}/campaigns/{row['id']}",
+            )
+            for row in rows
+        ),
+        total=len(rows),
+    )
     lines = [
         " · ".join(
             part
@@ -915,11 +961,28 @@ async def _campaigns_list(
                 f"blocked: {row['consent_provenance_blocker']}"
                 if row["consent_provenance_blocker"]
                 else None,
+                # The id every campaign action takes; without it a campaign the person
+                # names from the dashboard has nothing to act on.
+                f"[campaign_id {row['id']}]",
             )
             if part
         )
         for row in rows
     ]
+    # The Archived tab is on the person's screen too; without these the model told an
+    # owner looking at an archived campaign that it did not exist.
+    archived = await campaigns_service.list_campaigns(session, limit=_ARCHIVED_SHOWN, archived=True)
+    footer = (
+        " Archived (restore one with `campaign_restore` before acting on it): "
+        + "; ".join(
+            f"{row['name']} · {row['status']} [campaign_id {row['id']}]" for row in archived
+        )
+        + "."
+        if archived
+        else ""
+    )
+    if not rows and archived:
+        return _clean("Every campaign in this account is archived." + footer)
     return _clean(
         _listing(
             lines,
@@ -934,6 +997,7 @@ async def _campaigns_list(
                 ),
             ),
         )
+        + footer
     )
 
 
@@ -968,6 +1032,17 @@ async def _agents_list(session: AsyncSession, context: ToolContext, args: Mappin
     # answered from a page silently capped at ten, reported as "there may be more", is the
     # truncation this module's docstring names as how a copilot comes to miscount.
     rows = await roster.list_agents(session, limit=_cap(args.get("limit"), default=MAX_ROWS))
+    step_results.offer(
+        (
+            ResultRow(
+                title=agent.name,
+                subtitle=f"{agent.direction} · {agent.status}",
+                href=f"/c/{{slug}}/agents/{agent.id}",
+            )
+            for agent in rows
+        ),
+        total=len(rows),
+    )
     lines = [
         " · ".join(
             part
@@ -1035,6 +1110,9 @@ async def _agents_list(session: AsyncSession, context: ToolContext, args: Mappin
 #: Deleted agents named after the roster, newest first, so `agent_restore` has an id. A
 #: handful: the archive is the one unbounded bucket (`roster.list_agents`).
 _DELETED_SHOWN: Final = 5
+
+#: Archived campaigns named after the list, newest first, so `campaign_restore` has an id.
+_ARCHIVED_SHOWN: Final = 10
 
 
 def _deleted_footer(deleted: Sequence[AgentOut]) -> str:
@@ -1779,6 +1857,26 @@ async def run_read_tool(
             result = await _run_scoped(tool, context, parsed)
         finally:
             _UNMASKED.reset(token)
+    except ProblemError as problem:
+        # An answer, not an outage: the id names nothing here, or a value was refused.
+        # Reporting it as "could not be read just now" sent the model to tell the person
+        # the system was down, and paged an operator for a wrong id.
+        log.info("copilot_tool_refused", extra={"tool": name, "code": problem.code})
+        if tool.scope == "tenant":
+            # An id the model put in the wrong argument is named, with the way back.
+            fix: str | None = None
+            try:
+                fix = await id_kinds.correction(context.tenant_id, name, arguments, problem)
+            except Exception:
+                # The sentence below is still right, only less helpful.
+                log.exception("copilot_id_correction_failed", extra={"tool": name})
+            if fix is not None:
+                return f"Not read: {fix}."
+        return (
+            f"Not read: {problem.title}. {problem.detail} Check the ids and values against "
+            "the lookup that lists them and call again, or ask the person which one they "
+            "mean. Do not tell them it does not exist until you have checked."
+        )
     except Exception:
         # Ids only (hard rule 6) — never the arguments, which the model composed from
         # screen content, and never the result.

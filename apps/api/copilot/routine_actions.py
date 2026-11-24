@@ -20,6 +20,7 @@ from typing import Annotated, Any, Final
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.plans import IST
@@ -144,8 +145,22 @@ class _CreateArgs(BaseModel):
 
 
 async def _plan_create(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
-    del session, actor
     parsed = parse_args(_CreateArgs, args)
+    # `create_routine` refuses past the cap only after the click; asked here, before the card.
+    kept = (
+        await session.execute(
+            text("SELECT count(*) FROM copilot_routines WHERE user_id = :uid"),
+            {"uid": actor.user_id},
+        )
+    ).scalar_one()
+    if int(kept) >= routines.MAX_ROUTINES_PER_USER:
+        raise WriteRefusedError(
+            f"this person already keeps {routines.MAX_ROUTINES_PER_USER} routines, the most "
+            "allowed; offer `routine_delete` for one they no longer need (`routines_list`)",
+            plain=(
+                f"You already have {routines.MAX_ROUTINES_PER_USER} routines. Delete one first."
+            ),
+        )
     mask, minute = _schedule(parsed.days, parsed.time)
     assert mask is not None and minute is not None
     name, instruction = (

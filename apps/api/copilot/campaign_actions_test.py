@@ -24,7 +24,6 @@ from apps.api.copilot.write_tools_test import (
     _principal,
     _user_of,
 )
-from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from apps.api.main import app
 
@@ -336,7 +335,13 @@ async def test_contacts_from_a_list_are_counted_on_the_card_and_added_on_confirm
     assert asha[1] == {"Village": "Kondapur"}
     assert ("campaign.contacts_added", "campaign", str(campaign_id)) in await _audit(tenant_id)
 
+    # A service campaign takes people in any state; a promotional one only before it starts.
     running = await _make_campaign(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET classification = 'promotional' WHERE id = :i"),
+            {"i": running},
+        )
     with pytest.raises(write_tools.WriteRefusedError):
         await _propose(
             tenant_id,
@@ -462,12 +467,12 @@ async def test_a_neighbours_campaign_is_a_404_for_every_campaign_action() -> Non
         "campaign_contacts_remove": {"campaign_id": foreign, "who": ["x"]},
     }
     for name, args in calls.items():
-        with pytest.raises(ProblemError) as missing:
+        with pytest.raises(write_tools.WriteRefusedError) as missing:
             await _propose(tenant_a, token_a, name, args)
-        assert missing.value.status == 404, name
-    with pytest.raises(ProblemError) as missing_edit:
+        assert "does not exist" in missing.value.reason, name
+    with pytest.raises(write_tools.WriteRefusedError) as missing_edit:
         await _run(tenant_a, token_a, "campaign_edit", {"campaign_id": foreign, "tries": 2})
-    assert missing_edit.value.status == 404
+    assert "does not exist" in missing_edit.value.reason
 
 
 def test_a_purpose_pip_wrote_badly_is_pips_to_write_again() -> None:

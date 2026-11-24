@@ -301,7 +301,7 @@ async def test_number_assign_takes_a_number_off_its_agent_and_refuses_a_neighbou
     row = await _one(tenant_id, "SELECT agent_id FROM phone_numbers WHERE id = :i", i=number_id)
     assert row[0] is None
     assert ("number.assigned", "phone_number", str(number_id)) in await _audit(tenant_id)
-    with pytest.raises(ProblemError):
+    with pytest.raises(write_tools.WriteRefusedError):
         await _propose(tenant_id, token, "number_assign", {**args, "number_id": str(foreign)})
 
 
@@ -532,7 +532,7 @@ async def test_the_calling_rules_merge_with_the_plan_and_held_leads_are_decided(
     await _do(tenant_id, token, "held_lead_decide", {"hold_id": str(hold_id), "decision": "drop"})
     held = await _one(tenant_id, "SELECT status FROM lead_call_holds WHERE id = :i", i=hold_id)
     assert held[0] == "dropped"
-    with pytest.raises(ProblemError):
+    with pytest.raises(write_tools.WriteRefusedError, match="already settled"):
         await _propose(
             tenant_id, token, "held_lead_decide", {"hold_id": str(hold_id), "decision": "call"}
         )
@@ -653,7 +653,7 @@ async def test_an_uncoded_endpoint_edit_is_refused_once_an_opt_in_was_switched_o
 
 async def test_a_delivery_resend_is_scoped_to_the_account_and_needs_a_failure() -> None:
     tenant_id, _slug, token = await _make_tenant()
-    with pytest.raises(ProblemError):
+    with pytest.raises(write_tools.WriteRefusedError):
         await _propose(tenant_id, token, "crm_delivery_resend", {"delivery_id": str(uuid.uuid4())})
 
 

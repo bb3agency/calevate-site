@@ -32,7 +32,7 @@ import json
 import re
 import time
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Final, Literal
 from uuid import UUID
 
@@ -50,7 +50,6 @@ from calevate_shared.spoken_guard import (
     textbook_note,
     textbook_words,
 )
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.copilot import (
     action_log,
@@ -65,8 +64,11 @@ from apps.api.copilot import (
     follow_up_actions,
     id_kinds,
     jobs,
+    live_turn,
     navigation,
     routine_actions,
+    run_control,
+    step_results,
     write_tools,
 )
 from apps.api.copilot import admin_prompt as admin_prompt_module
@@ -88,6 +90,7 @@ from apps.api.copilot.schemas import (
     CopilotActionEvent,
     CopilotAskIn,
     CopilotDiagnosis,
+    CopilotDraftEvent,
     CopilotField,
     CopilotFillItem,
     CopilotJobEvent,
@@ -95,6 +98,7 @@ from apps.api.copilot.schemas import (
     CopilotProposalEvent,
     CopilotRealm,
     CopilotStepEvent,
+    CopilotThoughtEvent,
 )
 from apps.api.copilot.step_labels import step_label
 from apps.api.copilot.tools import ToolContext
@@ -291,13 +295,20 @@ EXHAUSTED_MESSAGE: Final = "I could not finish this in one go. Try asking for on
 #: time" (advice about a long question) is not given for a cause it does not fit.
 EXHAUSTED_UNCHANGED: Final = "I could not finish this, and nothing was changed."
 EXHAUSTED_PART_DONE: Final = "I could not finish all of this."
+#: A step's own "so nothing changed" (`id_kinds.WRONG_ITEM_PLAIN`), dropped from a reason
+#: when `EXHAUSTED_UNCHANGED` already says it.
+_ALSO_UNCHANGED: Final = re.compile(r",? so nothing (?:was )?changed$", re.IGNORECASE)
 
 
 def exhausted_text(reasons: Sequence[str], *, changed: bool) -> str:
     """What the person reads when the loop runs out of turns. One sentence about what did
     not happen, then the last refusal's reason, which says what to do; never a second
-    "Nothing was changed" after it."""
-    said = "; ".join(r.strip().rstrip(".") for r in reasons if r.strip())
+    "nothing was changed" after it."""
+    said = "; ".join(
+        reason if changed else _ALSO_UNCHANGED.sub("", reason)
+        for reason in (r.strip().rstrip(".") for r in reasons)
+        if reason
+    )
     if not said:
         return EXHAUSTED_MESSAGE
     lead = EXHAUSTED_PART_DONE if changed else EXHAUSTED_UNCHANGED
@@ -882,6 +893,11 @@ class CopilotEvent:
     #: A chart or table a read tool built from the account's data (D-934). The browser
     #: draws it; the model was told its figures in words. Interactive runs only.
     chart: ChartSpec | None = None
+    #: A fragment of the model's one-line plan for this turn (`live_turn`): shown live as
+    #: the Thinking line, never part of the answer, never logged or stored.
+    thought: CopilotThoughtEvent | None = None
+    #: A script draft this run started (`run_control.note_draft_started`).
+    draft: CopilotDraftEvent | None = None
     spend: CopilotSpend | None = None
 
 
@@ -1415,7 +1431,7 @@ def _read_tool_registry(realm: CopilotRealm) -> Mapping[str, tools_module.ReadTo
     the permission check that would produce it exists for callers who could plausibly hold
     the permission.
     """
-    return {tool.name: _correcting(tool) for tool in realm_read_tools(realm)}
+    return {tool.name: tool for tool in realm_read_tools(realm)}
 
 
 def tool_array(realm: CopilotRealm, *, account_open: bool = True) -> list[dict[str, Any]]:
@@ -1540,8 +1556,11 @@ async def _run_one_read_tool(
     *,
     context: ToolContext | None,
     registry: Mapping[str, tools_module.ReadTool],
+    links: bool = True,
 ) -> tuple[CopilotStepEvent, str]:
-    """One read call, run under its own clock, as (its terminal step frame, its result).
+    """One read call, run under its own clock, as (its terminal step frame, its result),
+    with the rows a listing tool offered on the frame (`step_results`; `links` False drops
+    their client-route links, on the admin realm).
 
     **THE PER-CALL BUDGET IS THE POINT OF THIS FUNCTION.** `run_read_tool` never raises,
     and when this was written nothing bounded how long it could take, because the
@@ -1559,6 +1578,20 @@ async def _run_one_read_tool(
     exact number a person watching the panel is trying to find out. Timing here, beside
     the await, is per call because the await is per call.
     """
+    with step_results.collecting() as offered:
+        frame, result = await _run_one_read_tool_timed(call, context=context, registry=registry)
+    if frame.status == "done":
+        frame = frame.model_copy(update={"results": offered.event(links=links)})
+    return frame, result
+
+
+async def _run_one_read_tool_timed(
+    call: chat.ToolCall,
+    *,
+    context: ToolContext | None,
+    registry: Mapping[str, tools_module.ReadTool],
+) -> tuple[CopilotStepEvent, str]:
+    """`_run_one_read_tool`'s body: the call under its per-call budget."""
     started_at = time.monotonic()
     try:
         async with asyncio.timeout(READ_TOOL_BUDGET_S):
@@ -1621,6 +1654,7 @@ async def _run_read_tools(
     steps: list[CopilotStepEvent],
     already_run: set[tuple[str, str]],
     charts_out: list[ChartSpec] | None = None,
+    links: bool = True,
 ) -> list[dict[str, object]]:
     """Every read call of ONE turn, executed, as the `role: "tool"` messages that answer them.
 
@@ -1665,7 +1699,7 @@ async def _run_read_tools(
     with charts_module.collecting() as built:
         results = await asyncio.gather(
             *(
-                _run_one_read_tool(calls[index], context=context, registry=registry)
+                _run_one_read_tool(calls[index], context=context, registry=registry, links=links)
                 for index in fresh
             )
         )
@@ -1917,7 +1951,11 @@ def _step_start(call: chat.ToolCall) -> CopilotStepEvent:
     The provider's own `tool_call_id` is the step id: it is unique within the response, it
     is already the key the message plumbing uses to pair a call with its result, and
     inventing a second identifier would be a second way to name one thing.
+
+    It is also the run's checkpoint before every tool call: a run the person stopped raises
+    `RunStoppedError` here, so no tool starts after Stop.
     """
+    run_control.checkpoint()
     return CopilotStepEvent(
         id=call.id,
         tool=call.name,
@@ -2122,9 +2160,11 @@ class _ToolProblem:
 async def _tool_problem(
     call: chat.ToolCall, problem: ProblemError, tenant_id: UUID | None
 ) -> _ToolProblem:
-    """A not-found the model caused (an id in the wrong argument, an id that names nothing)
-    goes back as a correction it can act on in this run (`id_kinds`); anything else is a
-    fact reported as `_problem_result` says. The person never reads `problem.title`."""
+    """A `ProblemError` that reached the loop past planning, which `id_kinds.plan_correctably`
+    already corrects: one an action raised while RUNNING, or a planner outside that wrapper.
+    A not-found the model caused there still goes back as a correction it can act on in
+    this run (`id_kinds.correction`); anything else is a fact reported as `_problem_result`
+    says. The person never reads `problem.title`."""
     fix: str | None = None
     try:
         fix = await id_kinds.correction(tenant_id, call.name, call.arguments, problem)
@@ -2132,35 +2172,14 @@ async def _tool_problem(
         # The report below is still right, only less helpful; the lookup's failure is ours.
         log.exception("copilot_id_correction_failed", extra={"tool": call.name})
     if fix is not None:
-        return _ToolProblem(result=fix, plain=id_kinds.WRONG_ITEM_PLAIN, corrected=True)
+        return _ToolProblem(
+            result=f"NOT DONE, and nothing was changed: {fix}.",
+            plain=id_kinds.WRONG_ITEM_PLAIN,
+            corrected=True,
+        )
     return _ToolProblem(
         result=_problem_result(problem), plain=id_kinds.problem_plain(problem), corrected=False
     )
-
-
-def _correcting(tool: tools_module.ReadTool) -> tools_module.ReadTool:
-    """`tool`, whose not-found the model caused is answered with a correction it can act on
-    rather than `run_read_tool`'s "could not be read just now", which reads as an outage.
-    A not-found that is a fact becomes a sentence saying so. Same session, same RLS."""
-    if tool.scope != "tenant":
-        return tool
-    run = tool.run
-
-    async def _run(session: AsyncSession, context: ToolContext, args: Mapping[str, Any]) -> str:
-        try:
-            return await run(session, context, args)
-        except ProblemError as problem:
-            if problem.kind != "not_found":
-                raise
-            fix = await id_kinds.correction_in(session, tool.name, args, problem)
-            if fix is not None:
-                return fix
-            return (
-                f"Not found: {problem.detail} It may have been deleted. Tell the person, and "
-                "do not invent the answer."
-            )
-
-    return replace(tool, run=_run)
 
 
 async def _run_tool_loop(
@@ -2301,6 +2320,8 @@ async def _run_tool_loop(
     #: whether it follows a sentence or stands alone.
     spoke = False
     for turn_index in range(limits.max_turns):
+        # Stop is honoured before another paid model turn starts (`run_control`).
+        run_control.checkpoint()
         outcome: chat.ChatOutcome | None = None
         # A TURN'S TEXT IS HELD UNTIL THE TURN HAS ENDED, on every screen. The model writes
         # "I have updated the script" in the same turn as the call that would do it, before
@@ -2314,7 +2335,13 @@ async def _run_tool_loop(
         sent = clear_old_read_results(messages, read_names)
         lookups_run = visible_lookups(sent)
         try:
-            async for event in turn(leg, sent, tools):
+            # `live_turn` splits the plan line out as thoughts and races the stream against
+            # Stop; the plan never reaches `held` or `outcome.content`.
+            async for event in live_turn.live_turn(turn(leg, sent, tools)):
+                if event.thought is not None:
+                    yield CopilotEvent(
+                        thought=CopilotThoughtEvent(delta=event.thought, turn=turn_index)
+                    )
                 if event.text is not None:
                     # EGRESS STRIPPING ON EVERY FRAGMENT, not once at the end: fragments are
                     # what the browser renders, and a tag-block character split across two
@@ -3100,6 +3127,7 @@ async def _run_tool_loop(
             steps=read_steps,
             already_run=lookups_run,
             charts_out=read_charts,
+            links=realm == "client",
         )
         for step in read_steps:
             yield CopilotEvent(step=step)
@@ -3535,7 +3563,99 @@ async def _answer_stream(
             yield event
 
 
+RunStoppedError = run_control.RunStoppedError
+
+
+class _ThoughtGuard:
+    """The identity control on the Thinking line, as `IdentityEgress` is on the answer: a
+    plan sentence that names a vendor is dropped with the rest of that turn's plan. Dropped
+    rather than substituted, because the plan is optional and the canonical identity answer
+    is not a plan."""
+
+    def __init__(self) -> None:
+        self._turn = -1
+        self._egress = IdentityEgress(strict=True)
+
+    def feed(self, thought: CopilotThoughtEvent) -> CopilotThoughtEvent | None:
+        if thought.turn != self._turn:
+            self._turn, self._egress = thought.turn, IdentityEgress(strict=True)
+        released = self._egress.feed(thought.delta)
+        return self._released(released, thought.turn)
+
+    def close(self) -> CopilotThoughtEvent | None:
+        return self._released(self._egress.close(), self._turn)
+
+    def _released(self, text: str, turn: int) -> CopilotThoughtEvent | None:
+        if self._egress.substituted or not text:
+            return None
+        return CopilotThoughtEvent(delta=text, turn=turn)
+
+
 async def run_copilot(
+    payload: CopilotAskIn,
+    *,
+    control: run_control.RunControl | None = None,
+    tenant_leg: TenantModelLeg | None = None,
+    quota_exhausted: bool = False,
+    realm: CopilotRealm = "client",
+    tool_context: ToolContext | None = None,
+    live: str = "",
+    principal: Principal | None = None,
+    seed: str = "",
+    ip: str | None = None,
+    limits: RunLimits = INTERACTIVE_LIMITS,
+    allow_azure: bool = True,
+    attached: attachments.Attached = attachments.NOTHING_ATTACHED,
+    paid: PaidTurns | None = None,
+) -> AsyncIterator[CopilotEvent]:
+    """`_run_guarded` inside one run's Stop control (`run_control`), with the Thinking line
+    through its identity control and each script draft the run started announced.
+
+    `control` None is a run nobody can stop: a background job, a test. With one, Stop raises
+    `RunStoppedError` out of this generator at the loop's next checkpoint; the drafts this run
+    started are the caller's to cancel (`RunControl.cancel_drafts`), because the caller holds
+    the session-free place to do it after the stream ends."""
+    token = run_control.activate(control)
+    thoughts = _ThoughtGuard()
+    try:
+        async for event in _run_guarded(
+            payload,
+            tenant_leg=tenant_leg,
+            quota_exhausted=quota_exhausted,
+            realm=realm,
+            tool_context=tool_context,
+            live=live,
+            principal=principal,
+            seed=seed,
+            ip=ip,
+            limits=limits,
+            allow_azure=allow_azure,
+            attached=attached,
+            paid=paid,
+        ):
+            if event.thought is not None:
+                guarded = thoughts.feed(event.thought)
+                if guarded is not None:
+                    yield CopilotEvent(thought=guarded)
+                continue
+            tail = thoughts.close()
+            if tail is not None:
+                yield CopilotEvent(thought=tail)
+            yield event
+            if control is not None:
+                for draft in control.take_unsent_drafts():
+                    yield CopilotEvent(
+                        draft=CopilotDraftEvent(
+                            holder_kind=draft.holder_kind,
+                            holder_id=draft.holder_id,
+                            proposal_id=draft.proposal_id,
+                        )
+                    )
+    finally:
+        run_control.deactivate(token)
+
+
+async def _run_guarded(
     payload: CopilotAskIn,
     *,
     tenant_leg: TenantModelLeg | None = None,
@@ -3706,6 +3826,7 @@ __all__ = [
     "FillRefusedError",
     "PaidTurns",
     "RunLimits",
+    "RunStoppedError",
     "ToolContext",
     "asks_for_a_change",
     "chat_leg",

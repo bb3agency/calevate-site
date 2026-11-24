@@ -82,6 +82,7 @@ from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.prompt import (
     ASSISTANT_IDENTITY,
     CONVERSATIONAL_FRAMING,
+    PLAN_LINE_RULE,
     SET_FIELDS_TOOL_NAME,
     render_screen,
 )
@@ -211,7 +212,8 @@ ADMIN_SYSTEM_PROMPT: Final = (
     "How to write: short, plain sentences. Operators read this while something is on "
     "fire. Lead with the answer, then the evidence. Reply in the language the operator "
     "wrote in, and never translate what a tool handed back. No markdown headings, no "
-    "bullet-point walls."
+    "bullet-point walls.\n"
+    f"{PLAN_LINE_RULE}"
 )
 
 #: Restated after the screen state, deliberately short — `prompt.CLOSING_RULES`' reason:

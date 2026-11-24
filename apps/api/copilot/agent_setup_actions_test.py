@@ -29,7 +29,6 @@ from apps.api.copilot.agent_reads import (
 )
 from apps.api.copilot.tools import READ_TOOLS, ToolContext
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
-from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from apps.api.main import app
 
@@ -219,11 +218,13 @@ async def test_settings_refusals_are_handed_back_before_any_card() -> None:
         with pytest.raises(write_tools.WriteRefusedError) as refused:
             await _propose(tenant_id, token, "agent_settings_set", args)
         assert words in refused.value.reason, args
-    with pytest.raises(ProblemError) as out_of_range:
+    with pytest.raises(write_tools.WriteRefusedError) as out_of_range:
         await _propose(
             tenant_id, token, "agent_settings_set", _settings(agent_id, turn_silence_ms="10")
         )
-    assert out_of_range.value.code == "turn_silence_out_of_range"
+    # A value out of range is the model's to correct, so it comes back as a correction.
+    assert "between 0.2 and 3 seconds" in out_of_range.value.reason
+    assert "between 0.2 and 3 seconds" in out_of_range.value.plain
 
 
 async def test_staff_may_change_the_longest_call_and_nothing_else() -> None:
@@ -446,9 +447,9 @@ async def test_a_neighbours_agent_is_a_404_for_every_setup_action() -> None:
         },
     }
     for name, args in calls.items():
-        with pytest.raises(ProblemError) as crossed:
+        with pytest.raises(write_tools.WriteRefusedError) as crossed:
             await _propose(tenant_id, token, name, args)
-        assert crossed.value.status == 404, name
+        assert "names nothing in this account" in crossed.value.reason, name
 
 
 @pytest.mark.parametrize("part", list(PARTS))

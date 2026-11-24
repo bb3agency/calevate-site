@@ -19,9 +19,11 @@ import pytest
 from apps.api.campaigns import service as campaigns
 from apps.api.campaigns import step_outcomes as outcomes_api
 from apps.api.campaigns import workspace
+from apps.api.core.errors import ProblemError
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.inbound import lines as inbound_lines
 from apps.workers import step_outcomes as worker
+from apps.workers.script_assist import UnusableAnswerError
 from calevate_shared.call_script import (
     SCRIPT_SCHEMA_VERSION,
     CallScript,
@@ -120,9 +122,11 @@ def test_only_grounded_outcomes_for_missing_steps_are_kept() -> None:
             {"step": 9, "outcome": "No such step.", "quote": "install the app"},
         ]
     }
-    assert worker.accepted(raw, missing=[2, 3], material=material) == {
-        2: "The person says the app is installed."
-    }
+    request = worker.Request(
+        text="", material=material, naming="", cases=(), targets=(2, 3), subject="person"
+    )
+    written = worker.accepted(raw, request)
+    assert written is not None and written.outcomes == {2: "The person says the app is installed."}
 
 
 def test_writing_outcomes_never_replaces_one_that_is_there() -> None:
@@ -268,9 +272,14 @@ def _stub_model(
         asked.append(request)
         if during is not None:
             await during()
-        return SimpleNamespace(
-            value=kwargs["parse"](raw()), earlier=(), model=None, capability=None
-        )
+        answer = raw()
+        try:
+            value = kwargs["parse"](answer)
+        except UnusableAnswerError:
+            value = kwargs["salvage"](answer)
+        if value is None:
+            raise ProblemError.business_rule("assist_answer_unusable", "Unusable.")
+        return SimpleNamespace(value=value, earlier=(), model=None, capability=None)
 
     async def no_meter(*_args: Any, **_kwargs: Any) -> None:
         return None

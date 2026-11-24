@@ -206,17 +206,17 @@ async def test_a_lead_detail_the_agent_does_not_note_is_refused_before_the_card(
 async def test_another_tenants_connection_or_agent_is_absent() -> None:
     tenant_id, token, agent_id, _calendar = await _agent_with_calendar()
     _other, _t, other_agent, other_calendar = await _agent_with_calendar()
-    with pytest.raises(ProblemError) as crossed:
+    with pytest.raises(write_tools.WriteRefusedError) as crossed:
         await _propose(tenant_id, token, "agent_action_set", _new_action(agent_id, other_calendar))
-    assert crossed.value.status == 404
-    with pytest.raises(ProblemError) as foreign:
+    assert "does not exist" in crossed.value.reason
+    with pytest.raises(write_tools.WriteRefusedError) as foreign:
         await _propose(
             tenant_id,
             token,
             "agent_action_switch",
             {"agent_id": str(other_agent), "action_id": None, "enabled": False},
         )
-    assert foreign.value.status == 404
+    assert "does not exist" in foreign.value.reason
 
 
 # --- lead details: what each campaign and line notes (D-1029) -------------------------------

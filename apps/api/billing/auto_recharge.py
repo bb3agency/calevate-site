@@ -306,7 +306,7 @@ async def read_auto_recharge(session: AsyncSession, *, tenant_id: UUID) -> AutoR
     )
 
 
-def _validate(threshold: Decimal, amount: Decimal, cap: Decimal) -> None:
+def validate_amounts(threshold: Decimal, amount: Decimal, cap: Decimal) -> None:
     from apps.api.billing.payment_routes import MAX_TOPUP_INR, MIN_TOPUP_INR
 
     if threshold < 0:
@@ -346,7 +346,7 @@ async def save_auto_recharge(
 ) -> AutoRechargeState:
     """Upsert the client's preferences. Turning it ON needs a confirmed mandate whose
     per-debit limit covers the amount."""
-    _validate(threshold_inr, amount_inr, monthly_cap_inr)
+    validate_amounts(threshold_inr, amount_inr, monthly_cap_inr)
     row = await _settings_row(session, tenant_id, lock=True)
     if enabled:
         if row is None or row.mandate_status != "confirmed" or row.token_id is None:
@@ -1178,4 +1178,5 @@ __all__ = [
     "save_auto_recharge",
     "settle_charge",
     "token_status_of_event",
+    "validate_amounts",
 ]

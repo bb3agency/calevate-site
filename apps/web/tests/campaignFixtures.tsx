@@ -155,6 +155,7 @@ export function workspaceFixture(over: Partial<CampaignWorkspace> = {}): Campaig
     script: null,
     script_live_version: null,
     step_outcomes_pending: false,
+    step_outcomes_by_owner: false,
     ...over,
   };
 }

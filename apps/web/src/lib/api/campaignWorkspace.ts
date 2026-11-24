@@ -19,6 +19,8 @@ import {
 import { useRef } from "react";
 
 import { ApiProblem, apiRequest, apiUpload, type Session } from "./client";
+import { cancelDraftPath, keepLivePath } from "@/lib/scriptDraft/stream";
+
 import { invalidateKnowledgeLists } from "./kb";
 import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
@@ -114,6 +116,15 @@ export function useRestoreCampaignScript(session: Session, campaignId: string) {
   });
 }
 
+/** Give every step outcome back to Pip to rewrite, the owner's own included. */
+export function useRewriteStepOutcomes(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, (_: void) =>
+    apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/script/step-outcomes/rewrite`, {
+      method: "POST",
+    }),
+  );
+}
+
 /** The sources from What your agents know that Pip writes the campaign from. */
 export function useSetCampaignSources(session: Session, campaignId: string) {
   return useWorkspaceMutation(session, campaignId, (sourceIds: string[]) =>
@@ -182,6 +193,24 @@ export function useClearCampaignProposal(session: Session, campaignId: string) {
   return useWorkspaceMutation(session, campaignId, (proposalId: string) =>
     apiRequest<void>(session, `${base(campaignId)}/script/proposal/${encodeURIComponent(proposalId)}`, {
       method: "DELETE",
+    }),
+  );
+}
+
+/** Keep Pip's streamed draft and put it live in one step, as Save does. */
+export function useKeepCampaignDraftLive(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, (proposalId: string) =>
+    apiRequest<CampaignWorkspace>(session, keepLivePath({ kind: "campaign", id: campaignId }, proposalId), {
+      method: "POST",
+    }),
+  );
+}
+
+/** Stop Pip while it writes a draft; nothing half-written is saved. */
+export function useCancelCampaignDraft(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, (proposalId: string) =>
+    apiRequest<unknown>(session, cancelDraftPath({ kind: "campaign", id: campaignId }, proposalId), {
+      method: "POST",
     }),
   );
 }

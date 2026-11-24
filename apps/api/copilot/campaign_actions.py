@@ -56,7 +56,7 @@ from apps.api.copilot.actions import (
 )
 from apps.api.copilot.agent_setup_actions import screen_guide_hint
 from apps.api.copilot.sanitize import strip_invisible
-from apps.api.copilot.set_actions import DialConsent
+from apps.api.copilot.set_actions import DialConsent, addable_campaign
 from apps.api.core.errors import ProblemError
 from apps.api.db.ownership import assert_visible
 from apps.api.ingest.service import normalize_phone
@@ -116,6 +116,22 @@ async def _campaign(session: AsyncSession, campaign_id: UUID) -> tuple[str, str]
     if row is None:
         raise ProblemError.not_found("Campaign")
     return strip_invisible(str(row[0])), str(row[1])
+
+
+async def refuse_archived_campaign(session: AsyncSession, campaign_id: UUID, name: str) -> None:
+    """An archived campaign never dials (F-10), and the scheduling services refuse it only
+    after the person has confirmed; asked by a planner, the refusal comes before the card."""
+    archived = (
+        await session.execute(
+            text("SELECT archived_at IS NOT NULL FROM campaigns WHERE id = :cid"),
+            {"cid": campaign_id},
+        )
+    ).scalar()
+    if archived:
+        raise WriteRefusedError(
+            f"“{name}” is archived, so it cannot dial. Offer `campaign_restore` first",
+            plain="That campaign is archived. Restore it first.",
+        )
 
 
 def _gap_words(minutes: int) -> str:
@@ -272,9 +288,23 @@ async def _plan_edit(session: AsyncSession, actor: ToolActor, args: Mapping[str,
     parsed = parse_args(_EditArgs, args)
     current = await _snapshot(session, parsed.campaign_id, lock=False)
     if current["status"] != "draft":
+        started = current["status"] in ("running", "paused")
         raise WriteRefusedError(
-            f"“{strip_invisible(current['name'])}” is {current['status']}; only a draft can be "
-            "changed (cancel a scheduled start first, or copy it with campaign_clone)"
+            f"“{strip_invisible(current['name'])}” is {current['status']}; this tool changes "
+            "only a draft. "
+            + (
+                "Its agent, calling hours, tries and calls at once can still be changed on "
+                "the campaign's Edit page; tell the person to do it there"
+                if started
+                else "Offer `campaign_unschedule` to make it a draft again"
+                if current["status"] == "scheduled"
+                else "Offer `campaign_clone` to copy it into a new draft"
+            ),
+            plain=(
+                "That campaign has started. Change it on its Edit page."
+                if started
+                else "Only a draft campaign can be changed from here."
+            ),
         )
     if parsed.agent_id is not None:
         await assert_visible(session, "agent", parsed.agent_id)
@@ -425,7 +455,12 @@ async def _plan_repeat(session: AsyncSession, actor: ToolActor, args: Mapping[st
         raise WriteRefusedError("`at` is an India time like 10:30")
     name, status = await _campaign(session, parsed.campaign_id)
     if status not in ("draft", "scheduled"):
-        raise WriteRefusedError(f"“{name}” is {status}; only a draft or scheduled one can repeat")
+        raise WriteRefusedError(
+            f"“{name}” is {status}; only a draft or scheduled one can repeat. Offer "
+            "`campaign_clone` to copy it into a new draft that can",
+            plain="Only a campaign that hasn't started can be set to repeat. Copy it first.",
+        )
+    await refuse_archived_campaign(session, parsed.campaign_id, name)
     await campaign_engine_agent.check_before_schedule(
         session, tenant_id=actor.tenant_id, campaign_id=parsed.campaign_id
     )
@@ -554,7 +589,12 @@ async def _plan_stop(session: AsyncSession, actor: ToolActor, args: Mapping[str,
         raise WriteRefusedError(
             f"“{name}” is {status}; a draft is removed with campaign_delete"
             if status == "draft"
-            else f"“{name}” is {status}, so there is nothing to stop"
+            else f"“{name}” is {status}, so there is nothing to stop",
+            plain=(
+                "That campaign hasn't started, so there is nothing to stop."
+                if status == "draft"
+                else "That campaign has already stopped."
+            ),
         )
     left = await _waiting(session, parsed.campaign_id)
     return Plan(
@@ -612,7 +652,8 @@ async def _plan_delete(session: AsyncSession, actor: ToolActor, args: Mapping[st
     if status != "draft":
         raise WriteRefusedError(
             f"“{name}” is {status}; only a draft can be deleted; put the others away with "
-            "campaign_archive"
+            "campaign_archive",
+            plain="Only a draft campaign can be deleted. Archive this one instead.",
         )
     contacts = int(
         (
@@ -693,7 +734,10 @@ async def _plan_archive(session: AsyncSession, actor: ToolActor, args: Mapping[s
     parsed = parse_args(_IdArgs, args)
     name, status = await _campaign(session, parsed.campaign_id)
     if await _archived(session, parsed.campaign_id):
-        raise WriteRefusedError(f"“{name}” is already archived; campaign_restore brings it back")
+        raise WriteRefusedError(
+            f"“{name}” is already archived; campaign_restore brings it back",
+            plain="That campaign is already archived.",
+        )
     first = {
         "running": " It is paused first; a call already ringing finishes.",
         "scheduled": " Its schedule is cancelled first, so it does not start.",
@@ -757,7 +801,10 @@ async def _plan_restore(session: AsyncSession, actor: ToolActor, args: Mapping[s
     parsed = parse_args(_IdArgs, args)
     name, status = await _campaign(session, parsed.campaign_id)
     if not await _archived(session, parsed.campaign_id):
-        raise WriteRefusedError(f"“{name}” is not archived, so there is nothing to restore")
+        raise WriteRefusedError(
+            f"“{name}” is not archived, so there is nothing to restore",
+            plain="That campaign isn't archived, so there is nothing to restore.",
+        )
     return Plan(
         object_id=str(parsed.campaign_id),
         title="Restore this campaign",
@@ -863,11 +910,15 @@ class _AddArgs(BaseModel):
     contacts: Annotated[list[_Contact], Field(min_length=1, max_length=MAX_CONTACTS_PER_ACTION)]
 
 
-async def _pre_launch(session: AsyncSession, campaign_id: UUID, *, verb: str) -> str:
-    name, status = await _campaign(session, campaign_id)
-    if status not in ("draft", "scheduled"):
-        raise WriteRefusedError(f"“{name}” is {status}; people are {verb} only before it starts")
-    return name
+#: When people added to a campaign in each status are first called.
+_CALLED_WHEN: Final[dict[str, str]] = {
+    "draft": "Nobody is called until it is launched.",
+    "scheduled": "Nobody is called until it starts.",
+    "running": "They are called as the campaign goes on.",
+    "paused": "They are called when it is resumed.",
+    "completed": "Nobody is called until it is started again.",
+    "cancelled": "Nobody is called until it is started again.",
+}
 
 
 async def _plan_add(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
@@ -875,7 +926,7 @@ async def _plan_add(session: AsyncSession, actor: ToolActor, args: Mapping[str, 
     count that will be added; the rows are the person's own list, never a caller's words."""
     del actor
     parsed = parse_args(_AddArgs, args)
-    name = await _pre_launch(session, parsed.campaign_id, verb="added")
+    name, status = await addable_campaign(session, parsed.campaign_id)
     usable = _usable(parsed.contacts)
     if not usable:
         raise WriteRefusedError("none of those is a phone number that can be called")
@@ -886,13 +937,13 @@ async def _plan_add(session: AsyncSession, actor: ToolActor, args: Mapping[str, 
         title=f"Add {len(usable)} people to “{name}”",
         summary=(
             f"Add {len(usable)} people from your list to “{name}”: {shown}{more}. Numbers "
-            "already on it, outside India or not valid are left out. Nobody is called until "
-            "it is launched."
+            "already on it, outside India or not valid are left out. "
+            + _CALLED_WHEN.get(status, "")
         ),
         current=None,
         proposed=f"{len(usable)} people added",
         cost=None,
-        reversal="You can take them off again before it starts calling.",
+        reversal="You can take off anyone not yet called; a call already placed stays.",
         args={
             "campaign_id": str(parsed.campaign_id),
             "contacts": [c.model_dump(exclude_none=True) for c in usable],
@@ -930,8 +981,8 @@ CAMPAIGN_CONTACTS_ADD: Final = ActionTool(
     schema=action_schema(
         "campaign_contacts_add",
         "Propose adding people from a list the person pasted or attached (up to 100), each "
-        "with the list's other columns, to a draft or scheduled campaign. Leads already in "
-        "the account: `campaign_add_leads`." + PROPOSES_ONLY,
+        "with the list's other columns, to a campaign. Leads already in the account: "
+        "`campaign_add_leads`." + PROPOSES_ONLY,
         {
             "campaign_id": _ID,
             "contacts": {
@@ -1004,7 +1055,8 @@ async def _plan_remove(session: AsyncSession, actor: ToolActor, args: Mapping[st
     parsed = parse_args(_RemoveArgs, args)
     if (parsed.who is None) == (parsed.contact_ids is None):
         raise WriteRefusedError("give `who`: the names or numbers to take off")
-    name = await _pre_launch(session, parsed.campaign_id, verb="taken off")
+    # Any status, as `remove_contacts` allows: only people never tried are taken off.
+    name, _status = await _campaign(session, parsed.campaign_id)
     params: dict[str, Any] = {"cid": parsed.campaign_id, "cap": MAX_CONTACTS_PER_ACTION}
     if parsed.contact_ids is not None:
         match = "id = ANY(:ids)"
@@ -1018,7 +1070,10 @@ async def _plan_remove(session: AsyncSession, actor: ToolActor, args: Mapping[st
     if not rows:
         raise WriteRefusedError(
             "nobody waiting on that campaign matches those names or numbers; people already "
-            "called stay on it"
+            "called stay on it. Tell the person, and ask for the names exactly as listed",
+            plain=(
+                "Nobody still waiting on that campaign matches. People already called stay on it."
+            ),
         )
     shown = ", ".join(strip_invisible(str(r[1] or "unnamed")) for r in rows[:5])
     more = f" and {len(rows) - 5} more" if len(rows) > 5 else ""
@@ -1029,7 +1084,7 @@ async def _plan_remove(session: AsyncSession, actor: ToolActor, args: Mapping[st
         current=None,
         proposed=f"{len(rows)} people removed",
         cost=None,
-        reversal="Add them again from the list or the leads before it starts.",
+        reversal="Add them again from the list or the leads.",
         args={"campaign_id": str(parsed.campaign_id), "contact_ids": [str(r[0]) for r in rows]},
     )
 
@@ -1111,7 +1166,8 @@ async def _plan_consent(session: AsyncSession, actor: ToolActor, args: Mapping[s
     name, status = await _campaign(session, parsed.campaign_id)
     if status not in ("draft", "scheduled"):
         raise WriteRefusedError(
-            f"“{name}” is {status}; where a list's permission came from is said before it starts"
+            f"“{name}” is {status}; where a list's permission came from is said before it starts",
+            plain="Where a list came from can be recorded only before the campaign starts.",
         )
     if _collected_at(parsed.collected_on) > datetime.now(UTC):
         raise WriteRefusedError("the date the permission was collected cannot be in the future")

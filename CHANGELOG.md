@@ -3,6 +3,26 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.35 — 24-Nov-2026
+
+- The call flow starts with the opening: a first box shows your opening line, with arrows
+  into step 1 and a "Not now" path to a call back or the end of the call. Clicking it opens
+  the script to edit the opening.
+- Links that go back to an earlier step or skip a step are drawn around the boxes, never
+  behind them, so every arrow visibly starts at its own box.
+- Across Pip's actions, a mixed-up id, a campaign in a status the action does not take, or
+  a check that used to fail only after Confirm is now caught before you are asked, with a
+  plain reason; Pip corrects its own wrong ids and carries on.
+
+## 0.5.34 — 24-Nov-2026
+
+- Pip no longer gives up with "Agent not found" when it mixes up which id goes where: it
+  is told what the id really is and tries again in the same answer. Asking Pip to rewrite a
+  campaign's script now works for a campaign of any status that is not archived, a
+  cancelled one included.
+- When Pip cannot finish, it says plainly what did not happen and why, never a raw error
+  or advice that does not fit.
+
 ## 0.5.33 — 24-Nov-2026
 
 - Pip writes the outcome of every call step that has none, so you never fill them in by

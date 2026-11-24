@@ -219,13 +219,13 @@ async def test_a_fill_reaches_the_browser_and_is_metered_at_the_published_price(
     async with _client() as http:
         events = await _events(http, token, slug)
 
-    assert [name for name, _ in events] == ["text", "step", "fill", "done"]
-    assert events[0][1] == {"delta": "Nine in the morning."}
-    assert events[1][1]["status"] == "done" and events[1][1]["args"] == ""
-    assert events[2][1] == {"items": [{"field_id": "open", "value": "09:00"}]}
+    assert [name for name, _ in events] == ["run", "text", "step", "fill", "done"]
+    assert events[1][1] == {"delta": "Nine in the morning."}
+    assert events[2][1]["status"] == "done" and events[2][1]["args"] == ""
+    assert events[3][1] == {"items": [{"field_id": "open", "value": "09:00"}]}
     # Azure answers here as the opt-in BACKUP (D-694): the usual Gemini tier model is not
     # offerable in this deployment, so the person is told a backup answered (G-6).
-    assert events[3][1] == {"disclosure": service.BACKUP_MODEL_DISCLOSURE, "metered": True}
+    assert events[4][1] == {"disclosure": service.BACKUP_MODEL_DISCLOSURE, "metered": True}
 
     model = get_settings().azure_openai_model
     price = rates.llm_inr_per_ktok(model)
@@ -256,8 +256,8 @@ async def test_an_answer_that_only_filled_says_what_it_changed(
     async with _client() as http:
         events = await _events(http, token, slug)
 
-    assert [name for name, _ in events] == ["step", "fill", "text", "done"]
-    assert events[2][1] == {"delta": "I changed Opens."}
+    assert [name for name, _ in events] == ["run", "step", "fill", "text", "done"]
+    assert events[3][1] == {"delta": "I changed Opens."}
 
 
 async def test_an_answer_whose_every_change_was_refused_says_nothing_changed(
@@ -761,7 +761,7 @@ async def test_a_provider_dying_mid_answer_ends_with_a_problem_body(
     async with _client() as http:
         events = await _events(http, token, slug)
 
-    assert [name for name, _ in events] == ["text", "error"]
+    assert [name for name, _ in events] == ["run", "text", "error"]
     assert events[-1][1]["type"].endswith("/copilot_interrupted")
     assert events[-1][1]["remediation"]
 
@@ -785,7 +785,7 @@ async def test_a_provider_read_timeout_says_pip_took_too_long(
     async with _client() as http:
         events = await _events(http, token, slug)
 
-    assert [name for name, _ in events] == ["text", "error"]
+    assert [name for name, _ in events] == ["run", "text", "error"]
     assert events[-1][1]["type"].endswith("/copilot_timed_out")
     assert events[-1][1]["remediation"]
 
@@ -895,7 +895,7 @@ async def test_a_provider_that_dies_after_spending_is_still_metered(
     async with _client() as http:
         frames = await _events(http, token, slug)
 
-    assert [name for name, _ in frames] == ["text", "error"]
+    assert [name for name, _ in frames] == ["run", "text", "error"]
     rows = await _usage_rows(tenant_id)
     # THE TOKENS ARE ON THE LEDGER even though the person got an error instead of an answer.
     assert rows, "a failed run that spent tokens must still reach usage_events"
@@ -942,7 +942,7 @@ async def test_two_legs_in_one_run_are_two_ledger_entries_and_not_one(
     async with _client() as http:
         frames = await _events(http, token, slug)
 
-    assert [name for name, _ in frames] == ["text", "done"]
+    assert [name for name, _ in frames] == ["run", "text", "done"]
     async with tenant_session(tenant_id) as session:
         refs = (
             await session.execute(
@@ -995,14 +995,15 @@ async def _ask_then_disconnect(token: str, slug: str) -> list[MutableMapping[str
         if not delivered:
             delivered = True
             return {"type": "http.request", "body": body, "more_body": False}
-        # THE HANG-UP, as late as it can be: one frame has reached the browser and the
-        # generator is suspended at its `yield` when this arrives.
+        # THE HANG-UP, as late as it can be: one frame of the answer has reached the browser
+        # and the generator is suspended at its `yield` when this arrives.
         await first_chunk.wait()
         return {"type": "http.disconnect"}
 
     async def send(message: MutableMapping[str, Any]) -> None:
         sent.append(message)
-        if message["type"] == "http.response.body" and message.get("body"):
+        # The answer's first frame, not `event: run`, which goes out before any model call.
+        if message["type"] == "http.response.body" and b"event: text" in message.get("body", b""):
             first_chunk.set()
 
     await app(scope, receive, send)
@@ -1108,7 +1109,7 @@ async def test_an_answer_that_cost_nothing_is_still_in_the_conversation(
         loaded = await http.get("/v1/copilot/conversation", headers=_headers(token, slug))
 
     assert reached == [], "an identity question must not reach a provider"
-    assert [name for name, _ in events] == ["text", "done"]
+    assert [name for name, _ in events] == ["run", "text", "done"]
     assert events[-1][1] == {"disclosure": None, "metered": False}
     # Nothing was paid for and nothing is on the ledger or the chain — unchanged.
     assert await _usage_rows(tenant_id) == []

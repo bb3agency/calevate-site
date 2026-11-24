@@ -24,6 +24,7 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
 import { TEXT_ACTION, TEXT_ACTION_SM } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
+import { ScriptDraftLive } from "@/components/scriptDraft/ScriptDraftLive";
 import {
   FIELD,
   FIELD_LABEL,
@@ -97,6 +98,7 @@ export const MAIN_TASK_INFO = "Write it in your own words, as much as you like. 
 const MAIN_TASK_PLACEHOLDER = "For example: answer questions about our services and book a visit.";
 export const SOURCES_INFO = "Pick from What your agents know. Pip reads them when it writes the script.";
 export const SCRIPT_INFO = "Pip writes it from your main task and sources. Saving puts it live on this line.";
+const SCRIPT_LOCKED = "You can't change this line's script.";
 export const ACTIONS_INFO = "Actions are set up on the agent. Switch off the ones this line should not use.";
 export const NUMBERS_INFO = "A number answers with one line. Adding it here moves it from its old line.";
 export const ARCHIVE_INFO = "A line that still answers a number cannot be archived. Move its numbers first.";
@@ -364,6 +366,8 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
   const restoreFeedback = useActionFeedback(restore, { errorDisplay: "inline", successToast: restoredToast });
   const versions = useScriptVersions(session, { kind: "line", id: line.id }, line.script, line.script != null);
   const [editing, setEditing] = useState(false);
+  //: The draft the owner chose to review part by part instead of in the live view.
+  const [reviewing, setReviewing] = useState<string | null>(null);
   const editButton = useRef<HTMLButtonElement>(null);
   const proposal = line.proposal;
   const script = line.script;
@@ -390,6 +394,32 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
       : failed
         ? "Pip's last try did not finish. See why below."
         : undefined;
+
+  // Pip's written draft, part by part: what the live view falls back to, and what "Review
+  // part by part" opens in its place.
+  const readyReview =
+    proposal?.status === "ready" && proposal.script ? (
+      <div className="border-y border-line py-4">
+        <ProposalReview
+          key={proposal.id}
+          current={script ?? EMPTY_SCRIPT}
+          base={proposal.base_script ?? EMPTY_SCRIPT}
+          proposal={proposal.script}
+          notes={proposal.why}
+          pending={save.isPending ? "apply" : clear.isPending ? "discard" : null}
+          onApply={(next) => keep(next, proposal.id)}
+          onDiscard={() => stopFeedback.run(proposal.id)}
+        >
+          {proposal.fixes && (
+            <p className="text-sm text-ink [overflow-wrap:anywhere]">Written to fix a mistake on calls: {proposal.fixes}.</p>
+          )}
+          {proposal.disclosure && <p className="text-meta text-ink-muted">{proposal.disclosure}</p>}
+          {proposal.left_out.length > 0 && <LeftOutNotice parts={proposal.left_out} />}
+        </ProposalReview>
+      </div>
+    ) : null;
+  const liveDraft =
+    proposal != null && (proposal.status === "drafting" || readyReview !== null) && reviewing !== proposal.id;
 
   return (
     <FoldSection id="line-script" title="Script" tone="script" hint="What the agent says on this line." info={SCRIPT_INFO}>
@@ -418,8 +448,33 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
         </div>
       )}
 
-      {proposal?.status === "drafting" && (
-        <PipWriting proposal={proposal} stopping={clear.isPending} onStop={() => stopFeedback.run(proposal.id)} />
+      {/* PIP WRITING, LIVE, then its changes with Keep or Discard: the same view as the Pip
+          panel. Without the draft stream, the page keeps its own line and review. */}
+      {proposal && liveDraft && (
+        <div className="py-2">
+          <ScriptDraftLive
+            key={proposal.id}
+            session={session}
+            holder={{ kind: "inbound_line", id: line.id }}
+            proposalId={proposal.id}
+            toastOutcome
+            refusal={canWrite ? null : (refusal ?? SCRIPT_LOCKED)}
+            fallback={
+              proposal.status === "drafting" ? (
+                <PipWriting proposal={proposal} stopping={clear.isPending} onStop={() => stopFeedback.run(proposal.id)} />
+              ) : (
+                readyReview
+              )
+            }
+            extra={
+              readyReview ? (
+                <button type="button" className={TEXT_ACTION} onClick={() => setReviewing(proposal.id)}>
+                  Review part by part
+                </button>
+              ) : null
+            }
+          />
+        </div>
       )}
 
       {proposal?.status === "failed" && (
@@ -433,26 +488,7 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
         />
       )}
 
-      {proposal?.status === "ready" && proposal.script && (
-        <div className="border-y border-line py-4">
-          <ProposalReview
-            key={proposal.id}
-            current={script ?? EMPTY_SCRIPT}
-            base={proposal.base_script ?? EMPTY_SCRIPT}
-            proposal={proposal.script}
-            notes={proposal.why}
-            pending={save.isPending ? "apply" : clear.isPending ? "discard" : null}
-            onApply={(next) => keep(next, proposal.id)}
-            onDiscard={() => stopFeedback.run(proposal.id)}
-          >
-            {proposal.fixes && (
-              <p className="text-sm text-ink [overflow-wrap:anywhere]">Written to fix a mistake on calls: {proposal.fixes}.</p>
-            )}
-            {proposal.disclosure && <p className="text-meta text-ink-muted">{proposal.disclosure}</p>}
-            {proposal.left_out.length > 0 && <LeftOutNotice parts={proposal.left_out} />}
-          </ProposalReview>
-        </div>
-      )}
+      {proposal && !liveDraft && readyReview}
 
       {!proposal && editing && (
         <div className="rounded-card border border-line bg-surface p-4">

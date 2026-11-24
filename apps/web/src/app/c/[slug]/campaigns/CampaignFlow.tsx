@@ -23,6 +23,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { ActionButton, type ActionFeedback } from "@/components/arc/feedback";
 import {
   SECONDARY_BUTTON_SM,
@@ -71,9 +72,19 @@ export function CampaignFlow({
   restore,
   onRestore,
   outcomesPending = false,
+  onEditOpening,
+  outcomesByOwner = false,
+  rewriteOutcomes,
+  onRewriteOutcomes,
 }: {
+  /** Opens the script where the opening line is edited; absent when this person cannot. */
+  onEditOpening?: () => void;
   /** Pip is writing the outcome of each step that has none (D-1036). */
   outcomesPending?: boolean;
+  /** An outcome is not one Pip wrote, so they can all be given back to Pip to rewrite. */
+  outcomesByOwner?: boolean;
+  rewriteOutcomes?: ActionFeedback<void>;
+  onRewriteOutcomes?: () => Promise<unknown>;
   /** The script's saved versions and what putting back the flow restores (D-1039). */
   versions: ScriptVersionsData | undefined;
   restore: ActionFeedback<ScriptRestore>;
@@ -138,12 +149,14 @@ export function CampaignFlow({
     // Only a new script from the server starts this; the draft is read as it stands then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [script]);
-  const commit = (next: CallScript) => {
+  // `discrete` is one deliberate act (a link removed): its own Undo step, never merged with
+  // typing just before or after it, so Undo takes back that act alone.
+  const commit = (next: CallScript, discrete = false) => {
     if (next === draft) return;
     const now = Date.now();
-    if (now - lastChange.current > MERGE_MS || past.length === 0)
+    if (discrete || now - lastChange.current > MERGE_MS || past.length === 0)
       setPast((p) => [...p, draft].slice(-HISTORY));
-    lastChange.current = now;
+    lastChange.current = discrete ? 0 : now;
     setFuture([]);
     setDraft(next);
   };
@@ -193,6 +206,7 @@ export function CampaignFlow({
     setSelected(made.id);
   };
 
+  const [confirmRewrite, setConfirmRewrite] = useState(false);
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
       {!readOnly && (
@@ -238,6 +252,17 @@ export function CampaignFlow({
         restore={restore}
         onRestore={onRestore}
       />
+      {outcomesByOwner && onRewriteOutcomes && (
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_SM}
+          disabled={readOnly || dirty || outcomesPending}
+          title={dirty ? "Save or discard your changes first." : undefined}
+          onClick={() => setConfirmRewrite(true)}
+        >
+          Let Pip rewrite the outcomes
+        </button>
+      )}
       <button
         type="button"
         className={SECONDARY_BUTTON_SM}
@@ -272,6 +297,14 @@ export function CampaignFlow({
       wide={desktop}
       onSelect={setSelected}
       onChange={commit}
+      onUndo={undo}
+      onEditOpening={
+        onEditOpening &&
+        (() => {
+          setFull(false);
+          onEditOpening();
+        })
+      }
     />
   );
 
@@ -374,6 +407,33 @@ export function CampaignFlow({
           {body()}
           {saveBar(false)}
         </>
+      )}
+
+      {confirmRewrite && rewriteOutcomes && onRewriteOutcomes && (
+        <ConfirmDialog
+          title="Let Pip rewrite the outcomes?"
+          confirmLabel="Rewrite them"
+          pendingLabel="Asking Pip"
+          cancelLabel="Keep them"
+          status={rewriteOutcomes.status}
+          error={rewriteOutcomes.error ?? null}
+          onCancel={() => {
+            rewriteOutcomes.reset();
+            setConfirmRewrite(false);
+          }}
+          onConfirm={() =>
+            void onRewriteOutcomes().then(
+              () => setConfirmRewrite(false),
+              () => undefined,
+            )
+          }
+        >
+          <span className="block">
+            Pip writes every step&apos;s outcome again, ones you typed included.
+            After that, Pip keeps its own outcomes up to date and never touches one
+            you change.
+          </span>
+        </ConfirmDialog>
       )}
 
       {full && (

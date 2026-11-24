@@ -1086,8 +1086,7 @@ async def archive_agent(
                 "it picks up — and then delete it."
             ),
         )
-    await _assert_no_campaign_is_dialling(session, agent_id=agent_id)
-    await _assert_no_line_is_answering(session, agent_id=agent_id)
+    await assert_agent_retirable(session, agent_id=agent_id)
     moved = await transition_status(
         session,
         table="agents",
@@ -1222,6 +1221,14 @@ async def hold_agent_for_campaign_start(session: AsyncSession, agent_id: UUID) -
         text("SELECT 1 FROM agents WHERE id = :aid AND deleted_at IS NULL FOR SHARE"),
         {"aid": agent_id},
     )
+
+
+async def assert_agent_retirable(session: AsyncSession, *, agent_id: UUID) -> None:
+    """`archive_agent`'s refusals that read no lock: a campaign still dialling through the
+    agent, or a live Inbound line speaking for it. Read-only, so a planner can ask it
+    before offering the delete."""
+    await _assert_no_campaign_is_dialling(session, agent_id=agent_id)
+    await _assert_no_line_is_answering(session, agent_id=agent_id)
 
 
 async def _assert_no_campaign_is_dialling(session: AsyncSession, *, agent_id: UUID) -> None:
@@ -1486,6 +1493,7 @@ __all__ = [
     "LifecycleResult",
     "activate_agent",
     "archive_agent",
+    "assert_agent_retirable",
     "assert_assignable",
     "create_agent",
     "deactivate_agent",
