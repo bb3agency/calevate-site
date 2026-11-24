@@ -42,6 +42,7 @@ import { PipConsentGate } from "./PipConsent";
 import { ProposalCard } from "./ProposalCard";
 import { DiagnosisCard } from "./DiagnosisCard";
 import { StepList } from "./StepList";
+import { ResultSlug } from "./StepRow";
 import { PanelDrafts } from "./PanelDrafts";
 import { RunHeader } from "./RunHeader";
 import { RunTimeline } from "./RunTimeline";
@@ -284,6 +285,8 @@ export function CopilotPanel({
   const reduced = useReducedMotion();
   const keyboardFit = useKeyboardFit(placement === "side");
   const liveView = useLiveRunView(conversation, panel);
+  // Result links are client screens; the operator console has no account to fill in.
+  const resultSlug = realm === "client" ? session.orgSlug : null;
   // Stable: the card runs it from an effect that also moves focus, once per decision.
   const { settleProposal, proposal: offer } = conversation;
   const { decide } = liveView;
@@ -635,14 +638,16 @@ export function CopilotPanel({
             />
           )}
           {liveView.running && (
-            <RunTimeline
-              entries={conversation.live.entries}
-              steps={conversation.steps}
-              now={liveView.now}
-              live
-              reduced={reduced === true}
-              realm={realm}
-            />
+            <ResultSlug.Provider value={resultSlug}>
+              <RunTimeline
+                entries={conversation.live.entries}
+                steps={conversation.steps}
+                now={liveView.now}
+                live
+                reduced={reduced === true}
+                realm={realm}
+              />
+            </ResultSlug.Provider>
           )}
           {/* THE ANSWER ARRIVING — the one thing in this panel that is announced.
               `aria-atomic="false"` is stated rather than left to the default because the
@@ -697,7 +702,7 @@ export function CopilotPanel({
             for and which IS announced. Kept after the answer has arrived too, so a person
             can still see which of their data was read and what each lookup returned. */}
         {!liveView.running && (
-          <>
+          <ResultSlug.Provider value={resultSlug}>
             <RunTimeline
               entries={conversation.live.entries}
               steps={conversation.steps}
@@ -712,7 +717,7 @@ export function CopilotPanel({
               realm={realm}
               working={conversation.streaming !== null}
             />
-          </>
+          </ResultSlug.Provider>
         )}
 
         {/* WAITING FOR YOU: the answer is in and a suggestion or a written script waits on

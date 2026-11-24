@@ -82,9 +82,13 @@ export function stepResults(step: CopilotStep): StepResults | null {
  * but a string that reaches `<a href>` is checked here anyway: `//host` and `javascript:`
  * would otherwise be one bad tool result away from a link that leaves the console.
  */
-export function consoleHref(href: string | null | undefined): string | null {
-  if (typeof href !== "string" || !href.startsWith("/") || href.startsWith("//") || href.includes("\\")) return null;
-  return href;
+export function consoleHref(href: string | null | undefined, slug: string | null = null): string | null {
+  if (typeof href !== "string") return null;
+  // The server writes client links as templates (`/c/{slug}/campaigns/…`), as `navigate`
+  // frames are; with no account to fill in, the title is drawn without a link.
+  const path = slug === null ? href : href.split("{slug}").join(encodeURIComponent(slug));
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\") || path.includes("{")) return null;
+  return path;
 }
 
 // ── The run's state ──────────────────────────────────────────────────────────────────

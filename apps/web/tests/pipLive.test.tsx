@@ -15,7 +15,7 @@ import { CopilotPanel } from "@/components/copilot/CopilotPanel";
 import { RunHeader } from "@/components/copilot/RunHeader";
 import { RunTimeline } from "@/components/copilot/RunTimeline";
 import { StepList } from "@/components/copilot/StepList";
-import { StepRow } from "@/components/copilot/StepRow";
+import { ResultSlug, StepRow } from "@/components/copilot/StepRow";
 import { ScriptDiff, diffBlocks } from "@/components/scriptDraft/ScriptDiff";
 import { ScriptDraftLive } from "@/components/scriptDraft/ScriptDraftLive";
 import { ScriptDraftView } from "@/components/scriptDraft/ScriptDraftView";
@@ -455,6 +455,24 @@ describe("steps on the thread", () => {
     expect(consoleHref("https://evil.example")).toBeNull();
     expect(consoleHref("/c\\evil")).toBeNull();
     expect(consoleHref(null)).toBeNull();
+    // The server's links are templates; the account fills them, and without one there is no link.
+    expect(consoleHref("/c/{slug}/campaigns/c-1", "acme")).toBe("/c/acme/campaigns/c-1");
+    expect(consoleHref("/c/{slug}/campaigns/c-1")).toBeNull();
+  });
+
+  it("fills the account into a result's link inside the panel's account", () => {
+    render(
+      <ResultSlug.Provider value="acme">
+        <ol>
+          <StepRow
+            step={step({ results: { kind: "list", items: [{ title: "Diwali offer", subtitle: null, href: "/c/{slug}/campaigns/c-1" }], total: 1 } })}
+            label="Checked your campaigns"
+            live
+          />
+        </ol>
+      </ResultSlug.Provider>,
+    );
+    expect(screen.getByRole("link", { name: "Diwali offer" }).getAttribute("href")).toBe("/c/acme/campaigns/c-1");
   });
 });
 

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { CircleMinus, FileText, Loader2, PenLine, RotateCcw, Search, Sparkle } from "lucide-react";
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 
 import { consoleHref, formatWorkTime, stepDuration, stepResults, type StepResults } from "@/lib/copilot/liveEvents";
 import type { CopilotStep } from "@/lib/copilot/types";
@@ -78,13 +78,17 @@ function StepIcon({ step, retried }: { step: CopilotStep; retried: boolean }) {
   return <Sparkle aria-hidden className={glyph} />;
 }
 
+/** The account result links are filled in for; provided by the panel, null in the admin realm. */
+export const ResultSlug = createContext<string | null>(null);
+
 /** What a lookup found, each title a link to its own screen when it has one. */
 export function ResultList({ results }: { results: StepResults }) {
+  const slug = useContext(ResultSlug);
   const more = results.total - results.items.length;
   return (
     <ul className="space-y-1 border-l border-line py-0.5 pl-3">
       {results.items.map((item, index) => {
-        const href = consoleHref(item.href);
+        const href = consoleHref(item.href, slug);
         return (
           <li key={`${index}-${item.title}`} className="min-w-0">
             {href ? (
