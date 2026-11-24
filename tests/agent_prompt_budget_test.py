@@ -150,9 +150,9 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 
 
 #: Characters a guided call (the long script plus step-by-step lists of the size a phone
-#: walk-through takes) must still leave: pinned facts at their ceiling and 2,350 more, the
+#: walk-through takes) must still leave: pinned facts at their ceiling and 2,322 more, the
 #: measured room less 20 after the lean rebuild of 25 Nov 2026 (2,185 before it).
-GUIDED_MARGIN = MAX_PINNED_CHARS + 2_350
+GUIDED_MARGIN = MAX_PINNED_CHARS + 2_322
 
 
 def _guided(job: str) -> CallScript:

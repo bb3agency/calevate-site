@@ -23,7 +23,7 @@ and the Rytu Khata script of 25 Nov (session evidence, not copied here).
 | truthful answers | 821 | 821 | Unchanged |
 | THIS CALL | 161 | 161 | Unchanged |
 | platform total (excluding the script) | 8,715 | 8,404 | -311 |
-| whole instructions, guided fixture | 15,424 | 15,093 | -331 |
+| whole instructions, guided fixture | 15,424 | 15,121 | -303 (the step-list lead is 28 longer after merging lane au-call's "else ask what they see") |
 | per-call budget fixture, one language | 6,957 | 6,847 | budget now 6,867 (was 6,958) |
 | per-call budget fixture, three languages | 7,796 | 7,621 | budget now 7,641 (was 7,833) |
 
@@ -107,7 +107,8 @@ Departures from section B, and why:
   live and spends money on our Google key, so it runs on the VPS:
   `python -m scripts.eval_calls --fixture rytu --live --compare
   docs/evidence/lean-prompt-2026-11-25/rytu-old.txt docs/evidence/lean-prompt-2026-11-25/rytu-new.txt`
-  (the two whole prompts are committed beside this file).
+  (the two whole prompts are committed beside this file: `rytu-old.txt` is `feat/agent-four-tabs`
+  at 9bef1e1a2, `rytu-new.txt` this branch; 13,003 and 12,767 characters).
 
 ## 5. Founder decisions that would shrink it further
 
@@ -339,6 +340,6 @@ Old:
 New:
 
 ```text
-[STEP BY STEP] Give them one at a time, in order. Go to the next only when what they say meets its Wait for; if they are stuck, help with that step.
+[STEP BY STEP] Give them one at a time, in order. Go to the next only when what they say meets its Wait for; else ask what they see, and if they are stuck, help with that step.
 ```
 
