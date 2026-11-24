@@ -1,7 +1,7 @@
 """Which calls alert after they end belongs to the job: each campaign and inbound line gets its own rule (D-1040)
 
 Revision ID: b8e3f1c6d2a4
-Revises: c4f1a8d2e7b3
+Revises: f7a3c9d1b5e2
 Create Date: 2026-11-24 12:00:00.000000
 
 What a call notes is its job's list (D-1028), so the answers worth telling the team about are
@@ -40,7 +40,7 @@ from sqlalchemy.dialects import postgresql
 from apps.api.db.migration_offline import probe_skipped_offline
 
 revision: str = "b8e3f1c6d2a4"
-down_revision: str | None = "c4f1a8d2e7b3"
+down_revision: str | None = "f7a3c9d1b5e2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
