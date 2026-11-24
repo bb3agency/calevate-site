@@ -213,6 +213,14 @@ _CASES: list[tuple[str, CallScript, str, CallScript]] = [
         ).model_copy(update={"step_outcomes": [StepOutcome(step=1, outcome="The app is open.")]}),
     ),
     (
+        "asked_done_too_soon",
+        _script(_stage("s1", "Now tap the three-dot menu at the top right. Did it open?")),
+        "stages.0.sounds_like",
+        _script(
+            _stage("s1", "Now tap the three-dot menu at the top right. Tell me when it opens.")
+        ),
+    ),
+    (
         "brackets",
         _script(_stage("s1", "Tap Add to Home screen (the third option) and tell me.")),
         "stages.0.sounds_like",

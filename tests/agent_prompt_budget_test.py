@@ -292,6 +292,9 @@ def test_an_inbound_lines_engine_agent_that_places_calls_fits_the_same_margins()
 #: fillers "once a call each" at their list, no reaction "twice a call", a search when stuck on
 #: a step, and the word list led by "never the left, even scripted", paid for by writing each
 #: pair as an arrow rather than 'not "X" but "Y"'.
+#: The same call's 12:15 review left both where they were (7,795/6,956): a step's turn ends on
+#: an invitation to say when it is done, never "done?", paid for by "Steps?" and "Hesitant
+#: or"; the guided call's step-list lead pays for its own and the rest.
 PER_CALL_MAX = 7_833
 PER_CALL_ONE_LANGUAGE_MAX = 6_958
 

@@ -354,6 +354,21 @@ def stacked_actions(text: str) -> bool:
     return len(_NUMBERED_ITEM.findall(text)) >= 2 or len(_CALLER_ACTION.findall(text)) >= 2
 
 
+#: Words that may come before an English instruction's verb ("Now tap ...", "OK, please open").
+_LEAD_IN: Final = re.compile(
+    r"^(?:(?:now|please|then|next|first|ok|okay|so|and|just|sure|great|good)\b[\s,]*)+",
+    re.IGNORECASE,
+)
+
+
+def tells_caller_to_act(clause: str) -> bool:
+    """Whether an English clause tells the caller to do something on their phone: it opens,
+    after a lead-in word, with one of the caller's actions ("Now tap the menu"). "I'll open
+    your form" and "you opened it" are not instructions. English only: an Indian language's
+    instruction is not read by words (`turn_checks.asks_done_too_soon`)."""
+    return bool(_CALLER_ACTION.match(_LEAD_IN.sub("", clause.strip())))
+
+
 #: Words of a lead detail's label that say nothing about which detail it is.
 _GENERIC_WORDS: Final = frozenset(
     {
@@ -1356,6 +1371,7 @@ __all__ = [
     "step_number_problems",
     "step_numbers_broken",
     "step_outcome_problems",
+    "tells_caller_to_act",
     "unasked_details",
     "unasked_problems",
     "unbacked_promise",

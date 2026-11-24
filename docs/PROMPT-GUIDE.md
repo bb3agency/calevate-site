@@ -260,6 +260,18 @@ is done, never twice running"); `NAME_RULE` never asks a name THIS CALL has or i
 SOUND check `stalled`, counted on real calls; `offered_more_too_soon` also fires after the caller
 signs off.
 
+**An action and "is it done?" in one turn (Telugu campaign call of 24 Nov 2026, 12:15).** Six
+steps were said as "log in. Have you logged in?", so the person had no time to act and the
+engine's re-ask timer (which repeats a turn's closing question after a few seconds of silence)
+pressed them again. HOW TO SPEAK now says 'Steps? One a turn, inviting them to say when done;
+never "done?" or "understood?"', the step-list lead says "Say one, invite them to say when
+done, wait.", and the screen bullet says "then invite them to say when it is done". New SOUND
+check `asked_done_too_soon` (`turn_checks.asks_done_too_soon`), counted on real calls, traced
+to the script line by `mistake_lints` and rewritten by the script repair; Pip's writer gets the
+same rule in `SCRIPT_FLOW_RULE`. English is read by words; Telugu and Hindi by the founder's
+done-word and yes/no-ending lists in `call_words.json`, with any statement before such a
+question taken as the instruction.
+
 **Two opening lines (D-920).** An agent that both answers and places calls (`both`) has two
 openings: its greeting for calls it answers and `CallScript.outbound_opening_line`, compiled
 under `[OPENING ON CALLS YOU PLACE]` and read back by `call_script.outbound_opening_of`. Every

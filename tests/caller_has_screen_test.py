@@ -76,7 +76,7 @@ def test_on_names_labels_one_step_at_a_time_and_waits_for_done() -> None:
     bullet = screen_steps_bullet("te-IN")
     assert bullet in on
     assert "one step a turn" in bullet and "label word for word" in bullet
-    assert "wait until they say it is done" in bullet
+    assert "invite them to say when it is done" in bullet
     # Placed after the written-output bullet, which still forbids markup, lists and links.
     assert on.index("No markdown, emoji") < on.index(bullet)
     assert "lists, links, actions or notes" in on

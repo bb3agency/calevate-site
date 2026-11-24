@@ -1023,9 +1023,13 @@ PROCEDURE_HEADER: Final = "[STEP BY STEP]"
 #: exit condition, and asking when it does not, is how the voice guides write a state's exit
 #: ("Exit when: ...", developers.openai.com/api/docs/guides/realtime-models-prompting; "Collect,
 #: confirm, move on", docs.vapi.ai/prompting-guide; both read 23 Nov 2026).
+#: A step's Wait for is what the agent listens for, never a question it adds to the step: on
+#: the Telugu campaign call of 24 Nov 2026 (12:15) six steps were said as "do X. Is X done?" in
+#: one turn, so the person had no time to do X. The step's turn ends on an invitation to say
+#: when it is done (HOW TO SPEAK's "Steps?" bullet, which carries the guides cited there).
 PROCEDURE_LEAD: Final = (
-    "Give one step at a time. Give the next only once what they say meets its Wait for, or "
-    "says it is done; else ask, never assume. Stuck? Help with that step first."
+    "Say one, invite them to say when done, wait. Give the next only once what they say "
+    "meets its Wait for, or says done; else ask, never assume. Stuck? Help."
 )
 ADHERENCE_SENTENCES: Final[dict[str, str]] = {
     "flexible": "Sections in order as a guide. Follow the caller if they jump ahead; do not "
