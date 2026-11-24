@@ -885,6 +885,7 @@ async def test_the_confirm_route_carries_out_the_change_and_answers_what_it_did(
         "plan_id": None,
         "download_ticket": None,
         "queued": False,
+        "draft": None,
     }
     assert await _dnc_count(tenant_id) == 1
 

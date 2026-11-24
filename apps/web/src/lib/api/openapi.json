@@ -19857,6 +19857,16 @@
             ],
             "title": "Download Ticket"
           },
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CopilotDraftEvent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "object_id": {
             "title": "Object Id",
             "type": "string"
@@ -20042,6 +20052,37 @@
           "consent"
         ],
         "title": "CopilotConversationOut",
+        "type": "object"
+      },
+      "CopilotDraftEvent": {
+        "additionalProperties": false,
+        "description": "`event: draft` \u2014 this answer started a script draft; open its draft stream.",
+        "properties": {
+          "holder_id": {
+            "format": "uuid",
+            "title": "Holder Id",
+            "type": "string"
+          },
+          "holder_kind": {
+            "enum": [
+              "campaign",
+              "inbound_line"
+            ],
+            "title": "Holder Kind",
+            "type": "string"
+          },
+          "proposal_id": {
+            "format": "uuid",
+            "title": "Proposal Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "holder_kind",
+          "holder_id",
+          "proposal_id"
+        ],
+        "title": "CopilotDraftEvent",
         "type": "object"
       },
       "CopilotFact": {

@@ -37,7 +37,7 @@ from apps.api.agents import test_conversations, test_fixes
 from apps.api.agents.mistake_fixes import Holder
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import workspace as campaign_workspace
-from apps.api.copilot import id_kinds
+from apps.api.copilot import id_kinds, run_control
 from apps.api.copilot.actions import (
     PROPOSES_ONLY,
     ActionTool,
@@ -527,6 +527,14 @@ async def _execute_draft(
                 ask=ask,
             )
         ).id
+    draft = run_control.StartedDraft(
+        holder_kind=holder.kind, holder_id=holder.id, proposal_id=proposal_id
+    )
+    # Inside a live run (an immediate path) the run announces the draft and its Stop cancels
+    # it; from `POST /v1/copilot/confirm` there is no run and the confirm's answer names it.
+    run_control.note_draft_started(
+        holder_kind=draft.holder_kind, holder_id=draft.holder_id, proposal_id=draft.proposal_id
+    )
     # The typed instruction stays out of the audit row, as on the page: it is free text.
     asked: dict[str, Any] = {"tone": parsed.tone} if parsed.tone else {}
     if ask and "instruction" in ask:
@@ -552,6 +560,7 @@ async def _execute_draft(
             "proposal_id": str(proposal_id),
             **asked,
         },
+        draft=draft,
     )
 
 

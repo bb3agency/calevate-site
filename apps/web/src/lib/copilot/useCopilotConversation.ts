@@ -20,7 +20,7 @@ import {
 } from "./conversation";
 import { clearFilled, markFilled } from "./highlight";
 import { keepingOnWire } from "./keeping";
-import { IDLE_RUN, liveRunReducer, requestStop, STOP_GRACE_MS, type LiveRun } from "./liveEvents";
+import { IDLE_RUN, liveRunReducer, requestStop, STOP_GRACE_MS, type DraftFrame, type LiveRun } from "./liveEvents";
 import { redactForWire } from "./redaction";
 import { askCopilot, type CopilotAskBody } from "./stream";
 import type {
@@ -202,6 +202,8 @@ export interface CopilotConversation {
   live: LiveRun;
   /** A draft's own stream reached `phase`; `settled` once it was kept, discarded or ended. */
   settleDraft: (proposalId: string, phase: string, settled: boolean) => void;
+  /** Follow a draft a confirmed suggestion queued (the confirm's `draft`), as `event: draft` does. */
+  openDraft: (draft: DraftFrame) => void;
   /** True when the refusal on screen is the AI allowance ceiling (G-5, client realm). */
   atCeiling: boolean;
   ask: (question: string, files?: SentAttachment[]) => void;
@@ -662,6 +664,8 @@ export function useCopilotConversation(
     dispatchLive({ type: "draftPhase", proposalId, phase, settled });
   }, []);
 
+  const openDraft = useCallback((draft: DraftFrame) => dispatchLive({ type: "draft", frame: draft }), []);
+
   const dismissProposal = useCallback(() => setProposal(null), [setProposal]);
   const clearNavigation = useCallback(() => setNavigation(null), []);
 
@@ -783,7 +787,7 @@ export function useCopilotConversation(
             runId.current = run.run_id;
             dispatchLive({ type: "run", frame: run, now: Date.now() });
           },
-          onThought: (delta) => dispatchLive({ type: "thought", delta, now: Date.now() }),
+          onThought: (delta, turn) => dispatchLive({ type: "thought", delta, turn, now: Date.now() }),
           onDraft: (draft) => dispatchLive({ type: "draft", frame: draft }),
           onStopped: () => {
             stoppedByServer = true;
@@ -985,6 +989,7 @@ export function useCopilotConversation(
     steps,
     live,
     settleDraft,
+    openDraft,
     atCeiling,
     // FETCHING, not merely pending: a paused query is `isPending` for as long as the
     // browser is offline, and a skeleton that never resolves is the un-actionable version

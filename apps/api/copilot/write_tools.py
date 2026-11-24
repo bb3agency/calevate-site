@@ -147,6 +147,7 @@ from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import (
     CopilotActionEvent,
     CopilotConfirmOut,
+    CopilotDraftEvent,
     CopilotProposalEvent,
 )
 from apps.api.copilot.script_actions import SCRIPT_ACTIONS, SCRIPT_DRAFT_ACTIONS
@@ -1990,6 +1991,18 @@ async def confirm(
         plan_id=plans.plan_id_of(proposal.args),
         download_ticket=executed.download_ticket,
         queued=executed.queued,
+        draft=_draft_out(executed),
+    )
+
+
+def _draft_out(executed: Executed) -> CopilotDraftEvent | None:
+    """The script draft a confirmed act queued, for the panel to follow live."""
+    if executed.draft is None:
+        return None
+    return CopilotDraftEvent(
+        holder_kind=executed.draft.holder_kind,
+        holder_id=executed.draft.holder_id,
+        proposal_id=executed.draft.proposal_id,
     )
 
 
@@ -2212,6 +2225,7 @@ async def approve(
         plan_id=plans.plan_id_of(plan.args),
         download_ticket=executed.download_ticket,
         queued=executed.queued,
+        draft=_draft_out(executed),
     )
 
 

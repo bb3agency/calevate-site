@@ -44,6 +44,7 @@ from apps.api.agents.script_proposals import (
     script_diff,
 )
 from apps.api.campaigns.workspace import CampaignProposal, read_call_script, read_script_proposal
+from apps.api.copilot import run_control
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 
@@ -316,6 +317,13 @@ async def cancel_draft(
             )
         ).first()
     return done is not None
+
+
+# Pip's Stop cancels the drafts its run started through this, so it must be registered in
+# every process that serves the copilot routes: the api imports this module through the
+# campaign and Inbound line routes it mounts (`main._mount_routers`), and
+# `tests/script_draft_live_test.py` fails if app startup leaves it unregistered.
+run_control.register_draft_canceller(cancel_draft)
 
 
 __all__ = [
