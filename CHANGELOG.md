@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.47 — 25-Nov-2026
+
+- Admin: the script scorecard counts each problem once and names which check found it; the
+  simulated calls can compare the current call prompt with a rebuilt one on our model.
+
 ## 0.5.46 — 25-Nov-2026
 
 - Pip writes better scripts: the first step says in one sentence why we are calling, then
