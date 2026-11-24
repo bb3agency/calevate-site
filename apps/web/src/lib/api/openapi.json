@@ -3661,22 +3661,17 @@
             "title": "Agent Id",
             "type": "string"
           },
-          "items": {
+          "holders": {
             "items": {
-              "$ref": "#/components/schemas/AgentKnowledgeItemOut"
+              "$ref": "#/components/schemas/HolderKnowledgeOut"
             },
-            "title": "Items",
+            "title": "Holders",
             "type": "array"
-          },
-          "listed": {
-            "title": "Listed",
-            "type": "boolean"
           }
         },
         "required": [
           "agent_id",
-          "listed",
-          "items"
+          "holders"
         ],
         "title": "AgentKnowledgeOut",
         "type": "object"
@@ -27383,6 +27378,11 @@
             ],
             "title": "Handoff Applied"
           },
+          "holders_checked": {
+            "default": 0,
+            "title": "Holders Checked",
+            "type": "integer"
+          },
           "in_sync": {
             "title": "In Sync",
             "type": "boolean"
@@ -33057,6 +33057,58 @@
           "call_cap_s"
         ],
         "title": "HolderGiveTimeOut",
+        "type": "object"
+      },
+      "HolderKnowledgeOut": {
+        "additionalProperties": false,
+        "description": "One engine agent carrying this agent's work (D-1019) and what it holds.",
+        "properties": {
+          "engine_agent_ref": {
+            "title": "Engine Agent Ref",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentKnowledgeItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "agent",
+              "line",
+              "campaign",
+              "test_copy",
+              "arm"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "listed": {
+            "title": "Listed",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "engine_agent_ref",
+          "listed",
+          "items"
+        ],
+        "title": "HolderKnowledgeOut",
         "type": "object"
       },
       "HolderMistakeOut": {
@@ -52894,9 +52946,16 @@
             "minLength": 1,
             "title": "Handle",
             "type": "string"
+          },
+          "holder_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Holder Ref",
+            "type": "string"
           }
         },
         "required": [
+          "holder_ref",
           "handle"
         ],
         "title": "RemoveDocumentIn",
@@ -61617,6 +61676,11 @@
             ],
             "title": "Agent Name"
           },
+          "answers": {
+            "default": false,
+            "title": "Answers",
+            "type": "boolean"
+          },
           "dlt_status": {
             "title": "Dlt Status",
             "type": "string"
@@ -61637,6 +61701,17 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "line_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Name"
           },
           "monthly_rental_usd": {
             "anyOf": [
@@ -61677,6 +61752,17 @@
           "series": {
             "title": "Series",
             "type": "string"
+          },
+          "silent_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silent Reason"
           }
         },
         "required": [
@@ -77653,7 +77739,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge": {
       "get": {
-        "description": "Our copies (held, or missing on the platform), the client's live items not on this agent and why, and documents the platform holds that we did not send.",
+        "description": "Per engine agent carrying the agent (its own while it has one, each published inbound line, each campaign holding one, its test copy, each running script test arm): our copies (held, or missing on the platform), the client's live items not on it and why, and documents the platform holds that we did not send.",
         "operationId": "admin_agent_knowledge_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_get",
         "parameters": [
           {
@@ -77695,7 +77781,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Everything one agent holds on the voice platform",
+        "summary": "Everything one agent's engine agents hold on the voice platform",
         "tags": [
           "admin"
         ],
@@ -77704,7 +77790,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge/remove": {
       "post": {
-        "description": "Deletes, on the voice platform, a document this agent holds that no record of ours names. 409 for one of the client's own items (removed from their page instead); 404 when the agent does not hold it.",
+        "description": "Deletes, on the voice platform, a document one of this agent's engine agents (`holder_ref`) holds that no record of ours names. 409 for one of the client's own items (removed from their page instead); 404 when that engine agent is not one of this agent's or does not hold it.",
         "operationId": "admin_remove_unrecorded_document_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_remove_post",
         "parameters": [
           {
@@ -84989,7 +85075,7 @@
     },
     "/v1/agents/{agent_id}/engine-state": {
       "get": {
-        "description": "Asks the voice platform what it is running RIGHT NOW and compares it with the script, disclosure line and voice this agent last published. This is the only read that can see an agent edited in the vendor's own dashboard, or a publish that failed on our side after the vendor had already accepted it.\n\nA READ: it writes nothing and re-publishes nothing. It costs one call to the voice platform, so it is a separate endpoint rather than part of `/pending` \u2014 a banner must not dial a vendor on every page load.\n\n`agents:read`, not `agents:write`, for the reason the other reads here are: this is what support opens while looking at a client's screen, and a read must never be gated on a permission a view-as session can be refused.",
+        "description": "Asks the voice platform what it is running RIGHT NOW and compares it with the script, disclosure line and voice last published, for every engine agent carrying this agent (its own while it has one, its live inbound lines' and its running or paused campaigns'); the answer is the worst over them. This is the only read that can see an agent edited in the vendor's own dashboard, or a publish that failed on our side after the vendor had already accepted it.\n\nA READ: it writes nothing and re-publishes nothing. It costs one call to the voice platform, so it is a separate endpoint rather than part of `/pending` \u2014 a banner must not dial a vendor on every page load.\n\n`agents:read`, not `agents:write`, for the reason the other reads here are: this is what support opens while looking at a client's screen, and a read must never be gated on a permission a view-as session can be refused.",
         "operationId": "engine_state_v1_agents__agent_id__engine_state_get",
         "parameters": [
           {

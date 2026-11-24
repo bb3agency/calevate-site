@@ -236,6 +236,19 @@ describe("what the agent screen claims about being live", () => {
     expect(screen.getByText("Does not match")).toBeTruthy();
   });
 
+  it("says the re-check read every line and campaign carrying the agent (D-1019)", async () => {
+    await render(CONFIRMED, {
+      [ENGINE_STATE_PATH]: engineState({ engine_agent_ref: "line_1", holders_checked: 3 }),
+    });
+
+    await screen.findByText(CONFIRMED.headline);
+    fireEvent.click(
+      screen.getByRole("button", { name: /Check the voice platform now/ }),
+    );
+
+    expect(await screen.findByText(/Read back 3 engine agents carrying this agent/)).toBeTruthy();
+  });
+
   it("renders an unreadable property as neither a match nor a mismatch", async () => {
     await render(CONFIRMED, {
       [ENGINE_STATE_PATH]: engineState({

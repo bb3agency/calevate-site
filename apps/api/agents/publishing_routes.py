@@ -297,6 +297,10 @@ class EngineStateOut(Strict):
     #: Drift (D-753): Calevate agents answer on the phone only, and the settings sweep sets
     #: `surfaces` back. Null where the engine cannot say.
     answers_also_on: list[str] | None = None
+    #: How many engine agents carrying this agent were read back (D-1019): its own while it
+    #: has one, its live lines' and its running or paused campaigns'. The fields above are
+    #: the worst over them; 0 when nothing carries it and only the agent was asked.
+    holders_checked: int = 0
 
 
 class VoiceTierRateOut(Strict):
@@ -585,7 +589,9 @@ def _render(
     summary="Read the voice platform back and report any drift from what we published",
     description=(
         "Asks the voice platform what it is running RIGHT NOW and compares it with the "
-        "script, disclosure line and voice this agent last published. This is the only "
+        "script, disclosure line and voice last published, for every engine agent carrying "
+        "this agent (its own while it has one, its live inbound lines' and its running or "
+        "paused campaigns'); the answer is the worst over them. This is the only "
         "read that can see an agent edited in the vendor's own dashboard, or a publish "
         "that failed on our side after the vendor had already accepted it.\n\n"
         "A READ: it writes nothing and re-publishes nothing. It costs one call to the "
@@ -598,7 +604,11 @@ def _render(
 )
 async def engine_state(agent_id: UUID, principal: PublishingReader) -> EngineStateOut:
     assert principal.tenant_id is not None  # `requires()` resolves a tenant for reads
-    drift = await publishing.engine_drift_for(tenant_id=principal.tenant_id, agent_id=agent_id)
+    read = await publishing.engine_drift_of_holders(
+        tenant_id=principal.tenant_id, agent_id=agent_id
+    )
+    drift = read.worst
+    refs = read.refs or ((drift.engine_agent_ref,) if drift.engine_agent_ref else ())
     return EngineStateOut(
         agent_id=UUID(drift.agent_id),
         engine=drift.engine,
@@ -613,26 +623,30 @@ async def engine_state(agent_id: UUID, principal: PublishingReader) -> EngineSta
         voice_applied=drift.voice_applied,
         handoff_applied=drift.handoff_applied,
         detail=drift.detail,
-        answers_also_on=await _answers_also_on(agent_id, drift.engine_agent_ref),
+        answers_also_on=await _answers_also_on(agent_id, refs),
+        holders_checked=len(read.refs),
     )
 
 
-async def _answers_also_on(agent_id: UUID, ref: str | None) -> list[str] | None:
-    """Where else the engine says the agent answers (drift the settings sweep repairs,
-    D-753), or None when it cannot say."""
+async def _answers_also_on(agent_id: UUID, refs: tuple[str, ...]) -> list[str] | None:
+    """Where else the engine says any of these engine agents answers (drift the settings
+    sweep repairs, D-753), or None when it cannot say for one of them."""
     from apps.api.agents.engine_settings import ReportsAnswerSurfaces
     from apps.api.engine import get_engine
 
     engine = get_engine()
-    if ref is None or not isinstance(engine, ReportsAnswerSurfaces):
+    if not refs or not isinstance(engine, ReportsAnswerSurfaces):
         return None
-    try:
-        surfaces = await engine.answer_surfaces(ref)
-    except ProblemError:
-        return None
-    if surfaces:
+    found: list[str] = []
+    for ref in refs:
+        try:
+            surfaces = await engine.answer_surfaces(ref)
+        except ProblemError:
+            return None
+        found.extend(s for s in surfaces if s not in found)
+    if found:
         log.info("engine_agent_answers_also_on", extra={"agent_id": str(agent_id)})
-    return surfaces
+    return found
 
 
 @router.post(
