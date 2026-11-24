@@ -3088,6 +3088,19 @@ _REGISTER_BULLET: Final = (
 #: opened nine of twelve replies. "Often none" and "never to open" were already here; the
 #: register line introduced its fillers as "lightly", so the cap is now said at that list
 #: (`spoken_style.FILLERS_LEAD`), and here a reaction is never said twice a call.
+#: The same call (12:15): after each action the agent asked in the same turn whether it was
+#: done ("log in. Have you logged in?"), before the person could do it. A step's turn now ends
+#: on an invitation to say when it is done, never "done?". A turn that ends on a question also
+#: starts the engine's re-ask timer, which repeats it after a few seconds of silence ("When
+#: the agent ends on a question ... it asks that question again", thinnest-findings/mirror/
+#: snapshots/2026-10-29/pages/channels/voice.md:831); one ending on an invitation does not.
+#: The guides wait the same way: "Give one step at a time" (OpenAI, the realtime page above),
+#: an agent stays silent while the caller says "hold on" (docs.retellai.com/build/no-response)
+#: or "needs time to process" (elevenlabs.io/docs/agents-platform/customization/tools/
+#: system-tools/skip-turn), and "The caller goes quiet. Wait 10-15 seconds, then check in
+#: once" (docs.vapi.ai/prompting-guide); all read 24 Nov 2026. Silence itself is the engine's
+#: (`call_handling` nudge and re-ask), not the model's. Paid for by "Steps?" for "Explaining
+#: steps?" and "Hesitant or" for "Hesitant to go ahead or".
 _WRITTEN_FORM_BULLET: Final = f"- {WRITTEN_FORM_RULE}\n"
 #: The language `VOICE_STYLE_GUIDANCE`'s amounts bullet is written for, and the default of
 #: an `AgentConfig` built without one (every app path passes the agent's own). Not what a
@@ -3114,7 +3127,7 @@ VOICE_STYLE_GUIDANCE: Final = (
     "sentence. Adapt to the answer.\n"
     "- Say only your own part, never the caller's. Half an answer? Offer your reading as a "
     "question with a way out; never finish it for them.\n"
-    "- Hesitant to go ahead or not interested? Offer once, then close politely. Unsure of an "
+    "- Hesitant or not interested? Offer once, then close politely. Unsure of an "
     "answer? Explain or offer choices.\n"
     "- Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter, in new "
     "words.\n"
@@ -3135,8 +3148,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     '- Unclear, off the point, or a bare "OK" to your question? Ask what they meant, reworded; '
     "never guess or pick for them. Asked to repeat? Say it shorter.\n"
     "- Never narrate a search or a wait.\n"
-    '- Explaining steps? One a turn, wait until done, never "understood?"; "OK" after one: '
-    "the next. To check, ask what they see. "
+    '- Steps? One a turn, inviting them to say when done; never "done?" or "understood?"; '
+    '"OK" after one: the next. To check, ask what they see. '
     '"Anything else?" once, when the task is done; "that is all"? Close.\n'
     "- Close: what happens next in one line, no recap, then one goodbye, nothing more. End "
     "only then or when asked, never while they talk."
@@ -3184,8 +3197,8 @@ def screen_steps_bullet(language: str | None) -> str:
     spelled = f' ("{example}")' if example else ""
     return (
         "- They follow you on their screen: one step a turn, naming what to tap once, by its "
-        "label word for word, never again in brackets or other letters, then wait until they "
-        "say it is done. Say a web address once, as it reads, no www: a word as a word, "
+        "label word for word, never again in brackets or other letters, then invite them to "
+        "say when it is done. Say a web address once, as it reads, no www: a word as a word, "
         "initials each by its English letter "
         f'name in the call\'s letters, a comma between, "dot" as a word{spelled}. Spell a word '
         "by letters only if they cannot find it, or send the link if a tool can.\n"

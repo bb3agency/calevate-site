@@ -130,7 +130,7 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     # D-965 only an "OK" to its own question is asked again, and one after a step goes on.
     unclear = bullet("- Unclear")
     assert 'a bare "OK" to your question? Ask what they meant, reworded' in unclear
-    assert '"OK" after one: the next' in bullet("- Explaining steps? One a turn")
+    assert '"OK" after one: the next' in bullet("- Steps? One a turn")
 
     pace = bullet("- Talked over")
     # "I'll speak slowly from now on" promised a speed the model cannot set (D-912).

@@ -84,9 +84,11 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: without a fact.
 #: 24 Nov 2026: fillers once a call each, said at the list; no reaction twice a call; the word
 #: list as arrows led by "never the left, even scripted".
+#: 24 Nov 2026 (12:15): a step's turn ends on an invitation to say when it is done, never
+#: "done?".
 PINNED = (
-    "517fa0271db666351295d413b37767012b5dd416510d3818ed22817d2a00960d",
-    "e1b320d79a4e77367d928b6e0901611cc47f1d638dc118615858f6fee70650ed",
+    "b1c8638e4ee0003d3d7faa7dc51e48bdd47c809b0b0ada62716da4dd0cf6923b",
+    "34a95784ff9f7aa10cdb5e8ca20b616d19d051d685b1717b74fd3fad66f2fc72",
 )
 
 

@@ -53,7 +53,7 @@ JOB: Final = "repair_holder_script"
 DEBOUNCE_S: Final = 30
 #: Joined to the script before it is hashed into `script_heal_inputs`: a new or changed check
 #: changes it, so every script is checked once more by the next sweep.
-CHECKS_VERSION: Final = "heal-1"
+CHECKS_VERSION: Final = "heal-2"
 
 HolderKind = Literal["campaign", "line"]
 

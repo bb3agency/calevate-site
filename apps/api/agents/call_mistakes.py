@@ -130,6 +130,14 @@ LESSONS: Final[dict[str, Lesson]] = {
         "React only when it fits what was said, in new words, and often not at all.",
         'HOW TO SPEAK: "no two replies start or end alike"',
     ),
+    # The Telugu campaign call of 24 Nov 2026 (12:15): "log in. Have you logged in?" in one
+    # turn, six times. Read off the reply alone, as in a practice run.
+    "asked_done_too_soon": Lesson(
+        "Asked if a step was done before the caller could do it",
+        "Give the step, ask them to say when it is done, and wait.",
+        'HOW TO SPEAK: "Steps? One a turn, inviting them to say when done; never \\"done?\\""; '
+        "call_script.PROCEDURE_LEAD",
+    ),
     "same_closing": Lesson(
         "Ended reply after reply with the same words",
         "End each reply on its own question or next step, in new words.",

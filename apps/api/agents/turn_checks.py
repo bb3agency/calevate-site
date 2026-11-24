@@ -48,7 +48,12 @@ from calevate_shared.spoken_guard import (
 )
 from calevate_shared.spoken_style import style_for
 
-from apps.api.agents.script_lint import CapabilityManifest, line_ending, unbacked_promise
+from apps.api.agents.script_lint import (
+    CapabilityManifest,
+    line_ending,
+    tells_caller_to_act,
+    unbacked_promise,
+)
 
 Kind = Literal[
     "brackets",
@@ -120,6 +125,9 @@ Kind = Literal[
     # D-1022 (the Rytu Khata campaign call of 19 Nov 2026): "OK, no problem." and nothing
     # more, so the caller had to ask what came next.
     "stalled",
+    # The Telugu campaign call of 24 Nov 2026 (12:15): "log in. Have you logged in?", an
+    # action and the question whether it is done in one turn, before they could do it.
+    "asked_done_too_soon",
     # --- step outcomes (founder, 24 Nov 2026): a step left before its outcome was reached,
     # read off where the call got to (`call_mistakes.step_mistakes`), not by a reply check.
     "moved_on_unconfirmed",
@@ -171,6 +179,8 @@ SOUND_KINDS: Final = frozenset(
         # HOW TO SPEAK decides it (D-1022); a note, because "Sure." to "one minute" is right
         # and only the English way of asking to wait is listed.
         "stalled",
+        # HOW TO SPEAK decides it ("Steps?"), and a step's line written that way causes it.
+        "asked_done_too_soon",
     }
 )
 #: What breaks the caller's task whatever the words: the caller's part said for them, a
@@ -838,6 +848,16 @@ def turn_problems(
                 "sentences.",
             )
         )
+    too_soon = asks_done_too_soon(reply)
+    if too_soon:
+        found.append(
+            TurnProblem(
+                "asked_done_too_soon",
+                f"It gave a step and asked in the same turn whether it was done "
+                f"({_quoted(too_soon)}), before they could do it. It should end on asking them "
+                "to say when it is done, and wait.",
+            )
+        )
     repeated = _repeated_sentence(parts)
     if repeated:
         found.append(
@@ -1483,6 +1503,112 @@ def claims_done(text: str, *, caller_said: str = "") -> bool:
     """Does this agent line say something was done (placed, saved, booked, sent)? Not when it
     follows the caller saying they did it (`caller_says_done`): that acknowledges their act."""
     return bool(_CLAIMS_DONE.search(text)) and not caller_says_done(caller_said)
+
+
+# --- an action and "is it done?" in one turn (Telugu campaign call of 24 Nov 2026, 12:15) -----
+#
+# Six steps of that call ended "... log in. Have you logged in?": the person had no time to
+# do it, and a turn ending on a question also starts the engine's re-ask timer, so a silence
+# spent tapping is answered with the question again. Read by structure, so it is the same
+# rule in every language: a clause that gives an action, then a last yes/no question asking
+# whether it is done or shows. What each language can be read for:
+# - English: the instruction by its verb (`script_lint.tells_caller_to_act`) and the
+#   question by its words (`_EN_ASKS_DONE`), both in code.
+# - Telugu: the question by the founder's lists alone: one of the done-words a caller
+#   answers with (`_CALLER_DONE`) asked with a yes/no ending (`_TE_YES_NO_ENDINGS`) in place
+#   of its last letters, or a short yes/no question naming a word of the instruction before
+#   it. The instruction is not read by its words (no list of Telugu instruction forms
+#   exists), so any statement before such a question counts, and a question about something
+#   else ("Android or iPhone?", a question word, a choice) never does.
+# - Hindi: a done-word from the same list said in the question ("ho gaya?").
+# - Any other language: only an English action or done-word written in it.
+
+#: The English of asking whether an action is done or its result shows: "Did it open?",
+#: "Have you logged in?", "Can you see it?". "Do you have Chrome?" asks about the phone.
+_EN_ASKS_DONE: Final = re.compile(
+    r"^(?:did|has|have|is|are|was|were|does|do|can|could)\b.*\b(?:opens?|opened|done|"
+    r"finished|worked|works|installed|logged|signed|loaded|loads|appear(?:s|ed)?|come|came|"
+    r"showing|shows|see|there|added|saved|selected|chosen|chose|typed|entered|downloaded|"
+    r"tapped|clicked|pressed|ready)\b",
+    re.IGNORECASE,
+)
+#: Regular-expression syntax: an alternative of `_CALLER_DONE` with none is a plain word.
+_REGEX_SYNTAX: Final = re.compile(r"[\\()\[\]{}?*+.^$|\s]")
+#: The founder's done-words that are plain words, read from the same entry as
+#: `caller_says_done`, so the two can never disagree about what "done" is.
+_DONE_WORDS: Final = _Live(
+    lambda: tuple(
+        word
+        for word in _say("turn_checks._CALLER_DONE").split("|")
+        if word and not _REGEX_SYNTAX.search(word)
+    )
+)
+#: Characters two words share at their start to name one thing ("login" and "logged").
+_STEM_CHARS: Final = 5
+#: Meaningful words a question may have to be only the check on the step before it.
+DONE_CHECK_MAX_WORDS: Final = 4
+
+
+def _last_word(question: str) -> str:
+    """The question's last word that is not a filler or a polite particle."""
+    meaningful = [w for w in _words(question) if w not in _FILLER()]
+    return meaningful[-1] if meaningful else ""
+
+
+def _yes_no_ending(word: str) -> str | None:
+    return next((e for e in _TE_YES_NO_ENDINGS() if word.endswith(e) and len(word) > len(e)), None)
+
+
+def _asks_if_done(question: str) -> bool:
+    """A question whether something is done or shows, in the ways the docs above list."""
+    if _EN_ASKS_DONE.search(" ".join(_words(question))):
+        return True
+    if _CALLER_DONE.search(question) and not _CALLER_NOT.search(question):
+        return True
+    word = _last_word(question)
+    ending = _yes_no_ending(word)
+    if ending is None:
+        return False
+    stem = word[: -len(ending)]
+    return any(done.startswith(stem) for done in _DONE_WORDS())
+
+
+def _names_the_step(question: str, instruction: str) -> bool:
+    """A short yes/no question that names a word of the instruction before it ("log in ...
+    logged in?"): it can only be asking whether that instruction is done."""
+    asked = {w for w in _content(question) if len(w) >= _STEM_CHARS}
+    if not asked or len(_content(question)) > DONE_CHECK_MAX_WORDS:
+        return False
+    if _yes_no_ending(_last_word(question)) is None and not _EN_QUESTION.search(question):
+        return False
+    told = {w[:_STEM_CHARS] for w in _content(instruction) if len(w) >= _STEM_CHARS}
+    return any(w[:_STEM_CHARS] in told for w in asked)
+
+
+def _gives_action(clause: str) -> bool:
+    if is_question(clause):
+        return False
+    return has_indic_letters(clause) or tells_caller_to_act(clause)
+
+
+def asks_done_too_soon(reply: str) -> str | None:
+    """The question, when a reply gives the caller something to do and then asks in the same
+    turn whether it is done; None otherwise. "Tap the menu. Tell me when it opens." is right:
+    it invites them to say when, and asks nothing."""
+    parts = sentences(reply)
+    if not parts or not is_question(parts[-1]):
+        return None
+    pieces = [p.strip() for p in _CLAUSE_MARK.split(parts[-1]) if p.strip()]
+    question, before = pieces[-1], [*parts[:-1], *pieces[:-1]]
+    if not before or len(_OR.split(question)) > 1 or _EITHER.search(question):
+        return None
+    if _asks_wh(_HI_QUESTION.sub(" ", " ".join(_words(question)))):
+        return None
+    if not any(_gives_action(clause) for clause in before):
+        return None
+    if _asks_if_done(question) or _names_the_step(question, before[-1]):
+        return question
+    return None
 
 
 #: The agent saying it already told the caller something: "as I said", "చెప్పాను కదా",

@@ -299,6 +299,10 @@ OPENING_LINE_RULE: Final = (
 #:   they should see, then their confirmation (speakshark.com/blog/english-it-support-
 #:   customer-calls, read 5 Nov 2026); voice-agent guides say "One field at a time" and
 #:   "Ask only one question at a time" (docs.vapi.ai/prompting-guide, read 5 Nov 2026).
+#: - An action's line ends on an invitation to say when it is done, never "is it done?":
+#:   on the Telugu campaign call of 24 Nov 2026 (12:15) six steps asked it in the same turn,
+#:   before the person could act (`mistake_lints._asked_done_too_soon` finds such a line).
+#:   Worded for each action, so the small steps do not all end with one tag.
 #: - Numbers given out a few digits at a time: the caller asked twice to slow down.
 #: - No spoken note-keeping: the founder wants the note kept, not announced.
 #: - Steps in the order their answers become possible, and only questions the caller can
@@ -353,12 +357,14 @@ SCRIPT_FLOW_RULE: Final = (
     "words, and no spoken line opens "
     "with a reaction (OK, good, very good, understood, happy) before its point; each opens "
     "with its own point, the answer, the step or the question; nor do the lines of one "
-    "language, or a stage's small steps, all end with the same tag, such as asking them to "
-    "say when it is done: the agent waits after each small step anyway. A "
+    "language, or a stage's small steps, all end with the same tag. A "
     "stage that walks the caller through doing something puts each action in its "
     "procedure, one action an item, and the agent waits for the caller to say it is done "
     "before the next; never several actions in one instruction followed by asking whether "
-    "they understood. Each stage's sounds_like does what that stage's instruction says: a "
+    "they understood. A line that gives an action ends on it and an invitation to say when "
+    "it is done, worded for that action, and never asks in the same line whether it is done "
+    "or shows: they need time to do it first. Each stage's sounds_like does what that "
+    "stage's instruction says: a "
     "stage that explains or answers says the answer from the knowledge and passes to the "
     "team only what the knowledge does not hold. Each thing is explained in one stage only; "
     "when the caller asks how to use it, the call moves to the stage that shows the first "

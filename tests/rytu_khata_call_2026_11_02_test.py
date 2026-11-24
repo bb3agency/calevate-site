@@ -114,9 +114,7 @@ def test_the_name_is_asked_for_a_booking_call_back_hand_over_or_at_the_close() -
 
 
 def test_hesitating_closes_but_not_knowing_an_answer_gets_help() -> None:
-    assert "Hesitant to go ahead or not interested? Offer once, then close politely." in (
-        VOICE_STYLE_GUIDANCE
-    )
+    assert "Hesitant or not interested? Offer once, then close politely." in VOICE_STYLE_GUIDANCE
     assert "Unsure of an answer? Explain or offer choices." in VOICE_STYLE_GUIDANCE
     prompt = compose_engine_prompt(_cfg())
     assert "or no clear reply twice to one question: say so" in prompt

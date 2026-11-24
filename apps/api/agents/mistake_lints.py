@@ -40,6 +40,7 @@ from apps.api.agents.mistake_fixes import fix_paths
 from apps.api.agents.script_lint import (
     OPENING_FIELDS,
     LintContext,
+    agent_lines,
     bracket_problems,
     caller_paths,
     flow_problems,
@@ -311,6 +312,28 @@ def _formal_words(script: CallScript, context: LintContext) -> list[str]:
     return found
 
 
+def _asked_done_too_soon(script: CallScript, _context: LintContext) -> list[str]:
+    """A line that gives an action and asks in the same line whether it is done
+    (`turn_checks.asks_done_too_soon`): every line the agent says or copies, each call
+    language's step lines and the small steps' actions included, the openings left out. The
+    repair rewrites it as the action and an invitation to say when it is done."""
+    lines = [
+        *((p, t) for p, t in agent_lines(script) if p not in OPENING_FIELDS),
+        *(
+            (f"stages.{i}.procedure.{j}.action", step.action)
+            for i, stage in enumerate(script.stages)
+            for j, step in enumerate(stage.procedure)
+        ),
+    ]
+    return [
+        f"{path}: gives an action and asks in the same line whether it is done, before they "
+        "can do it; end on the action and an invitation to say when it is done, worded for "
+        "this step, with no question."
+        for path, text in lines
+        if text.strip() and turn_checks.asks_done_too_soon(_heard(text))
+    ]
+
+
 def _opened_again(script: CallScript, _context: LintContext) -> list[str]:
     """A step told to redo the opening (its English instruction) or whose line does."""
     return [*opening_redone_problems(script), *opening_redone_line_problems(script)]
@@ -373,6 +396,7 @@ _CHECKS: Final[dict[str, _Check]] = {
     "stalled": _stalled,
     "moved_on_unconfirmed": _moved_on_unconfirmed,
     "formal_words": _formal_words,
+    "asked_done_too_soon": _asked_done_too_soon,
 }
 
 #: The mistake kinds a script check can trace to the agent's own script.
