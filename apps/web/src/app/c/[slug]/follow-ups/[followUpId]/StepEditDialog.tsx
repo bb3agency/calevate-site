@@ -3,15 +3,9 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { ActionButton } from "@/components/arc/feedback";
 import { ModalDialog } from "@/components/modalDialog";
-import {
-  FIELD,
-  FIELD_LABEL,
-  PRIMARY_BUTTON,
-  ProblemNotice,
-  SECONDARY_BUTTON,
-  Skeleton,
-} from "@/components/ui";
+import { FIELD, FIELD_LABEL, ProblemNotice, Skeleton } from "@/components/ui";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { canDialOut } from "@/lib/agentState";
 import { ApiProblem } from "@/lib/api/client";
@@ -81,12 +75,17 @@ export function StepEditDialog({
       onClose={onClose}
       actions={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onClose} disabled={pending}>
+          <ActionButton variant="secondary" onClick={onClose} disabled={pending}>
             Cancel
-          </button>
-          <button type="button" className={PRIMARY_BUTTON} onClick={save} disabled={pending || Boolean(invalid)}>
-            {pending ? "Saving…" : "Save"}
-          </button>
+          </ActionButton>
+          <ActionButton
+            status={pending ? "pending" : "idle"}
+            pendingLabel="Saving…"
+            onClick={save}
+            disabled={Boolean(invalid)}
+          >
+            Save
+          </ActionButton>
         </>
       }
     >

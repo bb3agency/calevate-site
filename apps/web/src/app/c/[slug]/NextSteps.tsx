@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   CircleAlert,
   Gauge,
+  LoaderCircle,
   MessageCircleQuestion,
   PhoneMissed,
   Rocket,
@@ -655,17 +656,26 @@ function dedupe(steps: Step[]): Step[] {
   });
 }
 
+/** An icon button, so not `ActionButton` (its variants are labelled buttons); it keeps the
+ *  same convention by hand: spins while hiding, `aria-disabled` and a refused press. */
 function HideSetup({ onHide, pending }: { onHide: () => void; pending: boolean }) {
   return (
     <button
       type="button"
-      onClick={onHide}
-      disabled={pending}
+      onClick={() => {
+        if (!pending) onHide();
+      }}
+      aria-disabled={pending || undefined}
+      aria-busy={pending || undefined}
       aria-label={HOME.setupHide}
       title={HOME.setupHide}
-      className={QUIET_ICON_BUTTON}
+      className={`${QUIET_ICON_BUTTON} ${pending ? "cursor-progress" : ""}`}
     >
-      <X aria-hidden className="h-4 w-4" />
+      {pending ? (
+        <LoaderCircle aria-hidden className="h-4 w-4 motion-safe:animate-spin" />
+      ) : (
+        <X aria-hidden className="h-4 w-4" />
+      )}
     </button>
   );
 }

@@ -435,15 +435,15 @@ function Refusal({
     <NoticeBox tone="warn" role="status">
       <span className="block">{result.blocked_reason ?? "This call was not allowed."}</span>
       {result.opens_at ? (
-        <button
-          type="button"
-          disabled={busy}
+        <ActionButton
+          variant="secondary-sm"
+          status={busy ? "pending" : "idle"}
           onClick={() => result.opens_at && onBookAt(result.opens_at)}
-          className={`${SECONDARY_BUTTON_SM} mt-2`}
+          className="mt-2"
         >
           <CalendarClock aria-hidden className="h-3.5 w-3.5" />
           Book it for {formatIST(result.opens_at)}
-        </button>
+        </ActionButton>
       ) : null}
       {fix ? (
         <Link href={fix.href} className={`${SECONDARY_BUTTON_SM} mt-2`}>
@@ -471,14 +471,14 @@ function Booked({ result, onAnother }: { result: OneCallResult; onAnother: () =>
       <ProblemNotice error={cancel.error} />
       <div className="flex flex-wrap gap-2">
         {!cancelled && result.callback_id ? (
-          <button
-            type="button"
-            disabled={cancel.isPending}
+          <ActionButton
+            variant="secondary"
+            status={cancelFeedback.status}
+            pendingLabel="Calling off…"
             onClick={() => result.callback_id && cancelFeedback.run(result.callback_id)}
-            className={SECONDARY_BUTTON}
           >
-            {cancel.isPending ? "Calling off…" : "Call it off"}
-          </button>
+            Call it off
+          </ActionButton>
         ) : null}
         <button type="button" onClick={onAnother} className={SECONDARY_BUTTON}>
           <PhoneForwarded aria-hidden className="h-4 w-4" />

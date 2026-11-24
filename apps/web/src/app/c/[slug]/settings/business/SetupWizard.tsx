@@ -11,7 +11,6 @@ import { SectionEditor, stepProblem } from "@/components/businessProfile/Section
 import {
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
   Skeleton,
 } from "@/components/ui";
 import { useAgentLanguageChoices } from "@/lib/api/agentLanguages";
@@ -282,9 +281,10 @@ function Wizard({
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4">
                   <div className="flex gap-2">
                     {index > 0 && (
-                      <button type="button" onClick={() => go(index - 1)} disabled={busy} className={SECONDARY_BUTTON}>
+                      // Held while Skip or Save works; the pressed one spins.
+                      <ActionButton variant="secondary" onClick={() => go(index - 1)} disabled={busy}>
                         Back
-                      </button>
+                      </ActionButton>
                     )}
                     <ActionButton
                       variant="secondary"

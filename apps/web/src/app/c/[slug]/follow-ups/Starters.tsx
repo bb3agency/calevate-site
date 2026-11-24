@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Lock, Plus } from "lucide-react";
+import { LoaderCircle, Lock, Plus } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION } from "@/components/console/section";
@@ -111,17 +111,30 @@ export function Starters({
               );
             }
             const busy = feedback.status === "pending" && chosen === starter.key;
+            // Made and on its way to its own page: another press would make a second one.
+            const locked = feedback.status === "pending" || create.isSuccess;
+            // A card, not `ActionButton`: its faces are one line and this holds three. It
+            // follows the same convention by hand: `aria-disabled` keeps it in the tab order,
+            // the press is refused in script, and the card being made spins.
             return (
               <li key={starter.key}>
                 <button
                   type="button"
-                  // Made and on its way to its own page: another press would make a second one.
-                  disabled={feedback.status === "pending" || create.isSuccess}
-                  onClick={() => choose(starter)}
+                  aria-disabled={locked || undefined}
+                  aria-busy={busy || undefined}
+                  onClick={() => {
+                    if (!locked) choose(starter);
+                  }}
                   aria-label={`Use ready-made: ${starter.name}`}
-                  className="press flex h-full w-full items-start gap-3 rounded-lg border border-line px-3 py-2.5 text-left transition-colors duration-(--duration-fast) hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-60 touch:min-h-11"
+                  className={`press flex h-full w-full items-start gap-3 rounded-lg border border-line px-3 py-2.5 text-left transition-colors duration-(--duration-fast) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 ${
+                    busy ? "cursor-progress" : locked ? "cursor-not-allowed opacity-60" : "hover:bg-ink/[0.03]"
+                  }`}
                 >
-                  <Plus aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+                  {busy ? (
+                    <LoaderCircle aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint motion-safe:animate-spin" />
+                  ) : (
+                    <Plus aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+                  )}
                   <span className="min-w-0">
                     <span className="block font-medium text-ink">{busy ? "Making it…" : starter.name}</span>
                     <span className="block text-meta text-ink-muted">{starter.description}</span>

@@ -69,7 +69,8 @@ describe("calling off a call-back", () => {
     });
     const move = (await screen.findByRole("button", { name: "Move" })) as HTMLButtonElement;
     expect(move.disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "Calling off…" })).toBeTruthy();
+    // The pressed row's Call off spins; its name stays the action.
+    expect(screen.getByRole("button", { name: "Call off" }).getAttribute("aria-busy")).toBe("true");
   });
 
   it("is not offered to staff, and the screen says why instead", async () => {
