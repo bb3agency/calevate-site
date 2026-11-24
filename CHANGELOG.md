@@ -13,6 +13,12 @@ page (`apps/web/package.json` holds the version). Dates are IST.
   has them; the call page names the word, and the turn where it was said.
 - An agent searches your knowledge when the caller is stuck on a step, not only when asked
   about the business.
+- Pip repairs the faulty lines of an existing campaign's or Inbound line's script by itself:
+  after you save it, when a real call trips on one of its lines, and in an hourly check of
+  scripts not yet checked. Only the faulty lines change; openings, notices and step outcomes
+  are never touched, and a campaign keeps its previous script to switch back to.
+- The call page says "Fixed in your script" or "Fixing it in your script" for a mistake the
+  script caused, instead of "Our team has been told".
 
 ## 0.5.31 — 24-Nov-2026
 
