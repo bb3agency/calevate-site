@@ -81,15 +81,17 @@ async def test_each_holder_of_a_routed_vendor_agent_is_named() -> None:
             text("UPDATE campaigns SET engine_agent_ref = 'ag_campaign_x' WHERE id = :c"),
             {"c": campaign_id},
         )
+        # Unique per run: the ref is unique across the table, so a fixed one fails a rerun.
+        copy_ref = f"ag_copy_{uuid7().hex[:12]}"
         await session.execute(
             text(
                 "INSERT INTO agent_test_copies (id, tenant_id, agent_id, engine_agent_ref, "
-                "business_only) VALUES (:id, :t, :a, 'ag_copy_x', true)"
+                "business_only) VALUES (:id, :t, :a, :ref, true)"
             ),
-            {"id": uuid7(), "t": tenant_id, "a": agent_id},
+            {"id": uuid7(), "t": tenant_id, "a": agent_id, "ref": copy_ref},
         )
         line_holder = await route_holder(session, agent_id=agent_id, engine_agent_ref=line_ref)
-        copy = await route_holder(session, agent_id=agent_id, engine_agent_ref="ag_copy_x")
+        copy = await route_holder(session, agent_id=agent_id, engine_agent_ref=copy_ref)
 
     assert await _kind(tenant_id, agent_id, own) == "agent"
     assert line_holder is not None and (line_holder.kind, line_holder.holder_id) == (
