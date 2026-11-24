@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.38 — 24-Nov-2026
+
+- Improve, on every campaign and Inbound line, shows where calls go wrong: how many callers
+  reached each step and where most were lost (with "Fix this step"), the mistakes on its calls
+  and whether each is fixed in the script, how many hang up in the first 20 seconds compared
+  with your other campaigns (with "Rewrite the opening", notices kept), why people said no
+  (with "Teach an answer"), and your latest test call's review.
+- Each call now notes why the person said no, as one of a few plain reasons.
+
 ## 0.5.37 — 24-Nov-2026
 
 - Every campaign and Inbound line keeps a history of its script: who changed it (you, a Pip
