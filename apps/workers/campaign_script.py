@@ -13,10 +13,13 @@ inputs are read when the job runs (`campaign_inputs`, `line_inputs`), whoever as
 when, and include the holder's own "What it notes". Documents are read
 the way onboarding reads them (`first_run.documents_block`: redacted, fenced, one word budget).
 
-What Pip wrote is shortened once when it would not fit the engine's box, then read by one
-review pass (D-1004): a "why" note per part, and a rubric (each claim quoted from the sources,
-anything about the person asked rather than told, each part serving the main task, no stock
-line, nothing repeated). Then it goes through what every Pip script does before an owner
+A draft built wrong in ways only a whole rewrite mends (details piled into one step, a case
+after the close, an item of the main task with no step; `script_shape.structure_problems`)
+gets one whole-script pass naming them (`_restructured`). What Pip wrote is shortened once
+when it would not fit the engine's box, then read by one review pass (D-1004): a "why" note
+per part, and a rubric (each claim quoted from the sources, anything about the person asked
+rather than told, each part serving the main task, no stock line, nothing repeated, the first
+step saying why the call is made). Then it goes through what every Pip script does before an owner
 reviews it (`script_proposal.finish_written`): the call-mistake checks and their repair
 (D-989), the review's findings on steps, goal and ending repaired in the same rounds, then the
 opening rule and its repair (D-957). Every pass is metered with the draft. Every write back
@@ -43,7 +46,8 @@ from apps.api.agents import script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.languages import LANGUAGE_LABELS
 from apps.api.agents.prompt_size import PromptSize
-from apps.api.agents.script_structure import policies_for_job
+from apps.api.agents.script_shape import structure_problems
+from apps.api.agents.script_structure import collected, policies_for_job, without_judged_asks
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.campaigns import workspace
 from apps.api.core.errors import ProblemError
@@ -59,6 +63,7 @@ from apps.workers.campaign_script_ask import (
     FLOW_PART,
     LINE_ASK,
     PART_ASK,
+    RESTRUCTURE_TAIL,
     REVIEW_FORMAT,
     REVIEW_INSTRUCTION,
     REVIEW_MAX_TOKENS,
@@ -445,8 +450,9 @@ async def campaign_inputs(tenant_id: UUID, campaign_id: UUID) -> tuple[_Inputs, 
         ).one()
         part_language = focus.get("language") if isinstance(focus, dict) else None
         # A campaign only places calls, whatever its agent answers
-        # (`agents.service.campaign_agent_row`), so its opening_line is a placed call's.
-        details = await campaign_details(session, campaign_id)
+        # (`agents.service.campaign_agent_row`), so its opening_line is a placed call's, and
+        # its steps never ask the name of the contact it dialled (`JobDetails.placed`).
+        details = (await campaign_details(session, campaign_id)).placed()
         context = replace(
             await script_proposals.brief_for(
                 session, tenant_id, space.agent_id, language=part_language or main_language
@@ -627,6 +633,94 @@ async def _refined(
     return draft.script, [draft]
 
 
+def built_wrong(inputs: _Inputs, script: CallScript) -> list[str]:
+    """What only a rewrite of the whole `script` mends (`script_shape.structure_problems`),
+    read as the steps will stand once code has mended them (`script_structure.collected`): a
+    detail the job does not ask, judges from the call or takes on the call-back path is not a
+    second ask of its step."""
+    ids = {stage.id for stage in script.stages}
+    details = inputs.details
+    probe = without_judged_asks(script, ids)
+    if details is not None:
+        probe = collected(probe, details.labels(), ids, details.call_back)
+    return structure_problems(
+        probe,
+        main_task=inputs.main_task,
+        call_back=details.call_back if details is not None else (),
+    )
+
+
+def _pips_built_wrong(inputs: _Inputs, script: CallScript) -> list[str]:
+    """`built_wrong`, less what the owner's script already had: theirs to fix."""
+    found = built_wrong(inputs, script)
+    if inputs.base is None:
+        return found
+    had = set(built_wrong(inputs, inputs.base))
+    return [problem for problem in found if problem not in had]
+
+
+def built_wrong_left(inputs: _Inputs, script: CallScript) -> list[LeftOut]:
+    """What is still built wrong once every pass is spent, as warnings the owner reads."""
+    return script_proposals.fix_left(_pips_built_wrong(inputs, script), script)
+
+
+async def _restructured(
+    inputs: _Inputs,
+    context: ScriptBrief,
+    script: CallScript,
+    started: float,
+    *,
+    ask: str,
+    documents: str,
+    owners: str,
+) -> tuple[CallScript, list[ScriptDraft | ProblemError]]:
+    """`script` rewritten once as a whole when it is built wrong (`built_wrong`): details
+    piled into one step, a case placed after the close, an item of the main task with no
+    step. The targeted repair after it rewrites lines and cannot move a step or add one, so
+    these get one edit of the whole script naming them, only when there are any. In an edit
+    of the owner's script, only what the owner's script did not already have. A refusal or a
+    crash keeps `script`, which is paid for and still goes through every check."""
+    found = _pips_built_wrong(inputs, script)
+    timeout_s = _late_timeout(started)
+    if not found or timeout_s is None:
+        return script, []
+    change = campaign_change(
+        inputs.main_task,
+        inputs.notes,
+        documents,
+        edit=True,
+        ask=f"{ask}{RESTRUCTURE_TAIL}" + "".join(f"\n- {problem}" for problem in found),
+        tone=inputs.tone,
+        instruction=inputs.instruction,
+        budget=inputs.budget,
+        situation=inputs.situation,
+    )
+    try:
+        draft = await draft_script(
+            context,
+            tenant_leg=inputs.tenant_leg,
+            quota_exhausted=inputs.quota_exhausted,
+            edit_of=script,
+            change=change,
+            timeout_s=timeout_s,
+            max_tokens=PROPOSAL_MAX_TOKENS,
+            repair_rounds=get_settings().campaign_script_repair_rounds,
+            standby_after_answer=False,
+            owners_words=owners,
+        )
+    except ProblemError as refused:
+        log.info("holder_script_restructure_refused", extra={"reason": refused.code})
+        return script, [refused]
+    except Exception:
+        log.exception("holder_script_restructure_crashed", extra={"agent_id": str(inputs.agent_id)})
+        return script, []
+    log.info(
+        "holder_script_restructured",
+        extra={"found": len(found), "left": len(built_wrong(inputs, draft.script))},
+    )
+    return draft.script, [draft]
+
+
 async def _shortened(
     tenant_id: UUID,
     inputs: _Inputs,
@@ -683,7 +777,7 @@ async def _reviewed(
     )
     try:
         answer = await ask_json(
-            review_request(parts, sources),
+            review_request(parts, sources, script.outbound_opening_line or script.opening_line),
             REVIEW_INSTRUCTION,
             parse=partial(
                 parsed_review,
@@ -894,6 +988,7 @@ async def _write(
         return "failed"
 
     refining: list[ScriptDraft | ProblemError] = []
+    restructuring: list[ScriptDraft | ProblemError] = []
     first = draft.script
     # What a stopped draft has already spent, metered when the job ends early.
     spent_so_far: list[Spent] = [draft]
@@ -903,6 +998,11 @@ async def _write(
                 inputs, context, draft.script, started, ask=ask, documents=documents, owners=owners
             )
             spent_so_far += refining
+        if part_ask is None:
+            first, restructuring = await _restructured(
+                inputs, context, first, started, ask=ask, documents=documents, owners=owners
+            )
+            spent_so_far += restructuring
         await _phase(holder, "checking")
         # Shortened before the checks, so the review and the repairs read what is offered. The
         # review runs before the call-mistake repair so its findings join those rounds: one
@@ -935,6 +1035,7 @@ async def _write(
     spends: list[Spent] = [
         draft,
         *refining,
+        *restructuring,
         *shortening,
         *finished.repairs,
         *finished.opening_spends,
@@ -944,6 +1045,7 @@ async def _write(
         *trace.left_out,
         *finished.left_out,
         *too_long_left(await _size(tenant_id, inputs.agent_id, finished.script)),
+        *built_wrong_left(inputs, finished.script),
         *still_warned(found, finished.script),
     ]
     update = {

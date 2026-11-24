@@ -428,7 +428,9 @@ def collected_label(entry: str) -> str:
     return entry.partition(":")[0].strip()
 
 
-def unasked_problems(script: CallScript, collect: tuple[str, ...]) -> list[str]:
+def unasked_problems(
+    script: CallScript, collect: tuple[str, ...], call_back: tuple[str, ...] = ()
+) -> list[str]:
     """A finding for each detail the job notes and no step asks (`unasked_details`). With no
     steps there is nowhere to ask; the details list still reaches the call."""
     if not script.stages:
@@ -436,17 +438,20 @@ def unasked_problems(script: CallScript, collect: tuple[str, ...]) -> list[str]:
     return [
         f'script: no step asks for "{label}"; ask it in the step where the call reaches it, '
         "as one question."
-        for label in unasked_details(script, collect)
+        for label in unasked_details(script, collect, call_back)
     ]
 
 
-def unasked_details(script: CallScript, collect: tuple[str, ...]) -> list[str]:
+def unasked_details(
+    script: CallScript, collect: tuple[str, ...], call_back: tuple[str, ...] = ()
+) -> list[str]:
     """The labels in `collect` that no step asks for, in their order.
 
     A step asks for a detail when its `collect` names it, or when its name, instruction and
     step-by-step list carry at least half of the label's words (their first five letters, so
     word forms meet). A label with no English-letter word cannot be compared with English
-    instructions and is never reported."""
+    instructions and is never reported. The details a call back takes (`call_back`) are asked
+    on the call-back path, so a script with a way out to the call back asks them there."""
     steps = [
         (
             {collected_label(c).casefold() for c in stage.collect},
@@ -454,8 +459,15 @@ def unasked_details(script: CallScript, collect: tuple[str, ...]) -> list[str]:
         )
         for stage in script.stages
     ]
+    calls_back = any(
+        CALL_BACK in {stage.otherwise, *(b.target for b in stage.branches)}
+        for stage in script.stages
+    )
+    later = {label.casefold() for label in call_back} if calls_back else set()
     missing: list[str] = []
     for label in collect:
+        if label.casefold() in later:
+            continue
         wanted = _stems(label)
         if not wanted:
             continue
@@ -558,7 +570,7 @@ def script_problems(script: CallScript, context: LintContext) -> list[str]:
     found += untaken_time_problems(script)
     found += unwired_way_out_problems(script, context.manifest)
     found += pronunciation_problems(script, context)
-    found += unasked_problems(script, context.collect)
+    found += unasked_problems(script, context.collect, context.call_back)
     return found
 
 

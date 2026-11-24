@@ -30,6 +30,7 @@ from calevate_shared.call_script import (
     StepOutcome,
     stage_steps,
 )
+from calevate_shared.extraction import whole_call_detail
 from calevate_shared.spoken_guard import empty_title, without_empty_title
 
 from apps.api.agents.script_lint import (
@@ -44,6 +45,7 @@ from apps.api.agents.script_lint import (
     unpronounced_spellings,
     unreached_steps,
 )
+from apps.api.agents.script_shape import echo_branches
 
 #: The detail a step that asks for a better time notes, as the details list shows it.
 CALL_BACK_TIME: Final = "When to call back"
@@ -231,15 +233,73 @@ def ways_out_wired(
     return script if out == script else out
 
 
-def collected(script: CallScript, labels: Sequence[str], mine: set[str]) -> CallScript:
+def without_judged_asks(script: CallScript, mine: set[str]) -> CallScript:
+    """`script` with no step of `mine` collecting a detail that is judged from the call
+    (`extraction.whole_call_detail`: a status, whether the goal was met, a comfort or interest
+    level): the pipeline writes it after the call, and a step that collects it asks the person
+    for it, as "Technical Comfort Level" was asked on the 25 Nov 2026 call."""
+    stages = [
+        stage.model_copy(
+            update={"collect": [c for c in stage.collect if not _judged(collected_label(c))]}
+        )
+        if stage.id in mine and any(_judged(collected_label(c)) for c in stage.collect)
+        else stage
+        for stage in script.stages
+    ]
+    out = script.model_copy(update={"stages": stages})
+    return script if out == script else out
+
+
+def _judged(label: str) -> bool:
+    """Whether a detail of this label is judged from the call, never asked."""
+    return whole_call_detail("", label)
+
+
+def without_echo_ways(script: CallScript, mine: set[str]) -> CallScript:
+    """`script` without the ways out of Pip's steps that only name the step the call goes to
+    anyway (`script_shape.echo_branches`): "when: Add Farms -> Add Farms" is no condition,
+    and the next step is where the call goes when no way out holds."""
+    drop = {(i, j) for i, j in echo_branches(script) if script.stages[i].id in mine}
+    if not drop:
+        return script
+    stages = [
+        stage.model_copy(
+            update={"branches": [b for j, b in enumerate(stage.branches) if (i, j) not in drop]}
+        )
+        if any(at == i for at, _j in drop)
+        else stage
+        for i, stage in enumerate(script.stages)
+    ]
+    return script.model_copy(update={"stages": stages})
+
+
+def _takes_call_back(stage: ConversationStage) -> bool:
+    """Whether a step is where a call back is arranged: it asks for a later time. A step that
+    only goes to the call back leaves the time to the call-back path, which asks it."""
+    return asks_a_time(stage)
+
+
+def collected(
+    script: CallScript, labels: Sequence[str], mine: set[str], call_back: Sequence[str] = ()
+) -> CallScript:
     """`script` with each of Pip's steps noting only details the job notes (`labels`), each
     under the job's own name: an entry the writer copied with its "when" hint ("Name: only if
     not known") is cut to the label, and one the job does not note is dropped, since what a
-    call asks and what is written down agree (D-1028). With no `labels` (an agent's own
-    script, or a job that notes none) the steps are left as they are."""
+    call asks and what is written down agree (D-1028). A detail a call back takes
+    (`call_back`) stays only on a step that asks for a later time, when the call has a
+    call-back path that asks it (such a step, or a way out to the call back):
+    asked anywhere else it is asked of everyone (step 1 of the 25 Nov 2026 Rytu Khata call
+    asked for another number). With no `labels` (an agent's own script, or a job that notes
+    none) the steps are left as they are."""
     if not labels:
         return script
     named = {label.casefold(): label for label in labels}
+    # Only where the call has a call-back path to ask them on: a step that asks for a later time
+    # or a way out to the call back (`script_lint.unasked_details` reads them as asked there).
+    has_path = any(
+        asks_a_time(stage) or CALL_BACK in _explicit_exits(stage) for stage in script.stages
+    )
+    later = {label.casefold() for label in call_back} if has_path else set()
     stages = []
     for stage in script.stages:
         if stage.id not in mine:
@@ -250,6 +310,7 @@ def collected(script: CallScript, labels: Sequence[str], mine: set[str]) -> Call
                 named[key]
                 for entry in stage.collect
                 if (key := collected_label(entry).casefold()) in named
+                and (key not in later or _takes_call_back(stage))
             )
         )
         stages.append(
@@ -286,18 +347,20 @@ def settled(
     script: CallScript, context: LintContext, *, base: CallScript | None = None
 ) -> CallScript:
     """`script` with its structure mended (see the module): step numbers, outcomes of steps it
-    lacks, Pip's unreached steps, titles with no name, the details each step notes, call-back
-    times, ways out stated only in words, and spellings of taught words. A raw script is
-    returned as it is. Validated again, so a mend that would break a rule never reaches the
-    owner."""
+    lacks, Pip's unreached steps, ways out that only name the next step, titles with no name,
+    the details each step notes, call-back times, ways out stated only in words, and
+    spellings of taught words. A raw script is returned as it is. Validated again, so a mend
+    that would break a rule never reaches the owner."""
     if script.raw_override is not None:
         return script
     mine = _mine(script, base)
     out = renumbered(script)
     out = without_stray_outcomes(out)
     out = reached(out, mine)
+    out = without_echo_ways(out, mine)
+    out = without_judged_asks(out, mine)
     out = without_empty_titles(out, mine)
-    out = collected(out, context.collect, mine)
+    out = collected(out, context.collect, mine, context.call_back)
     out = time_taken(out, mine, context.call_back)
     out = ways_out_wired(out, mine, context.manifest)
     out = pronounced(out, context)
@@ -336,6 +399,8 @@ __all__ = [
     "settled",
     "time_taken",
     "ways_out_wired",
+    "without_echo_ways",
     "without_empty_titles",
+    "without_judged_asks",
     "without_stray_outcomes",
 ]

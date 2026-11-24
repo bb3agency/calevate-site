@@ -195,12 +195,20 @@ class ExtractionSchemaSpec(BaseModel):
         return next((f for f in self.fields if f.key == key), None)
 
 
-#: A detail read from how the whole call went rather than from one answer: a status, an
-#: outcome, progress, a result, a disposition or a sentiment. Nobody can answer "what is your
-#: installation status?", so a script never asks it, and no single line says it, so it gets
-#: no key-moment pin (a pin on "Android" for "Installation Status", 24 Nov 2026 call review).
+#: A detail read from how the whole call went, or a judgement of the call or the person,
+#: rather than one answer: a status, an outcome, progress, a result, a disposition, a
+#: sentiment, whether a goal was met, or how comfortable, interested, aware or engaged the
+#: person seemed. Nobody can answer "what is your installation status?" or "what is your
+#: technical comfort level?", so a script never asks it, and no single line says it, so it
+#: gets no key-moment pin. The Rytu Khata call of 25 Nov 2026 asked a farmer for "your goal,
+#: your tech awareness and your interest" while only the first group was matched here. A
+#: rating or satisfaction the person states is theirs to say, so neither is one.
 _WHOLE_CALL_DETAIL: Final = re.compile(
-    r"\b(?:status|outcome|outcomes|progress|result|results|disposition|sentiment)\b", re.I
+    r"\b(?:status|outcome|outcomes|progress|result|results|disposition|sentiment|"
+    r"goal|goals|comfort|interest|interests|awareness|familiarity|engagement|readiness|"
+    r"likelihood|intent|mood|savvy|"
+    r"(?:skill|knowledge|confidence|tech|technical|experience)\s+level)\b",
+    re.I,
 )
 
 

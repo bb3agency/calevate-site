@@ -38,6 +38,7 @@ from apps.api.agents import turn_checks
 from apps.api.agents.call_rules import opening_redone_line_problems, reacted_line_problems
 from apps.api.agents.mistake_fixes import fix_paths
 from apps.api.agents.script_lint import (
+    NAME_FIELD,
     OPENING_FIELDS,
     LintContext,
     agent_lines,
@@ -247,11 +248,20 @@ def _asked_again(script: CallScript, _context: LintContext) -> list[str]:
 
 
 def _reasked_name(script: CallScript, _context: LintContext) -> list[str]:
-    """A step whose line asks the person's name when a step the call passes first asks it
+    """A step whose line asks the person's name when the call already has it, because the
+    opening on a placed call greets them by the name field (the 25 Nov 2026 Rytu Khata call
+    asked an existing customer's name in step 1), or a step the call passes first asks it
     too (`turn_checks.asks_name`)."""
     steps = _step_lines(script)
     asking = {i for i, (_p, text) in steps.items() if turn_checks.asks_name(_heard(text))}
     found: list[str] = []
+    openings = f"{script.outbound_opening_line} {script.opening_line}".replace(" ", "")
+    if NAME_FIELD in openings:
+        return [
+            f"{steps[j][0]}: asks for the name, which the call already has: the opening greets "
+            "them by it; leave the question out and use their name."
+            for j in sorted(asking)
+        ]
     for j in sorted(asking):
         earlier = next(
             (i for i in sorted(asking) if i != j and j in reachable_steps(script, i)), None

@@ -30,6 +30,7 @@ from apps.api.agents.script_lint import (
     unasked_details,
     unasked_problems,
 )
+from apps.api.agents.script_shape import line_problems
 from apps.api.agents.script_structure import settled
 from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.core.errors import ProblemError
@@ -258,10 +259,12 @@ class _Fix:
         else:
             # A title left with no name in a line `script_structure.settled` could not mend
             # (one of the owner's own steps in an edit is not Pip's to mend).
+            # A line giving several actions, or noting what the caller does, is a line repair.
             found = [
                 *script_mistakes(script, self.lint),
                 *empty_title_problems(script),
-                *unasked_problems(script, self.lint.collect),
+                *line_problems(script),
+                *unasked_problems(script, self.lint.collect, self.lint.call_back),
             ]
         return [*found, *(n.finding for n in self.noted if n.stands(script))]
 
@@ -275,7 +278,11 @@ class _Fix:
 
     def unasked(self, script: CallScript, paths: list[str]) -> tuple[str, ...]:
         """The details no step of `script` asks for, when the fix may add them to a step."""
-        return tuple(unasked_details(script, self.lint.collect)) if "script" in paths else ()
+        return (
+            tuple(unasked_details(script, self.lint.collect, self.lint.call_back))
+            if "script" in paths
+            else ()
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -424,7 +431,7 @@ async def _mistakes_checked(
         n for n in noted if mistake_fixes.fix_paths([n.finding]) and n.stands(script)
     )
     check = replace(check, noted=repairable)
-    unasked = set(unasked_problems(script, context.collect))
+    unasked = set(unasked_problems(script, context.collect, context.call_back))
     written = [
         p for p in check.problems(script) if p in unasked or _finding_at(p, script) not in had
     ]
