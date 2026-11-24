@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.41 — 25-Nov-2026
+
+- The call flow shows how the call goes on: a quiet dashed arrow from each scenario to the
+  next step, and "Then step 3" or "Then end of call" in place of "No next yet". Your own
+  Otherwise link replaces it.
+- A way out written in a scenario ("if they cannot, offer to call back") is now a real branch
+  you can see and change. Pip adds it when it writes a script, and existing scripts get theirs
+  on their next check.
+
 ## 0.5.40 — 25-Nov-2026
 
 - A campaign or Inbound line whose script asks the caller to do things on their phone gives
