@@ -586,15 +586,31 @@ async def _locked(session: AsyncSession, tenant_id: UUID) -> Any:
 
 
 async def save_training(
-    session: AsyncSession, tenant_id: UUID, value: str, *, saved_by: UUID | None
+    session: AsyncSession,
+    tenant_id: UUID,
+    value: str,
+    *,
+    saved_by: UUID | None,
+    edited_version: int | None = None,
 ) -> int:
     """The owner's save of the training every agent is given; brings live agents onto it.
     Returns the new version. An empty training is allowed: agents then carry their own
     scripts alone. `pip_training` is left as Pip last wrote it, which is how the next rewrite
-    tells the owner's edits apart. A failed write's note is settled by it."""
+    tells the owner's edits apart. A failed write's note is settled by it.
+
+    `edited_version` is the version the owner's edit began from. Pip saves in the background
+    while the editor may be open, so a save over a newer version is refused rather than
+    silently replacing Pip's rewrite with an edit of the text before it."""
     from apps.api.agents.live_apply import queue_live_apply
 
-    await _locked(session, tenant_id)
+    row = await _locked(session, tenant_id)
+    if edited_version is not None and int(row.version) != edited_version:
+        raise ProblemError.conflict(
+            "company_training_changed",
+            "Pip saved a new training while you were editing.",
+            remediation="Copy your changes, press Cancel to see the new training, and edit "
+            "that one.",
+        )
     training = _clean(value, limit=TRAINING_MAX, field="training")
     await _refuse_if_any_agent_overflows(session, tenant_id, training)
     version = (

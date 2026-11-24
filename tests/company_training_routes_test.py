@@ -63,6 +63,35 @@ async def test_rewrite_now_starts_pips_write_and_the_owners_save_is_their_edit()
         assert (await company_training.read_training(session, tenant_id)).owner_edited
 
 
+async def test_an_edit_begun_before_pips_background_save_does_not_replace_it() -> None:
+    """FAILS IF: the owner's editor, opened on version 1, saves over the version Pip wrote in
+    the background meanwhile, so Pip's rewrite is lost without anyone seeing it."""
+    tenant_id, token = await _tenant("custom", "Sunrise Homes Stale")
+    code, first = await _call(token, "PUT", "/training", json={"training": "We build flats."})
+    assert code == 200, first
+    async with tenant_session(tenant_id) as session:
+        pips = await company_training.save_written(
+            session,
+            tenant_id,
+            training="We build flats and villas.",
+            base_version=first["version"],
+            owner_edits={},
+            last_write={},
+        )
+    assert pips == first["version"] + 1
+
+    stale = {"training": "We build flats near the lake.", "version": first["version"]}
+    code, refused = await _call(token, "PUT", "/training", json=stale)
+    assert code == 409, refused
+    assert refused["type"].endswith("/company_training_changed")
+    code, now = await _call(token, "GET", "")
+    assert (now["training"], now["version"]) == ("We build flats and villas.", pips)
+
+    code, saved = await _call(token, "PUT", "/training", json={**stale, "version": pips})
+    assert code == 200, saved
+    assert saved["training"] == "We build flats near the lake."
+
+
 async def test_stopping_a_draft_clears_it_and_a_second_stop_finds_nothing() -> None:
     _tenant_id, token = await _tenant("custom", "Sunrise Homes Stop")
     _code, asked = await _call(token, "POST", "/proposal")

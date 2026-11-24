@@ -37755,6 +37755,8 @@ export interface components {
         TrainingIn: {
             /** Training */
             training: string;
+            /** Version */
+            version?: number | null;
         };
         /**
          * TrainingProposalOut

@@ -194,6 +194,7 @@ function Training({ data, canWrite, refusal }: Props) {
   const dismissFeedback = useActionFeedback(clear, { errorTitle: "Could not dismiss it" });
   useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved. Every agent gets it now." });
   const [draft, setDraft] = useState<string | null>(null);
+  const [editedVersion, setEditedVersion] = useState(data.version);
   const proposal = data.proposal;
   const writing = proposal?.status === "drafting";
   const busy = writing || rewrite.isPending;
@@ -243,7 +244,9 @@ function Training({ data, canWrite, refusal }: Props) {
           canWrite={canWrite}
           refusal={refusal}
           onChange={setDraft}
-          onSave={() => save.mutate({ training: draft }, { onSuccess: () => setDraft(null) })}
+          onSave={() =>
+            save.mutate({ training: draft, version: editedVersion }, { onSuccess: () => setDraft(null) })
+          }
           onCancel={() => {
             save.reset();
             setDraft(null);
@@ -272,6 +275,7 @@ function Training({ data, canWrite, refusal }: Props) {
               title={refusal}
               onClick={() => {
                 save.reset();
+                setEditedVersion(data.version);
                 setDraft(data.training);
               }}
             >

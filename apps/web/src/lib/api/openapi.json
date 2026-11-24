@@ -19215,7 +19215,7 @@
       },
       "ConversationStage": {
         "additionalProperties": false,
-        "description": "One section of the call, a node of the script's section graph.\n\nThe list order is the call order. `mode` \"say\" asks for `instruction` to be said as\nwritten (best effort: only the opening line is guaranteed verbatim). `sounds_like` is an\noptional line in the call's language showing how it sounds. `branches` are the ways out\non a condition, `otherwise` where to go when none holds (empty: the next section), and\n`collect` what must be in hand first. `position` is the canvas layout and is never\ncompiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.\n`procedure` is an ordered list of small steps compiled into the instructions text under\nthe section's name (D-908); the step detail only points at it.",
+        "description": "One section of the call, a node of the script's section graph.\n\nThe list order is the call order. `mode` \"say\" asks for a line to be said as written\n(best effort: only the opening line is guaranteed verbatim): a scenario's script line\n(`says_scenario_line`), or the instruction of a section drawn before scenarios\n(`says_instruction`). `sounds_like` is an optional line in the call's language showing\nhow it sounds. `branches` are the ways out\non a condition, `otherwise` where to go when none holds (empty: the next section), and\n`collect` what must be in hand first. `position` is the canvas layout and is never\ncompiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.\n`procedure` is an ordered list of small steps compiled into the instructions text under\nthe section's name (D-908); the step detail only points at it.",
         "properties": {
           "branches": {
             "items": {
@@ -62450,6 +62450,18 @@
             "maxLength": 6000,
             "title": "Training",
             "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
           }
         },
         "required": [

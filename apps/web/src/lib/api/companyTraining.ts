@@ -57,7 +57,9 @@ export function useSaveOverview(session: Session) {
 
 /** The owner's edit of the training; Pip's next rewrite keeps it. */
 export function useSaveTraining(session: Session) {
-  return useTrainingMutation(session, (input: { training: string }) =>
+  // `version` is the one the edit began from: a save over a newer one (Pip's background
+  // write) is refused with 409 instead of replacing it.
+  return useTrainingMutation(session, (input: { training: string; version?: number }) =>
     apiRequest<CompanyTraining>(session, `${BASE}/training`, { method: "PUT", body: input }),
   );
 }
