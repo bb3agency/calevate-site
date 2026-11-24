@@ -302,7 +302,7 @@ async def test_a_sound_test_copy_never_lifts_a_silence_another_route_still_earns
     line_id = await _line(tenant_id, agent_id)
     line_ref = await put_line_live(tenant_id=tenant_id, line_id=line_id)
     await _forget_own_ref(tenant_id, agent_id)
-    copy_ref = "ag_copy_sound"
+    copy_ref = f"ag_copy_{uuid7().hex}"
     async with tenant_session(tenant_id) as session:
         await agents_service._record_test_copy(
             session, engine, tenant_id=tenant_id, agent_id=agent_id, ref=copy_ref
