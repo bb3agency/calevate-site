@@ -333,6 +333,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # nothing billed wrongly meanwhile.
     "cost_floor_input_unattested": "attention",
     "credit_expiry_incomplete": "attention",
+    # The hourly sweep ran out of time before every account; the next run resumes after the
+    # last one reached, so lapsed credit stays spendable an hour longer at most per pass.
+    "credit_expiry_truncated": "attention",
     # An opted-in owner's daily summary reached no channel after every retry (D-944). The
     # dashboard still holds every figure.
     "owner_digest_incomplete": "attention",

@@ -154,7 +154,7 @@ export function ResultStep({
           )}
           <ChangeIt
             scriptHref={scriptHref}
-            speakHref={href(`/c/${session.orgSlug}/knowledge?tab=speak`)}
+            speakHref={href(`/c/${session.orgSlug}/knowledge?tab=training`)}
             callHref={href(`/c/${session.orgSlug}/calls/${call.id}`)}
           />
         </>
@@ -191,7 +191,7 @@ function Recording({
 /**
  * The quiet ways to change it, after the reward and before the next step (Phase 3b): what this
  * work says, on the line's or the campaign's own page; how every agent speaks, the company
- * training under How they speak; or this call, kept as a practice test. Plain links, not
+ * training under Company training; or this call, kept as a practice test. Plain links, not
  * buttons: "Make it yours" is the one action.
  */
 function ChangeIt({ scriptHref, speakHref, callHref }: { scriptHref: string; speakHref: string; callHref: string }) {
@@ -208,7 +208,7 @@ function ChangeIt({ scriptHref, speakHref, callHref }: { scriptHref: string; spe
         </Link>
         <Link href={speakHref} className={SECONDARY_BUTTON}>
           <MessagesSquare aria-hidden className="h-4 w-4" />
-          How they speak
+          Company training
         </Link>
         <Link href={callHref} className={SECONDARY_BUTTON}>
           <FileText aria-hidden className="h-4 w-4" />

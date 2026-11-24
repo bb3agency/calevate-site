@@ -230,14 +230,6 @@ async def test_a_training_that_would_overflow_a_published_inbound_line_is_refuse
 # --- 4. Pip ------------------------------------------------------------------------------
 
 
-def test_an_answer_with_no_text_or_over_the_limit_is_no_answer() -> None:
-    assert company_training_draft._parsed({"training": "  "}) is None
-    assert company_training_draft._parsed({"training": 3}) is None
-    too_long = "x" * (company_training.TRAINING_MAX + 1)
-    assert company_training_draft._parsed({"training": too_long}) is None
-    assert company_training_draft._parsed({"training": " We build flats.  \n"}) == "We build flats."
-
-
 def test_the_owners_words_are_redacted_before_any_model_reads_them() -> None:
     request = company_training_draft.request_text(
         business="Business name: Sunrise Homes",

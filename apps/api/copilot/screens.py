@@ -251,7 +251,7 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         group=None,
         summary=(
             "Everything the agents can tell callers: facts and answers, files and links, and "
-            "the questions they could not answer, and how they speak."
+            "the questions they could not answer, and the company training."
         ),
         aliases=(
             "knowledge",

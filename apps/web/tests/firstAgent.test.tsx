@@ -1004,7 +1004,7 @@ describe("meet your agent", () => {
     expect(screen.getByRole("button", { name: /Make it yours/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Call me again/ })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Change what it says/ }).getAttribute("href")).toBe(`/c/acme/inbound/${LINE_ID}`);
-    expect(screen.getByRole("link", { name: /How they speak/ }).getAttribute("href")).toBe("/c/acme/knowledge?tab=speak");
+    expect(screen.getByRole("link", { name: /Company training/ }).getAttribute("href")).toBe("/c/acme/knowledge?tab=training");
     // The conversation is there, folded.
     expect(screen.getByRole("heading", { name: "Read the whole conversation" })).toBeTruthy();
     expect(screen.getByText("Step 4 of 4 ·", { exact: false })).toBeTruthy();

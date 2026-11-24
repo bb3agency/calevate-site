@@ -3,6 +3,19 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.28 — 24-Nov-2026
+
+- Company training is written in fixed sections: About the business, What it offers, Who
+  its customers are, How agents speak, Names, Policies, Questions callers ask, Objections.
+  Every line must come from your documents, overview or edits; Pip has to quote where, and
+  a line whose quote is not in them is dropped. A campaign's opening, steps and reason for
+  calling have no section, so they stay in that campaign's script.
+- The tab is renamed Company training (old How they speak links still open it).
+- A paused or cancelled campaign no longer shows a contact as calling after its last call
+  rang out.
+- Number rentals, number holds and the other jobs that walk every account resume where they
+  stopped instead of skipping the newest accounts when they run long.
+
 ## 0.5.27 — 24-Nov-2026
 
 - Company training describes your business: what it is, what it does and offers and who

@@ -27,7 +27,7 @@ import { StaffCurationSwitch } from "./permissions";
  * need answered (D-893), the same list as an agent's Training tab, account-wide; and How they
  * speak (D-996), the training every agent is given, which Pip writes from the owner's words
  * and everything on this page. A link with `?question=pricing` opens the questions on that
- * question; `?tab=speak` opens How they speak.
+ * question; `?tab=training` opens Company training.
  *
  * The screen renders no `<h1>`: the shell prints the page title from the nav list.
  *
@@ -35,8 +35,11 @@ import { StaffCurationSwitch } from "./permissions";
  * (`apps/api/kb/curation.py`; `/v1/me` reports the effective set), and a view-as operator,
  * whose additions wait for review. Anyone else gets the reason beside the disabled control.
  */
-/** `?tab=speak`: How they speak, the training every agent is given (D-996). */
-export const SPEAK_TAB = "speak";
+/** `?tab=training`: Company training, the training every agent is given (D-996). Named for
+ * what it holds, the business and how its agents speak (founder, 24 Nov 2026). */
+export const TRAINING_TAB = "training";
+/** The tab's earlier name, still opened by links made before the rename. */
+const SPEAK_TAB = "speak";
 
 export function KnowledgeScreen() {
   const session = useClientSession();
@@ -62,8 +65,8 @@ export function KnowledgeScreen() {
   const [tab, setTab] = useState(
     focus !== null || params.get("tab") === "questions"
       ? "questions"
-      : params.get("tab") === SPEAK_TAB
-        ? SPEAK_TAB
+      : params.get("tab") === TRAINING_TAB || params.get("tab") === SPEAK_TAB
+        ? TRAINING_TAB
         : "knows",
   );
 
@@ -88,7 +91,7 @@ export function KnowledgeScreen() {
             value: "questions",
             label: open ? `Questions to answer · ${formatCount(open)}` : "Questions to answer",
           },
-          { value: SPEAK_TAB, label: "How they speak" },
+          { value: TRAINING_TAB, label: "Company training" },
         ]}
         value={tab}
         onValueChange={setTab}
@@ -96,7 +99,7 @@ export function KnowledgeScreen() {
         renderPanel={(current) =>
           current === "questions" ? (
             <QuestionsToAnswer focus={focus} />
-          ) : current === SPEAK_TAB ? (
+          ) : current === TRAINING_TAB ? (
             <HowTheySpeak />
           ) : (
             <WhatItKnows

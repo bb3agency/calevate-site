@@ -47,9 +47,9 @@ const QUEUED: CompanyTraining["proposal"] = {
   reason: null,
 };
 
-describe("How they speak", () => {
-  it("is a tab of What your agents know, opened by ?tab=speak", async () => {
-    window.history.replaceState(null, "", "/c/acme/knowledge?tab=speak");
+describe("Company training", () => {
+  it.each(["training", "speak"])("is the Company training tab, opened by ?tab=%s", async (tab) => {
+    window.history.replaceState(null, "", `/c/acme/knowledge?tab=${tab}`);
     try {
       await renderClientPage(<KnowledgeScreen />, {
         "/v1/me": OWNER,
@@ -60,7 +60,7 @@ describe("How they speak", () => {
         "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
         "/v1/business-profile": noReply(),
       });
-      expect(await screen.findByRole("tab", { name: "How they speak", selected: true })).toBeTruthy();
+      expect(await screen.findByRole("tab", { name: "Company training", selected: true })).toBeTruthy();
       expect(await screen.findByText(TAB_LEAD)).toBeTruthy();
     } finally {
       window.history.replaceState(null, "", "/");

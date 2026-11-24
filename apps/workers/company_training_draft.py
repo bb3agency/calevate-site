@@ -76,6 +76,8 @@ from apps.workers.lead_fields_draft import business_context
 from apps.workers.redaction import MASK, redact
 from apps.workers.script_assist import JsonAnswer, ask_json
 from apps.workers.script_proposal import PROPOSAL_MAX_TOKENS, PROPOSAL_REQUEST_TIMEOUT_S
+from apps.workers.training_sections import FIELDS_ASK, SCHEMA, corpus_of
+from apps.workers.training_sections import written as built_training
 
 log = get_logger(__name__)
 
@@ -86,26 +88,13 @@ JOB_NAME: Final = "draft_company_training"
 TRAINING_ASK: Final = (
     "Write the training this business gives every phone agent it puts on calls, the way a "
     "company trains every new employee before giving them work. Each agent also gets its "
-    "own script for each piece of work; this training is what they all share. It is about "
-    "the business, never about one piece of work: leave out why a particular set of people "
-    "is being called, what one call should achieve and its call steps, which each script "
-    "holds; when a source is written for one piece of work, take from it only what is true "
-    "on every call. Cover, in this order and only where the material below says it: who the "
-    "business is, what it does and what it offers, in full; who its customers are; how the "
-    "agents speak to callers (tone, how to address people, phrases the owner uses); names "
-    "and how to say them; policies (prices, hours, delivery, payment, returns); the "
-    "questions callers ask, each with a short spoken answer; objections and how to answer "
-    "them. Use ONLY what the owner's words and the sources below say: never add a price, "
-    "place, offer, time, product, process, promise or reassurance they do not state, and "
-    "leave a part out rather than guess it. No stock lines that would fit any business. "
-    "Write plain sentences under short plain headings in English, keeping names, figures "
-    "and the owner's own phrases exactly as they wrote them. No markdown, no bullets or "
-    "asterisks, no emoji: agents read it before they speak. Return JSON with two keys: "
-    "training, holding the whole text, and missing, listing each of business (who the "
-    "business is and what it does), offer (what it sells or provides) and customers (who it "
-    "serves) that the material does not state clearly enough to write without guessing; "
-    "an empty list when it states all three."
-)
+    "own script for each piece of work; this training is what they all share, so it is about "
+    "the business and how its agents behave on every call. When a source is written for one "
+    "piece of work, take from it only what is true on every call. Use ONLY what the owner's "
+    "words and the sources below say: never add a price, place, offer, time, product, "
+    "process, promise or reassurance they do not state. Keep names, figures and the owner's "
+    "own phrases exactly as they wrote them. No markdown, no emoji. "
+) + FIELDS_ASK
 EDIT_TAIL: Final = (
     " A training exists already, under CURRENT TRAINING: keep its wording wherever the "
     "material below does not change it, and bring it in line with the material where it does."
@@ -119,52 +108,18 @@ OWNER_EDITS_TAIL: Final = (
 )
 REPAIR_TAIL: Final = (
     " You wrote the training under THE TRAINING YOU WROTE, and a check found the problems "
-    "under FIX THESE. Return the whole training again with each one fixed and nothing else "
-    "changed."
+    "under FIX THESE. Return every list again with each one fixed and nothing else changed."
 )
 SHORTEN_TAIL: Final = (
     " The training under THE TRAINING YOU WROTE is too long to fit beside the agents' "
-    "scripts. Return it at most {limit:,} characters long: say each thing once and cut "
-    "wording, never a fact the owner's edits give."
+    "scripts. Return every list again so their text comes to at most {limit:,} characters: "
+    "fewer and shorter items, each thing once, never a fact the owner's edits give."
 )
 
-#: The parts of the training only material about the business can give. Pip names each the
-#: material leaves unclear and the owner is asked for a source that says it (founder, 24 Nov
-#: 2026), rather than the part being written from whatever source is nearest.
-MISSING_PARTS: Final = ("business", "offer", "customers")
-
-
-def _missing(raw: dict[str, Any]) -> tuple[str, ...]:
-    value = raw.get("missing")
-    if not isinstance(value, list):
-        return ()
-    return tuple(p for p in MISSING_PARTS if p in value)
-
-
-_SCHEMA: Final[dict[str, object]] = {
-    "type": "object",
-    "properties": {
-        "training": {"type": "string"},
-        "missing": {"type": "array", "items": {"type": "string", "enum": list(MISSING_PARTS)}},
-    },
-    "required": ["training", "missing"],
-    "additionalProperties": False,
-}
 _WRITE_FORMAT: Final[dict[str, object]] = {
     "type": "json_schema",
-    "json_schema": {"name": "company_training", "strict": True, "schema": _SCHEMA},
+    "json_schema": {"name": "company_training", "strict": True, "schema": SCHEMA},
 }
-
-
-def _parsed(raw: dict[str, Any]) -> str | None:
-    """The training text, or None for an answer that holds none or is over the limit."""
-    value = raw.get("training")
-    if not isinstance(value, str):
-        return None
-    cleaned = "\n".join(line.rstrip() for line in value.strip().splitlines())
-    if not cleaned or len(cleaned) > company_training.TRAINING_MAX:
-        return None
-    return cleaned
 
 
 #: The newest sources Pip reads; `documents_block` shares one word budget among them, so more
@@ -603,7 +558,9 @@ class _Run:
     tenant_leg: Any
     quota_exhausted: bool
     spent: list[JsonAnswer[Any]] = field(default_factory=list)
-    #: What the first write said the material leaves unclear (`MISSING_PARTS`).
+    #: Where an item's quote may come from (`training_sections.corpus_of`).
+    corpus: str = ""
+    #: The parts the first write found no source for (`training_sections.MISSING_PARTS`).
     missing: tuple[str, ...] = ()
     #: The owner's sentences no model may read (`private_edits`), put back word for word.
     verbatim: list[OwnerFact] = field(default_factory=list)
@@ -623,12 +580,16 @@ class _Run:
             request += f"\n\nFIX THESE:\n{fix}"
 
         def parse(raw: dict[str, Any]) -> str | None:
-            text = _parsed(raw)
+            built = built_training(raw, self.corpus)
+            if not built.text or len(built.text) > company_training.TRAINING_MAX:
+                return None
             # Repairs and shortenings rewrite the same material: the first write's answer
             # is the one about what the material holds.
-            if text is not None and not tail:
-                self.missing = _missing(raw)
-            return text
+            if not tail:
+                self.missing = built.missing
+            if built.unsourced:
+                log.info("company_training_unsourced_dropped", extra={"items": built.unsourced})
+            return built.text
 
         answer: JsonAnswer[str] = await ask_json(
             request,
@@ -909,6 +870,10 @@ async def draft_company_training(ctx: dict[str, Any], payload: dict[str, Any]) -
                 edits=edits,
             ),
             sources=review_sources(business=business, overview=claim.overview, documents=documents),
+            corpus=corpus_of(
+                review_sources(business=business, overview=claim.overview, documents=documents),
+                [fact.text for fact in edits.said],
+            ),
             edits=edits,
             ask=ask + (OWNER_EDITS_TAIL if edits.said or edits.removed else ""),
             tenant_leg=tenant_leg,

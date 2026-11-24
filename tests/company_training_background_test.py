@@ -30,6 +30,7 @@ from apps.api.kb import service as kb_service
 from apps.api.tenancy.business_profile import ServiceItem
 from apps.api.tenancy.profile_service import ProfilePatch, save_profile
 from apps.workers import company_training_draft as worker
+from apps.workers import training_sections
 from sqlalchemy import text
 from tests.conftest import create_org_with_receptionist
 
@@ -37,6 +38,23 @@ pytestmark = pytest.mark.rls
 
 OVERVIEW = "We are Sunrise Homes. We build flats in Kompally. A 2BHK starts at 60 lakh."
 WRITTEN = "Sunrise Homes builds flats in Kompally.\nA 2BHK starts at 60 lakh."
+#: Every line the fake writer answers rests on this passage of OVERVIEW, so the code's quote
+#: check keeps it (`training_sections`).
+QUOTE = "We build flats in Kompally"
+
+
+def sections(text: str) -> dict[str, Any]:
+    """A writer's answer holding `text`, one line per item, in the fixed sections' shape."""
+    raw: dict[str, Any] = {key: [] for key, _heading in training_sections.SECTIONS}
+    raw["business"] = [{"text": line, "quote": QUOTE} for line in text.splitlines() if line]
+    return raw
+
+
+def shown(text: str) -> str:
+    """What agents read for `sections(text)`."""
+    return f"About the business:\n{text}"
+
+
 GROUNDED_CLAIM = {
     "said": "A 2BHK starts at 60 lakh.",
     "claim": "the 2BHK price",
@@ -129,7 +147,7 @@ class Ladder:
         if instruction == worker.REVIEW_INSTRUCTION:
             raw: dict[str, Any] = self.reviews.pop(0)
         else:
-            raw = {"training": self.writes.pop(0)}
+            raw = sections(self.writes.pop(0))
             if self.during_write is not None:
                 await self.during_write()
                 self.during_write = None
@@ -323,7 +341,7 @@ async def test_pip_writes_the_training_live_from_the_business(
     assert await _run(monkeypatch, tenant, proposal_id, Ladder([], [])) == "not_pending"
     read = await _read(tenant)
     assert (read.training, read.version, read.proposal, read.owner_edited) == (
-        WRITTEN,
+        shown(WRITTEN),
         1,
         None,
         False,
@@ -331,7 +349,7 @@ async def test_pip_writes_the_training_live_from_the_business(
     assert read.last_write is not None
     assert read.last_write.reasons == ("first_agent", "owner_words", "owner_asked")
     assert "Kompally" in ladder.writer_asks[0][0]
-    assert (await _raw(tenant)).pip_training == WRITTEN
+    assert (await _raw(tenant)).pip_training == shown(WRITTEN)
     async with tenant_session(tenant) as session:
         reasons = (
             (
@@ -392,7 +410,7 @@ async def test_a_repaired_draft_is_saved(
         [_review(problems=[stock]), _review()],
     )
     assert await _run(monkeypatch, tenant, proposal_id, ladder) == "saved"
-    assert (await _read(tenant)).training == WRITTEN
+    assert (await _read(tenant)).training == shown(WRITTEN)
     assert alerts == []
 
 
@@ -402,10 +420,10 @@ async def test_a_draft_too_long_for_the_box_is_shortened_then_saved(
     tenant, agent = await _org()
     await _with_overview(tenant)
     proposal_id = await _rewrite_now(tenant)
-    long = WRITTEN + "\nSunrise Homes builds flats in Kompally."
+    long = WRITTEN + "\nThe flats are near the ring road."
 
     async def overflow_of(_session: Any, _tenant: UUID, training: str) -> Any:
-        if training != long:
+        if training != shown(long):
             return None
         return company_training.Overflow(
             over=10,
@@ -418,7 +436,7 @@ async def test_a_draft_too_long_for_the_box_is_shortened_then_saved(
     ladder = Ladder([long, WRITTEN], [_review(), _review()])
     assert await _run(monkeypatch, tenant, proposal_id, ladder) == "saved"
     read = await _read(tenant)
-    assert read.training == WRITTEN
+    assert read.training == shown(WRITTEN)
     assert read.last_write is not None and read.last_write.shortened
     assert "at most" in ladder.writer_asks[1][1]
 
@@ -462,7 +480,7 @@ async def test_the_owners_edits_are_carried_into_the_rewrite_and_kept_for_the_ne
     assert "THE OWNER'S OWN EDITS:\n[1] We close on Sundays." in request
     assert worker.OWNER_EDITS_TAIL in instruction
     read = await _read(tenant)
-    assert read.training == rewritten and not read.owner_edited
+    assert read.training == shown(rewritten) and not read.owner_edited
     assert read.last_write is not None and read.last_write.owner_edits_kept == 1
     stored = (await _raw(tenant)).owner_edits
     assert stored["said"] == [
@@ -482,7 +500,7 @@ async def test_an_owners_sentence_with_a_phone_number_is_kept_word_for_word_unre
     assert await _run(monkeypatch, tenant, proposal_id, ladder) == "saved"
     assert all("9876543210" not in request for request, _ in ladder.asked)
     read = await _read(tenant)
-    assert read.training == f"{WRITTEN}\n{private}"
+    assert read.training == f"{shown(WRITTEN)}\n{private}"
     assert read.last_write is not None and read.last_write.owner_edits_kept == 1
 
 
@@ -537,7 +555,7 @@ async def test_a_change_while_pip_writes_queues_one_more_write(
     ladder.during_write = knowledge_changes
     assert await _run(monkeypatch, tenant, proposal_id, ladder) == "saved"
     read = await _read(tenant)
-    assert read.training == WRITTEN
+    assert read.training == shown(WRITTEN)
     assert read.proposal is not None and read.proposal.status == "queued"
     assert read.proposal.reasons == ("knowledge_changed",)
 

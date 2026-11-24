@@ -122,9 +122,8 @@ async def sync_knowledge_index(ctx: dict[str, Any]) -> str:
                 "after the last one reached"
             ),
         )
-    return (
-        f"tenants={len(tenants)} changed={synced} ingested={ingested} withdrawn={withdrawn}"
-        + (f" unreached={unreached}" if unreached else "")
+    return f"tenants={len(tenants)} changed={synced} ingested={ingested} withdrawn={withdrawn}" + (
+        f" unreached={unreached}" if unreached else ""
     )
 
 
