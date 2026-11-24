@@ -80,7 +80,8 @@ function Summary({ summary }: { summary: WeeklySummary }) {
       <p className="mt-1 max-w-prose text-body text-ink">{summary.paragraph}</p>
       <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-meta text-ink-muted tabular-nums">
         {calls !== null && <Fig term="Calls" value={formatCount(calls)} />}
-        {rate !== null && <Fig term="Answered" value={percent(rate)} />}
+        {/* Of outgoing calls placed only, while Calls counts incoming too (`week_figures`). */}
+        {rate !== null && <Fig term="Outgoing answered" value={percent(rate)} />}
         {goals !== null && <Fig term="Goals reached" value={formatCount(goals)} />}
         {fixes !== null && (
           <Fig

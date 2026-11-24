@@ -3,6 +3,20 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.43 — 25-Nov-2026
+
+- Screens say only what is true: a call that never rang no longer counts as calling someone;
+  narrowed calling hours link to where they can be undone; the weekly summary names the
+  outgoing answer rate; a number with too little history is not called steady; a call page
+  card that fails names itself.
+- A suggestion you turned down while Pip was thinking stays turned down. Step outcomes held
+  back by a used-up AI allowance or an outage are written once it is back, instead of never.
+  The WhatsApp card no longer tells you to rewrite the main task when the real cause is an
+  outage or the allowance.
+- Admin console: an agent's knowledge, its "check the voice platform now" and its numbers
+  read every campaign and Inbound line that carries it, and a number that rings nobody says
+  why.
+
 ## 0.5.42 — 25-Nov-2026
 
 - Save flow works the way it looks: once saved, the unsaved changes clear and "Saved" shows;

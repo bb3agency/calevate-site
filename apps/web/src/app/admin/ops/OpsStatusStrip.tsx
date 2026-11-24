@@ -67,7 +67,7 @@ export function OpsStatusStrip({
       <Fact href="#slowdown" label="Protective slowdown" {...slowdown} />
       <Fact href="#registration" label="Telemarketer registration" {...registration} />
       <Fact href="#stuck" label="Stuck messages" {...stuck} />
-      <Fact href="#drift" label="Live agents" {...drift} />
+      <Fact href="#drift" label="Engine agents" {...drift} />
     </dl>
   );
 }

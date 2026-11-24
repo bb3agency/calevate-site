@@ -36,13 +36,13 @@ import { sourcePath } from "../callSource";
 import { CallHeader } from "./CallHeader";
 import { CallMistakesCard } from "./CallMistakesCard";
 import { CallStepsCard, STEPS_TITLE } from "./CallStepsCard";
-import { CallQualityCard } from "./CallQualityCard";
+import { CallQualityCard, QUALITY_TITLE } from "./CallQualityCard";
 import { CallVerdict } from "./CallVerdict";
 import { CapturedDetails } from "./CapturedDetails";
 import { DisclosureNotice } from "./DisclosureNotice";
 import { CallBackAction } from "./CallBackAction";
 import { CardBoundary } from "./CardBoundary";
-import { InsightsCard } from "./InsightsCard";
+import { INSIGHTS_TITLE, InsightsCard } from "./InsightsCard";
 import { KeyMomentsCard } from "./KeyMomentsCard";
 import { RecordingCard } from "./RecordingCard";
 import { TranscriptCard } from "./TranscriptCard";
@@ -501,11 +501,11 @@ export function CallDetailScreen({
           {/* How it went, from the voice platform's own figures: all of it, turn by turn, for
               an operator viewing as the client; the wait for an answer for the client. */}
           {detail.insights && (
-            <CardBoundary name="How the call went">
+            <CardBoundary name={INSIGHTS_TITLE}>
               <InsightsCard insights={detail.insights} caps={caps} />
             </CardBoundary>
           )}
-          <CardBoundary name="Call quality">
+          <CardBoundary name={QUALITY_TITLE}>
             <CallQualityCard detail={detail} operator={viewAsRequested} />
           </CardBoundary>
           {detail.steps.length > 0 && (

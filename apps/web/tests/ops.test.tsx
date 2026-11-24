@@ -1730,7 +1730,7 @@ describe("what the voice platform is running", () => {
       ),
     );
 
-    await screen.findByText("2 of 10 live agents are running something else");
+    await screen.findByText("2 of 10 engine agents are running something else");
     expect(container.textContent).toContain("Oldest divergence");
     expect(container.textContent).not.toContain("4 of 10");
     // NO LEVER. Re-publishing over a drift overwrites whatever the vendor's console was
@@ -1777,7 +1777,7 @@ describe("what the voice platform is running", () => {
       "Every checked agent is running what we published",
     );
     expect(container.textContent).not.toContain(
-      "live agents are running something else",
+      "engine agents are running something else",
     );
   });
 
@@ -1843,7 +1843,7 @@ describe("what the voice platform is answering from", () => {
     );
 
     await screen.findByText(
-      "2 of 10 live agents hold knowledge we did not publish",
+      "2 of 10 engine agents hold knowledge we did not publish",
     );
     expect(container.textContent).toContain("Oldest divergence");
     // NO LEVER, and here the reason is stronger than on the panel above: the repair a

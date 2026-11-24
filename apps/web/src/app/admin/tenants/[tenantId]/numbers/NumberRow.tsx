@@ -162,10 +162,15 @@ export function NumberRow({
         <div className="space-y-2">
           {/* THE SENTENCE THAT WAS MISSING FROM EVERY SCREEN. It is a fact, not a
               warning tone, and it is stated before the control that changes it. */}
-          <p className={number.agent_name ? "text-meta text-ink-muted" : "text-meta font-medium text-warn"}>
-            {number.agent_name
-              ? `Answered by ${number.agent_name}.`
-              : "No agent answers this number. A call to it reaches nobody — publishing an agent will report success and this phone will not ring."}
+          {/* `answers` is the server's verdict through the rule the platform attachment
+              follows: since D-1019 a number set to an agent rings only through a live line,
+              so the agent's name alone is not "answered by". */}
+          <p className={number.answers ? "text-meta text-ink-muted" : "text-meta font-medium text-warn"}>
+            {number.answers && number.agent_name
+              ? `Answered by ${number.agent_name}${number.line_name ? ` on the line ${number.line_name}` : ""}.`
+              : number.agent_name
+                ? (number.silent_reason ?? `Set to ${number.agent_name}, but nothing answers it.`)
+                : "No agent answers this number. A call to it reaches nobody — publishing an agent will report success and this phone will not ring."}
           </p>
           {attach.error && <ProblemNotice error={attach.error} />}
           {agentsFailed ? (

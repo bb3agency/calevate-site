@@ -610,6 +610,32 @@ async def test_a_failed_pass_reads_failed_and_a_change_mid_pass_queues_the_next(
     assert len(await _jobs(field_suggestions.JOB, line_id)) == before + 1
 
 
+async def test_a_suggestion_turned_down_while_the_model_was_asked_is_not_stored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, _slug, _token, line_id = await _bhk_line()
+
+    class _DismissedMeanwhile(_Model):
+        async def __call__(self, description: str, instruction: str, **kw: Any) -> Any:
+            answer = await super().__call__(description, instruction, **kw)
+            async with tenant_session(tenant_id) as session:
+                await session.execute(
+                    text(
+                        "UPDATE inbound_lines SET field_suggestions_dismissed = "
+                        "CAST(:d AS jsonb) WHERE id = :l"
+                    ),
+                    {"d": json.dumps([s.id for s in answer.value]), "l": line_id},
+                )
+            return answer
+
+    _setup(monkeypatch, trial=False, model=_DismissedMeanwhile())
+    await _queue(tenant_id, line_id)
+    assert await _pass(tenant_id, line_id) == "stored_1"
+    async with tenant_session(tenant_id) as session:
+        state = await field_suggestions.read_state(session, "line", line_id)
+    assert state.suggestions == [], "the owner's no, given while the pass ran, stands"
+
+
 # --- 5. the owner's and operator's routes ----------------------------------------------------
 
 

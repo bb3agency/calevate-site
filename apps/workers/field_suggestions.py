@@ -615,7 +615,21 @@ async def _store(
                 feature=feature,
                 model=answer.model,
             )
-        suggestions = answer.value if answer is not None else []
+        # Read again under the row lock, as `dismiss` takes it: a suggestion the owner turned
+        # down while the model was asked would otherwise be offered again until the next pass.
+        dismissed = (
+            await session.execute(
+                text(
+                    f"SELECT field_suggestions_dismissed FROM {_table(kind)} "
+                    "WHERE id = :jid FOR UPDATE"
+                ),
+                {"jid": job_id},
+            )
+        ).scalar()
+        turned_down = {str(d) for d in dismissed or []}
+        suggestions = [
+            s for s in (answer.value if answer is not None else []) if s.id not in turned_down
+        ]
         closed = (
             await session.execute(
                 text(

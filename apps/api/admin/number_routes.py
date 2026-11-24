@@ -29,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Final, Literal
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.engine import ProvisionedNumber
@@ -44,6 +44,7 @@ from apps.api.admin.engine_workspace_routes import (
     release_number_confirmation,
 )
 from apps.api.agents import service as agents_service
+from apps.api.agents.models import number_on_hold_sql
 from apps.api.billing.number_rental import RentalOutcome
 from apps.api.campaigns import engine_numbers, number_supply
 from apps.api.campaigns.engine_numbers import SyncOutcome
@@ -207,6 +208,15 @@ class TenantNumberCostOut(BaseModel):
     #: Held by this deployment's voice platform: released from the voice-workspace panel
     #: (`engine_number_purchase.release_engine_number`), which this list's release refuses.
     on_engine: bool = False
+    #: The inbound line it is on, when it is on one (D-997).
+    line_name: str | None = None
+    #: Does an incoming call reach an agent? Decided as the number's platform attachment is
+    #: (`engine_numbers.wanted_attachment`): since D-1019 an agent holds no engine agent of
+    #: its own, so a number set to an agent rings only through a live line.
+    answers: bool = False
+    #: Why a number set to an agent does not ring, in the operator's words; None when it
+    #: rings, is released, or is set to nobody.
+    silent_reason: str | None = None
 
 
 @router.get(
@@ -461,10 +471,52 @@ async def release_number(
 _TENANT_NUMBERS = (
     "SELECT n.id, n.e164, n.series, n.dlt_status, n.provider, n.engine_owned, "
     "n.engine_number_ref IS NOT NULL, n.agent_id, a.name, n.monthly_rental_usd, "
-    "n.released_at IS NOT NULL, n.engine_number_ref FROM phone_numbers n "
+    "n.released_at IS NOT NULL, n.engine_number_ref, "
+    # What decides whether it rings, as `engine_numbers._ATTACHMENT_SQL` reads it.
+    "a.direction, a.status, a.engine_agent_ref, l.name, l.published_at IS NOT NULL, "
+    f"l.engine_agent_ref, {number_on_hold_sql('n')} FROM phone_numbers n "
     "LEFT JOIN agents a ON a.id = n.agent_id AND a.deleted_at IS NULL "
+    "LEFT JOIN inbound_lines l ON l.id = n.inbound_line_id AND l.archived_at IS NULL "
     "ORDER BY n.created_at, n.id LIMIT :limit"
 )
+
+
+def _ringing(row: Any) -> tuple[bool, str | None]:
+    """Whether a call to this number reaches an agent, and why not when it is set to one.
+
+    Through `engine_numbers.wanted_attachment`, the rule the platform attachment follows, so
+    this row cannot say "Answered by" for a number the platform was told nobody answers."""
+    agent_name, released, held = row[8], bool(row[10]), bool(row[18])
+    line_name, line_live = row[15], bool(row[16]) and row[17] is not None
+    if agent_name is None or released:
+        return False, None
+    answering, _calling = engine_numbers.wanted_attachment(
+        released=held,
+        direction="inbound" if line_live else row[12],
+        status=row[13],
+        engine_agent_ref=row[17] if line_live else row[14],
+        archived=False,
+    )
+    if answering is not None:
+        return True, None
+    if held:
+        return False, "It is on hold, so nothing answers it until the account is resumed."
+    if row[13] != "live":
+        return False, f"{agent_name} is not taking calls, so a call to it reaches nobody."
+    if line_name is not None and not line_live:
+        return False, (
+            f"Its inbound line {line_name} is not live, so a call to it reaches nobody. "
+            "Put the line live from the client's Inbound line page."
+        )
+    if not line_live and row[14] is None:
+        return False, (
+            f"It is on no live inbound line, and {agent_name} answers only through its lines, "
+            "so a call to it reaches nobody. Put it on one of the client's live lines."
+        )
+    return False, (
+        f"{agent_name} only makes calls: this is the number it calls out from, and an incoming "
+        "call reaches nobody."
+    )
 
 
 @router.get(
@@ -502,6 +554,7 @@ async def tenant_numbers(
         session, request=request, principal=principal, tenant_id=tenant_id
     )
     engine = engine_numbers.engine_number_provider()
+    ringing = [_ringing(row) for row in rows]
     return [
         TenantNumberCostOut(
             id=row[0],
@@ -517,8 +570,11 @@ async def tenant_numbers(
             released=row[10],
             platform_held=(row[4] == engine and engine_numbers.is_platform_held(row[11])),
             on_engine=engine is not None and row[4] == engine,
+            line_name=row[15],
+            answers=answers,
+            silent_reason=silent,
         )
-        for row in rows
+        for row, (answers, silent) in zip(rows, ringing, strict=True)
     ]
 
 

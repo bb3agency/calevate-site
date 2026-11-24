@@ -66,7 +66,7 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
         </h3>
         <InfoTip label="Knowledge drift">
           <p>
-            Every hour a sweep reads live agents&apos; knowledge bases back off the voice
+            Every hour a sweep reads every engine agent&apos;s knowledge (one per live inbound line, running campaign, test copy and script test arm) back off the voice
             platform and compares them with what was approved and published. It only ever
             reads &mdash; whatever knowledge is on the platform now is still there after the
             sweep.
@@ -125,11 +125,11 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
         {read !== null && read.out_of_sync > 0 && (
           <NoticeBox
             tone="warn"
-            title={`${formatCount(read.out_of_sync)} of ${formatCount(read.live_agents)} live agents hold knowledge we did not publish`}
+            title={`${formatCount(read.out_of_sync)} of ${formatCount(read.live_agents)} engine agents hold knowledge we did not publish`}
           >
             <p className="mt-1">
               Oldest divergence: <span className="font-semibold">{formatIST(read.oldest_drift_at)}</span>.
-              Open each agent&apos;s knowledge tab.{" "}
+              Open the knowledge tab of the agent a line or campaign speaks for; it lists each engine agent.{" "}
               <InfoTip label="drifted knowledge">
                 Either the platform serves text that never went through approval, or a version we
                 approved is gone. Removing a document from here deletes it at the vendor, and if
@@ -154,10 +154,10 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
 
         {read !== null && (
           <table className="w-full text-left text-meta">
-            <caption className="sr-only">Live agents by knowledge check</caption>
+            <caption className="sr-only">Engine agents by knowledge check</caption>
             <tbody>
               <tr>
-                <td className="py-0.5 text-ink-muted">Live agents</td>
+                <td className="py-0.5 text-ink-muted">Engine agents (lines, campaigns, test copies)</td>
                 <td className="py-0.5 text-right tabular-nums">
                   {formatCount(read.live_agents)}
                 </td>

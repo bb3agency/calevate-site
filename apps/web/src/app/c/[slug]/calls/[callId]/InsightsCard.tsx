@@ -11,6 +11,9 @@ import { UNKNOWN_CAPABILITIES, type BusinessCapabilities } from "@/lib/businessC
  * item; the screen hides the card when the call has no reading.
  */
 
+/** The card's title, which its error boundary on the call screen names too. */
+export const INSIGHTS_TITLE = "What it came to";
+
 type Insights = NonNullable<CallDetail["insights"]>;
 type Note = Insights["objections"][number];
 type NextStep = NonNullable<Insights["next_step"]>;
@@ -113,7 +116,7 @@ export function InsightsCard({
       ? ` (${NO_REASON_WORDS[insights.no_reason]})`
       : "";
   return (
-    <Section title="What it came to">
+    <Section title={INSIGHTS_TITLE}>
       <div className="mt-1 space-y-4">
         <p className="text-body font-medium text-ink">
           {words.outcome[insights.outcome]}
