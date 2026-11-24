@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ScenarioFlow } from "@/app/c/[slug]/campaigns/ScenarioFlow";
@@ -151,19 +151,60 @@ describe("script boxes by language", () => {
       {},
     );
 
-  it("shows no English box for a campaign that does not speak English", async () => {
+  it("shows one Telugu box and no switch for a campaign that speaks only Telugu", async () => {
     await view(["te-IN"]);
     expect(await screen.findByText("Script in Telugu")).toBeTruthy();
     expect(screen.queryByText(/Script in English/)).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Script language" })).toBeNull();
   });
 
-  it("shows it when the campaign speaks English or the scenario already has an English line", async () => {
+  it("offers English when the campaign speaks it", async () => {
     await view(["te-IN", "en-IN"]);
-    expect(await screen.findByText(/Script in English/)).toBeTruthy();
+    const switcher = await screen.findByRole("radiogroup", { name: "Script language" });
+    expect(within(switcher).getByRole("radio", { name: /English/ })).toBeTruthy();
   });
 
-  it("keeps an English line already written visible", async () => {
+  it("keeps an English line already written reachable", async () => {
     await view(["te-IN"], { "en-IN": "Hello." });
-    expect(await screen.findByText(/Script in English/)).toBeTruthy();
+    const switcher = await screen.findByRole("radiogroup", { name: "Script language" });
+    fireEvent.click(within(switcher).getByRole("radio", { name: /English/ }));
+    expect((await screen.findByLabelText(/Script in English/)) as HTMLTextAreaElement).toHaveProperty("value", "Hello.");
+  });
+
+  it("holds every language of a many-language campaign in one box", async () => {
+    const many = ["te-IN", "hi-IN", "ta-IN", "kn-IN", "ml-IN", "mr-IN", "en-IN"];
+    await view(many, { "te-IN": "Telugu line." });
+    const switcher = await screen.findByRole("radiogroup", { name: "Script language" });
+    expect(within(switcher).getAllByRole("radio")).toHaveLength(many.length);
+    expect(screen.getAllByRole("textbox", { name: /^Script in / })).toHaveLength(1);
+    expect(screen.getByText("A dot marks a language with no line yet.")).toBeTruthy();
+    fireEvent.click(within(switcher).getByRole("radio", { name: /Hindi/ }));
+    expect(await screen.findByLabelText("Script in Hindi")).toBeTruthy();
+    expect(screen.queryByLabelText("Script in Telugu")).toBeNull();
+  });
+
+  it("writes a line into the language that is open", async () => {
+    const onChange = vi.fn();
+    await renderClientPage(
+      <ScenarioFlow
+        agent={null}
+        hear={{ allowed: true, reason: null, unknown: false }}
+        script={SCRIPT}
+        limits={DEFAULT_LIMITS}
+        issues={[]}
+        languages={["te-IN", "hi-IN"]}
+        selected="a"
+        readOnly={false}
+        wide
+        onSelect={() => {}}
+        onChange={onChange}
+      />,
+      {},
+    );
+    const switcher = await screen.findByRole("radiogroup", { name: "Script language" });
+    fireEvent.click(within(switcher).getByRole("radio", { name: /Hindi/ }));
+    fireEvent.change(await screen.findByLabelText("Script in Hindi"), { target: { value: "Line." } });
+    const next = onChange.mock.calls.at(-1)?.[0] as CallScript | undefined;
+    expect(next?.stages?.find((s) => s.id === "a")?.scripts).toEqual({ "hi-IN": "Line." });
   });
 });

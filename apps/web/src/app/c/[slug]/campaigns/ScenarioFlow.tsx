@@ -30,6 +30,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { SegmentedControl } from "@/components/interior/segmented-control";
 import { FIELD, SECONDARY_BUTTON_SM, ToggleSwitch } from "@/components/ui";
 import type { WriteAccess } from "@/lib/api/hooks";
 import { STEP_OUTCOME_MAX, type CallScript } from "@/lib/api/script";
@@ -939,6 +940,23 @@ function ScenarioEditor({
   // box nobody fills. The caller-and-agent answers keep English as their base either way.
   const showEnglish =
     !local || languages.includes(english) || Boolean(scripts[english]?.trim());
+  // One script box with a language switch rather than a box per language (founder, 24 Nov
+  // 2026): a campaign may speak seven or eight languages. Every language it speaks is
+  // reachable, main first, and a line already written in a language it no longer speaks
+  // stays reachable rather than hidden.
+  const scriptTags = [
+    ...new Set([
+      ...(main ? [main] : []),
+      ...languages.filter((t) => t !== english),
+      ...(showEnglish ? [english] : []),
+      ...Object.keys(scripts).filter((t) => scripts[t]?.trim()),
+    ]),
+  ];
+  const written = (tag: string) =>
+    Boolean((scripts[tag] ?? (tag === main ? legacy : "")).trim());
+  const [scriptTag, setScriptTag] = useState(scriptTags[0] ?? english);
+  const shownTag = scriptTags.includes(scriptTag) ? scriptTag : (scriptTags[0] ?? english);
+  const unwritten = scriptTags.filter((t) => !written(t)).length;
   const scriptBox = (tag: string) => (
     <div key={tag}>
       <label className={label()} htmlFor={`sc-${tag}-${id}`}>
@@ -1092,17 +1110,27 @@ function ScenarioEditor({
             </div>
           </div>
 
-          <div className={pair}>
-            {showEnglish ? (
-              <div className={`${SECTION} border-l-series-2 bg-series-2/5`}>
-                {scriptBox(english)}
+          <div className={`${SECTION} border-l-series-6 bg-series-6/5`}>
+            {scriptTags.length > 1 ? (
+              <div className="mb-3">
+                <SegmentedControl
+                  label="Script language"
+                  value={shownTag}
+                  onValueChange={setScriptTag}
+                  options={scriptTags.map((tag) => ({
+                    value: tag,
+                    label: languageName(tag),
+                    dot: written(tag) ? undefined : "bg-ink-faint",
+                  }))}
+                />
+                {unwritten > 0 ? (
+                  <p className="mt-1 text-meta text-ink-muted">
+                    A dot marks a language with no line yet.
+                  </p>
+                ) : null}
               </div>
             ) : null}
-            {local ? (
-              <div className={`${SECTION} border-l-series-6 bg-series-6/5`}>
-                {scriptBox(local)}
-              </div>
-            ) : null}
+            {scriptBox(shownTag)}
           </div>
 
           <ToggleSwitch
