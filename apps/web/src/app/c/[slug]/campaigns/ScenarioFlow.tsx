@@ -15,6 +15,7 @@
 import {
   ArrowDown,
   ArrowUp,
+  LoaderCircle,
   MoreHorizontal,
   Plus,
   Trash2,
@@ -30,6 +31,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { TextShimmer } from "@/components/arc/text-shimmer";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import { FIELD, SECONDARY_BUTTON_SM, ToggleSwitch } from "@/components/ui";
 import type { WriteAccess } from "@/lib/api/hooks";
@@ -107,34 +109,49 @@ const SECTION = "rounded-card border border-line border-l-4 p-3";
 
 const OUTCOME_HINT =
   "What must be true before the call moves on. The agent reaches it however the call goes; the scenarios are examples.";
+/** An empty outcome is Pip's to write (D-1036), never a box asking the owner to invent it. */
+export const OUTCOME_PLACEHOLDER = "Pip writes this from the step.";
+export const OUTCOME_WRITING = "Pip is writing this";
 
 /**
  * A step's outcome (founder, 23 Nov 2026): what the agent must reach before the call leaves
  * the step, by whichever scenario. `compact` is the canvas column, which has room for the
  * field but not the hint, so the hint is read with it by a screen reader and shown once
- * above the canvas instead.
+ * above the canvas instead. While Pip writes an empty one (`writing`), the app's loader sits
+ * beside the label; the box stays editable.
  */
 function StepOutcomeField({
   step,
   value,
   readOnly,
   compact,
+  writing,
   onChange,
 }: {
   step: number;
   value: string;
   readOnly: boolean;
   compact: boolean;
+  writing: boolean;
   onChange: (next: string) => void;
 }) {
   const id = useId();
   const used = chars(value);
+  const busy = writing && !value.trim();
   return (
     <div>
-      <label htmlFor={id} className="block text-meta font-medium text-ink">
-        Outcome of this step
-        <span className="sr-only">, step {step}</span>
-      </label>
+      <div className="flex items-center justify-between gap-2">
+        <label htmlFor={id} className="block text-meta font-medium text-ink">
+          Outcome of this step
+          <span className="sr-only">, step {step}</span>
+        </label>
+        {busy && (
+          <span className="inline-flex items-center gap-1 text-[11px] text-ink-muted">
+            <LoaderCircle aria-hidden className="h-3.5 w-3.5 motion-safe:animate-spin" />
+            <TextShimmer>{OUTCOME_WRITING}</TextShimmer>
+          </span>
+        )}
+      </div>
       <p
         id={`${id}-hint`}
         className={compact ? "sr-only" : "text-meta text-ink-muted"}
@@ -149,7 +166,7 @@ function StepOutcomeField({
         maxLength={STEP_OUTCOME_MAX}
         readOnly={readOnly}
         aria-describedby={`${id}-hint ${id}-count`}
-        placeholder={compact ? "What must be true to move on" : undefined}
+        placeholder={busy ? undefined : OUTCOME_PLACEHOLDER}
         onChange={(e) => onChange(e.target.value)}
       />
       <p
@@ -171,6 +188,7 @@ export function ScenarioFlow({
   languages,
   selected,
   readOnly,
+  outcomesPending = false,
   wide,
   onSelect,
   onChange,
@@ -188,6 +206,8 @@ export function ScenarioFlow({
   languages: string[];
   selected: string | null;
   readOnly: boolean;
+  /** Pip is writing the outcome of each step that has none (D-1036). */
+  outcomesPending?: boolean;
   /** The picture beside the editor (desktop); false stacks the steps. */
   wide: boolean;
   onSelect: (id: string | null) => void;
@@ -330,6 +350,7 @@ export function ScenarioFlow({
         onSelect={onSelect}
         onAdd={add}
         onMenu={openMenu}
+        writing={outcomesPending}
         outcome={(step) => outcomeOf(script, step)}
         onOutcome={(step, text) => onChange(setOutcome(script, step, text))}
         onLink={(from, to) => {
@@ -357,6 +378,7 @@ export function ScenarioFlow({
         onSelect={onSelect}
         onAdd={add}
         onMenu={openMenu}
+        writing={outcomesPending}
         outcome={(step) => outcomeOf(script, step)}
         onOutcome={(step, text) => onChange(setOutcome(script, step, text))}
         editor={editor}
@@ -420,6 +442,7 @@ function Columns({
   onLink,
   outcome,
   onOutcome,
+  writing,
 }: {
   items: Placed[];
   steps: number;
@@ -434,6 +457,7 @@ function Columns({
   onLink: (from: string, to: string) => string | null;
   outcome: (step: number) => string;
   onOutcome: (step: number, text: string) => void;
+  writing: boolean;
 }) {
   const plane = useRef<HTMLDivElement>(null);
   const [linking, setLinking] = useState<{ from: string; to: Point } | null>(
@@ -561,6 +585,7 @@ function Columns({
                   value={outcome(step)}
                   readOnly={readOnly}
                   compact
+                  writing={writing}
                   onChange={(text) => onOutcome(step, text)}
                 />
               </div>
@@ -766,6 +791,7 @@ function Stacked({
   editor,
   outcome,
   onOutcome,
+  writing,
 }: {
   items: Placed[];
   steps: number;
@@ -778,6 +804,7 @@ function Stacked({
   editor: React.ReactNode;
   outcome: (step: number) => string;
   onOutcome: (step: number, text: string) => void;
+  writing: boolean;
 }) {
   const labelOf = (target: string) =>
     lookup(END_NAMES, target) ?? items.find((p) => p.section.id === target)?.label ?? "?";
@@ -809,6 +836,7 @@ function Stacked({
               value={outcome(step)}
               readOnly={readOnly}
               compact={false}
+              writing={writing}
               onChange={(text) => onOutcome(step, text)}
             />
           </div>

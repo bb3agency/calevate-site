@@ -171,6 +171,7 @@ from apps.api.core.observability import set_span_attributes, span, tracing_enabl
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
 from apps.api.crm.outcomes import CallFacts, derive_outcome, hint_of
 from apps.api.crm.service import emit_lead_created, emit_lead_updated
+from apps.api.crm.step_progress import progress_values, stored_progress
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
@@ -199,7 +200,7 @@ from apps.api.team_alerts import service as team_alerts
 from apps.api.tenancy.business_copy import capabilities_for
 from apps.api.tenancy.business_profile import BUSINESS_LANGUAGE_SQL
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, workspace_for_tenant
-from apps.workers import call_language, call_timeline, storage
+from apps.workers import call_language, call_timeline, step_progress, storage
 from apps.workers import extraction as extraction_module
 from apps.workers.after_call_callbacks import book_requested_callback, callback_number
 from apps.workers.caller_evidence import brief_texts, without_borrowed
@@ -1430,6 +1431,55 @@ async def _post_call_stages(
         raise
 
 
+async def _step_progress_stage(
+    tenant_id: UUID,
+    call_id: UUID,
+    snapshot: ExecutionSnapshot,
+    spec: ExtractionSchemaSpec,
+    extraction: ExtractionOutput | None,
+) -> ExtractionOutput | None:
+    """STEP 3a (`workers/step_progress`). A progress-type detail takes the choice of the
+    furthest step the transcript shows reached, over the extraction's own guess; with no
+    reading (no script of steps, Pip off, the model unavailable) the extraction stands.
+
+    A database error propagates for the retry ladder (the reading is stored once and
+    reused). Any other failure is a defect or an unavailable model and must not cost the
+    call its lead: logged with the call id and the exception's class only (hard rule 6)."""
+    if not snapshot.transcript:
+        return extraction
+    try:
+        with span("pipeline.step_progress", call_id=str(call_id)) as stage:
+            progress = await step_progress.judge_call_steps(
+                tenant_id, call_id, snapshot.transcript, spec
+            )
+            set_span_attributes(
+                stage, judged=progress is not None, furthest=(progress and progress.furthest) or 0
+            )
+    except DBAPIError:
+        raise
+    except Exception as exc:
+        log.warning(
+            "pipeline_step_progress_failed",
+            extra={"call_id": str(call_id), "error": type(exc).__name__},
+        )
+        return extraction
+    if progress is None or extraction is None:
+        return extraction
+    changed = {
+        key: value
+        for key, value in progress_values(progress).items()
+        if extraction.data.get(key) != value
+    }
+    if not changed:
+        return extraction
+    await step_progress.apply_to_notes(tenant_id, call_id, changed)
+    log.info(
+        "pipeline_progress_detail_from_steps",
+        extra={"call_id": str(call_id), "fields": sorted(changed)},
+    )
+    return extraction.model_copy(update={"data": {**extraction.data, **changed}})
+
+
 async def _owner_insights_stage(
     tenant_id: UUID,
     agent_id: UUID,
@@ -1490,6 +1540,10 @@ async def _owner_insights_stage(
                         ),
                     ),
                 )
+                # A step left before its outcome, from where the call got to (STEP 3a).
+                async with tenant_session(tenant_id) as session:
+                    progress = await stored_progress(session, call_id)
+                found.update(call_mistakes.step_mistakes(progress))
                 await call_mistakes.record_call_mistakes(
                     tenant_id=tenant_id,
                     agent_id=agent_id,
@@ -1730,6 +1784,10 @@ async def _run_post_call_stages(
         business_outcomes=business_outcomes,
         direction=direction,
     )
+    # STEP 3a — where the call got to against its script's step outcomes, and the
+    # progress-type details that reading decides. After extraction, before the reading, the
+    # lead and the CRM fan-out, so all of them see the value the evidence supports.
+    extraction = await _step_progress_stage(tenant_id, call_id, snapshot, spec, extraction)
 
     # STEP 3d — what the call came to, in words: the summaries as the engine and the model
     # wrote them, the headline and the next step (founder decisions 4, 5, 12). After

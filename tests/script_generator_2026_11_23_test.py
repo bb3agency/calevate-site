@@ -109,8 +109,8 @@ def test_each_step_outcome_compiles_as_what_the_step_must_reach_however_the_call
     lead = body.split(OUTCOMES_HEADER, 1)[1].splitlines()[0]
     assert "however the person answers" in lead and "Otherwise" in lead
     steps = native_steps(script)
-    assert steps[0].detail.endswith("This step is done when: The person says the app is open.")
-    assert "done when" not in steps[2].detail
+    assert steps[0].detail.endswith("Go on only when: The person says the app is open.")
+    assert "Go on only when" not in steps[2].detail
 
 
 def test_one_outcome_per_step() -> None:

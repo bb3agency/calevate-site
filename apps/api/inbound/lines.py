@@ -28,6 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.field_suggestions import queue_job
+from apps.api.campaigns import step_outcomes
 from apps.api.campaigns.notes import starting_fields
 from apps.api.campaigns.workspace import (
     MAIN_TASK_MAX,
@@ -243,6 +244,7 @@ async def create_line(
         },
     )
     await queue_job(session, "line", line_id)
+    await step_outcomes.queue_after_save(session, "line", line_id, script)
     return line_id
 
 
@@ -353,6 +355,7 @@ async def save_script(session: AsyncSession, line_id: UUID, script: CallScript) 
         )
     ).scalar_one()
     await queue_job(session, "line", line_id)
+    await step_outcomes.queue_after_save(session, "line", line_id, script)
     return int(version)
 
 

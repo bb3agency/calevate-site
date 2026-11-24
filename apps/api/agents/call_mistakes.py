@@ -44,6 +44,7 @@ from apps.api.agents import mistake_fixes, turn_checks
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.crm.step_progress import StepProgress
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 
@@ -145,6 +146,29 @@ LESSONS: Final[dict[str, Lesson]] = {
         "CALL_REASON_RULE",
     ),
 }
+
+# --- Steps left before their outcome (founder, 24 Nov 2026) --------------------------------
+# Not a turn check: it is read off where the call got to (`crm/step_progress`), which the
+# pipeline's step reading stores before this module runs. A step whose outcome was not
+# reached, left by an agent line that went on to a later step although the person had not
+# refused, could not do it or was not the right person.
+LESSONS["moved_on_unconfirmed"] = Lesson(
+    "Moved on before the step was done",
+    "Stay on a step until the person's own words show its outcome, or take its way out.",
+    "call_script.OUTCOMES_LEAD and OUTCOME_IN_STEP",
+)
+
+
+def step_mistakes(progress: StepProgress | None) -> dict[str, int]:
+    """`moved_on_unconfirmed` on the first agent line that left a step before its outcome."""
+    if progress is None:
+        return {}
+    turns = [s.moved_on_turn for s in progress.steps if s.state == "not_reached"]
+    moved = [t for t in turns if t is not None]
+    return {"moved_on_unconfirmed": min(moved)} if moved else {}
+
+
+# --- end of the step-outcome block -----------------------------------------------------------
 assert set(LESSONS) <= set(turn_checks.SOUND_KINDS | turn_checks.JOB_KINDS)
 
 #: How far back the owner's list and the admin roll-up look.

@@ -52,7 +52,12 @@ export function useCampaignWorkspace(
     queryKey: workspaceKey(session.orgSlug, campaignId),
     queryFn: () => apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/workspace`),
     enabled,
-    refetchInterval: untilRefused((query) => (query.state.data?.proposal?.status === "drafting" ? PIP_POLL_MS : false)),
+    // Also while Pip writes the outcome of a step that has none (D-1036), so it appears.
+    refetchInterval: untilRefused((query) =>
+      query.state.data?.proposal?.status === "drafting" || query.state.data?.step_outcomes_pending
+        ? PIP_POLL_MS
+        : false,
+    ),
   });
 }
 

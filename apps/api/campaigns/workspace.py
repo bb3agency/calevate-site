@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_proposals
 from apps.api.agents.field_suggestions import queue_job
+from apps.api.campaigns import step_outcomes
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.kb.picks import CAMPAIGN_PICKS, add_pick, read_picks, replace_picks
@@ -93,6 +94,8 @@ class Workspace:
     sources: tuple[UUID, ...]
     #: When the copy of the script from before Pip's last draft was taken; None: no copy.
     script_before_pip_at: datetime | None = None
+    #: Pip is writing the outcome of a step that has none (`step_outcomes`).
+    step_outcomes_pending: bool = False
 
 
 def _script(raw: Any) -> CallScript | None:
@@ -163,6 +166,7 @@ async def read_workspace(session: AsyncSession, campaign_id: UUID) -> Workspace:
         proposal=_proposal(row.script_proposal, now=datetime.now(UTC)),
         sources=tuple(picked[campaign_id]),
         script_before_pip_at=row.script_before_pip_at,
+        step_outcomes_pending=await step_outcomes.pending(session, "campaign", campaign_id),
     )
 
 
@@ -209,6 +213,7 @@ async def save_script(session: AsyncSession, campaign_id: UUID, script: CallScri
         {"s": script.model_dump_json(), "cid": campaign_id},
     )
     await queue_job(session, "campaign", campaign_id)
+    await step_outcomes.queue_after_save(session, "campaign", campaign_id, script)
 
 
 async def _keep_before_pip(session: AsyncSession, campaign_id: UUID) -> None:
@@ -255,6 +260,7 @@ async def restore_before_pip(session: AsyncSession, campaign_id: UUID) -> None:
         ),
         {"cid": campaign_id},
     )
+    await step_outcomes.queue_after_save(session, "campaign", campaign_id, previous)
 
 
 async def set_sources(

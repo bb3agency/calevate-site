@@ -48,7 +48,7 @@ export function CallMistakesCard({
  * reader user lands where a sighted one looks. `data-turn` is `TranscriptCard`'s own
  * anchor (its follow-along uses it); a line that is not rendered is left alone.
  */
-function jumpToTurn(idx: number) {
+export function jumpToTurn(idx: number) {
   const line = document.querySelector<HTMLElement>(`[data-turn="${idx}"]`);
   if (!line) return;
   const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;

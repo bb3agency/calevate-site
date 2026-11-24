@@ -306,7 +306,7 @@ async def weave_holder_opening_notices(ctx: dict[str, Any], payload: dict[str, A
                 log.info("opening_notices_not_applied", extra={"reason": refused.code})
     await _meter(tenant_id, spends)
     if saved:
-        await _put_holder_live(tenant_id, kind, holder_id)
+        await put_holder_live(tenant_id, kind, holder_id, event="holder_opening_notices_not_live")
     log.info(
         "holder_opening_notices_woven",
         extra={
@@ -322,11 +322,13 @@ async def weave_holder_opening_notices(ctx: dict[str, Any], payload: dict[str, A
     return "woven" if saved else "unwritten"
 
 
-async def _put_holder_live(tenant_id: UUID, kind: HolderKind, holder_id: UUID) -> None:
-    """Put a re-woven script on the holder's calls, as its owner's save would: a live line
+async def put_holder_live(
+    tenant_id: UUID, kind: HolderKind, holder_id: UUID, *, event: str
+) -> None:
+    """Put a script Pip rewrote on the holder's calls, as its owner's save would: a live line
     and a campaign holding its engine agent at once, a draft at its own Start or publish. A
-    refusal is logged and left: the stored sentences are said beside the old line meanwhile,
-    and the drift sweep reads the engine against our rows."""
+    refusal is logged as `event` and left: the drift sweep reads the engine against our rows
+    (for the notices, the stored sentences are said beside the old line meanwhile)."""
     from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES
     from apps.api.campaigns.engine_agent import put_campaign_live
     from apps.api.inbound.publish import put_line_live
@@ -357,7 +359,7 @@ async def _put_holder_live(tenant_id: UUID, kind: HolderKind, holder_id: UUID) -
             )
     except ProblemError as refused:
         log.warning(
-            "holder_opening_notices_not_live",
+            event,
             extra={"kind": kind, "holder_id": str(holder_id), "reason": refused.code},
         )
 
@@ -405,6 +407,7 @@ async def refresh_account_notices(ctx: dict[str, Any], payload: dict[str, Any]) 
 __all__ = [
     "JOB_NAME",
     "REFRESH_JOB",
+    "put_holder_live",
     "refresh_account_notices",
     "weave_holder_opening_notices",
     "weave_opening_notices",

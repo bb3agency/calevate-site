@@ -80,6 +80,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     disclosure_played: true,
     moments: [],
     mistakes: [],
+    steps: [],
     quality: null,
     signals: [],
     timeline: null,

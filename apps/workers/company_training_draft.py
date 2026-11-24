@@ -28,7 +28,7 @@ sources (`campaign_script_ask.quoted_in`), so the judge's leniency is overruled 
 (platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/reduce-hallucinations,
 "Verify with citations", read 23 Nov 2026); a model rarely finds its own errors in the answer
 it just gave, hence a separate pass (arxiv.org/abs/2310.01798). Each owner's edit must be
-quoted where it landed, its figures must survive (`_figures`), and newer knowledge may replace
+quoted where it landed, its figures must survive (`figures_in`), and newer knowledge may replace
 one only by a quote the code finds in the sources. A failing draft is repaired once and
 reviewed again; still failing, it is not saved, the previous training stays, and an operator
 is alerted (`company_training_not_saved`). A draft that does not fit the engine's box beside
@@ -433,7 +433,7 @@ class Findings:
         return found
 
 
-def _figures(words: str) -> set[str]:
+def figures_in(words: str) -> set[str]:
     """Every run of digits in `words`, in any script, as ASCII; a masked detail's own digits
     (`[phone ••12]`) are not a figure."""
     unmasked = re.sub(r"\[phone [^\]]*\]", " ", words)
@@ -480,7 +480,7 @@ def checked(
         for row in rows
         if isinstance(row, dict) and isinstance(row.get("edit"), int)
     }
-    figures = _figures(training)
+    figures = figures_in(training)
     kept: dict[int, str] = {}
     superseded: dict[int, str] = {}
     dropped: list[str] = []
@@ -489,7 +489,7 @@ def checked(
         where, newer = _quote(row.get("kept_in")), _quote(row.get("replaced_by"))
         if newer and quoted_in(newer, sources) and not quoted_in(newer, edit):
             superseded[index] = newer
-        elif where and quoted_in(where, training) and _figures(edit) <= figures:
+        elif where and quoted_in(where, training) and figures_in(edit) <= figures:
             kept[index] = where
         else:
             dropped.append(edit)

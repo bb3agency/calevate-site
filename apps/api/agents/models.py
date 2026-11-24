@@ -2311,6 +2311,11 @@ class InboundLine(PKMixin, TimestampMixin, Base):
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     field_suggestions_at: Mapped[datetime | None]
+    #: Pip's pass writing missing step outcomes, as on `campaigns` (D-1036, migration
+    #: c4f1a8d2e7b3, which holds the CHECK).
+    step_outcomes_state: Mapped[str | None] = mapped_column(Text)
+    step_outcomes_inputs: Mapped[str | None] = mapped_column(Text)
+    step_outcomes_at: Mapped[datetime | None]
     #: The agent's actions this line switches off; every other action of the agent is on.
     actions_off: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")

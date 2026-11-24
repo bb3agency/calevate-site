@@ -18298,6 +18298,8 @@ export interface components {
             started_at?: string | null;
             /** Status */
             status: string;
+            /** Steps */
+            steps: components["schemas"]["CallProgressStepOut"][];
             /** Summary */
             summary?: string | null;
             /** Summary Language */
@@ -18867,6 +18869,25 @@ export interface components {
             agents: components["schemas"]["CallOutcomesAgentOut"][];
             /** Max Outcomes */
             max_outcomes: number;
+        };
+        /**
+         * CallProgressStepOut
+         * @description One step of the call's script and whether its outcome was reached (`crm/
+         *     step_progress`): the step's scenario names and, when reached, the caller line that shows
+         *     it. Never the words.
+         */
+        CallProgressStepOut: {
+            /** Name */
+            name: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "reached" | "not_reached" | "unclear";
+            /** Step */
+            step: number;
+            /** Turn Idx */
+            turn_idx: number | null;
         };
         /**
          * CallQualityOut
@@ -40127,6 +40148,11 @@ export interface components {
             source_ids: string[];
             /** Status */
             status: string;
+            /**
+             * Step Outcomes Pending
+             * @default false
+             */
+            step_outcomes_pending: boolean;
         };
         /**
          * WorkspacesSummaryOut

@@ -120,6 +120,9 @@ Kind = Literal[
     # D-1022 (the Rytu Khata campaign call of 19 Nov 2026): "OK, no problem." and nothing
     # more, so the caller had to ask what came next.
     "stalled",
+    # --- step outcomes (founder, 24 Nov 2026): a step left before its outcome was reached,
+    # read off where the call got to (`call_mistakes.step_mistakes`), not by a reply check.
+    "moved_on_unconfirmed",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -191,6 +194,9 @@ JOB_KINDS: Final = frozenset(
         # same line four times ended the call with nothing gained, which is the task lost.
         "said_again",
         "presumed_state",
+        # --- step outcomes (founder, 24 Nov 2026): a step left before its outcome. Read off
+        # where the call got to (`call_mistakes.step_mistakes`), never by a reply check here.
+        "moved_on_unconfirmed",
     }
 )
 #: The `JOB_KINDS` the owner's script causes, so the improver may fix them, not us: the line

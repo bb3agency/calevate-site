@@ -229,6 +229,17 @@ class CallMistakeOut(Strict):
     turn_idx: int
 
 
+class CallProgressStepOut(Strict):
+    """One step of the call's script and whether its outcome was reached (`crm/
+    step_progress`): the step's scenario names and, when reached, the caller line that shows
+    it. Never the words."""
+
+    step: int
+    name: str
+    state: Literal["reached", "not_reached", "unclear"]
+    turn_idx: int | None
+
+
 class CallMomentOut(Strict):
     """One jump-to point in a call's recording.
 
@@ -470,6 +481,9 @@ class CallDetailOut(CallSummaryOut):
     #: What the agent got wrong on this call, in call order (D-949). Required for
     #: `moments`' reason.
     mistakes: list[CallMistakeOut]
+    #: Where the call got to against its script's step outcomes, in step order; empty for a
+    #: call never judged. Required for `moments`' reason.
+    steps: list[CallProgressStepOut]
     extraction: dict[str, Any] = Field(default_factory=dict)
     #: `extraction` with its labels, the core first. Required for `moments`' reason.
     captured: list[CapturedFieldOut]

@@ -2545,6 +2545,12 @@ const CLIENT_SCREENS: Screen[] = [
         mistakes: [
           { kind: "said_again", label: "Said the same line again", instead: "Ask once in other words.", turn_idx: 0 },
         ],
+        // "Where the call got to", a done step jumping to a turn on screen, so it is swept too.
+        steps: [
+          { step: 1, name: "Remembers the app", state: "reached", turn_idx: 0 },
+          { step: 2, name: "Installs it", state: "not_reached", turn_idx: null },
+          { step: 3, name: "Logs in", state: "unclear", turn_idx: null },
+        ],
         summary_state: "ready",
         test_call: false,
         caller_id_hidden: false,

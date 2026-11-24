@@ -481,6 +481,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                 }}
                 mapping={ask.isPending}
                 beforePipAt={space.script_before_pip_at ?? null}
+                outcomesPending={space.step_outcomes_pending}
                 restore={restoreFeedback}
                 onRestore={() => restore.mutateAsync()}
                 onMapScenarios={

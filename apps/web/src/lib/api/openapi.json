@@ -9747,6 +9747,13 @@
             "title": "Status",
             "type": "string"
           },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/CallProgressStepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
           "summary": {
             "anyOf": [
               {
@@ -9865,6 +9872,7 @@
           "moments",
           "interest_moments_label",
           "mistakes",
+          "steps",
           "captured",
           "unclear_fields",
           "next_step_by",
@@ -11473,6 +11481,48 @@
           "agents"
         ],
         "title": "CallOutcomesOut",
+        "type": "object"
+      },
+      "CallProgressStepOut": {
+        "additionalProperties": false,
+        "description": "One step of the call's script and whether its outcome was reached (`crm/\nstep_progress`): the step's scenario names and, when reached, the caller line that shows\nit. Never the words.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "reached",
+              "not_reached",
+              "unclear"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "step": {
+            "title": "Step",
+            "type": "integer"
+          },
+          "turn_idx": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Idx"
+          }
+        },
+        "required": [
+          "step",
+          "name",
+          "state",
+          "turn_idx"
+        ],
+        "title": "CallProgressStepOut",
         "type": "object"
       },
       "CallQualityOut": {
@@ -69020,6 +69070,11 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "step_outcomes_pending": {
+            "default": false,
+            "title": "Step Outcomes Pending",
+            "type": "boolean"
           }
         },
         "required": [

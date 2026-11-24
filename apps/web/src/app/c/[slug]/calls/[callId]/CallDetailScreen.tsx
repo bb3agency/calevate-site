@@ -35,6 +35,7 @@ import { CallDetailSkeleton } from "./CallDetailSkeleton";
 import { sourcePath } from "../callSource";
 import { CallHeader } from "./CallHeader";
 import { CallMistakesCard } from "./CallMistakesCard";
+import { CallStepsCard, STEPS_TITLE } from "./CallStepsCard";
 import { CallQualityCard } from "./CallQualityCard";
 import { CallVerdict } from "./CallVerdict";
 import { CapturedDetails } from "./CapturedDetails";
@@ -507,6 +508,11 @@ export function CallDetailScreen({
           <CardBoundary name="Call quality">
             <CallQualityCard detail={detail} operator={viewAsRequested} />
           </CardBoundary>
+          {detail.steps.length > 0 && (
+            <CardBoundary name={STEPS_TITLE}>
+              <CallStepsCard steps={detail.steps} turnsOnScreen={new Set(turns.map((turn) => turn.idx))} />
+            </CardBoundary>
+          )}
           {mistakes.length > 0 && (
             <CardBoundary name="Mistakes on this call">
               <CallMistakesCard mistakes={mistakes} turnsOnScreen={new Set(turns.map((turn) => turn.idx))} />

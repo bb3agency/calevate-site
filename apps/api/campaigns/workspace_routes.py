@@ -112,6 +112,8 @@ class WorkspaceOut(_Out):
     source_ids: list[UUID]
     #: When the script from before Pip's last draft was kept aside; None: nothing to put back.
     script_before_pip_at: datetime | None = None
+    #: Pip is writing the outcome of a step that has none; the call flow shows it at work.
+    step_outcomes_pending: bool = False
 
 
 def _proposal(p: workspace.CampaignProposal | None) -> CampaignProposalOut | None:
@@ -154,6 +156,7 @@ async def _workspace_out(session: AsyncSession, campaign_id: UUID) -> WorkspaceO
         proposal=_proposal(w.proposal),
         source_ids=list(w.sources),
         script_before_pip_at=w.script_before_pip_at,
+        step_outcomes_pending=w.step_outcomes_pending,
     )
 
 

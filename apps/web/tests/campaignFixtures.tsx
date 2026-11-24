@@ -153,6 +153,7 @@ export function workspaceFixture(over: Partial<CampaignWorkspace> = {}): Campaig
     proposal: null,
     script: null,
     script_live_version: null,
+    step_outcomes_pending: false,
     ...over,
   };
 }

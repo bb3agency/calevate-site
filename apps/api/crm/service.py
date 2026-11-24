@@ -78,6 +78,7 @@ from apps.api.crm.schemas import (
     CallHolderRefOut,
     CallMistakeOut,
     CallMomentOut,
+    CallProgressStepOut,
     CallQualityOut,
     CallSignalOut,
     CallSummaryOut,
@@ -93,6 +94,7 @@ from apps.api.crm.schemas import (
     TurnTimingOut,
     insights_out,
 )
+from apps.api.crm.step_progress import stored_progress
 from apps.api.crm.turn_times import LineTime, TimedLine, line_times, stored_timeline
 from apps.api.db.base import uuid7
 from apps.api.db.like import contains_pattern, phone_suffix_pattern
@@ -697,6 +699,7 @@ async def get_call(
     reading_failed = bool(
         extraction and isinstance(extraction[7], dict) and MODEL_FAILURE in extraction[7]
     )
+    progress = await stored_progress(session, call_id)
     return CallDetailOut(
         id=row[0],
         agent_id=row[1],
@@ -776,6 +779,10 @@ async def get_call(
         mistakes=[
             CallMistakeOut(kind=m.kind, label=m.label, instead=m.instead, turn_idx=m.turn_idx)
             for m in await read_call_mistakes(session, call_id)
+        ],
+        steps=[
+            CallProgressStepOut(step=s.step, name=s.name, state=s.state, turn_idx=s.turn_idx)
+            for s in (progress.steps if progress is not None else ())
         ],
         interest_moments_label=interest_moments_label(
             sells=(await capabilities_for(session, row[51])).sells.applies

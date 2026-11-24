@@ -47,7 +47,7 @@ import {
 import { DESKTOP, useMedia } from "../agents/[agentId]/script/useMedia";
 import { ScenarioFlow } from "./ScenarioFlow";
 import { ChooseAgentPrompt, useFlowAgent } from "./FlowAgentBar";
-import { addScenario, placed } from "./scenarioModel";
+import { addScenario, placed, withPipOutcomes } from "./scenarioModel";
 
 const FOLD_KEY = "calevate:fold:call-flow";
 /** How many changes Undo can step back through. */
@@ -72,7 +72,10 @@ export function CampaignFlow({
   beforePipAt,
   restore,
   onRestore,
+  outcomesPending = false,
 }: {
+  /** Pip is writing the outcome of each step that has none (D-1036). */
+  outcomesPending?: boolean;
   /** When the flow from before Pip's last draft was kept aside; null: nothing to put back. */
   beforePipAt: string | null;
   restore: ActionFeedback<void>;
@@ -121,10 +124,21 @@ export function CampaignFlow({
   const [future, setFuture] = useState<CallScript[]>([]);
   const lastChange = useRef(0);
   // A save, or a script Pip wrote and the owner kept, replaces what is drawn and its history.
+  // While the owner has changes of their own, outcomes Pip wrote meanwhile are added to them
+  // instead (`withPipOutcomes`), so their unsaved work is never thrown away.
+  const shown = useRef(script);
   useEffect(() => {
-    setDraft(script);
-    setPast([]);
-    setFuture([]);
+    const before = shown.current;
+    shown.current = script;
+    if (JSON.stringify(draft) === JSON.stringify(before)) {
+      setDraft(script);
+      setPast([]);
+      setFuture([]);
+    } else {
+      setDraft(withPipOutcomes(draft, before, script));
+    }
+    // Only a new script from the server starts this; the draft is read as it stands then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [script]);
   const commit = (next: CallScript) => {
     if (next === draft) return;
@@ -265,6 +279,7 @@ export function CampaignFlow({
       languages={languages}
       selected={selected}
       readOnly={readOnly}
+      outcomesPending={outcomesPending}
       wide={desktop}
       onSelect={setSelected}
       onChange={commit}

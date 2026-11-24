@@ -31,7 +31,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import Final
 
-from calevate_shared.call_script import CallScript, substitute_variables
+from calevate_shared.call_script import CallScript, stage_steps, substitute_variables
 
 from apps.api.agents import turn_checks
 from apps.api.agents.call_rules import opening_redone_line_problems, reacted_line_problems
@@ -303,6 +303,35 @@ def _opened_again(script: CallScript, _context: LintContext) -> list[str]:
     return [*opening_redone_problems(script), *opening_redone_line_problems(script)]
 
 
+# --- step outcomes (founder, 24 Nov 2026) -----------------------------------------------------
+def _moved_on_unconfirmed(script: CallScript, _context: LintContext) -> list[str]:
+    """A step with an outcome, not the last, none of whose scenarios has a way out: the
+    outcomes section sends a step that cannot be reached to its way out "else its Otherwise",
+    so with none the call goes on to the next step without the outcome. Named on the step's
+    first scenario's instruction, the line a fix may say the way out in. A step without an
+    outcome is left to Pip, who writes it (`campaigns/step_outcomes`)."""
+    if not script.stages:
+        return []
+    steps = stage_steps(script.stages)
+    has_outcome = {o.step for o in script.step_outcomes}
+    last = max(steps)
+    first: dict[int, int] = {}
+    with_exit: set[int] = set()
+    for i, (stage, step) in enumerate(zip(script.stages, steps, strict=True)):
+        first.setdefault(step, i)
+        if stage.branches:
+            with_exit.add(step)
+    return [
+        f"stages.{i}.instruction: step {step} has an outcome and no way out; say what to do "
+        "when the person cannot or will not reach it, so the agent never moves on without it."
+        for step, i in sorted(first.items())
+        if step in has_outcome and step != last and step not in with_exit
+    ]
+
+
+# --- end of the step-outcome block -------------------------------------------------------------
+
+
 def _delegate(lint: Callable[[CallScript], list[str]]) -> _Check:
     def check(script: CallScript, _context: LintContext) -> list[str]:
         return lint(script)
@@ -328,6 +357,7 @@ _CHECKS: Final[dict[str, _Check]] = {
     "offered_more_too_soon": _offered_more_too_soon,
     "false_history": _false_history,
     "stalled": _stalled,
+    "moved_on_unconfirmed": _moved_on_unconfirmed,
 }
 
 #: The mistake kinds a script check can trace to the agent's own script.

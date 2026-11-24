@@ -178,6 +178,12 @@ class Campaign(PKMixin, TimestampMixin, Base):
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     field_suggestions_at: Mapped[datetime | None]
+    #: Pip's pass writing the outcome of each step that has none (D-1036, `campaigns/
+    #: step_outcomes`): the agent-pass state, the hash of what it last read and when it last
+    #: moved. The outcomes themselves go into `script`. Migration c4f1a8d2e7b3 holds the CHECK.
+    step_outcomes_state: Mapped[str | None] = mapped_column(Text)
+    step_outcomes_inputs: Mapped[str | None] = mapped_column(Text)
+    step_outcomes_at: Mapped[datetime | None]
     #: The calls its Test call placed, newest last (migration b3d8e1f6a2c9). Kept here rather
     #: than in `calls.campaign_id`, which would count them in the campaign's results.
     test_call_ids: Mapped[list[UUID]] = mapped_column(

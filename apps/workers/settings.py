@@ -360,6 +360,8 @@ from apps.workers.retention import (
 from apps.workers.retired_line_strip import strip_retired_example_lines
 from apps.workers.script_proposal import draft_mistake_fix
 from apps.workers.starter_steps import write_starter_steps
+from apps.workers.step_outcomes import SWEEP_MINUTE as STEP_OUTCOMES_SWEEP_MINUTE
+from apps.workers.step_outcomes import sweep_step_outcomes, write_step_outcomes
 from apps.workers.studio_voice_key import (
     push_studio_voice_key,
     push_studio_voice_key_to_workspace,
@@ -480,6 +482,9 @@ FUNCTIONS: list[Any] = [
         # The same for an Inbound line's or a campaign's own script when the account's
         # notice switches move (D-1021, `agents/opening_notices.queue_account_holder_notices`).
         weave_holder_opening_notices,
+        # The outcome of each step that has none, written by Pip (D-1036), from the outbox
+        # (`campaigns/step_outcomes.queue_after_save`), deferring itself to its debounce.
+        write_step_outcomes,
         # A notice switch migration f2477c8d623d turned back on, put onto the account's
         # calls as a flip is (D-1021, `publishing.queue_notices_reach_calls`).
         refresh_account_notices,
@@ -1179,6 +1184,21 @@ CRON_JOBS = [
             "the last one handled"
         ),
         second={FOLLOW_UP_TICK_SECOND},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-1036: the outcome of each step no save has given one, Pip's to write (scripts saved
+    # before outcomes were Pip's, a pass that died, an account that since turned Pip on).
+    # Hourly; `step_outcomes.HOLDERS_PER_TICK` is the most model calls it starts in an hour.
+    # Retrying is safe: queueing a pass already queued is a no-op (`agents/agent_pass`).
+    _cron(
+        traced_job(sweep_step_outcomes),
+        walk=bounded(
+            "one admin read (`step_outcome_scan`, an in-database loop), then one "
+            "tenant_session per account with work, at most `HOLDERS_PER_TICK` holders, "
+            "resuming after the last one reached"
+        ),
+        minute={STEP_OUTCOMES_SWEEP_MINUTE},
+        second={15},
         max_tries=WORKER_MAX_TRIES,
     ),
     # `max_tries` for `apply_retention`'s reason, and it is the same class of job: the

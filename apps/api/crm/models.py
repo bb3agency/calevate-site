@@ -436,6 +436,10 @@ class Call(PKMixin, TimestampMixin, Base):
     #: (`calevate_shared.events.CallTimeline`, dumped; D-902): times only, no words. NULL until
     #: `workers/call_timeline` fetches it, and on calls the platform timed nothing for.
     engine_timeline: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: Where the call got to against its script's step outcomes (`crm/step_progress`): one
+    #: reading per step with turn indexes and step names, never words. NULL until judged.
+    #: Migration c4f1a8d2e7b3 holds its CHECK.
+    step_progress: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: What the call came to as the voice platform read it (`calevate_shared.events.
     #: CallInsights`, dumped; D-940), its customer-quoted texts redacted. Transcript-derived,
     #: so it is expired and erased with `summary` (`workers/retention`). NULL when the

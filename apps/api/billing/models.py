@@ -184,6 +184,10 @@ ASSIST_FEATURE_CALL_LANGUAGE = "call_language"
 #: (`workers/call_translation`). A person asked for it, so it is dashboard AI and counts
 #: against the monthly allowance: deliberately NOT in `ABSORBED_ASSIST_FEATURES`.
 ASSIST_FEATURE_CALL_TRANSLATION = "call_translation"
+#: Where a call got to against its step outcomes (`workers/step_progress`), read from the
+#: transcript after every call on a campaign or inbound line: part of serving the call, so
+#: absorbed like the language pass.
+ASSIST_FEATURE_STEP_PROGRESS = "call_step_progress"
 #: The one AI draft of a custom business's lead fields (founder decision 15): part of
 #: setting the account up, drafted once ever, so absorbed too.
 ASSIST_FEATURE_LEAD_FIELDS = "lead_fields_draft"
@@ -225,6 +229,7 @@ ABSORBED_ASSIST_FEATURES = (
     ASSIST_FEATURE_UNUSED,
     ASSIST_FEATURE_CALL_EXTRACTION,
     ASSIST_FEATURE_CALL_LANGUAGE,
+    ASSIST_FEATURE_STEP_PROGRESS,
     ASSIST_FEATURE_LEAD_FIELDS,
     ASSIST_FEATURE_BUSINESS_TYPE,
     ASSIST_FEATURE_BUSINESS_COPY_ABSORBED,

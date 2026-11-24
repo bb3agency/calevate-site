@@ -7,7 +7,7 @@ from apps.api.agents.call_mistakes import LESSONS
 from apps.api.agents.mistake_lints import SCRIPT_FIXABLE_KINDS, mistake_findings
 from apps.api.agents.script_lint import LintContext, script_problems
 from apps.api.agents.script_proposals import finding_key
-from calevate_shared.call_script import CallScript, ConversationStage, ProcedureStep
+from calevate_shared.call_script import CallScript, ConversationStage, ProcedureStep, StepOutcome
 from calevate_shared.spoken_style import style_for
 
 _CLEAN_OPENING = "Hello, can we talk now?"
@@ -191,6 +191,22 @@ _CASES: list[tuple[str, CallScript, str, CallScript]] = [
             _stage("s2", "OK, which day suits you?"),
             _stage("s3", "Thank you."),
         ),
+    ),
+    # Step outcomes (founder, 24 Nov 2026): a step with an outcome and no way out.
+    (
+        "moved_on_unconfirmed",
+        _script(_stage("s1", "Is the app open?"), _stage("s2", "Thank you.")).model_copy(
+            update={"step_outcomes": [StepOutcome(step=1, outcome="The app is open.")]}
+        ),
+        "stages.0.instruction",
+        _script(
+            _stage(
+                "s1",
+                "Is the app open?",
+                branches=[{"when": "They cannot open it now", "target": "s2"}],
+            ),
+            _stage("s2", "Thank you."),
+        ).model_copy(update={"step_outcomes": [StepOutcome(step=1, outcome="The app is open.")]}),
     ),
 ]
 

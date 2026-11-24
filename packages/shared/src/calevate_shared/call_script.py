@@ -1161,13 +1161,14 @@ OUTCOMES_HEADER: Final = "[STEP OUTCOMES]"
 OUTCOMES_LEAD: Final = (
     "Each step of the call has one outcome to reach. Its scenarios are examples of how the call "
     "may go, not the only ways: reach the outcome however the person answers, then go on to "
-    "the next step. It is reached only when what they say shows it, never assumed or said for "
+    "the next step, and never before. It is reached only when what they say shows it, never "
+    "assumed or said for "
     "them: if it needs them to look or do something, ask them to and wait for their answer. "
     "If it clearly cannot be reached (they refuse, cannot do it now, or are not "
     "the right person), take the step's way out for that, else its Otherwise."
 )
 #: The outcome as an engine step carries it, when there is room.
-OUTCOME_IN_STEP: Final = "This step is done when: {outcome}."
+OUTCOME_IN_STEP: Final = "Go on only when: {outcome}."
 
 
 def outcomes_by_stage(script: CallScript) -> list[str]:
