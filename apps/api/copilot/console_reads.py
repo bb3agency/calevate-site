@@ -60,8 +60,8 @@ from apps.api.compliance.models import RIGHTS_REMINDER_DAYS
 from apps.api.compliance.outbound_pledge import pledge_blocker
 from apps.api.compliance.service import credits_exhausted
 from apps.api.copilot.agent_reads import AGENT_SETTINGS_READ
+from apps.api.copilot.id_kinds import unread_id
 from apps.api.copilot.knowledge_reads import KNOWLEDGE_SOURCES
-from apps.api.copilot.plan_refusals import unread_id
 from apps.api.copilot.tools import (
     MAX_ROWS,
     ReadTool,

@@ -46,7 +46,7 @@ from apps.api.copilot.actions import (
     parse_args,
     principal_of,
 )
-from apps.api.copilot.plan_refusals import unread_id
+from apps.api.copilot.id_kinds import unread_id
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.errors import ProblemError
 from apps.api.crm import lead_dial, lead_message, swipe, translation

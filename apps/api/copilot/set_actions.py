@@ -36,7 +36,7 @@ from apps.api.campaigns import controls as campaign_controls
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot import lens_args, plans
 from apps.api.copilot.actions import ToolActor, WriteRefusedError, parse_args
-from apps.api.copilot.plan_refusals import unread_id
+from apps.api.copilot.id_kinds import unread_id
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.errors import ProblemError
 from apps.api.crm import lens as crm_lens

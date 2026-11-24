@@ -60,7 +60,7 @@ from apps.api.agents.jobs import MAX_JOBS_LISTED, OPEN_CAMPAIGN_STATUSES, agent_
 from apps.api.agents.llm_tiers import LLM_TIER_LABELS, tier_of_model
 from apps.api.agents.models import CALL_CAP_DEFAULT_S
 from apps.api.agents.script_edits import PART_LABELS
-from apps.api.copilot.plan_refusals import unread_id
+from apps.api.copilot.id_kinds import unread_id
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.tools import ReadTool, ToolContext, _clean, ist_date
 from apps.api.core.errors import ProblemError
