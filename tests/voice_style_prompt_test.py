@@ -92,13 +92,13 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     # back as the one meant, inside the read-back bullet.
     read_back = next(line for line in block.splitlines() if line.startswith("- read back"))
     assert "could be a range or a decimal" in read_back
-    # The language's own register moved to the SPOKEN REGISTER section (D-714), which names
-    # each language the agent speaks; this block says to mirror the caller's register.
-    assert "caller's language and register" in block
+    # The language's own register is the SPOKEN REGISTER section (D-714); this block says to
+    # speak the caller's language as people talk.
+    assert "speak the caller's language as people talk" in block
     # Not heard, or heard as none of the options: asked again, never picked (D-912).
-    assert "ask what they meant, reworded; never guess or pick for them" in block
+    assert "never guess or move on: ask once, briefly, in other words" in block
     # D-714: the answer first, and since 23 Nov 2026 only the answer.
-    assert "answer just that" in block
+    assert "answer just what they asked" in block
 
 
 def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
@@ -111,51 +111,50 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     def bullet(start: str) -> str:
         return next(line for line in lines if line.startswith(start))
 
-    react = bullet("- Asked something?")
-    assert "A reaction only if it fits, often none, never to open or twice a call;" in react
-    assert "no two replies start or end alike." in react
+    react = bullet("- Answer just what they asked.")
+    assert "React only when it fits" in react
+    assert "never begin or end two replies alike." in react
     # The voice starts on the first comma after three words (D-901), so a reply opens with a
-    # short whole sentence with no comma: the first piece is a whole sentence (D-986, 20 Nov 2026).
-    # That sentence is the point itself, never a reaction (21 Nov 2026: "very good" opened
-    # every reply when the rule only asked for a short sentence).
-    opening = bullet("- Open with the point")
-    assert "in one short sentence with no comma" in opening
+    # short whole sentence with no comma (D-986, 20 Nov 2026).
+    opening = bullet("- Say one thing a turn")
+    assert "Start with a short sentence without a comma" in opening
+    assert "one instruction or one question" in opening
     # The words it overused are not named: a named word can come back more often.
     for stock in ("సంతోషం", "మంచిది", "సరే"):
         assert stock not in VOICE_STYLE_GUIDANCE
 
-    one = bullet("- One question a turn")
-    assert one.startswith("- One question a turn, on one thing, last;")
-    # After a bare "సరే" the agent asked both questions again word for word (D-910); since
-    # D-965 only an "OK" to its own question is asked again, and one after a step goes on.
-    unclear = bullet("- Unclear")
-    assert 'a bare "OK" to your question? Ask what they meant, reworded' in unclear
-    assert '"OK" after one: the next' in bullet("- Steps? One a turn")
+    # A bare "OK" to a question is no answer and is asked about (D-910); after a step it means
+    # they heard, so the agent waits; after an explanation it means go on (D-965).
+    unclear = bullet("- If a reply is unclear")
+    assert "never guess or move on: ask once, briefly, in other words" in unclear
+    done = bullet("- A step is done only when")
+    assert '"OK" or a few words mean they heard you, so wait' in done
+    assert 'after an explanation, "OK" means go on' in done
 
-    pace = bullet("- Talked over")
+    pace = bullet("- If they talk over you")
     # "I'll speak slowly from now on" promised a speed the model cannot set (D-912).
-    assert "Talked over or too fast? Stop, answer, sorry once, no promise" in pace
+    assert "promising nothing" in pace
 
     amounts = bullet("- Amounts the English way")
     # A time or amount, not a phone number: "a time or number" had four digits said back
     # (D-910).
     assert "A time or amount they said goes back in their words" in amounts
     assert '("six" stays "six")' in amounts
-    assert "a mobile five, a comma, five" in bullet("- Any number or code")
-    # Given fewer than ten digits the agent asks for the rest, never reads them back or asks
-    # to confirm them, and the rule comes before the read-back (D-910).
-    partial = bullet("- Under ten digits of a mobile?")
-    assert 'Ask for the rest ("six more digits?")' in partial
-    assert "never read back, confirm, act or end on part of one" in partial
-    assert lines.index(partial) < lines.index(bullet("- Read back"))
+    numbers = bullet("- Any number or code")
+    assert "a mobile five, a comma, five" in numbers
+    # Given fewer than ten digits the agent asks for the rest and never reads them back, and
+    # the rule comes before the read-back (D-910).
+    assert "Under ten digits of a mobile, ask for the rest" in numbers
+    assert "never read back or act on part of one" in numbers
+    assert lines.index(numbers) < lines.index(bullet("- Read back"))
     # "Never say the time" is about the clock, so it cannot read as "never say a time".
-    assert "never say the time now." in VOICE_STYLE_GUIDANCE
+    assert "Never say the time now." in VOICE_STYLE_GUIDANCE
 
 
 def test_the_founders_fixes_reach_every_prompt_and_the_floor_stays_last() -> None:
     prompt = compose_engine_prompt(_config("Call leads for Sri Estates."))
     assert '"six" stays "six"' in prompt
-    assert "A reaction only if it fits" in prompt
+    assert "React only when it fits" in prompt
     assert carries_truthful_answer_floor(prompt)
     assert prompt.rindex(TRUTHFUL_ANSWER_MARKER) > prompt.index(VOICE_STYLE_GUIDANCE)
 

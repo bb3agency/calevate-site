@@ -115,8 +115,8 @@ def test_every_agent_reads_today_and_the_name_and_the_rules_that_use_them() -> N
         for rule in (NAME_RULE, DAYS_RULE):
             assert prompt.index(rule) > prompt.index(OPENING)
             assert prompt.index(rule) < prompt.index(CONFIDENTIALITY_MARKER)
-    assert "never a past one" in DAYS_RULE and "Ask which" in DAYS_RULE
-    assert "Ask once: to book, call back, hand over or close" in NAME_RULE
+    assert "never a past one" in DAYS_RULE and "ask which" in DAYS_RULE
+    assert "ask once, only to book, call back, hand over or close" in NAME_RULE
 
 
 # --- 3 and 4. open questions for what the caller decides, the next days for a visit -------
@@ -124,4 +124,4 @@ def test_every_agent_reads_today_and_the_name_and_the_rules_that_use_them() -> N
 
 def test_choices_are_for_times_and_a_count_is_asked_openly() -> None:
     assert '"morning or evening?"' in VOICE_STYLE_GUIDANCE
-    assert "never for counts or amounts" in VOICE_STYLE_GUIDANCE
+    assert "never for a number or amount, not even as examples" in VOICE_STYLE_GUIDANCE

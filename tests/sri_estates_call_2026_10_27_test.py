@@ -63,9 +63,9 @@ def test_anjalis_prompt_carries_every_fix_and_keeps_the_locked_text() -> None:
     prompt = compose_engine_prompt(_anjali())
     assert VOICE_STYLE_GUIDANCE in prompt
     for clause in (
-        "A reaction only if it fits",
-        "One question a turn, on one thing, last;",
-        "Talked over or too fast? Stop, answer, sorry once",
+        "React only when it fits",
+        "one instruction or one question",
+        "If they talk over you or say you are fast, stop, answer",
         '("six" stays "six")',
     ):
         assert clause in prompt, clause

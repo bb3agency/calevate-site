@@ -36,16 +36,14 @@ from calevate_shared.call_script import (
 from calevate_shared.engine import CALL_INSTRUCTIONS, AgentConfig, compose_engine_prompt
 
 #: Characters a starter leaves for what the owner adds: pinned facts at their ceiling plus
-#: 6,920 of the owner's own script (7,000 until D-1026, 22 Nov 2026: the founder gave 80 to the
-#: "Said first" line and rule on agents that place calls). Lowering it is a founder decision.
-OWNER_RESERVE = MAX_PINNED_CHARS + 6_920
+#: 7,065 of the owner's own script, the measured room less 20 after the lean rebuild of 25 Nov
+#: 2026 (6,920 before it). Lowering it is a founder decision.
+OWNER_RESERVE = MAX_PINNED_CHARS + 7_065
 
 #: Characters the long script below must still leave free: room for its pinned facts to grow
-#: to their ceiling and 5,785 more of the owner's text (6,000 until D-979, 10 Nov 2026: the
-#: founder's "said so on this call or THIS CALL says so" is 21 characters longer on a placed
-#: call; 5,979 until D-1022, 19 Nov 2026, whose conversation rules are 114; 5,865 until
-#: D-1026, 22 Nov 2026, whose "Said first" line and rule are 77).
-LONG_MARGIN = MAX_PINNED_CHARS + 5_785
+#: to their ceiling and 5,945 more of the owner's text, the measured room less 20 after the lean
+#: rebuild of 25 Nov 2026 (5,785 before it).
+LONG_MARGIN = MAX_PINNED_CHARS + 5_945
 
 COLLECT = [
     CollectField(label="Name", required=True),
@@ -152,12 +150,9 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 
 
 #: Characters a guided call (the long script plus step-by-step lists of the size a phone
-#: walk-through takes) must still leave: pinned facts at their ceiling and 2,265 more (2,500
-#: until F-5, 5 Nov 2026, whose written-form rule is 75 characters of new HOW TO SPEAK text;
-#: 2,400 until D-979, 10 Nov 2026, whose placed-call wording is 21 characters longer; 2,379
-#: until D-1022, 19 Nov 2026, whose conversation rules are 114; 2,265 until D-1026, 22 Nov
-#: 2026, whose "Said first" line and rule are 77).
-GUIDED_MARGIN = MAX_PINNED_CHARS + 2_185
+#: walk-through takes) must still leave: pinned facts at their ceiling and 2,350 more, the
+#: measured room less 20 after the lean rebuild of 25 Nov 2026 (2,185 before it).
+GUIDED_MARGIN = MAX_PINNED_CHARS + 2_350
 
 
 def _guided(job: str) -> CallScript:
@@ -202,101 +197,11 @@ def test_an_inbound_lines_engine_agent_that_places_calls_fits_the_same_margins()
 #: What a call reads of OURS on every turn for the agents below: the platform layers of the
 #: instructions plus `CALL_INSTRUCTIONS`, which the engine reads on calls in place of its
 #: default call rules. The founder's rule of 14 Oct 2026 stands: a prompt change may not grow
-#: this past the last cut (quality within budget). Measured as one sum since D-856 moved every
-#: call rule but the call frame from `CALL_INSTRUCTIONS` into the instructions, so a call
-#: reads each rule once; before it, D-849 left 6,137 + 1,112 = 7,249 (three languages) and
-#: 5,160 + 1,112 = 6,272 (one). D-856 cut both by 476 while adding the reaction, half-answer,
-#: offer and who-is-calling rules. D-883 (25 Oct 2026) trimmed restatements and added the
-#: ambiguous-amount read-back: 6,708 to 6,485 (three) and 5,768 to 5,610 (one).
-#: D-888 (25 Oct 2026) RAISED both by 382, for faults on three production calls that no
-#: existing sentence covered: today's date and the name as per-call values with the header
-#: (about 50), the name rule (about 50) and the days rule (about 110) that read them, places,
-#: projects, availability and how the caller found the business among the facts (about 75),
-#: no choices for counts or amounts (about 35), and the one way to say a fact is missing
-#: (about 30).
-#: D-894 (27 Oct 2026) RAISED both by 254, for the founder's two Sri Estates test calls: a
-#: reaction that fits or is left out rather than one every turn (about 50), one question at
-#: the end of a turn (about 15), a pace complaint answered with shorter sentences and the call
-#: carried on (about 85), a caller's own words for a time or number said back (about 75), and
-#: a short first sentence, which the engine voices sooner (about 20).
-#: The founder's 27 Oct Telugu examples (spoken_style.json) RAISED both by 20: the caller's
-#: "Saturday evening six" and its answer said back in those words replaced a shorter pair.
-#: RAISED both by 60 (27 Oct 2026): part of a number is never acted on, thanked for or ended
-#: on ("I will send it to 9876" on a Sri Estates test).
-#: RAISED both by 98 (founder, 27 Oct 2026): given fewer than ten digits the agent asks for the
-#: rest and waits, and takes the number down only once all ten are read back and confirmed.
-#: D-901 (27 Oct 2026) CUT both by 5: "open with a few words and a comma" replaced "the first
-#: shortest" and "more only if asked".
-#: D-906 (27 Oct 2026) left both where they were (each 1 under): the action-claim rule's "or
-#: they say they did" is paid for by "for the team to confirm", "announce or narrate", "ask
-#: them to repeat" and "offer a call back" without "instead". The screen switch's steps are
-#: composed only for an agent whose owner turns it on.
-#: D-910 (28 Oct 2026) left both where they were (7,289/6,414, each 5 under): the partial
-#: number as its own bullet with "six more digits?", "on one thing", the bare-"OK" rule and
-#: "for call backs too" are paid for by dropping "take it down only once all ten are read back
-#: and confirmed" and "thank for", and by shorter pace and talked-over clauses.
-#: D-912 (28 Oct 2026) CUT both by 12 (7,277/6,402, each 17 under): "not even as examples"
-#: for counts, "Unclear? Ask again; never pick for them", "no promise" on a pace complaint and
-#: a one-line close with no recap, paid for by "then ask the next thing", "each turn begun
-#: differently" and shorter clauses. The who-is-calling rule for outbound agents is in START
-#: OF THE CALL, which these agents (no opening line) do not carry.
-#: D-921 (28 Oct 2026) RAISED both by 20: the voice pauses only at a mark, so a comma every few
-#: words, "?" on every question and a full stop on the rest (the founder heard a call as
-#: unpunctuated).
-#: D-947 (30 Oct 2026) left both where they were (7,313/6,438, each 1 under): "no clear reply
-#: twice" in place of "still unclear after two tries" pays for "Unclear? Ask again, reworded".
-#: D-959 (2 Nov 2026) RAISED both by 116 (7,429/6,554): the founder's Rytu Khata call ended
-#: reply after reply with "anything else?" while the caller was mid-task, and no sentence said
-#: when it belongs, so the bullet saying so (and what ends a turn mid-task) is new text.
-#: D-961 (2 Nov 2026) RAISED both by 14 (7,443/6,568): on the founder's Rytu Khata call the agent
-#: promised a call back and asked a name on a question its knowledge answered, so "answer what
-#: your knowledge holds; being an AI is no reason not to" is new text, the name is asked after
-#: the first answer, and the "one kg" and "crores" illustrations went (D-915: neutral).
-#: D-965 (2 Nov 2026) left both where they were (7,442/6,567): a bare "OK" re-asks only after
-#: a question, an "OK" after an explanation goes on, not knowing an answer gets help rather
-#: than a close, the name waits for a use, and "no clear reply twice" is to one question; paid
-#: for by merging the bare-"OK" and "Unclear?" rules, one talked-over/too-fast clause, no
-#: "anything else" in the close and shorter clauses elsewhere.
-#: D-969 (4 Nov 2026) RAISED both by 194 (7,638/6,763): on the Rytu Khata campaign calls a
-#: WhatsApp number was read fast and asked for twice, a how-to was given in one turn and
-#: then "did you understand?", and "call me later" got no day or time; every number digit by
-#: digit from the first time, one step a turn and the call-back time rule are new text. The
-#: memory goodbye rule went, but this reference agent remembers no one.
-#: F-5 (5 Nov 2026) RAISED both by 75 (7,713/6,838): on the founder's production Telugu call a
-#: question particle was written as its own word and the voice read it apart, so "write as
-#: native speakers do: a suffix, particle or vowel joins its word" is new text.
-#: Founder's Rytu Khata call of 6 Nov 2026 left both where they were (7,707/6,832, each 6
-#: under): a line the caller spoke over comes back "in new words", and a question is answered
-#: "to it, never your last point again". The placed-call START OF THE CALL's "one greeting"
-#: clause is paid for by dropping "never restart" there; it is not in these agents.
-#: The founder's Rytu Khata call of 9 Nov 2026 left both where they were (7,709/6,834, each 4
-#: under): the written-form bullet joins a suffix "as the language's print does" (+2),
-#: because standard Hindi writes a case marker apart from a noun. The rule that a placed call
-#: takes nothing the person has or uses from a step's line is in START OF THE CALL, which
-#: these agents do not carry.
-#: The founder's Rytu Khata call of 9 Nov 2026 (20:32) RAISED both by 6 (7,719/6,844): three
-#: replies running opened with the same "OK" though "never the same way twice" was already
-#: there, read as "not twice in a row"; "in a call" (+10) closes it. Our call rules replace
-#: the engine's default ones on that account (`thinnest_call_instructions` on since 21 Oct
-#: 2026), so the repetition was ours to fix.
-#: D-1022 (founder's Rytu Khata campaign call of 19 Nov 2026) RAISED both by 114 (7,833/6,958):
-#: no sentence said what a turn ends on ("OK, no problem." and silence), that the plan moves
-#: with an answer, that "anything else?" is asked once and "that is all" closes, or that a name
-#: the call already has is never asked or made up.
-#: The founder's Rytu Khata campaign call of 23 Nov 2026 left both where they were (7,799/6,949,
-#: 34 and 9 under): one point a turn, an off-the-point reply asked about rather than guessed
-#: at, no two replies opening or ending alike, a step's check asked for and no reassurance
-#: without a fact, paid for by "the answer, step or question" after "the point", the "do you
-#: want to know" example (covered by "Answer just that") and one reaction sentence for two.
-#: The founder's Telugu campaign call of 24 Nov 2026 left both where they were (7,792/6,953):
-#: fillers "once a call each" at their list, no reaction "twice a call", a search when stuck on
-#: a step, and the word list led by "never the left, even scripted", paid for by writing each
-#: pair as an arrow rather than 'not "X" but "Y"'.
-#: The same call's 12:15 review left both where they were (7,795/6,956): a step's turn ends on
-#: an invitation to say when it is done, never "done?", paid for by "Steps?" and "Hesitant
-#: or"; the guided call's step-list lead pays for its own and the rest.
-PER_CALL_MAX = 7_833
-PER_CALL_ONE_LANGUAGE_MAX = 6_958
+#: this past the last cut (quality within budget). Each limit is the measured size plus 20.
+#: Measured 7,621 and 6,847 after the lean rebuild of 25 Nov 2026
+#: (`docs/evidence/lean-prompt-2026-11-25.md`; 7,796 and 6,957 before it).
+PER_CALL_MAX = 7_641
+PER_CALL_ONE_LANGUAGE_MAX = 6_867
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

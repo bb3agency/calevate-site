@@ -55,7 +55,7 @@ def test_with_own_rules_our_prompt_states_when_to_hand_over_and_keeps_the_floor(
     on = compose_engine_prompt(_cfg(engine_own_rules=True))
     assert OWN_RULES_HANDOVER_RULE in on and OWN_RULES_HANDOVER_RULE not in off
     assert on.replace(f"{OWN_RULES_HANDOVER_RULE}\n", "") == off
-    assert "Asked for a person with no hand-over tool" in on
+    assert "If they ask for a person and you have no hand-over tool" in on
     assert "offer a call back" in on
     trial = compose_engine_prompt(_cfg(engine_own_rules=True, callbacks_offered=False))
     assert "Never offer or book a call back" in trial

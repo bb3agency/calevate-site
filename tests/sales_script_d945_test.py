@@ -97,8 +97,10 @@ _BOOKS_ONLY = BusinessFit(
 
 
 def test_who_is_this_gets_who_and_why_then_a_stop() -> None:
-    assert "Both in one line, once, wait." in OPENING_CONTINUES_RULE
-    assert "then your first question." not in OPENING_CONTINUES_RULE.split("Asked who")[1][:60]
+    assert "say who and why in one line, once, and wait." in OPENING_CONTINUES_RULE
+    assert (
+        "then your first question." not in OPENING_CONTINUES_RULE.split("If they ask who")[1][:90]
+    )
 
 
 def test_every_call_reads_the_week_ahead_in_ist() -> None:

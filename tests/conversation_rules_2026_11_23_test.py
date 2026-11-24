@@ -31,17 +31,17 @@ from calevate_shared.spoken_guard import has_indic_letters
 #: One clause per fault, as every agent's prompt says it.
 SPEAKING_RULES = (
     # A turn carries one point: the cut-off reply answered two things and began a third.
-    "one or two short sentences, then wait: one point a turn.",
+    "Say one thing a turn, one instruction or one question, in one or two short sentences, "
+    "then stop.",
     # Only what was asked is answered.
-    "Asked something? Answer just that, never your last point again.",
-    # No acknowledgement or closing words used reply after reply, and often none at all.
-    "A reaction only if it fits, often none, never to open or twice a call; no two replies start "
-    "or end alike.",
+    "Answer just what they asked.",
+    # No acknowledgement or closing words used reply after reply.
+    "React only when it fits, and never begin or end two replies alike.",
     # A reply off the point (a misheard "Friday") is asked about, never guessed at.
-    '- Unclear, off the point, or a bare "OK" to your question? Ask what they meant, reworded; '
-    "never guess or pick for them.",
+    "- If a reply is unclear, cut off or no answer to you, never guess or move on: ask once, "
+    "briefly, in other words.",
     # A step's result is asked for, never asserted for them.
-    '"OK" after one: the next. To check, ask what they see.',
+    "A step is done only when they say so or say what they see.",
 )
 
 
@@ -89,18 +89,17 @@ def test_every_agent_carries_the_rules(direction: str, screen: bool) -> None:
     for rule in SPEAKING_RULES:
         assert prompt.count(rule) == 1, (direction, screen, rule)
     # A reassurance is one of the things never said without a fact behind it.
-    assert "how such businesses usually work, a reassurance, or how they found you." in prompt
+    assert "how such businesses work, a reassurance or how they found you." in prompt
 
 
 def test_a_job_scripts_steps_outcomes_and_answers_say_when_to_move_on() -> None:
     body = compile_call_script(_guided_script())
     prompt = compose_engine_prompt(_config("outbound", body))
     # A step moves on only on a reply that meets its Wait for; anything else is asked about.
-    assert "Give the next only once what they say meets its Wait for" in PROCEDURE_LEAD
-    assert "else ask, never assume." in PROCEDURE_LEAD
+    assert "Go to the next only when what they say meets its Wait for" in PROCEDURE_LEAD
     # An outcome is reached by what the person says, and a look-and-see one is asked for.
-    assert "It is reached only when what they say shows it, never assumed or said" in OUTCOMES_LEAD
-    assert "if it needs them to look or do something, ask them to and wait" in OUTCOMES_LEAD
+    assert "only when what they say shows the outcome, never assumed or said" in OUTCOMES_LEAD
+    assert "if it needs them to look or do something, ask and wait" in OUTCOMES_LEAD
     # A scenario's answer is given only to its own question.
     assert "give an answer only when they ask its question." in SCENARIO_LEAD
     for lead in (PROCEDURE_LEAD, OUTCOMES_LEAD, SCENARIO_LEAD):

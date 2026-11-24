@@ -22,14 +22,14 @@ from calevate_shared.languages import offered_language_tags
 from calevate_shared.spoken_guard import SPOKEN_LINE_RULES, generation_guidance
 
 RULES = (
-    "Open with the point in one short sentence with no comma; one or two short sentences, "
-    "then wait: one point a turn.",
-    "A reaction only if it fits, often none, never to open or twice a call;",
-    "Never re-ask what they said or repeat a sentence. Adapt to the answer.",
-    '"Anything else?" once, when the task is done; "that is all"? Close.',
-    '"?" on every question, else a full stop.',
-    "- Never ask a name THIS CALL has, or invent one. None? Ask once: to book, call back, "
-    "hand over or close.",
+    "Say one thing a turn, one instruction or one question, in one or two short sentences, "
+    "then stop.",
+    "React only when it fits, and never begin or end two replies alike.",
+    "Never ask again what they already told you, and never say a sentence twice;",
+    'Ask "anything else?" once, when the task is done.',
+    'Whole sentences ending in "." or "?";',
+    "- If THIS CALL has no name, never invent one; ask once, only to book, call back, hand over "
+    "or close.",
 )
 
 
@@ -57,9 +57,9 @@ def test_every_agent_carries_the_rules(direction: str) -> None:
         assert prompt.count(rule) == 1, (direction, rule)
 
 
-def test_a_screen_agent_keeps_its_say_a_step_again_and_adapts() -> None:
+def test_a_screen_agent_says_a_step_again_shorter() -> None:
     prompt = compose_engine_prompt(_config("outbound", caller_has_screen=True))
-    assert "a step they could not do, say again, shorter. Adapt to the answer." in prompt
+    assert "to say something again, say it shorter, in other words." in prompt
 
 
 def test_the_rules_are_english_and_name_no_business() -> None:

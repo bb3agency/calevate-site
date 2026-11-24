@@ -72,13 +72,13 @@ LESSONS: Final[dict[str, Lesson]] = {
     "said_again": Lesson(
         "Said the same line again",
         "With no clear reply, ask once in other words, then offer the next step.",
-        'HOW TO SPEAK: "Never re-ask what they said or repeat a sentence"; CANNOT HELP: two '
-        "tries to one question",
+        'HOW TO SPEAK: "never say a sentence twice"; WHAT YOU CAN DO: two unclear '
+        "replies to one question",
     ),
     "asked_again": Lesson(
         "Asked the same question again, word for word",
         "Ask an unanswered question once more, in new words.",
-        'HOW TO SPEAK: "Unclear ... Ask what they meant, reworded"',
+        'WHEN A REPLY IS UNCLEAR: "ask once, briefly, in other words"',
     ),
     "reasked_name": Lesson(
         "Asked for a name the caller already gave",
@@ -93,12 +93,12 @@ LESSONS: Final[dict[str, Lesson]] = {
     "caller_line": Lesson(
         "Answered for the caller",
         "Ask, then wait for the caller's own answer.",
-        'HOW TO SPEAK: "Say only your own part, never the caller\'s"',
+        'HOW TO SPEAK: "Say only your own part"',
     ),
     "goodbye_while_asking": Lesson(
         "Said goodbye while the caller was still asking",
         "Answer the caller's question before closing.",
-        'HOW TO SPEAK: "Close ... End only then or when asked, never while they talk"',
+        'HOW TO SPEAK: "never end while they are talking"',
     ),
     "false_recall": Lesson(
         "Said it had already told the caller something it never said",
@@ -108,7 +108,7 @@ LESSONS: Final[dict[str, Lesson]] = {
     "wrong_language": Lesson(
         "Answered in a different language from the caller",
         "Reply in the caller's language.",
-        "LANGUAGES, and HOW TO SPEAK's register bullet",
+        "LANGUAGES, and SPOKEN OUTPUT's language bullet",
     ),
     "third_person": Lesson(
         "Talked about the caller as “the caller”",
@@ -117,13 +117,12 @@ LESSONS: Final[dict[str, Lesson]] = {
     "offered_more_too_soon": Lesson(
         "Kept asking “anything else?” before the caller was done",
         "Ask once a topic is finished; while helping step by step, give the next step.",
-        'HOW TO SPEAK: "\\"Anything else?\\" once, when the task is done; \\"that is all\\"? '
-        'Close."',
+        'HOW TO SPEAK: "Ask \\"anything else?\\" once, when the task is done"',
     ),
     "stalled": Lesson(
         "Stopped after a few words and left the caller to lead",
         "End each turn on a question or the next step, unless the call is closing.",
-        'HOW TO SPEAK: "Never a reaction alone: add a question or next step, unless closing"',
+        'HOW TO SPEAK: "Say one thing a turn: one instruction or one question"',
     ),
     # The founder's Rytu Khata call of 9 Nov 2026 (20:32): replies opening with the same
     # words and turns of four sentences, neither of which the call page named. English
@@ -132,25 +131,25 @@ LESSONS: Final[dict[str, Lesson]] = {
     "same_opening": Lesson(
         "Began reply after reply with the same words",
         "React only when it fits what was said, in new words, and often not at all.",
-        'HOW TO SPEAK: "no two replies start or end alike"',
+        'HOW TO SPEAK: "never begin or end two replies alike"',
     ),
     # The Telugu campaign call of 24 Nov 2026 (12:15): "log in. Have you logged in?" in one
     # turn, six times. Read off the reply alone, as in a practice run.
     "asked_done_too_soon": Lesson(
         "Asked if a step was done before the caller could do it",
         "Give the step, ask them to say when it is done, and wait.",
-        'HOW TO SPEAK: "Steps? One a turn, inviting them to say when done; never \\"done?\\""; '
+        'HOW TO SPEAK: "give one step, ask them to tell you when it is done, and wait"; '
         "call_script.PROCEDURE_LEAD",
     ),
     "same_closing": Lesson(
         "Ended reply after reply with the same words",
         "End each reply on its own question or next step, in new words.",
-        'HOW TO SPEAK: "no two replies start or end alike"',
+        'HOW TO SPEAK: "never begin or end two replies alike"',
     ),
     "too_long": Lesson(
         "Said too much in one turn",
         "Say one or two short sentences, then let the caller speak.",
-        'HOW TO SPEAK: "one or two short sentences, then wait"',
+        'HOW TO SPEAK: "Say one thing a turn, then stop"',
     ),
     # The Telugu campaign call of 24 Nov 2026 said a button in the call's letters and again
     # in English in brackets, and used a word the register's list names, and neither was on
@@ -158,13 +157,13 @@ LESSONS: Final[dict[str, Lesson]] = {
     "brackets": Lesson(
         "Read out something in brackets",
         "Say each name once, as the screen or the facts show it, with nothing in brackets.",
-        'HOW TO SPEAK: "No markdown, emoji, brackets"; the screen bullet: "naming what to tap '
-        'once ... never again in brackets"',
+        'SPOKEN OUTPUT: "No markdown, emoji, lists, brackets"; the screen bullet: '
+        '"name what to tap once ... never again in brackets"',
     ),
     "formal_words": Lesson(
         "Used textbook words",
         "Use the everyday word people say on the phone.",
-        "SPOKEN REGISTER: the word list after spoken_style.SWAPS_LEAD; HOW TO SPEAK's register "
+        "SPOKEN REGISTER: the word list after spoken_style.SWAPS_LEAD; SPOKEN OUTPUT's language "
         "bullet",
     ),
     "false_history": Lesson(

@@ -272,6 +272,18 @@ same rule in `SCRIPT_FLOW_RULE`. English is read by words; Telugu and Hindi by t
 done-word and yes/no-ending lists in `call_words.json`, with any statement before such a
 question taken as the instruction.
 
+**The platform text rebuilt lean (25 Nov 2026).** The fragments quoted in the paragraphs above
+are gone: each behaviour is now one plain sentence, said once, in labelled blocks in this order:
+role and goal (the preamble), HOW TO SPEAK (eight turn-taking bullets), WHEN A REPLY IS UNCLEAR
+(three), SPOKEN OUTPUT (what the voice can say), SPOKEN REGISTER (the language's register, its
+word pairs and the approved examples; the filler list is no longer quoted), BUSINESS FACTS,
+START OF THE CALL, the client script, WHAT YOU CAN DO, CONFIDENTIALITY, the truthful answers and
+THIS CALL. A step is done only when the person says so or says what they see; after a step an
+"OK" means they heard, after an explanation it means go on (the contradiction between the old
+'"OK" after one: the next' and the step-list lead is resolved). Sources and the before-and-after
+are in `docs/evidence/lean-prompt-2026-11-25.md`, built on
+`docs/evidence/voice-agent-research-2026-11-25.md` section B.
+
 **Two opening lines (D-920).** An agent that both answers and places calls (`both`) has two
 openings: its greeting for calls it answers and `CallScript.outbound_opening_line`, compiled
 under `[OPENING ON CALLS YOU PLACE]` and read back by `call_script.outbound_opening_of`. Every

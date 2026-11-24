@@ -61,9 +61,7 @@ def test_a_step_starting_after_the_opening_passes() -> None:
 
 
 def test_the_in_call_rule_beats_a_step_that_says_to_introduce() -> None:
-    assert "A step says to greet, say who you are or ask if now suits? That is done" in (
-        OPENING_CONTINUES_RULE
-    )
+    assert "even after answering or if a step says to" in OPENING_CONTINUES_RULE
     cfg = AgentConfig(
         tenant_id="t",
         agent_id="a",
@@ -101,9 +99,9 @@ def test_a_dropped_introduction_carries_the_name_and_a_title_only_before_a_break
 
 def test_a_web_address_is_said_as_it_reads_and_spelled_only_when_not_found() -> None:
     bullet = screen_steps_bullet("en-IN")
-    assert "Say a web address once, as it reads, no www: a word as a word" in bullet
-    assert "Spell a word by letters only if they cannot find it" in bullet
-    assert "send the link if a tool can" in bullet
+    assert "say a web address once as it reads, no www: words as words" in bullet
+    assert "Spell a word only if they cannot find it" in bullet
+    assert "Send a link if a tool can" in bullet
     assert "one letter at a time" not in bullet
 
 
@@ -124,7 +122,7 @@ def test_step_lines_opening_with_the_same_reaction_are_found() -> None:
 
 
 def test_the_reaction_rule_holds_for_the_whole_call() -> None:
-    assert "no two replies start or end alike." in VOICE_STYLE_GUIDANCE
+    assert "never begin or end two replies alike." in VOICE_STYLE_GUIDANCE
 
 
 def test_a_real_call_names_the_same_opening_and_a_long_turn() -> None:

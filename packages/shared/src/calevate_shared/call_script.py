@@ -1015,21 +1015,16 @@ CONVERSATION_HEADER: Final = "[CONVERSATION]"
 #: The sections' step-by-step lists (D-908). Not an `OUTLINE_HEADERS` entry: an engine that
 #: takes the sections as its own steps still reads the lists here, in the instructions.
 PROCEDURE_HEADER: Final = "[STEP BY STEP]"
-#: How the agent walks a list. The caller is doing something on their own phone, so the
-#: agent gives one step and waits for it to be done rather than reading the list out.
-#: A step is done only when the person's own words say so: on the founder's Rytu Khata call
-#: of 23 Nov 2026 the recogniser heard "Friday" after "open the browser and tell me", and the
-#: agent took it as done and gave the next step. Waiting for the reply that meets the step's
-#: exit condition, and asking when it does not, is how the voice guides write a state's exit
-#: ("Exit when: ...", developers.openai.com/api/docs/guides/realtime-models-prompting; "Collect,
-#: confirm, move on", docs.vapi.ai/prompting-guide; both read 23 Nov 2026).
-#: A step's Wait for is what the agent listens for, never a question it adds to the step: on
-#: the Telugu campaign call of 24 Nov 2026 (12:15) six steps were said as "do X. Is X done?" in
-#: one turn, so the person had no time to do X. The step's turn ends on an invitation to say
-#: when it is done (HOW TO SPEAK's "Steps?" bullet, which carries the guides cited there).
+#: How the agent walks a list: one step a turn, in order, and the next only once the person's
+#: own words meet the step's Wait for, the "Exit when" criterion the voice guides write
+#: (OpenAI Realtime prompting guide; `docs/evidence/voice-agent-research-2026-11-25.md` A1).
+#: How a step's turn ends and what counts as done are HOW TO SPEAK's and WHEN A REPLY IS
+#: UNCLEAR's (`engine.TURN_RULES`, `engine.UNCLEAR_RULES`), said once there for every agent;
+#: this lead adds only what a list needs. A Wait for is what the agent listens for, never a
+#: question added to the step: "do X. Is X done?" in one turn left no time to do X (24 Nov 2026).
 PROCEDURE_LEAD: Final = (
-    "Say one, invite them to say when done, wait. Give the next only once what they say "
-    "meets its Wait for, or says done; else ask, never assume. Stuck? Help."
+    "Give them one at a time, in order. Go to the next only when what they say meets its Wait "
+    "for; if they are stuck, help with that step."
 )
 ADHERENCE_SENTENCES: Final[dict[str, str]] = {
     "flexible": "Sections in order as a guide. Follow the caller if they jump ahead; do not "
@@ -1163,13 +1158,11 @@ def _step_detail(stage: ConversationStage, outcome: str = "") -> str:
 #: caller before booking", docs.retellai.com/build/prompt-engineering-guide, read 23 Nov 2026).
 OUTCOMES_HEADER: Final = "[STEP OUTCOMES]"
 OUTCOMES_LEAD: Final = (
-    "Each step of the call has one outcome to reach. Its scenarios are examples of how the call "
-    "may go, not the only ways: reach the outcome however the person answers, then go on to "
-    "the next step, and never before. It is reached only when what they say shows it, never "
-    "assumed or said for "
-    "them: if it needs them to look or do something, ask them to and wait for their answer. "
-    "If it clearly cannot be reached (they refuse, cannot do it now, or are not "
-    "the right person), take the step's way out for that, else its Otherwise."
+    "Each step has one outcome to reach, and its scenarios are examples, not the only ways. Go "
+    "on to the next step only when what they say shows the outcome, never assumed or said for "
+    "them; if it needs them to look or do something, ask and wait. If it clearly cannot be "
+    "reached (they refuse, cannot do it now, or are not the right person), take the step's way "
+    "out for that, else its Otherwise."
 )
 #: The outcome as an engine step carries it, when there is room.
 OUTCOME_IN_STEP: Final = "Go on only when: {outcome}."

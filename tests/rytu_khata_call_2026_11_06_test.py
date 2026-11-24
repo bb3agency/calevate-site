@@ -98,16 +98,17 @@ def test_the_platforms_question_stays_where_ours_would_be_wrong() -> None:
 def test_a_line_the_caller_spoke_over_comes_back_in_new_words() -> None:
     """Turn 12 asked turn 10's "మీది ఆండ్రాయిడ్ ఫోనా లేక ఐఫోనా అండి?" word for word after the
     caller spoke over it."""
-    rule = "Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter, in new"
-    assert f"{rule} words." in VOICE_STYLE_GUIDANCE
+    assert "If they talk over you or say you are fast, stop, answer" in VOICE_STYLE_GUIDANCE
+    rule = "never say a sentence twice; to say something again, say it shorter, in other words."
+    assert rule in VOICE_STYLE_GUIDANCE
     cfg, _ = _cfg()
-    assert "go on shorter, in new words." in compose_engine_prompt(cfg)
+    assert rule in compose_engine_prompt(cfg)
 
 
 def test_a_how_question_is_answered_rather_than_the_last_point_repeated() -> None:
     cfg, _ = _cfg()
     prompt = compose_engine_prompt(cfg)
-    assert "Asked something? Answer just that, never your last point again." in prompt
+    assert "Answer just what they asked." in prompt
 
 
 # --- 3. a greeting word in a later turn ------------------------------------------------------
@@ -137,6 +138,6 @@ def test_a_placed_call_is_told_its_first_turn_was_its_only_greeting() -> None:
     placed = inbound.model_copy(update={"direction": "outbound"})
     prompt = compose_engine_prompt(placed)
     assert OPENING_CONTINUES_RULE in prompt
-    assert "Never greet again in any turn" in OPENING_CONTINUES_RULE
+    assert "That was your only greeting: never greet again" in OPENING_CONTINUES_RULE
     # An answering agent is told the same about its own first words.
     assert OPENING_CONTINUES_RULE in compose_engine_prompt(inbound)

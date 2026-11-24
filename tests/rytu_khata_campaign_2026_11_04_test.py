@@ -65,16 +65,14 @@ def test_a_placed_call_asks_if_now_is_a_good_time_and_uses_the_name() -> None:
 
 def test_every_agent_gives_one_step_a_turn_and_never_asks_did_you_understand() -> None:
     prompt = compose_engine_prompt(_cfg(direction="inbound"))
-    assert 'Steps? One a turn, inviting them to say when done; never "done?" or "understood?"' in (
-        prompt
-    )
+    assert "give one step, ask them to tell you when it is done, and wait" in (prompt)
 
 
 # --- 3. numbers digit by digit, the first time ---------------------------------------------
 
 
 def test_numbers_are_read_digit_by_digit_in_two_fives_from_the_first_time() -> None:
-    assert "first time too: digit by digit, a mobile five, a comma, five" in VOICE_STYLE_GUIDANCE
+    assert "Any number or code digit by digit, a mobile five, a comma, five" in VOICE_STYLE_GUIDANCE
     assert "a comma, five; offer to repeat" in VOICE_STYLE_GUIDANCE
 
 
@@ -82,7 +80,7 @@ def test_numbers_are_read_digit_by_digit_in_two_fives_from_the_first_time() -> N
 
 
 def test_later_asks_a_day_and_time_and_books_only_where_call_backs_are_kept() -> None:
-    assert "day and time, say it back, book" in CALL_BACK_TIME_RULE
+    assert "the day and time, say it back and book it" in CALL_BACK_TIME_RULE
     assert CALL_BACK_TIME_RULE in _layer(_cfg(), "what_you_can_do")
     assert CALL_BACK_TIME_RULE not in _layer(_cfg(callbacks_offered=False), "what_you_can_do")
 

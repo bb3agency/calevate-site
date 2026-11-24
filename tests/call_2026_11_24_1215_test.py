@@ -81,14 +81,13 @@ def _filler() -> str:
 # --- 1. a filler at most once a call, said at the list ---------------------------------
 
 
-def test_the_filler_cap_sits_at_the_list_it_caps() -> None:
+def test_the_fillers_are_not_quoted_to_the_call_model() -> None:
+    # A quoted filler opened nine of twelve replies although capped "once a call each", so the
+    # call prompt names none and says the rule of every reaction instead.
     guidance = register_guidance("te-IN")
     assert guidance is not None
-    assert f"{FILLERS_LEAD} {_filler()}" in guidance
-    assert "once a call each" in FILLERS_LEAD
-    assert "lightly" not in guidance
-    # HOW TO SPEAK says it of any reaction, not only the listed ones.
-    assert "never to open or twice a call" in VOICE_STYLE_GUIDANCE
+    assert FILLERS_LEAD not in guidance and _filler() not in guidance
+    assert "never begin or end two replies alike" in VOICE_STYLE_GUIDANCE
 
 
 # --- 2. a name said once, never with a bracketed repeat -------------------------------
@@ -96,9 +95,9 @@ def test_the_filler_cap_sits_at_the_list_it_caps() -> None:
 
 def test_a_screen_agent_names_a_label_once_and_never_in_brackets() -> None:
     bullet = screen_steps_bullet("te-IN")
-    assert "naming what to tap once" in bullet
+    assert "name what to tap once" in bullet
     assert "never again in brackets or other letters" in bullet
-    assert "Say a web address once" in bullet
+    assert "say a web address once" in bullet
     layers = dict(engine_prompt_layers(_cfg(caller_has_screen=True)))
     assert "never again in brackets" in layers["how_to_speak"]
 
@@ -149,7 +148,7 @@ def test_the_word_list_says_a_script_line_is_no_exception() -> None:
     assert f'{SWAPS_LEAD} "' in guidance and f'"{formal}" →' in guidance
 
 
-async def test_a_te_in_campaigns_engine_agent_carries_the_word_list_and_the_cap() -> None:
+async def test_a_te_in_campaigns_engine_agent_carries_the_word_list_and_no_filler_list() -> None:
     tenant_id, agent_id = await _agent_with_script("Greet, then help.")
     campaign_id = await _campaign(uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id)))
     style = style_for("te-IN")
@@ -168,7 +167,7 @@ async def test_a_te_in_campaigns_engine_agent_carries_the_word_list_and_the_cap(
     register = prompt.split("--- SPOKEN REGISTER ---", 1)[1]
     for formal, _spoken in style.prompt_swaps:
         assert f'"{formal}" →' in register
-    assert f"{FILLERS_LEAD} {_filler()}" in register
+    assert FILLERS_LEAD not in register
 
 
 # --- 7. the knowledge is searched when a step does not work -----------------------------

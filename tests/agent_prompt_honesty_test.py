@@ -75,8 +75,8 @@ def test_the_notices_are_quoted_as_already_said_and_never_repeated() -> None:
     # The whole opening, quoted as spoken: greeting, then the notices (D-861, D-864).
     assert f'first turn: "{OPENING} {NOTICES}".' in start
     assert (
-        "Never greet again in any turn, say hello back, repeat it or its names, or re-ask if "
-        "now suits, even after answering" in start
+        "That was your only greeting: never greet again, return a hello or ask again if now "
+        "suits, even after answering or if a step says to" in start
     )
     prompt = compose_engine_prompt(cfg)
     # The publish read-back scores containment of the notices (`agents/verification`), and a
@@ -115,14 +115,17 @@ def test_an_agent_with_only_one_of_them_is_told_about_that_one() -> None:
 
 
 def test_the_chat_hears_the_honesty_rules_the_call_rules_would_have_given() -> None:
-    assert "Never re-ask what they said or repeat a sentence." in VOICE_STYLE_GUIDANCE
+    assert (
+        "Never ask again what they already told you, and never say a sentence twice"
+        in VOICE_STYLE_GUIDANCE
+    )
     assert "booked, fixed, confirmed or done unless a tool" in ACTION_CLAIM_RULE
     assert "say it is noted for the team to confirm" in ACTION_CLAIM_RULE
     assert "what happens next" not in ACTION_CLAIM_RULE
     prompt = compose_engine_prompt(_cfg())
     assert (
-        'No answer after searching ("the team will share that"), or no clear reply twice to '
-        "one question: say so, then" in prompt
+        'If a search finds nothing, say "the team will share that"; after two unclear '
+        "replies to one question, say so. Then" in prompt
     )
 
 

@@ -122,7 +122,8 @@ def test_the_echo_caller_says_the_accounts_own_name() -> None:
 
 def test_the_name_said_back_is_answered_once() -> None:
     assert (
-        "Asked who or why, or the business name said back? Both in one line, once, wait."
+        "If they ask who or why, or do not remember you, say who and why in one line, once, "
+        "and wait."
     ) in OPENING_CONTINUES_RULE
     assert OPENING_CONTINUES_RULE in compose_engine_prompt(_anjali())
 
@@ -130,16 +131,16 @@ def test_the_name_said_back_is_answered_once() -> None:
 def test_no_clear_reply_twice_ends_on_what_the_account_allows_after_the_script() -> None:
     trial = compose_engine_prompt(_anjali())
     rule = (
-        'No answer after searching ("the team will share that"), or no clear reply twice to '
-        "one question: say so, then say the business will get back to them. Never offer or "
+        'If a search finds nothing, say "the team will share that"; after two unclear replies '
+        "to one question, say so. Then say the business will get back to them. Never offer or "
         "book a call back."
     )
     assert rule in trial
     assert trial.index(CLIENT_SCRIPT_CLOSE) < trial.index(rule)
     paying = compose_engine_prompt(_anjali(callbacks_offered=True))
-    assert "or no clear reply twice to one question: say so, then offer a call back" in paying
-    assert "Ask what they meant, reworded; never guess or pick for them." in paying
-    assert "Never re-ask what they said or repeat a sentence." in paying
+    assert "after two unclear replies to one question, say so. Then offer a call back" in paying
+    assert "never guess or move on: ask once, briefly, in other words." in paying
+    assert "Never ask again what they already told you, and never say a sentence twice" in paying
 
 
 # --- the spoken name ----------------------------------------------------------------------

@@ -85,44 +85,44 @@ LEAN = "CALL_INSTRUCTIONS"
 #: chat reads too; two are turned round on purpose and say so.
 COVERAGE: dict[str, tuple[tuple[str, str], ...]] = {
     DEFAULT_CALL_RULES[0]: ((LEAN, "You are on a phone call, speaking out loud"),),
-    DEFAULT_CALL_RULES[1]: ((OURS, "one or two short sentences, then wait"),),
+    DEFAULT_CALL_RULES[1]: ((OURS, "in one or two short sentences, then stop"),),
     DEFAULT_CALL_RULES[2]: ((LEAN, "never mention lists, links, buttons or images"),),
     DEFAULT_CALL_RULES[3]: ((SPEAKING, "titles and abbreviations in full"),),
-    DEFAULT_CALL_RULES[4]: ((OURS, "No markdown, emoji, brackets"),),
+    DEFAULT_CALL_RULES[4]: ((OURS, "no markdown, emoji, lists, brackets"),),
     # Turned round: "say so rather than going quiet" put a "one second" filler before answers;
     # the engine speaks its own filler after two seconds of silence.
     DEFAULT_CALL_RULES[5]: ((OURS, "Never narrate a search or a wait"),),
-    DEFAULT_CALL_RULES[6]: ((OURS, "or no clear reply twice to one question: say so"),),
+    DEFAULT_CALL_RULES[6]: ((OURS, "after two unclear replies to one question, say so"),),
     DEFAULT_CALL_RULES[7]: (
-        (OURS, "never a guess: a place or address, a project, stock or availability, a price"),
+        (OURS, "never guess a place, a project, stock or availability, a price"),
     ),
-    DEFAULT_CALL_RULES[8]: ((OURS, "or no clear reply twice to one question: say so"),),
-    DEFAULT_CALL_RULES[9]: ((OURS, "how such businesses usually work"),),
+    DEFAULT_CALL_RULES[8]: ((OURS, "after two unclear replies to one question, say so"),),
+    DEFAULT_CALL_RULES[9]: ((OURS, "how such businesses work"),),
     DEFAULT_CALL_RULES[10]: ((OURS, "how long something takes"),),
     DEFAULT_CALL_RULES[11]: ((OURS, "Never say anything is booked, fixed, confirmed or done"),),
-    DEFAULT_CALL_RULES[12]: ((OURS, "a failed one plainly"),),
-    DEFAULT_CALL_RULES[13]: ((OURS, "Say a tool's figure exactly"),),
-    DEFAULT_CALL_RULES[14]: ((OURS, "no two replies start or end alike"),),
+    DEFAULT_CALL_RULES[12]: ((OURS, "a failure plainly"),),
+    DEFAULT_CALL_RULES[13]: ((OURS, "say a tool's figure exactly"),),
+    DEFAULT_CALL_RULES[14]: ((OURS, "never begin or end two replies alike"),),
     DEFAULT_CALL_RULES[15]: (
-        (OURS, "no two replies start or end alike"),
-        (OURS, "Never re-ask what they said or repeat a sentence."),
+        (OURS, "never begin or end two replies alike"),
+        (OURS, "Never ask again what they already told you, and never say a sentence twice"),
     ),
     # Replaced, not carried: an acknowledgement before the answer became "two kg noted" with
     # nothing noted on the calls of 21 Oct 2026 (D-849).
-    DEFAULT_CALL_RULES[16]: ((OURS, "Answer just that"),),
-    DEFAULT_CALL_RULES[17]: ((OURS, "One question a turn"),),
-    DEFAULT_CALL_RULES[18]: ((OURS, "One question a turn"),),
+    DEFAULT_CALL_RULES[16]: ((OURS, "Answer just what they asked"),),
+    DEFAULT_CALL_RULES[17]: ((OURS, "one instruction or one question"),),
+    DEFAULT_CALL_RULES[18]: ((OURS, "one instruction or one question"),),
     # Turned round: the agent read it as "skip the reaction" and asked "do you want to know the
     # price?" instead of reacting and saying it (calls of 20-22 Oct 2026). A reaction on every
     # turn then became a stock one, so it must fit what was said and is often left out (D-894).
-    DEFAULT_CALL_RULES[19]: ((OURS, "A reaction only if it fits"),),
-    DEFAULT_CALL_RULES[20]: ((OURS, "Read back what you heard and wait for a yes"),),
+    DEFAULT_CALL_RULES[19]: ((OURS, "React only when it fits"),),
+    DEFAULT_CALL_RULES[20]: ((OURS, "Read back a detail you heard and wait for a yes"),),
     DEFAULT_CALL_RULES[21]: (
-        (OURS, "Never re-ask what they said or repeat a sentence."),
+        (OURS, "Never ask again what they already told you, and never say a sentence twice"),
         (OURS, "in one line, no recap"),
     ),
     DEFAULT_CALL_RULES[22]: (
-        (OURS, "Never re-ask what they said or repeat a sentence."),
+        (OURS, "Never ask again what they already told you, and never say a sentence twice"),
         (OURS, "in one line, no recap"),
     ),
 }
@@ -199,8 +199,8 @@ def test_every_agent_says_who_it_is_when_asked_then_goes_on() -> None:
         prompt = compose_engine_prompt(_cfg(direction=direction))
         assert shared_engine.OPENING_CONTINUES_RULE in prompt
     assert (
-        "Asked who or why, or the business name said back? Both in one line, "
-        "once, wait." in shared_engine.OPENING_CONTINUES_RULE
+        "If they ask who or why, or do not remember you, say who and why in one line, once, "
+        "and wait." in shared_engine.OPENING_CONTINUES_RULE
     )
 
 

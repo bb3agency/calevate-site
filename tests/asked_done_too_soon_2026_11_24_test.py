@@ -242,8 +242,8 @@ async def test_the_repair_pass_rewrites_the_line_into_an_invitation(
 
 
 def test_every_agent_is_told_to_invite_rather_than_ask_if_done() -> None:
-    assert 'inviting them to say when done; never "done?"' in VOICE_STYLE_GUIDANCE
-    assert "invite them to say when done, wait." in PROCEDURE_LEAD
+    assert "give one step, ask them to tell you when it is done, and wait" in VOICE_STYLE_GUIDANCE
+    assert "Give them one at a time" in PROCEDURE_LEAD
     cfg = AgentConfig(
         tenant_id="t",
         agent_id="a",
@@ -254,7 +254,7 @@ def test_every_agent_is_told_to_invite_rather_than_ask_if_done() -> None:
         opening_line="",
         call_is_recorded=True,
     )
-    assert 'never "done?"' in compose_engine_prompt(cfg)
+    assert "A step is done only when they say so" in compose_engine_prompt(cfg)
 
 
 def test_the_script_writer_is_told_the_same() -> None:

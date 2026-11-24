@@ -101,15 +101,15 @@ def test_no_ban_variants_name_no_word_to_avoid(key: str) -> None:
         a = chat_eval.variant_instructions(cfg, chat_eval.VARIANTS["A"])
         text = chat_eval.variant_instructions(cfg, chat_eval.VARIANTS[key])
         assert SWAPS_LEAD in a and SWAPS_LEAD not in text
-        assert "formal or written-style words" in a
-        assert "formal or written-style words" not in text
+        assert "never formal words" in a
+        assert "never formal words" not in text
         assert chat_eval.NO_BAN_BULLET in text
         platform = text.split(engine.CLIENT_SCRIPT_OPEN)[0]
         for formal, _spoken in style.prompt_swaps:
             assert f'"{formal}"' not in platform
-        # The register line and its fillers stay.
+        # The register line stays; the fillers are not quoted to the call model.
         assert style.register in text
-        assert FILLERS_LEAD in text
+        assert FILLERS_LEAD not in text
 
 
 def test_the_allow_list_is_the_spoken_side_of_the_word_list() -> None:

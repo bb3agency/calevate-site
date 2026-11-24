@@ -79,20 +79,20 @@ def test_the_prompt_quotes_the_exact_opening_already_spoken_and_says_to_go_on() 
     # (D-958), so both are named. A greeting word in any later turn is a second greeting
     # (founder's call of 6 Nov 2026).
     assert (
-        "Never greet again in any turn, say hello back, repeat it or its names, or re-ask if "
-        "now suits" in rule
+        "That was your only greeting: never greet again, return a hello or ask again if now "
+        "suits" in rule
     )
     # A caller's first question gets its answer, never the opening again (D-910).
-    assert "even after answering." in rule
+    assert "even after answering" in rule
     # A one-word "No" to "can we talk now?" is no yes (D-965).
-    assert "A hello or yes, in any language, is a yes" in rule
-    assert "why you call or your first question" in rule
+    assert "A hello or yes, in any language, means go on" in rule
+    assert "say why you call once, or ask your first question" in rule
 
 
 def test_who_is_calling_goes_on_to_the_first_question_in_every_direction() -> None:
     # An outbound agent had no who-is-calling rule, and on the call of 28 Oct 2026 it said
     # who and why and asked "can we talk now?" again (D-912).
-    who = "Both in one line, once, wait."
+    who = "say who and why in one line, once, and wait."
     assert who in OPENING_CONTINUES_RULE
     assert "good time" not in OPENING_CONTINUES_RULE
     for direction in ("inbound", "outbound", "both"):

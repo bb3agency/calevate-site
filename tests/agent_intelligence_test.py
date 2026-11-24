@@ -119,7 +119,10 @@ def test_the_knowledge_tool_is_named_and_searched_before_i_dont_know() -> None:
         _cfg(compile_call_script(V2), facts_in_knowledge=True, knowledge_tool="search_knowledge")
     )
     assert "the search_knowledge tool" in prompt
-    assert "before answering about the business or saying you do not know" in prompt
+    assert (
+        "before answering about the business, if stuck on a step, and before saying you do not know"
+        in prompt
+    )
     # The FAQ is no longer an "answer ONLY from these" fence.
     assert "ONLY from" not in prompt
     assert "win over anything in your knowledge" in prompt
@@ -139,7 +142,7 @@ def test_no_person_on_duty_is_said_and_hand_over_is_only_on_request() -> None:
     """Said keyed to the tool, whose own description says when to hand over; the prompt
     itself does not change with the rota, or every turnover would move the config digests."""
     nobody = compose_engine_prompt(_cfg(compile_call_script(V2)))
-    assert "with no hand-over tool: say nobody is free" in nobody
+    assert "you have no hand-over tool, say nobody is free" in nobody
     on_duty = compose_engine_prompt(
         _cfg(
             compile_call_script(V2),
@@ -166,7 +169,7 @@ def test_the_spoken_register_is_concrete_for_telugu() -> None:
     prompt = compose_engine_prompt(_cfg(compile_call_script(V2)))
     assert "--- SPOKEN REGISTER ---" in prompt
     assert '"క్షమించండి" → "sorry అండి"' in prompt
-    assert "never formal or written-style words" in prompt
+    assert "never formal words" in prompt
 
 
 def test_a_clarification_stops_after_two_tries_at_what_the_account_allows() -> None:
@@ -175,15 +178,15 @@ def test_a_clarification_stops_after_two_tries_at_what_the_account_allows() -> N
     Not asking it the same way twice is ThinnestAI's own speaking rule (D-824)."""
     body = compile_call_script(V2)
     paying = compose_engine_prompt(_cfg(body))
-    assert "Ask what they meant, reworded; never guess or pick for them." in paying
-    assert "or no clear reply twice to one question: say so, then offer a call back" in paying
+    assert "never guess or move on: ask once, briefly, in other words." in paying
+    assert "after two unclear replies to one question, say so. Then offer a call back" in paying
     trial = compose_engine_prompt(_cfg(body, callbacks_offered=False))
     assert (
-        "or no clear reply twice to one question: say so, then say the business will get back "
-        "to them. Never offer or book a call back"
+        "after two unclear replies to one question, say so. Then say the business will get "
+        "back to them. Never offer or book a call back"
     ) in trial
     # After the client script, so a script cannot undo it.
-    assert trial.index(CLIENT_SCRIPT_CLOSE) < trial.index("or no clear reply twice")
+    assert trial.index(CLIENT_SCRIPT_CLOSE) < trial.index("after two unclear replies")
 
 
 def test_the_prompt_opens_on_who_the_agent_is_and_its_job() -> None:

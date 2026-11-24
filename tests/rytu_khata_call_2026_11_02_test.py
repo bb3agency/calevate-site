@@ -56,18 +56,19 @@ def _cfg(**over: Any) -> AgentConfig:
 def test_only_a_hello_or_yes_goes_on_and_a_no_asks_when_or_closes() -> None:
     rule = OPENING_CONTINUES_RULE
     assert "a word or two" not in rule.lower()
-    assert "A hello or yes, in any language, is a yes" in rule
-    assert "A no, busy or later? Ask when suits them, or close politely." in rule
-    assert "re-ask if now suits" in rule, "asking when is not asking again whether now"
+    assert "A hello or yes, in any language, means go on" in rule
+    assert "If they are busy, ask when suits them or close politely." in rule
+    assert "ask again if now suits" in rule, "asking when is not asking again whether now"
 
 
 # --- 2. a bare OK after a step means go on ------------------------------------------------
 
 
 def test_a_bare_ok_asks_again_only_after_a_question() -> None:
-    assert 'a bare "OK" to your question? Ask what they meant' in VOICE_STYLE_GUIDANCE
-    assert '"OK" after one: the next.' in VOICE_STYLE_GUIDANCE
-    assert 'A bare "OK"? Ask one thing' not in VOICE_STYLE_GUIDANCE
+    # A bare "OK" to a question is no answer, so it is asked about; after a step it means they
+    # heard, so the agent waits; after an explanation it means go on.
+    assert "cut off or no answer to you, never guess or move on" in VOICE_STYLE_GUIDANCE
+    assert 'after an explanation, "OK" means go on.' in VOICE_STYLE_GUIDANCE
 
 
 # --- 3. never an invented earlier conversation ---------------------------------------------
@@ -114,10 +115,10 @@ def test_the_name_is_asked_for_a_booking_call_back_hand_over_or_at_the_close() -
 
 
 def test_hesitating_closes_but_not_knowing_an_answer_gets_help() -> None:
-    assert "Hesitant or not interested? Offer once, then close politely." in VOICE_STYLE_GUIDANCE
-    assert "Unsure of an answer? Explain or offer choices." in VOICE_STYLE_GUIDANCE
+    assert "If they hesitate or say no, offer once, then close politely." in VOICE_STYLE_GUIDANCE
+    assert "If they do not know an answer, explain or offer choices" in VOICE_STYLE_GUIDANCE
     prompt = compose_engine_prompt(_cfg())
-    assert "or no clear reply twice to one question: say so" in prompt
+    assert "after two unclear replies to one question, say so" in prompt
 
 
 # --- 9. no fixed call-back promise in a v1 FAQ ---------------------------------------------

@@ -93,16 +93,16 @@ def test_the_prompt_carries_each_fix_and_keeps_the_locked_text() -> None:
     assert VOICE_STYLE_GUIDANCE in prompt
     # F1: an outbound agent now has the who-is-calling rule, ending on its first question.
     assert OPENING_CONTINUES_RULE in prompt
-    assert "Both in one line, once, wait." in prompt
+    assert "say who and why in one line, once, and wait." in prompt
     for clause in (
         # F2: no options for a count, not even as examples after an open question.
-        "never for counts or amounts, not even as examples.",
+        "never for a number or amount, not even as examples.",
         # F3: an answer that fits no option is asked again.
-        "Ask what they meant, reworded; never guess or pick for them.",
+        "never guess or move on: ask once, briefly, in other words.",
         # F4: no promise to slow down.
-        "Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter",
+        "go on more simply, promising nothing.",
         # F5: one line for the close.
-        "- Close: what happens next in one line, no recap, then one goodbye",
+        "Then say what happens next in one line, no recap, and goodbye once",
     ):
         assert clause in prompt, clause
     assert CONFIDENTIALITY_MARKER in prompt and TRUTHFUL_ANSWER_MARKER in prompt

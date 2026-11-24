@@ -85,9 +85,11 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: 24 Nov 2026: fillers once a call each, said at the list; no reaction twice a call; the word
 #: list as arrows led by "never the left, even scripted".
 #: 24 Nov 2026 (12:15): a step's turn invites the person to say when it is done.
+#: 25 Nov 2026: the lean rebuild (`docs/evidence/lean-prompt-2026-11-25.md`); the fillers are no
+#: longer quoted.
 PINNED = (
-    "72f7fe9c2f1010cd3a8555080af443c8aa9cdd13c9a435c0330111ba5630c715",
-    "98d15694853f3e6eb2e5a3223683f89c064fc28a2f75697729af2c19695ab99d",
+    "d47d18b12465381015b768b44f6e68eb8826000ebfcfc5a2c8e912d6f3b60238",
+    "39e1410760f790ed1d608896a7f452c022b98991d19842904759b4b20346a7f9",
 )
 
 

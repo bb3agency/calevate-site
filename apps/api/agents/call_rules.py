@@ -163,7 +163,7 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
             "or says it does not have it and the team will confirm; never expect it to state "
             "it."
         ),
-        prompt_marker="Say only what your facts or the caller said, never a guess",
+        prompt_marker="Say only what your facts or the caller said",
     ),
     CallRule(
         key="done",
@@ -205,7 +205,7 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
         ),
         writer="Ask only for the listed details, and only those the caller has not already said.",
         expect="",
-        prompt_marker="Never re-ask what they said",
+        prompt_marker="Never ask again what they already told you",
     ),
     CallRule(
         key="own_part",
@@ -238,7 +238,7 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
             "A hesitant caller may get one short offer; expect a polite close after their next "
             "no, not on their first word of doubt."
         ),
-        prompt_marker="Offer once, then close politely",
+        prompt_marker="offer once, then close politely",
     ),
 )
 

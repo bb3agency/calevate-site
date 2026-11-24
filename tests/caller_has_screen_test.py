@@ -75,18 +75,19 @@ def test_on_names_labels_one_step_at_a_time_and_waits_for_done() -> None:
     on = _how_to_speak(_cfg(caller_has_screen=True))
     bullet = screen_steps_bullet("te-IN")
     assert bullet in on
-    assert "one step a turn" in bullet and "label word for word" in bullet
-    assert "invite them to say when it is done" in bullet
+    assert "label word for word" in bullet
+    # One step at a time and waiting for done is every agent's HOW TO SPEAK rule.
+    assert "give one step, ask them to tell you when it is done, and wait" in on
     # Placed after the written-output bullet, which still forbids markup, lists and links.
-    assert on.index("No markdown, emoji") < on.index(bullet)
-    assert "lists, links, actions or notes" in on
+    assert on.index("no markdown, emoji") < on.index(bullet)
+    assert "lists, brackets, dashes, slashes, ellipses, links or notes" in on
 
 
-def test_on_lets_a_failed_step_be_said_again_shorter() -> None:
+def test_a_failed_step_is_said_again_shorter() -> None:
+    # Every agent now: a line said again is said shorter and in other words, never verbatim.
     on = _how_to_speak(_cfg(caller_has_screen=True))
-    assert "Never re-ask what they said or repeat a sentence." not in on
-    assert "a step they could not do, say again, shorter." in on
-    assert "Never re-ask what they said" in on
+    assert "to say something again, say it shorter, in other words." in on
+    assert "never say a sentence twice" in on
 
 
 @pytest.mark.parametrize(
@@ -101,7 +102,7 @@ def test_a_web_address_is_spelled_by_english_letter_names_in_the_calls_letters(
     language: str, spelled: str
 ) -> None:
     bullet = screen_steps_bullet(language)
-    assert "each by its English letter name in the call's letters" in bullet
+    assert "initials by English letter name in the call's letters" in bullet
     assert spelled in bullet
 
 

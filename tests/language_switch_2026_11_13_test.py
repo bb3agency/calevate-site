@@ -1,5 +1,5 @@
 """D-988 (founder, 13 Nov 2026): a call leaves the language the agent greeted in only when the
-caller asks or speaks two full sentences running in another. On the Varsha call of 13 Nov
+caller asks or speaks two full sentences in another in another. On the Varsha call of 13 Nov
 2026 (11:30) "Ah, tell me." from a Telugu caller turned the agent English. The Telugu lines
 below are the agent's own words from that call's transcript."""
 
@@ -46,5 +46,5 @@ def test_the_run_resets_on_a_line_in_the_agents_language() -> None:
 
 
 def test_the_in_call_rule_says_the_same() -> None:
-    assert "two full sentences running" in VOICE_STYLE_GUIDANCE
-    assert "a few words or your language in English letters never switch" in VOICE_STYLE_GUIDANCE
+    assert "two full sentences in another" in VOICE_STYLE_GUIDANCE
+    assert "English letters are no switch" in VOICE_STYLE_GUIDANCE

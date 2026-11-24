@@ -142,8 +142,8 @@ def test_hello_after_a_telugu_greeting_answered_in_english_is_caught() -> None:
 def test_every_prompt_says_a_greeting_is_no_switch(pack: bool) -> None:
     cfg, choice = _cfg(pack=pack)
     speak = dict(engine_prompt_layers(cfg, pack=choice))["how_to_speak"]
-    assert "or your language in English letters never switch" in speak
-    assert "two full sentences running" in speak
+    assert "English letters are no switch" in speak
+    assert "two full sentences in another" in speak
     assert "Keep the language you greeted in" in speak
 
 
@@ -209,7 +209,7 @@ def test_a_short_go_on_is_the_answer_to_a_cut_line() -> None:
     guessed = "సరే అండి, ఒక కేజీ కారం పొడి. ఇంటికి delivery కావాలా?"
     assert "caller_line" in _kinds_of_reply(_X("కారం పొడి కావాలండి ఒక", guessed))
     cfg, _ = _cfg()
-    assert "Half an answer? Offer your reading as a question" in compose_engine_prompt(cfg)
+    assert "If they stop halfway, offer your reading as a question" in compose_engine_prompt(cfg)
 
 
 def test_the_double_goodbye_is_noted() -> None:
@@ -221,9 +221,9 @@ def test_the_prompt_carries_the_fabrication_rules() -> None:
     cfg, _ = _cfg()
     prompt = compose_engine_prompt(cfg)
     assert 'Never say "as I said" about what you did not say' in prompt
-    assert "Say only what your facts or the caller said, never a guess: a place" in prompt
-    assert "Read back what you heard" in prompt and "Read back what you note" not in prompt
-    assert "then one goodbye" in prompt
+    assert "Say only what your facts or the caller said: never guess a place" in prompt
+    assert "Read back a detail you heard" in prompt and "Read back what you note" not in prompt
+    assert "goodbye once" in prompt
 
 
 # --- cost: our block is the same on every turn --------------------------------------------
@@ -350,10 +350,10 @@ def test_a_placed_call_tells_the_person_their_own_details_and_never_restarts() -
     prompt = compose_engine_prompt(placed)
     assert CALL_REASON_RULE in prompt and OPENING_CONTINUES_RULE in prompt
     assert (
-        "Later hello? You're here, go on." in OPENING_CONTINUES_RULE
-        and "Never greet again in any turn" in OPENING_CONTINUES_RULE
-        and "Forgot us? Who and why" in OPENING_CONTINUES_RULE
+        "A later hello only checks the line: say you are here and go on." in OPENING_CONTINUES_RULE
+        and "That was your only greeting: never greet again" in OPENING_CONTINUES_RULE
+        and "or do not remember you, say who and why" in OPENING_CONTINUES_RULE
     )
-    assert "Say THIS CALL's name, details" in CALL_REASON_RULE
+    assert "say THIS CALL's name and details" in CALL_REASON_RULE
     # An answering agent holds no list details about the caller, so it is not told this.
     assert CALL_REASON_RULE not in compose_engine_prompt(inbound)

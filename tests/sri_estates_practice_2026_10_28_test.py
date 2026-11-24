@@ -63,16 +63,16 @@ def _kinds(turns: tuple[Turn, ...] | list[Turn]) -> list[str]:
 def test_the_prompt_carries_each_fix_and_keeps_the_locked_text() -> None:
     prompt = compose_engine_prompt(_anjali())
     assert VOICE_STYLE_GUIDANCE in prompt
-    # The partial-number rule comes before the read-back, as its own bullet.
-    partial = prompt.index("- Under ten digits of a mobile? Ask for the rest")
-    assert partial < prompt.index("- Read back what you heard")
-    assert "never read back, confirm, act or end on part of one" in prompt
+    # The partial-number rule sits in the number bullet, before the read-back.
+    partial = prompt.index("Under ten digits of a mobile, ask for the rest")
+    assert partial < prompt.index("- Read back a detail you heard")
+    assert "never read back or act on part of one" in prompt
     assert "A time or amount they said goes back in their words" in prompt
-    assert "One question a turn, on one thing, last;" in prompt
-    assert 'a bare "OK" to your question? Ask what they meant, reworded' in prompt
-    assert CALL_NUMBER_RULE in prompt and "for call backs too" in CALL_NUMBER_RULE
+    assert "one instruction or one question" in prompt
+    assert "cut off or no answer to you, never guess or move on" in prompt
+    assert CALL_NUMBER_RULE in prompt and "even for a call back" in CALL_NUMBER_RULE
     assert OPENING_CONTINUES_RULE in prompt
-    assert "even after answering." in OPENING_CONTINUES_RULE
+    assert "even after answering" in OPENING_CONTINUES_RULE
     assert CONFIDENTIALITY_MARKER in prompt and TRUTHFUL_ANSWER_MARKER in prompt
     assert prompt.index(CONFIDENTIALITY_MARKER) < prompt.index(TRUTHFUL_ANSWER_MARKER)
 

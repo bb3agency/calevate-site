@@ -133,9 +133,9 @@ VARIANTS: Final = {
 }
 BASELINE: Final = "A"
 
-#: HOW TO SPEAK's register bullet starts with this; B keeps its language and "uhm" halves.
-BAN_BULLET_START: Final = "- Match the caller's language and register;"
-NO_BAN_BULLET: Final = '- Match the caller\'s language; never "uhm".'
+#: SPOKEN OUTPUT's language bullet starts with this; B keeps its language and "uhm" halves.
+BAN_BULLET_START: Final = "- Speak the caller's language as people talk,"
+NO_BAN_BULLET: Final = '- Speak the caller\'s language; never "uhm".'
 #: The word-list sentence `spoken_style.register_guidance` writes into each language's
 #: register line, up to the fillers sentence that follows it or the end of the line.
 _SWAP_SENTENCE: Final = re.compile(

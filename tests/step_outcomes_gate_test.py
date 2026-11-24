@@ -23,7 +23,7 @@ from tests.step_outcomes_test import _campaign, _script
 def test_the_instructions_forbid_leaving_a_step_before_its_outcome() -> None:
     """FAILS IF: the outcomes section only says to go on once reached, without forbidding
     going on before, which a model reads as a suggestion."""
-    assert "then go on to the next step, and never before." in OUTCOMES_LEAD
+    assert "Go on to the next step only when what they say shows the outcome" in OUTCOMES_LEAD
     body = compile_call_script(
         _script([StepOutcome(step=n, outcome=f"Step {n} is done.") for n in (1, 2, 3)])
     )

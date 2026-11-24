@@ -698,21 +698,26 @@ def native_reviewed(tag: str | None) -> bool:
 #: script's step line word for word, and a textbook word in an old line reached the caller
 #: although the list named it (Telugu campaign call of 24 Nov 2026); the platform rules
 #: already void a script line that breaks them.
+#:
+#: The list stays although `docs/evidence/voice-agent-research-2026-11-25.md` B advises against
+#: ban lists (Vapi: they "can prime the banned phrases"): our own measurement on the production
+#: in-call model refutes that for these words. `scripts/register_eval`, 21 Oct 2026, te-IN,
+#: 100 replies a variant: with the pairs 37% of replies held a textbook word, with them replaced
+#: by a words-to-use list 56% (interval +5.4 to +32.6 points), and the listed words went from 0
+#: to several (D-837 evidence, `docs/evidence/telugu-register-2026-10-21.md`).
 SWAPS_LEAD: Final = "Never the left, even scripted:"
-#: Leads the fillers. The limit sits AT the list because "a reaction only if it fits, often
-#: none" in HOW TO SPEAK, read far from a list introduced as "lightly", did not hold: the
-#: first filler opened nine of twelve replies on the same call. A list of sample phrases is
-#: itself what makes a voice model repeat them ("Sample phrases (vary, don't always reuse)",
-#: OpenAI Realtime prompting guide, cdn.openai.com/API/docs/realtime-prompting-guide.pdf;
-#: Retell's agent handbook "limits filler acknowledgments", docs.retellai.com/build/
-#: agent-handbook; both read 24 Nov 2026), so the cap is said with the words it caps.
+#: Led the fillers when they were quoted in the in-call register line. They no longer are: on
+#: the Telugu campaign call of 24 Nov 2026 the first listed filler opened nine of twelve replies
+#: although capped "once a call each", and a model copies sample phrases closely (OpenAI Realtime
+#: prompting guide; research doc above, A1 "Rules vs examples"). The fillers still guide the
+#: line writers (`generation_guidance`) and the register eval's variants.
 FILLERS_LEAD: Final = "Fillers, once a call each:"
 
 
 def register_guidance(tag: str | None) -> str | None:
-    """The register line, then the prompt's do/don't list as concrete pairs, then the tags
-    and fillers. Concrete pairs because an open in-call model (GPT-OSS 120B, founder decision
-    10 Oct 2026) follows a word it can copy far better than an abstract rule about register."""
+    """The in-call register line: the language's register, then its do/don't list as concrete
+    pairs. Concrete pairs because the in-call model follows a word it can copy far better than an
+    abstract rule about register (measured, see `SWAPS_LEAD`)."""
     style = style_for(tag)
     if style is None:
         return None
@@ -720,9 +725,6 @@ def register_guidance(tag: str | None) -> str | None:
     if style.prompt_swaps:
         swaps = "; ".join(_swap(formal, spoken) for formal, spoken in style.prompt_swaps)
         parts.append(f"{SWAPS_LEAD} {swaps}.")
-    if style.fillers:
-        said = ", ".join(f.text for f in style.fillers[:PROMPT_FILLERS])
-        parts.append(f"{FILLERS_LEAD} {said}.")
     return " ".join(parts)
 
 
