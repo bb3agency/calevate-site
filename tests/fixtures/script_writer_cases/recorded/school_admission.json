@@ -1,0 +1,52 @@
+{
+  "case": "school_admission",
+  "source": "stand-in",
+  "recorded_at": "2026-11-25",
+  "notes": "A hand-written fake model output, not a real writer's, kept free of every structural finding as the set's clean control. Replace it with a live run's (--import-live).",
+  "script": {
+    "schema_version": 2,
+    "opening_line": "Hello, this is Kavya from Vidya Bharati School. How can I help you?",
+    "stages": [
+      {
+        "id": "class",
+        "name": "Which class",
+        "instruction": "Ask which class their child needs.",
+        "scripts": {"en-IN": "Which class are you looking at for your child?"}
+      },
+      {
+        "id": "age",
+        "name": "Child's age",
+        "instruction": "Ask the child's age.",
+        "scripts": {"en-IN": "And how old is your child now?"}
+      },
+      {
+        "id": "answer",
+        "name": "Seats, fees and documents",
+        "instruction": "Answer from the knowledge: whether that class has seats, the fee range and the documents needed. Say only what the knowledge gives.",
+        "scripts": {"en-IN": "That class has seats this year. I can tell you the fees or the documents, whichever you need."}
+      },
+      {
+        "id": "visit",
+        "name": "Campus visit",
+        "instruction": "Offer a campus visit and note the day they prefer; say the office will confirm it.",
+        "scripts": {"en-IN": "Would you like to visit the campus? Tell me a day that suits you and our office will confirm it."},
+        "branches": [
+          {"when": "They do not want a visit now", "target": "close"}
+        ]
+      },
+      {
+        "id": "close",
+        "name": "Finalise the call",
+        "instruction": "Thank them and end the call.",
+        "scripts": {"en-IN": "Thank you for calling Vidya Bharati School."}
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "The class the child needs is known."},
+      {"step": 2, "outcome": "The child's age is known."},
+      {"step": 3, "outcome": "The parent has the answers they asked for."},
+      {"step": 4, "outcome": "A visit day is noted, or the parent declined a visit."},
+      {"step": 5, "outcome": "The parent has been thanked."}
+    ]
+  }
+}

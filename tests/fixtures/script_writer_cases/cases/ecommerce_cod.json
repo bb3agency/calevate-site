@@ -1,0 +1,33 @@
+{
+  "id": "ecommerce_cod",
+  "title": "Cash on delivery confirmation",
+  "holder": "campaign",
+  "business_name": "Kaveri Handlooms",
+  "business_type": "retail",
+  "agent_name": "Meena",
+  "description": "An online store selling handloom sarees and dress material across India.",
+  "language": "en-IN",
+  "languages": ["en-IN"],
+  "direction": "outbound",
+  "capabilities": {"call_backs": true},
+  "main_task": "Confirm every cash on delivery order before we dispatch it.\n1. Confirm the item they ordered and the amount to pay in cash on delivery.\n2. Confirm the delivery address and pin code.\n3. Tell them delivery takes 4 to 6 days.\n4. If they no longer want it, cancel the order.",
+  "items": [
+    {"id": "confirm_item_amount", "text": "Confirm the item and the amount to pay", "terms": [["item", "order"], ["amount", "pay"]]},
+    {"id": "confirm_address", "text": "Confirm the address and pin code", "terms": [["address"]]},
+    {"id": "delivery_days", "text": "Tell them delivery takes 4 to 6 days", "terms": [["deliver"], ["days"]]},
+    {"id": "cancel", "text": "Cancel the order if they no longer want it", "terms": [["cancel"]]}
+  ],
+  "noted": [
+    {"label": "Address confirmed"},
+    {"label": "Order confirmation status"},
+    {"label": "Alternate number", "reason": "only if the delivery number is not theirs"}
+  ],
+  "known": ["name", "Order item"],
+  "knowledge": [
+    {"title": "Delivery", "text": "Orders are delivered in 4 to 6 days; cash on delivery orders pay the courier in cash."}
+  ],
+  "purpose_terms": ["order"],
+  "purpose": "Confirm cash on delivery orders before dispatch.",
+  "goal": "The order is confirmed or cancelled.",
+  "consent_source": "existing_customer"
+}

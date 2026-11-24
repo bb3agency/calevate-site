@@ -1,0 +1,46 @@
+{
+  "case": "real_estate_followup",
+  "source": "stand-in",
+  "recorded_at": "2026-11-25",
+  "notes": "A hand-written fake model output, not a real writer's: replace it with a live run's (--import-live).",
+  "script": {
+    "schema_version": 2,
+    "opening_line": "Hello {{lead_name}}, this is Anil from Green Acres Homes, about your enquiry for our Kondapur flats. Can you talk now?",
+    "stages": [
+      {
+        "id": "still",
+        "name": "Still looking",
+        "instruction": "Ask whether they are still looking for a flat.",
+        "scripts": {"en-IN": "Are you still looking for a flat?"},
+        "branches": [
+          {"when": "They are busy now", "target": "call_back"},
+          {"when": "They bought elsewhere or are not interested", "target": "end"}
+        ]
+      },
+      {
+        "id": "needs",
+        "name": "Budget and timeline",
+        "instruction": "Ask their budget, when they want to move in and their interest level.",
+        "scripts": {"en-IN": "What budget do you have in mind?"}
+      },
+      {
+        "id": "visit",
+        "name": "Site visit",
+        "instruction": "Offer a site visit this weekend and note the day they prefer; say the sales team will confirm it.",
+        "scripts": {"en-IN": "We have site visits this Saturday and Sunday. Which day would suit you?"}
+      },
+      {
+        "id": "close",
+        "name": "Finalise the call",
+        "instruction": "Thank them and say the sales team will confirm the visit.",
+        "scripts": {"en-IN": "Thank you. Our sales team will confirm your visit."}
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "The person says whether they are still looking."},
+      {"step": 2, "outcome": "Their budget and move-in time are known."},
+      {"step": 3, "outcome": "The person books a Saturday site visit."},
+      {"step": 4, "outcome": "The person knows the team will confirm."}
+    ]
+  }
+}

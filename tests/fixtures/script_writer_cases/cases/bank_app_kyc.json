@@ -1,0 +1,37 @@
+{
+  "id": "bank_app_kyc",
+  "title": "KYC update in the bank app",
+  "holder": "campaign",
+  "business_name": "Janata Cooperative Bank",
+  "business_type": "finance",
+  "agent_name": "Kiran",
+  "description": "A cooperative bank in Karimnagar with a mobile banking app for its account holders.",
+  "language": "en-IN",
+  "languages": ["en-IN"],
+  "direction": "outbound",
+  "capabilities": {"call_backs": true},
+  "main_task": "Help account holders whose KYC is due to update it themselves in our app.\n1. Ask whether they have the bank app on their phone and whether it is Android or iPhone.\n2. On Android: open the app, go to Profile, tap Update KYC. On iPhone: open the app, tap the Settings tab, then KYC.\n3. Have them upload a photo of their PAN card.\n4. Ask them to read out the request number the app shows.\nNever ask for a PIN, password or OTP.",
+  "items": [
+    {"id": "has_app_device", "text": "Ask whether they have the app and which phone", "terms": [["app"], ["android", "iphone", "phone"]]},
+    {"id": "android_path", "text": "On Android: Profile, then Update KYC", "terms": [["android"], ["profile"]]},
+    {"id": "iphone_path", "text": "On iPhone: Settings tab, then KYC", "terms": [["iphone"], ["settings"]]},
+    {"id": "upload_pan", "text": "Upload a photo of the PAN card", "terms": [["pan"], ["upload", "photo"]]},
+    {"id": "request_number", "text": "Read out the request number", "terms": [["request number"]]}
+  ],
+  "noted": [
+    {"label": "Phone type"},
+    {"label": "KYC request number"},
+    {"label": "KYC completion status"}
+  ],
+  "known": ["name"],
+  "knowledge": [
+    {"title": "KYC in the app", "text": "Android: Profile, then Update KYC. iPhone: Settings tab, then KYC. Upload a clear photo of the PAN card; the app shows a request number when it is sent."},
+    {"title": "Safety", "text": "The bank never asks for a PIN, password or OTP on a call."}
+  ],
+  "purpose_terms": ["kyc"],
+  "variants": [["android", "iphone"]],
+  "screen_terms": ["Profile", "Settings", "Update", "KYC", "PAN"],
+  "purpose": "Help account holders update their KYC in the app.",
+  "goal": "The person reads out the KYC request number.",
+  "consent_source": "existing_customer"
+}

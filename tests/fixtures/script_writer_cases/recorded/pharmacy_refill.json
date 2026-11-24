@@ -1,0 +1,46 @@
+{
+  "case": "pharmacy_refill",
+  "source": "stand-in",
+  "recorded_at": "2026-11-25",
+  "notes": "A hand-written fake model output, not a real writer's: replace it with a live run's (--import-live).",
+  "script": {
+    "schema_version": 2,
+    "opening_line": "Hello {{lead_name}}, this is Sita from CareWell Pharmacy. Your monthly medicines are due for a refill. Can you talk now?",
+    "stages": [
+      {
+        "id": "refill",
+        "name": "Need the refill",
+        "instruction": "Ask whether they need this month's refill.",
+        "scripts": {"en-IN": "Shall we get this month's medicines ready for you?"},
+        "branches": [
+          {"when": "They are busy now", "target": "call_back"},
+          {"when": "They do not need it this month", "target": "end"}
+        ]
+      },
+      {
+        "id": "change",
+        "name": "Prescription change",
+        "instruction": "Ask whether anything changed in the prescription; if it did, ask them to bring the new one to the shop.",
+        "scripts": {"en-IN": "Has your doctor changed anything in the prescription?"}
+      },
+      {
+        "id": "delivery",
+        "name": "Delivery or pickup",
+        "instruction": "Ask whether they want home delivery or will pick it up.",
+        "scripts": {"en-IN": "Would you like it delivered home, or will you pick it up? I will send you the bill on WhatsApp."}
+      },
+      {
+        "id": "close",
+        "name": "Finalise the call",
+        "instruction": "Thank them and end the call.",
+        "scripts": {"en-IN": "Thank you, take care."}
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "The person says whether they need the refill."},
+      {"step": 2, "outcome": "Any prescription change is known."},
+      {"step": 3, "outcome": "Delivery or pickup is chosen."},
+      {"step": 4, "outcome": "The person has been thanked."}
+    ]
+  }
+}

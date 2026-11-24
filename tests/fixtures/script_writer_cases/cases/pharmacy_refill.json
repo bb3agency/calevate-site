@@ -1,0 +1,32 @@
+{
+  "id": "pharmacy_refill",
+  "title": "Monthly medicine refill",
+  "holder": "campaign",
+  "business_name": "CareWell Pharmacy",
+  "business_type": "pharmacy",
+  "agent_name": "Sita",
+  "description": "A neighbourhood pharmacy in Secunderabad that delivers monthly medicines to regular customers.",
+  "language": "en-IN",
+  "languages": ["en-IN"],
+  "direction": "outbound",
+  "capabilities": {"call_backs": true},
+  "main_task": "Call regular customers whose monthly medicines are due.\n1. Ask whether they need this month's refill.\n2. Ask whether anything changed in the prescription; if it did, ask them to bring the new prescription to the shop.\n3. Ask whether they want home delivery or will pick it up.",
+  "items": [
+    {"id": "need_refill", "text": "Ask whether they need the refill", "terms": [["refill"]]},
+    {"id": "prescription_change", "text": "Ask about a prescription change", "terms": [["prescription"], ["chang", "new"]]},
+    {"id": "delivery_or_pickup", "text": "Ask delivery or pickup", "terms": [["deliver"], ["pick"]]}
+  ],
+  "noted": [
+    {"label": "Needs refill"},
+    {"label": "Prescription changed"},
+    {"label": "Delivery or pickup"}
+  ],
+  "known": ["name"],
+  "knowledge": [
+    {"title": "Delivery", "text": "Home delivery is free within 5 km of the shop and comes the same day if ordered before 4 pm."}
+  ],
+  "purpose_terms": ["medicine", "refill"],
+  "purpose": "Remind regular customers of their monthly refill.",
+  "goal": "The refill is ordered for delivery or pickup.",
+  "consent_source": "existing_customer"
+}

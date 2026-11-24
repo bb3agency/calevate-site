@@ -1,0 +1,38 @@
+{
+  "id": "solar_lead",
+  "title": "Rooftop solar leads (no names on the list)",
+  "holder": "campaign",
+  "business_name": "SunPeak Solar",
+  "business_type": "custom",
+  "agent_name": "Arjun",
+  "description": "Installs rooftop solar panels for homes in Vijayawada and Guntur.",
+  "language": "en-IN",
+  "languages": ["en-IN"],
+  "direction": "outbound",
+  "capabilities": {"call_backs": true, "team_alerts": true},
+  "main_task": "Call people who left their number on our website's solar calculator. The list has only their numbers.\n1. Ask their name.\n2. Ask whether they own the house and what the roof is: concrete, sheet or tiles.\n3. Ask their monthly electricity bill.\n4. Explain the government subsidy from our knowledge.\n5. Offer a free site survey and note a day; our engineer confirms it.",
+  "items": [
+    {"id": "name", "text": "Ask their name", "terms": [["name"]]},
+    {"id": "house_roof", "text": "Ask whether they own the house and the roof type", "terms": [["own", "house"], ["roof"]]},
+    {"id": "bill", "text": "Ask the monthly electricity bill", "terms": [["bill"]]},
+    {"id": "subsidy", "text": "Explain the government subsidy", "terms": [["subsid"]]},
+    {"id": "survey", "text": "Offer a free site survey and note a day", "terms": [["survey"], ["day"]]}
+  ],
+  "noted": [
+    {"label": "Name"},
+    {"label": "Owns the house"},
+    {"label": "Roof type"},
+    {"label": "Monthly electricity bill"},
+    {"label": "Survey day"},
+    {"label": "Lead quality", "judged": true}
+  ],
+  "known": [],
+  "knowledge": [
+    {"title": "Subsidy", "text": "Under the PM Surya Ghar scheme a home gets a central subsidy of up to 78,000 rupees for a 3 kW system."},
+    {"title": "Survey", "text": "The site survey is free and takes about 30 minutes; an engineer confirms the day."}
+  ],
+  "purpose_terms": ["solar"],
+  "purpose": "Qualify solar calculator leads and book site surveys.",
+  "goal": "A survey day is noted for the engineer to confirm.",
+  "consent_source": "web_form_optin"
+}

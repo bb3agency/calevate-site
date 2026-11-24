@@ -1,0 +1,49 @@
+{
+  "case": "fee_reminder",
+  "source": "stand-in",
+  "recorded_at": "2026-11-25",
+  "notes": "A hand-written fake model output, not a real writer's: replace it with a live run's (--import-live). The opening rightly holds the fee back until the parent is confirmed.",
+  "script": {
+    "schema_version": 2,
+    "opening_line": "Hello {{lead_name}}, this is Lakshmi from Bright Minds Coaching. Am I speaking to the parent?",
+    "stages": [
+      {
+        "id": "parent",
+        "name": "Confirm the parent",
+        "instruction": "Confirm you are speaking to the parent before saying anything about the fee.",
+        "scripts": {"en-IN": "I am calling about your child's classes. Is this a good time?"},
+        "branches": [
+          {"when": "It is not the parent", "target": "end"},
+          {"when": "They are busy now", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "due",
+        "name": "Due date",
+        "instruction": "Remind them the second term fee is due on 10 December and that they can pay at the office or by UPI. Ask the payment status.",
+        "scripts": {"en-IN": "The second term fee is due on the tenth of December. You can pay at the office or by UPI."}
+      },
+      {
+        "id": "when",
+        "name": "When they pay",
+        "instruction": "Ask when they plan to pay. If they have a problem paying, offer to put them through to the office manager.",
+        "scripts": {"en-IN": "When do you plan to pay it?"},
+        "branches": [
+          {"when": "They have a problem paying", "target": "hand_over"}
+        ]
+      },
+      {
+        "id": "close",
+        "name": "Finalise the call",
+        "instruction": "Thank them and end the call.",
+        "scripts": {"en-IN": "Thank you for your time."}
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "It is confirmed the person is the parent."},
+      {"step": 2, "outcome": "The parent knows the due date and how to pay."},
+      {"step": 3, "outcome": "The parent gives a date they will pay."},
+      {"step": 4, "outcome": "The parent has been thanked."}
+    ]
+  }
+}

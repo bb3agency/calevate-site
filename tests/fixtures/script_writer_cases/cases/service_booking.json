@@ -1,0 +1,34 @@
+{
+  "id": "service_booking",
+  "title": "AC service booking line",
+  "holder": "line",
+  "business_name": "CoolCare AC Services",
+  "business_type": "home_services",
+  "agent_name": "Ravi",
+  "description": "AC installation, gas refill and servicing for homes in Hyderabad.",
+  "language": "te-IN",
+  "languages": ["te-IN", "en-IN"],
+  "direction": "inbound",
+  "capabilities": {"call_backs": true, "team_alerts": true},
+  "main_task": "People call to book an AC service.\n1. Ask what the problem is: no cooling, water leak, noise, or a routine service.\n2. Ask their area in Hyderabad and the AC type, split or window.\n3. Note the day and time they want; the team calls back to confirm the visit.\n4. Tell them the visiting charge from our knowledge.",
+  "items": [
+    {"id": "problem", "text": "Ask what the problem is", "terms": [["problem", "issue", "cooling", "leak", "noise"]]},
+    {"id": "area_and_type", "text": "Ask the area and the AC type", "terms": [["area", "locality"], ["split", "window", "type"]]},
+    {"id": "visit_time", "text": "Note the day and time; the team confirms", "terms": [["day", "time"], ["confirm", "call back", "team"]]},
+    {"id": "visiting_charge", "text": "Tell them the visiting charge", "terms": [["charge", "fee"]]}
+  ],
+  "noted": [
+    {"label": "Problem"},
+    {"label": "Area"},
+    {"label": "AC type"},
+    {"label": "Preferred visit time"},
+    {"label": "Caller name"}
+  ],
+  "known": [],
+  "knowledge": [
+    {"title": "Charges", "text": "The visiting charge is 299 rupees, adjusted against the service bill. A routine AC service costs 599 rupees."},
+    {"title": "Areas", "text": "We cover Kukatpally, Miyapur, Madhapur, Gachibowli and Ameerpet."}
+  ],
+  "purpose_terms": [],
+  "screen_terms": ["AC", "split", "window", "gas", "service"]
+}

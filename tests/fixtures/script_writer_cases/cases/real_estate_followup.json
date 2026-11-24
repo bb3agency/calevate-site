@@ -1,0 +1,37 @@
+{
+  "id": "real_estate_followup",
+  "title": "Kondapur flats follow-up",
+  "holder": "campaign",
+  "business_name": "Green Acres Homes",
+  "business_type": "real_estate",
+  "agent_name": "Anil",
+  "description": "A builder selling 2 and 3 bedroom flats in a gated project in Kondapur, Hyderabad.",
+  "language": "en-IN",
+  "languages": ["en-IN"],
+  "direction": "outbound",
+  "capabilities": {"call_backs": true, "team_alerts": true},
+  "main_task": "Follow up people who enquired about our Kondapur flats on our website.\n1. Remind them of their enquiry and ask whether they are still looking.\n2. Ask their budget and when they want to move in.\n3. Offer a site visit this weekend and note the day they prefer; the sales team confirms it.",
+  "items": [
+    {"id": "remind_enquiry", "text": "Remind them of their enquiry", "terms": [["enquir"]]},
+    {"id": "still_looking", "text": "Ask whether they are still looking", "terms": [["still"], ["look", "interest"]]},
+    {"id": "budget", "text": "Ask their budget", "terms": [["budget"]]},
+    {"id": "move_in", "text": "Ask when they want to move in", "terms": [["move in", "move-in", "timeline"]]},
+    {"id": "site_visit", "text": "Offer a weekend site visit and note the day", "terms": [["site visit", "visit"], ["day", "weekend", "saturday", "sunday"]]}
+  ],
+  "noted": [
+    {"label": "Budget"},
+    {"label": "Move-in timeline"},
+    {"label": "Preferred site visit day"},
+    {"label": "Interest level", "judged": true}
+  ],
+  "known": ["name"],
+  "knowledge": [
+    {"title": "Project", "text": "Green Acres Kondapur has 2 and 3 bedroom flats, possession in March 2027, with a clubhouse and a swimming pool."},
+    {"title": "Site visits", "text": "Site visits run on Saturday and Sunday from 10 am to 5 pm; the sales team confirms each visit."}
+  ],
+  "purpose_terms": ["enquir", "flat"],
+  "variants": [["saturday", "sunday"]],
+  "purpose": "Follow up website enquiries about the Kondapur flats.",
+  "goal": "A site visit day is noted for the sales team to confirm.",
+  "consent_source": "inbound_enquiry"
+}

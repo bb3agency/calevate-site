@@ -1,0 +1,56 @@
+{
+  "case": "insurance_renewal",
+  "source": "stand-in",
+  "recorded_at": "2026-11-25",
+  "notes": "A hand-written fake model output, not a real writer's: the Hindi lines are English glosses keyed en-IN, and stand_in.english_words names the words a Hindi line would have left in English letters. Replace it with a live run's (--import-live).",
+  "stand_in": {
+    "for": "hi-IN",
+    "english_words": {
+      "opening_line": ["policy"],
+      "stages.1.scripts.en-IN": ["renewal"]
+    }
+  },
+  "script": {
+    "schema_version": 2,
+    "opening_line": "Hello {{lead_name}}, this is Neha from Suraksha Insurance Advisors, about your motor policy. Can you talk now?",
+    "stages": [
+      {
+        "id": "expiry",
+        "name": "Tell the expiry",
+        "instruction": "Tell them their motor policy expires within 30 days, then ask for the vehicle number to confirm the policy.",
+        "scripts": {"en-IN": "Your motor policy expires this month. Can you tell me your vehicle number?"},
+        "branches": [
+          {"when": "They are busy now", "target": "call_back"},
+          {"when": "They sold the vehicle or are not interested", "target": "end"}
+        ]
+      },
+      {
+        "id": "renew",
+        "name": "Ask to renew",
+        "instruction": "Ask whether they want to renew the policy with us.",
+        "scripts": {"en-IN": "Would you like to do the renewal with us?"},
+        "branches": [
+          {"when": "They do not want to renew", "target": "end"}
+        ]
+      },
+      {
+        "id": "changes",
+        "name": "Ask what changed",
+        "instruction": "Ask whether their address changed or they made a claim this year.",
+        "scripts": {"en-IN": "Has your address changed, or did you make a claim this year?"}
+      },
+      {
+        "id": "close",
+        "name": "Finalise the call",
+        "instruction": "Tell them an advisor will send the renewal quote and call them to finish it, then thank them.",
+        "scripts": {"en-IN": "Our advisor will send you the quote and call you. Thank you."}
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "The person knows the policy expires soon."},
+      {"step": 2, "outcome": "The person says whether they want to renew."},
+      {"step": 3, "outcome": "Any change of address or claim is known."},
+      {"step": 4, "outcome": "The person knows an advisor will call."}
+    ]
+  }
+}

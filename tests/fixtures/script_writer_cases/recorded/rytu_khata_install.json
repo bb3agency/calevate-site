@@ -1,0 +1,107 @@
+{
+  "case": "rytu_khata_install",
+  "source": "stand-in",
+  "model": "",
+  "recorded_at": "2026-11-25",
+  "notes": "The campaign script Pip wrote in production on 25 Nov 2026 (founder's evidence, SCRIPT-2026-11-25), in English stand-in form: each Telugu line is an English gloss keyed en-IN, and stand_in.english_words names the words the real line left in English. Kept as the evidence gives it: the instructions of steps 1, 2 and 8, every branch, and the lines of steps 1, 3 and 5. Steps 2 and 4 take their lines from the founder's call of 25 Nov 01:37 (turns 16 and 27). Not in the evidence, so given the shape of step 2: the instructions of steps 3 to 7. The opening is abridged in the evidence, so only its visible parts are kept: the greeting with the name and the question whether they can talk. Its English 'details note' is kept as evidence but is not a defect by the register data: 'details' is a word callers say in English (spoken_style te-IN say_english) and 'note' has no listed spoken Telugu word. The finalise line is left out: the evidence says it mixes English words in without naming them. The step outcomes are the evidence's eight, written as sentences.",
+  "stand_in": {
+    "for": "te-IN",
+    "english_words": {
+      "stages.2.scripts.en-IN": ["details", "note"]
+    }
+  },
+  "script": {
+    "schema_version": 2,
+    "opening_line": "Hello {{lead_name}}, can you talk now?",
+    "stages": [
+      {
+        "id": "s1",
+        "name": "Check installation",
+        "instruction": "Ask the user to check for the Rytu Khata icon. Collect the caller name, campaign goal met, technical comfort level, primary usage interest and alternative number. If they cannot or will not reach the website rytukhata.com, offer to call back.",
+        "scripts": {"en-IN": "Please check your home screen for the Rytu Khata icon. If it is not there, go to the website and press the install button at the top. Then tell me your name, your goal, your tech awareness, your interest and another number? Tell me when it is done."},
+        "branches": [
+          {"when": "Busy now", "target": "end"},
+          {"when": "Not interested", "target": "end"},
+          {"when": "Already done", "target": "s2"},
+          {"when": "Cannot reach the website", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s2",
+        "name": "Login",
+        "instruction": "Ask the user to log in. If they cannot, offer to call back.",
+        "scripts": {"en-IN": "Open the app and log in with your phone number. Tell me when you have logged in."},
+        "branches": [
+          {"when": "Add Farms", "target": "s3"},
+          {"when": "They cannot", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s3",
+        "name": "Add Farms",
+        "instruction": "Ask the user to add their farms. If they cannot, offer to call back.",
+        "scripts": {"en-IN": "Now press My Farms and add your farm. Tell me the farm details, I will note them."},
+        "branches": [
+          {"when": "Enter Expenses", "target": "s4"},
+          {"when": "They cannot", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s4",
+        "name": "Enter Expenses",
+        "instruction": "Ask the user to enter one expense. If they cannot, offer to call back.",
+        "scripts": {"en-IN": "Now press Expenses and record one expense. Tell me when it is done."},
+        "branches": [
+          {"when": "Enter Sales", "target": "s5"},
+          {"when": "They cannot", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s5",
+        "name": "Enter Sales",
+        "instruction": "Ask the user to enter one crop sale. If they cannot, offer to call back.",
+        "scripts": {"en-IN": "Tell me the crop sale details, I will note them."},
+        "branches": [
+          {"when": "Dashboard", "target": "s6"},
+          {"when": "They cannot", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s6",
+        "name": "Dashboard",
+        "instruction": "Ask the user to open the dashboard. If they cannot, offer to call back.",
+        "branches": [
+          {"when": "Finalise the call", "target": "finalise"},
+          {"when": "They cannot", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "finalise",
+        "name": "Finalise the call",
+        "instruction": "Thank the user and close the call. If they cannot finish, offer to call back.",
+        "branches": [
+          {"when": "Not registered", "target": "s-not-registered"},
+          {"when": "They cannot finish", "target": "call_back"}
+        ]
+      },
+      {
+        "id": "s-not-registered",
+        "name": "Not registered",
+        "instruction": "Explain they have registered and offer to help.",
+        "branches": [
+          {"when": "Yes", "target": "s1"}
+        ]
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "The person says the app is installed."},
+      {"step": 2, "outcome": "The person says they have logged in."},
+      {"step": 3, "outcome": "The person has added their farm details."},
+      {"step": 4, "outcome": "The person has entered their first expense."},
+      {"step": 5, "outcome": "The person has entered their first sale."},
+      {"step": 6, "outcome": "The person has seen the dashboard."},
+      {"step": 7, "outcome": "The call is finalised."},
+      {"step": 8, "outcome": "The person understands they have registered."}
+    ]
+  }
+}
