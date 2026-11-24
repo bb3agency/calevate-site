@@ -30,16 +30,17 @@ THREE LAYERS, REPORTED APART, deterministic first, as the research's scorecard o
 1. The repo's own lints, every one: `script_lint.script_problems`, each one-argument
    `script_lint.*_problems` found by name (so a lint added later is scored without an edit
    here), each `mistake_lints` kind and `script_heal.heal_findings`. They are the product's
-   checks; this file never re-implements one.
-2. Structural checks the lints do not make (`CHECKS`), each a deterministic reading of the
-   script against the case: a judgement field or a known value asked, a line asking or
-   giving several things, a branch that is not a decision, a step after the close, no
-   purpose at the start, a main-task item no step covers, what a Telugu or Hindi line says
-   that callers do not (a bracketed double, a textbook word, an English word the register
-   data gives a spoken word for; other English is ordinary code-mixing), the agent claiming
-   the caller's action, and a step outcome written for one scenario. Where `script_lint`
-   grows `<check>_problems` for one of them it is used instead (`_upstream`), so the two
-   never disagree.
+   checks; this file never re-implements one. A `<check>_problems` named after a structural
+   check is scored as that check, not here, so one problem has one count.
+2. Structural checks (`CHECKS`), each a deterministic reading of the script against the
+   case: a judgement field or a known value asked, a line asking or giving several things,
+   a branch that is not a decision, a step after the close, no purpose at the start, a
+   main-task item no step covers, what a Telugu or Hindi line says that callers do not (a
+   bracketed double, a textbook word, an English word the register data gives a spoken word
+   for; other English is ordinary code-mixing), the agent claiming the caller's action, and
+   a step outcome written for one scenario. Where `script_lint` has `<check>_problems` it
+   makes the check (`_upstream`), so the two never disagree; the eval adds to it only what
+   the lint cannot read from the script alone (`EXTENDS`).
 3. A judge for naturalness only, on our Gemini leg, optional and never part of CI:
    `--judge` scores each script on `RUBRIC` with the quoted lines first and every quote
    checked against its line; `--judge-against` compares each script with an earlier one,
@@ -81,7 +82,6 @@ from apps.api.agents import mistake_lints, script_lint, turn_checks
 from apps.api.agents.script_heal import heal_findings
 from apps.api.agents.script_lint import CapabilityManifest, LintContext, question_count
 from calevate_shared.call_script import (
-    SPECIAL_TARGETS,
     CallScript,
     ConversationStage,
     substitute_variables,
@@ -390,10 +390,6 @@ def mentions(text: str, label: str) -> bool:
     return bool(wanted) and wanted <= _stems(text)
 
 
-def _norm(text: str) -> str:
-    return " ".join(_WORD.findall(text.casefold()))
-
-
 def _has_term(text: str, term: str) -> bool:
     """`term` as a word or the start of one ("install" in "installing"), any case."""
     return re.search(rf"\b{re.escape(term.casefold())}", text.casefold()) is not None
@@ -498,87 +494,13 @@ def asks_in(text: str, *, readable: bool) -> int:
 
 
 def multi_question_line(rec: Recorded, case: Case) -> list[str]:
+    """A step's line that asks several things. Openings are left out, as
+    `script_lint.multi_question_line_problems` leaves them out, so the two read the same
+    lines and differ only in what `asks_in` counts."""
     return [
         f"{line.path}: asks {n} things in one turn; ask one and wait."
-        for line in spoken_lines(rec, case)
-        if (n := asks_in(line.text, readable=line.readable)) > 1
-    ]
-
-
-def multi_action_line(rec: Recorded, case: Case) -> list[str]:
-    """A line that gives the person several things to do on their phone at once
-    (`script_lint.stacked_actions`, read in English): the 25 Nov call's first step said check,
-    go to the site and press install in one turn."""
-    return [
-        f"{line.path}: gives several actions in one turn; give one and wait for it."
         for line in spoken_lines(rec, case, openings=False)
-        if line.readable and script_lint.stacked_actions(line.text)
-    ]
-
-
-def _default_next(script: CallScript, index: int) -> str:
-    stage = script.stages[index]
-    if stage.otherwise:
-        return stage.otherwise
-    return script.stages[index + 1].id if index + 1 < len(script.stages) else ""
-
-
-#: A condition that only says the step went as planned ("Already done", "Yes").
-_JUST_DONE: Final = re.compile(
-    r"^(?:\w+ )?(?:done|completed?|finished|yes|ok|okay|next|continue|ready|successful)$"
-)
-
-
-def fake_branch(rec: Recorded, case: Case) -> list[str]:
-    """A way out that is not a decision: its condition is a step's name ("Add Farms" -> the
-    Add Farms step), or it only says the step is done and goes where the call goes next
-    anyway. A real condition to the next step ("Not registered") is left alone: where such a
-    step sits is `steps_after_close`'s reading."""
-    del case
-    script = rec.script
-    names = {_norm(stage.name): stage for stage in script.stages}
-    by_id = {stage.id: stage for stage in script.stages}
-    found: list[str] = []
-    for i, stage in enumerate(script.stages):
-        default = _default_next(script, i)
-        for j, branch in enumerate(stage.branches):
-            when = _norm(branch.when)
-            target = by_id.get(branch.target)
-            where = f"stages.{i}.branches.{j}"
-            if when in names or (target is not None and when == _norm(target.name)):
-                found.append(
-                    f'{where}: its condition "{branch.when}" is a step name, not something '
-                    "the person says or does."
-                )
-            elif (
-                branch.target not in SPECIAL_TARGETS
-                and branch.target == default
-                and _JUST_DONE.match(when)
-            ):
-                name = target.name if target else branch.target
-                found.append(f'{where}: goes to "{name}", where the call goes next anyway.')
-    return found
-
-
-_CLOSE: Final = re.compile(
-    r"\b(?:finali[sz]e|close|closing|wrap(?:s|ping)? up|end(?:s|ing)? the call|goodbye)\b",
-    re.IGNORECASE,
-)
-
-
-def steps_after_close(rec: Recorded, case: Case) -> list[str]:
-    """A step after the step that closes the call: the 25 Nov script put "Not registered",
-    a way out of its first step, after "Finalise the call"."""
-    del case
-    stages = rec.script.stages
-    # By name: an instruction's way out ("if busy, end the call") is not the close.
-    close = next((i for i, s in enumerate(stages) if _CLOSE.search(s.name)), None)
-    if close is None:
-        return []
-    return [
-        f'stages.{j}: "{stages[j].name}" comes after the close ("{stages[close].name}").'
-        for j in range(close + 1, len(stages))
-        if stages[j].step is None or stages[j].step != stages[close].step
+        if (n := asks_in(line.text, readable=line.readable)) > 1
     ]
 
 
@@ -680,36 +602,6 @@ def register_in_line(rec: Recorded, case: Case) -> list[str]:
     return found
 
 
-_AGENT_DOES: Final = re.compile(
-    r"\b(?:i'll|i will|i am going to|i'm going to|let me|we'll|we will)\s+(?:\w+\s+){0,2}?"
-    r"(?:note|record|enter|add|install|register|log|set|type|fill|create|save|write|update|"
-    r"upload)\b",
-    re.IGNORECASE,
-)
-#: A step in which the person does something in the app themselves.
-_CALLER_DOES: Final = re.compile(
-    r"\b(?:add|enter|install|log ?in|set up|register|create|record|update|upload)\b",
-    re.IGNORECASE,
-)
-
-
-def agent_claims_caller_action(rec: Recorded, case: Case) -> list[str]:
-    """A line in which the agent says it will do what the step has the person do ("tell me
-    the sale details, I'll note them" in an Enter Sales step, 25 Nov script). English only:
-    no Telugu or Hindi words for it exist in `call_words.json`."""
-    found: list[str] = []
-    stages = rec.script.stages
-    for line in spoken_lines(rec, case, openings=False):
-        if not line.readable or line.stage is None:
-            continue
-        stage = stages[line.stage]
-        if _CALLER_DOES.search(f"{stage.name} {stage.instruction}") and _AGENT_DOES.search(
-            line.text
-        ):
-            found.append(f"{line.path}: the agent says it will do what the person must do.")
-    return found
-
-
 def outcome_tailored(rec: Recorded, case: Case) -> list[str]:
     """A step outcome written for one scenario: it names one of a group of alternatives
     ("Android") and not the rest, or a word only one of the step's scenarios has."""
@@ -740,22 +632,42 @@ def outcome_tailored(rec: Recorded, case: Case) -> list[str]:
     return found
 
 
-#: Each structural check: its function, and whether it applies to a case.
-CHECKS: Final[dict[str, tuple[Check, Callable[[Case], bool]]]] = {
+#: Each structural check: the eval's own function, or None where the writer's lint
+#: `script_lint.<name>_problems` makes it, and whether it applies to a case.
+CHECKS: Final[dict[str, tuple[Check | None, Callable[[Case], bool]]]] = {
     "judged_field_asked": (judged_field_asked, lambda c: any(n.is_judged() for n in c.noted)),
     "known_value_asked": (known_value_asked, lambda c: bool(c.known)),
     "multi_question_line": (multi_question_line, lambda c: True),
-    "multi_action_line": (multi_action_line, lambda c: True),
-    "fake_branch": (fake_branch, lambda c: True),
-    "steps_after_close": (steps_after_close, lambda c: True),
+    "multi_action_line": (None, lambda c: True),
+    "fake_branch": (None, lambda c: True),
+    "steps_after_close": (None, lambda c: True),
     "no_purpose_line": (no_purpose_line, lambda c: c.places_calls() and bool(c.purpose_terms)),
     "main_task_uncovered": (main_task_uncovered, lambda c: bool(c.items)),
     "register_in_line": (
         register_in_line,
         lambda c: any(_language(t) != "en" for t in c.languages),
     ),
-    "agent_claims_caller_action": (agent_claims_caller_action, lambda c: True),
+    "agent_claims_caller_action": (None, lambda c: True),
     "outcome_tailored": (outcome_tailored, lambda c: True),
+}
+
+#: Checks the writer's lint of the same name makes only in part, because the lint reads the
+#: script alone and the writer is measured against what the case knows. The lint's findings
+#: stand and the eval's own are added at the places the lint did not name (`structural`), so
+#: the problem keeps one count. Each value is what the eval reads that the lint cannot.
+EXTENDS: Final[dict[str, str]] = {
+    # The 25 Nov script asked "campaign goal met" and "technical comfort level" in its
+    # instruction and its line, never in a collect list, and a case marks a judgement whose
+    # label does not give it away (`Noted.judged`); `whole_call_detail` on collect lists
+    # sees neither.
+    "judged_field_asked": "the details the case marks as judged, in instructions and lines "
+    "as well as collect lists",
+    # The lint fires only on the name, and only when the opening greets by `{{lead_name}}`;
+    # what else the calling list gives (a vehicle number, an order) only the case says.
+    "known_value_asked": "every value the case's calling list gives, the name in any wording",
+    # The lint counts question marks; the 25 Nov line put five asks under one.
+    "multi_question_line": "several of the person's things listed under one question mark, "
+    "in English",
 }
 
 #: What each check can read in a Telugu or Hindi script (instructions are always English; a
@@ -766,7 +678,7 @@ READS: Final[dict[str, str]] = {
     "multi_question_line": "question marks in any language; listed asks in English",
     "multi_action_line": "English lines only",
     "fake_branch": "structure",
-    "steps_after_close": "structure",
+    "steps_after_close": 'structure; the close by its fixed name, "Finalise the call"',
     "no_purpose_line": "openings; purpose words kept in English letters",
     "main_task_uncovered": "instructions, step names and English lines",
     "register_in_line": "Telugu and Hindi lines, by the register data",
@@ -776,8 +688,8 @@ READS: Final[dict[str, str]] = {
 
 
 def _upstream(name: str) -> Callable[..., list[str]] | None:
-    """`script_lint.<name>_problems` when the writer's checks grow one for this check, taking
-    the script (and the lint context), used in place of ours so the two never disagree."""
+    """`script_lint.<name>_problems` when the writer's checks have one for this check, taking
+    the script (and the lint context)."""
     fn = getattr(script_lint, f"{name}_problems", None)
     if not callable(fn):
         return None
@@ -785,8 +697,14 @@ def _upstream(name: str) -> Callable[..., list[str]] | None:
     return fn if params in (["script"], ["script", "context"]) else None
 
 
+def _where(finding: str) -> str:
+    return finding.partition(": ")[0]
+
+
 def structural(rec: Recorded, case: Case) -> tuple[dict[str, list[str]], dict[str, str]]:
-    """Each applicable check's findings, and where each came from ("eval" or the lint)."""
+    """Each applicable check's findings, and where each came from: "eval", the lint, or the
+    lint with the eval's additions (`EXTENDS`). A lint present always makes its check, so the
+    eval and the writer never disagree on a problem both read."""
     found: dict[str, list[str]] = {}
     origin: dict[str, str] = {}
     for name, (check, applies) in CHECKS.items():
@@ -794,14 +712,20 @@ def structural(rec: Recorded, case: Case) -> tuple[dict[str, list[str]], dict[st
             continue
         theirs = _upstream(name)
         if theirs is None:
+            if check is None:
+                raise RuntimeError(f"script_lint.{name}_problems is gone and {name} has no check")
             found[name], origin[name] = check(rec, case), "eval"
-        else:
-            args = (
-                [rec.script]
-                if len(inspect.signature(theirs).parameters) == 1
-                else [rec.script, _context(rec, case)]
-            )
-            found[name], origin[name] = list(theirs(*args)), f"script_lint.{name}_problems"
+            continue
+        args = (
+            [rec.script]
+            if len(inspect.signature(theirs).parameters) == 1
+            else [rec.script, _context(rec, case)]
+        )
+        found[name], origin[name] = list(theirs(*args)), f"script_lint.{name}_problems"
+        if check is not None and name in EXTENDS:
+            named = {_where(f) for f in found[name]}
+            found[name] += [f for f in check(rec, case) if _where(f) not in named]
+            origin[name] += " + eval"
     return found, origin
 
 
@@ -828,11 +752,13 @@ def one_argument_lints() -> dict[str, Callable[[CallScript], list[str]]]:
 
 
 def lints(rec: Recorded, case: Case) -> dict[str, list[str]]:
-    """Every existing lint's findings on the script, by lint."""
+    """Every existing lint's findings on the script, by lint, but those a structural check
+    scores under its own name (`structural`)."""
     script, context = rec.script, _context(rec, case)
     found = {"script_problems": script_lint.script_problems(script, context)}
     for name, fn in one_argument_lints().items():
-        found[name] = list(fn(script))
+        if name.removesuffix("_problems") not in CHECKS:
+            found[name] = list(fn(script))
     for kind in sorted(mistake_lints.SCRIPT_FIXABLE_KINDS):
         found[f"mistake.{kind}"] = mistake_lints.mistake_findings(script, context, kind)
     found["heal_findings"] = heal_findings(script, context)
@@ -861,7 +787,7 @@ class CaseResult:
         """The mean of the structural and the lint pass rates (checks with no finding over
         checks applied). Two halves rather than one pool, because the lints are three dozen
         functions, many gathering others' findings, and pooled they would drown the eleven
-        structural checks: the 25 Nov script passes every lint."""
+        structural checks."""
         return (_rate(self.structural.values()) + _rate(self.lints.values())) / 2
 
 
@@ -966,15 +892,20 @@ def report_markdown(
         "",
         "## Per structural check",
         "",
-        "| Check | Cases with findings | Findings | Reads |",
-        "|---|---:|---:|---|",
+        "| Check | Made by | Cases with findings | Findings | Reads |",
+        "|---|---|---:|---:|---|",
     ]
     for name in checks:
         hits = [len(r.structural.get(name, [])) for r in results if name in r.structural]
-        reads = READS.get(name, "")
+        made_by = next(r.origin[name] for r in results if name in r.origin)
         lines.append(
-            f"| {name} | {sum(1 for h in hits if h)}/{len(hits)} | {sum(hits)} | {reads} |"
+            f"| {name} | {made_by} | {sum(1 for h in hits if h)}/{len(hits)} | {sum(hits)} | "
+            f"{READS.get(name, '')} |"
         )
+    extended = [name for name in checks if name in EXTENDS]
+    if extended:
+        lines += ["", "Where the eval adds to a lint, what it reads that the lint cannot:", ""]
+        lines += [f"- `{name}`: {EXTENDS[name]}." for name in extended]
     lint_names = sorted({k for r in results for k in r.lints})
     lines += ["", "## Per lint", "", "| Lint | Cases with findings | Findings |", "|---|---:|---:|"]
     for name in lint_names:
@@ -982,7 +913,10 @@ def report_markdown(
         if sum(hits):
             lines.append(f"| {name} | {sum(1 for h in hits if h)}/{len(hits)} | {sum(hits)} |")
     lines.append("")
-    lines.append("Lints with no finding on any case are left out of the table.")
+    lines.append(
+        "Lints with no finding on any case are left out of the table, and so are the "
+        "`<check>_problems` lints a structural check scores."
+    )
     lines += ["", "## Findings by case"]
     for r in results:
         lines += ["", f"### {r.case_id}: {r.title}", ""]
@@ -1057,14 +991,14 @@ SECTION_D_MAP: Final = (
     "| Section D check | Made by |",
     "|---|---|",
     "| More than one question or caller action in a turn | `multi_question_line`, "
-    "`multi_action_line` |",
+    "`multi_action_line` (`script_lint`) |",
     "| Consecutive turns opening with the same acknowledgement | `lint.same_opener_problems`, "
     "`lint.mistake.same_opening` |",
     "| An exact repeat of an agent sentence | `lint.repeated_line_problems` |",
     "| A known field asked for | `known_value_asked` |",
     "| A step marked done with no caller words meeting its done signal | a call's transcript, "
     "not a script: out of scope here |",
-    "| A branch condition equal to a step title | `fake_branch` |",
+    "| A branch condition equal to a step title | `fake_branch` (`script_lint`) |",
     "| A bracketed duplicate name | `register_in_line`, `lint.bracket_problems` |",
 )
 
