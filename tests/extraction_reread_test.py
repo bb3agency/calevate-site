@@ -17,7 +17,14 @@ from apps.workers import dispatcher, extraction_reread, pipeline
 from calevate_shared.extraction import ExtractionOutput
 from sqlalchemy import text
 from tests.pipeline_audit_test import _completed_call, _outbox_rows, _run_pipeline, _stub_storage
-from tests.postcall_crm_events_test import BROWSING, READY, give_agent_outcomes, reads_as, subscribe
+from tests.postcall_crm_events_test import (
+    BROWSING,
+    READY,
+    give_agent_outcomes,
+    on_a_line,
+    reads_as,
+    subscribe,
+)
 
 # The recording copy is an environment concern; the stub is `pipeline_audit_test`'s.
 _stub_storage = _stub_storage
@@ -32,6 +39,7 @@ async def _failed_call(
 ) -> tuple[UUID, UUID]:
     """A completed call whose pipeline ran while the provider was failing, ended 20 min ago."""
     tenant_id, execution_id, call_id = await _completed_call(label)
+    await on_a_line(tenant_id, call_id)
     await give_agent_outcomes(tenant_id, [READY, BROWSING])
     if events:
         await subscribe(tenant_id, events)

@@ -62,6 +62,22 @@ def reads_as(monkeypatch: pytest.MonkeyPatch, key: str | None) -> None:
     monkeypatch.setattr(pipeline, "extract_call", _extraction)
 
 
+async def on_a_line(tenant_id: UUID, call_id: UUID) -> None:
+    """Put the call on an inbound line of its agent: after-call alerts follow the call's job
+    (D-1040), so a call with no campaign or line alerts nobody."""
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "WITH line AS (INSERT INTO inbound_lines (id, tenant_id, agent_id, name, "
+                "extraction_fields, created_at, updated_at) SELECT gen_random_uuid(), "
+                "c.tenant_id, c.agent_id, 'Front desk', '[]'::jsonb, now(), now() "
+                "FROM calls c WHERE c.id = :c RETURNING id) "
+                "UPDATE calls SET inbound_line_id = line.id FROM line WHERE calls.id = :c"
+            ),
+            {"c": call_id},
+        )
+
+
 async def subscribe(tenant_id: UUID, events: list[str]) -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -111,6 +127,7 @@ async def test_a_hot_business_outcome_alerts_the_owner_once_and_records_the_move
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id, execution_id, call_id = await _completed_call("hotroute")
+    await on_a_line(tenant_id, call_id)
     await give_agent_outcomes(tenant_id, [READY, BROWSING])
     reads_as(monkeypatch, "ready_to_buy")
 

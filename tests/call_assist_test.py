@@ -541,16 +541,20 @@ async def test_a_call_with_no_transcript_is_refused_for_that_reason_and_not_for_
     assert response.json()["type"].endswith("/assist_no_transcript")
 
 
-async def test_another_tenants_call_is_not_found_rather_than_assisted() -> None:
+async def test_another_tenants_call_is_refused_exactly_like_no_call_at_all() -> None:
     """Hard rule 1 from the outside. Under RLS "no such call" and "somebody else's call"
-    are one answer, deliberately, and the route must not turn the second into a 200."""
+    are one answer, deliberately: Pip refuses both with the same sentence, so the refusal
+    is no oracle for whether another account holds the id."""
     tenant_id, _slug, token = await _make_tenant()
     other_tenant, _other_slug, _other_token = await _make_tenant()
     stranger_call = await _call_with_transcript(other_tenant)
 
     response = await _ask(tenant_id, token, stranger_call)
+    nothing = await _ask(tenant_id, token, uuid.uuid4())
 
-    assert response.status_code == 404, response.text
+    assert response.status_code == 403, response.text
+    assert "names nothing in this account" in response.body["detail"]
+    assert response.body == nothing.body
     assert await _usage_rows(tenant_id) == []
     assert await _usage_rows(other_tenant) == []
 
