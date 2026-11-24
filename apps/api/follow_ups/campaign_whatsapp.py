@@ -70,6 +70,10 @@ FAILURES: Final[dict[str, str]] = {
     "language": "WhatsApp messages cannot be written in this campaign's language yet.",
     "message_not_sent": "WhatsApp did not take the message for review. Try again in a minute.",
     "unavailable": "Pip could not write it just now. Try again in a minute.",
+    "allowance": (
+        "This month's included AI assistance is used up. Add credit, or wait for the next "
+        "billing month."
+    ),
 }
 
 Phase = Literal["not_connected", "none", "writing", "failed", "made"]

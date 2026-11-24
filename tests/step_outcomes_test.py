@@ -23,6 +23,11 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.inbound import lines as inbound_lines
 from apps.workers import step_outcomes as worker
+from apps.workers.extraction import (
+    PROVIDER_UNAVAILABLE_REASON,
+    AssistCapability,
+    assist_unavailable,
+)
 from apps.workers.script_assist import UnusableAnswerError
 from calevate_shared.call_script import (
     SCRIPT_SCHEMA_VERSION,
@@ -436,6 +441,63 @@ async def test_the_same_script_is_not_asked_about_twice(
     await _past_debounce(tenant_id, "campaigns", campaign_id)
 
     assert await worker.write_step_outcomes({}, payload) == "unchanged"
+    assert len(asked) == 1
+
+
+async def test_a_ladder_no_model_answered_is_asked_again_on_the_same_script(
+    pip_on: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tenant_id, agent_id = await _tenant()
+    campaign_id = await _campaign(tenant_id, agent_id)
+    await _save_campaign(tenant_id, campaign_id, _script())
+    await _past_debounce(tenant_id, "campaigns", campaign_id)
+    asked = _stub_model(monkeypatch, _answer)
+    answering = worker.ask_json
+
+    async def outage(request: str, _instruction: str, **kwargs: Any) -> Any:
+        asked.append(request)
+        raise assist_unavailable(
+            AssistCapability(available=False, reason=PROVIDER_UNAVAILABLE_REASON)
+        )
+
+    monkeypatch.setattr(worker, "ask_json", outage)
+    payload = {"tenant_id": str(tenant_id), "campaign_id": str(campaign_id)}
+    assert await worker.write_step_outcomes({}, payload) == f"assist_{PROVIDER_UNAVAILABLE_REASON}"
+    state, _at, inputs, _raw = await _state(tenant_id, "campaigns", campaign_id)
+    assert state == "failed" and inputs is None, "an outage is not a reading of the script"
+
+    monkeypatch.setattr(worker, "ask_json", answering)
+    async with tenant_session(tenant_id) as session:
+        await outcomes_api.queue_after_save(session, "campaign", campaign_id, _script())
+    await _past_debounce(tenant_id, "campaigns", campaign_id)
+    assert await worker.write_step_outcomes({}, payload) == "saved"
+    assert len(asked) == 2
+
+
+async def test_a_used_up_allowance_waits_and_writes_once_it_renews(
+    pip_on: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tenant_id, agent_id = await _tenant()
+    campaign_id = await _campaign(tenant_id, agent_id)
+    await _save_campaign(tenant_id, campaign_id, _script())
+    await _past_debounce(tenant_id, "campaigns", campaign_id)
+    asked = _stub_model(monkeypatch, _answer)
+    real_quota = worker.read_ai_quota
+
+    async def used_up(_session: Any, *, tenant_id: uuid.UUID) -> Any:
+        return SimpleNamespace(at_ceiling=True, platform_paused=False)
+
+    monkeypatch.setattr(worker, "read_ai_quota", used_up)
+    payload = {"tenant_id": str(tenant_id), "campaign_id": str(campaign_id)}
+    assert await worker.write_step_outcomes({}, payload) == "skipped"
+    state, _at, inputs, _raw = await _state(tenant_id, "campaigns", campaign_id)
+    assert asked == [] and state == "skipped" and inputs is None
+
+    monkeypatch.setattr(worker, "read_ai_quota", real_quota)
+    monkeypatch.setattr(worker, "HOLDERS_PER_TICK", 100_000)
+    await worker.sweep_step_outcomes({})
+    await _past_debounce(tenant_id, "campaigns", campaign_id)
+    assert await worker.write_step_outcomes({}, payload) == "saved"
     assert len(asked) == 1
 
 
