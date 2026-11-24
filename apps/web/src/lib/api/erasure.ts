@@ -65,7 +65,7 @@ export function useTenantErasures(
   tenantId: string,
 ): UseQueryResult<TenantErasure[]> {
   const client = useQueryClient();
-  const query = useQuery({
+  const read = useQuery<TenantErasure[]>({
     queryKey: ["admin", "tenant-erasure", tenantId],
     queryFn: () => apiRequest<TenantErasure[]>(session, erasurePath(tenantId)),
     // An erasure runs in the background; read again until none is pending.
@@ -75,14 +75,14 @@ export function useTenantErasures(
   // The worker, not the POST, sets `deleted_at` and `erased_at`. When the poll sees the
   // erasure finish, the closure, the client and the directory are read again; otherwise the
   // Closing screen keeps offering "Reopen the account" for a client whose records are gone.
-  const pending = query.data?.some((erasure) => erasure.status === "pending");
+  const pending = read.data?.some((erasure) => erasure.status === "pending");
   const wasPending = useRef(false);
   useEffect(() => {
     if (pending === undefined) return;
     if (wasPending.current && !pending) invalidateErasedClient(client, tenantId);
     wasPending.current = pending;
   }, [pending, client, tenantId]);
-  return query;
+  return read;
 }
 
 function invalidateErasedClient(client: QueryClient, tenantId: string): void {
