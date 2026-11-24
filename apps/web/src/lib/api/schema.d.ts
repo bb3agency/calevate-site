@@ -21672,9 +21672,11 @@ export interface components {
          * ConversationStage
          * @description One section of the call, a node of the script's section graph.
          *
-         *     The list order is the call order. `mode` "say" asks for `instruction` to be said as
-         *     written (best effort: only the opening line is guaranteed verbatim). `sounds_like` is an
-         *     optional line in the call's language showing how it sounds. `branches` are the ways out
+         *     The list order is the call order. `mode` "say" asks for a line to be said as written
+         *     (best effort: only the opening line is guaranteed verbatim): a scenario's script line
+         *     (`says_scenario_line`), or the instruction of a section drawn before scenarios
+         *     (`says_instruction`). `sounds_like` is an optional line in the call's language showing
+         *     how it sounds. `branches` are the ways out
          *     on a condition, `otherwise` where to go when none holds (empty: the next section), and
          *     `collect` what must be in hand first. `position` is the canvas layout and is never
          *     compiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.
