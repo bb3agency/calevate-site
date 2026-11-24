@@ -1536,3 +1536,84 @@ async def test_a_throttled_dial_waits_out_the_hold_and_the_batch_behind_it_does_
         )
     assert all(timedelta(seconds=100) < wait <= timedelta(seconds=120) for wait in waits), waits
     assert reasons == ["refused"], "the one dial is closed as not placed, with a reason"
+
+
+# ------------------------------- a stopped campaign's last calls still settle
+
+
+async def test_the_last_calls_of_a_paused_or_cancelled_campaign_settle_and_nothing_dials() -> None:
+    """Pause and Stop let a ringing call finish. When it rings out (or is answered and its
+    pipeline never claims it), the contact must leave `dialing` as a running campaign's
+    would; otherwise a stopped campaign shows somebody "calling now" for ever. The scan is
+    left live because it is where a stopped campaign was invisible, narrowed to this tenant
+    so other suites' work cannot dial here."""
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
+    paused = await _launched_campaign(
+        tenant_id,
+        agent_id,
+        number_id,
+        template_id,
+        name="Paused mid-ring",
+        phones=("9876631001", "9876631002"),
+    )
+    cancelled = await _launched_campaign(
+        tenant_id,
+        agent_id,
+        number_id,
+        template_id,
+        name="Stopped mid-ring",
+        phones=("9876631003", "9876631004", "9876631005"),
+    )
+    for campaign_id, phone in ((paused, "+919876631001"), (cancelled, "+919876631003")):
+        await _dialling_contact(
+            tenant_id,
+            agent_id,
+            campaign_id,
+            phone,
+            call_status="no_answer",
+            ended_ago=timedelta(minutes=5),
+        )
+    await _dialling_contact(
+        tenant_id,
+        agent_id,
+        cancelled,
+        "+919876631004",
+        call_status="completed",
+        ended_ago=campaign_dispatch.STUCK_DIALING_AFTER + timedelta(minutes=5),
+    )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET status = 'paused' WHERE id = :c"), {"c": paused}
+        )
+        await session.execute(
+            text("UPDATE campaigns SET status = 'cancelled' WHERE id = :c"), {"c": cancelled}
+        )
+    placed = await _calls_placed(tenant_id)
+
+    scan = campaign_dispatch._tenants_with_work
+
+    async def _this_tenant() -> list[TenantWork]:
+        return [work for work in await scan() if work.tenant_id == tenant_id]
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(campaign_dispatch, "_tenants_with_work", _this_tenant)
+        await campaign_dispatch._run_tick()
+
+    async with tenant_session(tenant_id) as session:
+        statuses = dict(
+            (
+                await session.execute(
+                    text("SELECT id, status FROM campaigns WHERE id IN (:p, :c)"),
+                    {"p": paused, "c": cancelled},
+                )
+            ).all()
+        )
+    assert statuses == {paused: "paused", cancelled: "cancelled"}, "never resumed or completed"
+    assert await _contacts(tenant_id, paused) == [("pending", 1), ("pending", 0)]
+    assert await _contacts(tenant_id, cancelled) == [
+        ("pending", 1),
+        ("connected", 1),
+        ("pending", 0),
+    ]
+    assert await _calls_placed(tenant_id) == placed, "a stopped campaign dials nobody"
