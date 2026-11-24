@@ -14,7 +14,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Plus } from "lucide-react";
 
-import { useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import {
@@ -169,12 +169,17 @@ function NewLineForm({ slug, onCancel }: { slug: string; onCancel: () => void })
         </select>
       </div>
       <div className="flex flex-wrap gap-2">
-        <button type="submit" className={PRIMARY_BUTTON_SM} disabled={create.isPending}>
-          {create.isPending ? "Starting…" : "Start the line"}
-        </button>
-        <button type="button" className={SECONDARY_BUTTON_SM} disabled={create.isPending} onClick={onCancel}>
+        <ActionButton
+          type="submit"
+          variant="primary-sm"
+          status={create.isPending ? "pending" : "idle"}
+          pendingLabel="Starting…"
+        >
+          Start the line
+        </ActionButton>
+        <ActionButton variant="secondary-sm" disabled={create.isPending} onClick={onCancel}>
           Cancel
-        </button>
+        </ActionButton>
       </div>
       {create.error != null && <ProblemNotice error={create.error} />}
     </form>

@@ -17,12 +17,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { problemToast, useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
 import {
   FIELD,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -237,18 +236,27 @@ export function TestCallForm({
                     {formatPhone(n)}
                   </button>
                   {saveNumbers ? (
-                    <button
-                      type="button"
+                    <ActionButton
+                      variant="text"
                       aria-label={`Remove ${formatPhone(n)} from saved numbers`}
                       title="Remove"
-                      disabled={!canWrite || !loaded || saveNumbers.isPending}
-                      className="inline-flex items-center justify-center rounded-full py-1 pl-1 pr-2.5 opacity-70 hover:opacity-100 touch:min-h-11 touch:min-w-11"
+                      status={
+                        saveNumbers.isPending &&
+                        saveNumbers.variables !== undefined &&
+                        numbers.includes(n) &&
+                        !saveNumbers.variables.includes(n)
+                          ? "pending"
+                          : "idle"
+                      }
+                      pendingLabel={<></>}
+                      disabled={!canWrite || !loaded || (saveNumbers.isPending && saveNumbers.variables?.includes(n) !== false)}
+                      className="mx-0! min-h-0! rounded-full! py-1! pl-1! pr-2.5! text-inherit! opacity-70 hover:bg-transparent! hover:opacity-100 touch:min-h-11 touch:min-w-11"
                       onClick={() =>
                         saveNumbers.mutate(numbers.filter((x) => x !== n))
                       }
                     >
                       <X aria-hidden className="h-3.5 w-3.5" />
-                    </button>
+                    </ActionButton>
                   ) : null}
                 </span>
               );
@@ -270,16 +278,19 @@ export function TestCallForm({
           />
         </label>
         {saveNumbers ? (
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
+          <ActionButton
+            variant="secondary-sm"
+            status={
+              saveNumbers.isPending && (saveNumbers.variables?.length ?? 0) > numbers.length ? "pending" : "idle"
+            }
+            pendingLabel="Saving…"
             disabled={
               !canWrite ||
               !loaded ||
               !typed ||
               isSaved ||
               numbers.length >= 10 ||
-              saveNumbers.isPending
+              (saveNumbers.isPending && (saveNumbers.variables?.length ?? 0) <= numbers.length)
             }
             title={
               isSaved
@@ -290,18 +301,19 @@ export function TestCallForm({
             }
             onClick={() => saveNumbers.mutate([...numbers, number])}
           >
-            {isSaved ? "Saved" : saveNumbers.isPending ? "Saving…" : "Save"}
-          </button>
+            {isSaved ? "Saved" : "Save"}
+          </ActionButton>
         ) : null}
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          disabled={!canWrite || !typed || call.isPending}
+        <ActionButton
+          variant="secondary-sm"
+          status={call.isPending ? "pending" : "idle"}
+          pendingLabel="Calling…"
+          disabled={!canWrite || !typed}
           title={refusal}
           onClick={() => call.mutate({ number, numberIsMine: mine })}
         >
-          {call.isPending ? "Calling…" : "Call me"}
-        </button>
+          Call me
+        </ActionButton>
       </div>
       <p className="mt-1 text-meta text-ink-muted">
         A number you call is saved for next time. Up to 10.
@@ -396,29 +408,29 @@ function OpeningTest({
         onChange={(e) => setText(e.target.value)}
       />
       <div className="mt-2 flex flex-wrap gap-2">
-        <button
-          type="button"
-          className={PRIMARY_BUTTON_SM}
+        <ActionButton
+          variant="primary-sm"
+          status={save.isPending && save.variables !== null ? "pending" : "idle"}
           disabled={
             !canWrite ||
             !text.trim() ||
             text.trim() === (data?.opening_b ?? "") ||
-            save.isPending
+            (save.isPending && save.variables === null)
           }
           title={refusal}
           onClick={() => save.mutate(text.trim())}
         >
           {running ? "Save opening" : "Start the test"}
-        </button>
+        </ActionButton>
         {running && (
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={!canWrite || save.isPending}
+          <ActionButton
+            variant="secondary-sm"
+            status={save.isPending && save.variables === null ? "pending" : "idle"}
+            disabled={!canWrite || (save.isPending && save.variables !== null)}
             onClick={() => save.mutate(null)}
           >
             Stop the test
-          </button>
+          </ActionButton>
         )}
       </div>
       {save.error != null && (
@@ -555,10 +567,11 @@ function CallUnansweredAgain({ slug, campaignId, canWrite, refusal, status }: Co
       hint="A new draft of only the people it never reached."
       info="Same script and settings. You start it when you are ready."
     >
-      <button
-        type="button"
-        className={PRIMARY_BUTTON_SM}
-        disabled={!canWrite || duplicate.isPending || held !== undefined}
+      <ActionButton
+        variant="primary-sm"
+        status={duplicate.isPending ? "pending" : "idle"}
+        pendingLabel="Making it…"
+        disabled={!canWrite || held !== undefined}
         title={refusal}
         onClick={() =>
           duplicate.mutate(
@@ -570,8 +583,8 @@ function CallUnansweredAgain({ slug, campaignId, canWrite, refusal, status }: Co
           )
         }
       >
-        {duplicate.isPending ? "Making it…" : "Make a draft for the unanswered"}
-      </button>
+        Make a draft for the unanswered
+      </ActionButton>
       {held && canWrite && <p className="mt-2 text-meta text-ink-muted">{held}</p>}
       {duplicate.error != null && (
         <p role="alert" className="mt-2 text-meta text-danger">

@@ -7,7 +7,7 @@
 
 import type { ReactNode } from "react";
 
-import { PRIMARY_BUTTON } from "@/components/ui";
+import { ActionButton } from "@/components/arc/feedback";
 
 export function PipGenerateBand({
   onGenerate,
@@ -65,15 +65,16 @@ export function PipGenerateBand({
       </div>
       <div className="flex shrink-0 flex-wrap items-center gap-3">
       {beside}
-      <button
-        type="button"
-        className={`${PRIMARY_BUTTON} shrink-0`}
-        disabled={disabled || busy}
+      <ActionButton
+        className="shrink-0"
+        status={busy ? "pending" : "idle"}
+        pendingLabel="Generating…"
+        disabled={disabled}
         title={reason ?? refusal}
         onClick={onGenerate}
       >
-        {busy ? "Generating…" : label}
-      </button>
+        {label}
+      </ActionButton>
       </div>
     </section>
   );

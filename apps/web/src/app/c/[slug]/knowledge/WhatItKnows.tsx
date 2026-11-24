@@ -636,9 +636,9 @@ function FactRow({
             // Wraps within itself on a phone: the kit buttons are as wide as their widest face.
             <div className="flex min-w-0 flex-wrap gap-1.5 sm:shrink-0">
               {ordering}
-              <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setEditing(true)} disabled={busy}>
+              <ActionButton variant="secondary-sm" onClick={() => setEditing(true)} disabled={busy}>
                 Edit
-              </button>
+              </ActionButton>
               <ActionButton
                 variant="secondary-sm"
                 status={editKind === "pin" ? editFeedback.status : "idle"}

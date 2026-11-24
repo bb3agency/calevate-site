@@ -13,8 +13,7 @@
 import { Play } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { problemToast, useActionFeedback } from "@/components/arc/feedback";
-import { SECONDARY_BUTTON_SM } from "@/components/ui";
+import { ActionButton, problemToast, useActionFeedback } from "@/components/arc/feedback";
 import type { WriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useClientVoiceTuning, useHearLine } from "@/lib/api/voiceTuning";
@@ -63,10 +62,11 @@ function Hear({ agent, language, line, access }: HearProps & { agent: FlowAgent 
   const left = tuning.data.previews_left_today;
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-2">
-      <button
-        type="button"
-        className={SECONDARY_BUTTON_SM}
-        disabled={!access.allowed || !line.trim() || hear.isPending || left === 0}
+      <ActionButton
+        variant="secondary-sm"
+        status={hear.isPending ? "pending" : "idle"}
+        pendingLabel="Speaking…"
+        disabled={!access.allowed || !line.trim() || left === 0}
         title={
           !access.allowed
             ? (access.reason ?? undefined)
@@ -88,8 +88,8 @@ function Hear({ agent, language, line, access }: HearProps & { agent: FlowAgent 
         }
       >
         <Play aria-hidden className="h-3.5 w-3.5" />
-        {hear.isPending ? "Speaking…" : `Hear it in ${agent.name}'s voice`}
-      </button>
+        {`Hear it in ${agent.name}'s voice`}
+      </ActionButton>
       {left != null && <span className="text-[11px] text-ink-faint">{left} samples left today</span>}
       {src && (
         // eslint-disable-next-line jsx-a11y/media-has-caption -- a spoken sample of the line written just above it

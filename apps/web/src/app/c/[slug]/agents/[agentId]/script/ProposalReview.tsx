@@ -26,6 +26,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ExpandableText } from "@/components/arc/expandable-text";
+import { ActionButton } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM, type NoticeTone } from "@/components/ui";
@@ -515,30 +516,33 @@ export function ProposalReview({
       {/* The one primary action stays in reach however long the list is. */}
       <div className="sticky bottom-0 -mx-1 space-y-2 border-t border-line bg-surface px-1 pb-1 pt-3">
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className={PRIMARY_BUTTON_SM}
+          <ActionButton
+            variant="primary-sm"
+            status={pending === "apply" ? "pending" : "idle"}
+            pendingLabel={editing ? "Saving…" : "Adding…"}
             disabled={
-              (editing ? touched.size === 0 : keptCount === 0) || tooMany || Boolean(gate) || pending !== null
+              (editing ? touched.size === 0 : keptCount === 0) || tooMany || Boolean(gate) || pending === "discard"
             }
             title={gate ?? undefined}
             onClick={add}
           >
             {editing
-              ? pending === "apply"
-                ? "Saving…"
-                : "Save changes"
-              : pending === "apply"
-              ? "Adding…"
+              ? "Save changes"
               : keptCount === offered && offered > 0
                 ? offered === 1
                   ? "Add it to my draft"
                   : `Add all ${offered} to my draft`
                 : `Add ${keptCount} of ${offered} to my draft`}
-          </button>
-          <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDiscard} disabled={pending !== null}>
-            {editing ? "Close" : pending === "discard" ? "Discarding…" : "Discard"}
-          </button>
+          </ActionButton>
+          <ActionButton
+            variant="secondary-sm"
+            status={pending === "discard" ? "pending" : "idle"}
+            pendingLabel={editing ? "Close" : "Discarding…"}
+            onClick={onDiscard}
+            disabled={pending === "apply"}
+          >
+            {editing ? "Close" : "Discard"}
+          </ActionButton>
         </div>
         {gate && <p className="text-meta text-ink-muted">{gate}</p>}
         {tooMany && (

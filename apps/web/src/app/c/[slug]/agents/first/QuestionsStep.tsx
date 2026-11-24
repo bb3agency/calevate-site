@@ -4,7 +4,6 @@ import { useId, useState } from "react";
 import { ArrowRight, Clock, MapPin, Plus, RotateCw, SkipForward, Sparkles, X } from "lucide-react";
 
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
-import { TEXT_ACTION } from "@/components/console/section";
 import {
   FIELD,
   FIELD_INLINE,
@@ -76,6 +75,10 @@ export function QuestionsStep({
   const question = questions[at] ?? null;
   const pending = answer.isPending || retry.isPending;
   const status: FeedbackStatus = pending ? "pending" : answerFeedback.status === "error" ? "error" : "idle";
+  // Which press on the last question started the save, so only that button spins.
+  const [pressed, setPressed] = useState<"next" | "skip" | "rest">("next");
+  const faceFor = (button: "next" | "skip" | "rest"): FeedbackStatus =>
+    pressed === button ? status : "idle";
 
   const finish = async (keep: ReadonlySet<string>, drafts: Readonly<Record<string, DraftAnswer>> = answers) => {
     const sent = answersBody(
@@ -178,18 +181,37 @@ export function QuestionsStep({
           )}
         </>
       }
-      status={status}
-      onSubmit={() => next(true)}
+      status={faceFor("next")}
+      onSubmit={() => {
+        setPressed("next");
+        next(true);
+      }}
       aside={
         <>
-          <button type="button" className={TEXT_ACTION} disabled={pending} onClick={() => next(false)}>
+          <ActionButton
+            variant="text"
+            status={faceFor("skip")}
+            disabled={pending && pressed !== "skip"}
+            onClick={() => {
+              setPressed("skip");
+              next(false);
+            }}
+          >
             <SkipForward aria-hidden className="h-4 w-4" />
             Skip this question
-          </button>
+          </ActionButton>
           {last ? null : (
-            <button type="button" className={TEXT_ACTION} disabled={pending} onClick={() => go(kept)}>
+            <ActionButton
+              variant="text"
+              status={faceFor("rest")}
+              disabled={pending && pressed !== "rest"}
+              onClick={() => {
+                setPressed("rest");
+                go(kept);
+              }}
+            >
               Skip the rest
-            </button>
+            </ActionButton>
           )}
         </>
       }

@@ -92,7 +92,6 @@ export function CallerHelpSuggestion({ agent }: { agent: Agent }) {
 
   const reason = screen ? data.screen_guide.reason : data.give_time.reason;
   const label = screen && time ? "Turn both on" : screen ? "Guide them on screen" : "Give them time";
-  const busy = turnOn.isPending || notNow.isPending;
   return (
     <NoticeBox
       tone="info"
@@ -123,22 +122,21 @@ export function CallerHelpSuggestion({ agent }: { agent: Agent }) {
           <ActionButton
             variant="primary-sm"
             status={turnOnFeedback.status}
-            disabled={busy}
+            disabled={notNow.isPending}
             onClick={() => turnOnFeedback.run({ screenGuide: screen, giveTime: time })}
             pendingLabel="Turning on…"
             successLabel="On"
           >
             {label}
           </ActionButton>
-          <button
-            type="button"
-            disabled={busy}
-            aria-busy={notNow.isPending || undefined}
-            className="text-meta font-medium text-ink-muted underline underline-offset-2 hover:text-ink disabled:opacity-60"
+          <ActionButton
+            variant="text"
+            status={notNowFeedback.status}
+            disabled={turnOn.isPending}
             onClick={() => notNowFeedback.run()}
           >
             Not now
-          </button>
+          </ActionButton>
         </div>
       }
     >

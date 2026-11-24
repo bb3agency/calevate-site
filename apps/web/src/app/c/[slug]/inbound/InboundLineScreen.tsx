@@ -17,7 +17,7 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 
-import { useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
 import { InlineEdit } from "@/components/arc/inline-edit";
 import { ConfirmDialog } from "@/components/confirmDialog";
@@ -27,7 +27,6 @@ import { StatusPill } from "@/components/console/statusPill";
 import {
   FIELD,
   FIELD_LABEL,
-  PRIMARY_BUTTON,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
@@ -156,15 +155,16 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
         status={<LineStatusPill line={data} />}
         actions={
           lineState(data) === "not_live" || awaitsPutLive ? (
-            <button
-              type="button"
-              className={PRIMARY_BUTTON}
-              disabled={!write.allowed || publish.isPending}
+            <ActionButton
+              status={publishFeedback.status}
+              pendingLabel="Putting it live…"
+              successLabel="Live"
+              disabled={!write.allowed}
               title={refusal}
               onClick={() => publishFeedback.run(undefined)}
             >
-              {publish.isPending ? "Putting it live…" : "Put it live"}
-            </button>
+              Put it live
+            </ActionButton>
           ) : undefined
         }
       />
@@ -270,19 +270,20 @@ function MainTaskSection({ line, canWrite, refusal }: Props) {
             onChange={(e) => setText(e.target.value)}
           />
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className={PRIMARY_BUTTON_SM}
-              disabled={!canWrite || !text.trim() || !dirty || save.isPending}
+            <ActionButton
+              variant="primary-sm"
+              status={save.isPending ? "pending" : "idle"}
+              pendingLabel="Saving…"
+              disabled={!canWrite || !text.trim() || !dirty}
               title={refusal}
               onClick={() => save.mutate({ main_task: text }, { onSuccess: () => setEditing(false) })}
             >
-              {save.isPending ? "Saving…" : "Save"}
-            </button>
+              Save
+            </ActionButton>
             {line.main_task.trim() !== "" && (
-              <button type="button" className={SECONDARY_BUTTON_SM} disabled={save.isPending} onClick={cancel}>
+              <ActionButton variant="secondary-sm" disabled={save.isPending} onClick={cancel}>
                 Cancel
-              </button>
+              </ActionButton>
             )}
           </div>
           {save.error != null && (
@@ -726,10 +727,11 @@ function NumbersSection({
               <p className="text-meta text-ink-muted [overflow-wrap:anywhere]">It moves from {movesFrom}.</p>
             )}
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className={PRIMARY_BUTTON_SM}
-                disabled={!canWrite || !chosen || assign.isPending}
+              <ActionButton
+                variant="primary-sm"
+                status={assign.isPending ? "pending" : "idle"}
+                pendingLabel="Adding…"
+                disabled={!canWrite || !chosen}
                 title={refusal}
                 onClick={() =>
                   assign.mutate(chosen, {
@@ -740,11 +742,10 @@ function NumbersSection({
                   })
                 }
               >
-                {assign.isPending ? "Adding…" : movesFrom ? "Move it here" : "Add it"}
-              </button>
-              <button
-                type="button"
-                className={SECONDARY_BUTTON_SM}
+                {movesFrom ? "Move it here" : "Add it"}
+              </ActionButton>
+              <ActionButton
+                variant="secondary-sm"
                 disabled={assign.isPending}
                 onClick={() => {
                   assign.reset();
@@ -752,7 +753,7 @@ function NumbersSection({
                 }}
               >
                 Cancel
-              </button>
+              </ActionButton>
             </div>
             {feedback.error != null && <ProblemNotice error={feedback.error} />}
           </div>

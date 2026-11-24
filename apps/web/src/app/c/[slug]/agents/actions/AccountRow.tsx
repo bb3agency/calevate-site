@@ -11,6 +11,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { ActionButton } from "@/components/arc/feedback";
 import { SettingRow } from "@/components/console/settingRow";
 import { TEXT_ACTION } from "@/components/console/section";
 import { ServiceLogo } from "@/components/console/serviceLogo";
@@ -91,15 +92,16 @@ export function AccountRow({
   const oauth = isOAuth(kind);
   const available = !oauth || status.data?.[kind] === true;
   const connectButton = oauth ? (
-    <button
-      type="button"
-      className={TEXT_ACTION}
-      disabled={!available || connect.isPending || !connectAccess.allowed}
+    <ActionButton
+      variant="text"
+      status={connect.isPending ? "pending" : "idle"}
+      pendingLabel="Opening…"
+      disabled={!available || !connectAccess.allowed}
       title={connectAccess.reason ?? undefined}
       onClick={() => signIn(kind)}
     >
-      {connect.isPending ? "Opening…" : mine.length ? "Connect another account" : `Connect ${service}`}
-    </button>
+      {mine.length ? "Connect another account" : `Connect ${service}`}
+    </ActionButton>
   ) : (
     <Link className={TEXT_ACTION} href={href(`/c/${session.orgSlug}/integrations`)}>
       Add one on Integrations

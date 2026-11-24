@@ -25,9 +25,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { ConfirmDialog } from "@/components/confirmDialog";
-import type { ActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, type ActionFeedback } from "@/components/arc/feedback";
 import {
-  PRIMARY_BUTTON_SM,
   SECONDARY_BUTTON_SM,
   ScrollRegion,
   formatIST,
@@ -276,15 +275,16 @@ export function CampaignFlow({
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {dirty && (
           <>
-            <button
-              type="button"
-              className={PRIMARY_BUTTON_SM}
-              disabled={saving || issues.length > 0}
+            <ActionButton
+              variant="primary-sm"
+              status={saving ? "pending" : "idle"}
+              pendingLabel="Saving…"
+              disabled={issues.length > 0}
               title={issues[0]?.message}
               onClick={() => void onSave(draft)}
             >
-              {saving ? "Saving…" : "Save flow"}
-            </button>
+              Save flow
+            </ActionButton>
             <button
               type="button"
               className={SECONDARY_BUTTON_SM}

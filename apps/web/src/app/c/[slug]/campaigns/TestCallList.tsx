@@ -17,7 +17,7 @@ import { useState } from "react";
 
 import { CallAudioPlayer } from "@/components/callAudioPlayer";
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice, SECONDARY_BUTTON_SM, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import {
@@ -151,15 +151,15 @@ function TestCallRow({
         </span>
         <span className="ml-auto flex flex-wrap items-center gap-2">
           {call.has_recording && !link.data && (
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={link.isPending}
+            <ActionButton
+              variant="secondary-sm"
+              status={link.isPending ? "pending" : "idle"}
+              pendingLabel="Opening…"
               onClick={() => link.mutate()}
             >
               <Play aria-hidden className="h-3.5 w-3.5" />
-              {link.isPending ? "Opening…" : "Play recording"}
-            </button>
+              Play recording
+            </ActionButton>
           )}
           {live && (
             <button
