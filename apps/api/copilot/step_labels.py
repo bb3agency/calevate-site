@@ -116,6 +116,9 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "follow_up_resume": _l("Turning the Follow-up on", "Turned the Follow-up on"),
     "follow_up_turn_off": _l("Turning the Follow-up off", "Turned the Follow-up off"),
     "follow_up_start": _l("Planning who to start", "Planned who to start"),
+    "follow_up_campaign_whatsapp": _l(
+        "Setting up the WhatsApp follow-up", "Set up the WhatsApp follow-up"
+    ),
     "knowledge_note_save": _l("Saving a note", "Saved a note"),
     "number_buy": _l("Buying the number", "Bought the number"),
     "number_release": _l("Releasing the number", "Released the number"),

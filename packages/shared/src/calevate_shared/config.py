@@ -1894,6 +1894,10 @@ class Settings(BaseSettings):
     #: (`settings.max_days`), the longest wait step, and how far before or after a lead's
     #: date it may start.
     follow_up_max_days: int = Field(default=30, ge=1, le=FOLLOW_UP_DAYS_CEILING)
+    #: How long after a campaign's call ends its WhatsApp follow-up sends, as the card sets
+    #: it up (`follow_ups/campaign_whatsapp`). 0 sends at once; the owner can change the
+    #: wait on the Follow-up afterwards.
+    campaign_whatsapp_follow_up_wait_minutes: int = Field(default=10, ge=0, le=1440)
     #: The most calls one campaign may ask to have at once (its slider).
     campaign_max_concurrency: int = Field(default=10, ge=1, le=CAMPAIGN_CONCURRENCY_CEILING)
     #: The most tries a campaign may make per person (D-773).

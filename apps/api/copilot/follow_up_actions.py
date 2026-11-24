@@ -13,6 +13,8 @@ declares), each calling the function its route calls (`follow_ups/service.py`):
   (`definition.parse_steps`, `shape_problems`, `service.problems_of`) and refuses with every
   problem, so Pip fixes the call before the person sees a card. An id the account does not
   have is one of those problems, which is what stops an invented agent or template.
+* `follow_up_campaign_whatsapp` — a campaign's WhatsApp follow-up, written by Pip and saved
+  off: the campaign card's button, through the same `follow_ups/campaign_whatsapp.set_up`.
 * `follow_up_publish`, `follow_up_pause`, `follow_up_resume`, `follow_up_turn_off`. Pause and
   resume undo each other through the activity log; turning off stops the runs going, which
   no inverse brings back, and a published version is permanent, so neither has an Undo.
@@ -75,7 +77,8 @@ _NEEDS: Final = {
 _FORMAT: Final = (
     "How to write one (follow_up_draft):\n"
     'trigger: {"kind":"new_lead","source_ids":null} | {"kind":"call_ended","agent_ids":null,'
-    '"calls":"inbound|outbound|both","outcomes":["missed"]} | {"kind":"manual"} | '
+    '"campaign_ids":null,"calls":"inbound|outbound|both","outcomes":["missed"]} | '
+    '{"kind":"manual"} | '
     '{"kind":"lead_date","field":"visit_date","offset_days":-1,"at":"10:00"}; any may add '
     '"only_if":{"lead_status":[...],"source_ids":[...] (new_lead only),'
     '"field":{"key":"...","equals":"..."}}.\n'
@@ -904,6 +907,101 @@ FOLLOW_UP_START: Final = plans.set_action_tool(
 )
 
 
+# --- a campaign's WhatsApp follow-up (confirm) ---------------------------------------
+
+
+class _CampaignArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    campaign_id: UUID
+
+
+async def _plan_campaign_whatsapp(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Plan:
+    del actor
+    from apps.api.crm.swipe import connected_account
+    from apps.api.follow_ups import campaign_whatsapp as cw
+
+    campaign_id = parse_args(_CampaignArgs, args).campaign_id
+    name = (
+        await session.execute(
+            text("SELECT name FROM campaigns WHERE id = :cid AND archived_at IS NULL"),
+            {"cid": campaign_id},
+        )
+    ).scalar()
+    if name is None:
+        raise WriteRefusedError("`campaign_id` is not a campaign of this account; see campaigns")
+    card = await cw.card(session, campaign_id)
+    if card.phase == "writing":
+        raise WriteRefusedError(
+            "Pip is already writing this campaign's WhatsApp follow-up",
+            plain="Pip is already writing it; it shows on the campaign's Improve tab soon.",
+        )
+    if card.made is not None and card.made.message_status in ("approved", "pending"):
+        raise WriteRefusedError(
+            f"this campaign already has its WhatsApp follow-up [{card.made.id}], "
+            f"{_STATUS_WORDS.get(card.made.status, card.made.status)}; read it with "
+            "follow_up_read, or turn it on with follow_up_publish",
+            plain="This campaign already has its WhatsApp follow-up, on its Improve tab.",
+        )
+    if await connected_account(session) is None:
+        raise WriteRefusedError(
+            "WhatsApp is not connected, so there is nothing to send it from; tell the person "
+            "to connect WhatsApp on the WhatsApp screen first",
+            plain="Connect WhatsApp first, then ask again.",
+        )
+    again = card.made is not None
+    return Plan(
+        object_id=str(campaign_id),
+        title="Set up a WhatsApp follow-up" if not again else "Rewrite a WhatsApp follow-up",
+        summary=(
+            f"Pip writes a WhatsApp message from “{_clean(str(name))}”'s main task and "
+            "knowledge, for people whose call did not finish or who asked for details, and "
+            "sends it to WhatsApp for approval. It is saved off: nothing is sent until it is "
+            "turned on on the campaign's Improve tab."
+        ),
+        current="Written by Pip earlier, turned down by WhatsApp" if again else None,
+        proposed="A follow-up for this campaign, off until turned on",
+        cost="Uses your AI allowance.",
+        reversal="Nothing is sent while it is off; it can be edited or turned off at any time.",
+        args={"campaign_id": str(campaign_id)},
+    )
+
+
+async def _execute_campaign_whatsapp(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Executed:
+    from apps.api.follow_ups import campaign_whatsapp as cw
+
+    campaign_id = parse_args(_CampaignArgs, args).campaign_id
+    card = await cw.set_up(session, tenant_id=actor.tenant_id, campaign_id=campaign_id)
+    return Executed(
+        applied=True,
+        detail="Pip is writing the message. It shows on the campaign's Improve tab, off until "
+        "you turn it on.",
+        audit_summary={"campaign_id": str(campaign_id), "phase": card.phase},
+    )
+
+
+FOLLOW_UP_CAMPAIGN_WHATSAPP: Final = ActionTool(
+    name="follow_up_campaign_whatsapp",
+    tier="confirm",
+    undo=None,
+    permission=_PERMISSION,
+    object_type="campaign",
+    audit_action="campaign.whatsapp_follow_up_requested",
+    where="on the campaign's Improve tab",
+    schema=action_schema(
+        "follow_up_campaign_whatsapp",
+        "A WhatsApp after a campaign's calls, Pip-written, saved off." + PROPOSES_ONLY,
+        {"campaign_id": {"type": "string"}},
+    ),
+    plan=_plan_campaign_whatsapp,
+    execute=_execute_campaign_whatsapp,
+)
+
+
 #: Appended to `WRITE_TOOLS` in this order (wire order).
 FOLLOW_UP_ACTIONS: Final[tuple[ActionTool, ...]] = (
     FOLLOW_UP_DRAFT,
@@ -912,6 +1010,7 @@ FOLLOW_UP_ACTIONS: Final[tuple[ActionTool, ...]] = (
     FOLLOW_UP_RESUME,
     FOLLOW_UP_TURN_OFF,
     FOLLOW_UP_START,
+    FOLLOW_UP_CAMPAIGN_WHATSAPP,
 )
 #: Composed into the CLIENT realm's reads only (`service.realm_read_tools`), like the screen.
 FOLLOW_UP_READS: Final[tuple[ReadTool, ...]] = (FOLLOW_UPS_LIST, FOLLOW_UP_READ)
@@ -919,6 +1018,7 @@ FOLLOW_UP_READS: Final[tuple[ReadTool, ...]] = (FOLLOW_UPS_LIST, FOLLOW_UP_READ)
 __all__ = [
     "FOLLOW_UPS_LIST",
     "FOLLOW_UP_ACTIONS",
+    "FOLLOW_UP_CAMPAIGN_WHATSAPP",
     "FOLLOW_UP_DRAFT",
     "FOLLOW_UP_PAUSE",
     "FOLLOW_UP_PUBLISH",

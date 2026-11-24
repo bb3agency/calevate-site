@@ -44,6 +44,8 @@ STARTER_KEYS = (
     "appointment_reminder",
     "payment_reminder",
     "win_back",
+    # Made by a campaign's "Follow up on WhatsApp" card (`follow_ups/campaign_whatsapp`).
+    "campaign_whatsapp",
 )
 MAX_NAME_CHARS = 80
 
@@ -75,6 +77,13 @@ class FollowUp(PKMixin, TimestampMixin, Base):
             unique=True,
             postgresql_where=text("starter = 'call_new_leads'"),
         ),
+        # One WhatsApp follow-up per campaign: a double press or a retried job reuses it.
+        Index(
+            "uq_follow_ups_campaign_whatsapp",
+            "campaign_id",
+            unique=True,
+            postgresql_where=text("starter = 'campaign_whatsapp' AND campaign_id IS NOT NULL"),
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -82,6 +91,11 @@ class FollowUp(PKMixin, TimestampMixin, Base):
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="draft")
+    #: The campaign whose card made it (starter `campaign_whatsapp`), so the card finds it.
+    #: Which calls start it is the trigger's `campaign_ids`, frozen on each version.
+    campaign_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("campaigns.id", ondelete="SET NULL")
+    )
     #: What starts a run, as being edited. Runs read the frozen copy on their version.
     trigger: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     settings: Mapped[dict[str, Any]] = mapped_column(

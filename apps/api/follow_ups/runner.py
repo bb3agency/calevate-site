@@ -1476,7 +1476,8 @@ async def start_for_call(session: AsyncSession, *, tenant_id: UUID, call_id: UUI
             text(
                 "SELECT direction, agent_id, lead_id, from_e164, to_e164, outcome_tag, "
                 "business_outcome, trial_call OR paid_test_call OR forwarding_test_id IS NOT NULL, "
-                "caller_id_hidden, (SELECT l.phone_e164 FROM leads l WHERE l.id = c.lead_id) "
+                "caller_id_hidden, (SELECT l.phone_e164 FROM leads l WHERE l.id = c.lead_id), "
+                "campaign_id "
                 "FROM calls c WHERE id = :cid AND NOT EXISTS (SELECT 1 FROM follow_up_runs r "
                 "WHERE r.last_call_id = c.id OR r.waiting_call_id = c.id) AND NOT EXISTS ("
                 "SELECT 1 FROM scheduled_callbacks s WHERE s.last_call_id = c.id AND "
@@ -1505,6 +1506,10 @@ async def start_for_call(session: AsyncSession, *, tenant_id: UUID, call_id: UUI
             continue
         if trigger.agent_ids is not None and (
             call[1] is None or UUID(str(call[1])) not in trigger.agent_ids
+        ):
+            continue
+        if trigger.campaign_ids is not None and (
+            call[10] is None or UUID(str(call[10])) not in trigger.campaign_ids
         ):
             continue
         if trigger.outcomes is not None and not keys & set(trigger.outcomes):

@@ -184,6 +184,13 @@ class Campaign(PKMixin, TimestampMixin, Base):
     step_outcomes_state: Mapped[str | None] = mapped_column(Text)
     step_outcomes_inputs: Mapped[str | None] = mapped_column(Text)
     step_outcomes_at: Mapped[datetime | None]
+    #: Pip writing this campaign's WhatsApp follow-up (D-1041, `follow_ups/campaign_whatsapp`)
+    #: as an agent pass; the answer is the Follow-up and its message. `_error` is the short
+    #: code of why the last pass made nothing. Migration e7c3a9f15b42 holds the CHECKs.
+    whatsapp_follow_up_state: Mapped[str | None] = mapped_column(Text)
+    whatsapp_follow_up_inputs: Mapped[str | None] = mapped_column(Text)
+    whatsapp_follow_up_at: Mapped[datetime | None]
+    whatsapp_follow_up_error: Mapped[str | None] = mapped_column(Text)
     #: Pip's repair of the script's lines the script checks fault (`agents/script_heal`), as
     #: an agent pass: its state, when, and the md5 of the script it last checked. The CHECKs
     #: on them are migration a6d2f8c4e1b7's.

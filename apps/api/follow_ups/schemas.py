@@ -24,6 +24,9 @@ StarterKey = Literal[
     "payment_reminder",
     "win_back",
 ]
+#: What a Follow-up was made from: a starter, or a campaign's WhatsApp card, which only
+#: `follow_ups/campaign_whatsapp` makes (it is not a starter a person can pick).
+MadeFrom = StarterKey | Literal["campaign_whatsapp"]
 
 
 # Every step in an answer also carries `summary`, one plain line the screen and Pip show.
@@ -102,7 +105,7 @@ class FollowUpOut(_Strict):
     id: UUID
     name: str
     status: FollowUpStatus
-    starter: StarterKey | None
+    starter: MadeFrom | None
     trigger: d.Trigger
     settings: d.Settings
     #: The draft if there is one, else the live version's steps.
@@ -121,7 +124,7 @@ class FollowUpSummaryOut(_Strict):
     id: UUID
     name: str
     status: FollowUpStatus
-    starter: StarterKey | None
+    starter: MadeFrom | None
     trigger: d.Trigger
     #: What starts it, as one plain line.
     starts_when: str

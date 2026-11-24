@@ -139,6 +139,12 @@ _FOLLOW_UP = BoundedByConstruction(
         "a decide step's branches at most `definition.MAX_OUTCOMES`."
     )
 )
+_CAMPAIGN_WHATSAPP = BoundedByConstruction(
+    by=(
+        "ONE campaign's WhatsApp follow-up: its outcomes are its trigger's, at most "
+        "`follow_ups/definition.MAX_OUTCOMES`."
+    )
+)
 _FOLLOW_UP_RUN = BoundedByConstruction(
     by=(
         "ONE run's events: a few per step and per call try, so at most "
@@ -210,6 +216,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/ops/call-mistakes": _CALL_MISTAKES,
     "POST /v1/follow-ups": _FOLLOW_UP,
     "GET /v1/follow-ups/{follow_up_id}": _FOLLOW_UP,
+    # D-1041: the campaign card's one Follow-up; its list is the trigger's outcomes.
+    "GET /v1/campaigns/{campaign_id}/whatsapp-follow-up": _CAMPAIGN_WHATSAPP,
+    "POST /v1/campaigns/{campaign_id}/whatsapp-follow-up": _CAMPAIGN_WHATSAPP,
+    "POST /v1/campaigns/{campaign_id}/whatsapp-follow-up/switch": _CAMPAIGN_WHATSAPP,
     "PATCH /v1/follow-ups/{follow_up_id}": _FOLLOW_UP,
     "PUT /v1/follow-ups/{follow_up_id}/draft": _FOLLOW_UP,
     "POST /v1/follow-ups/{follow_up_id}/publish": _FOLLOW_UP,
