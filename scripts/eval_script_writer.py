@@ -633,13 +633,6 @@ def spoken_meanings(tag: str) -> frozenset[str]:
     )
 
 
-def _register_review() -> str:
-    """Each language pack's review state, so a reader knows the word lists are drafts until a
-    founder approves them."""
-    packs = [(tag, language_pack(tag)) for tag in ("te-IN", "hi-IN")]
-    return ", ".join(f"{tag} pack {p.review}" for tag, p in packs if p is not None) or "none"
-
-
 def register_in_line(rec: Recorded, case: Case) -> list[str]:
     """What a Telugu or Hindi line says that callers do not: a word said again in brackets
     (24 Nov call: a button name in Telugu letters, then in English in brackets), a textbook
@@ -954,7 +947,8 @@ def report_markdown(
         f"- Structural checks passed: {s['structural_score']}% "
         f"({s['structural_findings']} findings)",
         f"- Lints passed: {s['lint_score']}% ({s['lint_findings']} findings)",
-        f"- Register data `register_in_line` reads: {_register_review()}",
+        "- Register data `register_in_line` reads: the spoken-style word lists in force in this "
+        "process (the founder's published layer where it is installed, the file otherwise)",
         "",
         "## Per case",
         "",
