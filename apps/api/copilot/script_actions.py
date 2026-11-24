@@ -565,21 +565,18 @@ SCRIPT_DRAFT: Final = ActionTool(
     where="on the Inbound line's or campaign's own page, as a draft to review",
     schema=action_schema(
         "script_draft",
-        "Rewrite what an Inbound line or campaign says: its own script writer makes a new "
-        "draft from the person's request, which waits on that page for them to review and "
-        "keep. The only way to change a script; a script you read is the current wording, "
-        "never changes." + PROPOSES_ONLY,
+        "Rewrite what an Inbound line or campaign says: its script writer drafts it from the "
+        "person's request, to review and keep on that page. The only way to change a script."
+        + PROPOSES_ONLY,
         {
             "agent_id": {
                 "anyOf": [{"type": "string"}, {"type": "null"}],
-                "description": "The agent, only when the person named it and not the line "
-                "or campaign; ignored when `holder_id` is given.",
+                "description": "The agent, only when no line or campaign is named.",
             },
             "holder_id": {
                 "anyOf": [{"type": "string"}, {"type": "null"}],
-                "description": "Inbound line or campaign id, from SCREEN STATE, "
-                "`campaigns_list` or `agent_settings` part script; null when the agent has "
-                "one.",
+                "description": "Inbound line or campaign id (SCREEN STATE or "
+                "`campaigns_list`); null when the agent has one.",
             },
             "instruction": {
                 "anyOf": [{"type": "string"}, {"type": "null"}],

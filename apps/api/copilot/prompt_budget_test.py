@@ -37,8 +37,10 @@ from apps.api.copilot.schemas import (
 #: and A7-19's call-line request and dead-letter reads with the raise and decline actions
 #: (measured 10,951 on the account surface, 6,672 on the console one), and both lenses'
 #: `inbound_line_id` (D-1006, 40 tokens: measured 11,040), which lets Pip narrow calls and
-#: leads to one Inbound line as it already does to one campaign.
-PREFIX_BUDGET_TOKENS = {"client": 17_500, "admin_account": 11_050, "admin_console": 6_700}
+#: leads to one Inbound line as it already does to one campaign. The client prefix carries
+#: the rule that a script is always rewritten through script_draft (founder, 24 Nov 2026,
+#: after Pip told an owner it could not; measured 17,521).
+PREFIX_BUDGET_TOKENS = {"client": 17_550, "admin_account": 11_050, "admin_console": 6_700}
 
 #: The client tool array alone (PIP-AGENT-PLAN §2a): every read and action of every area.
 TOOL_ARRAY_BUDGET_TOKENS = 12_000
