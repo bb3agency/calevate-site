@@ -195,9 +195,16 @@ function normalise(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+/**
+ * A detail that names an id, or is a bare "Agent not found" title, is machinery rather than
+ * something a person can act on. The server writes step details in plain words
+ * (`copilot/id_kinds.problem_plain`); this keeps one that slips through off the screen.
+ */
+const MACHINE_DETAIL = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|^[A-Z][a-z -]* not found\.?$/i;
+
 /** The detail, unless the answer or an earlier step already said it. Records what it shows. */
 function freshDetail(detail: string | null | undefined, shown: Set<string>): string | null {
-  if (!detail) return null;
+  if (!detail || MACHINE_DETAIL.test(detail.trim())) return null;
   const key = normalise(detail);
   if (key === "") return null;
   for (const seen of shown) if (seen.includes(key)) return null;

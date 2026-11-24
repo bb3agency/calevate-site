@@ -34,10 +34,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import test_conversations, test_fixes
-from apps.api.agents.jobs import agent_jobs
 from apps.api.agents.mistake_fixes import Holder
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import workspace as campaign_workspace
+from apps.api.copilot import id_kinds
 from apps.api.copilot.actions import (
     PROPOSES_ONLY,
     ActionTool,
@@ -307,49 +307,112 @@ def _page_of(holder: _DraftHolder) -> str:
     return "Inbound" if holder.kind == "inbound_line" else "Campaigns"
 
 
+#: Every line and campaign that speaks for an agent and can take a draft: any status but
+#: archived, because `request_proposal` refuses only an archived one. Not `agents/jobs.
+#: agent_jobs`, which lists only campaigns that can still run: a cancelled campaign is not a
+#: job, but its script can still be rewritten (founder, 24 Nov 2026).
+_AGENT_HOLDERS_SQL: Final = (
+    "SELECT kind, id, name, status FROM ("
+    "SELECT 'inbound_line' AS kind, id, name, "
+    "CASE WHEN published_at IS NULL THEN 'draft' ELSE 'live' END AS status, created_at "
+    "FROM inbound_lines WHERE agent_id = :aid AND archived_at IS NULL "
+    "UNION ALL SELECT 'campaign', id, name, status, created_at FROM campaigns "
+    "WHERE agent_id = :aid AND archived_at IS NULL) AS h "
+    "ORDER BY kind DESC, created_at DESC, id LIMIT :limit"
+)
+_MAX_HOLDERS_LISTED: Final = 25
+
+
+def _not_a_holder(argument: str, found: id_kinds.Found | None) -> WriteRefusedError:
+    """The refusal for an id that is neither a usable line or campaign nor an agent."""
+    if found is None:
+        return WriteRefusedError(
+            f"`{argument}` names nothing in this account. Do not reuse it: take the Inbound "
+            "line's or campaign's id from SCREEN STATE or `campaigns_list` as `holder_id`, "
+            "or the agent's from `agents_list` as `agent_id`, and call again",
+            plain=id_kinds.WRONG_ITEM_PLAIN,
+        )
+    if found.kind.key in ("campaign", "inbound_line") and found.archived:
+        return WriteRefusedError(
+            f"`{argument}` is {id_kinds.describe(found)}; an archived one cannot be changed, "
+            "so tell the person to restore it first",
+            plain=f"That {found.kind.noun} is archived. Restore it first.",
+        )
+    return WriteRefusedError(
+        f"`{argument}` is {id_kinds.describe(found)}, not an agent, Inbound line or "
+        "campaign. Pass the Inbound line's or campaign's id as `holder_id`, or the agent's "
+        "as `agent_id`, and call again",
+        plain=id_kinds.WRONG_ITEM_PLAIN,
+    )
+
+
+async def _holder_row(session: AsyncSession, holder_id: UUID) -> _DraftHolder | None:
+    row = (await session.execute(text(_HOLDER_SQL), {"hid": holder_id})).first()
+    if row is None:
+        return None
+    return _DraftHolder(kind=row.kind, id=row.id, name=str(row.name), agent_id=row.agent_id)
+
+
+async def _agents_holder(session: AsyncSession, agent_id: UUID) -> _DraftHolder:
+    """The agent's only line or campaign; with several, the person is asked which, by name."""
+    rows = (
+        await session.execute(
+            text(_AGENT_HOLDERS_SQL), {"aid": agent_id, "limit": _MAX_HOLDERS_LISTED}
+        )
+    ).all()
+    if not rows:
+        raise WriteRefusedError(
+            "this agent has no Inbound line or campaign, and what a call says is written on "
+            "one; tell the person to give the agent one on Inbound or Campaigns first",
+            plain="This agent has no Inbound line or campaign yet.",
+        )
+    if len(rows) > 1:
+        names = "; ".join(
+            f"{'Inbound line' if r.kind == 'inbound_line' else 'campaign'} "
+            f"“{strip_invisible(str(r.name))}” ({r.status}, id {r.id})"
+            for r in rows
+        )
+        raise WriteRefusedError(
+            "this agent works on several Inbound lines and campaigns, each with its own "
+            "script; if the person's words already name one of these, call again with its "
+            "`holder_id`, otherwise ask the person which one to rewrite, then call again "
+            f"with its `holder_id`: {names}",
+            plain="Which Inbound line or campaign should be rewritten?",
+        )
+    only = rows[0]
+    return _DraftHolder(kind=only.kind, id=only.id, name=str(only.name), agent_id=agent_id)
+
+
 async def _draft_holder(session: AsyncSession, parsed: _DraftArgs) -> _DraftHolder:
-    """The named line or campaign (RLS scopes the read to this account), or the agent's only
-    one; with several and none named, the person is asked which, by name."""
+    """The named line or campaign (RLS scopes every read to this account), or the agent's
+    only one; with several and none named, the person is asked which, by name.
+
+    An id in the other slot is used where it belongs rather than refused: a campaign's id
+    passed as `agent_id` was refused as "Agent not found" and the run gave up (founder,
+    24 Nov 2026), on a request whose campaign was never in doubt."""
     if parsed.holder_id is not None:
-        row = (await session.execute(text(_HOLDER_SQL), {"hid": parsed.holder_id})).first()
-        if row is None:
-            raise WriteRefusedError(
-                "`holder_id` is not an Inbound line or campaign of this account; use an id "
-                "from SCREEN STATE, `campaigns_list` or `agent_settings` part script",
-                plain="That Inbound line or campaign was not found.",
-            )
-        # The line or campaign names its own agent, and the script belongs to it, so an
-        # `agent_id` beside it is ignored rather than checked: a model that paired the right
-        # campaign with the account's other agent was refused, retried and gave up (founder,
-        # 24 Nov 2026), on a request that was never ambiguous.
-        return _DraftHolder(kind=row.kind, id=row.id, name=str(row.name), agent_id=row.agent_id)
+        holder = await _holder_row(session, parsed.holder_id)
+        if holder is not None:
+            # The line or campaign names its own agent, and the script belongs to it, so an
+            # `agent_id` beside it is ignored rather than checked.
+            return holder
+        found = await id_kinds.identify(session, parsed.holder_id)
+        if found is None or found.kind.key != "agent":
+            raise _not_a_holder("holder_id", found)
+        return await _agents_holder(session, parsed.holder_id)
     if parsed.agent_id is None:
         raise WriteRefusedError(
             "name the Inbound line or campaign (`holder_id`) or the agent (`agent_id`) whose "
             "script the person wants rewritten",
             plain="Which Inbound line or campaign should be rewritten?",
         )
-    jobs = (await agent_jobs(session, parsed.agent_id)).jobs
-    if not jobs:
-        raise WriteRefusedError(
-            "this agent has no Inbound line or campaign, and what a call says is written on "
-            "one; tell the person to give the agent one on Inbound or Campaigns first",
-            plain="This agent has no Inbound line or campaign yet.",
-        )
-    if len(jobs) > 1:
-        names = "; ".join(
-            f"{'Inbound line' if j.kind == 'inbound_line' else 'campaign'} "
-            f"“{strip_invisible(j.name)}” (id {j.id})"
-            for j in jobs
-        )
-        raise WriteRefusedError(
-            "this agent works on several Inbound lines and campaigns, each with its own "
-            "script, so ask the person which one to rewrite, then call again with its "
-            f"`holder_id`: {names}",
-            plain="Which Inbound line or campaign should be rewritten?",
-        )
-    job = jobs[0]
-    return _DraftHolder(kind=job.kind, id=job.id, name=job.name, agent_id=parsed.agent_id)
+    found = await id_kinds.identify(session, parsed.agent_id)
+    if found is not None and found.kind.key == "agent":
+        return await _agents_holder(session, parsed.agent_id)
+    holder = await _holder_row(session, parsed.agent_id)
+    if holder is not None:
+        return holder
+    raise _not_a_holder("agent_id", found)
 
 
 async def _draft_state(session: AsyncSession, holder: _DraftHolder) -> tuple[str, str | None]:

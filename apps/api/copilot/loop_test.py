@@ -353,7 +353,7 @@ async def test_the_loop_is_capped_and_says_so_rather_than_spinning(
     # authored detail follows a full stop is released in two pieces. What is promised to a
     # person is the ANSWER, which is what the route concatenates and what this reads.
     said = "".join(e.text for e in events if e.text)
-    assert said.startswith(service.EXHAUSTED_MESSAGE)
+    assert said.startswith(service.EXHAUSTED_UNCHANGED)
     # The reason travels with it: "narrow the request" is unhelpful advice to somebody
     # whose real problem is that the field is read-only. In the owner's words: the field's
     # label, never its id.
@@ -1432,7 +1432,7 @@ async def test_the_exhaustion_message_is_stripped_and_the_model_cannot_pad_it(
     # authored detail follows a full stop is released in two pieces. What is promised to a
     # person is the ANSWER, which is what the route concatenates and what this reads.
     said = "".join(e.text for e in events if e.text)
-    assert said.startswith(service.EXHAUSTED_MESSAGE)
+    assert said.startswith(service.EXHAUSTED_UNCHANGED)
     assert not has_invisible(said)
     # Bounded, and bounded well under what the model sent — a real field id is 200 long
     # (`schemas._MAX_ID`), so nothing legitimate is being cut here.

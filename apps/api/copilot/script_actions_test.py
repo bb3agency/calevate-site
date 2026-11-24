@@ -312,7 +312,7 @@ async def test_staff_and_a_neighbours_campaign_get_no_draft() -> None:
     theirs = await _campaign_of(neighbour, await _agent_of(neighbour), main_task="Renew.")
     with pytest.raises(WriteRefusedError) as missing:
         await _propose_draft(tenant_id, token, {"holder_id": str(theirs)})
-    assert "not an Inbound line or campaign of this account" in missing.value.reason
+    assert "names nothing in this account" in missing.value.reason
 
     ours = await _campaign_of(tenant_id, await _agent_of(tenant_id), main_task="Renew.")
     with pytest.raises(WriteRefusedError) as refused:

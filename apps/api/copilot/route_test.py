@@ -282,7 +282,9 @@ async def test_an_answer_whose_every_change_was_refused_says_nothing_changed(
     # The claim made beside a refused fill never reaches the screen, and the truth is said
     # in the owner's words: the field's label, no id, no backticks.
     assert "I have updated it." not in said
-    assert "Nothing was changed. Status cannot be changed here." in said
+    # Here the fill is refused every turn, so the run ends out of turns: the closing says
+    # once that nothing changed, with the reason.
+    assert said == service.exhausted_text(("Status cannot be changed here",), changed=False)
     assert "`" not in said
 
 
@@ -536,7 +538,7 @@ async def test_a_tool_call_naming_a_non_writable_field_reaches_the_browser_as_no
     # (`copilot/identity.py`) holds the sentence in flight, so the authored detail after
     # the full stop arrives as its own frame — the browser appends it either way.
     said = "".join(data["delta"] for name, data in events if name == "text")
-    assert said.startswith(service.EXHAUSTED_MESSAGE)
+    assert said.startswith(service.EXHAUSTED_UNCHANGED)
     assert "Status cannot be changed here" in said
     # Still metered: every one of those turns was paid for.
     assert await _usage_rows(tenant_id)
