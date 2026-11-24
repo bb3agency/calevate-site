@@ -7,6 +7,7 @@ from apps.api.agents.call_mistakes import LESSONS
 from apps.api.agents.mistake_lints import SCRIPT_FIXABLE_KINDS, mistake_findings
 from apps.api.agents.script_lint import LintContext, script_problems
 from apps.api.agents.script_proposals import finding_key
+from apps.api.agents.turn_checks import IN_CALL_KINDS
 from calevate_shared.call_script import CallScript, ConversationStage, ProcedureStep, StepOutcome
 from calevate_shared.spoken_style import style_for
 
@@ -37,8 +38,10 @@ def _telugu() -> str:
 
 
 def test_every_mistake_kind_has_a_script_check() -> None:
-    # "brackets" has a script check whether or not a real call counts it yet.
-    assert set(LESSONS) - {"brackets"} == SCRIPT_FIXABLE_KINDS - {"brackets"}
+    # "brackets" has a script check whether or not a real call counts it yet. A kind shown
+    # during the call whatever the script says (`missed_lookup`) has none.
+    assert set(LESSONS) >= IN_CALL_KINDS and IN_CALL_KINDS.isdisjoint(SCRIPT_FIXABLE_KINDS)
+    assert set(LESSONS) - {"brackets"} - IN_CALL_KINDS == SCRIPT_FIXABLE_KINDS - {"brackets"}
 
 
 def test_an_unknown_kind_and_a_raw_script_find_nothing() -> None:

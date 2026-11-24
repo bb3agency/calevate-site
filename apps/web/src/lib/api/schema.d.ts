@@ -468,7 +468,8 @@ export interface paths {
          *     the impersonated account, which is proven by the grant rather than claimed in a body.
          *
          *     Streams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents —
-         *     `text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a
+         *     `run`, `thought`, `text`, `fill`, `step`, `proposal`, `action`, `done`, `stopped`, `error`;
+         *     `POST /v1/admin/copilot/runs/{run_id}/stop` stops a run. A `proposal` is NOT a
          *     change. The admin realm proposes its OWN platform actions (D-694; today: halting all
          *     outbound calling), confirmed on `POST /v1/admin/copilot/confirm` with the same step-up the
          *     console button asks for, and may answer with `navigate` to open an admin screen. The
@@ -663,6 +664,26 @@ export interface paths {
         put?: never;
         /** Put a removed card back on the admin home */
         post: operations["restore_admin_pin_v1_admin_copilot_pins__pin_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/copilot/runs/{run_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop an admin assistant answer that is still running
+         * @description The admin twin of `POST /v1/copilot/runs/{run_id}/stop`: the answer's stream ends with `event: stopped`. Always `202` with the same body, whatever the id; only the operator who asked can stop a run.
+         */
+        post: operations["stop_admin_copilot_run_v1_admin_copilot_runs__run_id__stop_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8850,6 +8871,17 @@ export interface paths {
          *     read-only, under the caller's own permissions and RLS scope), can fill that screen's
          *     form fields, and can open another screen of the console. Streams `text/event-stream`:
          *
+         *     * `event: run` · `data: {"run_id": "...", "started_at": "..."}` — the FIRST frame of every
+         *       answer. Time the "Working" header from `started_at`; `POST /v1/copilot/runs/{run_id}/stop`
+         *       stops it.
+         *     * `event: thought` · `data: {"delta": "...", "turn": 0}` — a fragment of Pip's one-line plan
+         *       for the current model turn (the Thinking line). A higher `turn` starts a new line. Never
+         *       part of the answer, never stored.
+         *     * `event: draft` · `data: {"holder_kind": "campaign"|"inbound_line", "holder_id": "...",
+         *       "proposal_id": "..."}` — this answer started a script draft; open its draft stream.
+         *     * `event: stopped` · `data: {"reason": "person"}` — the person pressed Stop. The LAST
+         *       frame: no `done` follows. What was already said stands; drafts this answer started are
+         *       cancelled.
          *     * `event: text` · `data: {"delta": "..."}` — one fragment of the answer.
          *     * `event: fill` · `data: {"items": [{"field_id": "...", "value": ...}]}` — at most one
          *       per response. Every item has been re-validated server-side against the `fields` this
@@ -8905,8 +8937,12 @@ export interface paths {
          *       `POST /v1/copilot/pins` and the card re-runs under each viewer's permissions.
          *     * `event: step` · `data: {"id": "...", "tool": "...", "status":
          *       "running"|"done"|"refused"|"failed", "args": "...", "detail": null|"...",
-         *       "elapsed_ms": null|123}` — one tool call as it happens, two frames per call sharing an
-         *       `id`: `running` when it starts, then one terminal frame with `elapsed_ms`. Purely
+         *       "elapsed_ms": null|123, "results": null|{"kind": "list", "items": [{"title": "...",
+         *       "subtitle": null|"...", "href": null|"/c/{slug}/..."}], "total": N}}` — one tool call as
+         *       it happens, two frames per call sharing an `id`: `running` when it starts, then one
+         *       terminal frame with `elapsed_ms`. A lookup that lists campaigns, agents, sources, calls
+         *       or leads puts up to eight of its rows in `results` (`href` is a route template: put your
+         *       own slug in and check it against your own routes). Purely
          *       observational — dropping every one of them loses no outcome — and safe to render live so
          *       a person can see which of their data was read and how long it took.
          *     * `event: done` · `data: {"disclosure": null|"...", "metered": true}` — `disclosure` is
@@ -9463,6 +9499,33 @@ export interface paths {
         get: operations["list_copilot_routine_runs_v1_copilot_routines__routine_id__runs_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/runs/{run_id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop an answer that is still running
+         * @description Stop an answer that is still running: the `run_id` from its `event: run` frame. The answer's
+         *     stream ends with `event: stopped` once the loop reaches its next checkpoint (between model
+         *     frames and between tool calls); a tool call already running finishes, nothing after it
+         *     starts, and any script draft the answer started is cancelled.
+         *
+         *     Always `202`, with the same body, whatever the id: a run that is not the caller's own, has
+         *     already finished or never existed is left alone and reported exactly like one that was
+         *     stopped, so the route tells nobody anything about a run. Idempotent.
+         */
+        post: operations["stop_copilot_run_v1_copilot_runs__run_id__stop_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -19048,6 +19111,12 @@ export interface components {
             long_silences?: number | null;
             /** Longest Silence S */
             longest_silence_s?: number | null;
+            /** Lookups Needed */
+            lookups_needed?: number | null;
+            /** Lookups Needed Done Max */
+            lookups_needed_done_max?: number | null;
+            /** Lookups Needed Done Min */
+            lookups_needed_done_min?: number | null;
             /** Model Errors */
             model_errors?: number | null;
             /** Reply Ms Max */
@@ -22670,6 +22739,18 @@ export interface components {
             saves?: ("button" | "autosave" | "immediate" | "view") | null;
             /** Title */
             title: string;
+        };
+        /**
+         * CopilotStopOut
+         * @description The answer to Stop, the same for every run id: it says nothing about whether the run
+         *     existed, whose it was, or whether it had already finished.
+         */
+        CopilotStopOut: {
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
         };
         /**
          * CopilotStoredTurnOut
@@ -41595,6 +41676,37 @@ export interface operations {
             };
         };
     };
+    stop_admin_copilot_run_v1_admin_copilot_runs__run_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotStopOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     vote_admin_copilot_answer_v1_admin_copilot_turns__turn_id__vote_put: {
         parameters: {
             query?: never;
@@ -57593,6 +57705,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CopilotRoutineRunPageOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    stop_copilot_run_v1_copilot_runs__run_id__stop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotStopOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

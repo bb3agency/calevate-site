@@ -11,7 +11,9 @@ import type { CallDetail } from "@/lib/api/client";
  * first word of the answer, the first sound beside it (a filler line ends that one, D-902),
  * silences, interruptions, knowledge lookups, the problems reported while the call was live,
  * and each turn's wait step by step. A client sees only the typical wait for an answer and
- * how often the agent looked something up. The words name no provider either way (D-679).
+ * whether the agent looked up their information on the replies that needed it, never a
+ * share of every reply: a step-by-step call needs few lookups, and "0 of 12" read as a
+ * failure. The words name no provider either way (D-679).
  *
  * Every figure can be missing on a given call, and a missing one is left out rather than
  * shown as zero: "not measured" and "none" send a reader in different directions.
@@ -76,6 +78,8 @@ function operatorFigures(q: Quality): Row[] {
     },
     { label: "Of which thinking (typical)", value: seconds(q.first_token_ms_median) },
     { label: "Replies that looked up knowledge", value: count(q.knowledge_turns) },
+    { label: "Replies that needed a lookup", value: count(q.lookups_needed) },
+    { label: WHEN_NEEDED, value: whenNeeded(q) },
     {
       label: "Long silences",
       value:
@@ -93,19 +97,33 @@ function operatorFigures(q: Quality): Row[] {
   ];
 }
 
+const WHEN_NEEDED = "Looked up your information when it was needed";
+const NONE_NEEDED = "No reply needed a lookup";
+
+/**
+ * Of the replies that needed a lookup, how many had one. The platform counts lookups per
+ * call, not per reply, so the API gives a range: one figure when it is exact, "up to" when
+ * it is not. Left out when the call has no lookup count, and when no reply needed one the
+ * card says so in words rather than "0 of 0".
+ */
+function whenNeeded(q: Quality): string | null {
+  const needed = q.lookups_needed;
+  const low = q.lookups_needed_done_min;
+  const high = q.lookups_needed_done_max;
+  if (needed === null || needed === undefined || needed === 0) return null;
+  if (low === null || low === undefined || high === null || high === undefined) return null;
+  if (low === high) return `${low} of ${needed}`;
+  return low === 0 ? `Up to ${high} of ${needed}` : `${low} to ${high} of ${needed}`;
+}
+
+function noneNeeded(q: Quality): boolean {
+  return q.lookups_needed === 0;
+}
+
 function clientFigures(q: Quality): Row[] {
-  const lookups = q.knowledge_turns;
   return [
     { label: "Typical wait for an answer", value: seconds(q.answer_ms_median) },
-    {
-      label: "Replies that looked up your information",
-      value:
-        lookups === null || lookups === undefined
-          ? null
-          : q.turns !== null && q.turns !== undefined
-            ? `${lookups} of ${q.turns}`
-            : String(lookups),
-    },
+    { label: WHEN_NEEDED, value: whenNeeded(q) },
   ];
 }
 
@@ -187,7 +205,10 @@ export function CallQualityCard({
   const problems = signals.filter((s) => PROBLEMS.has(s.kind));
   const notes = signals.filter((s) => !PROBLEMS.has(s.kind));
   const turns = operator ? (detail.timeline ?? []) : [];
-  if (rows.length === 0 && signals.length === 0 && turns.length === 0) return null;
+  const nothingNeeded = detail.quality ? noneNeeded(detail.quality) : false;
+  if (rows.length === 0 && signals.length === 0 && turns.length === 0 && !nothingNeeded) {
+    return null;
+  }
   return (
     <Section title="How the call went">
       {problems.length > 0 && (
@@ -198,6 +219,7 @@ export function CallQualityCard({
         </ul>
       )}
       {rows.length > 0 && <Figures rows={rows} />}
+      {nothingNeeded && <p className="mt-1 text-meta text-ink-muted">{NONE_NEEDED}.</p>}
       {turns.length > 0 && <TurnTable turns={turns} />}
       {notes.length > 0 && (
         <ul aria-label="Noted on this call" className="mt-3 space-y-1 text-meta text-ink-muted">

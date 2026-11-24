@@ -34,6 +34,7 @@ from typing import Final, Literal, Protocol
 
 from calevate_shared.call_words import Live as _Live
 from calevate_shared.call_words import LivePattern as _LivePattern
+from calevate_shared.call_words import extend as _extend
 from calevate_shared.call_words import say as _say
 from calevate_shared.call_words import table
 from calevate_shared.call_words import words as _word_list
@@ -123,6 +124,10 @@ Kind = Literal[
     # --- step outcomes (founder, 24 Nov 2026): a step left before its outcome was reached,
     # read off where the call got to (`call_mistakes.step_mistakes`), not by a reply check.
     "moved_on_unconfirmed",
+    # 24 Nov 2026: a reply that needed a knowledge lookup (`needs_lookup`) on a call that made
+    # none. Read off the call's lookup count (`call_mistakes.lookup_figures`), not by a reply
+    # check: a real call does not say which turns looked something up.
+    "missed_lookup",
 ]
 
 #: How a reply SOUNDS (D-828): the words, numbers, punctuation, length and language of a
@@ -197,12 +202,19 @@ JOB_KINDS: Final = frozenset(
         # --- step outcomes (founder, 24 Nov 2026): a step left before its outcome. Read off
         # where the call got to (`call_mistakes.step_mistakes`), never by a reply check here.
         "moved_on_unconfirmed",
+        # The knowledge section's rule (`calevate_shared.engine._knowledge_section`), an
+        # in-call behaviour no script line causes (`mistake_lints.IN_CALL_KINDS`).
+        "missed_lookup",
     }
 )
 #: The `JOB_KINDS` the owner's script causes, so the improver may fix them, not us: the line
 #: of a step the script reaches with callers it does not fit. The script check finds the step
 #: (`script_lint.order_problems`); the reply only shows that a caller heard it.
 SCRIPT_KINDS: Final = frozenset({"presumed_state"})
+#: The `JOB_KINDS` no line of a script causes: how the agent behaves during the call, which
+#: the platform prompt decides. The healer opens no script fix for them
+#: (`mistake_fixes.open_fixes`) and they have no script check (`mistake_lints`).
+IN_CALL_KINDS: Final = frozenset({"missed_lookup"})
 
 #: A turn's sentences, at most, unless the caller asked for detail (founder, 11 Oct 2026).
 MAX_SENTENCES: Final = 2
@@ -1290,6 +1302,37 @@ def caller_signs_off(said: str) -> bool:
 def caller_asks(said: str) -> bool:
     """Whether a caller line asks or complains, as opposed to signing off."""
     return asks_question(said) and not caller_signs_off(said)
+
+
+#: The caller stuck on a step or unable to find something: what the in-call rule asks the
+#: agent to search for (`calevate_shared.engine.STUCK_SEARCH`). English here; the other
+#: languages' words are founder-owned (`turn_checks._STUCK`). "Not there" alone is not one:
+#: "he is not there" is about a person, so it counts only after a thing on a screen.
+_STUCK: Final = _LivePattern(
+    lambda: _whole_words(
+        _extend(
+            r"stuck|confused|"
+            r"(?:can'?t|cannot|can\s+not|couldn'?t|could\s+not|unable\s+to|not\s+able\s+to)\s+"
+            r"(?:find|see|locate|open|get\s+(?:it|there|past)|do\s+(?:it|this|that))|"
+            r"(?:don'?t|do\s+not|didn'?t|did\s+not)\s+(?:see|find)\s+(?:it|that|this|any|the)|"
+            r"(?:it|option|button|menu|tab|icon|link|page|screen)"
+            r"(?:\s+is\s+not|\s+isn'?t|'s\s+not|\s+not)\s+(?:there|showing|visible|coming|working|"
+            r"opening|loading)|"
+            r"(?:doesn'?t|does\s+not|won'?t|will\s+not)\s+(?:work|open|load|show)|"
+            r"not\s+(?:working|showing|loading|opening)|nothing\s+(?:happens|happened|is\s+happening)|"
+            r"no\s+such\s+(?:option|button|menu|tab)|"
+            r"(?:shows|showing|getting|got|gives|giving)\s+(?:an?\s+)?error|"
+            r"what\s+(?:do|should)\s+i\s+(?:do|press|tap|click|choose|select)\s+(?:now|next)",
+            "turn_checks._STUCK",
+        )
+    ),
+    re.IGNORECASE,
+)
+
+
+def says_stuck(said: str) -> bool:
+    """Whether a caller line says they are stuck on a step or cannot find something."""
+    return bool(_STUCK.search(said))
 
 
 #: Asking whether now suits, which an opening of ours asks itself ("ఇప్పుడు రెండు నిమిషాలు
