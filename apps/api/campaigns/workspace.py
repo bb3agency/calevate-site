@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_proposals
 from apps.api.agents.field_suggestions import queue_job
+from apps.api.agents.workspace_slots import CAMPAIGN_HOLDING_STATUSES
 from apps.api.campaigns import step_outcomes
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
@@ -534,6 +535,22 @@ async def copy_workspace(
         )
 
 
+async def holds_engine_agent(session: AsyncSession, campaign_id: UUID) -> bool:
+    """The campaign has its own engine agent and is still going, so an edit reaches its
+    calls now (`put_campaign_live`) rather than at its next Start or test call."""
+    return bool(
+        (
+            await session.execute(
+                text(
+                    "SELECT engine_agent_ref IS NOT NULL AND status = ANY(:holding) "
+                    "FROM campaigns WHERE id = :c"
+                ),
+                {"c": campaign_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
+            )
+        ).scalar_one_or_none()
+    )
+
+
 __all__ = [
     "CAMPAIGN_SCRIPT_JOB",
     "MAIN_TASK_MAX",
@@ -542,6 +559,7 @@ __all__ = [
     "add_link",
     "add_note",
     "clear_proposal",
+    "holds_engine_agent",
     "pick_source",
     "read_call_script",
     "read_script_proposal",

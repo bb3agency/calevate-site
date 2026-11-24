@@ -189,6 +189,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.callbacks.routes import router as callbacks_router
     from apps.api.campaigns.archive_admin_routes import router as campaign_archive_admin_router
     from apps.api.campaigns.engine_number_routes import router as own_numbers_router
+    from apps.api.campaigns.improve_routes import router as campaign_improve_router
     from apps.api.campaigns.number_pricing_routes import (
         router as number_pricing_router,
     )
@@ -422,6 +423,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(business_type_router)
     application.include_router(campaigns_router)
     application.include_router(campaign_workspace_router)
+    application.include_router(campaign_improve_router)
     application.include_router(company_training_router)
     application.include_router(inbound_lines_router)
     # `/v1/numbers` — its own prefix, so nothing above can swallow it. It lives in the

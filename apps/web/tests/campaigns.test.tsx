@@ -687,7 +687,7 @@ describe("editing a draft", () => {
       newRoutes({
         [`/v1/campaigns/${CAMPAIGN_ID}`]: progressFixture({
           name: "Autumn",
-          retry_policy: { max_attempts: 2, gaps_minutes: [60] },
+          retry_policy: { max_attempts: 2, gaps_minutes: [60], spread: true },
         }),
         [`PATCH /v1/campaigns/${CAMPAIGN_ID}`]: new Response(null, { status: 204 }),
       }),

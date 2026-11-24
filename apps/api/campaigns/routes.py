@@ -106,17 +106,23 @@ class RetryPolicyIn(Strict):
     gaps_minutes: list[int] = Field(
         default_factory=list, max_length=CAMPAIGN_RETRY_ATTEMPTS_CEILING - 1
     )
+    #: Move each retry to a different time of day than the try that went unanswered. Left
+    #: out: a new campaign takes the default (on), an edit keeps what the campaign has.
+    spread: bool | None = None
 
 
 class RetryPolicyOut(Strict):
     max_attempts: int
     gaps_minutes: list[int]
+    spread: bool = False
 
 
 def _retry_policy(payload: RetryPolicyIn | None) -> dict[str, Any] | None:
     if payload is None:
         return None
-    return service.validated_retry_policy(payload.max_attempts, payload.gaps_minutes)
+    return service.validated_retry_policy(
+        payload.max_attempts, payload.gaps_minutes, payload.spread
+    )
 
 
 def _purpose(value: str | None) -> str | None:

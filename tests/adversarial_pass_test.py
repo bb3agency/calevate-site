@@ -923,6 +923,12 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ),
     ("PUT", "/v1/campaigns/{campaign_id}/opening-b", {"opening_b": None}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/insights", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/best-hours/apply", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/best-hours/undo", {}, {}),
+    ("PUT", "/v1/campaigns/{campaign_id}/best-hours/auto", {"on": True}, {}),
+    ("PUT", "/v1/campaigns/{campaign_id}/retry-spread", {"on": True}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/opening-test/undo", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/opening-practice", {"opening_b": "Hello there"}, {}),
     (
         "POST",
         "/v1/campaigns/{campaign_id}/test-call",

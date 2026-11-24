@@ -118,6 +118,14 @@ class Campaign(PKMixin, TimestampMixin, Base):
             "AND goal = btrim(goal) AND goal !~ '[\\r\\n]')",
             name="goal_line",
         ),
+        CheckConstraint(
+            "best_hours_applied IS NULL OR jsonb_typeof(best_hours_applied) = 'object'",
+            name="best_hours_applied_object",
+        ),
+        CheckConstraint(
+            "opening_test_result IS NULL OR jsonb_typeof(opening_test_result) = 'object'",
+            name="opening_test_result_object",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -148,6 +156,15 @@ class Campaign(PKMixin, TimestampMixin, Base):
     script_before_pip_at: Mapped[datetime | None]
     #: A second opening line tested against the script's own, alternating per person (D-992).
     opening_b: Mapped[str | None] = mapped_column(Text)
+    #: The opening test's decision (`campaigns/improve.py`): which opening won, the chance and
+    #: counts it was decided on, the opening it replaced. NULL while no test has been decided.
+    opening_test_result: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: Pip may narrow the calling hours to the best block once enough is measured. Off until
+    #: the owner turns it on.
+    best_hours_auto: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    #: The block the calling hours were narrowed to, by whom and when, and the hours before,
+    #: for Undo. NULL when nothing is applied.
+    best_hours_applied: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: The agent settings this campaign sets for its own calls (D-994), each key present only
     #: when overridden (`campaigns/settings.py`). The agent holds the defaults.
     settings_overrides: Mapped[dict[str, object] | None] = mapped_column(JSONB)

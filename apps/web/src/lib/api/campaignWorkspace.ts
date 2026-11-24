@@ -241,6 +241,73 @@ export function useCampaignInsights(session: Session, campaignId: string) {
   });
 }
 
+/** An Improve move: the route answers with the whole tab's data, which replaces the cache. */
+function useImproveMove<TVars>(
+  session: Session,
+  campaignId: string,
+  request: (vars: TVars) => { path: string; method: "POST" | "PUT"; body?: unknown },
+) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: TVars) => {
+      const { path, method, body } = request(vars);
+      return apiRequest<CampaignInsights>(session, `${base(campaignId)}${path}`, { method, body });
+    },
+    onSuccess: (fresh) => {
+      client.setQueryData(insightsKey(session.orgSlug, campaignId), fresh);
+      // Hours and retries are campaign settings the How it calls section shows too.
+      void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) });
+    },
+  });
+}
+
+/** Call only in the best block, or undo it. */
+export function useBestHoursMove(session: Session, campaignId: string) {
+  return useImproveMove<"apply" | "undo">(session, campaignId, (move) => ({
+    path: `/best-hours/${move}`,
+    method: "POST",
+  }));
+}
+
+/** Let Pip narrow the hours on its own once measured. */
+export function useBestHoursAuto(session: Session, campaignId: string) {
+  return useImproveMove<boolean>(session, campaignId, (on) => ({
+    path: "/best-hours/auto",
+    method: "PUT",
+    body: { on },
+  }));
+}
+
+/** Ring each retry at another time of day than the try that went unanswered. */
+export function useRetrySpread(session: Session, campaignId: string) {
+  return useImproveMove<boolean>(session, campaignId, (on) => ({
+    path: "/retry-spread",
+    method: "PUT",
+    body: { on },
+  }));
+}
+
+/** Put back the opening the test's winner replaced. */
+export function useUndoOpening(session: Session, campaignId: string) {
+  return useImproveMove<void>(session, campaignId, () => ({
+    path: "/opening-test/undo",
+    method: "POST",
+  }));
+}
+
+export type OpeningPractice = Schemas["PracticeOut"];
+
+/** Both openings through the practice checks, for a list too small to test on calls. */
+export function useOpeningPractice(session: Session, campaignId: string) {
+  return useMutation({
+    mutationFn: (opening_b: string) =>
+      apiRequest<OpeningPractice>(session, `${base(campaignId)}/opening-practice`, {
+        method: "POST",
+        body: { opening_b },
+      }),
+  });
+}
+
 /** Test a second opening line against the script's own; null stops the test. */
 export function useSaveOpeningB(session: Session, campaignId: string) {
   const client = useQueryClient();

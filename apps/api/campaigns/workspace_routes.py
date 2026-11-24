@@ -33,8 +33,8 @@ from apps.api.agents.service import (
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
-from apps.api.campaigns import learning, notes_live, script_draft, workspace
 from apps.api.campaigns import notes as campaign_notes
+from apps.api.campaigns import notes_live, script_draft, workspace
 from apps.api.campaigns import settings as campaign_settings_rules
 from apps.api.campaigns.engine_agent import needs_its_own, put_campaign_live
 from apps.api.compliance.audit import write_audit
@@ -217,7 +217,7 @@ async def restore_script_before_pip(
             ip=client_request_ip(request),
             summary={},
         )
-    if await _holds_engine_agent(session, campaign_id):
+    if await workspace.holds_engine_agent(session, campaign_id):
         await _put_live_after_save(principal.tenant_id, campaign_id)
     return await _workspace_out(session, campaign_id)
 
@@ -228,22 +228,6 @@ class ScriptIn(BaseModel):
     #: The Pip draft this save keeps, settled in the same transaction, so a save whose
     #: put-live is refused does not leave the draft standing over the kept script.
     proposal_id: UUID | None = None
-
-
-async def _holds_engine_agent(session: AsyncSession, campaign_id: UUID) -> bool:
-    """The campaign has its own engine agent and is still going, so an edit reaches its
-    calls now (`put_campaign_live`) rather than at its next Start or test call."""
-    return bool(
-        (
-            await session.execute(
-                text(
-                    "SELECT engine_agent_ref IS NOT NULL AND status = ANY(:holding) "
-                    "FROM campaigns WHERE id = :c"
-                ),
-                {"c": campaign_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
-            )
-        ).scalar_one_or_none()
-    )
 
 
 async def _put_live_after_save(tenant_id: UUID, campaign_id: UUID) -> None:
@@ -314,7 +298,7 @@ async def _save_then_put_live(
             ip=client_request_ip(request),
             summary={"from_draft": proposal_id is not None},
         )
-    if await _holds_engine_agent(session, campaign_id):
+    if await workspace.holds_engine_agent(session, campaign_id):
         await _put_live_after_save(principal.tenant_id, campaign_id)
     return await _workspace_out(session, campaign_id)
 
@@ -755,70 +739,6 @@ async def save_opening_b(
     await session.execute(
         text("UPDATE campaigns SET opening_b = :o, updated_at = now() WHERE id = :cid"),
         {"o": line or None, "cid": campaign_id},
-    )
-
-
-class HourOut(_Out):
-    #: The hour of the day in IST, 0-23.
-    hour: int
-    calls: int
-    answered: int
-    rate: float
-
-
-class OpeningOut(_Out):
-    variant: Literal["a", "b"]
-    people: int
-    answered: int
-    goal_reached: int
-    goal_rate: float | None
-
-
-class CampaignInsightsOut(_Out):
-    hours: list[HourOut]
-    #: The hours people answer most, among those with enough calls to judge.
-    best_hours: list[HourOut]
-    min_calls_per_hour: int
-    opening_b: str | None
-    openings: list[OpeningOut]
-    opening_verdict: str | None
-
-
-def _hour(r: learning.HourRate) -> HourOut:
-    return HourOut(hour=r.hour, calls=r.calls, answered=r.answered, rate=round(r.rate, 4))
-
-
-@router.get(
-    "/{campaign_id}/insights",
-    response_model=CampaignInsightsOut,
-    openapi_extra=permission_meta("leads:read"),
-    summary="When people answer this campaign's calls, and how its two openings compare",
-)
-async def campaign_insights(campaign_id: UUID, session: Session, _: Reader) -> CampaignInsightsOut:
-    await workspace.read_workspace(session, campaign_id)
-    rates = await learning.answer_rate_by_hour(session, campaign_id)
-    opening_b = (
-        await session.execute(
-            text("SELECT opening_b FROM campaigns WHERE id = :c"), {"c": campaign_id}
-        )
-    ).scalar_one_or_none()
-    openings = await learning.opening_results(session, campaign_id) if opening_b else []
-    return CampaignInsightsOut(
-        hours=[_hour(r) for r in rates],
-        best_hours=[_hour(r) for r in learning.best_hours(rates)],
-        min_calls_per_hour=learning.MIN_CALLS_PER_HOUR,
-        opening_b=opening_b,
-        openings=[
-            OpeningOut(
-                variant=o.variant,  # type: ignore[arg-type]
-                people=o.people,
-                answered=o.answered,
-                goal_reached=o.goal_reached,
-                goal_rate=None if o.goal_rate is None else round(o.goal_rate, 4),
-            )
-            for o in openings
-        ],
-        opening_verdict=learning.opening_verdict(openings) if openings else None,
     )
 
 
