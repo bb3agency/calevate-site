@@ -320,7 +320,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const rewrite = useRewriteStepOutcomes(session, campaignId);
   const rewriteFeedback = useActionFeedback(rewrite, { errorDisplay: "inline", successToast: "Pip is rewriting the outcomes" });
   const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
-  useActionFeedback(save, { errorDisplay: "inline" });
+  useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved" });
   const ask = useRequestCampaignScript(session, campaignId);
   const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
   const [editing, setEditing] = useState(false);
@@ -530,6 +530,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                 canWrite={canWrite}
                 refusal={refusal}
                 saving={save.isPending}
+                saveError={save.error}
                 onSave={async (next) => {
                   await save.mutateAsync({ script: next });
                 }}

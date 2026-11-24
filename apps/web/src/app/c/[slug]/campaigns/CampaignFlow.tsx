@@ -26,6 +26,7 @@ import { createPortal } from "react-dom";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { ActionButton, type ActionFeedback } from "@/components/arc/feedback";
 import {
+  ProblemNotice,
   SECONDARY_BUTTON_SM,
   ScrollRegion,
 } from "@/components/ui";
@@ -63,6 +64,7 @@ export function CampaignFlow({
   canWrite,
   refusal,
   saving,
+  saveError,
   onSave,
   onMapScenarios,
   mapping,
@@ -97,6 +99,8 @@ export function CampaignFlow({
   canWrite: boolean;
   refusal?: string;
   saving: boolean;
+  /** Why the last Save was refused, shown beside the Save button that caused it. */
+  saveError?: unknown;
   onSave: (next: CallScript) => Promise<void> | void;
   /** Ask Pip to map the scenarios; absent while it cannot (a draft to review first). */
   onMapScenarios?: () => void;
@@ -136,10 +140,16 @@ export function CampaignFlow({
   // While the owner has changes of their own, outcomes Pip wrote meanwhile are added to them
   // instead (`withPipOutcomes`), so their unsaved work is never thrown away.
   const shown = useRef(script);
+  // The draft a Save sent. The server tidies what it stores (it wires a stated way out as a
+  // branch, for one), so the saved script can differ from the draft that was sent; matching
+  // on the sent draft, not on equality, is what lets a successful Save clear the edits.
+  const sent = useRef<string | null>(null);
   useEffect(() => {
     const before = shown.current;
     shown.current = script;
-    if (JSON.stringify(draft) === JSON.stringify(before)) {
+    const current = JSON.stringify(draft);
+    if (current === JSON.stringify(before) || current === sent.current) {
+      sent.current = null;
       setDraft(script);
       setPast([]);
       setFuture([]);
@@ -319,7 +329,15 @@ export function CampaignFlow({
               pendingLabel="Saving…"
               disabled={issues.length > 0}
               title={issues[0]?.message}
-              onClick={() => void onSave(draft)}
+              onClick={async () => {
+                sent.current = JSON.stringify(draft);
+                try {
+                  await onSave(draft);
+                } catch {
+                  // Refused: the reason shows beside this button (`saveError`).
+                  sent.current = null;
+                }
+              }}
             >
               Save flow
             </ActionButton>
@@ -336,6 +354,11 @@ export function CampaignFlow({
             </button>
             {issues.length > 0 && (
               <span className="text-meta text-danger">{issues[0].message}</span>
+            )}
+            {saveError != null && (
+              <div className="w-full">
+                <ProblemNotice error={saveError} />
+              </div>
             )}
           </>
         )}
