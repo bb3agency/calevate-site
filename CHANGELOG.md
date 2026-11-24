@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.23 — 24-Nov-2026
+
+- Call flow: a scenario has one script box with a language switch instead of a box per
+  language, so a campaign speaking seven or eight languages can write a line in each. The
+  main language opens first and a dot marks any language with no line yet.
+
 ## 0.5.22 — 24-Nov-2026
 
 Fixes from ten parallel audits.
