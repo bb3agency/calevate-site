@@ -13,7 +13,7 @@ import type {
   CopilotStep,
 } from "./types";
 import type { ChartSpec } from "./charts";
-import { isDraftFrame, isRunFrame, type DraftFrame, type RunFrame } from "./liveEvents";
+import { isDraftFrame, isRunFrame, type DraftFrame, type RunFrame, type ThoughtFrame } from "./liveEvents";
 import type { WireFact, WireField } from "./redaction";
 
 /**
@@ -116,8 +116,8 @@ export interface CopilotStreamHandlers {
   onChart?: (spec: ChartSpec) => void;
   /** The run started: its id (for Stop) and when, for the live header. First frame of a run. */
   onRun?: (run: RunFrame) => void;
-  /** A fragment of the model's thought summary for the current model turn. Never stored. */
-  onThought?: (delta: string) => void;
+  /** A fragment of Pip's plan line for model turn `turn`. Never stored. */
+  onThought?: (delta: string, turn?: number) => void;
   /** The run started a script draft, followed on its own draft stream. */
   onDraft?: (draft: DraftFrame) => void;
   /** The run was stopped on the person's request. The last frame; no `done` follows. */
@@ -292,8 +292,10 @@ export async function askCopilot(
         const payload = safeJson(event.data);
         if (isRunFrame(payload)) handlers.onRun?.({ run_id: payload.run_id, started_at: payload.started_at });
       } else if (event.event === "thought") {
-        const payload = safeJson(event.data) as { delta?: string } | null;
-        if (typeof payload?.delta === "string") handlers.onThought?.(payload.delta);
+        const payload = safeJson(event.data) as Partial<ThoughtFrame> | null;
+        if (typeof payload?.delta === "string") {
+          handlers.onThought?.(payload.delta, typeof payload.turn === "number" ? payload.turn : undefined);
+        }
       } else if (event.event === "draft") {
         const payload = safeJson(event.data);
         if (isDraftFrame(payload)) {

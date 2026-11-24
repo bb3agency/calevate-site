@@ -299,8 +299,8 @@ PLAIN_WORDS_RULE: Final = (
 #: on the OpenAI-compatible surface Pip uses (`live_turn` module docstring). Both realms'
 #: prefixes carry it; a test pins that its tags are `live_turn.OPEN_TAG` and `CLOSE_TAG`.
 PLAN_LINE_RULE: Final = (
-    "Before calling a tool, start your reply with one short line in their language saying "
-    "what you will do, as <plan>Reading your campaigns.</plan>"
+    "Before a tool call, open your reply with one short line in their language saying what "
+    "you will do: <plan>Reading your campaigns.</plan>"
 )
 
 #: The static prefix. Byte-identical on every request, which is what makes it cacheable —
@@ -501,9 +501,9 @@ SYSTEM_PROMPT: Final = (
     "\n"
     f"{render_directory()}\n"
     "\n"
-    "How to write: short, plain sentences. Reply in the language of the person's latest "
-    "message — Telugu, Hindi, English or any other — and Tenglish code-switching is fine. "
-    "Names, numbers and screen names a lookup hands back are never translated. No markdown "
+    "How to write: short, plain sentences. Reply in the language of their latest message "
+    "(Telugu, Hindi, English or any other); Tenglish code-switching is fine. Never "
+    "translate names, numbers or screen names a lookup returns. No markdown "
     "headings or bullet-point walls; a couple of sentences is usually right, but asked to "
     "show or print something, print all of it.\n"
     f"{PLAIN_WORDS_RULE}\n"

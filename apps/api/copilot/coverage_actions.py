@@ -3,8 +3,10 @@
 Each calls the service function its own button's route calls, under the same permission:
 
 * `account_model_tier_set` — AI models screen, `PUT /v1/organization/llm-defaults`.
-* `agent_team_alert_set` — which calls an agent tells the owner and the team about,
-  `PUT /v1/agents/{id}/team-alert`.
+* `agent_team_alert_set` — whether an agent may message the team during a call,
+  `PUT /v1/agents/{id}/team-alert`; `job_team_alert_set` — which calls of a campaign or line
+  tell the owner and the team after they end, `PUT /v1/campaigns/{id}/team-alert` and
+  `PUT /v1/inbound-lines/{id}/team-alert` (D-1040).
 * `team_alert_contact` — the team addresses, `/v1/team-alerts/contacts/**` (email only: a
   WhatsApp address needs the account's own template set up on the screen).
 * `knowledge_refresh` — approve a waiting upload, or read a PDF or page again,
@@ -164,157 +166,65 @@ ACCOUNT_MODEL_TIER_SET: Final = ActionTool(
 
 
 # =========================================================================================
-# TELL MY TEAM: ONE AGENT'S RULE
+# TELL MY TEAM: AN AGENT'S IN-CALL SWITCH, A CAMPAIGN'S OR LINE'S AFTER-CALL RULE (D-1040)
 # =========================================================================================
 
 
-class _AlertArgs(BaseModel):
+class _AgentAlertArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_id: UUID
-    on_outcomes: Annotated[list[Annotated[str, Field(max_length=200)]], Field(max_length=50)]
-    #: `key=value`, one per watched answer; a flat list costs the shared area schema less
-    #: than the screen's `{key, values}` objects and is grouped back into them here.
-    on_answers: Annotated[list[Annotated[str, Field(max_length=250)]], Field(max_length=100)]
     in_call: bool
 
 
-_ANSWER_FORMS: Final = (
-    "each of `on_answers` is `key=value` for the agent's own answers, or "
-    "`campaign:<campaign_id>:key=value` / `line:<line_id>:key=value` for one on a campaign's "
-    "or line's own list"
-)
+def _in_call_words(on: bool) -> str:
+    return "messages your team while the caller is on the line" if on else "does not"
 
 
-def answer_prefix(trigger: Any) -> str:
-    """The `on_answers` prefix naming a trigger's campaign or line; empty for the agent's."""
-    holder = trigger.holder
-    return "" if holder is None else f"{holder.kind}:{holder.id}:"
-
-
-def _holder_of(prefix: str) -> Any:
-    from apps.api.team_alerts.service import HolderRef
-
-    if not prefix:
-        return None
-    kind, _, raw_id = prefix.partition(":")
-    try:
-        holder_id = UUID(raw_id)
-    except ValueError:
-        raise WriteRefusedError(_ANSWER_FORMS) from None
-    if kind == "campaign":
-        return HolderRef("campaign", holder_id)
-    if kind == "line":
-        return HolderRef("line", holder_id)
-    raise WriteRefusedError(_ANSWER_FORMS)
-
-
-def _triggers(answers: list[str]) -> tuple[Any, ...]:
-    from apps.api.team_alerts.service import MAX_FIELD_TRIGGERS, FieldTrigger
-
-    grouped: dict[tuple[str, str], list[str]] = {}
-    for answer in answers:
-        left, sep, value = answer.partition("=")
-        prefix, _, key = left.rpartition(":")
-        if not sep or not key.strip() or not value.strip():
-            raise WriteRefusedError(_ANSWER_FORMS)
-        grouped.setdefault((prefix.strip(), key.strip()), []).append(value.strip())
-    if len(grouped) > MAX_FIELD_TRIGGERS:
-        raise WriteRefusedError(f"watch at most {MAX_FIELD_TRIGGERS} details")
-    return tuple(
-        FieldTrigger(key, tuple(dict.fromkeys(v)), _holder_of(prefix))
-        for (prefix, key), v in grouped.items()
-    )
-
-
-def _rule_words(rule: Any, outcomes: Mapping[str, str], fields: Mapping[str, str]) -> str:
-    parts = [f"after a call ending {outcomes.get(k, k)}" for k in rule.on_outcomes]
-    parts += [
-        f"when {fields.get(answer_prefix(t) + t.key, t.key)} is {' or '.join(t.values)}"
-        for t in rule.on_fields
-    ]
-    if rule.in_call:
-        parts.append("during the call when the agent decides to")
-    return "; ".join(parts) or "no call"
-
-
-async def _plan_alert(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
-    from apps.api.team_alerts.service import Rule, read_rule
+async def _plan_agent_alert(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Plan:
+    from apps.api.team_alerts.service import read_agent_alerts
 
     del actor
-    parsed = parse_args(_AlertArgs, args)
+    parsed = parse_args(_AgentAlertArgs, args)
     name = await agent_name(session, parsed.agent_id)
-    view = await read_rule(session, agent_id=parsed.agent_id)
-    outcomes = {o.key: o.label for o in view.outcomes}
-    fields = {f.key: f.label for f in view.fields}
-    allowed = {f.key: set(f.values) for f in view.fields}
-    for holder in view.holders:
-        prefix = f"{holder.ref.kind}:{holder.ref.id}:"
-        fields.update({prefix + f.key: f"{f.label} ({holder.name})" for f in holder.fields})
-        allowed.update({prefix + f.key: set(f.values) for f in holder.fields})
-    unknown = [k for k in parsed.on_outcomes if k not in outcomes]
-    if unknown:
-        raise WriteRefusedError(
-            "an outcome is not one of this agent's; take the keys from agent_settings handover"
-        )
-    on_fields = _triggers(parsed.on_answers)
-    for trigger in on_fields:
-        named = answer_prefix(trigger) + trigger.key
-        if named not in allowed or not set(trigger.values) <= allowed[named]:
-            raise WriteRefusedError(
-                "an answer is not one this agent or its campaigns and lines record; take "
-                "them from agent_settings handover"
-            )
-    wanted = Rule(
-        on_outcomes=tuple(parsed.on_outcomes),
-        on_fields=on_fields,
-        in_call=parsed.in_call,
-    )
+    view = await read_agent_alerts(session, agent_id=parsed.agent_id)
     return Plan(
         object_id=str(parsed.agent_id),
-        title="Choose which calls an agent alerts you about",
-        summary=(f"“{name}” will tell you and your team: {_rule_words(wanted, outcomes, fields)}."),
-        current=_rule_words(view.rule, outcomes, fields),
-        proposed=_rule_words(wanted, outcomes, fields),
+        title="Let an agent message your team during a call",
+        summary=(
+            f"“{name}” {_in_call_words(parsed.in_call)}"
+            + ("." if parsed.in_call else " message your team during calls.")
+        ),
+        current=_in_call_words(view.in_call),
+        proposed=_in_call_words(parsed.in_call),
         cost=None,
-        reversal="Change or clear it at any time on the agent's Settings tab.",
-        args={
-            "agent_id": str(parsed.agent_id),
-            "on_outcomes": list(dict.fromkeys(parsed.on_outcomes)),
-            "on_answers": [f"{answer_prefix(t)}{t.key}={v}" for t in on_fields for v in t.values],
-            "in_call": parsed.in_call,
-        },
+        reversal="Switch it back at any time on the agent's Settings tab.",
+        args={"agent_id": str(parsed.agent_id), "in_call": parsed.in_call},
     )
 
 
-async def _execute_alert(
+async def _execute_agent_alert(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    from apps.api.team_alerts.service import Rule, save_rule
+    from apps.api.team_alerts.service import save_in_call
 
-    parsed = parse_args(_AlertArgs, args)
+    parsed = parse_args(_AgentAlertArgs, args)
     await agent_name(session, parsed.agent_id)
-    rule = Rule(
-        on_outcomes=tuple(parsed.on_outcomes),
-        on_fields=_triggers(parsed.on_answers),
-        in_call=parsed.in_call,
+    view = await save_in_call(
+        session, tenant_id=actor.tenant_id, agent_id=parsed.agent_id, in_call=parsed.in_call
     )
-    view = await save_rule(session, tenant_id=actor.tenant_id, agent_id=parsed.agent_id, rule=rule)
     return Executed(
         applied=True,
         detail="Saved."
         + (
             " The agent tells the team during calls once a team address is confirmed on the "
             "Alerts screen."
-            if rule.in_call and not view.in_call_live
+            if parsed.in_call and not view.in_call_live
             else ""
         ),
-        audit_summary={
-            "agent_id": str(parsed.agent_id),
-            "outcomes": str(len(rule.on_outcomes)),
-            "fields": str(len(rule.on_fields)),
-            "in_call": str(rule.in_call),
-        },
+        audit_summary={"agent_id": str(parsed.agent_id), "in_call": str(parsed.in_call)},
     )
 
 
@@ -328,18 +238,140 @@ AGENT_TEAM_ALERT_SET: Final = ActionTool(
     where="on the agent's Settings tab",
     schema=action_schema(
         "agent_team_alert_set",
-        "What besides hot leads one agent tells everyone on the hot-lead list about: the "
-        "WHOLE rule, its campaigns' and lines' own answers included. Keys and answer forms "
-        "from agent_settings `handover`." + PROPOSES_ONLY,
+        "Whether one agent may message the business's team while a caller is on the line. "
+        "Which calls alert after they end is each campaign's or line's own: "
+        "job_team_alert_set." + PROPOSES_ONLY,
+        {"agent_id": {"type": "string"}, "in_call": {"type": "boolean"}},
+    ),
+    plan=_plan_agent_alert,
+    execute=_execute_agent_alert,
+)
+
+
+class _JobAlertArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job: Literal["campaign", "line"]
+    job_id: UUID
+    on_outcomes: Annotated[list[Annotated[str, Field(max_length=200)]], Field(max_length=50)]
+    #: `key=value`, one per watched answer; a flat list costs the shared area schema less
+    #: than the screen's `{key, values}` objects and is grouped back into them here.
+    on_answers: Annotated[list[Annotated[str, Field(max_length=250)]], Field(max_length=100)]
+
+
+def _triggers(answers: list[str]) -> tuple[Any, ...]:
+    from apps.api.team_alerts.service import MAX_FIELD_TRIGGERS, FieldTrigger
+
+    grouped: dict[str, list[str]] = {}
+    for answer in answers:
+        key, sep, value = answer.partition("=")
+        if not sep or not key.strip() or not value.strip():
+            raise WriteRefusedError("each of `on_answers` is `key=value`")
+        grouped.setdefault(key.strip(), []).append(value.strip())
+    if len(grouped) > MAX_FIELD_TRIGGERS:
+        raise WriteRefusedError(f"watch at most {MAX_FIELD_TRIGGERS} details")
+    return tuple(FieldTrigger(key, tuple(dict.fromkeys(v))) for key, v in grouped.items())
+
+
+def job_rule_words(rule: Any, outcomes: Mapping[str, str], fields: Mapping[str, str]) -> str:
+    """A job's after-call rule in a sentence; `agent_settings` handover reads it too."""
+    parts = [f"after a call ending {outcomes.get(k, k)}" for k in rule.on_outcomes]
+    parts += [f"when {fields.get(t.key, t.key)} is {' or '.join(t.values)}" for t in rule.on_fields]
+    return "; ".join(parts) or "no call"
+
+
+def _job_ref(parsed: _JobAlertArgs) -> Any:
+    from apps.api.team_alerts.service import HolderRef
+
+    return HolderRef(parsed.job, parsed.job_id)
+
+
+async def _plan_job_alert(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
+    from apps.api.team_alerts.service import Rule, read_job_rule
+
+    del actor
+    parsed = parse_args(_JobAlertArgs, args)
+    view = await read_job_rule(session, _job_ref(parsed))
+    outcomes = {o.key: o.label for o in view.outcomes}
+    fields = {f.key: f.label for f in view.fields}
+    allowed = {f.key: set(f.values) for f in view.fields}
+    if any(k not in outcomes for k in parsed.on_outcomes):
+        raise WriteRefusedError(
+            "an outcome is not one of this job's agent's; take the keys from agent_settings "
+            "handover"
+        )
+    on_fields = _triggers(parsed.on_answers)
+    for trigger in on_fields:
+        if trigger.key not in allowed or not set(trigger.values) <= allowed[trigger.key]:
+            raise WriteRefusedError(
+                "an answer is not one this campaign's or line's calls note; take them from "
+                "agent_settings handover"
+            )
+    wanted = Rule(on_outcomes=tuple(parsed.on_outcomes), on_fields=on_fields)
+    noun = "Campaign" if parsed.job == "campaign" else "Inbound line"
+    return Plan(
+        object_id=str(parsed.job_id),
+        title="Choose which calls of a campaign or line alert you",
+        summary=(
+            f"{noun} “{view.name}” will tell you and your team: "
+            f"{job_rule_words(wanted, outcomes, fields)}."
+        ),
+        current=job_rule_words(view.rule, outcomes, fields),
+        proposed=job_rule_words(wanted, outcomes, fields),
+        cost=None,
+        reversal=f"Change or clear it at any time in the {noun.lower()}'s Alerts.",
+        args={
+            "job": parsed.job,
+            "job_id": str(parsed.job_id),
+            "on_outcomes": list(dict.fromkeys(parsed.on_outcomes)),
+            "on_answers": [f"{t.key}={v}" for t in on_fields for v in t.values],
+        },
+    )
+
+
+async def _execute_job_alert(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Executed:
+    from apps.api.team_alerts.service import Rule, save_job_rule
+
+    del actor
+    parsed = parse_args(_JobAlertArgs, args)
+    rule = Rule(on_outcomes=tuple(parsed.on_outcomes), on_fields=_triggers(parsed.on_answers))
+    await save_job_rule(session, _job_ref(parsed), rule)
+    return Executed(
+        applied=True,
+        detail="Saved.",
+        audit_summary={
+            "job": parsed.job,
+            "job_id": str(parsed.job_id),
+            "outcomes": str(len(rule.on_outcomes)),
+            "fields": str(len(rule.on_fields)),
+        },
+    )
+
+
+JOB_TEAM_ALERT_SET: Final = ActionTool(
+    name="job_team_alert_set",
+    tier="confirm",
+    undo=None,
+    permission="org:manage",
+    object_type="campaign",
+    audit_action="team_alert.job_set",
+    where="in the campaign's or line's Alerts",
+    schema=action_schema(
+        "job_team_alert_set",
+        "Which calls of one campaign or one inbound line tell everyone on the hot-lead list, "
+        "after the call ends: the WHOLE rule, outcomes and answers (`key=value`). Job ids, "
+        "keys and answers from agent_settings `handover`." + PROPOSES_ONLY,
         {
-            "agent_id": {"type": "string"},
+            "job": {"type": "string", "enum": ["campaign", "line"]},
+            "job_id": {"type": "string"},
             "on_outcomes": {"type": "array", "items": {"type": "string"}},
             "on_answers": {"type": "array", "items": {"type": "string"}},
-            "in_call": {"type": "boolean"},
         },
     ),
-    plan=_plan_alert,
-    execute=_execute_alert,
+    plan=_plan_job_alert,
+    execute=_execute_job_alert,
 )
 
 
@@ -947,6 +979,9 @@ COVERAGE_ACTIONS: Final[tuple[ActionTool, ...]] = (
     CONNECTION_DISCONNECT,
     ACCOUNT_SWITCH_SET,
 )
+
+#: Appended LAST to `WRITE_TOOLS` (wire order is part of the cacheable prefix).
+JOB_ALERT_ACTIONS: Final[tuple[ActionTool, ...]] = (JOB_TEAM_ALERT_SET,)
 
 
 # =========================================================================================

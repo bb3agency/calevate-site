@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
 import uuid
 from typing import Any
 from uuid import UUID
@@ -495,3 +497,20 @@ async def test_a_line_draft_is_kept_live_or_cancelled_by_its_twin_routes(
     async with tenant_session(tenant_id) as session:
         line = await lines.read_line(session, line_id)
     assert line.proposal is None and line.script == OLD
+
+
+def test_app_startup_registers_the_draft_canceller_stop_calls() -> None:
+    """FAILS IF: the api starts without the script writer's `cancel_draft` registered, so
+    Pip's Stop leaves a draft its run started writing. A fresh interpreter, because this
+    file imports `script_draft` itself and would register it whatever the app does."""
+    probe = (
+        "import apps.api.main\n"
+        "from apps.api.copilot import run_control\n"
+        "c = run_control.draft_canceller()\n"
+        "print(getattr(c, '__module__', None), getattr(c, '__qualname__', None))\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, timeout=120, check=False
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+    assert done.stdout.strip().splitlines()[-1] == "apps.api.campaigns.script_draft cancel_draft"

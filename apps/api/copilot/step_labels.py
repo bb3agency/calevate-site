@@ -199,6 +199,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "account_switches": _l("Checking your switches", "Checked your switches"),
     "account_model_tier_set": _l("Preparing the AI model change", "Prepared the AI model change"),
     "agent_team_alert_set": _l("Preparing the team alert", "Prepared the team alert"),
+    "job_team_alert_set": _l("Preparing the alerts", "Prepared the alerts"),
     "team_alert_contact": _l("Preparing the team address", "Prepared the team address"),
     "knowledge_refresh": _l("Preparing the knowledge update", "Prepared the knowledge update"),
     "connection_disconnect": _l("Preparing to disconnect", "Prepared to disconnect"),

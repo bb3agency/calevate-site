@@ -798,7 +798,12 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PATCH", "/v1/agents/{agent_id}/call-handling", {"end_call_on_finish": False}, {}),
     # D-904. Who a neighbour's agent tells about its callers, and their team addresses.
     ("GET", "/v1/agents/{agent_id}/team-alert", {}, {}),
-    ("PUT", "/v1/agents/{agent_id}/team-alert", {}, {}),
+    ("PUT", "/v1/agents/{agent_id}/team-alert", {"in_call": False}, {}),
+    # D-1040: which of a neighbour's campaign's or line's calls alert.
+    ("GET", "/v1/campaigns/{campaign_id}/team-alert", {}, {}),
+    ("PUT", "/v1/campaigns/{campaign_id}/team-alert", {}, {}),
+    ("GET", "/v1/inbound-lines/{line_id}/team-alert", {}, {}),
+    ("PUT", "/v1/inbound-lines/{line_id}/team-alert", {}, {}),
     ("POST", "/v1/team-alerts/contacts/{contact_id}/code", {}, {}),
     ("POST", "/v1/team-alerts/contacts/{contact_id}/verify", {"code": "123456"}, {}),
     ("DELETE", "/v1/team-alerts/contacts/{contact_id}", {}, {}),

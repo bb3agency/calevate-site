@@ -328,6 +328,8 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "campaign_restore",
         # The script draft APPENDS.
         "script_draft",
+        # D-1040: a campaign's or line's own after-call alerts APPEND.
+        "job_team_alert_set",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]
@@ -885,6 +887,7 @@ async def test_the_confirm_route_carries_out_the_change_and_answers_what_it_did(
         "plan_id": None,
         "download_ticket": None,
         "queued": False,
+        "draft": None,
     }
     assert await _dnc_count(tenant_id) == 1
 

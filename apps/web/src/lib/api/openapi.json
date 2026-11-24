@@ -4984,6 +4984,52 @@
         "title": "AgentStatsOut",
         "type": "object"
       },
+      "AgentTeamAlertIn": {
+        "additionalProperties": false,
+        "properties": {
+          "in_call": {
+            "title": "In Call",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "in_call"
+        ],
+        "title": "AgentTeamAlertIn",
+        "type": "object"
+      },
+      "AgentTeamAlertOut": {
+        "additionalProperties": false,
+        "properties": {
+          "in_call": {
+            "title": "In Call",
+            "type": "boolean"
+          },
+          "in_call_live": {
+            "title": "In Call Live",
+            "type": "boolean"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/TeamAlertJobOut"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "team_addresses": {
+            "title": "Team Addresses",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "in_call",
+          "in_call_live",
+          "team_addresses",
+          "jobs"
+        ],
+        "title": "AgentTeamAlertOut",
+        "type": "object"
+      },
       "AgentTurnDetectionIn": {
         "additionalProperties": false,
         "properties": {
@@ -11658,6 +11704,39 @@
               }
             ],
             "title": "Longest Silence S"
+          },
+          "lookups_needed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lookups Needed"
+          },
+          "lookups_needed_done_max": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lookups Needed Done Max"
+          },
+          "lookups_needed_done_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lookups Needed Done Min"
           },
           "model_errors": {
             "anyOf": [
@@ -19857,6 +19936,16 @@
             ],
             "title": "Download Ticket"
           },
+          "draft": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CopilotDraftEvent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "object_id": {
             "title": "Object Id",
             "type": "string"
@@ -20042,6 +20131,37 @@
           "consent"
         ],
         "title": "CopilotConversationOut",
+        "type": "object"
+      },
+      "CopilotDraftEvent": {
+        "additionalProperties": false,
+        "description": "`event: draft` \u2014 this answer started a script draft; open its draft stream.",
+        "properties": {
+          "holder_id": {
+            "format": "uuid",
+            "title": "Holder Id",
+            "type": "string"
+          },
+          "holder_kind": {
+            "enum": [
+              "campaign",
+              "inbound_line"
+            ],
+            "title": "Holder Kind",
+            "type": "string"
+          },
+          "proposal_id": {
+            "format": "uuid",
+            "title": "Proposal Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "holder_kind",
+          "holder_id",
+          "proposal_id"
+        ],
+        "title": "CopilotDraftEvent",
         "type": "object"
       },
       "CopilotFact": {
@@ -28381,30 +28501,6 @@
       "FieldTriggerIO": {
         "additionalProperties": false,
         "properties": {
-          "campaign_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Campaign Id"
-          },
-          "inbound_line_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Inbound Line Id"
-          },
           "key": {
             "maxLength": 40,
             "minLength": 1,
@@ -34797,6 +34893,107 @@
           "digest"
         ],
         "title": "JobRefIn",
+        "type": "object"
+      },
+      "JobTeamAlertIn": {
+        "additionalProperties": false,
+        "properties": {
+          "on_fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldTriggerIO"
+            },
+            "maxItems": 10,
+            "title": "On Fields",
+            "type": "array"
+          },
+          "on_outcomes": {
+            "items": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "On Outcomes",
+            "type": "array"
+          }
+        },
+        "title": "JobTeamAlertIn",
+        "type": "object"
+      },
+      "JobTeamAlertOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/TeamAlertChoiceOut"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "campaign",
+              "line"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "on_fields": {
+            "items": {
+              "$ref": "#/components/schemas/FieldTriggerIO"
+            },
+            "title": "On Fields",
+            "type": "array"
+          },
+          "on_outcomes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "On Outcomes",
+            "type": "array"
+          },
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/TeamAlertChoiceOut"
+            },
+            "title": "Outcomes",
+            "type": "array"
+          },
+          "saved": {
+            "title": "Saved",
+            "type": "boolean"
+          },
+          "team_addresses": {
+            "title": "Team Addresses",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "agent_id",
+          "on_outcomes",
+          "on_fields",
+          "saved",
+          "team_addresses",
+          "outcomes",
+          "fields"
+        ],
+        "title": "JobTeamAlertOut",
         "type": "object"
       },
       "KbDriftOut": {
@@ -58247,17 +58444,10 @@
         "title": "TeamAlertChoiceOut",
         "type": "object"
       },
-      "TeamAlertHolderOut": {
+      "TeamAlertJobOut": {
         "additionalProperties": false,
-        "description": "A campaign or inbound line of this agent with its own \"What it notes\" list.",
+        "description": "A campaign or inbound line in the agent's voice, whose page sets its own alerts.",
         "properties": {
-          "fields": {
-            "items": {
-              "$ref": "#/components/schemas/TeamAlertChoiceOut"
-            },
-            "title": "Fields",
-            "type": "array"
-          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -58279,108 +58469,9 @@
         "required": [
           "kind",
           "id",
-          "name",
-          "fields"
+          "name"
         ],
-        "title": "TeamAlertHolderOut",
-        "type": "object"
-      },
-      "TeamAlertRuleIn": {
-        "additionalProperties": false,
-        "properties": {
-          "in_call": {
-            "default": false,
-            "title": "In Call",
-            "type": "boolean"
-          },
-          "on_fields": {
-            "items": {
-              "$ref": "#/components/schemas/FieldTriggerIO"
-            },
-            "maxItems": 10,
-            "title": "On Fields",
-            "type": "array"
-          },
-          "on_outcomes": {
-            "items": {
-              "maxLength": 200,
-              "type": "string"
-            },
-            "maxItems": 50,
-            "title": "On Outcomes",
-            "type": "array"
-          }
-        },
-        "title": "TeamAlertRuleIn",
-        "type": "object"
-      },
-      "TeamAlertRuleOut": {
-        "additionalProperties": false,
-        "properties": {
-          "fields": {
-            "items": {
-              "$ref": "#/components/schemas/TeamAlertChoiceOut"
-            },
-            "title": "Fields",
-            "type": "array"
-          },
-          "holders": {
-            "items": {
-              "$ref": "#/components/schemas/TeamAlertHolderOut"
-            },
-            "title": "Holders",
-            "type": "array"
-          },
-          "in_call": {
-            "title": "In Call",
-            "type": "boolean"
-          },
-          "in_call_live": {
-            "title": "In Call Live",
-            "type": "boolean"
-          },
-          "on_fields": {
-            "items": {
-              "$ref": "#/components/schemas/FieldTriggerIO"
-            },
-            "title": "On Fields",
-            "type": "array"
-          },
-          "on_outcomes": {
-            "items": {
-              "type": "string"
-            },
-            "title": "On Outcomes",
-            "type": "array"
-          },
-          "outcomes": {
-            "items": {
-              "$ref": "#/components/schemas/TeamAlertChoiceOut"
-            },
-            "title": "Outcomes",
-            "type": "array"
-          },
-          "saved": {
-            "title": "Saved",
-            "type": "boolean"
-          },
-          "team_addresses": {
-            "title": "Team Addresses",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "on_outcomes",
-          "on_fields",
-          "in_call",
-          "saved",
-          "team_addresses",
-          "in_call_live",
-          "outcomes",
-          "fields",
-          "holders"
-        ],
-        "title": "TeamAlertRuleOut",
+        "title": "TeamAlertJobOut",
         "type": "object"
       },
       "TeamCodeIn": {
@@ -83636,7 +83727,7 @@
     },
     "/v1/agents/{agent_id}/team-alert": {
       "get": {
-        "operationId": "get_team_alert_rule_v1_agents__agent_id__team_alert_get",
+        "operationId": "get_agent_team_alert_v1_agents__agent_id__team_alert_get",
         "parameters": [
           {
             "in": "path",
@@ -83654,7 +83745,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TeamAlertRuleOut"
+                  "$ref": "#/components/schemas/AgentTeamAlertOut"
                 }
               }
             },
@@ -83667,14 +83758,14 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "When this agent tells your team about a caller",
+        "summary": "Whether this agent may message your team during a call, and its jobs' alerts",
         "tags": [
           "team-alerts"
         ],
         "x-calevate-permission": "agents:read"
       },
       "put": {
-        "operationId": "set_team_alert_rule_v1_agents__agent_id__team_alert_put",
+        "operationId": "set_agent_team_alert_v1_agents__agent_id__team_alert_put",
         "parameters": [
           {
             "in": "path",
@@ -83691,7 +83782,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TeamAlertRuleIn"
+                "$ref": "#/components/schemas/AgentTeamAlertIn"
               }
             }
           },
@@ -83702,7 +83793,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TeamAlertRuleOut"
+                  "$ref": "#/components/schemas/AgentTeamAlertOut"
                 }
               }
             },
@@ -83715,7 +83806,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Set when this agent tells your team about a caller",
+        "summary": "Let this agent message your team during a call, or stop it",
         "tags": [
           "team-alerts"
         ],
@@ -91937,6 +92028,94 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/team-alert": {
+      "get": {
+        "operationId": "get_campaign_team_alert_v1_campaigns__campaign_id__team_alert_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobTeamAlertOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Which of this campaign's calls you and your team are told about",
+        "tags": [
+          "team-alerts"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "put": {
+        "operationId": "set_campaign_team_alert_v1_campaigns__campaign_id__team_alert_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobTeamAlertIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobTeamAlertOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set which of this campaign's calls you and your team are told about",
+        "tags": [
+          "team-alerts"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/campaigns/{campaign_id}/test-call": {
       "post": {
         "description": "The same gated, capped, idempotent test call as the agent's Try it (`agents/trial_calls`),\nrung through the campaign's own engine agent, published as a test holder first, so it says\nwhat the campaign says now in its agent's voice and never touches the agent (D-1003).",
@@ -99089,6 +99268,94 @@
         "summary": "Choose the sources from What your agents know that Pip writes this line from",
         "tags": [
           "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/team-alert": {
+      "get": {
+        "operationId": "get_line_team_alert_v1_inbound_lines__line_id__team_alert_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobTeamAlertOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Which of this line's calls you and your team are told about",
+        "tags": [
+          "team-alerts"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "put": {
+        "operationId": "set_line_team_alert_v1_inbound_lines__line_id__team_alert_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobTeamAlertIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobTeamAlertOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set which of this line's calls you and your team are told about",
+        "tags": [
+          "team-alerts"
         ],
         "x-calevate-permission": "org:manage"
       }

@@ -1,17 +1,14 @@
 "use client";
 
 /**
- * WHICH CALLS THIS AGENT TELLS YOU AND YOUR TEAM ABOUT (D-904, D-967).
+ * ALERTS FROM AN AGENT (D-904, D-967, D-1040).
  *
- * Who hears is one list for the account, kept on Settings → Alerts. Here is only when, and it
- * is exactly what is ticked: no outcome is fixed on, because a business's best outcome is not
- * always a sale ("App installed") and the owner must be able to switch any of them off. Until
- * the owner saves, the server sends every positive outcome ticked (`rule.saved` false). The
- * rule is per agent because each agent has its own outcomes and answers.
- *
- * A campaign or Inbound line of this agent with its own "What it notes" list adds its answers
- * here, under its own name (D-1007): such an answer alerts only on that campaign's or line's
- * calls. They live in this one rule rather than on each campaign, so alerts stay in one place.
+ * Who hears is one list for the account, kept on Settings → Alerts. Which calls alert after
+ * they end belongs to each campaign and Inbound line (`campaigns/JobAlerts`), because what a call
+ * notes is its job's list (D-1028) and the same detail on two campaigns can mean two things. The
+ * agent keeps only what is truly its own: whether it may message the team while a caller is on
+ * the line, which every campaign's and line's calls in its voice carry (founder, 24 Nov 2026).
+ * Below it, one link per job to that job's alerts.
  *
  * Writes are the owner's (`org:manage`); the server's refusal is shown in its own words.
  */
@@ -25,46 +22,58 @@ import { FIELD_LABEL, ProblemNotice, Skeleton } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
-import { useSaveTeamAlertRule, useTeamAlertRule, type TeamAlertRule } from "@/lib/api/teamAlerts";
+import {
+  useAgentTeamAlert,
+  useSaveAgentTeamAlert,
+  type AgentTeamAlert,
+  type AlertJobKind,
+} from "@/lib/api/teamAlerts";
 
 type AlertAgent = Pick<Agent, "id" | "name">;
-type Trigger = TeamAlertRule["on_fields"][number];
-type Choice = TeamAlertRule["fields"][number];
 
-/** Where a campaign's or line's page links to this panel (`?section=settings#…`). */
+/** Where links to an agent's alerts land (`?section=settings#…`). */
 export const TEAM_ALERTS_ANCHOR = "team-alerts";
 
-/** One answer's place in the form: whose list it is on, then its key. */
-function slot(trigger: Pick<Trigger, "key" | "campaign_id" | "inbound_line_id">): string {
-  const holder = trigger.campaign_id ? `campaign:${trigger.campaign_id}` : trigger.inbound_line_id ? `line:${trigger.inbound_line_id}` : "";
-  return `${holder}|${trigger.key}`;
+/** The id of a campaign's or line's Alerts section on its own page. */
+export function jobAlertsAnchor(kind: AlertJobKind): string {
+  return kind === "campaign" ? "campaign-alerts" : "line-alerts";
 }
 
-function triggerOf(place: string, values: string[]): Trigger {
-  const [holder, key] = [place.slice(0, place.indexOf("|")), place.slice(place.indexOf("|") + 1)];
-  const [kind, id] = holder.split(":");
-  return {
-    key,
-    values,
-    ...(kind === "campaign" ? { campaign_id: id } : {}),
-    ...(kind === "line" ? { inbound_line_id: id } : {}),
-  };
+/** A campaign's or line's own page, at its Alerts section. */
+export function jobAlertsPath(slug: string, kind: AlertJobKind, jobId: string): string {
+  const page = kind === "campaign" ? `/c/${slug}/campaigns/${jobId}` : `/c/${slug}/inbound/${jobId}`;
+  return `${page}#${jobAlertsAnchor(kind)}`;
+}
+
+/** Who hears, and where that is changed. */
+export function WhoHears({ team }: { team: number }) {
+  const { session, href } = useClientRealm();
+  return (
+    <p className="flex flex-wrap items-center gap-x-3 text-sm text-ink-muted">
+      <span>
+        {team === 0 ? "Only you hear these. No one from your team yet." : `You and ${team} from your team hear these.`}
+      </span>
+      <Link href={href(`/c/${session.orgSlug}/settings/alerts`)} className={TEXT_ACTION}>
+        Who hears
+      </Link>
+    </p>
+  );
 }
 
 export function TeamAlertsPanel({ agent }: { agent: AlertAgent }) {
-  const { session, href } = useClientRealm();
-  const rule = useTeamAlertRule(session, agent.id);
+  const { session } = useClientRealm();
+  const rule = useAgentTeamAlert(session, agent.id);
   const write = useWriteAccess(session, "org:manage", "change which calls you are alerted about");
   const loaded = rule.data != null;
-  // A campaign's "Set alerts" link names this section. The agent page draws it only after its
-  // data loads, so the browser's own jump found no target: scroll to it once the rule is in.
+  // The agent page draws this only after its data loads, so the browser's own jump to a link
+  // naming it found no target: scroll to it once the rule is in.
   useEffect(() => {
     if (loaded && window.location.hash === `#${TEAM_ALERTS_ANCHOR}`) {
       document.getElementById(TEAM_ALERTS_ANCHOR)?.scrollIntoView?.({ block: "start" });
     }
   }, [loaded]);
 
-  if (rule.isLoading) return <Skeleton rows={4} />;
+  if (rule.isLoading) return <Skeleton rows={3} />;
   if (rule.error || !rule.data) {
     return (
       <ProblemNotice
@@ -73,20 +82,11 @@ export function TeamAlertsPanel({ agent }: { agent: AlertAgent }) {
       />
     );
   }
-  const team = rule.data.team_addresses;
   return (
     <div className="space-y-6">
-      <p className="flex flex-wrap items-center gap-x-3 text-sm text-ink-muted">
-        <span>
-          {team === 0
-            ? "Only you hear these. No one from your team yet."
-            : `You and ${team} from your team hear these.`}
-        </span>
-        <Link href={href(`/c/${session.orgSlug}/settings/alerts`)} className={TEXT_ACTION}>
-          Who hears
-        </Link>
-      </p>
-      <When agent={agent} rule={rule.data} canWrite={write.allowed} reason={write.reason} />
+      <WhoHears team={rule.data.team_addresses} />
+      <InCall agent={agent} rule={rule.data} canWrite={write.allowed} reason={write.reason} />
+      <JobLinks jobs={rule.data.jobs} agentName={agent.name} />
     </div>
   );
 }
@@ -96,7 +96,7 @@ export function TeamAlertsPanel({ agent }: { agent: AlertAgent }) {
  * every row has the same height so the list reads as one column, and the box sits on the
  * first line of text when a label wraps.
  */
-function Tick({
+export function Tick({
   checked,
   disabled,
   onChange,
@@ -132,7 +132,7 @@ function Tick({
   );
 }
 
-function Group({ legend, children }: { legend: ReactNode; children: ReactNode }) {
+export function Group({ legend, children }: { legend: ReactNode; children: ReactNode }) {
   return (
     <fieldset>
       <legend className={`${FIELD_LABEL} mb-1`}>{legend}</legend>
@@ -141,131 +141,30 @@ function Group({ legend, children }: { legend: ReactNode; children: ReactNode })
   );
 }
 
-/** One choice field's answers, each a tick. */
-function AnswerGroup({
-  field,
-  us,
-  picked,
-  disabled,
-  onToggle,
-}: {
-  field: Choice;
-  us: string;
-  picked: string[];
-  disabled: boolean;
-  onToggle: (value: string, on: boolean) => void;
-}) {
-  return (
-    <Group legend={<>Tell {us} after a call where &ldquo;{field.label}&rdquo; is</>}>
-      {field.values.map((value) => (
-        <Tick key={value} disabled={disabled} checked={picked.includes(value)} onChange={(on) => onToggle(value, on)}>
-          {value}
-        </Tick>
-      ))}
-    </Group>
-  );
-}
-
-function When({
+function InCall({
   agent,
   rule,
   canWrite,
   reason,
 }: {
   agent: AlertAgent;
-  rule: TeamAlertRule;
+  rule: AgentTeamAlert;
   canWrite: boolean;
   reason: string | null;
 }) {
   const { session } = useClientRealm();
-  const save = useSaveTeamAlertRule(session, agent.id);
+  const save = useSaveAgentTeamAlert(session, agent.id);
   const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved" });
-  const [outcomes, setOutcomes] = useState<string[]>(rule.on_outcomes);
-  const [fields, setFields] = useState<Record<string, string[]>>(
-    Object.fromEntries(rule.on_fields.map((f) => [slot(f), f.values])),
-  );
   const [inCall, setInCall] = useState(rule.in_call);
-
-  const toggle = (list: string[], value: string, on: boolean) =>
-    on ? [...list.filter((v) => v !== value), value] : list.filter((v) => v !== value);
-  const us = rule.team_addresses === 0 ? "me" : "us";
-
   return (
     <form
       noValidate
-      className="space-y-6"
+      className="space-y-4"
       onSubmit={(event) => {
         event.preventDefault();
-        save.mutate({
-          on_outcomes: outcomes,
-          on_fields: Object.entries(fields)
-            .filter(([, values]) => values.length > 0)
-            .map(([place, values]) => triggerOf(place, values)),
-          in_call: inCall,
-        });
+        save.mutate({ in_call: inCall });
       }}
     >
-      {rule.outcomes.length > 0 ? (
-        <Group legend={`Tell ${us} after a call that ends with`}>
-          {rule.outcomes.map((o) => (
-            <Tick
-              key={o.key}
-              disabled={!canWrite}
-              checked={outcomes.includes(o.key)}
-              onChange={(on) => setOutcomes(toggle(outcomes, o.key, on))}
-            >
-              {o.label}
-              {o.goal ? <span className="ml-2 text-meta leading-none text-ink-faint">Goal</span> : null}
-            </Tick>
-          ))}
-        </Group>
-      ) : null}
-
-      {rule.fields.map((field) => {
-        const place = slot({ key: field.key });
-        return (
-          <AnswerGroup
-            key={place}
-            field={field}
-            us={us}
-            picked={fields[place] ?? []}
-            disabled={!canWrite}
-            onToggle={(value, on) => setFields({ ...fields, [place]: toggle(fields[place] ?? [], value, on) })}
-          />
-        );
-      })}
-
-      {rule.holders.map((holder) => (
-        <section
-          key={`${holder.kind}:${holder.id}`}
-          aria-label={`${holder.kind === "campaign" ? "Campaign" : "Inbound line"} ${holder.name}`}
-          className="space-y-4 border-l-2 border-line pl-4"
-        >
-          <p className="text-sm text-ink">
-            <span className="text-ink-muted">{holder.kind === "campaign" ? "Campaign" : "Inbound line"}</span>{" "}
-            {holder.name}
-            <span className="block text-xs text-ink-muted">Its own calls only.</span>
-          </p>
-          {holder.fields.map((field) => {
-            const place = slot({
-              key: field.key,
-              campaign_id: holder.kind === "campaign" ? holder.id : null,
-              inbound_line_id: holder.kind === "line" ? holder.id : null,
-            });
-            return (
-              <AnswerGroup
-                key={place}
-                field={field}
-                us={us}
-                picked={fields[place] ?? []}
-                disabled={!canWrite}
-                onToggle={(value, on) => setFields({ ...fields, [place]: toggle(fields[place] ?? [], value, on) })}
-              />
-            );
-          })}
-        </section>
-      ))}
-
       <Group legend="During the call">
         <Tick
           disabled={!canWrite}
@@ -285,11 +184,43 @@ function When({
           Message my team while the caller is on the line
         </Tick>
       </Group>
-
       {save.error ? <ProblemNotice error={save.error} /> : null}
-      <ActionButton type="submit" variant="primary-sm" status={feedback.status} successLabel="Saved" disabled={!canWrite} title={reason ?? undefined}>
+      <ActionButton
+        type="submit"
+        variant="primary-sm"
+        status={feedback.status}
+        successLabel="Saved"
+        disabled={!canWrite || inCall === rule.in_call}
+        title={reason ?? undefined}
+      >
         Save
       </ActionButton>
     </form>
+  );
+}
+
+/** One link per campaign and line: their after-call alerts are set on their own pages. */
+function JobLinks({ jobs, agentName }: { jobs: AgentTeamAlert["jobs"]; agentName: string }) {
+  const { session, href } = useClientRealm();
+  return (
+    <Group legend="After the call">
+      {jobs.length === 0 ? (
+        <p className="text-sm text-ink-muted">{`Set on each campaign and Inbound line. None uses ${agentName} yet.`}</p>
+      ) : (
+        <>
+          <p className="mb-2 text-sm text-ink-muted">Set on each campaign and Inbound line.</p>
+          <ul className="flex flex-wrap gap-x-4 gap-y-2">
+            {jobs.map((job) => (
+              <li key={`${job.kind}:${job.id}`}>
+                <Link href={href(jobAlertsPath(session.orgSlug, job.kind, job.id))} className={TEXT_ACTION}>
+                  <span className="text-ink-muted">{job.kind === "campaign" ? "Campaign" : "Inbound line"}</span>{" "}
+                  {job.name}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Group>
   );
 }

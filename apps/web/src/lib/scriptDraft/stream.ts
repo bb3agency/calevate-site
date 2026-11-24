@@ -5,8 +5,9 @@
  * read by the Pip panel and by the holder's own page through the same hook, so both show it
  * the same way.
  *
- * Typed by hand against the shared contract until `pnpm gen:api` carries the draft routes;
- * the interfaces below are then replaced by their generated twins.
+ * The `phase`, `line` and `diff` payloads are typed here because they travel only inside the
+ * `text/event-stream` body, which OpenAPI describes in prose (the stream route's description)
+ * and not as schemas; the routes' JSON answers (keep-live, cancel) use the generated types.
  *
  * ## Reconnecting
  *
@@ -21,9 +22,10 @@
 import { useEffect, useReducer } from "react";
 
 import { ApiProblem, openEventStream, type Session } from "@/lib/api/client";
+import type { components } from "@/lib/api/schema";
 import type { SseEvent } from "@/lib/copilot/sse";
 
-export type ScriptDraftHolderKind = "campaign" | "inbound_line";
+export type ScriptDraftHolderKind = components["schemas"]["CopilotDraftEvent"]["holder_kind"];
 
 export interface ScriptDraftHolder {
   kind: ScriptDraftHolderKind;

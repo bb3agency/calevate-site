@@ -359,11 +359,12 @@ async def test_stop_cancels_every_draft_the_run_started_even_when_one_fails() ->
     control = _control()
     control.note_draft(run_control.StartedDraft("campaign", uuid.uuid4(), first))
     control.note_draft(run_control.StartedDraft("inbound_line", uuid.uuid4(), second))
+    registered = run_control.draft_canceller()
     run_control.register_draft_canceller(_cancel)
     try:
         await control.cancel_drafts()
     finally:
-        run_control.register_draft_canceller(None)
+        run_control.register_draft_canceller(registered)
     assert cancelled == [first, second]
     assert scoped == [str(control.tenant_id)] * 2
 

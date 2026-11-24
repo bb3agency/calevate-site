@@ -1540,10 +1540,19 @@ async def _owner_insights_stage(
                         ),
                     ),
                 )
-                # A step left before its outcome, from where the call got to (STEP 3a).
+                # A step left before its outcome, from where the call got to (STEP 3a), and a
+                # reply that needed a lookup on a call that made none.
                 async with tenant_session(tenant_id) as session:
                     progress = await stored_progress(session, call_id)
+                    lookups = await call_mistakes.call_lookup_figures(
+                        session,
+                        call_id=call_id,
+                        agent_id=agent_id,
+                        turns=snapshot.transcript,
+                        unheard=likely_cut_off(snapshot.transcript),
+                    )
                 found.update(call_mistakes.step_mistakes(progress))
+                found.update(call_mistakes.lookup_mistakes(lookups))
                 await call_mistakes.record_call_mistakes(
                     tenant_id=tenant_id,
                     agent_id=agent_id,
@@ -5606,7 +5615,7 @@ async def _maybe_notify_hot_lead(
     labels: dict[str, str],
 ) -> str:
     """Tell everyone who hears about hot leads about this call (FLOWS §6), when it made its
-    lead hot or the agent's rule matched (`team_alerts.queue_after_call`).
+    lead hot or the call's campaign's or line's rule matched (`team_alerts.queue_after_call`).
 
     A hot call moves the lead through `_advance_lead_status`, so the move is recorded on the
     lead's timeline and reaches a CRM as `lead.updated`; after `_upsert_lead` has already

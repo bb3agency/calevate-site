@@ -33,6 +33,7 @@ from calevate_shared.call_script import CallScript
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import turn_checks
 from apps.api.agents.models import MistakeFixFoundBy, MistakeFixState
 from apps.api.agents.prompts import rollback_prompt
 from apps.api.campaigns.workspace import CampaignProposal, read_script_proposal
@@ -253,6 +254,9 @@ async def open_fixes(
     Training tab, and the first call showing it after Pip is on opens the fix."""
     if not await account_content_may_reach_models(session, tenant_id=tenant_id):
         return []
+    # A behaviour during the call has no script line to repair: our team changes the
+    # platform rule (`turn_checks.IN_CALL_KINDS`).
+    kinds = [k for k in kinds if k not in turn_checks.IN_CALL_KINDS]
     latest = await latest_fixes(session, agent_id, kinds)
     opened: list[str] = []
     for kind in sorted(set(kinds)):

@@ -359,6 +359,13 @@ class CallQualityOut(Strict):
     backup_answers: int | None = None
     #: Turns on which the agent looked something up in the client's knowledge.
     knowledge_turns: int | None = None
+    #: Replies that needed a lookup (`call_mistakes.needs_lookup`), worked out from the
+    #: transcript on every read. Null when the call has no transcript.
+    lookups_needed: int | None = None
+    #: How many of those had a lookup. The platform counts lookups per call, not per reply,
+    #: so this is a range that is exact when the two meet; both null with no lookup count.
+    lookups_needed_done_min: int | None = None
+    lookups_needed_done_max: int | None = None
 
 
 class TurnTimingOut(Strict):

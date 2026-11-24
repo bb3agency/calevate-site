@@ -1,5 +1,6 @@
-"""Who hears about a call (D-904): verified team addresses, per-agent triggers, the in-call
-action, and one alert per person per call, the team's with the caller's full number."""
+"""Who hears about a call (D-904): verified team addresses, each job's after-call triggers
+(D-1040), the agent's in-call action, and one alert per person per call, the team's with the
+caller's full number. The tenant's calls are taken by its one inbound line."""
 
 from __future__ import annotations
 
@@ -16,11 +17,12 @@ import pytest
 from apps.api.actions import in_call
 from apps.api.actions.execution import CallFacts
 from apps.api.actions.service import RESERVED_ACTION_NAMES
+from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.reliability import engine_actions
 from apps.api.team_alerts import service
-from apps.api.team_alerts.service import FieldTrigger, Rule
+from apps.api.team_alerts.service import FieldTrigger, HolderRef, JobRuleView, Rule
 from apps.workers import team_alerts as worker
 from arq import Retry
 from sqlalchemy import text
@@ -83,14 +85,48 @@ async def _verified_contact(t: Tenant, address: str = "team@example.com") -> UUI
     return contact.id
 
 
+async def _line_of(t: Tenant) -> HolderRef:
+    async with tenant_session(t.tenant_id) as session:
+        line_id = (
+            await session.execute(
+                text("SELECT id FROM inbound_lines WHERE agent_id = :aid LIMIT 1"),
+                {"aid": t.agent_id},
+            )
+        ).scalar_one()
+    return HolderRef("line", UUID(str(line_id)))
+
+
+async def _save_rule(t: Tenant, rule: Rule) -> JobRuleView:
+    """Save the after-call rule of the tenant's line, the job its calls do."""
+    job = await _line_of(t)
+    async with tenant_session(t.tenant_id) as session:
+        return await service.save_job_rule(session, job, rule)
+
+
+async def _read_rule(t: Tenant) -> JobRuleView:
+    job = await _line_of(t)
+    async with tenant_session(t.tenant_id) as session:
+        return await service.read_job_rule(session, job)
+
+
+async def _in_call_on(t: Tenant) -> None:
+    async with tenant_session(t.tenant_id) as session:
+        await service.save_in_call(
+            session, tenant_id=t.tenant_id, agent_id=t.agent_id, in_call=True
+        )
+
+
 async def _call(t: Tenant, *, direction: str = "inbound") -> UUID:
+    """A completed call on the agent's line, when it has one."""
     call_id = uuid7()
     async with tenant_session(t.tenant_id) as session:
         await session.execute(
             text(
-                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
-                "from_e164, to_e164, summary, started_at, created_at, updated_at) VALUES (:id, "
-                ":tid, :aid, :e, :dir, 'completed', :from_, :to_, :summary, now(), now(), now())"
+                "INSERT INTO calls (id, tenant_id, agent_id, inbound_line_id, engine_call_id, "
+                "direction, status, from_e164, to_e164, summary, started_at, created_at, "
+                "updated_at) VALUES (:id, :tid, :aid, (SELECT id FROM inbound_lines WHERE "
+                "agent_id = :aid LIMIT 1), :e, :dir, 'completed', :from_, :to_, :summary, now(), "
+                "now(), now())"
             ),
             {
                 "id": call_id,
@@ -247,13 +283,7 @@ async def test_whatsapp_goes_only_through_the_clients_own_connection(
     assert await service.verify_contact(
         tenant_id=t.tenant_id, contact_id=contact.id, code=code
     ) == ("verified")
-    async with tenant_session(t.tenant_id) as session:
-        await service.save_rule(
-            session,
-            tenant_id=t.tenant_id,
-            agent_id=t.agent_id,
-            rule=Rule(in_call=True),
-        )
+    await _in_call_on(t)
     call_id = await _call(t)
     assert (
         await service.queue_in_call(
@@ -271,23 +301,19 @@ async def test_whatsapp_goes_only_through_the_clients_own_connection(
 # ------------------------------------------------------------------ rules + queueing
 
 
-async def test_a_rule_names_only_what_the_agent_has() -> None:
+async def test_a_rule_names_only_what_the_job_has() -> None:
     from apps.api.core.errors import ProblemError
 
     t = await _tenant()
-    await _use_schema(t)
-    async with tenant_session(t.tenant_id) as session:
-        view = await service.read_rule(session, agent_id=t.agent_id)
-        assert any(f.key == "budget_band" for f in view.fields)
-        assert view.outcomes, "the agent's outcomes (or the starting set) are offered"
-        with pytest.raises(ProblemError) as refused:
-            await service.save_rule(
-                session,
-                tenant_id=t.tenant_id,
-                agent_id=t.agent_id,
-                rule=Rule(on_fields=(FieldTrigger("budget_band", ("nope",)),)),
-            )
+    view = await _read_rule(t)
+    assert any(f.key == "budget_band" for f in view.fields)
+    assert view.outcomes, "the agent's outcomes (or the starting set) are offered"
+    with pytest.raises(ProblemError) as refused:
+        await _save_rule(t, Rule(on_fields=(FieldTrigger("budget_band", ("nope",)),)))
     assert refused.value.code == "team_alert_choice_unknown"
+    with pytest.raises(ProblemError) as unknown:
+        await _save_rule(t, Rule(on_outcomes=("no_such_outcome",)))
+    assert unknown.value.code == "team_alert_choice_unknown"
 
 
 async def test_a_chosen_answer_tells_the_team_once_per_call(
@@ -295,15 +321,8 @@ async def test_a_chosen_answer_tells_the_team_once_per_call(
 ) -> None:
     mail = _mail(monkeypatch)
     t = await _tenant()
-    await _use_schema(t)
     contact_id = await _verified_contact(t)
-    async with tenant_session(t.tenant_id) as session:
-        await service.save_rule(
-            session,
-            tenant_id=t.tenant_id,
-            agent_id=t.agent_id,
-            rule=Rule(on_fields=(FieldTrigger("budget_band", ("over_50l",)),)),
-        )
+    await _save_rule(t, Rule(on_fields=(FieldTrigger("budget_band", ("over_50l",)),)))
     call_id = await _call(t)
 
     async def _after(data: dict[str, Any]) -> str:
@@ -348,15 +367,9 @@ async def test_a_chosen_answer_tells_the_team_once_per_call(
 
 async def test_an_unconfirmed_address_hears_nothing_and_without_a_lead_nobody_does() -> None:
     t = await _tenant()
-    await _use_schema(t)
+    await _save_rule(t, Rule(on_fields=(FieldTrigger("budget_band", ("over_50l",)),)))
     async with tenant_session(t.tenant_id) as session:
         await service.add_contact(session, tenant_id=t.tenant_id, address="later@example.com")
-        await service.save_rule(
-            session,
-            tenant_id=t.tenant_id,
-            agent_id=t.agent_id,
-            rule=Rule(on_fields=(FieldTrigger("budget_band", ("over_50l",)),)),
-        )
         outcome = await service.queue_after_call(
             session,
             tenant_id=t.tenant_id,
@@ -395,14 +408,9 @@ async def test_one_hot_call_tells_each_person_once_whatever_tells_them() -> None
     second = await _verified_contact(t, "sales@example.com")
     call_id = await _call(t)
     lead_id = uuid7()
+    outcome = (await _read_rule(t)).outcomes[0]
+    await _save_rule(t, Rule(on_outcomes=(outcome.key,)))
     async with tenant_session(t.tenant_id) as session:
-        outcome = (await service.read_rule(session, agent_id=t.agent_id)).outcomes[0]
-        await service.save_rule(
-            session,
-            tenant_id=t.tenant_id,
-            agent_id=t.agent_id,
-            rule=Rule(on_outcomes=(outcome.key,)),
-        )
         told = await service.queue_after_call(
             session,
             tenant_id=t.tenant_id,
@@ -633,13 +641,7 @@ async def test_an_exhausted_alert_is_failed_and_alarmed(monkeypatch: pytest.Monk
     monkeypatch.setattr(worker, "alert", lambda stage, code, **_: fired.append(code))
     t = await _tenant()
     await _verified_contact(t)
-    async with tenant_session(t.tenant_id) as session:
-        await service.save_rule(
-            session,
-            tenant_id=t.tenant_id,
-            agent_id=t.agent_id,
-            rule=Rule(in_call=True),
-        )
+    await _in_call_on(t)
     call_id = await _call(t)
     assert (
         await service.queue_in_call(
@@ -678,13 +680,8 @@ async def test_the_agent_can_tell_the_team_only_when_it_has_the_action(
     assert refused.status == "unavailable" and "Do NOT say" in refused.say
 
     await _verified_contact(t)
+    await _in_call_on(t)
     async with tenant_session(t.tenant_id) as session:
-        await service.save_rule(
-            session,
-            tenant_id=t.tenant_id,
-            agent_id=t.agent_id,
-            rule=Rule(in_call=True),
-        )
         definitions = await engine_actions.client_definitions(
             session, "thinnest", "ag_x", t.agent_id
         )
@@ -716,14 +713,9 @@ async def test_the_agent_can_tell_the_team_only_when_it_has_the_action(
     assert "Call summary" not in body, "the in-call alert goes before any summary exists"
 
     # After the call, the same address is not told again about the same call.
+    outcome_key = (await _read_rule(t)).outcomes[0].key
+    await _save_rule(t, Rule(on_outcomes=(outcome_key,)))
     async with tenant_session(t.tenant_id) as session:
-        outcome_key = (await service.read_rule(session, agent_id=t.agent_id)).outcomes[0].key
-        await service.save_rule(
-            session,
-            tenant_id=t.tenant_id,
-            agent_id=t.agent_id,
-            rule=Rule(on_outcomes=(outcome_key,), in_call=True),
-        )
         after = await service.queue_after_call(
             session,
             tenant_id=t.tenant_id,
@@ -767,13 +759,8 @@ def test_the_alert_text_keeps_untrusted_values_on_one_line() -> None:
 async def test_another_client_sees_none_of_it() -> None:
     t = await _tenant()
     await _verified_contact(t)
-    async with tenant_session(t.tenant_id) as session:
-        await service.save_rule(
-            session,
-            tenant_id=t.tenant_id,
-            agent_id=t.agent_id,
-            rule=Rule(in_call=True),
-        )
+    await _in_call_on(t)
+    await _save_rule(t, Rule())
     await service.queue_in_call(
         tenant_id=t.tenant_id, agent_id=t.agent_id, call_id=await _call(t), problem="help"
     )
@@ -782,6 +769,15 @@ async def test_another_client_sees_none_of_it() -> None:
         for table in ("team_alert_contacts", "team_alert_rules", "team_alerts"):
             count = (await session.execute(text(f"SELECT count(*) FROM {table}"))).scalar()
             assert count == 0, table
+        # A job's rule lives on its row, which RLS keeps from the other client too.
+        held = (
+            await session.execute(
+                text("SELECT count(*) FROM inbound_lines WHERE team_alert_rule IS NOT NULL")
+            )
+        ).scalar()
+        assert held == 0
+        with pytest.raises(ProblemError):
+            await service.read_job_rule(session, await _line_of(t))
 
 
 async def test_the_routes_serve_the_owner_and_refuse_a_stranger() -> None:
@@ -823,17 +819,32 @@ async def test_the_routes_serve_the_owner_and_refuse_a_stranger() -> None:
         assert ok.status_code == 200 and ok.json()["contacts"][0]["verified"] is True
 
         put = await client.put(
-            f"/v1/agents/{t.agent_id}/team-alert",
-            json={"on_fields": [{"key": "budget_band", "values": ["over_50l"]}], "in_call": True},
-            headers=t.headers,
+            f"/v1/agents/{t.agent_id}/team-alert", json={"in_call": True}, headers=t.headers
         )
         assert put.status_code == 200, put.text
-        rule = put.json()
-        assert rule["team_addresses"] == 1 and rule["in_call_live"] is True
+        agent = put.json()
+        assert agent["team_addresses"] == 1 and agent["in_call_live"] is True
+        line = await _line_of(t)
+        assert agent["jobs"] == [{"kind": "line", "id": str(line.id), "name": "Front desk"}]
+
+        path = f"/v1/inbound-lines/{line.id}/team-alert"
+        job = await client.put(
+            path,
+            json={"on_fields": [{"key": "budget_band", "values": ["over_50l"]}]},
+            headers=t.headers,
+        )
+        assert job.status_code == 200, job.text
+        rule = job.json()
         assert rule["saved"] is True and rule["on_outcomes"] == []
+        assert rule["on_fields"] == [{"key": "budget_band", "values": ["over_50l"]}]
+        assert rule["kind"] == "line" and rule["agent_id"] == str(t.agent_id)
 
         assert (
             await client.get(f"/v1/agents/{t.agent_id}/team-alert", headers=stranger.headers)
+        ).status_code == 404
+        assert (await client.get(path, headers=stranger.headers)).status_code == 404
+        assert (
+            await client.put(path, json={"on_outcomes": []}, headers=stranger.headers)
         ).status_code == 404
         theirs = await client.get("/v1/team-alerts/contacts", headers=stranger.headers)
         assert theirs.status_code == 200 and theirs.json()["contacts"] == []
@@ -883,16 +894,14 @@ async def _after_outcome(t: Tenant, key: str, *, hot: bool = False) -> str:
 
 async def test_an_unsaved_rule_ticks_every_positive_outcome_the_agent_has_now() -> None:
     t = await _tenant()
-    async with tenant_session(t.tenant_id) as session:
-        fresh = await service.read_rule(session, agent_id=t.agent_id)
+    fresh = await _read_rule(t)
     assert not fresh.saved
     assert set(fresh.rule.on_outcomes) == {"interested"}, (
         "a new agent reads the starting set, and its positive outcomes are ticked"
     )
 
     await _set_outcomes(t, _ONBOARDING_OUTCOMES)
-    async with tenant_session(t.tenant_id) as session:
-        drafted = await service.read_rule(session, agent_id=t.agent_id)
+    drafted = await _read_rule(t)
     assert not drafted.saved
     assert drafted.rule.on_outcomes == ("app_installed", "considering")
     assert [(o.key, o.positive, o.goal) for o in drafted.outcomes] == [
@@ -908,21 +917,14 @@ async def test_an_unsaved_rule_ticks_every_positive_outcome_the_agent_has_now() 
 async def test_a_hot_outcome_the_owner_unticked_tells_nobody_and_survives_a_redraft() -> None:
     t = await _tenant()
     await _set_outcomes(t, _ONBOARDING_OUTCOMES)
-    async with tenant_session(t.tenant_id) as session:
-        await service.save_rule(
-            session,
-            tenant_id=t.tenant_id,
-            agent_id=t.agent_id,
-            rule=Rule(on_outcomes=("helped",)),
-        )
+    await _save_rule(t, Rule(on_outcomes=("helped",)))
     assert await _after_outcome(t, "app_installed", hot=True) == "not_worth_telling", (
         "no outcome alerts unless it is ticked, Hot included"
     )
     assert await _after_outcome(t, "helped") == "queued"
 
     await _set_outcomes(t, [*_ONBOARDING_OUTCOMES, {**_ONBOARDING_OUTCOMES[0], "key": "paid"}])
-    async with tenant_session(t.tenant_id) as session:
-        redrafted = await service.read_rule(session, agent_id=t.agent_id)
+    redrafted = await _read_rule(t)
     assert redrafted.saved and redrafted.rule.on_outcomes == ("helped",), (
         "a new list of outcomes never re-ticks over the owner's saved choice"
     )
@@ -939,34 +941,41 @@ def _migration() -> Any:
 
 
 async def test_the_migration_writes_hot_outcomes_into_saved_rules_and_back_out() -> None:
+    """`678b07d5cccf` on the agent rule's `on_outcomes`, which `b8e3f1c6d2a4` (D-1040) then
+    copied onto each job."""
     migration = _migration()
     t = await _tenant()
     await _set_outcomes(t, _ONBOARDING_OUTCOMES)
     async with tenant_session(t.tenant_id) as session:
-        await service.save_rule(
-            session,
-            tenant_id=t.tenant_id,
-            agent_id=t.agent_id,
-            rule=Rule(on_outcomes=("considering",)),
+        await session.execute(
+            text(
+                "INSERT INTO team_alert_rules (id, tenant_id, agent_id, on_outcomes, created_at, "
+                "updated_at) VALUES (:id, :t, :a, '[\"considering\"]'::jsonb, now(), now())"
+            ),
+            {"id": uuid7(), "t": t.tenant_id, "a": t.agent_id},
         )
 
-    async def _listed() -> tuple[str, ...]:
+    async def _listed() -> list[str]:
         async with tenant_session(t.tenant_id) as session:
-            rule = await service.load_rule(session, t.agent_id)
-        assert rule is not None
-        return rule.on_outcomes
+            return list(
+                (
+                    await session.execute(
+                        text("SELECT on_outcomes FROM team_alert_rules WHERE agent_id = :a"),
+                        {"a": t.agent_id},
+                    )
+                ).scalar_one()
+            )
 
     for _ in range(2):
         async with tenant_session(t.tenant_id) as session:
             await session.execute(text(migration._ADD_HOT))
-        assert await _listed() == ("considering", "app_installed"), (
+        assert await _listed() == ["considering", "app_installed"], (
             "an agent that alerted on its Hot outcome keeps alerting, now that it is listed"
         )
-    assert await _after_outcome(t, "app_installed", hot=True) == "queued"
 
     async with tenant_session(t.tenant_id) as session:
         await session.execute(text(migration._REMOVE_HOT))
-    assert await _listed() == ("considering",)
+    assert await _listed() == ["considering"]
 
 
 class _MeetFirst:

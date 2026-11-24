@@ -20,6 +20,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 
 import { formatDateLong, todayIST } from "@/components/arc/ist-dates";
 
+import { jobTeamAlert } from "./fixtures/sharedReads";
 import type { Routes } from "./harness";
 
 /**
@@ -226,6 +227,7 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [`/v1/campaigns/${id}/insights`]: insightsFixture(),
     [`/v1/campaigns/${id}/settings`]: settingsFixture(),
     [`/v1/campaigns/${id}/notes`]: notesFixture(),
+    [`/v1/campaigns/${id}/team-alert`]: jobTeamAlert("campaign", id),
     // The Test call section's list of calls made from the campaign: none yet.
     [`/v1/campaigns/${id}/test-calls`]: [],
     // The account's saved test numbers, offered under Test call: none yet.

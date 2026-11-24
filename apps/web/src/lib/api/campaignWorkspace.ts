@@ -209,7 +209,7 @@ export function useKeepCampaignDraftLive(session: Session, campaignId: string) {
 /** Stop Pip while it writes a draft; nothing half-written is saved. */
 export function useCancelCampaignDraft(session: Session, campaignId: string) {
   return useWorkspaceMutation(session, campaignId, (proposalId: string) =>
-    apiRequest<unknown>(session, cancelDraftPath({ kind: "campaign", id: campaignId }, proposalId), {
+    apiRequest<Schemas["DraftCancelOut"]>(session, cancelDraftPath({ kind: "campaign", id: campaignId }, proposalId), {
       method: "POST",
     }),
   );

@@ -1,16 +1,17 @@
 /**
  * Pip's live working view: the frames the copilot stream adds for it, and the state they build.
  *
- * The shapes are typed by hand against the shared contract (`run`, `thought`, `draft`,
- * `stopped`, and `step.results`) because the backend routes are being built beside this
- * module; once `pnpm gen:api` carries them, each interface below is replaced by its
- * generated twin and nothing else here changes.
+ * `draft` and Stop's answer are the generated types (`CopilotDraftEvent`, which the confirm's
+ * answer also carries, and `CopilotStopOut`). `run`, `thought`, `stopped` and `step.results`
+ * are typed here: they travel only inside the `text/event-stream` body, which OpenAPI
+ * describes in prose (the ask route's description) and not as schemas.
  *
  * The reducer is pure so its ordering rules are tested without React or a stream
  * (`tests/pipLive.test.tsx`).
  */
 
 import { apiRequest, type Session } from "@/lib/api/client";
+import type { components } from "@/lib/api/schema";
 
 import type { CopilotStep } from "./types";
 
@@ -20,17 +21,20 @@ export interface RunFrame {
   started_at: string;
 }
 
-/** `event: thought`: a fragment of the model's thought summary for the current model turn. */
+/**
+ * `event: thought`: a fragment of Pip's plan line for one model turn. `turn` counts the run's
+ * model turns from 0; a higher one starts a new Thinking row.
+ */
 export interface ThoughtFrame {
   delta: string;
+  turn: number;
 }
 
-/** `event: draft`: this run started a script draft, followed on its own draft stream. */
-export interface DraftFrame {
-  holder_kind: "campaign" | "inbound_line";
-  holder_id: string;
-  proposal_id: string;
-}
+/** `event: draft` (and the confirm's `draft`): a script draft, followed on its own stream. */
+export type DraftFrame = components["schemas"]["CopilotDraftEvent"];
+
+/** Stop's answer: the same for every run id. */
+export type StopOut = components["schemas"]["CopilotStopOut"];
 
 /** `event: stopped`: the last frame after a Stop; no `done` follows it. */
 export interface StoppedFrame {
@@ -97,6 +101,8 @@ export function consoleHref(href: string | null | undefined, slug: string | null
 export interface ThoughtEntry {
   kind: "thought";
   id: string;
+  /** The model turn it belongs to, when the server said (`ThoughtFrame.turn`). */
+  turn?: number | null;
   text: string;
   startedAt: number;
   endedAt: number | null;
@@ -133,7 +139,7 @@ export const IDLE_RUN: LiveRun = { runId: null, startedAt: null, phase: "idle", 
 export type LiveAction =
   | { type: "ask" }
   | { type: "run"; frame: RunFrame; now: number }
-  | { type: "thought"; delta: string; now: number }
+  | { type: "thought"; delta: string; now: number; turn?: number }
   | { type: "step"; id: string; now: number }
   | { type: "text"; now: number }
   | { type: "draft"; frame: DraftFrame }
@@ -164,8 +170,9 @@ function closeThought(entries: TimelineEntry[], now: number): TimelineEntry[] {
 
 /**
  * Ordering rules, each pinned by a test:
- * - a thought fragment extends the open thought row; after a step or answer text it starts a
- *   new row, because the next model turn is thinking about something else;
+ * - a thought fragment extends the open thought row of its model turn; after a step or answer
+ *   text, or with a higher `turn`, it starts a new row, because the next model turn is
+ *   thinking about something else;
  * - a step's first frame opens its row and closes the thought before it; its later frames
  *   change the step in `steps`, never the order;
  * - drafts are kept by proposal id, first frame wins, and survive the next question until
@@ -179,18 +186,23 @@ export function liveRunReducer(state: LiveRun, action: LiveAction): LiveRun {
       return { ...state, runId: action.frame.run_id, startedAt: runClockStart(action.frame.started_at, action.now) };
     case "thought": {
       if (action.delta === "") return state;
+      const turn = action.turn ?? null;
       const last = state.entries[state.entries.length - 1];
-      if (last?.kind === "thought" && last.endedAt === null) {
+      const lastTurn = last?.kind === "thought" ? (last.turn ?? null) : null;
+      const sameTurn = turn === null || lastTurn === null || lastTurn === turn;
+      if (last?.kind === "thought" && last.endedAt === null && sameTurn) {
         return { ...state, entries: [...state.entries.slice(0, -1), { ...last, text: last.text + action.delta }] };
       }
+      const entries = closeThought(state.entries, action.now);
       const entry: ThoughtEntry = {
         kind: "thought",
-        id: `thought-${state.entries.length}`,
+        id: `thought-${entries.length}`,
+        turn,
         text: action.delta,
         startedAt: action.now,
         endedAt: null,
       };
-      return { ...state, entries: [...state.entries, entry] };
+      return { ...state, entries: [...entries, entry] };
     }
     case "step": {
       if (state.entries.some((entry) => entry.kind === "step" && entry.id === action.id)) return state;
@@ -268,8 +280,8 @@ export function stopRunPath(realm: "client" | "admin", runId: string): string {
  * `stopped`, which is what the Stop button waits for. Stopping on the server rather than
  * only closing the connection is what ends the model call and cancels the run's drafts.
  */
-export function requestStop(session: Session, realm: "client" | "admin", runId: string): Promise<unknown> {
-  return apiRequest<unknown>(session, stopRunPath(realm, runId), { method: "POST" });
+export function requestStop(session: Session, realm: "client" | "admin", runId: string): Promise<StopOut> {
+  return apiRequest<StopOut>(session, stopRunPath(realm, runId), { method: "POST" });
 }
 
 /**
