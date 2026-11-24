@@ -35864,6 +35864,18 @@
             ],
             "title": "Disclosure"
           },
+          "missing": {
+            "items": {
+              "enum": [
+                "business",
+                "offer",
+                "customers"
+              ],
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
           "owner_edits_kept": {
             "title": "Owner Edits Kept",
             "type": "integer"

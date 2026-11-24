@@ -27890,6 +27890,8 @@ export interface components {
             at: string;
             /** Disclosure */
             disclosure: string | null;
+            /** Missing */
+            missing?: ("business" | "offer" | "customers")[];
             /** Owner Edits Kept */
             owner_edits_kept: number;
             /** Reasons */

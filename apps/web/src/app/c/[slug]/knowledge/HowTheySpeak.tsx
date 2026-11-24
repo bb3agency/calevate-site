@@ -39,6 +39,7 @@ import {
   useSaveOverview,
   useSaveTraining,
   type CompanyTraining,
+  type MissingPart,
   type WriteReason,
 } from "@/lib/api/companyTraining";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -337,6 +338,7 @@ function WriteStatus({ data }: { data: CompanyTraining }) {
         {data.owner_edited && <StatusPill tone="neutral">Has your edits</StatusPill>}
       </p>
       {last?.disclosure && <p className="text-meta text-ink-muted">{last.disclosure}</p>}
+      {last?.missing && last.missing.length > 0 && <MissingParts missing={last.missing} />}
       {last && last.superseded.length > 0 && (
         <details className="text-meta text-ink-muted">
           <summary className="cursor-pointer">Newer knowledge replaced {last.superseded.length}</summary>
@@ -349,6 +351,33 @@ function WriteStatus({ data }: { data: CompanyTraining }) {
           </ul>
         </details>
       )}
+    </div>
+  );
+}
+
+const MISSING_WORDS: Record<MissingPart, string> = {
+  business: "what your business does",
+  offer: "what you sell or provide",
+  customers: "who your customers are",
+};
+
+/**
+ * What Pip could not describe without guessing, and where to say it: Pip leaves such a part
+ * out rather than writing it from a source about one piece of work (founder, 24 Nov 2026).
+ */
+function MissingParts({ missing }: { missing: readonly MissingPart[] }) {
+  const said = missing.map((part) => MISSING_WORDS[part]);
+  const list = said.length > 1 ? `${said.slice(0, -1).join(", ")} and ${said.at(-1)}` : said[0];
+  return (
+    <div role="note" className="mt-2 rounded-card border border-line bg-warn-soft p-3">
+      <p className="text-meta font-medium text-ink">Pip needs more about your business</p>
+      <p className="mt-1 text-meta text-ink-muted">Your knowledge does not say {list}.</p>
+      <p className="text-meta text-ink-muted">
+        Write it under About the business, or add a file that says it.
+      </p>
+      <a href="#training-overview" className={`${SECONDARY_BUTTON_SM} mt-2 inline-flex`}>
+        Write about the business
+      </a>
     </div>
   );
 }

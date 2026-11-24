@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.27 — 24-Nov-2026
+
+- Company training describes your business: what it is, what it does and offers and who
+  its customers are. A campaign's reason for calling, goal and call steps stay in that
+  campaign's script.
+- When your knowledge does not say what your business does, what you offer or who your
+  customers are, Pip leaves that out and asks you for it on How they speak, with a button
+  to write it under About the business.
+
 ## 0.5.26 — 24-Nov-2026
 
 - Pip reads your documents whole when it writes the company training and campaign and line

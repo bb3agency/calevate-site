@@ -50,6 +50,9 @@ class TrainingProposalOut(_Out):
     reason: str | None
 
 
+MissingPartOut = Literal["business", "offer", "customers"]
+
+
 class LastWriteOut(_Out):
     """Pip's last saved write."""
 
@@ -62,6 +65,9 @@ class LastWriteOut(_Out):
     shortened: bool
     #: Who wrote it when it was not the account's own model (D-127 G-6), shown beside it.
     disclosure: str | None
+    #: What the knowledge did not say well enough to write without guessing; the owner is
+    #: asked for a source that says it.
+    missing: list[MissingPartOut] = Field(default_factory=list)
 
 
 class CompanyTrainingOut(_Out):
@@ -108,6 +114,9 @@ def _last_write(w: training_rules.LastWrite | None) -> LastWriteOut | None:
         superseded=list(w.superseded),
         shortened=w.shortened,
         disclosure=w.disclosure,
+        missing=[
+            cast(MissingPartOut, m) for m in w.missing if m in ("business", "offer", "customers")
+        ],
     )
 
 

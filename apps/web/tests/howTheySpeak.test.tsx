@@ -106,6 +106,32 @@ describe("How they speak", () => {
     expect(screen.getByText("Your edits kept: 2")).toBeTruthy();
     expect(screen.getByText("Newer knowledge replaced 1")).toBeTruthy();
     expect(screen.getByText("Delivery is 50 rupees.")).toBeTruthy();
+    expect(screen.queryByText("Pip needs more about your business")).toBeNull();
+  });
+
+  it("asks for what the knowledge does not say about the business", async () => {
+    await renderClientPage(<HowTheySpeak />, {
+      "/v1/me": OWNER,
+      [PATH]: training({
+        training: "Address people as sir or madam.",
+        version: 4,
+        last_write: {
+          at: "2026-11-16T05:00:00Z",
+          reasons: ["knowledge_changed"],
+          owner_edits_kept: 0,
+          superseded: [],
+          shortened: false,
+          disclosure: null,
+          missing: ["business", "customers"],
+        },
+      }),
+    });
+    expect(await screen.findByText("Pip needs more about your business")).toBeTruthy();
+    expect(
+      screen.getByText("Your knowledge does not say what your business does and who your customers are."),
+    ).toBeTruthy();
+    const link = screen.getByRole("link", { name: "Write about the business" });
+    expect(link.getAttribute("href")).toBe("#training-overview");
   });
 
   it("Rewrite now starts Pip's write", async () => {

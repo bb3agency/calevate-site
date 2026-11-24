@@ -17,6 +17,8 @@ type Schemas = components["schemas"];
 export type CompanyTraining = Schemas["CompanyTrainingOut"];
 export type TrainingProposal = Schemas["TrainingProposalOut"];
 export type WriteReason = TrainingProposal["reasons"][number];
+/** A part of the training the knowledge did not say well enough for Pip to write. */
+export type MissingPart = NonNullable<Schemas["LastWriteOut"]["missing"]>[number];
 
 const BASE = "/v1/company-training";
 /** A queued write waits for changes to settle (about a minute), so it is checked less often. */

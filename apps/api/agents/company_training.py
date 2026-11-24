@@ -118,6 +118,8 @@ class LastWrite:
     shortened: bool
     #: Who wrote it when it was not the account's own model (D-127 G-6).
     disclosure: str | None
+    #: What the material did not state well enough to write: business, offer, customers.
+    missing: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -213,6 +215,7 @@ def _last_write(raw: Any) -> LastWrite | None:
         superseded=tuple(str(s) for s in raw.get("superseded") or ()),
         shortened=bool(raw.get("shortened")),
         disclosure=raw.get("disclosure"),
+        missing=tuple(str(m) for m in raw.get("missing") or ()),
     )
 
 
