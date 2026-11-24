@@ -21,7 +21,7 @@ from apps.api.agents.call_rules import (
     restated_clause,
 )
 from apps.api.agents.mistake_lints import mistake_findings
-from apps.api.agents.script_builder import heard_detail, job_details
+from apps.api.agents.script_builder import job_details
 from apps.api.agents.script_lint import (
     LintContext,
     same_ending_problems,
@@ -43,6 +43,7 @@ from calevate_shared.call_script import (
     StageBranch,
     compile_call_script,
 )
+from calevate_shared.extraction import whole_call_detail
 from calevate_shared.lead_fields import core_fields
 
 TE = "te-IN"
@@ -142,7 +143,7 @@ def test_the_job_asks_its_core_details_and_its_own_but_not_what_the_call_shows()
         "Alternative Number",
     )
     assert details.call_back == ("Call Back Time", "Alternative Number")
-    assert heard_detail("call_outcome", "Call Outcome")
+    assert whole_call_detail("call_outcome", "Call Outcome")
     body = compile_call_script(_script(_stage("s1", "Close")), collect=list(details.asked))
     assert "- Caller Name (only if not known)" in body
     assert "- Call Back Time (only if they want a call later)" in body

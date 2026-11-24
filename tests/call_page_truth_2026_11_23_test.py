@@ -87,12 +87,12 @@ def test_the_language_pass_is_told_the_business_spelling() -> None:
 # --- 2. key moments sit on the line that settled the value -------------------------------
 
 
-def test_the_moments_rule_names_the_line_that_settled_a_final_state() -> None:
+def test_the_moments_rule_names_the_line_that_settled_a_value() -> None:
+    """A status or progress gets no pin at all (call_page_truth_2026_11_24_test)."""
     prompt = build_extraction_prompt(
         ExtractionSchemaSpec(fields=with_core([])), "caller: hello", moments=MomentsBrief()
     )
     assert "the last caller line the value in your answer\n  rests on" in prompt
-    assert "is settled\n  where the caller confirmed that final state" in prompt
 
 
 # --- 3. what an outbound call's person wants is theirs, not the call's ------------------

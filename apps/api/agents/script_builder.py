@@ -26,7 +26,6 @@ hard rule 8's two-step angle: nothing is rewritten, the NULL sentinel IS the old
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -50,7 +49,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     notice_fields,
 )
-from calevate_shared.extraction import ExtractionField
+from calevate_shared.extraction import ExtractionField, whole_call_detail
 from calevate_shared.lead_fields import CORE_KEYS, core_fields
 from calevate_shared.opening_notices import OpeningNotices, said_in
 from sqlalchemy import text
@@ -162,18 +161,6 @@ CORE_ASKED_WHEN: Final[dict[str, str]] = {
 #: The core details a call back takes, asked on that path (`script_structure.time_taken`).
 CALL_BACK_KEYS: Final = ("preferred_time", "other_number")
 
-#: A business detail the extraction reads from how the call went rather than from an answer:
-#: a status, an outcome, progress or a sentiment. Asking "what is your installation status?"
-#: is not a question a person can answer; the call's events answer it.
-_HEARD_DETAIL: Final = re.compile(
-    r"\b(?:status|outcome|outcomes|progress|result|results|disposition|sentiment)\b", re.I
-)
-
-
-def heard_detail(key: str, label: str) -> bool:
-    """Whether a business detail is noted from what happens on the call, never asked."""
-    return bool(_HEARD_DETAIL.search(f"{key.replace('_', ' ')} {label}"))
-
 
 @dataclass(frozen=True, slots=True)
 class JobDetails:
@@ -196,7 +183,7 @@ def _business_details(stored: Any) -> list[CollectField]:
         if not isinstance(raw, dict):
             continue
         key, label = str(raw.get("key") or ""), str(raw.get("label") or raw.get("key") or "")
-        if not label or key in CORE_KEYS or heard_detail(key, label):
+        if not label or key in CORE_KEYS or whole_call_detail(key, label):
             continue
         out.append(
             CollectField(
@@ -209,7 +196,7 @@ def _business_details(stored: Any) -> list[CollectField]:
 def job_details(stored: Any, core: Sequence[ExtractionField]) -> JobDetails:
     """The details a job's calls ask (`JobDetails`): each core detail of `CORE_ASKED_WHEN`
     under the client's own name for it, and each business detail of `stored` that is not
-    `heard_detail`, with the reason the owner gave."""
+    `whole_call_detail` (read from the call, never asked), with the reason the owner gave."""
     by_key = {f.key: f for f in core}
 
     def asked_core(key: str) -> CollectField | None:
@@ -1041,7 +1028,6 @@ __all__ = [
     "clear_draft",
     "clear_example_lines",
     "compiled_preview",
-    "heard_detail",
     "job_details",
     "line_collect_fields",
     "line_details",
