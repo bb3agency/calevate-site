@@ -3,6 +3,25 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.22 — 24-Nov-2026
+
+Fixes from ten parallel audits.
+
+- Billing: refunds and other credit given back count as credit added again after any credit
+  has lapsed, so statements add up; in a month with a gift trial, an older unpaid fee that
+  pauses calls still sends its email.
+- Pack credit expiry and the evening summary reach every account, however many there are.
+- Campaigns: a finished campaign completes, and unanswered calls go back on the retry list,
+  even while every line is busy. A campaign's Test call is judged against its goal.
+- A line silenced for a missing truthful-answer rule is not switched back on early by a
+  test copy.
+- Pip's first draft never replaces a script you saved meanwhile, and saving the company
+  training never wipes a newer version Pip wrote; you are told to edit the new one.
+- Go-live guide: "Switch it on" is not shown done while the agent is silenced.
+- Archive is off for an inbound line that still answers a number, and Delete shows only on
+  archived campaigns that can be deleted.
+- Admin: the closing screen updates as soon as an erasure finishes.
+
 ## 0.5.21 — 24-Nov-2026
 
 Fixes from the 23 Nov test call, for every agent and language.
