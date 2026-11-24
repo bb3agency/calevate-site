@@ -89,3 +89,52 @@ def test_unaccepted_agreements_hold_the_first_step() -> None:
 def test_the_pledge_never_holds_the_guide() -> None:
     """It gates outgoing calls only; an agent that only answers needs no pledge."""
     assert _guide(pledge="todo", number="done").current == "switch_on"
+
+
+@pytest.mark.rls
+async def test_a_line_whose_agent_is_under_the_compliance_silence_is_not_switched_on() -> None:
+    """The compliance silence unbinds the line's numbers (`route_line_numbers`), so the guide
+    must not read Switch it on as done while that number rings nobody."""
+    from apps.api.agents import service as agents_service
+    from apps.api.db.session import tenant_session
+    from apps.api.go_live.guide import read_go_live
+    from apps.api.inbound.publish import put_line_live
+    from tests.agent_lifecycle_test import _fresh_engine, _number
+    from tests.inbound_lines_test import _attach, _line, _live_agent
+
+    engine = _fresh_engine()
+    tenant_id, agent_id, _ = await _live_agent()
+    number_id = await _number(tenant_id, agent_id, ref="num_guide_truth_1")
+    line_id = await _line(tenant_id, agent_id)
+    await _attach(tenant_id, line_id, number_id)
+    await put_line_live(tenant_id=tenant_id, line_id=line_id)
+    async with tenant_session(tenant_id) as session:
+        assert (await read_go_live(session, tenant_id=tenant_id)).switch_on == "done"
+        await agents_service.reconcile_inbound_truthful_answer(
+            session, engine, tenant_id=tenant_id, agent_id=agent_id, truthful_answer_applied=False
+        )
+    assert engine.inbound_agent_for("num_guide_truth_1") is None
+    async with tenant_session(tenant_id) as session:
+        guide = await read_go_live(session, tenant_id=tenant_id)
+    assert guide.switch_on == "todo", "a silenced line was counted as answering"
+    assert guide.live_lines == 0
+
+
+@pytest.mark.rls
+async def test_an_account_without_lines_whose_only_agent_is_silenced_is_not_switched_on() -> None:
+    from apps.api.agents import service as agents_service
+    from apps.api.db.session import tenant_session
+    from apps.api.go_live.guide import read_go_live
+    from tests.agent_lifecycle_test import _fresh_engine
+    from tests.inbound_lines_test import _live_agent
+
+    engine = _fresh_engine()
+    tenant_id, agent_id, _ = await _live_agent()
+    async with tenant_session(tenant_id) as session:
+        assert (await read_go_live(session, tenant_id=tenant_id)).switch_on == "done"
+        await agents_service.reconcile_inbound_truthful_answer(
+            session, engine, tenant_id=tenant_id, agent_id=agent_id, truthful_answer_applied=False
+        )
+    async with tenant_session(tenant_id) as session:
+        guide = await read_go_live(session, tenant_id=tenant_id)
+    assert guide.switch_on == "todo", "a silenced agent was counted as answering"
