@@ -3,12 +3,11 @@
 A mistake on a real call (`call_mistakes`) that a line of a script causes is fixed in the
 script the call was spoken from: the Inbound line or campaign the call was on (D-1005). An
 agent has no script of its own (D-997, D-1000), so a call on neither has no script to fix,
-and the fix says so (`no_job`). The fix is Pip's, written as a draft on that line or
-campaign (`script_proposal`), which the owner reviews there like any Pip draft; nothing
-reaches a caller until they keep it and put it live. The finding is a deterministic script
-check (`mistake_lints`) and the change may touch only the lines that check named
-(`script_proposals.kept_to_paths`), so this is still not the agent editing itself from its
-own reading of its calls (D-949, the arXiv papers `call_mistakes` cites).
+and the fix says so (`no_job`). The fix is Pip's repair of that line's or campaign's script
+(`agents/script_heal`), saved and put on its calls as the owner's Save is. The finding is a
+deterministic script check (`mistake_lints`) and the change may touch only the lines the
+checks named (`script_proposals.kept_to_paths`), so this is still not the agent editing
+itself from its own reading of its calls (D-949, the arXiv papers `call_mistakes` cites).
 
 Before D-1005 the healer put a fix into the agent's own script itself, watched the next
 calls and put the old script back when they went worse. Fixes made that way (`live`,
@@ -16,15 +15,14 @@ calls and put the old script back when they went worse. Fixes made that way (`li
 (`undo_by_owner`); nothing new is made that way.
 
 This module owns `agent_mistake_fixes`: opening a fix when a call shows a kind (in the
-pipeline's own transaction, so a recorded mistake and its fix cannot part), where its draft
-goes (`holder_of_latest_call`, `request_holder_fix`), the per-agent state the owner reads,
+pipeline's own transaction, so a recorded mistake and its fix cannot part), which script it
+repairs (`holder_of_latest_call`), the per-agent state the owner reads,
 and the owner's Undo. The fix's steps run as the healer playbook `call_mistake_fix`
 (`workers/mistake_fix`).
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -43,14 +41,11 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.healer import incidents
 from apps.api.healer.playbooks import CALL_MISTAKE_FIX, CALL_MISTAKE_SEEN
-from apps.api.reliability.service import enqueue_outbox
 
 #: The healer playbook that does the fix (`healer/playbooks.PLAYBOOKS`).
 PLAYBOOK: Final = CALL_MISTAKE_FIX
 #: The alarm code a fix's incident is opened with: raised once per opened fix, `record`.
 TRIGGER: Final = CALL_MISTAKE_SEEN
-#: The job that writes a fix's draft on its line or campaign (`workers/script_proposal`).
-MISTAKE_FIX_JOB: Final = "draft_mistake_fix"
 
 #: Script parts a fix may never change, whatever a check names: the opening lines carry the
 #: AI and recording notices in their own words (D-971), and the notice records say which
@@ -75,10 +70,6 @@ class Holder:
 
     kind: HolderKind
     id: UUID
-
-
-def _change_word(kind: HolderKind) -> str:
-    return "Inbound line" if kind == "inbound_line" else "Campaign"
 
 
 def holder_table(kind: HolderKind) -> str:
@@ -373,59 +364,6 @@ async def read_holder(
 DRAFT_OPEN_CODE: Final = "mistake_fix_draft_open"
 
 
-async def request_holder_fix(
-    session: AsyncSession,
-    *,
-    tenant_id: UUID,
-    holder: Holder,
-    kind: str,
-    label: str,
-    paths: list[str],
-    base: CallScript,
-) -> UUID:
-    """Record the fix's draft on the holder, in the shape its own Pip draft has
-    (`campaigns.workspace.read_script_proposal`), and queue the job that writes it, in the
-    caller's transaction. A failed draft is replaced; one drafting or ready is refused."""
-    current = await read_holder(session, holder, lock=True)
-    if current is None:
-        raise ProblemError.not_found(_change_word(holder.kind))
-    if current.proposal is not None and current.proposal.status in ("drafting", "ready"):
-        raise ProblemError.conflict(
-            DRAFT_OPEN_CODE,
-            "A draft from Pip is already waiting here.",
-            remediation="Keep or discard it first.",
-        )
-    proposal_id = uuid7()
-    record = {
-        "id": str(proposal_id),
-        "status": "drafting",
-        "requested_at": datetime.now(UTC).isoformat(),
-        "requested_by": None,
-        "base_script": base.model_dump(mode="json"),
-        "paths": paths,
-        "fix_kind": kind,
-        "fix_label": label,
-    }
-    await session.execute(
-        text(
-            f"UPDATE {holder_table(holder.kind)} SET script_proposal = "
-            "CAST(:p AS jsonb) WHERE id = :h"
-        ),
-        {"p": json.dumps(record), "h": holder.id},
-    )
-    await enqueue_outbox(
-        session,
-        job=MISTAKE_FIX_JOB,
-        payload={
-            "tenant_id": str(tenant_id),
-            "holder_kind": holder.kind,
-            "holder_id": str(holder.id),
-            "proposal_id": str(proposal_id),
-        },
-    )
-    return proposal_id
-
-
 # --- the fixes made before D-1005, which the owner may still undo --------------------------
 
 
@@ -576,7 +514,6 @@ async def fleet_fixes(session: AsyncSession, *, since: datetime, limit: int) -> 
 
 __all__ = [
     "DRAFT_OPEN_CODE",
-    "MISTAKE_FIX_JOB",
     "PLAYBOOK",
     "PROTECTED_PARTS",
     "SCRIPT_CHANGED_CODE",
@@ -597,6 +534,5 @@ __all__ = [
     "live_version",
     "open_fixes",
     "read_holder",
-    "request_holder_fix",
     "undo_by_owner",
 ]

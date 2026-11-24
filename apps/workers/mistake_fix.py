@@ -1,5 +1,5 @@
-"""The healer playbook `call_mistake_fix` (D-985, D-1005): a real-call mistake fixed as a Pip
-draft on the Inbound line or campaign the call was on, for the owner to review there.
+"""The healer playbook `call_mistake_fix` (D-985, D-1005): a real-call mistake the script
+causes is repaired in the Inbound line's or campaign's script the call was spoken from.
 
 One step per due incident, on `run_healer`'s tick. The fix row (`agent_mistake_fixes`) is
 the truth each step branches on; the incident carries the schedule, the attempt count the
@@ -9,22 +9,24 @@ ACT      The newest call showing the kind names the line or campaign it was spok
          (`mistake_fixes.holder_of_latest_call`). A call on neither, or on one with no
          script, has no script to fix: the fix settles `no_job` and the owner's Training tab
          says so. The fix waits (`call_mistake_fix_wait_minutes`, at most
-         `call_mistake_fix_max_waits` looks) while that line or campaign already has a Pip
-         draft being written or waiting for review, its script is hand-written, or the
-         client's AI allowance is used up; it never writes over any of them. The mistake's
-         script check (`mistake_lints.mistake_findings`) names the lines; none (or only the
-         protected opening and notice parts) hands the kind to our team as a platform rule.
-         Otherwise Pip's fix of exactly those lines is requested on the holder
-         (`mistake_fixes.request_holder_fix`), which `workers/script_proposal.
-         draft_mistake_fix` writes and meters to the client's AI allowance.
-REVIEW   A written fix settles `proposed`: the draft waits on the line's or campaign's page,
-         the owner is told, and the incident looks again until the owner has kept or
-         discarded it. A draft that could not be written, or changed nothing, is cleared and
-         tried again up to `call_mistake_fix_max_attempts`.
+         `call_mistake_fix_max_waits` looks) while that line or campaign has a Pip draft
+         being written or waiting for review, its script is hand-written, or the client's AI
+         allowance is used up; it never writes over any of them. The mistake's script check
+         (`mistake_lints.mistake_findings`) names the lines; none (or only the protected
+         opening and notice parts) hands the kind to our team as a platform rule. Otherwise
+         the repair pass is asked for on the holder (`agents/script_heal.queue_now`), which
+         has Pip rewrite exactly the faulted lines, saves the script itself and meters it to
+         the client's AI allowance (founder, 24 Nov 2026: what Pip can fix is fixed
+         automatically; this replaced D-1005's draft for the owner to review).
+VERIFY   Once the pass has run, the mistake's check is read again on the saved script: no
+         faulted line settles the fix `fixed` from now, which the owner reads as fixed in
+         their script; a line still faulted asks again up to
+         `call_mistake_fix_max_attempts`, then hands the kind to our team.
 
-Nothing here puts a script live: the owner keeps the draft and puts it live as they would
-any Pip draft. Before D-1005 the healer fixed the agent's own script and put it live itself;
-a fix still `live` from then is settled `fixed` on its next step, and its Undo stays.
+A draft asked for before the repair saved scripts itself (`proposal_id` set) is still read:
+one written waits for the owner as before; one never written is cleared and repaired.
+Before D-1005 the healer fixed the agent's own script; a fix still `live` from then is
+settled `fixed` on its next step, and its Undo stays.
 
 Nothing here touches the AI or recording notices: their parts are never a fix's paths
 (`mistake_fixes.PROTECTED_PARTS`).
@@ -39,15 +41,14 @@ from calevate_shared.call_script import upgrade_to_v2
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import mistake_fixes
-from apps.api.agents.call_mistakes import LESSONS, WINDOW_DAYS
+from apps.api.agents import mistake_fixes, script_heal
+from apps.api.agents.call_mistakes import WINDOW_DAYS
 from apps.api.agents.capability_manifest import lint_context_for
 from apps.api.agents.mistake_fixes import Holder, HolderScript, MistakeFix, holder_table
 from apps.api.agents.mistake_lints import mistake_findings
 from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core.alerting import alert
-from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
@@ -66,6 +67,9 @@ NEEDS_PERSON: Final = "call_mistake_fix_needs_person"
 PROPOSED_NOTICE: Final = "script_fix_proposed"
 #: The owner's notice while the fix waits on the AI allowance.
 WAITING_NOTICE: Final = "script_fix_waiting"
+#: How soon a fix looks again after asking for the repair: the pass waits out its debounce
+#: (`script_heal.DEBOUNCE_S`) and then asks one model, well inside this.
+REPAIR_LOOK_S: Final = 2 * 60
 
 
 def _wait_s() -> int:
@@ -278,6 +282,13 @@ async def _act(incident: Incident, fix: MistakeFix) -> None:
     if target is None:
         await _no_job(incident, fix, why=why)
         return
+    await _request_repair(incident, fix, target)
+
+
+async def _request_repair(incident: Incident, fix: MistakeFix, target: HolderScript) -> None:
+    """Ask for the repair of the holder's lines the mistake's own check names, or settle why
+    not: no line causes it (our team's), Pip off or the allowance used up (wait)."""
+    tenant_id = fix.tenant_id
     assert target.script is not None
     blocker = _blocker(target)
     if blocker is not None:
@@ -313,34 +324,21 @@ async def _act(incident: Incident, fix: MistakeFix) -> None:
         await _wait(incident, fix, why="the client's AI allowance is used up")
         return
     holder = target.holder
-    try:
-        async with tenant_session(tenant_id) as session:
-            proposal_id = await mistake_fixes.request_holder_fix(
-                session,
-                tenant_id=tenant_id,
-                holder=holder,
-                kind=fix.kind,
-                label=LESSONS[fix.kind].label,
-                paths=paths,
-                base=script,
+    async with tenant_session(tenant_id) as session:
+        moved = await _set_fix(
+            session,
+            fix,
+            "attempts = attempts + 1, waits = 0, inbound_line_id = :line, campaign_id = :campaign",
+            line=holder.id if holder.kind == "inbound_line" else None,
+            campaign=holder.id if holder.kind == "campaign" else None,
+        )
+        if moved:
+            # In the same transaction as the fix's move, so a step that lost the race to a
+            # person asks for nothing.
+            await script_heal.queue_now(
+                session, script_heal.holder_kind(holder.kind), holder.id, tenant_id=tenant_id
             )
-            moved = await _set_fix(
-                session,
-                fix,
-                "proposal_id = :pid, attempts = attempts + 1, waits = 0, "
-                "inbound_line_id = :line, campaign_id = :campaign",
-                pid=proposal_id,
-                line=holder.id if holder.kind == "inbound_line" else None,
-                campaign=holder.id if holder.kind == "campaign" else None,
-            )
-            if not moved:
-                # The fix moved under this step (a person): drop the request too.
-                raise _FixMovedError
-    except ProblemError as refused:
-        # A draft appeared between the read and the request, or the holder was archived.
-        await _wait(incident, fix, why=f"the draft could not be asked for ({refused.code})")
-        return
-    except _FixMovedError:
+    if not moved:
         await _advance(incident, state=incident.state, next_in_s=0, outcome="waiting")  # type: ignore[arg-type]
         return
     await _record(
@@ -349,7 +347,8 @@ async def _act(incident: Incident, fix: MistakeFix) -> None:
         step="act",
         outcome="ok",
         detail=(
-            f"fix asked for on {holder.kind} {holder.id}, {len(paths)} line(s): {', '.join(paths)}"
+            f"repair asked for on {holder.kind} {holder.id}, {len(paths)} line(s): "
+            f"{', '.join(paths)}"
         )[:400],
     )
     log.info(
@@ -357,12 +356,62 @@ async def _act(incident: Incident, fix: MistakeFix) -> None:
         extra={"holder_id": str(holder.id), "kind": fix.kind, "attempt": fix.attempts + 1},
     )
     await _advance(
-        incident, state="mitigated", next_in_s=_wait_s(), outcome="fix_requested", attempted=True
+        incident,
+        state="mitigated",
+        next_in_s=REPAIR_LOOK_S,
+        outcome="fix_requested",
+        attempted=True,
     )
 
 
-class _FixMovedError(Exception):
-    """The fix row moved under the step."""
+async def _check_repair(incident: Incident, fix: MistakeFix) -> None:
+    """After the repair was asked for: wait while it runs, then settle `fixed` when the
+    mistake's own check no longer faults a line of the holder's script, else ask again up to
+    `call_mistake_fix_max_attempts` and hand it to our team after that."""
+    holder = fix.holder
+    assert holder is not None
+    async with tenant_session(fix.tenant_id) as session:
+        running = await script_heal.pending(
+            session, script_heal.holder_kind(holder.kind), holder.id
+        )
+        target = None if running else await mistake_fixes.read_holder(session, holder)
+    if running:
+        await _advance(
+            incident, state="mitigated", next_in_s=REPAIR_LOOK_S, outcome="fix_requested"
+        )
+        return
+    if target is None or target.script is None:
+        await _settle_moot(incident, fix)
+        return
+    async with tenant_session(fix.tenant_id) as session:
+        lint = await lint_context_for(session, tenant_id=fix.tenant_id, agent_id=fix.agent_id)
+    left = mistake_fixes.fix_paths(mistake_findings(upgrade_to_v2(target.script), lint, fix.kind))
+    if not left:
+        await _repaired(incident, fix)
+        return
+    if fix.attempts >= get_settings().call_mistake_fix_max_attempts:
+        await _needs_person(
+            incident,
+            fix,
+            ended="attempts_spent",
+            why=f"{fix.attempts} repair(s) left {len(left)} line(s): {', '.join(left)}",
+        )
+        return
+    await _record(incident, fix, step="verify", outcome="failed", detail="lines still faulted")
+    await _request_repair(incident, fix, target)
+
+
+async def _repaired(incident: Incident, fix: MistakeFix) -> None:
+    """The holder's script no longer causes the mistake: settled `fixed` from now, which the
+    owner reads as fixed in their script, and the next calls are counted against."""
+    async with tenant_session(fix.tenant_id) as session:
+        await _set_fix(
+            session, fix, "state = 'fixed', settled_at = now(), live_at = now(), proposal_id = NULL"
+        )
+        await _close_client_notice(session, incident)
+    await _record(incident, fix, step="verify", outcome="ok", detail="repaired in the script")
+    log.info("call_mistake_fix_repaired", extra={"agent_id": str(fix.agent_id), "kind": fix.kind})
+    await _advance(incident, state="resolved", next_in_s=None, outcome="verified")
 
 
 async def _settle_moot(incident: Incident, fix: MistakeFix) -> None:
@@ -442,7 +491,12 @@ async def _collect(incident: Incident, fix: MistakeFix) -> None:
         await _gone_unseen(incident, fix)
         return
     if draft.status == "drafting":
-        await _advance(incident, state="mitigated", next_in_s=_wait_s(), outcome="fix_requested")
+        # Asked for as a draft before the repair saved it itself; nothing writes such a draft
+        # any more, so it is cleared and the lines are repaired instead.
+        async with tenant_session(fix.tenant_id) as session:
+            await _clear_draft(session, holder, fix.proposal_id)
+            await _set_fix(session, fix, "proposal_id = NULL")
+        await _advance(incident, state="mitigated", next_in_s=0, outcome="fix_requested")
         return
     if draft.status == "failed" or draft.script is None:
         await _retry_or_give_up(
@@ -595,34 +649,18 @@ async def call_mistake_fix(incident: Incident) -> None:
     if fix.state == "live":
         await _settle_live(incident, fix)
         return
-    if fix.proposal_id is None:
-        await _act(incident, fix)
-    else:
+    if fix.proposal_id is not None:
         await _collect(incident, fix)
-
-
-async def proposal_written(tenant_id: UUID, proposal_id: UUID) -> None:
-    """The fix's draft is stored: make its incident due now rather than at its next look.
-    A no-op for a draft nobody's fix is waiting for."""
-    async with tenant_session(tenant_id) as session:
-        incident_id = (
-            await session.execute(
-                text(
-                    "SELECT incident_id FROM agent_mistake_fixes WHERE proposal_id = :p "
-                    "AND state = 'fixing'"
-                ),
-                {"p": proposal_id},
-            )
-        ).scalar_one_or_none()
-    if incident_id is not None:
-        async with untenanted_session() as session:
-            await incidents.retry_now(session, incident_id)
+    elif fix.holder is not None and fix.attempts > 0:
+        await _check_repair(incident, fix)
+    else:
+        await _act(incident, fix)
 
 
 __all__ = [
     "NEEDS_PERSON",
     "PLAYBOOK",
     "PROPOSED_NOTICE",
+    "REPAIR_LOOK_S",
     "call_mistake_fix",
-    "proposal_written",
 ]

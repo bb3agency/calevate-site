@@ -40,6 +40,7 @@ from apps.api.agents.mistake_fixes import fix_paths
 from apps.api.agents.script_lint import (
     OPENING_FIELDS,
     LintContext,
+    bracket_problems,
     caller_paths,
     flow_problems,
     next_steps,
@@ -299,18 +300,6 @@ def _stalled(script: CallScript, _context: LintContext) -> list[str]:
     ]
 
 
-def _brackets(script: CallScript, context: LintContext) -> list[str]:
-    # A name followed by itself in brackets ("the name in the call's letters (the English
-    # name)") is the commonest case: the model copies the line and the voice reads both.
-    return _turn_kind_lines(
-        script,
-        context,
-        frozenset({"brackets"}),
-        "has something in brackets, which the voice reads out; say each name once, as the "
-        "screen or the facts show it, with nothing in brackets.",
-    )
-
-
 def _formal_words(script: CallScript, context: LintContext) -> list[str]:
     """Each agent line with a word from the language's textbook list, naming the words and
     what people say instead, as the reply check names them."""
@@ -334,9 +323,10 @@ def _delegate(lint: Callable[[CallScript], list[str]]) -> _Check:
     return check
 
 
-#: Each mistake kind's script check. The three that `script_lint.flow_problems` already
+#: Each mistake kind's script check. The four that `script_lint.flow_problems` already
 #: finds go to that lint, so the readiness card and the healer read one check.
 _CHECKS: Final[dict[str, _Check]] = {
+    "brackets": _delegate(bracket_problems),
     "opened_again": _opened_again,
     "same_opening": _delegate(lambda s: [*same_opener_problems(s), *reacted_line_problems(s)]),
     "same_closing": _delegate(same_ending_problems),
@@ -352,7 +342,6 @@ _CHECKS: Final[dict[str, _Check]] = {
     "offered_more_too_soon": _offered_more_too_soon,
     "false_history": _false_history,
     "stalled": _stalled,
-    "brackets": _brackets,
     "formal_words": _formal_words,
 }
 

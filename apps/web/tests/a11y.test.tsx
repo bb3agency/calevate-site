@@ -2543,7 +2543,7 @@ const CLIENT_SCREENS: Screen[] = [
         ],
         // On a turn that is on screen, so the card and its jump button are swept.
         mistakes: [
-          { kind: "said_again", label: "Said the same line again", instead: "Ask once in other words.", turn_idx: 0 },
+          { kind: "said_again", label: "Said the same line again", instead: "Ask once in other words.", turn_idx: 0, fix: "told" },
         ],
         summary_state: "ready",
         test_call: false,

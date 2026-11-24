@@ -1,42 +1,28 @@
-"""What every script Pip writes goes through before an owner reviews it, and the healer's fix
-of a mistake on real calls as a draft on the line or campaign the call was on (D-1005).
+"""What every script Pip writes goes through before an owner reviews it.
 
-`finish_written` is the shared tail of every writer (`workers/campaign_script` for lines and
-campaigns, `draft_mistake_fix` here): the call-mistake checks and their targeted repair
-(D-989, `_mistakes_checked` → `_fixed_further`), then the opening rule and its repair by the
-opening writer (`opening_line`, D-957).
-
-`draft_mistake_fix` writes the fix the healer asked for (`agents/mistake_fixes.
-request_holder_fix`): an edit of the holder's script that may change only the lines the
-mistake's own check named (`script_proposals.kept_to_paths`), checked again and repaired
-while that check still finds them. It is stored as the holder's Pip draft, which the owner
-keeps or discards on the line's or campaign's page like any other; nothing here puts a script
-live. An agent has no script of its own (D-997, D-1000), so the agent's own suggestion this
-module wrote before (`draft_script_proposal`) is retired.
-
-SUBJECT → GATE → RUN → METER, `crm/resummarise.second_reading`'s order: the request is the
-subject; the healer read the allowance before asking (`workers/mistake_fix`), and the ceiling
-is read again here and passed to the ladder; each completed or refused paid leg is metered
-in the transaction that stores the draft, under `ASSIST_FEATURE_SCRIPT_DRAFT`.
+`finish_written` is the shared tail of the line and campaign writer (`workers/
+campaign_script`): the call-mistake checks and their targeted repair (D-989,
+`_mistakes_checked` → `_fixed_further`), then the opening rule and its repair by the opening
+writer (`opening_line`, D-957). The repair of an existing script's faulted lines
+(`workers/script_heal`) uses the same targeted repair (`_Fix`, `_fixed_further`) with a check
+of its own. Each paid or refused leg is metered by the job that stores the script, under
+`ASSIST_FEATURE_SCRIPT_DRAFT`.
 """
 
 from __future__ import annotations
 
 import json
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript
-from sqlalchemy import text
 
 from apps.api.agents import mistake_fixes, script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.capability_manifest import lint_context_for
-from apps.api.agents.mistake_fixes import Holder, holder_table
 from apps.api.agents.mistake_lints import mistake_findings, script_mistakes
 from apps.api.agents.script_lint import (
     LintContext,
@@ -45,14 +31,12 @@ from apps.api.agents.script_lint import (
     unasked_problems,
 )
 from apps.api.agents.script_structure import settled
-from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
+from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_JOB_TIMEOUT_S
 from apps.api.core.settings import get_settings
-from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
-from apps.workers import mistake_fix
 from apps.workers.extraction import ASSIST_LADDER_LEGS, ASSIST_TIMEOUT_S
 from apps.workers.opening_line import WrittenOpening, opening_problems, write_opening
 from apps.workers.script_assist import (
@@ -68,8 +52,6 @@ if TYPE_CHECKING:
     from apps.api.agents.script_builder import JobDetails
 
 log = get_logger(__name__)
-
-JOB_NAME: Final = mistake_fixes.MISTAKE_FIX_JOB
 
 #: One model request's budget in these jobs, in place of the route's `ASSIST_TIMEOUT_S`:
 #: nobody waits on an HTTP response here, and a large script written whole (the edit returns
@@ -263,10 +245,15 @@ class _Fix:
     #: The review's findings on Pip's own writing, repaired in the same rounds as the
     #: call-mistake findings rather than by a loop of their own.
     noted: tuple[Noted, ...] = ()
+    #: A check of its own that the fix answers, in place of the two above: the repair of an
+    #: existing script's faulted lines (`agents/script_heal.heal_findings`).
+    check: Callable[[CallScript], list[str]] | None = None
 
     def problems(self, script: CallScript) -> list[str]:
         """What the check this fix answers finds on `script`."""
-        if self.mistake_kind is not None:
+        if self.check is not None:
+            found = self.check(script)
+        elif self.mistake_kind is not None:
             found = mistake_findings(script, self.lint, self.mistake_kind)
         else:
             # A title left with no name in a line `script_structure.settled` could not mend
@@ -520,224 +507,11 @@ async def finish_written(
     return Finished(script, repairs, opening_spends, left_out)
 
 
-# --- the healer's fix, as a draft on the line or campaign (D-1005) -------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class _Claimed:
-    agent_id: UUID
-    base: CallScript
-    paths: list[str]
-    kind: str
-    #: A campaign's own main language, when it sets one over the agent's.
-    language: str | None
-
-
-async def _claim(tenant_id: UUID, holder: Holder, proposal_id: UUID) -> _Claimed | None:
-    """Take the request once: the outbox delivers at least once, and a second delivery must
-    not spend the allowance on a second draft of the same fix."""
-    language = "settings_overrides->>'language_primary'" if holder.kind == "campaign" else "NULL"
-    async with tenant_session(tenant_id) as session:
-        row = (
-            await session.execute(
-                text(
-                    f"UPDATE {holder_table(holder.kind)} SET script_proposal = script_proposal "
-                    "|| jsonb_build_object('claimed', true) WHERE id = :h "
-                    "AND script_proposal->>'id' = :pid "
-                    "AND script_proposal->>'status' = 'drafting' "
-                    "AND script_proposal->>'claimed' IS NULL "
-                    "AND script_proposal->>'fix_kind' IS NOT NULL "
-                    f"RETURNING agent_id, script_proposal, {language}"
-                ),
-                {"h": holder.id, "pid": str(proposal_id)},
-            )
-        ).first()
-    if row is None:
-        return None
-    record = row[1]
-    return _Claimed(
-        agent_id=row[0],
-        base=CallScript.model_validate(record["base_script"]),
-        paths=[str(p) for p in record.get("paths") or []],
-        kind=str(record["fix_kind"]),
-        language=row[2],
-    )
-
-
-async def _store(
-    tenant_id: UUID, holder: Holder, proposal_id: UUID, update: dict[str, Any], spends: list[Any]
-) -> bool:
-    """Write the draft's outcome by compare-and-set on its id, so a draft the owner discarded
-    meanwhile is never written back, and meter what was spent in the same transaction."""
-    feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
-    async with tenant_session(tenant_id) as session:
-        stored = (
-            await session.execute(
-                text(
-                    f"UPDATE {holder_table(holder.kind)} SET script_proposal = script_proposal "
-                    "|| CAST(:u AS jsonb) WHERE id = :h AND script_proposal->>'id' = :pid "
-                    "AND script_proposal->>'status' = 'drafting' RETURNING id"
-                ),
-                {"h": holder.id, "pid": str(proposal_id), "u": json.dumps(update)},
-            )
-        ).first() is not None
-        for spent in spends:
-            if isinstance(spent, ProblemError):
-                await crm_assist.meter_refusal(
-                    session, tenant_id=tenant_id, refusal=spent, feature=feature
-                )
-                continue
-            await crm_assist.meter_earlier(
-                session, tenant_id=tenant_id, earlier=spent.earlier, feature=feature
-            )
-            await crm_assist.meter_assist(
-                session,
-                tenant_id=tenant_id,
-                ref=new_assist_ref(),
-                result=spent,
-                model=spent.model,
-                feature=feature,
-            )
-    return stored
-
-
-async def draft_mistake_fix(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    """The healer's fix of one mistake kind, written as the holder's Pip draft."""
-    del ctx
-    tenant_id = UUID(str(payload["tenant_id"]))
-    holder = Holder(payload["holder_kind"], UUID(str(payload["holder_id"])))
-    proposal_id = UUID(str(payload["proposal_id"]))
-    claimed = await _claim(tenant_id, holder, proposal_id)
-    if claimed is None:
-        # Discarded, replaced, or already taken by an earlier delivery.
-        return "not_pending"
-    started = time.monotonic()
-    trace = AskTrace()
-    log_ids = {"holder_id": str(holder.id), "kind": claimed.kind}
-    try:
-        async with tenant_session(tenant_id) as session:
-            lint = replace(
-                await lint_context_for(session, tenant_id=tenant_id, agent_id=claimed.agent_id),
-                promo=False,
-            )
-            context = await script_proposals.brief_for(
-                session, tenant_id, claimed.agent_id, language=claimed.language
-            )
-            tenant_leg = await account_assist_leg(session)
-            quota = await read_ai_quota(session, tenant_id=tenant_id)
-        named = set(claimed.paths)
-        findings = [
-            p
-            for p in mistake_findings(claimed.base, lint, claimed.kind)
-            if p.partition(": ")[0] in named
-        ]
-        fix = _Fix(
-            lint,
-            findings,
-            frozenset(script_proposals.finding_key(p, claimed.base) for p in findings),
-            mistake_kind=claimed.kind,
-        )
-        draft = await draft_script(
-            context,
-            tenant_leg=tenant_leg,
-            quota_exhausted=quota.at_ceiling or quota.platform_paused,
-            edit_of=claimed.base,
-            change=script_proposals.fix_change(findings, claimed.base),
-            timeout_s=PROPOSAL_REQUEST_TIMEOUT_S,
-            max_tokens=PROPOSAL_MAX_TOKENS,
-            trace=trace,
-        )
-    except ProblemError as refused:
-        log.info("mistake_fix_draft_refused", extra={**log_ids, "reason": refused.code})
-        await _store(
-            tenant_id,
-            holder,
-            proposal_id,
-            {
-                "status": "failed",
-                "note": refusal_note(refused, trace)[:400],
-                "reason": refused.code,
-                "left_out": script_proposals.left_out_record(trace.unwritten),
-            },
-            [refused],
-        )
-        await mistake_fix.proposal_written(tenant_id, proposal_id)
-        return "refused"
-    except Exception:
-        log.exception("mistake_fix_draft_crashed", extra=log_ids)
-        await _store(
-            tenant_id,
-            holder,
-            proposal_id,
-            {"status": "failed", "note": script_proposals.FAILED_NOTE, "reason": "crashed"},
-            [],
-        )
-        await mistake_fix.proposal_written(tenant_id, proposal_id)
-        return "failed"
-
-    # A fix changes the lines the check named and nothing else (A-02).
-    kept = script_proposals.kept_to_paths(
-        draft.script, claimed.base, claimed.paths, unasked=fix.unasked(claimed.base, claimed.paths)
-    )
-    try:
-        repaired = await _fixed_further(
-            tenant_id, claimed.agent_id, fix, kept, started, language=claimed.language
-        )
-    except Exception:
-        # The first pass is paid for and is stored.
-        log.exception("mistake_fix_check_crashed", extra=log_ids)
-        repaired = _Repaired(kept, [], [])
-    request = script_proposals.ScriptProposal(
-        id=proposal_id,
-        mode="change",
-        status="drafting",
-        request=None,
-        answers={},
-        base_script=claimed.base,
-        requested_by=None,
-        requested_at=datetime.now(UTC),
-        paths=claimed.paths,
-    )
-    finished = await finish_written(tenant_id, claimed.agent_id, request, repaired.script, started)
-    repairs = [*repaired.spends, *finished.repairs]
-    stored = await _store(
-        tenant_id,
-        holder,
-        proposal_id,
-        {
-            "status": "ready",
-            "script": finished.script.model_dump(mode="json"),
-            # A draft or repair the standby answered is disclosed with it (D-127 G-6).
-            "disclosure": next(
-                (
-                    spent.capability.disclosure
-                    for spent in (draft, *repairs)
-                    if not isinstance(spent, ProblemError) and spent.capability.disclosure
-                ),
-                None,
-            ),
-            "left_out": script_proposals.left_out_record(
-                [
-                    *trace.left_out,
-                    *script_proposals.fix_left(repaired.left, repaired.script),
-                    *finished.left_out,
-                ]
-            ),
-        },
-        [draft, *repairs, *finished.opening_spends],
-    )
-    log.info("mistake_fix_draft_written", extra={**log_ids, "stored": stored})
-    await mistake_fix.proposal_written(tenant_id, proposal_id)
-    return "ready" if stored else "not_pending"
-
-
 __all__ = [
-    "JOB_NAME",
     "PROPOSAL_MAX_TOKENS",
     "PROPOSAL_REQUEST_TIMEOUT_S",
     "Finished",
     "Noted",
-    "draft_mistake_fix",
     "finish_written",
     "refusal_note",
     "text_at",

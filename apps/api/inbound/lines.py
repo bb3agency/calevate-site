@@ -336,8 +336,9 @@ async def set_actions_off(session: AsyncSession, line_id: UUID, slugs: list[str]
 async def save_script(session: AsyncSession, line_id: UUID, script: CallScript) -> int:
     """The owner's edit, or a reviewed Pip draft they kept. Measured as the line's own engine
     agent put-live sends, notes and call-back rules included, so a publish is never refused
-    for its length. Returns the new version."""
-    from apps.api.agents import script_builder
+    for its length. Returns the new version. Pip repairs any line the script checks fault once
+    the owner stops saving (`agents/script_heal`)."""
+    from apps.api.agents import script_builder, script_heal
 
     row = await _lock(session, line_id)
     await script_builder.refuse_job_if_too_long(
@@ -353,6 +354,7 @@ async def save_script(session: AsyncSession, line_id: UUID, script: CallScript) 
         )
     ).scalar_one()
     await queue_job(session, "line", line_id)
+    await script_heal.queue_after_save(session, "line", line_id, script)
     return int(version)
 
 

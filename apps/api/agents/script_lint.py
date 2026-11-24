@@ -1124,6 +1124,32 @@ def agent_lines(script: CallScript) -> list[tuple[str, str]]:
     ]
 
 
+#: A bracketed aside, or a lone bracket. Every character of a line the agent copies is
+#: spoken (D-739), so "యాడ్ టు హోమ్ స్క్రీన్ (Add to Home screen)" is said twice, once with its
+#: brackets read as pauses. Curly braces are merge fields (`{{name}}`) and are not brackets.
+BRACKETED: Final = re.compile(r"\[[^\]]{0,200}\]|\([^()]{0,200}\)|[\[\]()]")
+
+
+def bracket_problems(script: CallScript) -> list[str]:
+    """A line the agent says or copies (`agent_lines`, and the small steps it walks a caller
+    through) holding a bracket: the in-call model copies the line, brackets and the repeat
+    inside them included, into what the caller hears."""
+    lines = [
+        *agent_lines(script),
+        *(
+            (f"stages.{i}.procedure.{j}.action", step.action)
+            for i, stage in enumerate(script.stages)
+            for j, step in enumerate(stage.procedure)
+        ),
+    ]
+    return [
+        f'{path}: has "{found.group(0)}" in brackets, which the voice reads out; say it once, '
+        "in the call language, with no brackets."
+        for path, text in lines
+        if (found := BRACKETED.search(text)) is not None
+    ]
+
+
 def empty_title_problems(script: CallScript) -> list[str]:
     """A line the agent says that puts an honorific where the person's name belongs with no
     name (`spoken_guard.empty_title`); the openings are the opening writer's to judge."""
@@ -1266,10 +1292,10 @@ def flow_problems(script: CallScript) -> list[str]:
     """What the whole call's shape gets wrong: a placeholder step, a question asked before
     the caller can answer it, the same thing said twice, a step that redoes the opening,
     lines that all open alike, a step nothing leads to, outcomes that do not match the steps,
-    and a title said with no name. Broken step numbers and a call-back time asked and lost
-    are `script_problems`' alone, not the writer's to repair: code mends both before the owner
-    reads a draft (`script_structure.renumbered`, `time_taken`), and a new draft has no
-    `collect` to answer the second with."""
+    a title said with no name, and a bracket in a spoken line. Broken step numbers and a
+    call-back time asked and lost are `script_problems`' alone, not the writer's to repair:
+    code mends both before the owner reads a draft (`script_structure.renumbered`,
+    `time_taken`), and a new draft has no `collect` to answer the second with."""
     return [
         *placeholder_problems(script),
         *order_problems(script),
@@ -1280,10 +1306,12 @@ def flow_problems(script: CallScript) -> list[str]:
         *unreachable_problems(script),
         *step_outcome_problems(script),
         *empty_title_problems(script),
+        *bracket_problems(script),
     ]
 
 
 __all__ = [
+    "BRACKETED",
     "NAME_FIELD",
     "NAME_PLACEMENT_RULE",
     "OPENING_FIELDS",
@@ -1294,6 +1322,7 @@ __all__ = [
     "answer_lines",
     "answered_opening",
     "asks_a_time",
+    "bracket_problems",
     "caller_paths",
     "collected_label",
     "empty_title_problems",
