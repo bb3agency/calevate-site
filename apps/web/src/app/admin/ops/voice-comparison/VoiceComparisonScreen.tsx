@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, LoaderCircle, Pause, Play } from "lucide-react";
+import { Download, Pause, Play } from "lucide-react";
 
 import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
 import {
@@ -437,22 +437,16 @@ function ClipButton({ trialId, side }: { trialId: string; side: "a" | "b" }) {
 
   return (
     <div className="flex items-center gap-2">
-      <button
-        type="button"
-        className={SECONDARY_BUTTON}
+      <ActionButton
+        variant="secondary"
         aria-label={`${isPlaying ? "Pause" : "Play"} ${name}`}
         onClick={toggle}
-        disabled={clip.isFetching}
+        status={clip.isFetching ? "pending" : "idle"}
+        pendingLabel={name}
       >
-        {clip.isFetching ? (
-          <LoaderCircle aria-hidden className="h-4 w-4 animate-spin" />
-        ) : isPlaying ? (
-          <Pause aria-hidden className="h-4 w-4" />
-        ) : (
-          <Play aria-hidden className="h-4 w-4" />
-        )}
+        {isPlaying ? <Pause aria-hidden className="h-4 w-4" /> : <Play aria-hidden className="h-4 w-4" />}
         {name}
-      </button>
+      </ActionButton>
       {clip.error && (
         <span className="text-meta text-danger" role="alert">
           Could not load {name}. Press it to try again.

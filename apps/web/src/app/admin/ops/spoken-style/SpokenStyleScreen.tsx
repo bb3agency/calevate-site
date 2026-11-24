@@ -15,8 +15,6 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
-  SECONDARY_BUTTON_SM,
   Skeleton,
 } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
@@ -269,9 +267,9 @@ function EntryForm({
         >
           {adding ? "Add and approve" : "Save and approve"}
         </ActionButton>
-        <button type="button" disabled={busy} onClick={onCancel} className={SECONDARY_BUTTON}>
+        <ActionButton variant="secondary" disabled={busy} onClick={onCancel}>
           Cancel
-        </button>
+        </ActionButton>
       </div>
     </form>
   );
@@ -338,15 +336,14 @@ function EntryRow({
               Approve
             </ActionButton>
           )}
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
+          <ActionButton
+            variant="secondary-sm"
             disabled={busy}
             onClick={onEdit}
             aria-label={`Edit: ${summary.slice(0, 60)}`}
           >
             Edit
-          </button>
+          </ActionButton>
           {entry.kind !== "register" && (
             <ActionButton
               variant="secondary-sm"
@@ -506,9 +503,8 @@ function LanguageReview({ view }: { view: LanguageStyle }) {
             description={label?.hint}
             action={
               ADDABLE_KINDS.has(kind) ? (
-                <button
-                  type="button"
-                  className={SECONDARY_BUTTON_SM}
+                <ActionButton
+                  variant="secondary-sm"
                   disabled={busy}
                   onClick={() => {
                     setAdding(kind);
@@ -516,7 +512,7 @@ function LanguageReview({ view }: { view: LanguageStyle }) {
                   }}
                 >
                   Add
-                </button>
+                </ActionButton>
               ) : undefined
             }
           >
