@@ -153,7 +153,7 @@ describe("How they speak", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save for every agent" }));
     await waitFor(() => expect(page.calls.some((c) => c.path === `${PATH}/training`)).toBe(true));
     const sent = page.calls.find((c) => c.path === `${PATH}/training`);
-    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ training: "Call people sir." });
+    expect(JSON.parse(sent?.body ?? "{}")).toEqual({ training: "Call people sir.", version: 1 });
     expect(await screen.findByText("Has your edits")).toBeTruthy();
   });
 
