@@ -24,7 +24,14 @@
  * Types come from `schema.d.ts` (`pnpm -C apps/web gen:api`), never hand-mirrored.
  */
 
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 
 import { confirmedRequest } from "./admin";
 import { apiRequest, type Session } from "./client";
@@ -57,13 +64,31 @@ export function useTenantErasures(
   session: Session,
   tenantId: string,
 ): UseQueryResult<TenantErasure[]> {
-  return useQuery({
+  const client = useQueryClient();
+  const read = useQuery<TenantErasure[]>({
     queryKey: ["admin", "tenant-erasure", tenantId],
     queryFn: () => apiRequest<TenantErasure[]>(session, erasurePath(tenantId)),
     // An erasure runs in the background; read again until none is pending.
     refetchInterval: untilRefused((query) =>
       query.state.data?.some((erasure) => erasure.status === "pending") ? ERASURE_POLL_MS : false),
   });
+  // The worker, not the POST, sets `deleted_at` and `erased_at`. When the poll sees the
+  // erasure finish, the closure, the client and the directory are read again; otherwise the
+  // Closing screen keeps offering "Reopen the account" for a client whose records are gone.
+  const pending = read.data?.some((erasure) => erasure.status === "pending");
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (pending === undefined) return;
+    if (wasPending.current && !pending) invalidateErasedClient(client, tenantId);
+    wasPending.current = pending;
+  }, [pending, client, tenantId]);
+  return read;
+}
+
+function invalidateErasedClient(client: QueryClient, tenantId: string): void {
+  void client.invalidateQueries({ queryKey: ["admin", "closure", tenantId] });
+  void client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] });
+  void client.invalidateQueries({ queryKey: ["admin", "tenants"] });
 }
 
 const ERASURE_POLL_MS = 10_000;

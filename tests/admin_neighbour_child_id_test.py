@@ -64,7 +64,7 @@ def _census() -> list[tuple[str, str, list[str]]]:
     for route in iter_api_routes(app):
         if not route.path.startswith("/v1/admin/"):
             continue
-        params = [p.name for p in route.dependant.path_params]
+        params = [p.alias for p in route.dependant.path_params]
         if "tenant_id" not in params or not set(params) - _NOT_AN_OBJECT:
             continue
         for method in sorted((route.methods or set()) - {"HEAD", "OPTIONS"}):
