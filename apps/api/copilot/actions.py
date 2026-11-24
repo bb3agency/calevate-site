@@ -77,6 +77,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.languages import BUILT_LANGUAGES, LANGUAGE_LABELS, LanguageRefusedError
 from apps.api.copilot.prompt import function_tool
+from apps.api.copilot.run_control import StartedDraft
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.context import Principal
 from apps.api.core.rbac import Permission, role_has, withheld_from_view_as
@@ -386,6 +387,9 @@ class Executed:
     #: The client the act concerns, for a platform-scope admin action whose route audits it
     #: under that client (a healer incident's). `None` keeps the caller's tenant.
     audit_tenant_id: UUID | None = None
+    #: The script draft the act queued (`script_draft`), so the confirm's answer can name it
+    #: and the panel can follow it live. `None` for every other action.
+    draft: StartedDraft | None = None
 
 
 @dataclass(frozen=True, slots=True)

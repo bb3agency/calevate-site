@@ -735,6 +735,9 @@ class CopilotConfirmOut(BaseModel):
     #: True when the change was queued, not made: a job writes the result later and can
     #: fail (a script suggestion, fixes for failed tests). Show it as started, not done.
     queued: bool = False
+    #: Set when the change queued a script draft (`script_draft`): the panel opens its draft
+    #: stream under the confirmed card, as it does for `event: draft` during a run.
+    draft: CopilotDraftEvent | None = None
 
 
 class CopilotDoneEvent(BaseModel):
