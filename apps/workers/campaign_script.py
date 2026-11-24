@@ -49,7 +49,7 @@ from apps.api.agents.prompt_size import PromptSize
 from apps.api.agents.script_shape import structure_problems
 from apps.api.agents.script_structure import collected, policies_for_job, without_judged_asks
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
-from apps.api.campaigns import workspace
+from apps.api.campaigns import script_history, workspace
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_JOB_TIMEOUT_S
@@ -282,6 +282,73 @@ async def _save_if_asked(session: AsyncSession, holder: _Holder, script: CallScr
         await _ready_made(session, holder)
 
 
+async def _dropped_if_rewrite(session: AsyncSession, holder: _Holder) -> bool:
+    """Clear a rewrite's draft (`workers/script_heal._ask_rewrite`), by compare-and-set on its
+    id: nobody asked for it, so a rewrite that cannot be saved leaves no draft or failure on
+    the owner's page. True when the draft was a rewrite and is gone."""
+    return (
+        await session.execute(
+            text(
+                f"UPDATE {_table_of(holder)} SET script_proposal = NULL WHERE id = :hid "
+                "AND script_proposal->>'id' = :pid "
+                "AND script_proposal->'ask'->>'rewrite' IS NOT NULL RETURNING id"
+            ),
+            {"hid": holder.holder_id, "pid": str(holder.proposal_id)},
+        )
+    ).first() is not None
+
+
+async def _save_if_rewrite(session: AsyncSession, holder: _Holder, script: CallScript) -> None:
+    """A rewrite under the current rules (founder, 25 Nov 2026) becomes the holder's script
+    at once, through the holder's own Save, which keeps it as a `pip_draft` version (so the
+    Versions list and Put back reach the script before it) and puts a live holder live again.
+    Only while the script is still the one the rewrite was written from and still Pip's
+    (`script_history.pip_owns`): an owner's save meanwhile wins, and the draft is dropped.
+    A save refused for its length drops it too; the script then keeps its line repairs."""
+    from apps.api.inbound import lines
+
+    kind: script_history.HolderKind = "line" if holder.table == "inbound_lines" else "campaign"
+    row = (
+        await session.execute(
+            text(
+                f"SELECT script, script_proposal->'base_script' AS base, "
+                f"script_proposal->'ask'->>'rewrite' AS rewrite FROM {_table_of(holder)} "
+                # Locked, so an owner's save in flight is waited for and then seen.
+                "WHERE id = :hid AND script_proposal->>'id' = :pid FOR UPDATE"
+            ),
+            {"hid": holder.holder_id, "pid": str(holder.proposal_id)},
+        )
+    ).first()
+    if row is None or row.rewrite is None:
+        return
+    if row.script != row.base or not await script_history.pip_owns(session, kind, holder.holder_id):
+        log.info("holder_script_rewrite_dropped", extra={"reason": "changed"})
+        await _dropped_if_rewrite(session, holder)
+        return
+    try:
+        async with session.begin_nested():
+            if kind == "line":
+                await lines.save_script(
+                    session,
+                    holder.holder_id,
+                    script,
+                    author="pip_draft",
+                    reason=script_history.REWRITE_REASON,
+                )
+            else:
+                await workspace.save_script(
+                    session,
+                    holder.holder_id,
+                    script,
+                    author="pip_draft",
+                    reason=script_history.REWRITE_REASON,
+                )
+            await _dropped_if_rewrite(session, holder)
+    except ProblemError as refused:
+        log.info("holder_script_rewrite_dropped", extra={"reason": refused.code})
+        await _dropped_if_rewrite(session, holder)
+
+
 async def _ready_made(session: AsyncSession, holder: _Holder) -> None:
     """The first run's work (`auto_save`) gets the ready-made script when Pip's own cannot
     be saved, so the owner still reaches the test call (`first_run.work.save_ready_made`).
@@ -340,7 +407,8 @@ async def _fail(
         "left_out": script_proposals.left_out_record(left_out or []),
     }
     async with tenant_session(holder.tenant_id) as session:
-        await _store(session, holder, update)
+        if not await _dropped_if_rewrite(session, holder):
+            await _store(session, holder, update)
 
 
 @dataclass(frozen=True)
@@ -376,6 +444,13 @@ def _asked(raw: Any) -> tuple[str | None, str]:
         tone if isinstance(tone, str) and tone in TONES else None,
         instruction if isinstance(instruction, str) else "",
     )
+
+
+def _rewrite(raw: Any) -> bool:
+    """Whether a request is Pip's rewrite under the current rules (`workers/script_heal.
+    _ask_rewrite`). It is written whole, as a first script is, rather than as an edit of the
+    script it replaces, whose shape the new rules exist to change."""
+    return isinstance(raw, dict) and bool(raw.get("rewrite"))
 
 
 async def _size(tenant_id: UUID, agent_id: UUID, script: CallScript) -> PromptSize | None:
@@ -465,6 +540,7 @@ async def campaign_inputs(tenant_id: UUID, campaign_id: UUID) -> tuple[_Inputs, 
     # Written from the script the request was made from, as the review lists its changes
     # against it: a script saved since would otherwise be shown as Pip's change.
     base = space.proposal.base_script if space.proposal is not None else space.script
+    base = None if _rewrite(asked) else base
     tone, instruction = _asked(asked)
     inputs = _Inputs(
         agent_id=space.agent_id,
@@ -541,6 +617,7 @@ async def line_inputs(tenant_id: UUID, line_id: UUID) -> _Inputs:
             )
         ).scalar()
     base = line.proposal.base_script if line.proposal is not None else line.script
+    base = None if _rewrite(asked) else base
     tone, instruction = _asked(asked)
     return _Inputs(
         agent_id=line.agent_id,
@@ -1068,6 +1145,7 @@ async def _write(
         stored = await _store(session, holder, update)
         if stored:
             await _save_if_asked(session, holder, finished.script)
+            await _save_if_rewrite(session, holder, finished.script)
         await _meter(session, tenant_id, spends)
     log.info(
         "holder_script_written",

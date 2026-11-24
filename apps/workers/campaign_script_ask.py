@@ -241,6 +241,10 @@ SPECIFIC_RULE: Final = (
 #: details are read back once, a soft intake is acknowledged instead (docs.vapi.ai/
 #: prompting-guide "Confirming details", read 22 Nov 2026). The composed call rules read back
 #: digits and close on what happens next (`engine.VOICE_STYLE_GUIDANCE`); this places the asks.
+#: Opinion and outcome fields are never asked, since they invite made-up values after the call
+#: and an outcome comes from the steps done (docs/evidence/voice-agent-research-2026-11-25.md
+#: §C "Field collection"). Departure: that checklist also drops "another number"; here it stays
+#: a detail of the call-back path only (`script_builder.CORE_ASKED_WHEN`, founder 23 Nov 2026).
 DETAILS_RULE: Final = (
     "Ask for each of the details to collect in the step where the call reaches it, one per "
     "turn, and put it in that step's collect list; on a call the agent places, only once the "
@@ -259,7 +263,12 @@ DETAILS_RULE: Final = (
 #: The Rytu Khata campaign script of 25 Nov 2026 put "they do not remember registering" as a
 #: step after the close, gave each step a way out that was only the next step's name, dropped
 #: the main task's screen-by-screen install for each phone, and had the agent "note" what the
-#: farmer entered in the app (`script_shape` checks each).
+#: farmer entered in the app (`script_shape` checks each). Each sentence follows
+#: docs/evidence/voice-agent-research-2026-11-25.md §C "Branches" (a condition is a caller
+#: state, never a step's name; opening exits branch from step 1, never after Finalise) and
+#: "Step design" (one caller action per step; the caller acts in their app, the agent never
+#: notes what they type). Written as what to do, never as a list of words not to say, which
+#: primes them (same document, §A1).
 SHAPE_RULE: Final = (
     "A case that arises in one step (they do not remember it, it is the wrong person, they "
     "use another kind of phone) is a scenario of that step, reached by a way out of it whose "
@@ -275,13 +284,16 @@ SHAPE_RULE: Final = (
 #: A placed call says why it calls before it asks anything of the person (founder, 25 Nov
 #: 2026: his test call went from "is now a good time?" straight to "check your home screen",
 #: and he never heard why). The opening may already say it (`call_rules.OPENING_LINE_RULE`),
-#: so the first step says it only when the opening does not.
+#: so the first step says it only when the opening does not. The purpose comes once, after the
+#: yes, with the time it takes, and the first line is then one question about where the person
+#: is, never a bundle of instructions (docs/evidence/voice-agent-research-2026-11-25.md §C
+#: "Call start").
 PURPOSE_RULE: Final = (
     "The first step's line, said right after the person agrees to talk, first says in one "
     "short sentence why the call is made, from the main task (what they did with the business "
     "and what the call will help them do, and how long it takes when the sources say), unless "
-    "the opening line already says it, then asks one simple question to start the step. It "
-    "never asks again whether now suits them."
+    "the opening line already says it, then asks one question about where the person is with "
+    "the task. It never asks again whether now suits them."
 )
 
 #: On a line the caller called, so the first step answers them rather than explaining itself.
@@ -525,8 +537,8 @@ def campaign_change(
     """What the script is written from: the ask, the owner's tone and instruction, the length
     it may take, the main task and its items (`items_block`), the campaign's own settings
     (`situation_block`), the notes and the documents, then the task again after the documents.
-    A one-part rewrite replaces the whole ask, edit tail included. `refine`: the edit is of Pip's own first draft
-    (`REFINE_TAIL`) rather than of a script the owner has."""
+    A one-part rewrite replaces the whole ask, edit tail included. `refine`: the edit is of Pip's
+    own first draft (`REFINE_TAIL`) rather than of a script the owner has."""
     tail = REFINE_TAIL if refine else EDIT_TAIL if edit else ""
     lead = part_ask if part_ask is not None else f"{ask}{tail}"
     items = items_block(main_task) if part_ask is None else ""

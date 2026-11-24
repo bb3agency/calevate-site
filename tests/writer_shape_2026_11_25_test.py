@@ -16,15 +16,21 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from apps.api.agents import script_heal
+from apps.api.agents import script_heal, script_lint
 from apps.api.agents.mistake_lints import mistake_findings
 from apps.api.agents.script_builder import job_details
-from apps.api.agents.script_lint import LintContext, unasked_details
+from apps.api.agents.script_lint import (
+    CapabilityManifest,
+    LintContext,
+    script_problems,
+    unasked_details,
+)
 from apps.api.agents.script_shape import (
     coverage_problems,
     echo_branches,
     line_problems,
     main_task_items,
+    named_way_problems,
     piled_problems,
     structure_problems,
     trailing_problems,
@@ -474,3 +480,45 @@ def test_what_is_still_built_wrong_is_a_warning_the_owner_reads() -> None:
     # The owner's own script, already built so, is theirs: no warning for what they had.
     assert campaign_script.built_wrong_left(_inputs(base=_evidence()), _evidence()) == []
     assert structure_problems(_evidence().model_copy(update={"raw_override": "x"})) == []
+
+
+def test_a_jump_whose_condition_is_only_the_steps_name_is_a_finding() -> None:
+    """A way out to a later step named only by that step is no caller state (research §C
+    "Branches"); one choosing between scenarios of the next step stays."""
+    script = CallScript(
+        schema_version=2,
+        stages=[
+            _stage("a", "Login", branches=[_way("Dashboard", "c")]),
+            _stage("b", "Add Shops"),
+            _stage("c", "Dashboard"),
+        ],
+    )
+    assert named_way_problems(script) == [
+        'stages.0.branches: the way out to "Dashboard" has only that step\'s name as its '
+        "condition; say what the person says or has done that leads there."
+    ]
+
+
+def test_a_steps_line_in_a_call_language_is_held_to_the_line_checks() -> None:
+    """FAILS IF: a promise the account cannot keep, written in a step's per-language line
+    (`ConversationStage.scripts`, which the in-call model copies), passes the script check."""
+    stage = _stage("a", "Bill", scripts={"en-IN": "I will send you the bill on WhatsApp."})
+    script = CallScript(schema_version=2, stages=[stage])
+    found = script_problems(script, LintContext(manifest=CapabilityManifest()))
+    assert any(f.startswith("stages.0.scripts.en-IN: promises") for f in found)
+
+
+def test_the_shape_checks_answer_to_the_scorers_names() -> None:
+    """The script-writer scorer reads `script_lint.<check>_problems` by name."""
+    script = _evidence()
+    assert script_lint.steps_after_close_problems(script) == trailing_problems(script)
+    assert script_lint.fake_branch_problems(script)
+    assert len(script_lint.judged_field_asked_problems(script)) == 3
+    assert script_lint.known_value_asked_problems(script)
+    assert script_lint.agent_claims_caller_action_problems(script)
+    two = CallScript(
+        schema_version=2,
+        stages=[_stage("a", "Ask", sounds_like="Open the app and press Login. Is it open? Done?")],
+    )
+    assert script_lint.multi_question_line_problems(two)
+    assert script_lint.multi_action_line_problems(two)

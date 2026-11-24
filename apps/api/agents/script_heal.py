@@ -53,6 +53,7 @@ from apps.api.agents.script_structure import (
     without_echo_ways,
     without_judged_asks,
 )
+from apps.api.campaigns.script_history import REWRITE_RULES
 from apps.api.copilot.consent import account_content_may_reach_models
 
 #: The ARQ name of the pass (`workers/script_heal`).
@@ -63,6 +64,9 @@ DEBOUNCE_S: Final = 30
 #: Joined to the script before it is hashed into `script_heal_inputs`: a new or changed check
 #: changes it, so every script is checked once more by the next sweep.
 CHECKS_VERSION: Final = "heal-4"
+#: The key in `script_heal_fixed` that records a whole-script rewrite asked for under the
+#: current rules (`workers/script_heal._ask_rewrite`), so it is asked once per holder.
+REWRITE_KEY: Final = f"pip_rewrite:{REWRITE_RULES}"
 
 HolderKind = Literal["campaign", "line"]
 
@@ -290,6 +294,7 @@ __all__ = [
     "CHECKS_VERSION",
     "DEBOUNCE_S",
     "JOB",
+    "REWRITE_KEY",
     "SLOTS",
     "CallFix",
     "HolderKind",

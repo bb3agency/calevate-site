@@ -44,6 +44,7 @@ from apps.api.agents.script_heal import (
     CHECKS_VERSION,
     DEBOUNCE_S,
     JOB,
+    REWRITE_KEY,
     SLOTS,
     HolderKind,
     heal_findings,
@@ -55,6 +56,7 @@ from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.campaigns import script_history
 from apps.api.campaigns.notes_live import queue_put_live
 from apps.api.campaigns.workspace import read_script_proposal
+from apps.api.campaigns.workspace import request_proposal as request_campaign_proposal
 from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -256,7 +258,8 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
     # no gate), then the model is asked only about the lines.
     wired = wired_ways_out(holder.script, lint)
     findings = heal_findings(wired, lint)
-    if not findings:
+    rewrite = await _rewrite_wanted(tenant_id, kind, holder_id)
+    if not findings and not rewrite:
         if wired != holder.script:
             return await _save(tenant_id, holder, lint, wired, [])
         await _finish(tenant_id, kind, holder_id, "done", checked=holder.digest)
@@ -267,7 +270,72 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
     if not allowed or quota.at_ceiling or quota.platform_paused:
         await _finish(tenant_id, kind, holder_id, "skipped")
         return "skipped"
+    if rewrite and await _ask_rewrite(tenant_id, kind, holder_id):
+        return "rewriting"
+    if not findings:
+        await _finish(tenant_id, kind, holder_id, "done", checked=holder.digest)
+        return "clean"
     return await _repair(tenant_id, holder, lint, findings, wired)
+
+
+async def _rewrite_wanted(tenant_id: UUID, kind: HolderKind, holder_id: UUID) -> bool:
+    """Whether Pip rewrites this holder's whole script under the current rules rather than
+    repairing its lines (founder, 25 Nov 2026): the script is still the one Pip wrote
+    (`script_history.pip_owns`), the holder has a main task to write it from, and no rewrite
+    under these rules was asked for it before, so a rewrite that failed is never retried and
+    the script gets the line repairs instead."""
+    table = table_of(kind)
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    f"SELECT script_heal_fixed ? :key AS tried, "
+                    f"btrim(coalesce(main_task, '')) <> '' AS tasked FROM {table} WHERE id = :h"
+                ),
+                {"key": REWRITE_KEY, "h": holder_id},
+            )
+        ).first()
+        if row is None or row.tried or not row.tasked:
+            return False
+        return await script_history.pip_owns(session, kind, holder_id)
+
+
+async def _ask_rewrite(tenant_id: UUID, kind: HolderKind, holder_id: UUID) -> bool:
+    """Ask the holder's script writer for a whole new script, which it saves as the holder's
+    script once written when the script is still the one it was written from
+    (`workers/campaign_script._save_if_rewrite`), and record the ask so it is made once.
+    The draft job is metered as every Pip draft is. False when the writer refused the ask (a
+    draft already being written): the pass then repairs lines as before."""
+    from apps.api.inbound import lines
+
+    ask = {"rewrite": script_history.REWRITE_RULES}
+    async with tenant_session(tenant_id) as session:
+        try:
+            async with session.begin_nested():
+                if kind == "campaign":
+                    await request_campaign_proposal(
+                        session, tenant_id=tenant_id, campaign_id=holder_id, requested_by=None,
+                        ask=ask,
+                    )  # fmt: skip
+                else:
+                    await lines.request_proposal(
+                        session, tenant_id=tenant_id, line_id=holder_id, requested_by=None, ask=ask
+                    )
+        except ProblemError as refused:
+            log.info("script_rewrite_not_asked", extra={"reason": refused.code})
+            return False
+        await session.execute(
+            text(
+                f"UPDATE {table_of(kind)} SET script_heal_fixed = script_heal_fixed || "
+                "jsonb_build_object(CAST(:key AS text), now()::text) WHERE id = :h"
+            ),
+            {"key": REWRITE_KEY, "h": holder_id},
+        )
+        await agent_pass.finish(
+            session, SLOTS[kind], tenant_id=tenant_id, row_id=holder_id, state="done"
+        )
+    log.info("script_rewrite_asked", extra={"kind": kind, "holder_id": str(holder_id)})
+    return True
 
 
 async def _repair(

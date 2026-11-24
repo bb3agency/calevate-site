@@ -247,21 +247,35 @@ def _asked_again(script: CallScript, _context: LintContext) -> list[str]:
     return found
 
 
-def _reasked_name(script: CallScript, _context: LintContext) -> list[str]:
-    """A step whose line asks the person's name when the call already has it, because the
-    opening on a placed call greets them by the name field (the 25 Nov 2026 Rytu Khata call
-    asked an existing customer's name in step 1), or a step the call passes first asks it
-    too (`turn_checks.asks_name`)."""
+def _name_asking(script: CallScript) -> tuple[dict[int, tuple[str, str]], set[int]]:
     steps = _step_lines(script)
-    asking = {i for i, (_p, text) in steps.items() if turn_checks.asks_name(_heard(text))}
-    found: list[str] = []
+    return steps, {i for i, (_p, text) in steps.items() if turn_checks.asks_name(_heard(text))}
+
+
+def known_name_problems(script: CallScript) -> list[str]:
+    """A step whose line asks the person's name when the opening of a placed call already
+    greets them by the name field (the 25 Nov 2026 Rytu Khata call asked an existing
+    customer's name in step 1): what the contact record holds is never asked (docs/evidence/
+    voice-agent-research-2026-11-25.md §C "Field collection")."""
     openings = f"{script.outbound_opening_line} {script.opening_line}".replace(" ", "")
-    if NAME_FIELD in openings:
-        return [
-            f"{steps[j][0]}: asks for the name, which the call already has: the opening greets "
-            "them by it; leave the question out and use their name."
-            for j in sorted(asking)
-        ]
+    if NAME_FIELD not in openings:
+        return []
+    steps, asking = _name_asking(script)
+    return [
+        f"{steps[j][0]}: asks for the name, which the call already has: the opening greets "
+        "them by it; leave the question out and use their name."
+        for j in sorted(asking)
+    ]
+
+
+def _reasked_name(script: CallScript, _context: LintContext) -> list[str]:
+    """A step whose line asks the person's name the call already has (`known_name_problems`),
+    or that a step the call passes first asks too (`turn_checks.asks_name`)."""
+    known = known_name_problems(script)
+    if known:
+        return known
+    steps, asking = _name_asking(script)
+    found: list[str] = []
     for j in sorted(asking):
         earlier = next(
             (i for i in sorted(asking) if i != j and j in reachable_steps(script, i)), None
@@ -452,4 +466,10 @@ def script_mistakes(
     return list(found)
 
 
-__all__ = ["SCRIPT_FIXABLE_KINDS", "fixable_findings", "mistake_findings", "script_mistakes"]
+__all__ = [
+    "SCRIPT_FIXABLE_KINDS",
+    "fixable_findings",
+    "known_name_problems",
+    "mistake_findings",
+    "script_mistakes",
+]

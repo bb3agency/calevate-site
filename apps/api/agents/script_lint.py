@@ -538,10 +538,11 @@ def script_problems(script: CallScript, context: LintContext) -> list[str]:
     if script.raw_override:
         return instruction_problems("script", script.raw_override, context)
     callers = caller_paths(script)
+    # Each step's line in each language and each of its answers too (`agent_lines`): the
+    # in-call model copies them, so a promise or a figure in one is said on the call.
     found = [
         problem
-        for path, text in spoken_fields(script)
-        if text.strip() and path not in callers
+        for path, text in agent_lines(script)
         for problem in spoken_line_problems(path, text, context)
     ]
     # Here and not in `spoken_line_problems`, whose writers check it already
@@ -1466,6 +1467,65 @@ def flow_problems(script: CallScript) -> list[str]:
     ]
 
 
+# --- the shape checks of 25 Nov 2026, by the names the script-writer scorer reads ----------
+# (`scripts/eval_script_writer.py` adopts any one- or two-argument `<check>_problems` here).
+# They live in `script_shape`, which imports this module, hence the imports inside.
+
+
+def multi_question_line_problems(script: CallScript) -> list[str]:
+    """A line the agent says or copies that asks more than one question."""
+    return [
+        f"{path}: asks {question_count(text)} questions; ask one and wait."
+        for path, text in agent_lines(script)
+        if path not in OPENING_FIELDS and question_count(text) > 1
+    ]
+
+
+def multi_action_line_problems(script: CallScript) -> list[str]:
+    from apps.api.agents.script_shape import several_action_problems
+
+    return several_action_problems(script)
+
+
+def agent_claims_caller_action_problems(script: CallScript) -> list[str]:
+    from apps.api.agents.script_shape import caller_action_claimed_problems
+
+    return caller_action_claimed_problems(script)
+
+
+def fake_branch_problems(script: CallScript) -> list[str]:
+    from apps.api.agents.script_shape import echo_problems, named_way_problems
+
+    return [*echo_problems(script), *named_way_problems(script)]
+
+
+def steps_after_close_problems(script: CallScript) -> list[str]:
+    from apps.api.agents.script_shape import trailing_problems
+
+    return trailing_problems(script)
+
+
+def judged_field_asked_problems(script: CallScript) -> list[str]:
+    """A step that collects a detail judged from the call (`extraction.whole_call_detail`),
+    which code takes out of a Pip script (`script_structure.without_judged_asks`)."""
+    from calevate_shared.extraction import whole_call_detail
+
+    return [
+        f'stages.{i}.collect: collects "{collected_label(entry)}", which is worked out after '
+        "the call, never asked."
+        for i, stage in enumerate(script.stages)
+        for entry in stage.collect
+        if whole_call_detail("", collected_label(entry))
+    ]
+
+
+def known_value_asked_problems(script: CallScript) -> list[str]:
+    """A step's line asking the name the opening already greets them by."""
+    from apps.api.agents.mistake_lints import known_name_problems
+
+    return known_name_problems(script)
+
+
 __all__ = [
     "BRACKETED",
     "NAME_FIELD",
@@ -1474,6 +1534,7 @@ __all__ = [
     "PLACED_OPENING_BRIEF",
     "CapabilityManifest",
     "LintContext",
+    "agent_claims_caller_action_problems",
     "agent_lines",
     "answer_lines",
     "answered_opening",
@@ -1483,10 +1544,15 @@ __all__ = [
     "caller_paths",
     "collected_label",
     "empty_title_problems",
+    "fake_branch_problems",
     "flow_problems",
     "instruction_fields",
     "instruction_problems",
+    "judged_field_asked_problems",
+    "known_value_asked_problems",
     "line_ending",
+    "multi_action_line_problems",
+    "multi_question_line_problems",
     "name_segment_problem",
     "next_steps",
     "opening_redone_problems",
@@ -1514,6 +1580,7 @@ __all__ = [
     "step_number_problems",
     "step_numbers_broken",
     "step_outcome_problems",
+    "steps_after_close_problems",
     "tells_caller_to_act",
     "unasked_details",
     "unasked_problems",

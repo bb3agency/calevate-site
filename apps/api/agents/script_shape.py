@@ -81,6 +81,30 @@ def echo_branches(script: CallScript) -> list[tuple[int, int]]:
     return found
 
 
+def named_way_problems(script: CallScript) -> list[str]:
+    """A way out whose condition is only the name of the step it jumps to, where the call
+    would not go anyway (code removes those, `echo_branches`): a condition must be a caller
+    state (docs/evidence/voice-agent-research-2026-11-25.md §C "Branches"). Departure: a name
+    that chooses between scenarios of one step ("Android", "iPhone") is a caller state too, so
+    it stays."""
+    steps = stage_steps(script.stages)
+    by_id = {stage.id: i for i, stage in enumerate(script.stages)}
+    echoes = set(echo_branches(script))
+    found: list[str] = []
+    for i, stage in enumerate(script.stages):
+        for j, branch in enumerate(stage.branches):
+            target = by_id.get(branch.target)
+            if target is None or (i, j) in echoes or steps.count(steps[target]) > 1:
+                continue
+            name = script.stages[target].name
+            if " ".join(branch.when.split()).casefold() == " ".join(name.split()).casefold():
+                found.append(
+                    f'stages.{i}.branches: the way out to "{name}" has only that step\'s name as '
+                    "its condition; say what the person says or has done that leads there."
+                )
+    return found
+
+
 def _predecessors(script: CallScript) -> dict[int, set[int]]:
     by_id = {stage.id: i for i, stage in enumerate(script.stages)}
     preds: dict[int, set[int]] = {i: set() for i in range(len(script.stages))}
@@ -236,6 +260,7 @@ def structure_problems(
     return [
         *piled_problems(script, call_back),
         *trailing_problems(script),
+        *named_way_problems(script),
         *coverage_problems(script, main_task),
     ]
 
@@ -253,20 +278,34 @@ def _step_of(path: str) -> int | None:
     return int(found.group(1)) if found else None
 
 
-def line_problems(script: CallScript) -> list[str]:
-    """The lines a targeted repair rewrites (see the module), the openings left alone: they
-    carry the notices and have their own checks. English words only."""
+def _english_lines(script: CallScript) -> list[tuple[str, str]]:
+    """The agent's lines in English words, the openings left alone: they carry the notices
+    and have their own checks."""
     if script.raw_override is not None:
         return []
+    return [
+        (path, text)
+        for path, text in agent_lines(script)
+        if path not in OPENING_FIELDS and not has_indic_letters(text)
+    ]
+
+
+def several_action_problems(script: CallScript) -> list[str]:
+    """A line that gives the person several things to do at once (`script_lint.
+    stacked_actions`): one caller action per step (research §C "Step design")."""
+    return [
+        f"{path}: gives several things to do in one line; give one action, wait until they "
+        "say it is done, then give the next."
+        for path, text in _english_lines(script)
+        if stacked_actions(text)
+    ]
+
+
+def caller_action_claimed_problems(script: CallScript) -> list[str]:
+    """A line in which the agent says it will note or record something in a step that notes
+    nothing: what the person enters in the app is theirs to do (research §C "Step design")."""
     found: list[str] = []
-    for path, text in agent_lines(script):
-        if path in OPENING_FIELDS or has_indic_letters(text):
-            continue
-        if stacked_actions(text):
-            found.append(
-                f"{path}: gives several things to do in one line; give one action, wait "
-                "until they say it is done, then give the next."
-            )
+    for path, text in _english_lines(script):
         step = _step_of(path)
         if (
             step is not None
@@ -282,14 +321,32 @@ def line_problems(script: CallScript) -> list[str]:
     return found
 
 
+def echo_problems(script: CallScript) -> list[str]:
+    """`echo_branches` as findings, for a screen or a scorer; code removes them."""
+    return [
+        f'stages.{i}.branches: the way out "{script.stages[i].branches[j].when}" only names '
+        "the step the call goes to anyway; leave it out."
+        for i, j in echo_branches(script)
+    ]
+
+
+def line_problems(script: CallScript) -> list[str]:
+    """The lines a targeted repair rewrites (see the module). English words only."""
+    return [*several_action_problems(script), *caller_action_claimed_problems(script)]
+
+
 __all__ = [
     "CLOSING_NAME",
+    "caller_action_claimed_problems",
     "closing_index",
     "coverage_problems",
     "echo_branches",
+    "echo_problems",
     "line_problems",
     "main_task_items",
+    "named_way_problems",
     "piled_problems",
+    "several_action_problems",
     "structure_problems",
     "trailing_problems",
     "uncovered_items",

@@ -155,7 +155,7 @@ def test_drafted_ways_out_become_branches_before_the_flow() -> None:
         (BUSY, CALL_BACK),
         (NOT_FOR_THEM, END_OF_CALL),
         ("They already have it", "s3"),
-        ("Install", "s2"),
+        # The plain go-on to the next step is no condition: it is where the call goes anyway.
     ]
 
 
