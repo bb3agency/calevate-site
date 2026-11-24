@@ -290,6 +290,10 @@ QUIET_TABLES: Final[dict[str, str]] = {
         "a campaign's or line's saved scripts (D-1039), written only with the `campaigns` or "
         "`inbound_lines` row that announces it"
     ),
+    "weekly_summaries": (
+        "Pip's paragraph about an account's week, written once a week by a job; the Improve "
+        "page reads it when opened"
+    ),
     "agent_test_copies": (
         "the developer-workspace copy a paid account's test call rides (D-859), republished "
         "before each call; no screen reads it"

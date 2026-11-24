@@ -27,16 +27,20 @@ export function ImproveCard({
   title,
   hint,
   info,
+  headingLevel = 3,
   children,
 }: {
   title: string;
   hint: string;
   info?: ReactNode;
+  /** 3 inside a campaign's or line's Improve; 2 on the account's Improve page. */
+  headingLevel?: 2 | 3;
   children: ReactNode;
 }) {
+  const Heading = headingLevel === 2 ? "h2" : "h3";
   return (
     <section className="rounded-card border border-line p-4 sm:p-5" aria-label={title}>
-      <h3 className="text-body font-semibold text-ink">{title}</h3>
+      <Heading className="text-body font-semibold text-ink">{title}</Heading>
       <p className="mt-0.5 flex items-center gap-1 text-meta text-ink-muted">
         <span className="block">{hint}</span>
         {info && (

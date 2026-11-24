@@ -185,6 +185,7 @@ BORN_IST_SLOTS: dict[str, tuple[int, int, str]] = {
     "cron:sweep_hot_facts": (4, 31, "D-896"),
     "cron:send_owner_digests": (20, 58, "D-944"),
     "cron:distil_copilot_memories": (3, 25, "D-982"),
+    "cron:write_weekly_summaries": (7, 50, "D-1044"),
 }
 
 #: Crons that run every hour of an IST working window rather than once a day.

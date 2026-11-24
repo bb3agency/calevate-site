@@ -14,12 +14,13 @@ is one of the named blockers (SEC-COMP §3), and the 140/160 series-vs-classific
 match is a CHECK at launch, not a convention.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     ForeignKey,
     Index,
     Integer,
@@ -475,4 +476,32 @@ class ScriptVersion(PKMixin, Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     made_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
     restored_from: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)
+
+
+#: Characters a weekly summary may hold: one short paragraph.
+WEEKLY_SUMMARY_MAX = 1200
+
+
+class WeeklySummary(PKMixin, Base):
+    """Pip's one-paragraph summary of an account's IST week (`campaigns/weekly_summary`),
+    written once per week by `workers/weekly_summary` from aggregates only, never from a
+    transcript (hard rule 6). `figures` holds the counts it was written from, so the page
+    can show them beside the words."""
+
+    __tablename__ = "weekly_summaries"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "week_start"),
+        CheckConstraint(f"length(summary) <= {WEEKLY_SUMMARY_MAX}", name="summary_short"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    #: The Monday the IST week began.
+    week_start: Mapped[date] = mapped_column(Date, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    figures: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    #: What the paragraph was priced as (`BackgroundLeg.meter_model`).
+    model: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)

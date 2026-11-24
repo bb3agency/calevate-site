@@ -51,6 +51,7 @@ import {
   Sparkles,
   Store,
   Target,
+  TrendingUp,
   UserCog,
   Users,
   Wallet,
@@ -103,6 +104,9 @@ export function clientNavigation(slug: string): NavGroup[] {
         // while the header bell promoted it — the sidebar now agrees with the bell
         // (ux-audit client-daily-work C2).
         { href: `/c/${slug}/attention`, label: "Needs attention", icon: Target },
+        // D-1044: beside Needs attention, its other half: that queue is what is
+        // broken or blocked; this is what would make results better, across the account.
+        { href: `/c/${slug}/improve`, label: "Improve", icon: TrendingUp },
         // One person, one call, now or at a time (founder, 5 Nov 2026): beside Campaigns, its
         // many-people counterpart. Every other Call button opens this screen pre-filled.
         // "Make a call" over "Dialer" (a campaign word in this trade) and "Quick call".

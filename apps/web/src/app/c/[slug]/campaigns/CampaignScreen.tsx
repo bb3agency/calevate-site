@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { InlineEdit } from "@/components/arc/inline-edit";
@@ -61,6 +61,9 @@ const CampaignQuestions = dynamic(() => import("./CampaignQuestions").then((m) =
   loading: panelLoading,
 });
 
+/** The tabs a link may open with `?tab=`. */
+const CAMPAIGN_TABS: readonly string[] = ["setup", "progress", "calls", "questions", "improve"];
+
 /**
  * `/c/{slug}/campaigns/{id}`: ONE CAMPAIGN, at its own address (D-773).
  *
@@ -88,6 +91,8 @@ const CampaignQuestions = dynamic(() => import("./CampaignQuestions").then((m) =
 export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId: string }) {
   const { session, href } = useClientRealm();
   const router = useRouter();
+  // `?tab=improve` from the account Improve page opens the tab its link is about.
+  const linkedTab = useSearchParams().get("tab");
   const progress = useCampaignProgress(session, campaignId);
   const check = useLaunchCheck(session, campaignId);
   const launch = useLaunchCampaign(session, campaignId);
@@ -300,7 +305,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
           first; how it is going sits in its own tab. */}
       <Tabs
         label="This campaign"
-        defaultValue="setup"
+        defaultValue={linkedTab && CAMPAIGN_TABS.includes(linkedTab) ? linkedTab : "setup"}
         variant="pills"
         items={[
           { value: "setup", label: "Set up", accent: "bg-brand-strong text-white" },

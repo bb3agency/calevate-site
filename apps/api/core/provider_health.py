@@ -60,6 +60,7 @@ AiLeg = Literal[
     "extraction",
     "embeddings",
     "memory",
+    "weekly_summary",
     "kb_gloss",
     "ocr",
     "script",

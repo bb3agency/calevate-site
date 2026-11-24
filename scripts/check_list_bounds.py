@@ -398,6 +398,15 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         )
     ),
     "GET /v1/inbound-lines/{line_id}/diagnosis": _HOLDER_DIAGNOSIS,
+    "GET /v1/improve": BoundedByConstruction(
+        by=(
+            "every list LIMITed in `campaigns/account_improve`: numbers `MAX_NUMBERS` (ten), "
+            "each with at most `NUMBER_WEEKS` + 1 (nine) IST weeks; holders `MAX_HOLDERS` "
+            "(thirty) and "
+            "differences one per `DifferenceKind` (three); patterns `TOP_PATTERNS` (five), "
+            "each naming at most `MAX_PATTERN_AGENTS` (five) agents; fixes `MAX_FIXES` (twenty)."
+        )
+    ),
     "GET /v1/inbound-lines/{line_id}/calls": BoundedByConstruction(
         by="read with `LIMIT inbound/routes.CALLS_SHOWN` (fifty); the call logs hold the rest."
     ),

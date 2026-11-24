@@ -157,6 +157,17 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         permission="leads:read",
     ),
     Screen(
+        route="/c/{slug}/improve",
+        name="Improve",
+        group=None,
+        summary=(
+            "What would make results better across every campaign and line: number health, "
+            "the weekly summary, campaigns compared, repeated mistakes and Pip's fixes."
+        ),
+        aliases=("improve results", "weekly summary", "compare campaigns", "spam", "what works"),
+        permission="leads:read",
+    ),
+    Screen(
         route="/c/{slug}/make-a-call",
         name="Make a call",
         group=None,
