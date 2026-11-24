@@ -381,7 +381,7 @@ function MissingParts({ missing }: { missing: readonly MissingPart[] }) {
       <p className="text-meta font-medium text-ink">Pip needs more about your business</p>
       <p className="mt-1 text-meta text-ink-muted">Your knowledge does not say {list}.</p>
       <p className="text-meta text-ink-muted">
-        Write it under About the business, or add a file that says it.
+        Write it under About the business, or add a file.
       </p>
       <a href="#training-overview" className={`${SECONDARY_BUTTON_SM} mt-2 inline-flex`}>
         Write about the business
