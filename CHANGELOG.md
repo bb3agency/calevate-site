@@ -3,6 +3,17 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.32 — 24-Nov-2026
+
+- Agents say a filler such as "okay" at most once a call and never to open a reply, so replies
+  no longer all start the same way. Pip's script writer follows the same limit.
+- An agent names a button or a web address once, in the caller's language, and never repeats
+  it in brackets or in English letters.
+- Formal words from the language's avoid list stay out of calls even when an old script line
+  has them; the call page names the word, and the turn where it was said.
+- An agent searches your knowledge when the caller is stuck on a step, not only when asked
+  about the business.
+
 ## 0.5.31 — 24-Nov-2026
 
 - Key moments no longer pin a whole-call detail (an installation status, a call outcome, a
