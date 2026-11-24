@@ -191,7 +191,7 @@ describe("where a test call rings from (D-1020)", () => {
     const why =
       "Test calls need a free calling setup. Your account can have 2, and both are in use: 2 agents.";
     formWith(null, { ownNumber: null, rest: { unavailable: why } });
-    expect(screen.getByRole("status").textContent).toBe(why);
+    expect(screen.getByText(why).getAttribute("role")).toBe("status");
     expect(screen.queryByText(/It rings from/)).toBeNull();
   });
 

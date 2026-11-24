@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { X } from "lucide-react";
 
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
-import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
+import { PRIMARY_BUTTON } from "@/components/ui";
 
 export type FlowStep = {
   id: string;
@@ -168,9 +168,9 @@ export function StepFlow({
           }`}
         >
           {index > 0 ? (
-            <button type="button" onClick={() => go(index - 1)} className={SECONDARY_BUTTON} disabled={busy}>
+            <ActionButton variant="secondary" onClick={() => go(index - 1)} disabled={busy}>
               Back
-            </button>
+            </ActionButton>
           ) : (
             <span />
           )}

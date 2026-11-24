@@ -11189,6 +11189,15 @@
         "additionalProperties": false,
         "description": "One thing the agent got wrong on this call (D-949): a kind, the owner's words for it,\nand the transcript turn it was first seen on. Never the caller's words.",
         "properties": {
+          "fix": {
+            "enum": [
+              "repaired",
+              "repairing",
+              "told"
+            ],
+            "title": "Fix",
+            "type": "string"
+          },
           "instead": {
             "title": "Instead",
             "type": "string"
@@ -11210,7 +11219,8 @@
           "kind",
           "label",
           "instead",
-          "turn_idx"
+          "turn_idx",
+          "fix"
         ],
         "title": "CallMistakeOut",
         "type": "object"

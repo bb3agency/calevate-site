@@ -149,6 +149,8 @@ async def test_a_real_call_is_checked_and_the_owner_sees_what_went_wrong(
         "same_opening",
     ]
     assert detail["mistakes"][1]["label"] == call_mistakes.LESSONS["said_again"].label
+    # On no line or campaign, so no script was repaired: our team has each one.
+    assert {m["fix"] for m in detail["mistakes"]} == {"told"}
     assert listed.status_code == 200, listed.text
     body = listed.json()
     assert body["window_days"] == call_mistakes.WINDOW_DAYS

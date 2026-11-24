@@ -2,7 +2,8 @@
 
 import { CircleCheck, CircleAlert, CircleX } from "lucide-react";
 
-import { formatIST, SECONDARY_BUTTON } from "@/components/ui";
+import { ActionButton } from "@/components/arc/feedback";
+import { formatIST } from "@/components/ui";
 import {
   COMPONENT_STATE_WORDS,
   usePublicStatus,
@@ -57,14 +58,14 @@ export function StatusScreen() {
       {/* Always offered, whatever the server says about `retryable`: this is a public
           read with nothing to repeat by accident, and the page also re-reads every minute. */}
       {status.isError && (
-        <button
-          type="button"
+        <ActionButton
+          variant="secondary"
+          status={status.isFetching ? "pending" : "idle"}
+          pendingLabel="Checking…"
           onClick={() => void status.refetch()}
-          disabled={status.isFetching}
-          className={SECONDARY_BUTTON}
         >
-          {status.isFetching ? "Checking…" : "Try again"}
-        </button>
+          Try again
+        </ActionButton>
       )}
 
       {data && (

@@ -4,7 +4,7 @@ import { useId, useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
-import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { FIELD, ProblemNotice, Skeleton } from "@/components/ui";
 import { useTestConversations } from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
 import { useTryChat } from "@/lib/api/teach";
@@ -123,9 +123,8 @@ export function TryChat({
       }
       action={
         turns.length ? (
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
+          <ActionButton
+            variant="secondary-sm"
             // The reply still on its way would land in the cleared chat, under the old session.
             disabled={sendFeedback.status === "pending"}
             onClick={() => {
@@ -135,7 +134,7 @@ export function TryChat({
             }}
           >
             Start over
-          </button>
+          </ActionButton>
         ) : undefined
       }
     >

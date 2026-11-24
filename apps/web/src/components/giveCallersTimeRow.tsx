@@ -13,9 +13,9 @@
  * so and why, in place of the general one.
  */
 
-import { type FeedbackStatus } from "@/components/arc/feedback";
+import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { SettingRow } from "@/components/console/settingRow";
-import { ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { ProblemNotice } from "@/components/ui";
 import { formatSeconds, type GiveCallersTime } from "@/lib/api/callHandling";
 
 /** What the preset does, in the words of the rows it changes. */
@@ -46,7 +46,6 @@ export function GiveCallersTimeRow({
   /** "Suggested for <agent>: <why>", from the agent's own judgement; null when it is not. */
   suggested?: string | null;
 }) {
-  const pending = status === "pending";
   return (
     <div>
       <SettingRow
@@ -72,15 +71,14 @@ export function GiveCallersTimeRow({
         value={preset.applied ? "In use" : undefined}
         control={
           preset.applied || !canChange ? undefined : (
-            <button
-              type="button"
+            <ActionButton
+              variant="secondary-sm"
+              status={status}
+              pendingLabel="Turning on"
               onClick={onApply}
-              disabled={pending}
-              aria-busy={pending || undefined}
-              className={SECONDARY_BUTTON_SM}
             >
-              {pending ? "Turning on" : "Turn on"}
-            </button>
+              Turn on
+            </ActionButton>
           )
         }
       />

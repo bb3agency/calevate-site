@@ -197,8 +197,9 @@ async def save_main_task(session: AsyncSession, campaign_id: UUID, value: str) -
 async def save_script(session: AsyncSession, campaign_id: UUID, script: CallScript) -> None:
     """The owner's edit, or a reviewed Pip draft they kept. Measured as the campaign's own
     engine agent Start sends, its notes included (`script_builder.refuse_job_if_too_long`),
-    so Start can never be refused for its length."""
-    from apps.api.agents import script_builder
+    so Start can never be refused for its length. Pip repairs any line the script checks
+    fault once the owner stops saving (`agents/script_heal`)."""
+    from apps.api.agents import script_builder, script_heal
 
     row = await _campaign_row(session, campaign_id, lock=True)
     await script_builder.refuse_job_if_too_long(
@@ -214,6 +215,7 @@ async def save_script(session: AsyncSession, campaign_id: UUID, script: CallScri
     )
     await queue_job(session, "campaign", campaign_id)
     await step_outcomes.queue_after_save(session, "campaign", campaign_id, script)
+    await script_heal.queue_after_save(session, "campaign", campaign_id, script)
 
 
 async def _keep_before_pip(session: AsyncSession, campaign_id: UUID) -> None:

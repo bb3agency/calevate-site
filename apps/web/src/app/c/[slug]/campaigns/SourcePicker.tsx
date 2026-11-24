@@ -12,7 +12,8 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { SearchField } from "@/components/arc/search-field";
-import { PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { ActionButton } from "@/components/arc/feedback";
+import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import { useKbNotes, useKbUploads } from "@/lib/api/kb";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -110,32 +111,33 @@ export function SourcePicker<TData, TError, TContext>({
         <p className="text-body text-ink-muted">
           {gone.length === 1 ? "1 picked source was removed." : `${gone.length} picked sources were removed.`}
         </p>
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
+        {/* A local edit, held while Save sources works; that button carries the spinner. */}
+        <ActionButton
+          variant="secondary-sm"
           disabled={!canWrite || save.isPending}
           title={refusal}
           onClick={() => setPicked(chosen.filter((id) => known.has(id)))}
         >
           Clear them
-        </button>
+        </ActionButton>
       </div>
     ) : null;
   const actions = (
     <div className="flex flex-wrap gap-2">
-      <button
-        type="button"
-        className={PRIMARY_BUTTON_SM}
-        disabled={!canWrite || !dirty || save.isPending}
+      <ActionButton
+        variant="primary-sm"
+        status={save.isPending ? "pending" : "idle"}
+        pendingLabel="Saving…"
+        disabled={!canWrite || !dirty}
         title={refusal}
         onClick={() => save.mutate(chosen, { onSuccess: () => setPicked(null) })}
       >
-        {save.isPending ? "Saving…" : "Save sources"}
-      </button>
+        Save sources
+      </ActionButton>
       {dirty && (
-        <button type="button" className={SECONDARY_BUTTON_SM} disabled={save.isPending} onClick={() => setPicked(null)}>
+        <ActionButton variant="secondary-sm" disabled={save.isPending} onClick={() => setPicked(null)}>
           Cancel
-        </button>
+        </ActionButton>
       )}
     </div>
   );

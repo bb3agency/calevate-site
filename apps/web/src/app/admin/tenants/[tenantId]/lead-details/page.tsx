@@ -5,13 +5,13 @@ import { use, useMemo, useState } from "react";
 import { useAdminAccess } from "@/app/admin/access";
 import type { JobNotesSource } from "@/app/c/[slug]/campaigns/CampaignNotes";
 import { campaignStatusWord } from "@/app/c/[slug]/campaigns/campaignStatus";
-import { useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
 import { ApplyToJobs, appliedSentence, useJobPicks } from "@/components/leadFields/ApplyToJobs";
 import { LeadDetailsView } from "@/components/leadFields/LeadDetailsView";
-import { FIELD, FIELD_LABEL, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
+import { FIELD, FIELD_LABEL, ProblemNotice, Skeleton } from "@/components/ui";
 import {
   businessTypeLabel,
   businessTypeOption,
@@ -200,14 +200,13 @@ function ReplaceWithType({
           </select>
         </label>
         <ApplyToJobs jobs={data.jobs} picks={picks} disabled={replace.isPending} legend="Replace the list on" />
-        <button
-          type="button"
-          className={SECONDARY_BUTTON}
+        <ActionButton
+          variant="secondary"
           disabled={replace.isPending || picks.refs.length === 0}
           onClick={() => setConfirming(true)}
         >
           Replace on {picks.refs.length}
-        </button>
+        </ActionButton>
         {replace.data && !confirming && (
           <p role="status" className="text-body text-ink-muted">
             {appliedSentence(replace.data)}

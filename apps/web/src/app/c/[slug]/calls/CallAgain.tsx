@@ -8,7 +8,7 @@ import { Field } from "@/components/arc/field";
 import { RadioGroup } from "@/components/arc/radio-group";
 import { PlanCard } from "@/components/copilot/PlanCard";
 import { ModalDialog } from "@/components/modalDialog";
-import { FIELD, NoticeBox, ProblemNotice, SECONDARY_BUTTON, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { FIELD, NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 
 /** What the dialler picker reads from an agent. */
@@ -168,9 +168,10 @@ function CallAgainDialog({
       onClose={onClose}
       actions={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onClose} disabled={feedback.status === "pending"}>
+          {/* Held while Show me the plan works; that button carries the spinner. */}
+          <ActionButton variant="secondary" onClick={onClose} disabled={feedback.status === "pending"}>
             Cancel
-          </button>
+          </ActionButton>
           <ActionButton status={feedback.status} pendingLabel="Preparing…" successLabel="Ready" onClick={submit}>
             Show me the plan
           </ActionButton>

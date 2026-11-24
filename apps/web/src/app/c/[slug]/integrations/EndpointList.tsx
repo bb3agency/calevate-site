@@ -2,6 +2,7 @@
 
 import { Webhook } from "lucide-react";
 
+import { ActionButton } from "@/components/arc/feedback";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
@@ -118,36 +119,35 @@ export function EndpointList({
       align: "right",
       cell: (endpoint) =>
         endpoint.active ? (
+          // These open a dialog; while a stop or a new secret is being sent, the dialog's own
+          // button spins and these hold (native `disabled`, the held-secondary case).
           <div className="flex flex-wrap justify-end gap-2">
-            <button
-              type="button"
+            <ActionButton
+              variant="secondary-sm"
               disabled={!write.allowed || busy}
               onClick={() => onEdit(endpoint)}
               aria-label={`Change what is sent to ${endpoint.url}`}
-              className={SECONDARY_BUTTON_SM}
             >
               Change
-            </button>
+            </ActionButton>
             {endpoint.kind === "webhook" && (
-              <button
-                type="button"
+              <ActionButton
+                variant="secondary-sm"
                 disabled={!write.allowed || busy}
                 onClick={() => onRotate(endpoint)}
                 aria-label={`New signing secret for ${endpoint.url}`}
-                className={SECONDARY_BUTTON_SM}
               >
                 New signing secret
-              </button>
+              </ActionButton>
             )}
-            <button
-              type="button"
+            <ActionButton
+              variant="secondary-sm"
               disabled={!write.allowed || busy}
               onClick={() => onStop(endpoint)}
               aria-label={`Stop sending events to ${endpoint.url}`}
-              className={SECONDARY_BUTTON_SM}
             >
               Stop sending events
-            </button>
+            </ActionButton>
           </div>
         ) : (
           // There is no re-activate route, so a stopped row says how to resume.

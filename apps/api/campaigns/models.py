@@ -184,6 +184,16 @@ class Campaign(PKMixin, TimestampMixin, Base):
     step_outcomes_state: Mapped[str | None] = mapped_column(Text)
     step_outcomes_inputs: Mapped[str | None] = mapped_column(Text)
     step_outcomes_at: Mapped[datetime | None]
+    #: Pip's repair of the script's lines the script checks fault (`agents/script_heal`), as
+    #: an agent pass: its state, when, and the md5 of the script it last checked. The CHECKs
+    #: on them are migration a6d2f8c4e1b7's.
+    script_heal_state: Mapped[str | None] = mapped_column(Text)
+    script_heal_at: Mapped[datetime | None]
+    script_heal_inputs: Mapped[str | None] = mapped_column(Text)
+    #: Each call mistake kind a repair cleared from the script, to when (ISO instant).
+    script_heal_fixed: Mapped[dict[str, str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     #: The calls its Test call placed, newest last (migration b3d8e1f6a2c9). Kept here rather
     #: than in `calls.campaign_id`, which would count them in the campaign's results.
     test_call_ids: Mapped[list[UUID]] = mapped_column(

@@ -89,6 +89,7 @@ from calevate_shared.engine import (
 from calevate_shared.languages import find_language
 from calevate_shared.spoken_style import (
     AVOID_FORMS,
+    FILLERS_LEAD,
     PACK_FORMS,
     PROMPT_FILLERS,
     LanguageStyle,
@@ -333,9 +334,7 @@ def _language_guidance(tag: str, features: frozenset[str], fixture: Fixture) -> 
     if words:
         parts.append(f"Use the words callers use: {', '.join(words)}.")
     if style.fillers:
-        parts.append(
-            f"Fillers, lightly: {', '.join(f.text for f in style.fillers[:PROMPT_FILLERS])}."
-        )
+        parts.append(f"{FILLERS_LEAD} {', '.join(f.text for f in style.fillers[:PROMPT_FILLERS])}.")
     return " ".join(parts)
 
 

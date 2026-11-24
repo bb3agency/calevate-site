@@ -20,6 +20,7 @@ from calevate_shared.spoken_style import (
     COMPACT_AVOID,
     COMPACT_EXCHANGES,
     PACK_FORMS,
+    SWAPS_LEAD,
     PackChoice,
     language_pack,
     languages,
@@ -128,7 +129,7 @@ def test_a_pack_moves_the_register_lines_into_one_place() -> None:
     assert "never translated" not in layers["business_facts"]
     assert layers["languages"].startswith("--- LANGUAGES ---\nReply in the language the caller")
     assert engine.PACK_OTHER_LANGUAGES in layers["languages"]
-    assert "Spoken words: not" not in layers["spoken_register"]
+    assert SWAPS_LEAD not in layers["spoken_register"]
 
 
 def test_without_an_approved_pack_the_shipped_prompt_has_no_pack() -> None:

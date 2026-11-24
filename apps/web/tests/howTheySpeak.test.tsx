@@ -150,7 +150,19 @@ describe("Company training", () => {
       [PATH]: training({ training: "Address people as sir or madam.", proposal: { ...QUEUED, status: "drafting" } }),
     });
     expect(await screen.findByText("Pip is rewriting it")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Rewrite now" }) as HTMLButtonElement).disabled).toBe(true);
+    // It shows it is working (the spinner) and ignores presses, rather than greying out.
+    const button = screen.getByRole("button", { name: "Rewrite now" });
+    expect(button.getAttribute("data-status")).toBe("pending");
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("keeps Rewrite now spinning while the rewrite waits its turn", async () => {
+    await renderClientPage(<HowTheySpeak />, {
+      "/v1/me": OWNER,
+      [PATH]: training({ training: "Address people as sir or madam.", proposal: QUEUED }),
+    });
+    expect(await screen.findByText("Pip rewrites it shortly")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rewrite now" }).getAttribute("data-status")).toBe("pending");
   });
 
   it("saves the owner's words about the business", async () => {

@@ -14,7 +14,6 @@ import {
   FIELD_LABEL,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
 } from "@/components/ui";
@@ -201,17 +200,17 @@ export function ScriptSection({
                   </span>
                 )}
                 {!entry.active && (
-                  <button
-                    type="button"
+                  <ActionButton
+                    variant="secondary-sm"
                     disabled={rollback.isPending || !write.allowed}
                     onClick={() => {
                       resetIfSettled(rollback);
                       setConfirming(entry);
                     }}
-                    className={`ml-auto ${SECONDARY_BUTTON_SM}`}
+                    className="ml-auto"
                   >
                     Roll back to this
-                  </button>
+                  </ActionButton>
                 )}
               </li>
             ))}

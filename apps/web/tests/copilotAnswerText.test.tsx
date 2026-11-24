@@ -267,3 +267,18 @@ describe("the cost of re-rendering a transcript", () => {
     expect(parses).toEqual(["Half an ans", "Half an answer."]);
   });
 });
+
+describe("dividers and headings Pip writes anyway", () => {
+  it("never shows a divider line as asterisks or dashes", () => {
+    const { container } = render(<AnswerText text={"Here is the draft.\n***\nStep 1: Open the app.\n---\nDone."} />);
+    expect(container.textContent).not.toMatch(/\*\*\*|---/);
+    expect(screen.getByText("Step 1: Open the app.")).toBeTruthy();
+  });
+
+  it("shows a # heading as a lead-in, without the #", () => {
+    const { container } = render(<AnswerText text={"## Ways out\n* Busy: call back later."} />);
+    expect(screen.getByText("Ways out")).toBeTruthy();
+    expect(container.textContent).not.toContain("#");
+    expect(screen.getByRole("listitem").textContent).toBe("Busy: call back later.");
+  });
+});

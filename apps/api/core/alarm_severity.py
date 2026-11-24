@@ -850,6 +850,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-889: lead-detail suggestions and the rebuild of what an agent asks.
     "lead_suggestions_unavailable": "attention",
     "collect_rebuild_not_delivered": "attention",
+    # Pip's repair of an existing script's faulted lines crashed (`workers/script_heal`).
+    "script_heal_crashed": "attention",
     "wallet_alert_no_billing_email": "attention",
     # D-707 monthly platform fee. Money not raised or not placed; each re-runs next hour or
     # is reconciled by hand. A paid fee we cannot match is real money, so it pages.

@@ -20,6 +20,12 @@ const NUMBERED = /^\s*(\d{1,2})[.)]\s+(.*)$/;
 /** A line that is only `**Something:**` — the model's stand-in for a heading. */
 const LEAD_IN = /^\*\*([^*]+)\*\*:?\s*$/;
 
+/** A `#` heading, which models write despite the prompt: shown as a lead-in, never as `#`. */
+const HEADING = /^\s*#{1,6}\s+(.+?)\s*#*\s*$/;
+
+/** A divider (`***`, `---`, `___`): a break between blocks, never literal characters. */
+const DIVIDER = /^\s*([*\-_])(?:\s*\1){2,}\s*$/;
+
 export type Block =
   | { kind: "text"; lines: string[] }
   | { kind: "lead"; text: string }
@@ -39,7 +45,12 @@ export function blocks(answer: string): Block[] {
     if (last?.kind === "text" && last.lines.every((line) => line.trim() === "")) out.pop();
   };
   for (const line of answer.split("\n")) {
-    const lead = LEAD_IN.exec(line);
+    if (DIVIDER.test(line)) {
+      flush();
+      out.push({ kind: "text", lines: [] });
+      continue;
+    }
+    const lead = LEAD_IN.exec(line) ?? HEADING.exec(line);
     const bullet = BULLET.exec(line);
     const numbered = NUMBERED.exec(line);
     const last = out[out.length - 1];

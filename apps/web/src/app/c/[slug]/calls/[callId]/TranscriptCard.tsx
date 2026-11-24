@@ -4,8 +4,9 @@ import { Languages } from "lucide-react";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import { Section } from "@/components/console/section";
+import { ActionButton } from "@/components/arc/feedback";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { NoticeBox, ProblemNotice, RestrictionNote, SECONDARY_BUTTON } from "@/components/ui";
+import { NoticeBox, ProblemNotice, RestrictionNote } from "@/components/ui";
 import { EmptyState } from "@/components/console/emptyState";
 import { formatClock } from "@/components/callAudioPlayer";
 import type { CallDetail } from "@/lib/api/client";
@@ -322,15 +323,16 @@ function EnglishUnavailable({
       </p>
       {retry.error != null && <ProblemNotice error={retry.error} />}
       <RestrictionNote reason={retry.access.allowed ? null : retry.access.reason} />
-      <button
-        type="button"
-        className={SECONDARY_BUTTON}
-        disabled={!retry.access.allowed || retry.pending}
+      <ActionButton
+        variant="secondary"
+        status={retry.pending ? "pending" : "idle"}
+        pendingLabel="Asking…"
+        disabled={!retry.access.allowed}
         onClick={retry.onRetry}
       >
         <Languages aria-hidden className="h-4 w-4" />
-        {retry.pending ? "Asking…" : state === "failed" ? "Try again" : "Prepare the English"}
-      </button>
+        {state === "failed" ? "Try again" : "Prepare the English"}
+      </ActionButton>
     </div>
   );
 }

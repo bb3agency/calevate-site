@@ -199,24 +199,22 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
         Create my account
       </ActionButton>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <button
-          type="button"
-          className={TEXT_ACTION}
-          disabled={resend.isPending || cooldown > 0}
-          onClick={() => {
-            if (!resend.isPending && cooldown === 0) resendFeedback.run();
-          }}
+        {/* Only the pending face: the countdown that follows a send is the confirmation. */}
+        <ActionButton
+          variant="text"
+          status={resendFeedback.status === "pending" ? "pending" : "idle"}
+          pendingLabel="Sending…"
+          disabled={cooldown > 0}
+          onClick={() => resendFeedback.run()}
         >
           {cooldown > 0 ? (
             <>
               Send a new code in <span className="tabular-nums">{cooldown}s</span>
             </>
-          ) : resend.isPending ? (
-            "Sending…"
           ) : (
             "Send a new code"
           )}
-        </button>
+        </ActionButton>
         <button
           type="button"
           className={TEXT_ACTION}

@@ -26,7 +26,7 @@ import { useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { NumberField } from "@/components/arc/number-field";
-import { ProblemNotice, SECONDARY_BUTTON_SM, formatCallCap } from "@/components/ui";
+import { ProblemNotice, formatCallCap } from "@/components/ui";
 import { TEXT_ACTION } from "@/components/console/section";
 import { SettingRow } from "@/components/console/settingRow";
 import { ClientEngineVoices } from "@/components/engineCatalogueList";
@@ -140,9 +140,10 @@ export function CallCapChoice({ agentId, state }: { agentId: string; state: Pend
           <ActionButton type="submit" variant="primary-sm" status={saveFeedback.status} successLabel="Saved">
             Set limit
           </ActionButton>
-          <button type="button" onClick={close} disabled={save.isPending} className={SECONDARY_BUTTON_SM}>
+          {/* Held while Set limit works; that button carries the spinner. */}
+          <ActionButton variant="secondary-sm" onClick={close} disabled={save.isPending}>
             Cancel
-          </button>
+          </ActionButton>
           <span className="basis-full text-xs text-ink-muted">
             {parsed === null
               ? "Empty: the standard limit applies."

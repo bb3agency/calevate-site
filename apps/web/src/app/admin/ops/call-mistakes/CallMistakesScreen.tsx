@@ -15,7 +15,6 @@ import {
   FIELD,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
@@ -255,9 +254,9 @@ function MarkFixedDialog({ mistake, onClose }: { mistake: PlatformMistake; onClo
       initialFocus="first-tabbable"
       actions={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onClose} disabled={mark.isPending}>
+          <ActionButton variant="secondary" onClick={onClose} disabled={mark.isPending}>
             Cancel
-          </button>
+          </ActionButton>
           <ActionButton status={feedback.status} pendingLabel="Saving…" successLabel="Marked" onClick={submit}>
             Mark fixed
           </ActionButton>

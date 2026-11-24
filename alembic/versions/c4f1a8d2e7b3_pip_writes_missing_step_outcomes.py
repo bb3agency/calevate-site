@@ -1,7 +1,7 @@
 """Pip writes the outcome of every step that has none (D-1036)
 
 Revision ID: c4f1a8d2e7b3
-Revises: b3d7e1f94a26
+Revises: a6d2f8c4e1b7
 Create Date: 2026-11-24 12:00:00.000000
 
 A step's "Outcome of this step" is Pip's to write, never the owner's to type (D-1036). A
@@ -40,7 +40,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "c4f1a8d2e7b3"
-down_revision: str | None = "b3d7e1f94a26"
+down_revision: str | None = "a6d2f8c4e1b7"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

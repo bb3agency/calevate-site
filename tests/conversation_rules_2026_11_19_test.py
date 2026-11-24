@@ -24,7 +24,7 @@ from calevate_shared.spoken_guard import SPOKEN_LINE_RULES, generation_guidance
 RULES = (
     "Open with the point in one short sentence with no comma; one or two short sentences, "
     "then wait: one point a turn.",
-    "A reaction only if it fits, often none, never to open;",
+    "A reaction only if it fits, often none, never to open or twice a call;",
     "Never re-ask what they said or repeat a sentence. Adapt to the answer.",
     '"Anything else?" once, when the task is done; "that is all"? Close.',
     '"?" on every question, else a full stop.',

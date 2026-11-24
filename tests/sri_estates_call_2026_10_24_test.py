@@ -65,7 +65,7 @@ def _anjali() -> AgentConfig:
 
 def test_the_telugu_register_tells_the_agent_to_say_fix_for_kharaaru() -> None:
     register = dict(engine_prompt_layers(_anjali()))["spoken_register"]
-    assert 'not "ఖరారు" but "ఫిక్స్"' in register
+    assert '"ఖరారు" → "ఫిక్స్"' in register
 
 
 def test_the_calls_textbook_words_are_flagged() -> None:

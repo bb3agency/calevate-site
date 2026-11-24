@@ -476,9 +476,16 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
               onChange={(event) => setPattern(searchDigits(event.target.value))}
             />
           </label>
-          <button type="submit" className={SECONDARY_BUTTON_SM} disabled={!city || available.isFetching}>
-            {available.isFetching && !available.isFetchingNextPage ? "Searching…" : "Show numbers"}
-          </button>
+          <ActionButton
+            type="submit"
+            variant="secondary-sm"
+            status={available.isFetching && !available.isFetchingNextPage ? "pending" : "idle"}
+            pendingLabel="Searching…"
+            // While the list below loads its next page, this holds rather than spins.
+            disabled={!city || available.isFetchingNextPage}
+          >
+            Show numbers
+          </ActionButton>
         </form>
       )}
 

@@ -114,6 +114,17 @@ function fieldMessage(label: string): string | null {
   return null;
 }
 
+/** The status region that is saying something: every `ActionButton` on the page carries its
+ * own, empty while it is idle. */
+async function spokenStatus(): Promise<HTMLElement> {
+  let found: HTMLElement | undefined;
+  await waitFor(() => {
+    found = screen.getAllByRole("status").find((node) => (node.textContent ?? "").trim() !== "");
+    expect(found).toBeTruthy();
+  });
+  return found as HTMLElement;
+}
+
 const CHANGED = (revoked: number) => ({ revoked });
 
 beforeEach(() => {
@@ -151,7 +162,7 @@ describe("the client realm's account screen", () => {
       current_password: CURRENT,
       new_password: NEXT,
     });
-    const status = await screen.findByRole("status");
+    const status = await spokenStatus();
     expect(status.textContent).toContain(
       "We signed you out of 2 other devices.",
     );
@@ -331,7 +342,7 @@ describe("the admin realm's account screen", () => {
     expect(
       calls.some((c) => c.path === "/v1/auth/client/password/change"),
     ).toBe(false);
-    expect((await screen.findByRole("status")).textContent).toContain(
+    expect((await spokenStatus()).textContent).toContain(
       "There were no other sessions to sign out.",
     );
   });
@@ -387,7 +398,7 @@ describe("the admin realm's account screen", () => {
         calls.filter((c) => c.path === "/v1/auth/admin/password/change"),
       ).toHaveLength(2),
     );
-    expect((await screen.findByRole("status")).textContent).toContain(
+    expect((await spokenStatus()).textContent).toContain(
       "We signed you out of 3 other devices.",
     );
   });

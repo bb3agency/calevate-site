@@ -3,6 +3,44 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.32 — 24-Nov-2026
+
+- Agents say a filler such as "okay" at most once a call and never to open a reply, so replies
+  no longer all start the same way. Pip's script writer follows the same limit.
+- An agent names a button or a web address once, in the caller's language, and never repeats
+  it in brackets or in English letters.
+- Formal words from the language's avoid list stay out of calls even when an old script line
+  has them; the call page names the word, and the turn where it was said.
+- An agent searches your knowledge when the caller is stuck on a step, not only when asked
+  about the business.
+- Pip repairs the faulty lines of an existing campaign's or Inbound line's script by itself:
+  after you save it, when a real call trips on one of its lines, and in an hourly check of
+  scripts not yet checked. Only the faulty lines change; openings, notices and step outcomes
+  are never touched, and a campaign keeps its previous script to switch back to.
+- The call page says "Fixed in your script" or "Fixing it in your script" for a mistake the
+  script caused, instead of "Our team has been told".
+
+## 0.5.31 — 24-Nov-2026
+
+- Key moments no longer pin a whole-call detail (an installation status, a call outcome, a
+  progress) to one line the caller said; past calls lose those wrong pins too.
+- A status or progress detail names only the furthest step the caller actually confirmed,
+  never a later or finished state the call did not reach.
+
+## 0.5.30 — 24-Nov-2026
+
+- Every button that runs something shows the loading circle while it runs, across the client
+  app and the admin console: saves, sends, sign-in codes, Pip's rewrites (Rewrite now keeps
+  spinning while Pip is still writing), pagers and dialogs. Buttons that only open or close
+  something stay still and are held while the pressed one works.
+- A guard test fails the build if a button ever goes back to greying out with no spinner.
+
+## 0.5.29 — 24-Nov-2026
+
+- Pip rewrites a campaign's or Inbound line's script when asked, from any page: it no longer
+  says it cannot, sends you to change it by hand, or pastes a draft into the chat.
+- Pip's chat shows divider lines and # headings cleanly instead of as *** and #.
+
 ## 0.5.28 — 24-Nov-2026
 
 - Company training is written in fixed sections: About the business, What it offers, Who

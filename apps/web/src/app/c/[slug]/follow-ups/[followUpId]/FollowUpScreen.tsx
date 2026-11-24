@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
-import { useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
 import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
@@ -182,33 +182,45 @@ function StatusActions({ followUp }: { followUp: FollowUpOut }) {
   });
   const [confirmOff, setConfirmOff] = useState(false);
   const pending = feedback.status === "pending";
+  // The pressed move spins; the others hold until it lands.
+  const moving = (which: "pause" | "resume" | "turn-off") => pending && move.variables?.move === which;
   const run = (which: "pause" | "resume") =>
     move.mutate({ move: which }, { onError: (error) => conflict(error) });
 
   return (
     <div className="flex flex-wrap gap-2">
       {followUp.status === "live" && (
-        <button type="button" className={SECONDARY_BUTTON_SM} disabled={pending} onClick={() => run("pause")}>
+        <ActionButton
+          variant="secondary-sm"
+          status={moving("pause") ? "pending" : "idle"}
+          disabled={pending && !moving("pause")}
+          onClick={() => run("pause")}
+        >
           Pause
-        </button>
+        </ActionButton>
       )}
       {(followUp.status === "paused" || followUp.status === "off") && followUp.live_version && (
-        <button type="button" className={SECONDARY_BUTTON_SM} disabled={pending} onClick={() => run("resume")}>
+        <ActionButton
+          variant="secondary-sm"
+          status={moving("resume") ? "pending" : "idle"}
+          disabled={pending && !moving("resume")}
+          onClick={() => run("resume")}
+        >
           {followUp.status === "paused" ? "Resume" : "Turn back on"}
-        </button>
+        </ActionButton>
       )}
       {(followUp.status === "live" || followUp.status === "paused") && (
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          disabled={pending}
+        <ActionButton
+          variant="secondary-sm"
+          status={moving("turn-off") ? "pending" : "idle"}
+          disabled={pending && !moving("turn-off")}
           onClick={() => {
             move.reset();
             setConfirmOff(true);
           }}
         >
           Turn off
-        </button>
+        </ActionButton>
       )}
       {move.error && !confirmOff && !isFollowUpConflict(move.error) ? <ProblemNotice error={move.error} /> : null}
 

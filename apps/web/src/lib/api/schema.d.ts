@@ -18750,6 +18750,11 @@ export interface components {
          *     and the transcript turn it was first seen on. Never the caller's words.
          */
         CallMistakeOut: {
+            /**
+             * Fix
+             * @enum {string}
+             */
+            fix: "repaired" | "repairing" | "told";
             /** Instead */
             instead: string;
             /** Kind */

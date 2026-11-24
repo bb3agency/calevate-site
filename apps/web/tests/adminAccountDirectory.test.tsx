@@ -10,6 +10,12 @@ import type { ActivityEntry, ReadinessRow } from "@/lib/api/adminAccount";
 
 import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
 import { NO_UNFINISHED } from "./businessProfileFixture";
+
+/** A pager button that cannot be pressed: spinning (`aria-disabled`) or at the list's edge
+ * (`disabled`). */
+function held(button: HTMLElement): boolean {
+  return (button as HTMLButtonElement).disabled || button.getAttribute("aria-disabled") === "true";
+}
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
 /**
@@ -140,8 +146,8 @@ describe("the client directory scales", () => {
     await waitFor(() => expect(container.textContent).toContain("Loading…"));
     // The rows of page one stay readable, marked as about to change, not presented as page two.
     expect(screen.getByText(/Sri Traders/).closest("[aria-busy='true']")).not.toBeNull();
-    expect((screen.getByRole("button", { name: /Next/ }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: /Previous/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(held(screen.getByRole("button", { name: /Next/ }))).toBe(true);
+    expect(held(screen.getByRole("button", { name: /Previous/ }))).toBe(true);
   });
 
   it("says when each account was added, which is what newest-first orders by", async () => {
@@ -376,7 +382,7 @@ describe("the activity trail", () => {
 
     await waitFor(() => expect(container.textContent).toContain("Loading…"));
     expect(screen.getByText("admin.plan_tier_changed").closest("[aria-busy='true']")).not.toBeNull();
-    expect((screen.getByRole("button", { name: /Older/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(held(screen.getByRole("button", { name: /Older/ }))).toBe(true);
   });
 
   it("asks the server to narrow by who acted", async () => {

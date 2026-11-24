@@ -9,7 +9,7 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
-import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
+import { Section, TEXT_ACTION, TEXT_DANGER_LOOK } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { FileDrop } from "@/components/fileDrop";
 import { lookup } from "@/lib/lookup";
@@ -357,14 +357,14 @@ function DisputeRow({ dispute, canAct }: { dispute: Dispute; canAct: boolean }) 
         </div>
         {open && canAct && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <button
-              type="button"
-              className={TEXT_ACTION_DANGER}
+            <ActionButton
+              variant="text"
+              className={TEXT_DANGER_LOOK}
               disabled={acceptFeedback.status === "pending"}
               onClick={() => setAccepting(true)}
             >
               Accept (refunds the customer; cannot be undone)
-            </button>
+            </ActionButton>
             {!responding && (
               <button
                 type="button"
@@ -428,14 +428,13 @@ function DisputeRow({ dispute, canAct }: { dispute: Dispute; canAct: boolean }) 
               </p>
             ) : null}
             <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                className={SECONDARY_BUTTON}
+              <ActionButton
+                variant="secondary"
                 disabled={contestFeedback.status === "pending"}
                 onClick={() => setResponding(false)}
               >
                 Cancel
-              </button>
+              </ActionButton>
               <ActionButton
                 status={contestFeedback.status}
                 disabled={summary.trim().length < 10 || files.length === 0}

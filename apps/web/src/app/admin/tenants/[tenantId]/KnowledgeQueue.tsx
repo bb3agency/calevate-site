@@ -6,7 +6,7 @@ import { lookup } from "@/lib/lookup";
 
 import { HAIRLINE_LIST } from "@/components/admin/kit";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
+import { Section, TEXT_ACTION, TEXT_DANGER_LOOK } from "@/components/console/section";
 import {
   FIELD,
   FIELD_LABEL,
@@ -128,9 +128,9 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
       {/* Reject is a two-stage act (the ops/dnc pattern): this quiet text
                           action only OPENS the confirmation below — nothing is sent until
                           the operator has written why and pressed the rose submit there. */}
-                      <button
-                        type="button"
-                        className={TEXT_ACTION_DANGER}
+                      <ActionButton
+                        variant="text"
+                        className={TEXT_DANGER_LOOK}
                         disabled={decide.isPending || !kbWrite.allowed}
                         onClick={() => {
                           setRejecting(rejecting === source.id ? null : source.id);
@@ -138,7 +138,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                         }}
                       >
                         {rejecting === source.id ? "Cancel reject" : "Reject…"}
-                      </button>
+                      </ActionButton>
                       <ActionButton
                         variant="secondary-sm"
                         status={statusFor(source.id, "approve")}

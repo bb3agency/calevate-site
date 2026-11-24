@@ -179,6 +179,20 @@ class ExtractionSchemaSpec(BaseModel):
         return next((f for f in self.fields if f.key == key), None)
 
 
+#: A detail read from how the whole call went rather than from one answer: a status, an
+#: outcome, progress, a result, a disposition or a sentiment. Nobody can answer "what is your
+#: installation status?", so a script never asks it, and no single line says it, so it gets
+#: no key-moment pin (a pin on "Android" for "Installation Status", 24 Nov 2026 call review).
+_WHOLE_CALL_DETAIL: Final = re.compile(
+    r"\b(?:status|outcome|outcomes|progress|result|results|disposition|sentiment)\b", re.I
+)
+
+
+def whole_call_detail(key: str, label: str = "") -> bool:
+    """Whether a captured detail is read from the whole call, judged by its key and label."""
+    return bool(_WHOLE_CALL_DETAIL.search(f"{key.replace('_', ' ')} {label}"))
+
+
 # --- Key moments, asked for in the same request as the fields ---------------------------
 #
 # Founder decision, 11 Oct 2026: moments come out of the extraction call that already reads
@@ -941,6 +955,10 @@ VALUES, EXACTLY.
 - A value, a note or a summary that lists what was covered or done on the call names
   every item through to the end of the call, never only the first few: a list that stops
   early reads as if the rest did not happen.
+- A status, progress or outcome value names the furthest step the caller CONFIRMED on the
+  call, never a later or complete state the call did not reach: a call that ended before
+  the last step is not "complete", "fully working" or "done". When unsure, give the lower
+  state.
 - Numbers are bare numbers, true/false fields are true, false or null, dates are YYYY-MM-DD.
 - Do not include any key that is not listed above, and return only the JSON object.
 
@@ -1435,7 +1453,9 @@ def _moments_section(spec: ExtractionSchemaSpec, brief: MomentsBrief) -> str:
     if brief.script_steps:
         context.append("- The agent's steps: " + "; ".join(brief.script_steps))
     context_text = "\n".join(context) if context else "- Not given."
-    keys = ", ".join(f.key for f in spec.fields) or "(none)"
+    keys = (
+        ", ".join(f.key for f in spec.fields if not whole_call_detail(f.key, f.label)) or "(none)"
+    )
     offered = [
         kind
         for kind in MOMENT_KINDS
@@ -1470,10 +1490,9 @@ Kinds:
   did, the agent's line for a price the agent quoted.
 - A field_captured moment is only for a field your answer above holds a value for, on the
   caller's line that settled THAT value: the last caller line the value in your answer
-  rests on. A status or progress ("installed", "set up", "done", "working") is settled
-  where the caller confirmed that final state, usually late in the call, never on an
-  earlier line that began the subject, answered a first step or said otherwise. The agent
-  asking for a detail is not a moment.
+  rests on. A field read from how the whole call went (a status, progress, an outcome, a
+  result, a disposition or a sentiment) gets no field_captured moment: no one line says
+  it. The agent asking for a detail is not a moment.
 - A label says WHAT happened, never the detail itself: "Gave a delivery address", not the
   address. Never put a name, phone number, address, date or amount in a label.
 - Do not mark greetings, small talk, the AI notice or the recording notice.
@@ -1652,6 +1671,7 @@ __all__ = [
     "settled_next_step",
     "spell_business_name",
     "validate_extraction",
+    "whole_call_detail",
     "withheld_moment_kinds",
     "without_feelings",
 ]

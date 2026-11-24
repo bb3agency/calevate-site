@@ -3,8 +3,9 @@
 import { useId } from "react";
 import { Check, RefreshCw } from "lucide-react";
 
+import { ActionButton } from "@/components/arc/feedback";
 import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
-import { FIELD_HINT, FIELD_LABEL, NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { FIELD_HINT, FIELD_LABEL, NoticeBox, ProblemNotice, Skeleton } from "@/components/ui";
 import { VoicePreviewButton } from "@/components/voicePreviewButton";
 import { adminSession } from "@/lib/api/admin";
 import { useHostedVoices, type HostedVoice } from "@/lib/api/opsHostedVoices";
@@ -124,15 +125,15 @@ export function DefaultVoicePicker({ field, draft, onChange }: ConfigInputProps)
         <span className={FIELD_HINT}>
           Agents already made keep their voice. An account that cannot use this voice gets the best one instead.
         </span>
-        <button
-          type="button"
+        <ActionButton
+          variant="secondary-sm"
           onClick={() => void voices.refetch()}
-          disabled={voices.isFetching}
-          className={SECONDARY_BUTTON_SM}
+          status={voices.isFetching ? "pending" : "idle"}
+          pendingLabel="Refreshing…"
         >
-          <RefreshCw aria-hidden className={`h-3.5 w-3.5 ${voices.isFetching ? "motion-safe:animate-spin" : ""}`} />
-          {voices.isFetching ? "Refreshing…" : "Refresh"}
-        </button>
+          <RefreshCw aria-hidden className="h-3.5 w-3.5" />
+          Refresh
+        </ActionButton>
       </div>
     </div>
   );

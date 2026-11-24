@@ -17,7 +17,7 @@ import { useState } from "react";
 import { HAIRLINE_LIST } from "@/components/admin/kit";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { Section, TEXT_ACTION_DANGER } from "@/components/console/section";
+import { Section, TEXT_DANGER_LOOK } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
   FIELD_INLINE,
@@ -221,9 +221,9 @@ function WorkspaceBody({
         >
           {status === "not_provisioned" ? "Create workspace now" : "Retry provisioning"}
         </ActionButton>
-        <button
-          type="button"
-          className={TEXT_ACTION_DANGER}
+        <ActionButton
+          variant="text"
+          className={TEXT_DANGER_LOOK}
           disabled={!canWrite || offboard.isPending}
           onClick={() => {
             resetIfSettled(offboard);
@@ -231,7 +231,7 @@ function WorkspaceBody({
           }}
         >
           Offboard
-        </button>
+        </ActionButton>
       </div>
       <ProblemNotice error={provision.error} />
 

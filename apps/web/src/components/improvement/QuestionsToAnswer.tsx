@@ -335,9 +335,9 @@ function AnswerForm({
               <span className="text-shimmer">Listening…</span>
             </span>
           ) : null}
-          <button type="button" className={SECONDARY_BUTTON_SM} onClick={onClose} disabled={busy}>
+          <ActionButton variant="secondary-sm" onClick={onClose} disabled={busy}>
             Cancel
-          </button>
+          </ActionButton>
         </div>
       </form>
 
@@ -371,25 +371,21 @@ function AnswerForm({
             >
               Remove from the list
             </ActionButton>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              onClick={() => setDismissing(false)}
-              disabled={busy}
-            >
+            <ActionButton variant="secondary-sm" onClick={() => setDismissing(false)} disabled={busy}>
               Keep it
-            </button>
+            </ActionButton>
           </div>
         </form>
       ) : (
-        <button
-          type="button"
-          className={TEXT_ACTION_SM}
+        <ActionButton
+          variant="text"
           onClick={() => setDismissing(true)}
           disabled={busy}
+          // TEXT_ACTION_SM's size and edge on the text variant.
+          className="mx-0! text-meta!"
         >
           Not something we answer
-        </button>
+        </ActionButton>
       )}
     </div>
   );

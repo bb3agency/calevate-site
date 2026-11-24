@@ -223,14 +223,14 @@ function Problems({
                 </div>
               )}
               {item.can_restore && (
-                <button
-                  type="button"
-                  className={`${PRIMARY_BUTTON} w-full justify-center sm:w-auto`}
-                  disabled={!allowed || restore.isPending}
+                <ActionButton
+                  className="w-full sm:w-auto"
+                  status={restore.isPending && restore.variables === item.id ? "pending" : "idle"}
+                  disabled={!allowed || (restore.isPending && restore.variables !== item.id)}
                   onClick={() => setConfirming(item)}
                 >
                   Turn line back on
-                </button>
+                </ActionButton>
               )}
             </li>
           ))}
@@ -318,14 +318,17 @@ function Suggestions({
             <p className="text-body text-ink-muted">{p.body}</p>
             <div className="flex flex-wrap gap-2">
               {p.can_apply ? (
-                <button
-                  type="button"
-                  className={PRIMARY_BUTTON}
-                  disabled={!allowed || decide.isPending}
+                <ActionButton
+                  status={
+                    decide.isPending && decide.variables?.id === p.id && decide.variables.decision === "apply"
+                      ? "pending"
+                      : "idle"
+                  }
+                  disabled={!allowed || (decide.isPending && decide.variables?.id !== p.id)}
                   onClick={() => setConfirming(p)}
                 >
                   {p.action_label}
-                </button>
+                </ActionButton>
               ) : (
                 <Link href={screenHref(p)} className={PRIMARY_BUTTON}>
                   {p.action_label}

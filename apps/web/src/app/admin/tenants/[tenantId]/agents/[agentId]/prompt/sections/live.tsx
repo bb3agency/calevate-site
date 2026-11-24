@@ -9,7 +9,6 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
 } from "@/components/ui";
@@ -389,17 +388,17 @@ function LiveConfirmation({
           )}
         </div>
         {published && (
-          <button
-            type="button"
-            disabled={engineState.isFetching}
+          <ActionButton
+            variant="secondary-sm"
+            status={engineState.isFetching ? "pending" : "idle"}
+            pendingLabel="Checking…"
             onClick={() => {
               setChecking(true);
               void engineState.refetch();
             }}
-            className={SECONDARY_BUTTON_SM}
           >
-            {engineState.isFetching ? "Checking…" : "Check the voice platform now"}
-          </button>
+            Check the voice platform now
+          </ActionButton>
         )}
       </div>
 

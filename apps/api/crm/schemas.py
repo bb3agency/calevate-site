@@ -227,6 +227,10 @@ class CallMistakeOut(Strict):
     label: str
     instead: str
     turn_idx: int
+    #: What has been done about it since: `repaired`, the line or campaign's script was
+    #: repaired of what caused it after this call; `repairing`, Pip is repairing that script
+    #: now; `told`, no script repair reached it, so our team has it (`agents/script_heal`).
+    fix: Literal["repaired", "repairing", "told"]
 
 
 class CallProgressStepOut(Strict):

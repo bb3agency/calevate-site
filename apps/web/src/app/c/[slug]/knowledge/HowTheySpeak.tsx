@@ -19,12 +19,12 @@
 import Link from "next/link";
 import { useState } from "react";
 
-import { useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
 import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import {
   FIELD,
-  PRIMARY_BUTTON_SM,
+  NoticeBox,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -119,19 +119,20 @@ function Overview({ data, canWrite, refusal }: Props) {
             onChange={(e) => setText(e.target.value)}
           />
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className={PRIMARY_BUTTON_SM}
-              disabled={!canWrite || !text.trim() || !dirty || save.isPending}
+            <ActionButton
+              variant="primary-sm"
+              status={save.isPending ? "pending" : "idle"}
+              pendingLabel="Saving…"
+              disabled={!canWrite || !text.trim() || !dirty}
               title={refusal}
               onClick={() => save.mutate(text, { onSuccess: () => setEditing(false) })}
             >
-              {save.isPending ? "Saving…" : "Save"}
-            </button>
+              Save
+            </ActionButton>
             {data.overview.trim() !== "" && (
-              <button type="button" className={SECONDARY_BUTTON_SM} disabled={save.isPending} onClick={cancel}>
+              <ActionButton variant="secondary-sm" disabled={save.isPending} onClick={cancel}>
                 Cancel
-              </button>
+              </ActionButton>
             )}
             <span className="ml-auto text-meta tabular-nums text-ink-muted">
               {text.length.toLocaleString("en-IN")} / {data.overview_max.toLocaleString("en-IN")}
@@ -197,8 +198,15 @@ function Training({ data, canWrite, refusal }: Props) {
   const [draft, setDraft] = useState<string | null>(null);
   const [editedVersion, setEditedVersion] = useState(data.version);
   const proposal = data.proposal;
-  const writing = proposal?.status === "drafting";
-  const busy = writing || rewrite.isPending;
+  // Rewrite now's own operation is the request AND the rewrite it queues: it spins while the
+  // proposal is queued or drafting, not only while the request is in flight. The request's
+  // short success hold also counts, so the spinner bridges the refetch that brings the
+  // proposal instead of flashing a tick before the rewrite has even started.
+  const rewriting =
+    rewrite.isPending ||
+    rewriteFeedback.status === "success" ||
+    (proposal != null && proposal.status !== "failed");
+  const rewriteStatus: FeedbackStatus = rewriting ? "pending" : rewriteFeedback.status;
 
   return (
     <FoldSection
@@ -282,15 +290,16 @@ function Training({ data, canWrite, refusal }: Props) {
             >
               {data.training.trim() ? "Edit training" : "Write it myself"}
             </button>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
-              disabled={!canWrite || busy}
+            <ActionButton
+              variant="secondary-sm"
+              status={rewriteStatus}
+              pendingLabel={rewrite.isPending ? "Starting…" : "Rewriting…"}
+              disabled={!canWrite}
               title={refusal}
               onClick={() => rewriteFeedback.run(undefined)}
             >
-              {rewrite.isPending ? "Starting…" : "Rewrite now"}
-            </button>
+              Rewrite now
+            </ActionButton>
           </div>
         </div>
       )}
@@ -369,16 +378,13 @@ function MissingParts({ missing }: { missing: readonly MissingPart[] }) {
   const said = missing.map((part) => MISSING_WORDS[part]);
   const list = said.length > 1 ? `${said.slice(0, -1).join(", ")} and ${said.at(-1)}` : said[0];
   return (
-    <div role="note" className="mt-2 rounded-card border border-line bg-warn-soft p-3">
-      <p className="text-meta font-medium text-ink">Pip needs more about your business</p>
-      <p className="mt-1 text-meta text-ink-muted">Your knowledge does not say {list}.</p>
-      <p className="text-meta text-ink-muted">
-        Write it under About the business, or add a file that says it.
-      </p>
+    <NoticeBox tone="warn" title="Pip needs more about your business" className="mt-2">
+      <p>Your knowledge does not say {list}.</p>
+      <p>Write it under About the business, or add a file.</p>
       <a href="#training-overview" className={`${SECONDARY_BUTTON_SM} mt-2 inline-flex`}>
         Write about the business
       </a>
-    </div>
+    </NoticeBox>
   );
 }
 
@@ -456,18 +462,19 @@ function TrainingEditor({
         onChange={(e) => onChange(e.target.value)}
       />
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className={PRIMARY_BUTTON_SM}
-          disabled={!canWrite || saving}
+        <ActionButton
+          variant="primary-sm"
+          status={saving ? "pending" : "idle"}
+          pendingLabel="Saving…"
+          disabled={!canWrite}
           title={refusal}
           onClick={onSave}
         >
-          {saving ? "Saving…" : "Save for every agent"}
-        </button>
-        <button type="button" className={SECONDARY_BUTTON_SM} disabled={saving} onClick={onCancel}>
+          Save for every agent
+        </ActionButton>
+        <ActionButton variant="secondary-sm" disabled={saving} onClick={onCancel}>
           Cancel
-        </button>
+        </ActionButton>
         <span className="ml-auto text-meta tabular-nums text-ink-muted">
           {value.length.toLocaleString("en-IN")} / {max.toLocaleString("en-IN")}
         </span>

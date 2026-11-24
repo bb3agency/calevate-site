@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { BellRing } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { TEXT_ACTION } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { Disclosure, FIELD, FIELD_HINT, ProblemNotice, formatINR, hasNonZeroDigit } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
@@ -84,14 +83,14 @@ export function LowBalanceAlertPanel({ session, wallet }: { session: Session; wa
             </ActionButton>
           )}
           {wallet.low_balance_alert_chosen && write.allowed && (
-            <button
-              type="button"
-              className={TEXT_ACTION}
-              disabled={save.isPending}
+            <ActionButton
+              variant="text"
+              status={save.isPending && save.variables === null ? "pending" : "idle"}
+              disabled={save.isPending && save.variables !== null}
               onClick={() => feedback.run(null)}
             >
               Use Calevate&apos;s
-            </button>
+            </ActionButton>
           )}
         </div>
         <p id="low-balance-line-hint" className={problem ? "text-meta text-warn" : FIELD_HINT}>

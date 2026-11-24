@@ -3,7 +3,6 @@
 import type { ReactNode } from "react";
 
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
-import { SECONDARY_BUTTON_SM } from "@/components/ui";
 
 /**
  * THE SAVE FOR A CHOICE THAT IS ALWAYS ON SCREEN (a voice, a model, what an agent is): it
@@ -63,14 +62,14 @@ export function SaveBar({
         >
           {label}
         </ActionButton>
-        <button
-          type="button"
+        <ActionButton
+          variant="secondary-sm"
           disabled={busy}
           onClick={onCancel}
-          className={`${SECONDARY_BUTTON_SM} flex-1 justify-center sm:flex-none`}
+          className="flex-1 sm:flex-none"
         >
           Cancel
-        </button>
+        </ActionButton>
       </div>
       {note ? <span className="text-meta text-ink-muted">{note}</span> : null}
     </div>

@@ -158,14 +158,15 @@ function ContactRow({ contact, canWrite, reason }: { contact: TeamContact; canWr
           <ActionButton type="submit" variant="primary-sm" status={verifyFeedback.status} successLabel="Confirmed" disabled={!canWrite} title={reason ?? undefined}>
             Confirm
           </ActionButton>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            disabled={!canWrite || resendFeedback.status === "pending"}
+          <ActionButton
+            variant="secondary-sm"
+            status={resendFeedback.status}
+            successLabel="Sent"
+            disabled={!canWrite}
             onClick={() => resendFeedback.run(contact.id)}
           >
             Send a new code
-          </button>
+          </ActionButton>
         </form>
       ) : null}
       {error ? <ProblemNotice error={error} /> : null}

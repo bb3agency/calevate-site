@@ -132,15 +132,18 @@ export function DeliveryLog({
                     </span>
                   )}
                   {delivery.resendable && canResend && (
-                    <button
-                      type="button"
+                    <ActionButton
+                      variant="secondary-sm"
+                      status={resend.isPending && resend.variables === delivery.id ? "pending" : "idle"}
+                      pendingLabel="Sending…"
                       onClick={() => resend.mutate(delivery.id)}
-                      disabled={resend.isPending}
+                      // One resend at a time; the row being sent spins, the others hold.
+                      disabled={resend.isPending && resend.variables !== delivery.id}
                       aria-label={`Send this ${eventLabel(delivery.event_type ?? "") ?? "delivery"} again`}
-                      className={`mt-1 ${SECONDARY_BUTTON_SM}`}
+                      className="mt-1"
                     >
-                      {resend.isPending && resend.variables === delivery.id ? "Sending…" : "Send again"}
-                    </button>
+                      Send again
+                    </ActionButton>
                   )}
                   </span>
                 </td>

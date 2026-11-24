@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Pencil } from "lucide-react";
+import { LoaderCircle, Pencil } from "lucide-react";
 
 import type { Lead } from "@/lib/api/leads";
 import { calledTimes, leadTitle } from "@/lib/leadLabels";
@@ -125,17 +125,29 @@ export function InlineName({
           {leadTitle(lead)}
         </Link>
         {canEdit && (
+          // An icon button, so not `ActionButton` (its variants are labelled buttons). It
+          // keeps the convention by hand: spins while the name it edited saves, and refuses
+          // a press through `aria-disabled` so focus stays on it.
           <button
             type="button"
-            disabled={saving}
-            onClick={() => setEditing(true)}
+            aria-disabled={saving || undefined}
+            aria-busy={saving || undefined}
+            onClick={() => {
+              if (!saving) setEditing(true);
+            }}
             // Names the LEAD, like every other per-row control here: a screen reader
             // meeting a hundred buttons called "Edit" cannot tell which row it is on.
             aria-label={`Edit the name for the lead on ${lead.phone_e164}`}
             title={editReason ?? "Edit this name"}
-            className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-ink-faint hover:text-ink disabled:cursor-not-allowed disabled:opacity-50 touch:inline-flex touch:min-h-11 touch:min-w-11 touch:items-center touch:justify-center"
+            className={`rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 text-ink-faint touch:inline-flex touch:min-h-11 touch:min-w-11 touch:items-center touch:justify-center ${
+              saving ? "cursor-progress" : "hover:text-ink"
+            }`}
           >
-            <Pencil className="h-3 w-3" />
+            {saving ? (
+              <LoaderCircle aria-hidden className="h-3 w-3 motion-safe:animate-spin" />
+            ) : (
+              <Pencil className="h-3 w-3" />
+            )}
           </button>
         )}
       </span>

@@ -39,6 +39,7 @@ from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import script_heal
 from apps.api.agents.business_hours import count_after_hours_calls
 from apps.api.agents.call_mistakes import call_mistakes as read_call_mistakes
 from apps.api.agents.call_outcomes import outcome_lead_move
@@ -469,6 +470,38 @@ def _holder_ref(holder_id: Any, name: Any) -> CallHolderRefOut | None:
     return None if holder_id is None else CallHolderRefOut(id=holder_id, name=str(name))
 
 
+async def _call_mistakes_out(
+    session: AsyncSession,
+    call_id: UUID,
+    *,
+    campaign_id: UUID | None,
+    inbound_line_id: UUID | None,
+    started_at: datetime | None,
+) -> list[CallMistakeOut]:
+    """The call's mistakes, each with what was done since: the script it was spoken from
+    repaired of it, being repaired, or else with our team (`script_heal.call_fix_states`)."""
+    mistakes = await read_call_mistakes(session, call_id)
+    if not mistakes:
+        return []
+    fixes = await script_heal.call_fix_states(
+        session,
+        campaign_id=campaign_id,
+        inbound_line_id=inbound_line_id,
+        call_started_at=started_at,
+        kinds=[m.kind for m in mistakes],
+    )
+    return [
+        CallMistakeOut(
+            kind=m.kind,
+            label=m.label,
+            instead=m.instead,
+            turn_idx=m.turn_idx,
+            fix=fixes.get(m.kind, "told"),
+        )
+        for m in mistakes
+    ]
+
+
 #: The name on the call's lead, so a call row can say who rather than only a number. A
 #: scalar subquery rather than a join, for the reason `_LEAD_COLUMNS` gives.
 _LEAD_NAME_COLUMN = (
@@ -776,10 +809,9 @@ async def get_call(
             if row[49]
             else None
         ),
-        mistakes=[
-            CallMistakeOut(kind=m.kind, label=m.label, instead=m.instead, turn_idx=m.turn_idx)
-            for m in await read_call_mistakes(session, call_id)
-        ],
+        mistakes=await _call_mistakes_out(
+            session, call_id, campaign_id=row[52], inbound_line_id=row[54], started_at=row[7]
+        ),
         steps=[
             CallProgressStepOut(step=s.step, name=s.name, state=s.state, turn_idx=s.turn_idx)
             for s in (progress.steps if progress is not None else ())

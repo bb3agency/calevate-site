@@ -4,7 +4,6 @@ import { useState } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { TEXT_ACTION } from "@/components/console/section";
 import { ProblemNotice } from "@/components/ui";
 import type { EngineCatalogueModel } from "@/lib/api/engineCatalogue";
 import {
@@ -75,14 +74,9 @@ export function ModelBandControl({ model }: { model: EngineCatalogueModel }) {
           >
             Record as paid
           </ActionButton>
-          <button
-            type="button"
-            className={TEXT_ACTION}
-            disabled={record.isPending}
-            onClick={() => setConfirmPaid(false)}
-          >
+          <ActionButton variant="text" disabled={record.isPending} onClick={() => setConfirmPaid(false)}>
             Cancel
-          </button>
+          </ActionButton>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-3">
@@ -95,14 +89,9 @@ export function ModelBandControl({ model }: { model: EngineCatalogueModel }) {
           >
             No extra charge (checked in the console)
           </ActionButton>
-          <button
-            type="button"
-            className={TEXT_ACTION}
-            disabled={!ready || record.isPending}
-            onClick={() => setConfirmPaid(true)}
-          >
+          <ActionButton variant="text" disabled={!ready || record.isPending} onClick={() => setConfirmPaid(true)}>
             Costs extra
-          </button>
+          </ActionButton>
         </div>
       )}
       {record.error != null && <ProblemNotice error={record.error} />}

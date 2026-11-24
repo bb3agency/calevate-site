@@ -19,7 +19,6 @@ import { useMutation } from "@tanstack/react-query";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { AuthProblemNotice } from "@/components/authn/fields";
-import { TEXT_ACTION } from "@/components/console/section";
 import { OtpInput } from "@/components/interior/otp-input";
 import type { RealmAuthn } from "@/lib/authn/realm";
 import { OTP_LENGTH, OTP_RESEND_COOLDOWN_MS } from "@/lib/authn/otp";
@@ -133,14 +132,15 @@ export function EmailVerificationPanel({
         >
           Verify
         </ActionButton>
-        <button
-          type="button"
-          className={TEXT_ACTION}
-          disabled={requestCode.isPending || cooldown > 0}
+        <ActionButton
+          variant="text"
+          status={requestFeedback.status === "pending" ? "pending" : "idle"}
+          pendingLabel="Sending…"
+          disabled={cooldown > 0}
           onClick={resend}
         >
           {cooldown > 0 ? `Send another code in ${cooldown}s` : "Send another code"}
-        </button>
+        </ActionButton>
       </div>
     </form>
   );
