@@ -740,14 +740,37 @@ async def test_the_stall_alarm_still_counts_a_call_the_pipeline_really_dropped()
 
 
 async def test_the_stall_alarm_counts_a_schema_bearing_agents_silent_call() -> None:
-    """And the other half of the same rule: an agent WITH schema fields is owed an
-    extraction even for a call that produced no transcript, because that is exactly what
+    """And the other half of the same rule: a call whose job notes fields is owed an
+    extraction even when it produced no transcript, because that is exactly what
     `needs_extraction` says. Both halves have to hold or the shared SQL fragment is only
-    half the pipeline's rule."""
+    half the pipeline's rule. Since D-1028 the fields are the job's (here an inbound line's),
+    not the agent's schema."""
     from apps.workers import dispatcher
 
     tenant_id, _agent_ref, _execution_id = await _staged("stallschema")
-    await _completed_call_row(tenant_id, with_turns=False)
+    call_id = await _completed_call_row(tenant_id, with_turns=False)
+    async with tenant_session(tenant_id) as session:
+        agent_id = (
+            await session.execute(text("SELECT agent_id FROM calls WHERE id = :c"), {"c": call_id})
+        ).scalar_one()
+        line_id = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO inbound_lines (id, tenant_id, agent_id, name, main_task, "
+                "extraction_fields, created_at, updated_at) VALUES (:id, :t, :a, 'Front desk', "
+                "'Answer', CAST(:f AS jsonb), now(), now())"
+            ),
+            {
+                "id": line_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "f": '[{"key": "visit_day", "label": "Visit day", "type": "string"}]',
+            },
+        )
+        await session.execute(
+            text("UPDATE calls SET inbound_line_id = :l WHERE id = :c"),
+            {"l": line_id, "c": call_id},
+        )
 
     async with tenant_session(tenant_id) as session:
         assert await dispatcher._count_stalled(session) == 1
