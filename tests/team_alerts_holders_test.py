@@ -1,25 +1,29 @@
-"""A campaign's or inbound line's own "What it notes" answers trigger Tell my team (D-1007).
+"""Which calls alert after they end belongs to each campaign and inbound line (D-1040).
 
-A call placed by a campaign (or taken by a line) with its own list is captured under that list
-(D-1003), so an alert that could only watch the agent's fields never fired on its answers.
+What a call notes is its job's list (D-1028), so an answer alerts only on the calls of the job
+whose rule ticked it: the same key on another campaign can mean something else. The agent keeps
+only its in-call switch, which reaches every engine agent its jobs hold (D-1019).
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
+from pathlib import Path
+from types import ModuleType
 from typing import Any
 from uuid import UUID
 
-import httpx
 import pytest
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
+from apps.api.reliability import engine_actions
 from apps.api.team_alerts import service
 from apps.api.team_alerts.service import FieldTrigger, HolderRef, Rule
 from sqlalchemy import text
 from tests.lead_columns_test import Tenant, _tenant
-from tests.team_alerts_test import _alert_payloads, _use_schema, _verified_contact
+from tests.team_alerts_test import _alert_payloads, _verified_contact
 
 pytestmark = pytest.mark.rls
 
@@ -30,7 +34,6 @@ VISIT_DAY: dict[str, Any] = {
     "enum_values": ["saturday", "sunday"],
     "reason": "when they can come",
 }
-#: The agent's own choice field, copied onto the campaign's list as "Give it its own list" does.
 BUDGET: dict[str, Any] = {
     "key": "budget_band",
     "label": "Budget band",
@@ -114,53 +117,41 @@ async def _after(t: Tenant, call_id: UUID, data: dict[str, Any]) -> str:
         )
 
 
-async def test_an_answer_on_a_campaigns_own_list_tells_the_team() -> None:
+async def _save(t: Tenant, job: HolderRef, rule: Rule) -> service.JobRuleView:
+    async with tenant_session(t.tenant_id) as session:
+        return await service.save_job_rule(session, job, rule)
+
+
+async def test_a_campaigns_answer_alerts_on_its_calls_and_not_on_another_campaigns() -> None:
+    """End to end through `queue_after_call`, the post-call pipeline's step 6."""
     t = await _tenant(with_line=False)
-    await _use_schema(t)
     await _verified_contact(t)
-    campaign_id = await _campaign(t, [VISIT_DAY])
-    from apps.api.main import app
+    visits = await _campaign(t, [VISIT_DAY])
+    other = await _campaign(t, [VISIT_DAY], name="Open house")
+    view = await _save(
+        t,
+        HolderRef("campaign", visits),
+        Rule(on_fields=(FieldTrigger("visit_day", ("saturday",)),)),
+    )
+    assert view.saved and [(f.key, f.values) for f in view.fields] == [
+        ("visit_day", ("saturday", "sunday"))
+    ]
+    # The other campaign never saved a rule: every positive outcome, and no answer.
+    async with tenant_session(t.tenant_id) as session:
+        untouched = await service.read_job_rule(session, HolderRef("campaign", other))
+    assert not untouched.saved and untouched.rule.on_fields == ()
 
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://t"
-    ) as client:
-        offered = await client.get(f"/v1/agents/{t.agent_id}/team-alert", headers=t.headers)
-        assert offered.status_code == 200, offered.text
-        holders = offered.json()["holders"]
-        assert [(h["kind"], h["id"], h["name"]) for h in holders] == [
-            ("campaign", str(campaign_id), "Site visits")
-        ]
-        assert [(f["key"], f["values"]) for f in holders[0]["fields"]] == [
-            ("visit_day", ["saturday", "sunday"])
-        ]
-        put = await client.put(
-            f"/v1/agents/{t.agent_id}/team-alert",
-            json={
-                "on_fields": [
-                    {"key": "visit_day", "values": ["saturday"], "campaign_id": str(campaign_id)}
-                ]
-            },
-            headers=t.headers,
-        )
-        assert put.status_code == 200, put.text
-        assert put.json()["on_fields"] == [
-            {
-                "key": "visit_day",
-                "values": ["saturday"],
-                "campaign_id": str(campaign_id),
-                "inbound_line_id": None,
-            }
-        ]
-
-    on_campaign = await _call(t, campaign_id=campaign_id)
-    assert await _after(t, on_campaign, {"visit_day": "sunday"}) == "not_worth_telling"
-    assert await _after(t, on_campaign, {"visit_day": "saturday"}) == "queued"
-    # The same answer on a call the campaign did not capture is another list's.
-    assert await _after(t, await _call(t), {"visit_day": "saturday"}) == "not_worth_telling"
+    on_visits = await _call(t, campaign_id=visits)
+    assert await _after(t, on_visits, {"visit_day": "sunday"}) == "not_worth_telling"
+    assert await _after(t, on_visits, {"visit_day": "saturday"}) == "queued"
+    on_other = await _call(t, campaign_id=other)
+    assert await _after(t, on_other, {"visit_day": "saturday"}) == "not_worth_telling", (
+        "the same key and answer on another campaign is that campaign's rule, not this one's"
+    )
     async with tenant_session(t.tenant_id) as session:
         reasons = (
             await session.execute(
-                text("SELECT reasons FROM team_alerts WHERE call_id = :c"), {"c": on_campaign}
+                text("SELECT reasons FROM team_alerts WHERE call_id = :c"), {"c": on_visits}
             )
         ).scalar_one()
     assert reasons == [
@@ -169,93 +160,209 @@ async def test_an_answer_on_a_campaigns_own_list_tells_the_team() -> None:
     assert len(await _alert_payloads(t.tenant_id)) == 1
 
 
-async def test_an_answer_on_a_lines_own_list_tells_the_team() -> None:
+async def test_a_lines_answer_alerts_on_its_calls() -> None:
     t = await _tenant(with_line=False)
-    await _use_schema(t)
     await _verified_contact(t)
     line_id = await _line(t, [VISIT_DAY])
-    async with tenant_session(t.tenant_id) as session:
-        view = await service.save_rule(
-            session,
-            tenant_id=t.tenant_id,
-            agent_id=t.agent_id,
-            rule=Rule(
-                on_fields=(FieldTrigger("visit_day", ("sunday",), HolderRef("line", line_id)),)
-            ),
-        )
-    assert [h.ref for h in view.holders] == [HolderRef("line", line_id)]
-    on_line = await _call(t, inbound_line_id=line_id)
-    assert await _after(t, on_line, {"visit_day": "sunday"}) == "queued"
+    await _save(
+        t, HolderRef("line", line_id), Rule(on_fields=(FieldTrigger("visit_day", ("sunday",)),))
+    )
+    assert await _after(t, await _call(t, inbound_line_id=line_id), {"visit_day": "sunday"}) == (
+        "queued"
+    )
 
 
-async def test_an_agent_answer_still_fires_on_its_own_and_its_campaigns_calls() -> None:
+async def test_an_agent_level_leftover_no_longer_alerts() -> None:
+    """A rule row from before D-1040 still holds the agent's outcomes and answers; nothing
+    reads them, and a call with no job alerts on no answer."""
     t = await _tenant(with_line=False)
-    await _use_schema(t)
     await _verified_contact(t)
-    campaign_id = await _campaign(t, [BUDGET, VISIT_DAY])
-    async with tenant_session(t.tenant_id) as session:
-        await service.save_rule(
-            session,
-            tenant_id=t.tenant_id,
-            agent_id=t.agent_id,
-            rule=Rule(on_fields=(FieldTrigger("budget_band", ("over_50l",)),)),
-        )
-    assert await _after(t, await _call(t), {"budget_band": "over_50l"}) == "queued"
-    held = await _call(t, campaign_id=campaign_id)
-    assert await _after(t, held, {"budget_band": "over_50l"}) == "queued"
-
-
-async def test_an_answer_off_the_holders_list_or_an_archived_holder_is_refused() -> None:
-    t = await _tenant(with_line=False)
-    await _use_schema(t)
-    campaign_id = await _campaign(t, [VISIT_DAY])
-
-    async def _save(trigger: FieldTrigger) -> None:
-        async with tenant_session(t.tenant_id) as session:
-            await service.save_rule(
-                session, tenant_id=t.tenant_id, agent_id=t.agent_id, rule=Rule(on_fields=(trigger,))
-            )
-
-    on_campaign = HolderRef("campaign", campaign_id)
-    with pytest.raises(ProblemError) as refused:
-        await _save(FieldTrigger("visit_day", ("monday",), on_campaign))
-    assert refused.value.code == "team_alert_choice_unknown"
-    with pytest.raises(ProblemError):
-        await _save(FieldTrigger("budget_band", ("over_50l",), on_campaign))
-
-    await _save(FieldTrigger("visit_day", ("saturday",), on_campaign))
+    campaign_id = await _campaign(t, [BUDGET])
     async with tenant_session(t.tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE campaigns SET archived_at = now(), archived_by_realm = 'client' "
-                "WHERE id = :c"
+                "INSERT INTO team_alert_rules (id, tenant_id, agent_id, on_outcomes, on_fields, "
+                "created_at, updated_at) VALUES (:id, :t, :a, '[]'::jsonb, CAST(:f AS jsonb), "
+                "now(), now())"
             ),
+            {
+                "id": uuid7(),
+                "t": t.tenant_id,
+                "a": t.agent_id,
+                "f": json.dumps([{"key": "budget_band", "values": ["over_50l"]}]),
+            },
+        )
+    assert await _after(t, await _call(t), {"budget_band": "over_50l"}) == "not_worth_telling"
+    held = await _call(t, campaign_id=campaign_id)
+    assert await _after(t, held, {"budget_band": "over_50l"}) == "not_worth_telling", (
+        "the campaign never ticked it, so the agent's old tick does not alert its calls"
+    )
+    async with tenant_session(t.tenant_id) as session:
+        agent = await service.read_agent_alerts(session, agent_id=t.agent_id)
+    assert not agent.in_call
+    assert [(j.ref, j.name) for j in agent.jobs] == [
+        (HolderRef("campaign", campaign_id), "Site visits")
+    ]
+
+
+async def test_a_choice_off_the_jobs_list_is_refused_and_a_dropped_one_is_not_shown() -> None:
+    t = await _tenant(with_line=False)
+    campaign_id = await _campaign(t, [VISIT_DAY])
+    job = HolderRef("campaign", campaign_id)
+    for wrong in (
+        FieldTrigger("visit_day", ("monday",)),
+        FieldTrigger("budget_band", ("over_50l",)),
+    ):
+        with pytest.raises(ProblemError) as refused:
+            await _save(t, job, Rule(on_fields=(wrong,)))
+        assert refused.value.code == "team_alert_choice_unknown"
+
+    await _save(t, job, Rule(on_fields=(FieldTrigger("visit_day", ("saturday",)),)))
+    async with tenant_session(t.tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET extraction_fields = '[]'::jsonb WHERE id = :c"),
             {"c": campaign_id},
         )
-        view = await service.read_rule(session, agent_id=t.agent_id)
-    assert view.holders == [] and view.rule.on_fields == ()
+        view = await service.read_job_rule(session, job)
+    assert view.saved and view.rule.on_fields == (), "a detail no longer noted is not offered"
 
 
-async def test_another_tenants_campaign_is_neither_offered_nor_accepted() -> None:
+async def test_another_tenants_campaign_is_neither_read_nor_written() -> None:
     t, other = await _tenant(with_line=False), await _tenant(with_line=False)
-    await _use_schema(t)
-    await _use_schema(other)
-    theirs = await _campaign(t, [VISIT_DAY])
+    theirs = HolderRef("campaign", await _campaign(t, [VISIT_DAY]))
+    await _save(t, theirs, Rule(on_fields=(FieldTrigger("visit_day", ("saturday",)),)))
     async with tenant_session(other.tenant_id) as session:
-        assert (await service.read_rule(session, agent_id=other.agent_id)).holders == []
-        with pytest.raises(ProblemError) as refused:
-            await service.save_rule(
-                session,
-                tenant_id=other.tenant_id,
-                agent_id=other.agent_id,
-                rule=Rule(
-                    on_fields=(
-                        FieldTrigger("visit_day", ("saturday",), HolderRef("campaign", theirs)),
-                    )
-                ),
-            )
-        assert refused.value.code == "team_alert_choice_unknown"
-        # RLS: the other tenant's session sees none of this tenant's holders.
+        with pytest.raises(ProblemError) as unread:
+            await service.read_job_rule(session, theirs)
+        assert unread.value.code == "not_found"
+        with pytest.raises(ProblemError):
+            await service.save_job_rule(session, theirs, Rule())
         for table in ("campaigns", "inbound_lines"):
             count = (await session.execute(text(f"SELECT count(*) FROM {table}"))).scalar()
             assert count == 0, table
+    async with tenant_session(t.tenant_id) as session:
+        kept = await service.read_job_rule(session, theirs)
+    assert kept.rule.on_fields == (FieldTrigger("visit_day", ("saturday",)),)
+
+
+async def test_the_in_call_switch_reaches_every_engine_agent_its_jobs_hold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Since D-1019 each campaign and line holds its own engine agent; switching the agent's
+    in-call action on must reach all of them, not the newest only."""
+    t = await _tenant(with_line=False)
+    await _verified_contact(t)
+    campaign_id = await _campaign(t, [VISIT_DAY])
+    line_id = await _line(t, [VISIT_DAY])
+    refs = {f"ag_c_{campaign_id.hex[:8]}": campaign_id, f"ag_l_{line_id.hex[:8]}": line_id}
+    async with tenant_session(t.tenant_id) as session:
+        for ref, holder in refs.items():
+            await session.execute(
+                text(
+                    "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
+                    "agent_id, campaign_id, inbound_line_id, active) VALUES ('thinnest', :r, :t, "
+                    ":a, :g, :l, true)"
+                ),
+                {
+                    "r": ref,
+                    "t": t.tenant_id,
+                    "a": t.agent_id,
+                    "g": holder if holder == campaign_id else None,
+                    "l": holder if holder == line_id else None,
+                },
+            )
+    synced: list[str] = []
+
+    async def _ensure(session: Any, *, engine: str, engine_agent_ref: str, **_: Any) -> None:
+        names = [
+            d.name
+            for d in await engine_actions.client_definitions(
+                session, engine, engine_agent_ref, t.agent_id
+            )
+        ]
+        assert service.TEAM_ACTION_NAME in names, engine_agent_ref
+        synced.append(engine_agent_ref)
+
+    monkeypatch.setattr(engine_actions, "ensure_agent_actions", _ensure)
+    async with tenant_session(t.tenant_id) as session:
+        view = await service.save_in_call(
+            session, tenant_id=t.tenant_id, agent_id=t.agent_id, in_call=True
+        )
+    assert view.in_call_live
+    assert sorted(synced) == sorted(refs), "every campaign's and line's engine agent"
+
+
+def _migration() -> ModuleType:
+    versions = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+    path = next(versions.glob("b8e3f1c6d2a4_*.py"))
+    spec = importlib.util.spec_from_file_location("_alerts_per_job", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+async def test_the_migration_copies_each_agents_ticks_onto_its_jobs() -> None:
+    """An agent-level answer lands on every job whose list has it, with the same values; a
+    D-1007 answer lands on its own job alone; the outcomes on every job; nothing ticked is
+    lost. Rows are read and written with the migration's own statements."""
+    migration = _migration()
+    t = await _tenant(with_line=False)
+    both = await _campaign(t, [BUDGET, VISIT_DAY])
+    budget_only = await _campaign(t, [BUDGET], name="Loans")
+    line_id = await _line(t, [VISIT_DAY])
+    async with tenant_session(t.tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO team_alert_rules (id, tenant_id, agent_id, on_outcomes, on_fields, "
+                "in_call, created_at, updated_at) VALUES (:id, :t, :a, '[\"interested\"]'::jsonb, "
+                "CAST(:f AS jsonb), true, now(), now())"
+            ),
+            {
+                "id": uuid7(),
+                "t": t.tenant_id,
+                "a": t.agent_id,
+                "f": json.dumps(
+                    [
+                        {"key": "budget_band", "values": ["over_50l", "no_longer_offered"]},
+                        {"key": "visit_day", "values": ["sunday"], "campaign_id": str(both)},
+                        {
+                            "key": "visit_day",
+                            "values": ["saturday"],
+                            "inbound_line_id": str(line_id),
+                        },
+                    ]
+                ),
+            },
+        )
+        rules = (await session.execute(migration._RULES)).all()
+        for key, read, write in (
+            ("campaign_id", migration._CAMPAIGNS, migration._SET_CAMPAIGN),
+            ("inbound_line_id", migration._LINES, migration._SET_LINE),
+        ):
+            jobs = (await session.execute(read)).all()
+            for job_id, rule in migration.planned(rules, jobs, key):
+                await session.execute(write, {"rule": json.dumps(rule), "id": job_id})
+
+    async def _rule(job: HolderRef) -> service.JobRuleView:
+        async with tenant_session(t.tenant_id) as session:
+            return await service.read_job_rule(session, job)
+
+    on_both = await _rule(HolderRef("campaign", both))
+    assert on_both.saved and on_both.rule == Rule(
+        on_outcomes=("interested",),
+        on_fields=(
+            FieldTrigger("budget_band", ("over_50l",)),
+            FieldTrigger("visit_day", ("sunday",)),
+        ),
+    )
+    assert (await _rule(HolderRef("campaign", budget_only))).rule == Rule(
+        on_outcomes=("interested",), on_fields=(FieldTrigger("budget_band", ("over_50l",)),)
+    )
+    assert (await _rule(HolderRef("line", line_id))).rule == Rule(
+        on_outcomes=("interested",), on_fields=(FieldTrigger("visit_day", ("saturday",)),)
+    )
+    async with tenant_session(t.tenant_id) as session:
+        assert await service.load_in_call(session, t.agent_id), "the in-call switch stays"
+        again = (await session.execute(migration._CAMPAIGNS)).all()
+    assert again == [], "a job with a rule is not copied onto twice"

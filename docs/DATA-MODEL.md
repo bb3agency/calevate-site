@@ -385,6 +385,10 @@ team_alerts(id, tenant_id, agent_id, call_id FK calls, contact_id, trigger IN (a
   -- (call, address), which is also the idempotency key. All three FORCEd tenant_isolation;
   -- D-967: `is_default` and `team_alert_rules.contact_id` are no longer read (every confirmed
   -- address hears every alert); dropped in a later release (hard rule 8);
+  -- D-1040 (b8e3f1c6d2a4): which calls alert after they end is `campaigns.team_alert_rule` /
+  -- `inbound_lines.team_alert_rule` (JSONB {on_outcomes, on_fields} or NULL = every positive
+  -- outcome); the migration copied each agent's saved rule onto its jobs, and
+  -- `team_alert_rules.on_outcomes` / `on_fields` are no longer read (dropped later, rule 8);
   -- zero-rows proof `tests/team_alerts_test.py`. The same migration widens
   -- `agent_test_cases.caller_lines` to 1..20 lines (was 6) so a guided procedure can be a
   -- saved test.

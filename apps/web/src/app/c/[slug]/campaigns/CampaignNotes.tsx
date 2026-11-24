@@ -46,7 +46,7 @@ import type { VerticalExamples } from "@/lib/verticalExamples";
 
 import { blankRow, canonical, clientValidationError, toDraft, toWireFields, type DraftRow } from "../agents/panels/extractionDraft";
 import { FieldEditorRow } from "../agents/panels/extractionRow";
-import { TEAM_ALERTS_ANCHOR } from "../agents/panels/teamAlerts";
+import { jobAlertsPath } from "../agents/panels/teamAlerts";
 import { campaignStatusWord } from "./campaignStatus";
 import { FoldSection } from "./FoldSection";
 
@@ -79,8 +79,8 @@ export interface JobNotesSource {
   /** The account's other open jobs of a kind, read once `wanted` (the import menu opened). */
   useOthers: (kind: JobKind, jobId: string, wanted: boolean) => OtherJobs;
   useSuggestions: (kind: JobKind, jobId: string) => LeadSuggestionsApi;
-  /** Where the agent's team alerts are set, or null where this realm has no such page. */
-  useAlertsHref: (agentId: string) => string | null;
+  /** Where this job's alerts are set, or null where this realm has no such page. */
+  useAlertsHref: (kind: JobKind, jobId: string) => string | null;
   /** The example text the field rows show. */
   useExamples: () => VerticalExamples;
 }
@@ -125,9 +125,9 @@ export const CLIENT_JOB_NOTES: JobNotesSource = {
   useOthers: useClientOthers,
   useSuggestions: (kind, jobId) => useLeadSuggestions(useClientRealm().session, kind, jobId),
   useExamples: useVerticalExamples,
-  useAlertsHref: (agentId) => {
+  useAlertsHref: (kind, jobId) => {
     const { href, session } = useClientRealm();
-    return href(`/c/${session.orgSlug}/agents/${agentId}?section=settings#${TEAM_ALERTS_ANCHOR}`);
+    return href(jobAlertsPath(session.orgSlug, kind, jobId));
   },
 };
 
@@ -297,7 +297,7 @@ function NotesEditor({
   const eg = source.useExamples();
   const save = source.useSave(kind, jobId);
   const fetchNotes = source.useFetch(kind);
-  const alertsHref = source.useAlertsHref(data.agent_id);
+  const alertsHref = source.useAlertsHref(kind, jobId);
   const feedback = useActionFeedback(save, { errorDisplay: "inline" });
   const valid = useFormValidation();
   const [rows, setRows] = useState<DraftRow[]>(() => data.fields.map(toDraft));

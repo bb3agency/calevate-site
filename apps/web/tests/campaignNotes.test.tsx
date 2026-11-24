@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { CampaignNotes, JobNotes, lineNotesTakeEffect, notesTakeEffect } from "@/app/c/[slug]/campaigns/CampaignNotes";
 
-import { FIXTURE_AGENT_ID, FIXTURE_CAMPAIGN_ID, notesFixture } from "./campaignFixtures";
+import { FIXTURE_CAMPAIGN_ID, notesFixture } from "./campaignFixtures";
 import { problem, renderClientPage } from "./harness";
 import { OWNER_ME } from "./fixtures/sharedReads";
 
@@ -61,14 +61,14 @@ describe("a campaign's What it notes", () => {
     expect(await screen.findByText("The calling platform did not answer.")).toBeTruthy();
   });
 
-  it("links Set alerts as a button to its agent's alerts", async () => {
+  it("links Set alerts as a button to the campaign's own alerts", async () => {
     await renderClientPage(<CampaignNotes slug="acme" campaignId={FIXTURE_CAMPAIGN_ID} canWrite />, {
       "/v1/me": OWNER_ME,
       "/v1/campaigns": [],
       [notesPath]: notesFixture({ fields: [FIELD] }),
     });
     const link = await screen.findByRole("link", { name: "Set alerts" });
-    expect(link.getAttribute("href")).toBe(`/c/acme/agents/${FIXTURE_AGENT_ID}?section=settings#team-alerts`);
+    expect(link.getAttribute("href")).toBe(`/c/acme/campaigns/${FIXTURE_CAMPAIGN_ID}#campaign-alerts`);
     // A button, so a thumb can hit it: the shared small button grows to 44 px on touch.
     expect(link.className).toContain("touch:min-h-11");
     await waitFor(() => expect(screen.getByText("From its first call.", { exact: false })).toBeTruthy());

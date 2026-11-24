@@ -500,42 +500,48 @@ async def _handover_part(session: AsyncSession, agent_id: UUID) -> list[str]:
 
 
 async def _team_alert_lines(session: AsyncSession, agent_id: UUID) -> list[str]:
-    """Which calls this agent alerts about (D-904): the agent's rule and the keys and ids
-    `agent_team_alert_set` and `team_alert_contact` take."""
-    from apps.api.copilot.coverage_actions import answer_prefix
+    """Which calls tell the alert list (D-904, D-1040): the agent's in-call switch, each of its
+    campaigns' and lines' after-call rule, and the keys and ids `agent_team_alert_set`,
+    `job_team_alert_set` and `team_alert_contact` take."""
+    from apps.api.copilot.coverage_actions import job_rule_words
     from apps.api.team_alerts import service as team_alerts
 
-    view = await team_alerts.read_rule(session, agent_id=agent_id)
-    rule = view.rule
+    agent = await team_alerts.read_agent_alerts(session, agent_id=agent_id)
     addresses = await team_alerts.list_contacts(session)
-    return [
-        "The alert list (the owner and every confirmed team address) hears from this agent "
-        "about exactly these: outcomes "
-        + (", ".join(rule.on_outcomes) or "none")
-        + ("" if view.saved else " (not saved by the owner yet: every positive outcome)")
-        + "; answers "
+    lines = [
+        f"During the call this agent messages the team: {_on(agent.in_call)}"
         + (
-            "; ".join(f"{answer_prefix(t)}{t.key}={'|'.join(t.values)}" for t in rule.on_fields)
-            or "none"
-        )
-        + f"; during the call {_on(rule.in_call)}"
-        + ("." if view.in_call_live or not rule.in_call else ", once a team address is confirmed."),
-        "Outcomes it can watch: "
-        + (
-            ", ".join(
-                f"{o.label} ({o.key}{', makes the lead hot' if o.goal else ''})"
-                for o in view.outcomes
+            "."
+            if agent.in_call_live or not agent.in_call
+            else ", once a team address is confirmed."
+        ),
+        "Which calls tell the alert list (the owner and every confirmed team address) after "
+        "they end is set per campaign and line (job_team_alert_set):"
+        + ("" if agent.jobs else " it has no open campaign or line yet."),
+    ]
+    for link in agent.jobs:
+        view = await team_alerts.read_job_rule(session, link.ref)
+        outcomes = {o.key: o.label for o in view.outcomes}
+        fields = {f.key: f.label for f in view.fields}
+        lines.append(
+            f'- {link.ref.kind} "{link.name}" [job {link.ref.kind}, job_id {link.ref.id}]: '
+            + job_rule_words(view.rule, outcomes, fields)
+            + ("" if view.saved else " (not saved by the owner yet: every positive outcome)")
+            + ". Outcomes: "
+            + (
+                ", ".join(
+                    f"{o.label} ({o.key}{', makes the lead hot' if o.goal else ''})"
+                    for o in view.outcomes
+                )
+                or "none"
             )
-            or "none"
-        ),
-        "Answers it can watch: "
-        + ("; ".join(f"{f.label} ({f.key}): {', '.join(f.values)}" for f in view.fields) or "none"),
-        *(
-            f'Answers on {h.ref.kind} "{h.name}"\'s own list (on_answers '
-            f"`{h.ref.kind}:{h.ref.id}:key=value`, its calls only): "
-            + "; ".join(f"{f.label} ({f.key}): {', '.join(f.values)}" for f in h.fields)
-            for h in view.holders
-        ),
+            + ". Answers (on_answers `key=value`): "
+            + (
+                "; ".join(f"{f.label} ({f.key}): {', '.join(f.values)}" for f in view.fields)
+                or "none"
+            )
+        )
+    lines.append(
         "Team addresses on the list: "
         + (
             "; ".join(
@@ -545,8 +551,9 @@ async def _team_alert_lines(session: AsyncSession, agent_id: UUID) -> list[str]:
                 for c in addresses
             )
             or "none"
-        ),
-    ]
+        )
+    )
+    return lines
 
 
 async def _actions_part(session: AsyncSession, agent_id: UUID) -> list[str]:

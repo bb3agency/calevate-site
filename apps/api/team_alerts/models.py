@@ -6,10 +6,10 @@ about every alert. Soft-removed (`removed_at`) so the alerts already sent to it 
 reference. `is_default` is no longer read (the whole list hears); it stays until a later
 release drops it (hard rule 8).
 
-`team_alert_rules` — per agent, what the list hears about: chosen business outcomes, chosen
-values of chosen choice fields, and whether the agent may tell the team during the call. A row
-is the owner's saved choice; an agent with none alerts on its positive outcomes
-(`service.default_rule`). `contact_id` is no longer read, for the same reason as `is_default`.
+`team_alert_rules` — per agent, whether the agent may tell the team during the call. Which
+calls alert after they end is each campaign's and inbound line's own `team_alert_rule`
+(D-1040); this table's `on_outcomes` and `on_fields`, and `contact_id` for the same reason as
+`is_default`, are no longer read or written and go in a later release (hard rule 8).
 
 `team_alerts` — one row per (call, address): the idempotency key and the delivery record. Ids,
 the trigger, the matched reasons (outcome keys and choice values the owner configured, never a
@@ -127,12 +127,11 @@ class TeamAlertRule(PKMixin, TimestampMixin, Base):
     contact_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("team_alert_contacts.id", ondelete="SET NULL")
     )
-    #: Business outcome keys (`agents.business_outcomes`).
+    #: No longer read (D-1040; migration b8e3f1c6d2a4 copied them onto the agent's jobs).
     on_outcomes: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
-    #: `[{key, values: [...]}]` over the agent's choice (enum) fields; an entry with
-    #: `campaign_id` or `inbound_line_id` watches that holder's own list instead (D-1007).
+    #: No longer read, as `on_outcomes`.
     on_fields: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )

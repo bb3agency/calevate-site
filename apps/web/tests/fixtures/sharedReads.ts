@@ -21,7 +21,7 @@ import type { Wallet } from "@/lib/api/wallet";
 import type { AlertOptIn } from "@/lib/api/whatsappAlerts";
 import type { ClientVoiceTuning } from "@/lib/api/voiceTuning";
 import type { VoiceNotes } from "@/lib/api/voiceNotes";
-import type { TeamAlertRule, TeamContacts } from "@/lib/api/teamAlerts";
+import type { AgentTeamAlert, JobTeamAlert, TeamContacts } from "@/lib/api/teamAlerts";
 import type { AgentJobs } from "@/lib/api/agentJobs";
 import type { AccountReadiness, AgentReadiness } from "@/lib/api/readiness";
 
@@ -257,8 +257,8 @@ export function organizationCallHandling() {
   };
 }
 
-/** The alert list's reads (D-904, D-967): no team address yet, and an agent whose rule the
- * owner has not saved, so its one positive outcome comes ticked. */
+/** The alert list's reads (D-904, D-967, D-1040): no team address yet, an agent whose in-call
+ * switch is off with one campaign and one line in its voice. */
 export function teamAlertReads(agentId = "agent-1") {
   return {
     "/v1/team-alerts/contacts": {
@@ -267,19 +267,34 @@ export function teamAlertReads(agentId = "agent-1") {
       whatsapp_accounts: [],
     } satisfies TeamContacts,
     [`/v1/agents/${agentId}/team-alert`]: {
-      on_outcomes: ["ready"],
-      on_fields: [],
       in_call: false,
-      saved: false,
-      team_addresses: 0,
       in_call_live: false,
-      outcomes: [
-        { key: "ready", label: "Ready to buy", values: [], positive: true, goal: true },
-        { key: "booked", label: "Booked", values: [], positive: false, goal: false },
+      team_addresses: 0,
+      jobs: [
+        { kind: "campaign", id: "camp-1", name: "Existing customers" },
+        { kind: "line", id: "line-1", name: "Front desk" },
       ],
-      fields: [],
-      holders: [],
-    } satisfies TeamAlertRule,
+    } satisfies AgentTeamAlert,
+  };
+}
+
+/** A campaign's or line's own alerts the owner has not saved: its agent's one positive outcome
+ * comes ticked, and its one choice detail offers two answers. */
+export function jobTeamAlert(kind: "campaign" | "line", id: string): JobTeamAlert {
+  return {
+    kind,
+    id,
+    name: kind === "campaign" ? "Existing customers" : "Front desk",
+    agent_id: "agent-1",
+    on_outcomes: ["ready"],
+    on_fields: [],
+    saved: false,
+    team_addresses: 0,
+    outcomes: [
+      { key: "ready", label: "Ready to buy", values: [], positive: true, goal: true },
+      { key: "booked", label: "Booked", values: [], positive: false, goal: false },
+    ],
+    fields: [{ key: "setup", label: "Setup progress", values: ["Done", "Stuck"], positive: false, goal: false }],
   };
 }
 

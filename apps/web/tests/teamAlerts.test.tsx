@@ -1,19 +1,20 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { TeamAlertsPanel } from "@/app/c/[slug]/agents/panels/teamAlerts";
-import { CampaignNotes } from "@/app/c/[slug]/campaigns/CampaignNotes";
+import { FoldGroup } from "@/app/c/[slug]/campaigns/FoldSection";
+import { JobAlerts } from "@/app/c/[slug]/campaigns/JobAlerts";
 import { TeamList } from "@/app/c/[slug]/settings/alerts/TeamList";
 
-import { FIXTURE_AGENT_ID, FIXTURE_CAMPAIGN_ID, notesFixture } from "./campaignFixtures";
 import { renderClientPage, type ApiCall } from "./harness";
-import { OWNER_ME, teamAlertReads } from "./fixtures/sharedReads";
+import { OWNER_ME, jobTeamAlert, teamAlertReads } from "./fixtures/sharedReads";
 
 /**
- * WHO HEARS ABOUT A CALL (D-904, D-967): the team half of the one list on Settings → Alerts
- * (each address confirmed by a code), and on an agent only WHEN: exactly the ticked outcomes,
- * positive ones ticked until the owner saves. WhatsApp is offered only when the account has its own WhatsApp
- * connected; otherwise one line says why it is not there.
+ * WHO HEARS ABOUT A CALL (D-904, D-967, D-1040): the team half of the one list on Settings →
+ * Alerts (each address confirmed by a code); on an agent only its in-call switch and a link per
+ * campaign and line; on each campaign and line exactly the ticked outcomes and its own answers,
+ * positive outcomes ticked until the owner saves. WhatsApp is offered only when the account has
+ * its own WhatsApp connected; otherwise one line says why it is not there.
  */
 
 const AGENT = { id: "agent-1", name: "Varsha" };
@@ -84,90 +85,80 @@ describe("the team on the hot-lead list", () => {
   });
 });
 
-describe("what an agent tells the list about", () => {
-  it("ticks the positive outcome, lets the owner untick it, and saves exactly what is ticked", async () => {
+
+describe("an agent's alerts", () => {
+  it("keeps only the in-call switch and links each campaign and line to its own alerts", async () => {
     const reads = teamAlertReads();
     const { calls } = await renderClientPage(
       <TeamAlertsPanel agent={AGENT} />,
       routes({
         "/v1/agents/agent-1/team-alert": (call: ApiCall) =>
           call.method === "PUT"
-            ? { ...reads["/v1/agents/agent-1/team-alert"], in_call: true, on_outcomes: ["booked"] }
+            ? { ...reads["/v1/agents/agent-1/team-alert"], in_call: true }
             : reads["/v1/agents/agent-1/team-alert"],
       }),
     );
-    const goal = (await screen.findByLabelText(/Ready to buy/)) as HTMLInputElement;
-    expect(goal.checked).toBe(true);
-    expect(goal.disabled).toBe(false);
-    expect(screen.queryByText(/Hot lead/)).toBeNull();
+    const inCall = (await screen.findByLabelText(/Message my team while the caller is on the line/)) as HTMLInputElement;
     expect(screen.getByText("Only you hear these. No one from your team yet.")).toBeTruthy();
-    expect(screen.getByText("Tell me after a call that ends with")).toBeTruthy();
-    fireEvent.click(goal);
-    fireEvent.click(screen.getByLabelText("Booked"));
-    const inCall = screen.getByLabelText(/Message my team while the caller is on the line/);
-    expect(inCall.getAttribute("aria-describedby")).toBeTruthy();
+    // No outcome or answer is ticked here: those are each job's own.
+    expect(screen.queryByText(/after a call that ends with/)).toBeNull();
+    expect(screen.queryByText(/after a call where/)).toBeNull();
+    const campaign = screen.getByRole("link", { name: "Campaign Existing customers" });
+    expect(campaign.getAttribute("href")).toBe("/c/acme/campaigns/camp-1#campaign-alerts");
+    expect(screen.getByRole("link", { name: "Inbound line Front desk" }).getAttribute("href")).toBe(
+      "/c/acme/inbound/line-1#line-alerts",
+    );
     expect(screen.getByText(/If Varsha can.t help, your team gets the caller.s details/)).toBeTruthy();
     fireEvent.click(inCall);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
-    expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({
-      on_outcomes: ["booked"],
-      on_fields: [],
-      in_call: true,
-    });
-  });
-
-  it("offers a campaign's own answers under its name and saves them as that campaign's", async () => {
-    const reads = teamAlertReads();
-    const rule = {
-      ...reads["/v1/agents/agent-1/team-alert"],
-      fields: [{ key: "visit_day", label: "Visit day", values: ["Saturday", "Sunday"], positive: false, goal: false }],
-      holders: [
-        {
-          kind: "campaign" as const,
-          id: "camp-1",
-          name: "Site visits",
-          fields: [{ key: "visit_day", label: "Visit day", values: ["Saturday", "Sunday"], positive: false, goal: false }],
-        },
-      ],
-    };
-    const { calls } = await renderClientPage(
-      <TeamAlertsPanel agent={AGENT} />,
-      routes({ "/v1/agents/agent-1/team-alert": () => rule }),
-    );
-    const campaign = await screen.findByRole("region", { name: "Campaign Site visits" });
-    expect(campaign.textContent).toContain("Its own calls only.");
-    // The agent's own "Visit day" and the campaign's are two separate ticks.
-    expect(screen.getAllByLabelText("Saturday")).toHaveLength(2);
-    fireEvent.click(within(campaign).getByLabelText("Saturday"));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
-    expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}").on_fields).toEqual([
-      { key: "visit_day", values: ["Saturday"], campaign_id: "camp-1" },
-    ]);
+    expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({ in_call: true });
   });
 });
 
-describe("a campaign's What it notes", () => {
-  const notesPath = `/v1/campaigns/${FIXTURE_CAMPAIGN_ID}/notes`;
-  const render = (notes: ReturnType<typeof notesFixture>) =>
-    renderClientPage(
-      <CampaignNotes slug="acme" campaignId={FIXTURE_CAMPAIGN_ID} canWrite />,
-      routes({ [notesPath]: notes }),
+describe("a campaign's and a line's own alerts", () => {
+  it("ticks the positive outcome, offers its own answers once, and saves exactly what is ticked", async () => {
+    const path = "/v1/campaigns/camp-1/team-alert";
+    const { calls } = await renderClientPage(
+      <FoldGroup>
+        <JobAlerts kind="campaign" jobId="camp-1" />
+      </FoldGroup>,
+      routes({
+        [path]: (call: ApiCall) =>
+          call.method === "PUT"
+            ? { ...jobTeamAlert("campaign", "camp-1"), saved: true, on_outcomes: ["booked"] }
+            : jobTeamAlert("campaign", "camp-1"),
+      }),
     );
-
-  it("links its own list to its agent's alerts", async () => {
-    const field: ReturnType<typeof notesFixture>["fields"][number] = {
-      key: "visit_day",
-      label: "Visit day",
-      type: "enum",
-      enum_values: ["Saturday"],
-      reason: "when",
-      required: false,
-    };
-    await render(notesFixture({ fields: [field] }));
-    const link = await screen.findByRole("link", { name: "Set alerts" });
-    expect(link.getAttribute("href")).toBe(`/c/acme/agents/${FIXTURE_AGENT_ID}?section=settings#team-alerts`);
+    const goal = (await screen.findByLabelText(/Ready to buy/)) as HTMLInputElement;
+    expect(goal.checked).toBe(true);
+    expect(screen.getByText("Tell me after a call that ends with")).toBeTruthy();
+    expect(screen.getAllByLabelText("Stuck")).toHaveLength(1);
+    expect(screen.queryByLabelText(/Message my team while the caller is on the line/)).toBeNull();
+    fireEvent.click(goal);
+    fireEvent.click(screen.getByLabelText("Booked"));
+    fireEvent.click(screen.getByLabelText("Stuck"));
+    fireEvent.click(screen.getByRole("button", { name: "Save alerts" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    const put = calls.find((c) => c.method === "PUT");
+    expect(put?.path).toBe(path);
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({
+      on_outcomes: ["booked"],
+      on_fields: [{ key: "setup", values: ["Stuck"] }],
+    });
   });
 
+  it("saves a line's alerts to the line", async () => {
+    const path = "/v1/inbound-lines/line-1/team-alert";
+    const { calls } = await renderClientPage(
+      <FoldGroup>
+        <JobAlerts kind="line" jobId="line-1" />
+      </FoldGroup>,
+      routes({ [path]: () => jobTeamAlert("line", "line-1") }),
+    );
+    fireEvent.click(await screen.findByLabelText("Done"));
+    fireEvent.click(screen.getByRole("button", { name: "Save alerts" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(calls.find((c) => c.method === "PUT")?.path).toBe(path);
+  });
 });

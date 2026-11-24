@@ -2311,6 +2311,9 @@ class InboundLine(PKMixin, TimestampMixin, Base):
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     field_suggestions_at: Mapped[datetime | None]
+    #: Which of its calls tell the owner and the team, as on `campaigns` (D-1040, migration
+    #: b8e3f1c6d2a4, which holds the CHECK).
+    team_alert_rule: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     #: Pip's pass writing missing step outcomes, as on `campaigns` (D-1036, migration
     #: c4f1a8d2e7b3, which holds the CHECK).
     step_outcomes_state: Mapped[str | None] = mapped_column(Text)

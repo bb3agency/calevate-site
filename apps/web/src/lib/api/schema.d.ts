@@ -4797,10 +4797,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** When this agent tells your team about a caller */
-        get: operations["get_team_alert_rule_v1_agents__agent_id__team_alert_get"];
-        /** Set when this agent tells your team about a caller */
-        put: operations["set_team_alert_rule_v1_agents__agent_id__team_alert_put"];
+        /** Whether this agent may message your team during a call, and its jobs' alerts */
+        get: operations["get_agent_team_alert_v1_agents__agent_id__team_alert_get"];
+        /** Let this agent message your team during a call, or stop it */
+        put: operations["set_agent_team_alert_v1_agents__agent_id__team_alert_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -7967,6 +7967,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/team-alert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which of this campaign's calls you and your team are told about */
+        get: operations["get_campaign_team_alert_v1_campaigns__campaign_id__team_alert_get"];
+        /** Set which of this campaign's calls you and your team are told about */
+        put: operations["set_campaign_team_alert_v1_campaigns__campaign_id__team_alert_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/test-call": {
         parameters: {
             query?: never;
@@ -10781,6 +10799,24 @@ export interface paths {
         get?: never;
         /** Choose the sources from What your agents know that Pip writes this line from */
         put: operations["set_sources_v1_inbound_lines__line_id__sources_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/team-alert": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Which of this line's calls you and your team are told about */
+        get: operations["get_line_team_alert_v1_inbound_lines__line_id__team_alert_get"];
+        /** Set which of this line's calls you and your team are told about */
+        put: operations["set_line_team_alert_v1_inbound_lines__line_id__team_alert_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -16907,6 +16943,22 @@ export interface components {
              * @enum {string}
              */
             status: "draft" | "live" | "paused" | "archived";
+        };
+        /** AgentTeamAlertIn */
+        AgentTeamAlertIn: {
+            /** In Call */
+            in_call: boolean;
+        };
+        /** AgentTeamAlertOut */
+        AgentTeamAlertOut: {
+            /** In Call */
+            in_call: boolean;
+            /** In Call Live */
+            in_call_live: boolean;
+            /** Jobs */
+            jobs: components["schemas"]["TeamAlertJobOut"][];
+            /** Team Addresses */
+            team_addresses: number;
         };
         /** AgentTurnDetectionIn */
         AgentTurnDetectionIn: {
@@ -25379,10 +25431,6 @@ export interface components {
         };
         /** FieldTriggerIO */
         FieldTriggerIO: {
-            /** Campaign Id */
-            campaign_id?: string | null;
-            /** Inbound Line Id */
-            inbound_line_id?: string | null;
             /** Key */
             key: string;
             /** Values */
@@ -27582,6 +27630,45 @@ export interface components {
              * @enum {string}
              */
             kind: "campaign" | "line";
+        };
+        /** JobTeamAlertIn */
+        JobTeamAlertIn: {
+            /** On Fields */
+            on_fields?: components["schemas"]["FieldTriggerIO"][];
+            /** On Outcomes */
+            on_outcomes?: string[];
+        };
+        /** JobTeamAlertOut */
+        JobTeamAlertOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Fields */
+            fields: components["schemas"]["TeamAlertChoiceOut"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "campaign" | "line";
+            /** Name */
+            name: string;
+            /** On Fields */
+            on_fields: components["schemas"]["FieldTriggerIO"][];
+            /** On Outcomes */
+            on_outcomes: string[];
+            /** Outcomes */
+            outcomes: components["schemas"]["TeamAlertChoiceOut"][];
+            /** Saved */
+            saved: boolean;
+            /** Team Addresses */
+            team_addresses: number;
         };
         /**
          * KbDriftOut
@@ -36183,12 +36270,10 @@ export interface components {
             values: string[];
         };
         /**
-         * TeamAlertHolderOut
-         * @description A campaign or inbound line of this agent with its own "What it notes" list.
+         * TeamAlertJobOut
+         * @description A campaign or inbound line in the agent's voice, whose page sets its own alerts.
          */
-        TeamAlertHolderOut: {
-            /** Fields */
-            fields: components["schemas"]["TeamAlertChoiceOut"][];
+        TeamAlertJobOut: {
             /**
              * Id
              * Format: uuid
@@ -36201,39 +36286,6 @@ export interface components {
             kind: "campaign" | "line";
             /** Name */
             name: string;
-        };
-        /** TeamAlertRuleIn */
-        TeamAlertRuleIn: {
-            /**
-             * In Call
-             * @default false
-             */
-            in_call: boolean;
-            /** On Fields */
-            on_fields?: components["schemas"]["FieldTriggerIO"][];
-            /** On Outcomes */
-            on_outcomes?: string[];
-        };
-        /** TeamAlertRuleOut */
-        TeamAlertRuleOut: {
-            /** Fields */
-            fields: components["schemas"]["TeamAlertChoiceOut"][];
-            /** Holders */
-            holders: components["schemas"]["TeamAlertHolderOut"][];
-            /** In Call */
-            in_call: boolean;
-            /** In Call Live */
-            in_call_live: boolean;
-            /** On Fields */
-            on_fields: components["schemas"]["FieldTriggerIO"][];
-            /** On Outcomes */
-            on_outcomes: string[];
-            /** Outcomes */
-            outcomes: components["schemas"]["TeamAlertChoiceOut"][];
-            /** Saved */
-            saved: boolean;
-            /** Team Addresses */
-            team_addresses: number;
         };
         /** TeamCodeIn */
         TeamCodeIn: {
@@ -49244,7 +49296,7 @@ export interface operations {
             };
         };
     };
-    get_team_alert_rule_v1_agents__agent_id__team_alert_get: {
+    get_agent_team_alert_v1_agents__agent_id__team_alert_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -49261,7 +49313,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TeamAlertRuleOut"];
+                    "application/json": components["schemas"]["AgentTeamAlertOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -49275,7 +49327,7 @@ export interface operations {
             };
         };
     };
-    set_team_alert_rule_v1_agents__agent_id__team_alert_put: {
+    set_agent_team_alert_v1_agents__agent_id__team_alert_put: {
         parameters: {
             query?: never;
             header?: never;
@@ -49286,7 +49338,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["TeamAlertRuleIn"];
+                "application/json": components["schemas"]["AgentTeamAlertIn"];
             };
         };
         responses: {
@@ -49296,7 +49348,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["TeamAlertRuleOut"];
+                    "application/json": components["schemas"]["AgentTeamAlertOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -54965,6 +55017,72 @@ export interface operations {
             };
         };
     };
+    get_campaign_team_alert_v1_campaigns__campaign_id__team_alert_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobTeamAlertOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_campaign_team_alert_v1_campaigns__campaign_id__team_alert_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobTeamAlertIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobTeamAlertOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     campaign_test_call_v1_campaigns__campaign_id__test_call_post: {
         parameters: {
             query?: never;
@@ -60273,6 +60391,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InboundLineOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_line_team_alert_v1_inbound_lines__line_id__team_alert_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobTeamAlertOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_line_team_alert_v1_inbound_lines__line_id__team_alert_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobTeamAlertIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobTeamAlertOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

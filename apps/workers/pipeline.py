@@ -5606,7 +5606,7 @@ async def _maybe_notify_hot_lead(
     labels: dict[str, str],
 ) -> str:
     """Tell everyone who hears about hot leads about this call (FLOWS §6), when it made its
-    lead hot or the agent's rule matched (`team_alerts.queue_after_call`).
+    lead hot or the call's campaign's or line's rule matched (`team_alerts.queue_after_call`).
 
     A hot call moves the lead through `_advance_lead_status`, so the move is recorded on the
     lead's timeline and reaches a CRM as `lead.updated`; after `_upsert_lead` has already

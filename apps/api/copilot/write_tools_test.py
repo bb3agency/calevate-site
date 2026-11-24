@@ -328,6 +328,8 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "campaign_restore",
         # The script draft APPENDS.
         "script_draft",
+        # D-1040: a campaign's or line's own after-call alerts APPEND.
+        "job_team_alert_set",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]
