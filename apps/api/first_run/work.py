@@ -64,6 +64,9 @@ DEFAULT_TASK: Final[dict[FirstWork, str]] = {
 FIRST_CAMPAIGN_NAME: Final = "Your first calls"
 #: The new-campaign form's own default (`campaigns/routes.CreateCampaignIn.concurrency`).
 FIRST_CAMPAIGN_CONCURRENCY: Final = 3
+#: Why the first run saved a script, shown in its Versions list (`campaigns/script_history`).
+READY_MADE_REASON: Final = "The ready-made script for this job."
+RENAMED_REASON: Final = "The agent's new name was put in the script."
 
 
 def _no_agent() -> ProblemError:
@@ -217,11 +220,15 @@ async def _rename_in_work(session: AsyncSession, *, row: Any, name: str) -> None
     if line_id is not None:
         line_script = renamed((await lines.read_line(session, line_id)).script)
         if line_script is not None:
-            await lines.save_script(session, line_id, line_script)
+            await lines.save_script(
+                session, line_id, line_script, author="system", reason=RENAMED_REASON
+            )
     if campaign_id is not None:
         campaign_script = renamed((await workspace.read_workspace(session, campaign_id)).script)
         if campaign_script is not None:
-            await workspace.save_script(session, campaign_id, campaign_script)
+            await workspace.save_script(
+                session, campaign_id, campaign_script, author="system", reason=RENAMED_REASON
+            )
 
 
 async def _within_ai_allowance(session: AsyncSession, tenant_id: UUID) -> bool:
@@ -416,10 +423,12 @@ async def save_ready_made(
         update={"identity": identity_with_name(script.identity, str(agent.name))}
     )
     if line_id is not None:
-        await lines.save_script(session, line_id, script)
+        await lines.save_script(session, line_id, script, author="system", reason=READY_MADE_REASON)
     else:
         assert campaign_id is not None
-        await workspace.save_script(session, campaign_id, script)
+        await workspace.save_script(
+            session, campaign_id, script, author="system", reason=READY_MADE_REASON
+        )
     await session.execute(
         text(
             "UPDATE first_runs SET build_steps = build_steps || "

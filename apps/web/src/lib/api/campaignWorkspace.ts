@@ -25,6 +25,7 @@ import { invalidateKnowledgeLists } from "./kb";
 import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 import type { CallScript } from "./script";
+import { restoreRequest, type ScriptRestore } from "./scriptVersions";
 
 type Schemas = components["schemas"];
 export type CampaignProposal = Omit<Schemas["CampaignProposalOut"], "script" | "base_script"> & {
@@ -107,13 +108,12 @@ export function useSaveCampaignScript(session: Session, campaignId: string) {
   );
 }
 
-/** Put back the script from before Pip's last draft; the two swap, so it can be undone. */
-export function useRestoreScriptBeforePip(session: Session, campaignId: string) {
-  return useWorkspaceMutation(session, campaignId, (_: void) =>
-    apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/script/restore-before-pip`, {
-      method: "POST",
-    }),
-  );
+/** Put back one saved version, or the owner's own last one (`scriptVersions.ts`). */
+export function useRestoreCampaignScript(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, (input: ScriptRestore) => {
+    const { path, body } = restoreRequest({ kind: "campaign", id: campaignId }, input);
+    return apiRequest<CampaignWorkspace>(session, path, { method: "POST", body });
+  });
 }
 
 /** Give every step outcome back to Pip to rewrite, the owner's own included. */

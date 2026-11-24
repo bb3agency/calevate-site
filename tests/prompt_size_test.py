@@ -281,9 +281,9 @@ async def _job_total(
 
 async def _save_script(session: Any, kind: JobKind, job_id: uuid.UUID, script: CallScript) -> None:
     if kind == "campaign":
-        await campaign_workspace.save_script(session, job_id, script)
+        await campaign_workspace.save_script(session, job_id, script, author="owner")
     else:
-        await lines.save_script(session, job_id, script)
+        await lines.save_script(session, job_id, script, author="owner")
 
 
 def _v2_script(filler: int) -> CallScript:

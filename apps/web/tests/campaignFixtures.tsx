@@ -14,6 +14,7 @@ import type {
   CampaignSettings,
   CampaignWorkspace,
 } from "@/lib/api/campaignWorkspace";
+import type { ScriptVersions } from "@/lib/api/scriptVersions";
 
 import { fireEvent, screen, within } from "@testing-library/react";
 
@@ -157,6 +158,24 @@ export function workspaceFixture(over: Partial<CampaignWorkspace> = {}): Campaig
     script_live_version: null,
     step_outcomes_pending: false,
     step_outcomes_by_owner: false,
+    ...over,
+  };
+}
+
+/** `GET .../script/versions` (D-1039): one version, the owner's own, which is the script now. */
+export function scriptVersionsFixture(over: Partial<ScriptVersions> = {}): ScriptVersions {
+  return {
+    current_version_id: "0192f0aa-9999-7000-8000-000000000001",
+    put_back: { version: null, unavailable: "already_current" },
+    versions: [
+      {
+        id: "0192f0aa-9999-7000-8000-000000000001",
+        author: "owner",
+        owner_made: true,
+        reason: "You saved the script.",
+        created_at: "2026-11-23T10:40:00Z",
+      },
+    ],
     ...over,
   };
 }

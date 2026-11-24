@@ -6,6 +6,7 @@ import { ScenarioFlow } from "@/app/c/[slug]/campaigns/ScenarioFlow";
 import { DEFAULT_LIMITS } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
 import { ToastProvider } from "@/components/arc/toast";
 import type { ActionFeedback } from "@/components/arc/feedback";
+import type { ScriptRestore } from "@/lib/api/scriptVersions";
 import { EMPTY_SCRIPT, type CallScript, type ConversationStage } from "@/lib/api/script";
 
 import { expectNoA11yViolations } from "./a11y";
@@ -171,7 +172,7 @@ describe("unlinking on the canvas", () => {
 
 describe("undo after an unlink", () => {
   it("the canvas's Undo puts the link back", async () => {
-    const restore: ActionFeedback<void> = { status: "idle", run: () => {}, error: null, reset: () => {} };
+    const restore: ActionFeedback<ScriptRestore> = { status: "idle", run: () => {}, error: null, reset: () => {} };
     await renderClientPage(
       <ToastProvider>
         <CampaignFlow
@@ -183,7 +184,7 @@ describe("undo after an unlink", () => {
           mapping={false}
           languages={["te-IN"]}
           campaignId="campaign-1"
-          beforePipAt={null}
+          versions={undefined}
           restore={restore}
           onRestore={async () => {}}
         />

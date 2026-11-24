@@ -101,7 +101,7 @@ async def _draft_line(tenant_id: UUID, agent_id: UUID, number_id: UUID, *, edit:
             session, tenant_id=tenant_id, agent_id=agent_id, name="Front desk", created_by=None
         )
         if edit:
-            await lines.save_script(session, line_id, SCRIPT)
+            await lines.save_script(session, line_id, SCRIPT, author="owner")
         else:
             await session.execute(
                 text("UPDATE inbound_lines SET script = CAST(:s AS jsonb) WHERE id = :l"),

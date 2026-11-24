@@ -28,7 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.field_suggestions import queue_job
-from apps.api.campaigns import step_outcomes
+from apps.api.campaigns import script_history, step_outcomes
 from apps.api.campaigns.notes import starting_fields
 from apps.api.campaigns.workspace import (
     MAIN_TASK_MAX,
@@ -243,6 +243,16 @@ async def create_line(
             "by": created_by,
         },
     )
+    if script is not None:
+        await script_history.record(
+            session,
+            tenant_id=tenant_id,
+            kind="line",
+            holder_id=line_id,
+            script=script,
+            author="owner",
+            made_by=created_by,
+        )
     await queue_job(session, "line", line_id)
     await step_outcomes.queue_after_save(session, "line", line_id, script)
     return line_id
@@ -335,8 +345,18 @@ async def set_actions_off(session: AsyncSession, line_id: UUID, slugs: list[str]
     )
 
 
-async def save_script(session: AsyncSession, line_id: UUID, script: CallScript) -> int:
-    """The owner's edit, or a reviewed Pip draft they kept. Measured as the line's own engine
+async def save_script(
+    session: AsyncSession,
+    line_id: UUID,
+    script: CallScript,
+    *,
+    author: script_history.Author,
+    made_by: UUID | None = None,
+    reason: str | None = None,
+    restored_from: UUID | None = None,
+) -> int:
+    """The owner's edit, a reviewed Pip draft they kept, or a pass's write, kept as a version
+    under `author` (`campaigns/script_history`). Measured as the line's own engine
     agent put-live sends, notes and call-back rules included, so a publish is never refused
     for its length. Returns the new version. Pip repairs any line the script checks fault once
     the owner stops saving (`agents/script_heal`)."""
@@ -355,10 +375,52 @@ async def save_script(session: AsyncSession, line_id: UUID, script: CallScript) 
             {"s": script.model_dump_json(), "lid": line_id},
         )
     ).scalar_one()
+    await script_history.record(
+        session,
+        tenant_id=UUID(str(row.tenant_id)),
+        kind="line",
+        holder_id=line_id,
+        script=script,
+        author=author,
+        made_by=made_by,
+        reason=reason,
+        restored_from=restored_from,
+    )
     await queue_job(session, "line", line_id)
     await script_heal.queue_after_save(session, "line", line_id, script)
     await step_outcomes.queue_after_save(session, "line", line_id, script)
     return int(version)
+
+
+async def restore_version(
+    session: AsyncSession,
+    line_id: UUID,
+    *,
+    version_id: UUID | None,
+    expected_version_id: UUID | None,
+    made_by: UUID | None,
+) -> script_history.Version:
+    """`campaigns/workspace.restore_version` for a line: one version put back, or with
+    `version_id` None the owner's own last one, saved as a new version."""
+    row = await _lock(session, line_id)
+    script, brought = await script_history.script_to_restore(
+        session,
+        "line",
+        line_id,
+        version_id=version_id,
+        expected_version_id=expected_version_id,
+        current=read_call_script(row.script),
+    )
+    await save_script(
+        session,
+        line_id,
+        script,
+        author="restored",
+        made_by=made_by,
+        reason=script_history.restored_reason(brought.created_at),
+        restored_from=brought.id,
+    )
+    return brought
 
 
 async def request_proposal(
@@ -530,6 +592,7 @@ __all__ = [
     "list_lines",
     "read_line",
     "request_proposal",
+    "restore_version",
     "save_script",
     "set_actions_off",
     "set_sources",

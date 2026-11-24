@@ -355,8 +355,8 @@ async def test_the_owners_save_queues_one_debounced_pass() -> None:
     line_id = await _line(tenant_id, agent_id, _script(PLAIN))
     campaign_id = await _campaign(tenant_id, agent_id, _script(PLAIN))
     async with tenant_session(tenant_id) as session:
-        await lines.save_script(session, line_id, _script())
-        await workspace.save_script(session, campaign_id, _script())
+        await lines.save_script(session, line_id, _script(), author="owner")
+        await workspace.save_script(session, campaign_id, _script(), author="owner")
     line = await _row(tenant_id, "inbound_lines", line_id)
     campaign = await _row(tenant_id, "campaigns", campaign_id)
     assert line.script_heal_state == "queued" and campaign.script_heal_state == "queued"

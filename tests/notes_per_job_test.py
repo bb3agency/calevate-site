@@ -357,6 +357,7 @@ async def test_a_lines_script_asks_for_the_lines_list() -> None:
                 opening_line="Namaste, how can I help you today?",
                 goal="Book a visit.",
             ),
+            author="owner",
         )
         config = await agents_service.line_config(session, tenant_id=tenant_id, line_id=line_id)
     assert "Budget" in config.system_prompt

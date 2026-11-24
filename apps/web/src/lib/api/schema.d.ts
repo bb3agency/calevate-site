@@ -7877,7 +7877,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Put back the script from before Pip's last draft (the two swap) */
+        /** Put back the owner's own last version of the script, before Pip's changes */
         post: operations["restore_script_before_pip_v1_campaigns__campaign_id__script_restore_before_pip_post"];
         delete?: never;
         options?: never;
@@ -7896,6 +7896,40 @@ export interface paths {
         put?: never;
         /** Give every step outcome back to Pip to rewrite */
         post: operations["rewrite_step_outcomes_v1_campaigns__campaign_id__script_step_outcomes_rewrite_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The campaign's saved script versions, and what putting back the flow restores */
+        get: operations["read_script_versions_v1_campaigns__campaign_id__script_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script/versions/{script_version_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put back one saved version of the campaign's script */
+        post: operations["restore_script_version_v1_campaigns__campaign_id__script_versions__script_version_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10897,6 +10931,57 @@ export interface paths {
         put?: never;
         /** Keep Pip's written draft as the line's script and put it live, as Save does */
         post: operations["keep_script_draft_live_v1_inbound_lines__line_id__script_draft__line_proposal_id__keep_live_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script/restore-before-pip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put back the owner's own last version of the line's script, before Pip's changes */
+        post: operations["restore_script_before_pip_v1_inbound_lines__line_id__script_restore_before_pip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The line's saved script versions, and what putting back the script restores */
+        get: operations["read_script_versions_v1_inbound_lines__line_id__script_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script/versions/{script_version_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put back one saved version of the line's script */
+        post: operations["restore_script_version_v1_inbound_lines__line_id__script_versions__script_version_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -34879,6 +34964,17 @@ export interface components {
              */
             take_bookings: boolean;
         };
+        /** ScriptPutBackOut */
+        ScriptPutBackOut: {
+            /** Unavailable */
+            unavailable: ("no_owner_version" | "already_current") | null;
+            version: components["schemas"]["ScriptVersionOut"] | null;
+        };
+        /** ScriptRestoreIn */
+        ScriptRestoreIn: {
+            /** Expected Version Id */
+            expected_version_id: string | null;
+        };
         /**
          * ScriptStep
          * @description One ordered instruction in the task flow — a natural-language sentence, not code.
@@ -34912,6 +35008,40 @@ export interface components {
             key: string;
             /** Label */
             label: string;
+        };
+        /** ScriptVersionOut */
+        ScriptVersionOut: {
+            /**
+             * Author
+             * @enum {string}
+             */
+            author: "owner" | "pip_draft" | "pip_repair" | "pip_outcomes" | "pip_notices" | "system" | "restored" | "copied" | "earlier";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Owner Made */
+            owner_made: boolean;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * ScriptVersionsOut
+         * @description A campaign's or line's script versions, newest first (at most `KEEP` + 1), and what
+         *     "Put back the flow from before Pip" would restore.
+         */
+        ScriptVersionsOut: {
+            /** Current Version Id */
+            current_version_id: string | null;
+            put_back: components["schemas"]["ScriptPutBackOut"];
+            /** Versions */
+            versions: components["schemas"]["ScriptVersionOut"][];
         };
         /** SecondFactorIn */
         SecondFactorIn: {
@@ -40579,8 +40709,6 @@ export interface components {
             main_task: string;
             proposal: components["schemas"]["CampaignProposalOut"] | null;
             script: components["schemas"]["CallScript"] | null;
-            /** Script Before Pip At */
-            script_before_pip_at?: string | null;
             /** Script Live Version */
             script_live_version: number | null;
             /** Source Ids */
@@ -55080,7 +55208,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScriptRestoreIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -55090,6 +55222,13 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["WorkspaceOut"];
                 };
+            };
+            /** @description Nothing to put back, or the script changed since */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -55121,6 +55260,80 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["WorkspaceOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_script_versions_v1_campaigns__campaign_id__script_versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptVersionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_script_version_v1_campaigns__campaign_id__script_versions__script_version_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                script_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScriptRestoreIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description That version is the script now, or it changed since */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -60760,6 +60973,140 @@ export interface operations {
                 };
             };
             /** @description The draft is not the one ready now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_script_before_pip_v1_inbound_lines__line_id__script_restore_before_pip_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScriptRestoreIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundLineOut"];
+                };
+            };
+            /** @description Nothing to put back, or the script changed since */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_script_versions_v1_inbound_lines__line_id__script_versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptVersionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_script_version_v1_inbound_lines__line_id__script_versions__script_version_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+                script_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScriptRestoreIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundLineOut"];
+                };
+            };
+            /** @description That version is the script now, or it changed since */
             409: {
                 headers: {
                     [name: string]: unknown;

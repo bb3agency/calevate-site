@@ -263,9 +263,9 @@ async def _save_if_asked(session: AsyncSession, holder: _Holder, script: CallScr
     try:
         async with session.begin_nested():
             if holder.table == "inbound_lines":
-                await lines.save_script(session, holder.holder_id, script)
+                await lines.save_script(session, holder.holder_id, script, author="pip_draft")
             else:
-                await workspace.save_script(session, holder.holder_id, script)
+                await workspace.save_script(session, holder.holder_id, script, author="pip_draft")
             await session.execute(
                 text(f"UPDATE {_table_of(holder)} SET script_proposal = NULL WHERE id = :hid"),
                 {"hid": holder.holder_id},

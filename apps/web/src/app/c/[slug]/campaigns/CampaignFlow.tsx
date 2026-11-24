@@ -13,7 +13,6 @@
 
 import {
   ChevronDown,
-  History,
   Maximize2,
   Plus,
   Redo2,
@@ -29,12 +28,12 @@ import { ActionButton, type ActionFeedback } from "@/components/arc/feedback";
 import {
   SECONDARY_BUTTON_SM,
   ScrollRegion,
-  formatIST,
 } from "@/components/ui";
 import { useFocusTrap } from "@/lib/focusTrap";
 import { keepInView } from "@/lib/keepInView";
 import type { CallScript } from "@/lib/api/script";
 import { useScript } from "@/lib/api/script";
+import type { ScriptRestore, ScriptVersions as ScriptVersionsData } from "@/lib/api/scriptVersions";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -45,6 +44,7 @@ import {
 } from "../agents/[agentId]/script/scriptModel";
 import { DESKTOP, useMedia } from "../agents/[agentId]/script/useMedia";
 import { ScenarioFlow } from "./ScenarioFlow";
+import { ScriptVersions } from "./ScriptVersions";
 import { ChooseAgentPrompt, useFlowAgent } from "./FlowAgentBar";
 import { addScenario, placed, withPipOutcomes } from "./scenarioModel";
 
@@ -68,7 +68,7 @@ export function CampaignFlow({
   mapping,
   languages,
   campaignId,
-  beforePipAt,
+  versions,
   restore,
   onRestore,
   outcomesPending = false,
@@ -85,10 +85,10 @@ export function CampaignFlow({
   outcomesByOwner?: boolean;
   rewriteOutcomes?: ActionFeedback<void>;
   onRewriteOutcomes?: () => Promise<unknown>;
-  /** When the flow from before Pip's last draft was kept aside; null: nothing to put back. */
-  beforePipAt: string | null;
-  restore: ActionFeedback<void>;
-  onRestore: () => Promise<unknown>;
+  /** The script's saved versions and what putting back the flow restores (D-1039). */
+  versions: ScriptVersionsData | undefined;
+  restore: ActionFeedback<ScriptRestore>;
+  onRestore: (input: ScriptRestore) => Promise<unknown>;
   campaignId: string;
   agentId: string;
   /** The campaign's languages, main first: each scenario has a script line in each. */
@@ -206,7 +206,6 @@ export function CampaignFlow({
     setSelected(made.id);
   };
 
-  const [confirmRestore, setConfirmRestore] = useState(false);
   const [confirmRewrite, setConfirmRewrite] = useState(false);
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
@@ -245,22 +244,14 @@ export function CampaignFlow({
           {mapping ? "Pip is mapping…" : "Let Pip map the scenarios"}
         </button>
       )}
-      {beforePipAt && (
-        <button
-          type="button"
-          className={SECONDARY_BUTTON_SM}
-          disabled={readOnly || dirty}
-          title={
-            dirty
-              ? "Save or discard your changes first."
-              : `The flow as it was on ${formatIST(beforePipAt)}, before Pip wrote.`
-          }
-          onClick={() => setConfirmRestore(true)}
-        >
-          <History aria-hidden className="h-3.5 w-3.5" />
-          Put back the flow from before Pip
-        </button>
-      )}
+      <ScriptVersions
+        versions={versions}
+        noun="flow"
+        readOnly={readOnly}
+        dirty={dirty}
+        restore={restore}
+        onRestore={onRestore}
+      />
       {outcomesByOwner && onRewriteOutcomes && (
         <button
           type="button"
@@ -416,33 +407,6 @@ export function CampaignFlow({
           {body()}
           {saveBar(false)}
         </>
-      )}
-
-      {confirmRestore && beforePipAt && (
-        <ConfirmDialog
-          title="Put back the flow from before Pip?"
-          confirmLabel="Put it back"
-          pendingLabel="Putting it back"
-          cancelLabel="Keep this one"
-          status={restore.status}
-          error={restore.error ?? null}
-          onCancel={() => {
-            restore.reset();
-            setConfirmRestore(false);
-          }}
-          onConfirm={() =>
-            void onRestore().then(
-              () => setConfirmRestore(false),
-              () => undefined,
-            )
-          }
-        >
-          <span className="block">
-            The steps and scenarios go back to how they were on{" "}
-            {formatIST(beforePipAt)}, before Pip wrote. The flow you have now is
-            kept, so you can switch back to it the same way.
-          </span>
-        </ConfirmDialog>
       )}
 
       {confirmRewrite && rewriteOutcomes && onRewriteOutcomes && (

@@ -103,6 +103,12 @@ _D763_REASON = (
     "rule 8's two-step and dropped by the D-763 drop migration next release"
 )
 
+_D1039_REASON = (
+    "D-1039: `script_versions` replaced the one switch-back copy; nothing reads or writes it. "
+    "Kept with its rows under hard rule 8's two-step; closes with the migration that drops "
+    "the two columns"
+)
+
 _D770_REASON = (
     "D-770: call_engine_latency lost its only writer with Pipecat (D-763) and its reader with "
     "the stage-budget report; kept under hard rule 8's two-step and dropped next release"
@@ -195,6 +201,8 @@ UNWIRED_BASELINE: dict[str, str] = {
         "gives no reference; our filing reference lives in `a2p_number_filings`. Kept with the "
         "D-637 and version-1 rows under hard rule 8; closes with the migration that drops it"
     ),
+    "Campaign.script_before_pip": _D1039_REASON,
+    "Campaign.script_before_pip_at": _D1039_REASON,
     "Agent.escalation_config": (
         "D-533 stopped writing it (the handover roster moved to `agent_handoff_members`) and "
         "D-695 removed its last reader, the admin intake's fallback. Kept under hard rule 8's "

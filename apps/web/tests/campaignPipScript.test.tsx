@@ -5,7 +5,13 @@ import { CampaignWorkspace, scriptAsk } from "@/app/c/[slug]/campaigns/CampaignW
 import type { CampaignProposal } from "@/lib/api/campaignWorkspace";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 
-import { FIXTURE_AGENT_ID, FIXTURE_CAMPAIGN_ID, settingsFixture, workspaceFixture } from "./campaignFixtures";
+import {
+  FIXTURE_AGENT_ID,
+  FIXTURE_CAMPAIGN_ID,
+  scriptVersionsFixture,
+  settingsFixture,
+  workspaceFixture,
+} from "./campaignFixtures";
 import { noReply, problem, renderClientPage, type ApiCall, type Routes } from "./harness";
 
 /**
@@ -44,6 +50,7 @@ function ready(over: Partial<CampaignProposal> = {}): CampaignProposal {
 const routes = (extra: Routes = {}): Routes => ({
   [`${base}/workspace`]: workspaceFixture({ source_ids: [SOURCE_ID] }),
   [`${base}/settings`]: settingsFixture(),
+  [`${base}/script/versions`]: scriptVersionsFixture(),
   "/v1/kb/notes": { notes: [] },
   "/v1/kb/uploads": [],
   // The call flow's voice bar lists the account's agents.

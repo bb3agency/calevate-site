@@ -54254,6 +54254,64 @@
         "title": "ScriptPolicies",
         "type": "object"
       },
+      "ScriptPutBackOut": {
+        "additionalProperties": false,
+        "properties": {
+          "unavailable": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_owner_version",
+                  "already_current"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScriptVersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "version",
+          "unavailable"
+        ],
+        "title": "ScriptPutBackOut",
+        "type": "object"
+      },
+      "ScriptRestoreIn": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Version Id"
+          }
+        },
+        "required": [
+          "expected_version_id"
+        ],
+        "title": "ScriptRestoreIn",
+        "type": "object"
+      },
       "ScriptStep": {
         "additionalProperties": false,
         "description": "One ordered instruction in the task flow \u2014 a natural-language sentence, not code.\n\nPROMPT-GUIDE \u00a72/\u00a74 are explicit that a task flow is a LOOSE outline of hints, not a\nrigid line-by-line script (\"rigid scripts sound robotic and break on interruptions\"),\nso a step is prose the model follows in spirit, and reordering steps reorders the\noutline. Supports `{{ variables }}` like every other authored field.",
@@ -54299,6 +54357,88 @@
           "label"
         ],
         "title": "ScriptVariable",
+        "type": "object"
+      },
+      "ScriptVersionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "author": {
+            "enum": [
+              "owner",
+              "pip_draft",
+              "pip_repair",
+              "pip_outcomes",
+              "pip_notices",
+              "system",
+              "restored",
+              "copied",
+              "earlier"
+            ],
+            "title": "Author",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "owner_made": {
+            "title": "Owner Made",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "author",
+          "owner_made",
+          "reason",
+          "created_at"
+        ],
+        "title": "ScriptVersionOut",
+        "type": "object"
+      },
+      "ScriptVersionsOut": {
+        "additionalProperties": false,
+        "description": "A campaign's or line's script versions, newest first (at most `KEEP` + 1), and what\n\"Put back the flow from before Pip\" would restore.",
+        "properties": {
+          "current_version_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Version Id"
+          },
+          "put_back": {
+            "$ref": "#/components/schemas/ScriptPutBackOut"
+          },
+          "versions": {
+            "items": {
+              "$ref": "#/components/schemas/ScriptVersionOut"
+            },
+            "title": "Versions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "current_version_id",
+          "put_back",
+          "versions"
+        ],
+        "title": "ScriptVersionsOut",
         "type": "object"
       },
       "SecondFactorIn": {
@@ -69450,18 +69590,6 @@
                 "type": "null"
               }
             ]
-          },
-          "script_before_pip_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Script Before Pip At"
           },
           "script_live_version": {
             "anyOf": [
@@ -91718,6 +91846,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptRestoreIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -91729,6 +91867,9 @@
             },
             "description": "Successful Response"
           },
+          "409": {
+            "description": "Nothing to put back, or the script changed since"
+          },
           "default": {
             "content": {
               "application/problem+json": {}
@@ -91736,7 +91877,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Put back the script from before Pip's last draft (the two swap)",
+        "summary": "Put back the owner's own last version of the script, before Pip's changes",
         "tags": [
           "campaigns"
         ],
@@ -91777,6 +91918,109 @@
           }
         },
         "summary": "Give every step outcome back to Pip to rewrite",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/script/versions": {
+      "get": {
+        "operationId": "read_script_versions_v1_campaigns__campaign_id__script_versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptVersionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The campaign's saved script versions, and what putting back the flow restores",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/script/versions/{script_version_id}/restore": {
+      "post": {
+        "operationId": "restore_script_version_v1_campaigns__campaign_id__script_versions__script_version_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "script_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Script Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptRestoreIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "That version is the script now, or it changed since"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put back one saved version of the campaign's script",
         "tags": [
           "campaigns"
         ],
@@ -99169,6 +99413,190 @@
           }
         },
         "summary": "Keep Pip's written draft as the line's script and put it live, as Save does",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/script/restore-before-pip": {
+      "post": {
+        "operationId": "restore_script_before_pip_v1_inbound_lines__line_id__script_restore_before_pip_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptRestoreIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "Nothing to put back, or the script changed since"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EngineAgentAllowanceFull"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put back the owner's own last version of the line's script, before Pip's changes",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/script/versions": {
+      "get": {
+        "operationId": "read_script_versions_v1_inbound_lines__line_id__script_versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptVersionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The line's saved script versions, and what putting back the script restores",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/script/versions/{script_version_id}/restore": {
+      "post": {
+        "operationId": "restore_script_version_v1_inbound_lines__line_id__script_versions__script_version_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "script_version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Script Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptRestoreIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "That version is the script now, or it changed since"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EngineAgentAllowanceFull"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put back one saved version of the line's script",
         "tags": [
           "inbound"
         ],

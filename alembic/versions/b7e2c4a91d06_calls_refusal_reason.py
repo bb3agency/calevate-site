@@ -1,7 +1,7 @@
 """calls: why the person said no, as one countable category
 
 Revision ID: b7e2c4a91d06
-Revises: b8e3f1c6d2a4
+Revises: 9c3e5b7a1f28
 Create Date: 2026-11-24 18:00:00.000000
 
 One nullable column on `calls`, `refusal_reason`: the post-call reading's category for why
@@ -20,7 +20,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b7e2c4a91d06"
-down_revision: str | None = "b8e3f1c6d2a4"
+down_revision: str | None = "9c3e5b7a1f28"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

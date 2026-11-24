@@ -30,7 +30,7 @@ import {
   useCampaignWorkspace,
   useClearCampaignProposal,
   useRequestCampaignScript,
-  useRestoreScriptBeforePip,
+  useRestoreCampaignScript,
   useRewriteStepOutcomes,
   useSaveCampaignScript,
   useSaveMainTask,
@@ -39,6 +39,7 @@ import {
   type ScriptAsk,
 } from "@/lib/api/campaignWorkspace";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
+import { useScriptVersions } from "@/lib/api/scriptVersions";
 import { useClientRealm } from "@/lib/api/session";
 
 import { LeftOutNotice } from "../agents/[agentId]/script/PipProposal";
@@ -50,6 +51,7 @@ import { PipAskRefused, PipFailed, PipWriting, retryable } from "./PipScriptStat
 import { FoldSection } from "./FoldSection";
 import { SourcePicker, useChosenCount } from "./SourcePicker";
 import { CampaignFlow, FLOW_PART } from "./CampaignFlow";
+import { restoredToast } from "./ScriptVersions";
 import { openingOf } from "./scenarioModel";
 import { ScriptLanguagePick, languageName } from "./ScriptLanguages";
 import { MAIN_TASK_PLACEHOLDER } from "./NewCampaignSteps";
@@ -312,8 +314,9 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const clear = useClearCampaignProposal(session, campaignId);
   const save = useSaveCampaignScript(session, campaignId);
-  const restore = useRestoreScriptBeforePip(session, campaignId);
-  const restoreFeedback = useActionFeedback(restore, { errorDisplay: "inline", successToast: "Flow put back" });
+  const restore = useRestoreCampaignScript(session, campaignId);
+  const restoreFeedback = useActionFeedback(restore, { errorDisplay: "inline", successToast: restoredToast });
+  const versions = useScriptVersions(session, { kind: "campaign", id: campaignId }, space.script, space.script != null);
   const rewrite = useRewriteStepOutcomes(session, campaignId);
   const rewriteFeedback = useActionFeedback(rewrite, { errorDisplay: "inline", successToast: "Pip is rewriting the outcomes" });
   const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
@@ -532,10 +535,10 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                 }}
                 mapping={ask.isPending}
                 onEditOpening={canWrite ? openEditor : undefined}
-                beforePipAt={space.script_before_pip_at ?? null}
+                versions={versions.data}
                 outcomesPending={space.step_outcomes_pending}
                 restore={restoreFeedback}
-                onRestore={() => restore.mutateAsync()}
+                onRestore={(input) => restore.mutateAsync(input)}
                 outcomesByOwner={space.step_outcomes_by_owner}
                 rewriteOutcomes={rewriteFeedback}
                 onRewriteOutcomes={() => rewrite.mutateAsync()}

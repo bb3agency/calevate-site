@@ -59,6 +59,7 @@ import {
   useLineTestNumbers,
   usePublishInboundLine,
   useRequestLineScript,
+  useRestoreLineScript,
   useSaveLineScript,
   useSetLineActions,
   useSetLineSources,
@@ -66,6 +67,7 @@ import {
   type InboundLine,
 } from "@/lib/api/inboundLines";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
+import { useScriptVersions } from "@/lib/api/scriptVersions";
 import { useClientRealm } from "@/lib/api/session";
 import { endingLabel } from "@/lib/callReview";
 
@@ -79,6 +81,7 @@ import { TestCallRows } from "../campaigns/TestCallList";
 import { SlotsFullProblem, isSlotsFull } from "../campaigns/SlotHolders";
 import { PipGenerateBand } from "../campaigns/PipGenerateBand";
 import { PipFailed, PipWriting, retryable } from "../campaigns/PipScriptStatus";
+import { ScriptVersions, restoredToast } from "../campaigns/ScriptVersions";
 import { SourcePicker, useChosenCount } from "../campaigns/SourcePicker";
 
 import { LineStatusPill, lineState } from "./lineStatus";
@@ -367,6 +370,9 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
   const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
   const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
   useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved and live" });
+  const restore = useRestoreLineScript(session, line.id);
+  const restoreFeedback = useActionFeedback(restore, { errorDisplay: "inline", successToast: restoredToast });
+  const versions = useScriptVersions(session, { kind: "line", id: line.id }, line.script, line.script != null);
   const [editing, setEditing] = useState(false);
   //: The draft the owner chose to review part by part instead of in the live view.
   const [reviewing, setReviewing] = useState<string | null>(null);
@@ -521,6 +527,14 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
                 >
                   Edit script
                 </button>
+                <ScriptVersions
+                  versions={versions.data}
+                  noun="script"
+                  readOnly={!canWrite}
+                  dirty={false}
+                  restore={restoreFeedback}
+                  onRestore={(input) => restore.mutateAsync(input)}
+                />
                 {line.published_at && (
                   <span className="text-meta text-ink-muted">Live since {formatIST(line.published_at)}</span>
                 )}

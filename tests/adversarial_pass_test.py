@@ -687,6 +687,17 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
         )
         ids["line_id"] = str(line_id)
         ids["line_proposal_id"] = str(line_proposal_id)
+        # D-1039: a saved version of A's campaign script, so restoring it from a neighbour
+        # names a row that exists.
+        script_version_id = uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO script_versions (id, tenant_id, campaign_id, script, author, "
+                "owner_made, reason) VALUES (:i, :t, :c, '{}'::jsonb, 'owner', true, 'Saved.')"
+            ),
+            {"i": script_version_id, "t": tenant_id, "c": uuid.UUID(ids["campaign_id"])},
+        )
+        ids["script_version_id"] = str(script_version_id)
         for sql, job_id in (
             (_SUGGEST_ON_CAMPAIGN_SQL, uuid.UUID(ids["campaign_id"])),
             (_SUGGEST_ON_LINE_SQL, line_id),
@@ -911,7 +922,32 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/inbound-lines/{line_id}/test-numbers", {}, {}),
     ("GET", "/v1/inbound-lines/{line_id}/diagnosis", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/script/proposal", {}, {}),
-    ("POST", "/v1/campaigns/{campaign_id}/script/restore-before-pip", {}, {}),
+    (
+        "POST",
+        "/v1/campaigns/{campaign_id}/script/restore-before-pip",
+        {"expected_version_id": None},
+        {},
+    ),
+    ("GET", "/v1/campaigns/{campaign_id}/script/versions", {}, {}),
+    (
+        "POST",
+        "/v1/campaigns/{campaign_id}/script/versions/{script_version_id}/restore",
+        {"expected_version_id": None},
+        {},
+    ),
+    ("GET", "/v1/inbound-lines/{line_id}/script/versions", {}, {}),
+    (
+        "POST",
+        "/v1/inbound-lines/{line_id}/script/restore-before-pip",
+        {"expected_version_id": None},
+        {},
+    ),
+    (
+        "POST",
+        "/v1/inbound-lines/{line_id}/script/versions/{script_version_id}/restore",
+        {"expected_version_id": None},
+        {},
+    ),
     ("POST", "/v1/campaigns/{campaign_id}/script/step-outcomes/rewrite", {}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/script/proposal/{proposal_id}", {}, {}),
     # Pip live (24 Nov 2026): a neighbour's draft followed, kept live or cancelled.
