@@ -11,7 +11,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { SearchField } from "@/components/arc/search-field";
-import { useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatIST } from "@/components/ui";
 import { useAnswerQuestion, useCampaignQuestions, type CampaignQuestion } from "@/lib/api/campaignWorkspace";
@@ -158,14 +158,15 @@ function Question({
             />
           </label>
           {answer.error != null && <ProblemNotice error={answer.error} />}
-          <button
-            type="button"
-            className={PRIMARY_BUTTON_SM}
-            disabled={!text.trim() || answer.isPending}
+          <ActionButton
+            variant="primary-sm"
+            status={answer.isPending ? "pending" : "idle"}
+            pendingLabel="Saving…"
+            disabled={!text.trim()}
             onClick={submit}
           >
-            {answer.isPending ? "Saving…" : "Keep this answer"}
-          </button>
+            Keep this answer
+          </ActionButton>
         </div>
       )}
     </li>

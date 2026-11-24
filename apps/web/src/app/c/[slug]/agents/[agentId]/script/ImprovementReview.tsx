@@ -216,9 +216,9 @@ export function ImprovementReview({
           )
         )}
         {/* Closing mid-keep would hide where the facts went; it waits for the answer. */}
-        <button type="button" className={SECONDARY_BUTTON_SM} disabled={saving} onClick={onClose}>
+        <ActionButton variant="secondary-sm" disabled={saving} onClick={onClose}>
           Not now
-        </button>
+        </ActionButton>
       </div>
       {factMissingAnswer && <p className="text-meta text-ink-muted">Type the answer for each fact you keep, or untick it.</p>}
       <HowItWorks

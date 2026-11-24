@@ -15,7 +15,7 @@ import type { ReactNode } from "react";
 
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { ModalDialog } from "@/components/modalDialog";
-import { ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
+import { ProblemNotice } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useApplyScript, type ScriptOut } from "@/lib/api/script";
 
@@ -78,9 +78,10 @@ export function PutLiveDialog({
       }
       actions={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onCancel} disabled={pending}>
+          {/* Held while Put it live works; that button carries the spinner. */}
+          <ActionButton variant="secondary" onClick={onCancel} disabled={shown === "pending"}>
             Not yet
-          </button>
+          </ActionButton>
           <ActionButton status={shown} pendingLabel="Putting it live…" successLabel="Live" onClick={onConfirm}>
             Put it live
           </ActionButton>

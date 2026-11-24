@@ -10,8 +10,8 @@
 import { Plus, X } from "lucide-react";
 import { useState } from "react";
 
-import { useActionFeedback } from "@/components/arc/feedback";
-import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatIST } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FIELD, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { LANGUAGE_NAMES } from "@/lib/agentState";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -26,7 +26,7 @@ export function AgentVoiceNotes({ agentId, canWrite = true }: { agentId: string;
   const notes = useVoiceNotes(session, agentId);
   const teach = useTeachVoiceNote(session, agentId);
   const retire = useRetireVoiceNote(session, agentId);
-  useActionFeedback(teach, { errorDisplay: "inline", successToast: "Taught" });
+  const teachFeedback = useActionFeedback(teach, { errorDisplay: "inline", successToast: "Taught" });
   useActionFeedback(retire, { errorTitle: "Could not retire the note", successToast: "No longer followed" });
   const [typed, setTyped] = useState("");
 
@@ -62,16 +62,18 @@ export function AgentVoiceNotes({ agentId, canWrite = true }: { agentId: string;
                 </p>
               </div>
               {canWrite && (
-                <button
-                  type="button"
+                <ActionButton
+                  variant="text"
                   className="rounded p-1 text-ink-muted hover:bg-ink/[0.06] hover:text-ink"
                   aria-label={`Stop following "${n.note}"`}
                   title="Stop following this (it is kept, not deleted)"
-                  disabled={retire.isPending}
+                  status={retire.isPending && retire.variables === n.id ? "pending" : "idle"}
+                  pendingLabel={<></>}
+                  disabled={retire.isPending && retire.variables !== n.id}
                   onClick={() => retire.mutate(n.id)}
                 >
                   <X aria-hidden className="h-4 w-4" />
-                </button>
+                </ActionButton>
               )}
             </li>
           ))}
@@ -93,10 +95,16 @@ export function AgentVoiceNotes({ agentId, canWrite = true }: { agentId: string;
               }
             }}
           />
-          <button type="button" className={SECONDARY_BUTTON_SM} disabled={!typed.trim() || full || teach.isPending} onClick={add}>
+          <ActionButton
+            variant="secondary-sm"
+            status={teachFeedback.status}
+            successLabel="Taught"
+            disabled={!typed.trim() || full}
+            onClick={add}
+          >
             <Plus aria-hidden className="h-3.5 w-3.5" />
             Teach
-          </button>
+          </ActionButton>
         </div>
       )}
       {full && <p className="mt-1 text-meta text-ink-muted">It keeps {notes.data?.limit} notes. Retire one to add another.</p>}

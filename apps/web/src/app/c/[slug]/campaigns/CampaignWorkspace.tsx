@@ -19,9 +19,9 @@
 import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 
-import { useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
-import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import {
   useAddCampaignSource,
   useCampaignSettings,
@@ -210,19 +210,20 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
             onChange={(e) => setText(e.target.value)}
           />
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              className={PRIMARY_BUTTON_SM}
-              disabled={!canWrite || !text.trim() || !dirty || save.isPending}
+            <ActionButton
+              variant="primary-sm"
+              status={save.isPending ? "pending" : "idle"}
+              pendingLabel="Saving…"
+              disabled={!canWrite || !text.trim() || !dirty}
               title={refusal}
               onClick={submit}
             >
-              {save.isPending ? "Saving…" : "Save"}
-            </button>
+              Save
+            </ActionButton>
             {space.main_task.trim() !== "" && (
-              <button type="button" className={SECONDARY_BUTTON_SM} disabled={save.isPending} onClick={cancel}>
+              <ActionButton variant="secondary-sm" disabled={save.isPending} onClick={cancel}>
                 Cancel
-              </button>
+              </ActionButton>
             )}
           </div>
           {save.error != null && (

@@ -196,9 +196,9 @@ function RowShell({
           <div className="min-w-0 sm:flex-1">{view}</div>
           {canWrite ? (
             <div className="flex min-w-0 flex-wrap gap-1.5 sm:shrink-0">
-              <button type="button" className={SECONDARY_BUTTON_SM} onClick={onEdit} disabled={busy}>
+              <ActionButton variant="secondary-sm" onClick={onEdit} disabled={busy}>
                 Edit
-              </button>
+              </ActionButton>
               <ActionButton
                 variant="secondary-sm"
                 status={removeStatus}
