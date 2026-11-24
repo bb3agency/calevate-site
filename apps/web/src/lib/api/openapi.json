@@ -24815,6 +24815,45 @@
         "title": "DeliveryResendOut",
         "type": "object"
       },
+      "DiagnosisStepOut": {
+        "additionalProperties": false,
+        "properties": {
+          "lost_here": {
+            "title": "Lost Here",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "not_reached": {
+            "title": "Not Reached",
+            "type": "integer"
+          },
+          "reached": {
+            "title": "Reached",
+            "type": "integer"
+          },
+          "step": {
+            "title": "Step",
+            "type": "integer"
+          },
+          "unclear": {
+            "title": "Unclear",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "step",
+          "name",
+          "reached",
+          "not_reached",
+          "unclear",
+          "lost_here"
+        ],
+        "title": "DiagnosisStepOut",
+        "type": "object"
+      },
       "DigiLockerRequirementIn": {
         "additionalProperties": false,
         "properties": {
@@ -25435,6 +25474,45 @@
         "title": "DrawdownOut",
         "type": "object"
       },
+      "DropOffOut": {
+        "additionalProperties": false,
+        "properties": {
+          "judged_calls": {
+            "title": "Judged Calls",
+            "type": "integer"
+          },
+          "min_calls": {
+            "title": "Min Calls",
+            "type": "integer"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosisStepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "worst_step": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worst Step"
+          }
+        },
+        "required": [
+          "judged_calls",
+          "min_calls",
+          "steps",
+          "worst_step"
+        ],
+        "title": "DropOffOut",
+        "type": "object"
+      },
       "DuplicateCampaignIn": {
         "additionalProperties": false,
         "properties": {
@@ -25590,6 +25668,64 @@
           "other_calls"
         ],
         "title": "DurationsOut",
+        "type": "object"
+      },
+      "EarlyHangUpsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "early": {
+            "title": "Early",
+            "type": "integer"
+          },
+          "early_seconds": {
+            "title": "Early Seconds",
+            "type": "integer"
+          },
+          "min_answered": {
+            "title": "Min Answered",
+            "type": "integer"
+          },
+          "others_answered": {
+            "title": "Others Answered",
+            "type": "integer"
+          },
+          "others_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Others Rate"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          }
+        },
+        "required": [
+          "answered",
+          "early",
+          "rate",
+          "others_answered",
+          "others_rate",
+          "min_answered",
+          "early_seconds"
+        ],
+        "title": "EarlyHangUpsOut",
         "type": "object"
       },
       "EditTenantIn": {
@@ -32602,6 +32738,90 @@
           "holds"
         ],
         "title": "HeldTenantOut",
+        "type": "object"
+      },
+      "HolderDiagnosisOut": {
+        "additionalProperties": false,
+        "properties": {
+          "drop_off": {
+            "$ref": "#/components/schemas/DropOffOut"
+          },
+          "early_hang_ups": {
+            "$ref": "#/components/schemas/EarlyHangUpsOut"
+          },
+          "mistakes": {
+            "items": {
+              "$ref": "#/components/schemas/HolderMistakeOut"
+            },
+            "title": "Mistakes",
+            "type": "array"
+          },
+          "refusal_reasons": {
+            "items": {
+              "$ref": "#/components/schemas/RefusalReasonOut"
+            },
+            "title": "Refusal Reasons",
+            "type": "array"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_days",
+          "drop_off",
+          "mistakes",
+          "early_hang_ups",
+          "refusal_reasons"
+        ],
+        "title": "HolderDiagnosisOut",
+        "type": "object"
+      },
+      "HolderMistakeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_call_id": {
+            "format": "uuid",
+            "title": "Last Call Id",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "repaired",
+              "repairing",
+              "told"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "calls",
+          "last_call_id",
+          "last_seen_at",
+          "status"
+        ],
+        "title": "HolderMistakeOut",
         "type": "object"
       },
       "HolderOut": {
@@ -51839,6 +52059,34 @@
         "title": "RefusalOut",
         "type": "object"
       },
+      "RefusalReasonOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "reason": {
+            "enum": [
+              "price",
+              "busy_now",
+              "already_has",
+              "not_interested",
+              "wants_person",
+              "no_trust",
+              "other"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "calls"
+        ],
+        "title": "RefusalReasonOut",
+        "type": "object"
+      },
       "RegisterTemplateIn": {
         "additionalProperties": false,
         "properties": {
@@ -54479,6 +54727,42 @@
           "reason"
         ],
         "title": "ScreenGuide",
+        "type": "object"
+      },
+      "ScriptAskIn": {
+        "additionalProperties": false,
+        "description": "How the owner wants Pip to write a campaign's or line's script draft (D-1004): a tone\nand what they want changed. Empty for a draft as Pip sees fit.",
+        "properties": {
+          "instruction": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruction"
+          },
+          "tone": {
+            "anyOf": [
+              {
+                "enum": [
+                  "warm",
+                  "respectful",
+                  "brief"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tone"
+          }
+        },
+        "title": "ScriptAskIn",
         "type": "object"
       },
       "ScriptContextOut": {
@@ -91371,6 +91655,46 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/diagnosis": {
+      "get": {
+        "operationId": "campaign_diagnosis_v1_campaigns__campaign_id__diagnosis_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolderDiagnosisOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Where this campaign's calls lose people, its mistakes, and why people said no",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/campaigns/{campaign_id}/duplicate": {
       "post": {
         "operationId": "duplicate_v1_campaigns__campaign_id__duplicate_post",
@@ -99763,6 +100087,46 @@
         "x-calevate-permission": "agents:read"
       }
     },
+    "/v1/inbound-lines/{line_id}/diagnosis": {
+      "get": {
+        "operationId": "line_diagnosis_v1_inbound_lines__line_id__diagnosis_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolderDiagnosisOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Where this line's calls lose people, its mistakes, and why people said no",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/inbound-lines/{line_id}/lead-suggestions": {
       "get": {
         "description": "Suggestions come from the business's details, the job's script, the quick facts and what the job's recent callers asked for that no choice fitted. Nothing changes until one is accepted; a dismissed one is not offered again.",
@@ -100165,6 +100529,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ScriptAskIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "content": {

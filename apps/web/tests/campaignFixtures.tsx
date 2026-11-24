@@ -246,6 +246,13 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [`/v1/campaigns/${id}/insights`]: insightsFixture(),
     // The Improve tab's Diagnose readings: no calls yet.
     [`/v1/campaigns/${id}/diagnosis`]: EMPTY_DIAGNOSIS,
+    // The Improve tab's WhatsApp follow-up card: connected, nothing set up yet.
+    [`/v1/campaigns/${id}/whatsapp-follow-up`]: {
+      phase: "none",
+      connected: true,
+      failure: null,
+      made: null,
+    },
     [`/v1/campaigns/${id}/settings`]: settingsFixture(),
     [`/v1/campaigns/${id}/notes`]: notesFixture(),
     [`/v1/campaigns/${id}/team-alert`]: jobTeamAlert("campaign", id),

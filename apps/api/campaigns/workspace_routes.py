@@ -27,10 +27,7 @@ from apps.api.agents import script_proposals
 from apps.api.agents.extraction_routes import MAX_EXTRACTION_FIELDS
 from apps.api.agents.languages import LANGUAGE_LABELS, client_language_tags
 from apps.api.agents.mistake_fixes import Holder
-from apps.api.agents.service import (
-    CAMPAIGN_HOLDING_STATUSES,
-    refuse_campaign_opening_over_limit,
-)
+from apps.api.agents.service import refuse_campaign_opening_over_limit
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist

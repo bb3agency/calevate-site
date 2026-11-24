@@ -286,6 +286,10 @@ QUIET_TABLES: Final[dict[str, str]] = {
     "follow_up_versions": (
         "a Follow-up's frozen steps, written only with the `follow_ups` row that announces it"
     ),
+    "script_versions": (
+        "a campaign's or line's saved scripts (D-1039), written only with the `campaigns` or "
+        "`inbound_lines` row that announces it"
+    ),
     "agent_test_copies": (
         "the developer-workspace copy a paid account's test call rides (D-859), republished "
         "before each call; no screen reads it"

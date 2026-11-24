@@ -7333,6 +7333,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/diagnosis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where this campaign's calls lose people, its mistakes, and why people said no */
+        get: operations["campaign_diagnosis_v1_campaigns__campaign_id__diagnosis_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/duplicate": {
         parameters: {
             query?: never;
@@ -10777,6 +10794,23 @@ export interface paths {
         };
         /** The calls this line took, newest first */
         get: operations["line_calls_v1_inbound_lines__line_id__calls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/diagnosis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where this line's calls lose people, its mistakes, and why people said no */
+        get: operations["line_diagnosis_v1_inbound_lines__line_id__diagnosis_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -24350,6 +24384,21 @@ export interface components {
              */
             status: "retrying";
         };
+        /** DiagnosisStepOut */
+        DiagnosisStepOut: {
+            /** Lost Here */
+            lost_here: number;
+            /** Name */
+            name: string;
+            /** Not Reached */
+            not_reached: number;
+            /** Reached */
+            reached: number;
+            /** Step */
+            step: number;
+            /** Unclear */
+            unclear: number;
+        };
         /** DigiLockerRequirementIn */
         DigiLockerRequirementIn: {
             /** Reason */
@@ -24604,6 +24653,17 @@ export interface components {
             /** Spent Inr */
             spent_inr: string;
         };
+        /** DropOffOut */
+        DropOffOut: {
+            /** Judged Calls */
+            judged_calls: number;
+            /** Min Calls */
+            min_calls: number;
+            /** Steps */
+            steps: components["schemas"]["DiagnosisStepOut"][];
+            /** Worst Step */
+            worst_step: number | null;
+        };
         /** DuplicateCampaignIn */
         DuplicateCampaignIn: {
             /** Name */
@@ -24664,6 +24724,23 @@ export interface components {
             /** Other Calls */
             other_calls: number;
             window: components["schemas"]["RangeOut"];
+        };
+        /** EarlyHangUpsOut */
+        EarlyHangUpsOut: {
+            /** Answered */
+            answered: number;
+            /** Early */
+            early: number;
+            /** Early Seconds */
+            early_seconds: number;
+            /** Min Answered */
+            min_answered: number;
+            /** Others Answered */
+            others_answered: number;
+            /** Others Rate */
+            others_rate: number | null;
+            /** Rate */
+            rate: number | null;
         };
         /**
          * EditTenantIn
@@ -27148,6 +27225,41 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** HolderDiagnosisOut */
+        HolderDiagnosisOut: {
+            drop_off: components["schemas"]["DropOffOut"];
+            early_hang_ups: components["schemas"]["EarlyHangUpsOut"];
+            /** Mistakes */
+            mistakes: components["schemas"]["HolderMistakeOut"][];
+            /** Refusal Reasons */
+            refusal_reasons: components["schemas"]["RefusalReasonOut"][];
+            /** Window Days */
+            window_days: number;
+        };
+        /** HolderMistakeOut */
+        HolderMistakeOut: {
+            /** Calls */
+            calls: number;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /**
+             * Last Call Id
+             * Format: uuid
+             */
+            last_call_id: string;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "repaired" | "repairing" | "told";
         };
         /**
          * HolderOut
@@ -34059,6 +34171,16 @@ export interface components {
             /** Detail */
             detail: string;
         };
+        /** RefusalReasonOut */
+        RefusalReasonOut: {
+            /** Calls */
+            calls: number;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "price" | "busy_now" | "already_has" | "not_interested" | "wants_person" | "no_trust" | "other";
+        };
         /** RegisterTemplateIn */
         RegisterTemplateIn: {
             /** Body */
@@ -35104,6 +35226,17 @@ export interface components {
             reason: string;
             /** Suggested */
             suggested: boolean;
+        };
+        /**
+         * ScriptAskIn
+         * @description How the owner wants Pip to write a campaign's or line's script draft (D-1004): a tone
+         *     and what they want changed. Empty for a draft as Pip sees fit.
+         */
+        ScriptAskIn: {
+            /** Instruction */
+            instruction?: string | null;
+            /** Tone */
+            tone?: ("warm" | "respectful" | "brief") | null;
         };
         /**
          * ScriptContextOut
@@ -54669,6 +54802,37 @@ export interface operations {
             };
         };
     };
+    campaign_diagnosis_v1_campaigns__campaign_id__diagnosis_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HolderDiagnosisOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     duplicate_v1_campaigns__campaign_id__duplicate_post: {
         parameters: {
             query?: never;
@@ -61059,6 +61223,37 @@ export interface operations {
             };
         };
     };
+    line_diagnosis_v1_inbound_lines__line_id__diagnosis_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HolderDiagnosisOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_line_lead_suggestions: {
         parameters: {
             query?: never;
@@ -61339,7 +61534,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ScriptAskIn"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {

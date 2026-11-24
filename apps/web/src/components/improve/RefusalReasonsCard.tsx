@@ -65,7 +65,9 @@ function ReasonRow({ slug, reason, calls }: { slug: string; reason: RefusalReaso
   const [open, setOpen] = useState(false);
   const [answer, setAnswer] = useState("");
   const question = REFUSAL_REASON_QUESTION[reason];
-  const taught = (knows.data?.facts ?? []).some((f) => f.question === question);
+  // Whether it is taught is read, never assumed: a failed read says so rather than offering
+  // to teach an answer that may already be there.
+  const taught = knows.isSuccess && knows.data.facts.some((f) => f.question === question);
   const words = REFUSAL_REASON_WORDS[reason];
   const fieldId = `teach-${reason}`;
   return (
@@ -77,7 +79,14 @@ function ReasonRow({ slug, reason, calls }: { slug: string; reason: RefusalReaso
             · {formatCount(calls)} {calls === 1 ? "call" : "calls"}
           </span>
         </span>
-        {taught ? (
+        {knows.isPending ? null : knows.isError ? (
+          <span className="flex items-center gap-x-2 text-meta text-ink-muted">
+            We could not check whether it is taught.
+            <button type="button" className={`${TEXT_ACTION_SM} -mx-2`} onClick={() => void knows.refetch()}>
+              Try again
+            </button>
+          </span>
+        ) : taught ? (
           <span className="flex items-center gap-x-2">
             <StatusPill tone="ok">Answer taught</StatusPill>
             <Link href={href(`/c/${slug}/knowledge`)} className={`${TEXT_ACTION_SM} -mx-2`}>
@@ -101,6 +110,7 @@ function ReasonRow({ slug, reason, calls }: { slug: string; reason: RefusalReaso
       </div>
       {open && !taught && (
         <form
+          noValidate
           className="mt-2 space-y-2"
           onSubmit={(e) => {
             e.preventDefault();
@@ -129,14 +139,13 @@ function ReasonRow({ slug, reason, calls }: { slug: string; reason: RefusalReaso
             >
               Save answer
             </ActionButton>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
+            <ActionButton
+              variant="secondary-sm"
               disabled={add.isPending}
               onClick={() => setOpen(false)}
             >
               Cancel
-            </button>
+            </ActionButton>
           </div>
           {add.error != null && (
             <p role="alert" className="text-meta text-danger">

@@ -94,6 +94,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     // not answer are all counted from its calls (D-992).
     "campaign-insights",
     "campaign-questions",
+    // What goes wrong on a campaign's or line's calls is counted from them (D-1042).
+    "holder-diagnosis",
   ],
   leads: [
     ...SUMMARY,
@@ -114,6 +116,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "ingest-activity",
     // A new lead starts a Follow-up, and won, lost or erased stops one (D-940).
     "follow-ups",
+    "campaign-whatsapp",
     "members",
     // `lead_field_drafts` announces `leads`; a draft that fails writes nothing else.
     "lead-fields",
@@ -143,6 +146,13 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "campaign-workspace",
     // A campaign's own voice and call settings (D-994), and what its calls note (D-1028).
     "campaign-settings",
+    // The WhatsApp follow-up card: Pip's pass is on the campaign row (D-1041); its Follow-up
+    // announces `leads` and its message's approval `integrations`.
+    "campaign-whatsapp",
+    // The saved versions of a campaign's script, written with the campaign row (D-1039).
+    "script-versions",
+    // A mistake's repair state on the Improve tab is the campaign's script-heal pass.
+    "holder-diagnosis",
     "campaign-notes",
     "campaign-insights",
     // The calls a campaign's Test call placed, listed on the campaign (`campaigns.test_call_ids`).
@@ -229,6 +239,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     // Inbound lines, the sources each is written from (D-997) and what each notes (D-1028).
     "inbound-lines",
     "line-notes",
+    // The saved versions of a line's script, written with the line row (D-1039).
+    "script-versions",
     // An agent's jobs: its inbound lines and its campaigns (D-1000).
     "agent-jobs",
     "agent-stats",
@@ -381,6 +393,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "whatsapp",
     "admin/whatsapp",
     "lead-whatsapp",
+    // A campaign's WhatsApp follow-up card waits on its message's approval (D-1041).
+    "campaign-whatsapp",
   ],
   // The caller's OWN Pip conversation (D-782). The server sends it on that person's channel
   // only, so it never moves when a colleague talks to Pip.

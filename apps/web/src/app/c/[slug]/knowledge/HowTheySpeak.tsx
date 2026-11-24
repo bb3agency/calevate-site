@@ -401,7 +401,8 @@ function ShortenedFor({ data }: { data: CompanyTraining }) {
   const base = `/c/${session.orgSlug}`;
   return (
     <NoticeBox tone="warn" title="Shortened beside a long script" className="mb-4">
-      <p>Its last part is left out on these calls. Shorten the training or that script.</p>
+      <p>Its last part is left out on these calls.</p>
+      <p>Shorten the training or that script.</p>
       <ul className="mt-2 space-y-2">
         {data.shortened_for.map((s) => {
           const to =
