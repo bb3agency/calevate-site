@@ -387,7 +387,7 @@ async def undo_opening(
     """Saved in its own transaction, then put on the calls as any script save is."""
     assert principal.tenant_id is not None
     async with tenant_session(principal.tenant_id) as own:
-        await improve.undo_opening(own, campaign_id)
+        await improve.undo_opening(own, campaign_id, made_by=principal.user_id)
         await _audited(own, principal, request, campaign_id, "campaign.opening_test_undone", {})
     if await workspace.holds_engine_agent(session, campaign_id):
         try:

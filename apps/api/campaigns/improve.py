@@ -237,6 +237,8 @@ async def decide_opening(session: AsyncSession, campaign_id: UUID) -> bool:
             session,
             campaign_id,
             script.model_copy(update={"opening_line": second, "opening_notices": OpeningNotices()}),
+            author="system",
+            reason="The second opening line won the test, so it is now the opening.",
         )
         outcome["applied"] = True
     await session.execute(
@@ -253,7 +255,9 @@ async def decide_opening(session: AsyncSession, campaign_id: UUID) -> bool:
     return bool(outcome["applied"])
 
 
-async def undo_opening(session: AsyncSession, campaign_id: UUID) -> None:
+async def undo_opening(
+    session: AsyncSession, campaign_id: UUID, *, made_by: UUID | None = None
+) -> None:
     """Put back the opening the test's winner replaced, through the same save. The test is
     not started again: it would decide the same way on the same calls."""
     row = await _row(session, campaign_id, lock=True)
@@ -283,6 +287,9 @@ async def undo_opening(session: AsyncSession, campaign_id: UUID) -> None:
                 ),
             }
         ),
+        author="owner",
+        made_by=made_by,
+        reason="You put back the opening from before the test.",
     )
     outcome["undone_at"] = datetime.now(UTC).isoformat()
     await session.execute(
@@ -357,6 +364,8 @@ async def redo_opening(session: AsyncSession, *, source_id: UUID, target_id: UUI
             script.model_copy(
                 update={"opening_line": str(second).strip(), "opening_notices": OpeningNotices()}
             ),
+            author="system",
+            reason="This draft opens with the opening line that won the test.",
         )
     await session.execute(
         text("UPDATE campaigns SET opening_b = NULL WHERE id = :cid"), {"cid": target_id}
