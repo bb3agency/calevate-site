@@ -732,15 +732,6 @@ export function CopilotPanel({
           />
         )}
 
-        {/* THE SCRIPT DRAFTS THIS CONVERSATION STARTED, written live, then the changes and
-            Keep or Discard: the same view the campaign and line pages show. */}
-        <PanelDrafts
-          session={session}
-          drafts={conversation.live.drafts}
-          realm={realm}
-          onPhase={conversation.settleDraft}
-        />
-
         {/* WHY SOMETHING DID NOT WORK (D-935): a troubleshoot read's checklist, the cause
             open with its one button. The admin realm gets no button that would ask its Pip
             for a client change it cannot make; the card says the next step in words. */}
@@ -777,6 +768,7 @@ export function CopilotPanel({
               realm={realm}
               onDismiss={conversation.dismissProposal}
               onDecided={offerDecided}
+              onDraft={conversation.openDraft}
               onCeiling={() => setConfirmAtCeiling(true)}
               // A plan's "Change" (D-893): the card goes, and the ask box takes the words
               // to say what should be different; the unapproved plan simply expires.
@@ -788,6 +780,17 @@ export function CopilotPanel({
             />
           )}
         </div>
+
+        {/* THE SCRIPT DRAFTS THIS CONVERSATION STARTED, written live, then the changes and
+            Keep or Discard: the same view the campaign and line pages show. Right under the
+            suggestion card, because a confirmed `script_draft` is where most of them start
+            (the confirm's answer names the draft); a run's `event: draft` lands here too. */}
+        <PanelDrafts
+          session={session}
+          drafts={conversation.live.drafts}
+          realm={realm}
+          onPhase={conversation.settleDraft}
+        />
 
         {/* WHAT IT HAS ALREADY DONE. Announced, because a change to the person's account
             that happened without a click is exactly the thing they must not have to

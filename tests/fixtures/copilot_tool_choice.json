@@ -464,7 +464,7 @@
     {"id": "c-model-tier", "realm": "client", "kind": "action", "route": "/c/sunrise/settings/models", "title": "AI models",
      "question": "switch the whole account to the Pro AI model", "expect": ["settings_do:account_model_tier_set"], "forbid": ["set_fields"]},
     {"id": "c-team-alert", "realm": "client", "kind": "action", "route": "/c/sunrise/agents/7c1e2a40-0000-4000-8000-000000000001", "title": "Reception",
-     "question": "email my team whenever a caller to this agent wants a call-back", "expect": ["agents_find:agent_settings", "agents_do:agent_team_alert_set"], "forbid": ["set_fields"]},
+     "question": "email my team whenever a caller to this agent wants a call-back", "expect": ["agents_find:agent_settings", "campaigns_do:job_team_alert_set"], "forbid": ["set_fields"]},
     {"id": "c-team-address", "realm": "client", "kind": "action", "route": "/c/sunrise/settings/alerts", "title": "Alerts",
      "question": "add frontdesk@example.test as an address for team alerts", "expect": ["team_do:team_alert_contact"], "forbid": ["set_fields", "team_do:team_invite"]},
     {"id": "c-kb-reread", "realm": "client", "kind": "action", "route": "/c/sunrise/knowledge", "title": "What your agents know",

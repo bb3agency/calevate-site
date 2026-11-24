@@ -527,9 +527,12 @@ information.
 
 **Who hears about hot leads (D-904, D-967).** One list per account, on Settings → Alerts: the
 owner (email to the account email, always; WhatsApp once they opt in) and the team addresses,
-each verified once by a code. What counts is per agent: an outcome that moves the lead to hot
-always does, and the agent's `team_alert_rules` may add outcomes, choice answers and telling
-the team during the call. Every trigger (post-call step 6, the in-call `tell_the_team` action,
+each verified once by a code. Which calls alert after they end is each campaign's and Inbound
+line's own rule (`campaigns.team_alert_rule`, `inbound_lines.team_alert_rule`, D-1040): its
+agent's outcomes and its own "What it notes" answers, exactly as ticked, every positive outcome
+until the owner saves; a call with no job alerts only when the team was told during it.
+Telling the team during the call is the agent's switch (`team_alert_rules.in_call`), carried by
+every engine agent its campaigns and lines hold. Every trigger (post-call step 6, the in-call `tell_the_team` action,
 a Follow-up's `tell_team` step) goes through `team_alerts/service.tell_everyone`: one
 `team_alerts` row per (call, address) and one owner job per (lead, call), both through the
 outbox, so each person hears once per channel per call. The in-call action tells the team at

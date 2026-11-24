@@ -178,12 +178,20 @@ class Campaign(PKMixin, TimestampMixin, Base):
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     field_suggestions_at: Mapped[datetime | None]
+    #: Which of its calls tell the owner and the team (D-1040): `{on_outcomes, on_fields}`
+    #: (`team_alerts/service.stored_rule`); NULL until the owner saves, which is every
+    #: positive outcome. The CHECK on its shape is migration b8e3f1c6d2a4's.
+    team_alert_rule: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: Pip's pass writing the outcome of each step that has none (D-1036, `campaigns/
     #: step_outcomes`): the agent-pass state, the hash of what it last read and when it last
     #: moved. The outcomes themselves go into `script`. Migration c4f1a8d2e7b3 holds the CHECK.
     step_outcomes_state: Mapped[str | None] = mapped_column(Text)
     step_outcomes_inputs: Mapped[str | None] = mapped_column(Text)
     step_outcomes_at: Mapped[datetime | None]
+    #: The outcomes that pass wrote, word for word, and the rules version each was written
+    #: under (`campaigns/step_outcomes.PipRecord`): Pip may rewrite only these, and only while
+    #: the script still holds that text. Migration f7a3c9d1b5e2 holds the CHECK.
+    step_outcomes_pip: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: Pip's repair of the script's lines the script checks fault (`agents/script_heal`), as
     #: an agent pass: its state, when, and the md5 of the script it last checked. The CHECKs
     #: on them are migration a6d2f8c4e1b7's.

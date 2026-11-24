@@ -809,3 +809,103 @@ describe("accessibility", () => {
     await expectNoA11yViolations(container, "pip live view");
   });
 });
+
+// ── A draft a confirmed suggestion started ─────────────────────────────────────────────
+
+describe("a script draft a confirmed suggestion started", () => {
+  it("opens under the confirmed card, and Stop writing there cancels it", async () => {
+    const held = heldStream();
+    const draftStream = heldStream();
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input).replace(API_BASE, "");
+        const method = init?.method ?? "GET";
+        calls.push(`${method} ${path}`);
+        if (path.startsWith("/v1/copilot/ask")) return held.response;
+        if (path.startsWith("/v1/copilot/conversation")) return json({ turns: [], has_more: false });
+        if (path === "/v1/copilot/confirm") {
+          return json({
+            tool: "script_draft",
+            object_type: "agent",
+            object_id: "a1",
+            applied: true,
+            detail: "Writing the new draft of the campaign now.",
+            queued: true,
+            draft: { holder_kind: "campaign", holder_id: "c1", proposal_id: "p1" },
+          });
+        }
+        if (path === "/v1/campaigns/c1/script-draft/stream") return draftStream.response;
+        if (path === "/v1/campaigns/c1/script-draft/p1/cancel") return json({ cancelled: true });
+        return json({});
+      }),
+    );
+    render(
+      withQuery(
+        <>
+          <Screen />
+          <PanelMount />
+        </>,
+      ),
+    );
+    await ask("rewrite the campaign script");
+    await act(async () => {
+      held.push(frame("run", RUN));
+      held.push(
+        frame("proposal", {
+          token: "eyJ.a-signed-draft.zzz",
+          tool: "script_draft",
+          title: "Write a new script draft",
+          summary: "Pip writes a new draft of what the campaign says.",
+          object_type: "agent",
+          object_id: "a1",
+          current: null,
+          proposed: "A fresh draft from its main task and sources",
+          cost: "Uses your account's AI help allowance.",
+          reversal: "Nothing reaches a caller until you keep the draft and put it live.",
+          expires_at: "2099-01-01T00:00:00Z",
+        }),
+      );
+      held.push(frame("done", { disclosure: null, metered: true }));
+      held.release();
+    });
+    // No draft view before the person allows it.
+    expect(calls.some((call) => call.includes("/script-draft/"))).toBe(false);
+    const confirm = await screen.findByRole("button", { name: /^Confirm/ });
+    await waitFor(() => expect(confirm.hasAttribute("disabled")).toBe(false));
+    await act(async () => {
+      fireEvent.click(confirm);
+    });
+    await act(async () => {
+      draftStream.push(frame("phase", { phase: "writing", detail: null }));
+    });
+    const stopWriting = await screen.findByRole("button", { name: "Stop writing" });
+    expect(calls).toContain("GET /v1/campaigns/c1/script-draft/stream");
+    // Right under the confirmed card.
+    const card = screen.getByText("Writing the new draft of the campaign now.");
+    expect(card.compareDocumentPosition(stopWriting) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(stopWriting);
+    });
+    expect(calls).toContain("POST /v1/campaigns/c1/script-draft/p1/cancel");
+    draftStream.release();
+  });
+});
+
+describe("the Thinking row, by model turn", () => {
+  it("starts a new row when a thought names a later turn, even with no step between", () => {
+    const state = run([
+      { type: "ask" },
+      { type: "thought", delta: "Reading the campaigns.", turn: 0, now: T0 },
+      { type: "thought", delta: " First one.", turn: 0, now: T0 + 100 },
+      { type: "thought", delta: "Now the leads.", turn: 1, now: T0 + 900 },
+    ]);
+    const [first, second] = state.entries as [ThoughtEntry, ThoughtEntry];
+    expect(state.entries).toHaveLength(2);
+    expect(first.text).toBe("Reading the campaigns. First one.");
+    expect(first.endedAt).toBe(T0 + 900);
+    expect(second.text).toBe("Now the leads.");
+    expect(second.endedAt).toBeNull();
+  });
+});

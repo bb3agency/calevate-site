@@ -13,10 +13,11 @@ from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 
 from apps.api.agents import test_conversations
+from apps.api.campaigns import script_draft
 from apps.api.campaigns import workspace as campaign_workspace
-from apps.api.copilot import script_actions, write_tools
+from apps.api.copilot import run_control, script_actions, write_tools
 from apps.api.copilot.actions import WriteRefusedError
-from apps.api.copilot.schemas import CopilotProposalEvent
+from apps.api.copilot.schemas import CopilotDraftEvent, CopilotProposalEvent
 from apps.api.copilot.write_tools_test import _audit, _confirm, _outbox_jobs, _principal, _user_of
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -220,6 +221,10 @@ async def test_a_campaign_draft_is_asked_with_the_owners_words_and_waits_on_its_
     assert stored["status"] == "drafting"
     assert stored["ask"] == {"instruction": asked}
     assert ("campaign.script_requested", "agent", str(agent_id)) in await _audit(tenant_id)
+    # The confirm's answer names the draft, so the panel follows it under the card.
+    assert outcome.draft == CopilotDraftEvent(
+        holder_kind="campaign", holder_id=campaign_id, proposal_id=UUID(stored["id"])
+    )
 
     with pytest.raises(WriteRefusedError) as again:
         await _propose_draft(tenant_id, token, {"holder_id": str(campaign_id)})
@@ -258,6 +263,40 @@ async def test_an_agents_only_inbound_line_gets_the_draft_with_its_tone() -> Non
         ).scalar_one()
     assert stored["ask"] == {"tone": "warm", "instruction": "Shorter steps."}
     assert ("inbound_line.script_requested", "agent", str(agent_id)) in await _audit(tenant_id)
+    assert outcome.draft == CopilotDraftEvent(
+        holder_kind="inbound_line", holder_id=line_id, proposal_id=UUID(stored["id"])
+    )
+
+
+async def test_a_draft_queued_inside_a_live_run_is_announced_and_stop_cancels_it() -> None:
+    """FAILS IF: a draft queued while a run is live is not noted on the run (no `event:
+    draft`, nothing for Stop to cancel), or Stop's cancel does not reach the script writer's
+    `cancel_draft` and the draft keeps writing."""
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent_of(tenant_id)
+    campaign_id = await _campaign_of(tenant_id, agent_id, main_task="Renew every policy.")
+    proposal = await _propose_draft(tenant_id, token, {"holder_id": str(campaign_id)})
+
+    control = run_control.RunControl(owner="client:test", run_id=uuid.uuid4(), tenant_id=tenant_id)
+    active = run_control.activate(control)
+    try:
+        outcome = await _confirm(tenant_id, _user_of(token), proposal.token)
+    finally:
+        run_control.deactivate(active)
+    assert outcome.draft is not None
+    assert control.take_unsent_drafts() == [
+        run_control.StartedDraft("campaign", campaign_id, outcome.draft.proposal_id)
+    ]
+
+    assert run_control.draft_canceller() is script_draft.cancel_draft
+    await control.cancel_drafts()
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT script_proposal FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar_one()
+    assert stored is None
 
 
 async def test_with_a_line_and_a_campaign_pip_asks_which_one_to_rewrite() -> None:

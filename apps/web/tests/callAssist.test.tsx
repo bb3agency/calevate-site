@@ -49,6 +49,7 @@ const CALL = {
   disclosure_played: true,
   moments: [],
   mistakes: [],
+  steps: [],
   captured: [],
 };
 

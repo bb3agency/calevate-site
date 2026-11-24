@@ -878,29 +878,23 @@ async def diagnose_delivery(
                 )
             ).first()
             if alert is None:
-                rule = (
-                    await session.execute(
-                        text(
-                            "SELECT r.id FROM team_alert_rules r JOIN calls c "
-                            "ON c.agent_id = r.agent_id WHERE c.id = :cid"
-                        ),
-                        {"cid": call_id},
-                    )
-                ).first()
-                if rule is None:
+                from apps.api.campaigns.notes import call_job
+
+                job = await call_job(session, call_id)
+                if job is None:
                     return problem(
                         "this_call",
                         label,
-                        "This agent has no alert set up.",
+                        "This call was not made by a campaign or line, so nothing alerts after it.",
                         f"call_id {call_id}",
-                        fix=screen_fix("Set up alerts", "Alerts"),
+                        fix=screen_fix("Check alerts", "Alerts"),
                     )
                 return problem(
                     "this_call",
                     label,
-                    "The call did not match your alert rules.",
+                    "The call did not match its campaign's or line's alerts.",
                     f"call_id {call_id}",
-                    f"rule {rule[0]}",
+                    f"{job[0]} {job[1]}",
                     fix=screen_fix("Check the rules", "Alerts"),
                 )
             if alert[1] == "failed":

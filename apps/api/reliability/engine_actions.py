@@ -362,28 +362,42 @@ async def client_definitions(
 
 
 async def sync_client_actions_now(session: AsyncSession, *, agent_id: UUID) -> str:
-    """Bring a LIVE agent's vendor actions in line with its client actions now, after a
-    change on the Actions or Connections screen, rather than at the next publish.
+    """Bring every LIVE engine agent in this agent's voice in line with its client actions
+    now, after a change on the Actions or Connections screen or the in-call team switch,
+    rather than at the next publish.
 
-    A no-op for an agent with no active route on an action engine. A failure never fails
-    the client's save: the in-call door executes only what is live here
-    (`actions.service.in_call_tool`), so a vendor action left behind answers "cannot be done
-    right now", and the drift sweep repairs it; an operator is told.
+    Every active route, not the newest: since D-1019 each campaign and inbound line holds its
+    own engine agent with the agent's actions, so syncing one left the others carrying the
+    old set until the drift sweep. A no-op for an agent with no active route on an action
+    engine. Returns `deferred` when any one could not be updated, else `synced`.
     """
-    row = (
+    rows = (
         await session.execute(
             text(
                 "SELECT engine, engine_agent_ref FROM engine_agent_routes "
                 "WHERE agent_id = :aid AND active AND engine = ANY(:engines) "
-                "ORDER BY updated_at DESC LIMIT 1"
+                "ORDER BY updated_at DESC"
             ),
             {"aid": agent_id, "engines": sorted(ACTION_ENGINES)},
         )
-    ).first()
-    if row is None or str(row[0]) not in ACTION_ENGINES:
+    ).all()
+    routes = [(str(r[0]), str(r[1])) for r in rows if str(r[0]) in ACTION_ENGINES]
+    if not routes:
         return "not_applicable"
+    outcomes = [
+        await _sync_one(session, agent_id=agent_id, engine=engine, ref=ref)
+        for engine, ref in routes
+    ]
+    return "deferred" if "deferred" in outcomes else "synced"
+
+
+async def _sync_one(session: AsyncSession, *, agent_id: UUID, engine: str, ref: str) -> str:
+    """One engine agent. A failure never fails the client's save: the in-call door executes
+    only what is live here (`actions.service.in_call_tool`), so a vendor action left behind
+    answers "cannot be done right now", and the drift sweep repairs it; an operator is told.
+    """
     try:
-        await ensure_agent_actions(session, engine=str(row[0]), engine_agent_ref=str(row[1]))
+        await ensure_agent_actions(session, engine=engine, engine_agent_ref=ref)
     except ProblemError as exc:
         if exc.code == "client_actions_over_limit":
             raise

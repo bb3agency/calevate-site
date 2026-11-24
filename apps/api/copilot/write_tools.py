@@ -135,7 +135,7 @@ from apps.api.copilot.campaign_actions import (
     CAMPAIGN_CONSENT_SET,
 )
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
-from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS
+from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS, JOB_ALERT_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.follow_up_actions import FOLLOW_UP_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
@@ -147,6 +147,7 @@ from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import (
     CopilotActionEvent,
     CopilotConfirmOut,
+    CopilotDraftEvent,
     CopilotProposalEvent,
 )
 from apps.api.copilot.script_actions import SCRIPT_ACTIONS, SCRIPT_DRAFT_ACTIONS
@@ -1018,6 +1019,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *CAMPAIGN_ARCHIVE_ACTIONS,
     # A new draft of what an Inbound line or campaign says, through its page's Generate.
     *SCRIPT_DRAFT_ACTIONS,
+    # D-1040: a campaign's or line's own after-call alerts.
+    *JOB_ALERT_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}
@@ -1990,6 +1993,18 @@ async def confirm(
         plan_id=plans.plan_id_of(proposal.args),
         download_ticket=executed.download_ticket,
         queued=executed.queued,
+        draft=_draft_out(executed),
+    )
+
+
+def _draft_out(executed: Executed) -> CopilotDraftEvent | None:
+    """The script draft a confirmed act queued, for the panel to follow live."""
+    if executed.draft is None:
+        return None
+    return CopilotDraftEvent(
+        holder_kind=executed.draft.holder_kind,
+        holder_id=executed.draft.holder_id,
+        proposal_id=executed.draft.proposal_id,
     )
 
 
@@ -2212,6 +2227,7 @@ async def approve(
         plan_id=plans.plan_id_of(plan.args),
         download_ticket=executed.download_ticket,
         queued=executed.queued,
+        draft=_draft_out(executed),
     )
 
 

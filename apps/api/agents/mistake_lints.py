@@ -377,6 +377,9 @@ _CHECKS: Final[dict[str, _Check]] = {
 
 #: The mistake kinds a script check can trace to the agent's own script.
 SCRIPT_FIXABLE_KINDS: Final[frozenset[str]] = frozenset(_CHECKS)
+# A kind the agent shows during the call whatever its script says has no script check, so
+# the healer never rewrites a line for it.
+assert SCRIPT_FIXABLE_KINDS.isdisjoint(turn_checks.IN_CALL_KINDS)
 
 
 def mistake_findings(script: CallScript, context: LintContext, kind: str) -> list[str]:

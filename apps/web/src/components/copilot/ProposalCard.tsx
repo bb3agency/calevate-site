@@ -12,6 +12,7 @@ import { ApiProblem, TransportProblem, type Session } from "@/lib/api/client";
 import { useConfirmProposal, type CopilotConfirmOut } from "@/lib/api/copilot";
 import { useDownloadPreparedExport } from "@/lib/api/exports";
 import { lookup } from "@/lib/lookup";
+import type { DraftFrame } from "@/lib/copilot/liveEvents";
 import type { CopilotProposal } from "@/lib/copilot/types";
 
 import { PlanCard } from "./PlanCard";
@@ -83,6 +84,8 @@ type ProposalCardProps = {
   onCeiling?: () => void;
   /** A plan's "Change" (D-893): put the request back in the ask box. */
   onChange?: () => void;
+  /** The confirmed change queued a script draft: the panel follows it under this card. */
+  onDraft?: (draft: DraftFrame) => void;
 };
 
 /**
@@ -118,6 +121,7 @@ function SingleProposalCard({
   onDismiss,
   onCeiling,
   onDecided,
+  onDraft,
 }: ProposalCardProps) {
   const confirm = useConfirmProposal(session, realm, proposal.confirm_action ?? null);
   // The refusal is the server's own sentence, kept on the card; the outcome replaces it.
@@ -162,6 +166,13 @@ function SingleProposalCard({
     card.current?.focus();
     onDecided?.();
   }, [decided, onDecided]);
+
+  // A script draft the change queued is written after this answer; the panel opens its live
+  // view under the card (the panel keeps drafts by proposal id, so a second call is a no-op).
+  const draft = outcome?.draft ?? null;
+  useEffect(() => {
+    if (draft !== null) onDraft?.(draft);
+  }, [draft, onDraft]);
 
   const consequential = lookup(CONSEQUENTIAL, proposal.tool) ?? false;
 

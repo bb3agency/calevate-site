@@ -34,7 +34,14 @@ from apps.api.agents.service import (
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
-from apps.api.campaigns import diagnose, learning, notes_live, script_draft, workspace
+from apps.api.campaigns import (
+    diagnose,
+    learning,
+    notes_live,
+    script_draft,
+    step_outcomes,
+    workspace,
+)
 from apps.api.campaigns import notes as campaign_notes
 from apps.api.campaigns import settings as campaign_settings_rules
 from apps.api.campaigns.engine_agent import needs_its_own, put_campaign_live
@@ -117,6 +124,8 @@ class WorkspaceOut(_Out):
     script_before_pip_at: datetime | None = None
     #: Pip is writing the outcome of a step that has none; the call flow shows it at work.
     step_outcomes_pending: bool = False
+    #: An outcome is not one Pip wrote, so the owner may give them all back to Pip to rewrite.
+    step_outcomes_by_owner: bool = False
 
 
 def _proposal(p: workspace.CampaignProposal | None) -> CampaignProposalOut | None:
@@ -160,6 +169,7 @@ async def _workspace_out(session: AsyncSession, campaign_id: UUID) -> WorkspaceO
         source_ids=list(w.sources),
         script_before_pip_at=w.script_before_pip_at,
         step_outcomes_pending=w.step_outcomes_pending,
+        step_outcomes_by_owner=w.step_outcomes_by_owner,
     )
 
 
@@ -229,6 +239,33 @@ class ScriptIn(BaseModel):
     #: The Pip draft this save keeps, settled in the same transaction, so a save whose
     #: put-live is refused does not leave the draft standing over the kept script.
     proposal_id: UUID | None = None
+
+
+@router.post(
+    "/{campaign_id}/script/step-outcomes/rewrite",
+    response_model=WorkspaceOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Give every step outcome back to Pip to rewrite",
+)
+async def rewrite_step_outcomes(
+    campaign_id: UUID, session: Session, request: Request, principal: Dispatcher
+) -> WorkspaceOut:
+    # Committed on its own so the pass it queues reads the record; the pass puts the
+    # rewritten script live itself, as it does any outcomes it writes.
+    assert principal.tenant_id is not None
+    async with tenant_session(principal.tenant_id) as own:
+        await step_outcomes.hand_back_to_pip(own, "campaign", campaign_id)
+        await write_audit(
+            own,
+            action="campaign.step_outcomes_handed_to_pip",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+            summary={},
+        )
+    return await _workspace_out(session, campaign_id)
 
 
 async def _holds_engine_agent(session: AsyncSession, campaign_id: UUID) -> bool:

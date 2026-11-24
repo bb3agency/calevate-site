@@ -20,7 +20,11 @@ from tests.api_security_test import _make_tenant
 
 from apps.api.copilot import areas, service, tools, write_tools
 from apps.api.copilot.campaign_actions import CAMPAIGN_ARCHIVE_ACTIONS
-from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS, COVERAGE_READS
+from apps.api.copilot.coverage_actions import (
+    COVERAGE_ACTIONS,
+    COVERAGE_READS,
+    JOB_ALERT_ACTIONS,
+)
 from apps.api.copilot.follow_up_actions import FOLLOW_UP_ACTIONS
 from apps.api.copilot.help import GLOSSARY
 from apps.api.copilot.pin_actions import PIN_ACTIONS
@@ -77,6 +81,7 @@ def test_the_coverage_actions_are_appended_last_and_each_has_an_area() -> None:
             *FOLLOW_UP_ACTIONS,
             *CAMPAIGN_ARCHIVE_ACTIONS,
             *SCRIPT_DRAFT_ACTIONS,
+            *JOB_ALERT_ACTIONS,
         )
     ]
     later = len(after)
@@ -381,82 +386,97 @@ async def test_a_whatsapp_address_is_sent_to_the_screen() -> None:
     assert "Alerts screen" in refused.value.reason
 
 
-async def test_an_agents_team_alert_is_saved_and_shown_in_its_handover_part() -> None:
+async def test_an_agents_in_call_switch_is_saved_and_shown_in_its_handover_part() -> None:
     tenant_id, _slug, token = await _make_tenant()
     agent_id = await _agent_of(tenant_id)
-    args: dict[str, Any] = {
-        "agent_id": str(agent_id),
-        "on_outcomes": [],
-        "on_answers": [],
-        "in_call": True,
-    }
+    args: dict[str, Any] = {"agent_id": str(agent_id), "in_call": True}
     proposal = await _propose(tenant_id, token, "agent_team_alert_set", args)
-    assert proposal.current == ("after a call ending Interested"), (
-        "an unsaved rule is every positive outcome"
-    )
+    assert proposal.current == "does not"
     done = await _confirm(tenant_id, _user_of(token), proposal.token)
     assert done.applied is True
     assert "once a team address is confirmed" in done.detail
     saved = await _one(
-        tenant_id, "SELECT count(*) FROM team_alert_rules WHERE agent_id = :a", a=agent_id
+        tenant_id, "SELECT in_call FROM team_alert_rules WHERE agent_id = :a", a=agent_id
     )
-    assert saved[0] == 1
+    assert saved[0] is True
     part = await _read("agent_settings", tenant_id, {"agent_id": str(agent_id), "part": "handover"})
-    assert "hears from this agent about exactly these" in part
-    assert "Outcomes it can watch:" in part
+    assert "During the call this agent messages the team: on" in part
+    assert "set per campaign and line" in part
 
 
-async def test_a_team_alert_refuses_an_outcome_the_agent_does_not_have() -> None:
+async def _line_of(tenant_id: UUID, agent_id: UUID) -> UUID:
+    line_id = uuid.uuid4()
+    fields = [
+        {
+            "key": "visit_day",
+            "label": "Visit day",
+            "type": "enum",
+            "enum_values": ["saturday", "sunday"],
+            "reason": "when they can come",
+        }
+    ]
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO inbound_lines (id, tenant_id, name, agent_id, extraction_fields) "
+                "VALUES (:id, :t, 'Desk', :a, CAST(:f AS jsonb))"
+            ),
+            {"id": line_id, "t": tenant_id, "a": agent_id, "f": json.dumps(fields)},
+        )
+    return line_id
+
+
+async def test_a_lines_alerts_are_saved_through_pip_and_shown_in_the_handover() -> None:
     tenant_id, _slug, token = await _make_tenant()
     agent_id = await _agent_of(tenant_id)
-    with pytest.raises(write_tools.WriteRefusedError) as refused:
-        await _propose(
-            tenant_id,
-            token,
-            "agent_team_alert_set",
-            {
-                "agent_id": str(agent_id),
-                "on_outcomes": ["no_such_outcome"],
-                "on_answers": [],
-                "in_call": False,
-            },
-        )
-    assert "handover" in refused.value.reason
+    line_id = await _line_of(tenant_id, agent_id)
+    args: dict[str, Any] = {
+        "job": "line",
+        "job_id": str(line_id),
+        "on_outcomes": [],
+        "on_answers": ["visit_day=sunday"],
+    }
+    proposal = await _propose(tenant_id, token, "job_team_alert_set", args)
+    assert proposal.proposed == "when Visit day is sunday"
+    done = await _confirm(tenant_id, _user_of(token), proposal.token)
+    assert done.applied is True
+    rule = await _one(
+        tenant_id, "SELECT team_alert_rule FROM inbound_lines WHERE id = :l", l=line_id
+    )
+    assert rule[0] == {"on_outcomes": [], "on_fields": [{"key": "visit_day", "values": ["sunday"]}]}
+    part = await _read("agent_settings", tenant_id, {"agent_id": str(agent_id), "part": "handover"})
+    assert f"job_id {line_id}]: when Visit day is sunday" in part
 
 
-async def test_a_team_alert_answer_must_be_key_equals_value() -> None:
+async def test_a_jobs_alert_refuses_an_outcome_or_answer_it_does_not_have() -> None:
     tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    with pytest.raises(write_tools.WriteRefusedError) as refused:
-        await _propose(
-            tenant_id,
-            token,
-            "agent_team_alert_set",
-            {
-                "agent_id": str(agent_id),
-                "on_outcomes": [],
-                "on_answers": ["no equals sign"],
-                "in_call": False,
-            },
-        )
-    assert "key=value" in refused.value.reason
+    line_id = await _line_of(tenant_id, await _agent_of(tenant_id))
+    base: dict[str, Any] = {"job": "line", "job_id": str(line_id), "on_outcomes": []}
+    for args, words in (
+        ({**base, "on_outcomes": ["no_such_outcome"], "on_answers": []}, "handover"),
+        ({**base, "on_answers": ["visit_day=monday"]}, "handover"),
+        ({**base, "on_answers": ["no equals sign"]}, "key=value"),
+    ):
+        with pytest.raises(write_tools.WriteRefusedError) as refused:
+            await _propose(tenant_id, token, "job_team_alert_set", args)
+        assert words in refused.value.reason
 
 
-async def test_a_team_alert_for_another_accounts_agent_is_refused() -> None:
+async def test_a_team_alert_for_another_accounts_agent_or_line_is_refused() -> None:
     tenant_id, _slug, token = await _make_tenant()
     other_id, _o, _ot = await _make_tenant()
     foreign = await _agent_of(other_id)
+    foreign_line = await _line_of(other_id, foreign)
+    with pytest.raises((ProblemError, write_tools.WriteRefusedError)):
+        await _propose(
+            tenant_id, token, "agent_team_alert_set", {"agent_id": str(foreign), "in_call": False}
+        )
     with pytest.raises((ProblemError, write_tools.WriteRefusedError)):
         await _propose(
             tenant_id,
             token,
-            "agent_team_alert_set",
-            {
-                "agent_id": str(foreign),
-                "on_outcomes": [],
-                "on_answers": [],
-                "in_call": False,
-            },
+            "job_team_alert_set",
+            {"job": "line", "job_id": str(foreign_line), "on_outcomes": [], "on_answers": []},
         )
 
 

@@ -832,7 +832,7 @@ function Columns({
                 height: layout.notNow.box.h,
               }}
             >
-              {END_NAMES[layout.notNow.target]}
+              {lookup(END_NAMES, layout.notNow.target)}
             </span>
           </>
         )}
@@ -846,7 +846,7 @@ function Columns({
               style={{ left: b.x, top: b.y, width: b.w, height: b.h }}
               {...point(t)}
             >
-              {END_NAMES[t]}
+              {lookup(END_NAMES, t)}
             </span>
           );
         })}
@@ -1115,7 +1115,7 @@ function Stacked({
             .filter((p) => p.step === 1)
             .map((p) => p.label)
             .join(", ")}
-          {" · "}Not now: {END_NAMES[opening.notNow]}
+          {" · "}Not now: {lookup(END_NAMES, opening.notNow)}
         </p>
         {onEditOpening && (
           <button

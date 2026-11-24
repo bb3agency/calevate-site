@@ -249,7 +249,9 @@ export function useKeepLineDraftLive(session: Session, lineId: string) {
 /** Stop Pip while it writes a draft; nothing half-written is saved. */
 export function useCancelLineDraft(session: Session, lineId: string) {
   return useLineMutation(session, lineId, (proposalId: string) =>
-    apiRequest<unknown>(session, cancelDraftPath({ kind: "inbound_line", id: lineId }, proposalId), { method: "POST" }),
+    apiRequest<Schemas["DraftCancelOut"]>(session, cancelDraftPath({ kind: "inbound_line", id: lineId }, proposalId), {
+      method: "POST",
+    }),
   );
 }
 

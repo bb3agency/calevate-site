@@ -85,8 +85,8 @@ export function SettingsTab({
           <Section
             headingLevel={3}
             title={`Alerts from ${agent.name}`}
-            description={`Which calls ${agent.name} tells you and your team about.`}
-            info={<p>Who hears is set once, on Settings, Alerts. Its campaigns&apos; and lines&apos; own details are here too.</p>}
+            description={`When ${agent.name} tells you and your team about a call.`}
+            info={<p>Who hears is set once, on Settings, Alerts. Which calls alert afterwards is set on each campaign and Inbound line.</p>}
           >
             <TeamAlertsPanel agent={agent} />
           </Section>

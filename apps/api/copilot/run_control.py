@@ -108,6 +108,11 @@ def register_draft_canceller(canceller: DraftCanceller | None) -> None:
     _CANCELLER = canceller
 
 
+def draft_canceller() -> DraftCanceller | None:
+    """The canceller Stop will call, or None when nothing registered one."""
+    return _CANCELLER
+
+
 def owner_of(principal: Principal) -> str:
     """The run's owner as one comparable string: realm, account and person. The account is
     part of it because a person who belongs to two accounts asks Pip separately in each."""
@@ -309,6 +314,7 @@ __all__ = [
     "checkpoint",
     "current",
     "deactivate",
+    "draft_canceller",
     "note_draft_started",
     "owner_of",
     "register_draft_canceller",

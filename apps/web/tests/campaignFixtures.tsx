@@ -20,6 +20,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { formatDateLong, todayIST } from "@/components/arc/ist-dates";
 
 import { EMPTY_DIAGNOSIS } from "./fixtures/diagnosis";
+import { jobTeamAlert } from "./fixtures/sharedReads";
 import type { Routes } from "./harness";
 
 /**
@@ -155,6 +156,7 @@ export function workspaceFixture(over: Partial<CampaignWorkspace> = {}): Campaig
     script: null,
     script_live_version: null,
     step_outcomes_pending: false,
+    step_outcomes_by_owner: false,
     ...over,
   };
 }
@@ -209,6 +211,7 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [`/v1/campaigns/${id}/diagnosis`]: EMPTY_DIAGNOSIS,
     [`/v1/campaigns/${id}/settings`]: settingsFixture(),
     [`/v1/campaigns/${id}/notes`]: notesFixture(),
+    [`/v1/campaigns/${id}/team-alert`]: jobTeamAlert("campaign", id),
     // The Test call section's list of calls made from the campaign: none yet.
     [`/v1/campaigns/${id}/test-calls`]: [],
     // The account's saved test numbers, offered under Test call: none yet.

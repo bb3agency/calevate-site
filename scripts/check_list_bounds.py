@@ -116,17 +116,23 @@ _LEAD_SUGGESTIONS = BoundedByConstruction(
     )
 )
 
-#: Tell my team (D-904): the contact list and one agent's rule.
+#: Tell my team (D-904, D-1040): the contact list, one agent's switch and one job's rule.
 _TEAM_CONTACTS = BoundedByConstruction(
     by=(
         "the account's team addresses, at most `team_alerts/service.MAX_CONTACTS` (ten, refused "
         "past it and read with that LIMIT), and its own WhatsApp connections, read with LIMIT 20."
     )
 )
-_TEAM_RULE = BoundedByConstruction(
+_TEAM_AGENT = BoundedByConstruction(
     by=(
-        "ONE agent's rule: its business outcomes and choice fields (the agent's own lists, "
-        "bounded where they are written), the watched fields at most "
+        "ONE agent's in-call switch and its open campaigns and lines, read with LIMIT "
+        "`team_alerts/service.MAX_HOLDERS`."
+    )
+)
+_TEAM_JOB = BoundedByConstruction(
+    by=(
+        "ONE campaign's or line's rule: its agent's business outcomes and the choice fields on "
+        "its own list (bounded where they are written), the watched fields at most "
         "`team_alerts/service.MAX_FIELD_TRIGGERS`, each field's values by the request model."
     )
 )
@@ -166,6 +172,7 @@ _CAMPAIGN_WORKSPACE_ROUTES = (
     "PUT /v1/campaigns/{campaign_id}/main-task",
     "PUT /v1/campaigns/{campaign_id}/script",
     "POST /v1/campaigns/{campaign_id}/script/restore-before-pip",
+    "POST /v1/campaigns/{campaign_id}/script/step-outcomes/rewrite",
     "POST /v1/campaigns/{campaign_id}/script-draft/{proposal_id}/keep-live",
     "PUT /v1/campaigns/{campaign_id}/sources",
     "POST /v1/campaigns/{campaign_id}/sources/note",
@@ -238,8 +245,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/team-alerts/contacts": _TEAM_CONTACTS,
     "POST /v1/team-alerts/contacts/{contact_id}/code": _TEAM_CONTACTS,
     "POST /v1/team-alerts/contacts/{contact_id}/verify": _TEAM_CONTACTS,
-    "GET /v1/agents/{agent_id}/team-alert": _TEAM_RULE,
-    "PUT /v1/agents/{agent_id}/team-alert": _TEAM_RULE,
+    "GET /v1/agents/{agent_id}/team-alert": _TEAM_AGENT,
+    "PUT /v1/agents/{agent_id}/team-alert": _TEAM_AGENT,
+    "GET /v1/campaigns/{campaign_id}/team-alert": _TEAM_JOB,
+    "PUT /v1/campaigns/{campaign_id}/team-alert": _TEAM_JOB,
+    "GET /v1/inbound-lines/{line_id}/team-alert": _TEAM_JOB,
+    "PUT /v1/inbound-lines/{line_id}/team-alert": _TEAM_JOB,
     "GET /v1/calls/live": BoundedByConstruction(
         by=(
             "the calls among the ids asked for, read with `ids[:crm/live_calls.MAX_LIVE_IDS]` "

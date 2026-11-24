@@ -13,11 +13,26 @@ The queue is the shared agent pass (`agents/agent_pass`), so a pass asked for wh
 or runs is coalesced and a change made mid-pass is never lost. A burst of saves is one pass:
 each save while a pass waits pushes its start back (`DEBOUNCE_S`), and the worker defers
 itself until the burst is over.
+
+PIP'S OWN, NEVER THE OWNER'S. The holder's `step_outcomes_pip` records each outcome the pass
+wrote, word for word, with the `RULES_VERSION` it was written under (`PipRecord`). An outcome
+is Pip's while the script holds exactly that text, on whichever step it now sits; one the
+owner typed or edited is not, and is never touched. When `RULES_VERSION` moves past the
+version an outcome of Pip's was written under, the pass rewrites it, and the hourly sweep
+finds such holders (`pip_outcomes_stale`, twinned in SQL by migration f7a3c9d1b5e2).
+
+Outcomes 0.5.33 wrote have no record: that pass kept a hash of its request, not the text, so
+nothing stored tells its outcomes from ones the owner typed since, and they count as the
+owner's. `hand_back_to_pip` is the owner's one action that gives every outcome of a holder
+back to Pip to rewrite.
 """
 
 from __future__ import annotations
 
-from typing import Final, Literal
+import json
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript, stage_steps
@@ -26,13 +41,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import agent_pass
 from apps.api.agents.agent_pass import dead_sql
-from apps.api.copilot.consent import account_content_may_reach_models
+from apps.api.copilot.consent import account_content_may_reach_models, require_consent
+from apps.api.core.errors import ProblemError
 
 #: The ARQ name of the pass (`workers/step_outcomes`).
 JOB: Final = "write_step_outcomes"
 #: A pass starts this long after the last save that asked for it, so an owner saving the flow
 #: several times in a row gets one pass over the script they ended with.
 DEBOUNCE_S: Final = 30
+#: The version of the outcome writer's rules (`workers/step_outcomes.ASK` and the checks in
+#: `accepted`). Raise it when either changes in a way that should reach outcomes already
+#: written: every outcome of Pip's written under an older version is rewritten by the sweep.
+#: 1 is 0.5.33's writer, which kept no record; 2 adds case-neutral outcomes and one subject.
+RULES_VERSION: Final = 2
+#: The subject when the material names the people called nothing more particular.
+DEFAULT_SUBJECT: Final = "person"
 
 HolderKind = Literal["campaign", "line"]
 
@@ -59,6 +82,120 @@ def missing_steps(script: CallScript | None) -> list[int]:
         return []
     have = {o.step for o in script.step_outcomes if o.outcome.strip()}
     return sorted(set(stage_steps(script.stages)) - have)
+
+
+def _version(value: object) -> int:
+    return int(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0
+
+
+@dataclass(frozen=True)
+class PipRecord:
+    """`step_outcomes_pip` as read: the rules version the last pass ran under, the subject it
+    used, and each outcome it wrote with the version it was written under."""
+
+    rules: int = 0
+    subject: str | None = None
+    #: The text Pip wrote, mapped to the rules version it wrote it under.
+    written: Mapping[str, int] = field(default_factory=dict)
+
+    @classmethod
+    def read(cls, raw: Any) -> PipRecord:
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        if not isinstance(raw, dict):
+            return cls()
+        entries = raw.get("outcomes")
+        written: dict[str, int] = {}
+        for entry in entries.values() if isinstance(entries, dict) else []:
+            if isinstance(entry, dict) and isinstance(entry.get("outcome"), str):
+                written[entry["outcome"]] = _version(entry.get("rules"))
+        subject = raw.get("subject")
+        return cls(
+            rules=_version(raw.get("rules")),
+            subject=subject if isinstance(subject, str) and subject.strip() else None,
+            written=written,
+        )
+
+
+def pip_steps(script: CallScript | None, record: PipRecord) -> dict[int, int]:
+    """The steps whose outcome is still exactly a text Pip wrote, with the rules version it
+    was written under. Matched on the text, not the step number, so an outcome the owner
+    moved with its step stays Pip's and one they edited is theirs."""
+    if script is None:
+        return {}
+    return {
+        o.step: record.written[o.outcome]
+        for o in script.step_outcomes
+        if o.outcome in record.written
+    }
+
+
+def pip_outcomes_stale(script: CallScript | None, record: PipRecord, rules: int) -> bool:
+    """Whether the sweep should ask for a pass: no pass has run under `rules`, and an outcome
+    of Pip's written under an older version is still on the script. The SQL twin is
+    `script_pip_outcomes_stale` (migration f7a3c9d1b5e2)."""
+    return record.rules < rules and any(v < rules for v in pip_steps(script, record).values())
+
+
+def record_json(
+    script: CallScript, kept: PipRecord, *, subject: str | None, written: Mapping[int, str]
+) -> str:
+    """The record after a save: every outcome of `script` that is Pip's, the `written` ones
+    under `RULES_VERSION` and the rest under the version they had."""
+    versions = pip_steps(script, kept)
+    outcomes: dict[str, dict[str, object]] = {}
+    for o in script.step_outcomes:
+        if o.step in written and written[o.step] == o.outcome:
+            outcomes[str(o.step)] = {"outcome": o.outcome, "rules": RULES_VERSION}
+        elif o.step in versions:
+            outcomes[str(o.step)] = {"outcome": o.outcome, "rules": versions[o.step]}
+    return json.dumps({"rules": RULES_VERSION, "subject": subject, "outcomes": outcomes})
+
+
+def by_owner(script: CallScript | None, record: PipRecord) -> bool:
+    """Whether the script holds an outcome that is not Pip's, which only the owner can give
+    back to Pip (`hand_back_to_pip`)."""
+    if script is None:
+        return False
+    mine = pip_steps(script, record)
+    return any(o.step not in mine for o in script.step_outcomes if o.outcome.strip())
+
+
+async def hand_back_to_pip(session: AsyncSession, kind: HolderKind, holder_id: UUID) -> bool:
+    """The owner gives every outcome of this holder back to Pip: each is recorded as Pip's
+    under rules version 0, so the pass rewrites all of them, and a pass is asked for now. The
+    one action an owner takes for outcomes written before Pip kept a record (0.5.33), or for
+    outcomes of their own they want Pip to redo. True when a job was promised."""
+    table = table_of(kind)
+    row = (
+        await session.execute(
+            text(
+                f"SELECT tenant_id, script, step_outcomes_pip FROM {table} "
+                "WHERE id = :hid AND archived_at IS NULL FOR UPDATE"
+            ),
+            {"hid": holder_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Campaign" if kind == "campaign" else "Line")
+    tenant = UUID(str(row.tenant_id))
+    await require_consent(session, tenant_id=tenant)
+    script = CallScript.model_validate(row.script) if row.script else None
+    if script is None or not script.step_outcomes:
+        return False
+    held = PipRecord.read(row.step_outcomes_pip)
+    record = {
+        "rules": 0,
+        "subject": held.subject,
+        "outcomes": {str(o.step): {"outcome": o.outcome, "rules": 0} for o in script.step_outcomes},
+    }
+    await session.execute(
+        text(f"UPDATE {table} SET step_outcomes_pip = CAST(:r AS jsonb) WHERE id = :hid"),
+        {"r": json.dumps(record), "hid": holder_id},
+    )
+    return await agent_pass.queue(
+        session, SLOTS[kind], tenant_id=tenant, row_id=holder_id, force=True
+    )
 
 
 async def queue_after_save(
@@ -119,11 +256,19 @@ async def pending(session: AsyncSession, kind: HolderKind, holder_id: UUID) -> b
 
 __all__ = [
     "DEBOUNCE_S",
+    "DEFAULT_SUBJECT",
     "JOB",
+    "RULES_VERSION",
     "SLOTS",
     "HolderKind",
+    "PipRecord",
+    "by_owner",
+    "hand_back_to_pip",
     "missing_steps",
     "pending",
+    "pip_outcomes_stale",
+    "pip_steps",
     "queue_after_save",
+    "record_json",
     "table_of",
 ]
