@@ -907,6 +907,13 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/campaigns/{campaign_id}/script/proposal", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/script/restore-before-pip", {}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/script/proposal/{proposal_id}", {}, {}),
+    # Pip live (24 Nov 2026): a neighbour's draft followed, kept live or cancelled.
+    ("GET", "/v1/campaigns/{campaign_id}/script-draft/stream", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/script-draft/{proposal_id}/keep-live", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/script-draft/{proposal_id}/cancel", {}, {}),
+    ("GET", "/v1/inbound-lines/{line_id}/script-draft/stream", {}, {}),
+    ("POST", "/v1/inbound-lines/{line_id}/script-draft/{line_proposal_id}/keep-live", {}, {}),
+    ("POST", "/v1/inbound-lines/{line_id}/script-draft/{line_proposal_id}/cancel", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/questions", {}, {}),
     (
         "POST",

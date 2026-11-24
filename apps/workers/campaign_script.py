@@ -175,7 +175,7 @@ async def _claim(holder: _Holder) -> bool:
             await session.execute(
                 text(
                     f"UPDATE {_table_of(holder)} SET script_proposal = script_proposal || "
-                    "jsonb_build_object('claimed', true) WHERE id = :hid "
+                    "jsonb_build_object('claimed', true, 'phase', 'reading') WHERE id = :hid "
                     "AND script_proposal->>'id' = :pid "
                     "AND script_proposal->>'status' = 'drafting' "
                     "AND script_proposal->>'claimed' IS NULL RETURNING id"
@@ -199,6 +199,45 @@ async def _store(session: AsyncSession, holder: _Holder, update: dict[str, Any])
         )
     ).first()
     return stored is not None
+
+
+class _DraftStoppedError(Exception):
+    """The draft was stopped or replaced while this job wrote it (`script_draft.cancel_draft`,
+    the page's Stop): the job ends at the next phase instead of spending on further passes."""
+
+
+async def _phase(holder: _Holder, phase: str) -> None:
+    """Tell the draft stream where the writer is, and stop if the draft is gone.
+
+    The cancel is cooperative, checked here between the writer's passes, rather than an arq
+    `Job.abort()`: an abort raises `CancelledError` inside a model request whose answer is
+    then never metered (hard rule 7), and the worker runs with `allow_abort_jobs` off. A pass
+    already under way finishes and is metered; nothing after it runs or is stored."""
+    async with tenant_session(holder.tenant_id) as session:
+        if not await _store(session, holder, {"phase": phase}):
+            raise _DraftStoppedError
+
+
+async def _meter(session: AsyncSession, tenant_id: UUID, spends: Sequence[Spent]) -> None:
+    """Meter every pass a draft spent, refusals included."""
+    feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
+    for spent in spends:
+        if isinstance(spent, ProblemError):
+            await crm_assist.meter_refusal(
+                session, tenant_id=tenant_id, refusal=spent, feature=feature
+            )
+            continue
+        await crm_assist.meter_earlier(
+            session, tenant_id=tenant_id, earlier=spent.earlier, feature=feature
+        )
+        await crm_assist.meter_assist(
+            session,
+            tenant_id=tenant_id,
+            ref=new_assist_ref(),
+            result=spent,
+            model=spent.model,
+            feature=feature,
+        )
 
 
 async def _save_if_asked(session: AsyncSession, holder: _Holder, script: CallScript) -> None:
@@ -820,6 +859,11 @@ async def _write(
     )
     log_ids = {holder.log_key: str(holder.holder_id)}
     try:
+        await _phase(holder, "writing")
+    except _DraftStoppedError:
+        log.info("holder_script_cancelled", extra={**log_ids, "spends": 0})
+        return "cancelled"
+    try:
         if base is None:
             # A first script: written whole from the trade's step plan, the holder's words as
             # the owner's description, so every figure in them may be spoken.
@@ -851,16 +895,31 @@ async def _write(
 
     refining: list[ScriptDraft | ProblemError] = []
     first = draft.script
-    if base is None:
-        first, refining = await _refined(
-            inputs, context, draft.script, started, ask=ask, documents=documents, owners=owners
-        )
-    # Shortened before the checks, so the review and the repairs read what is offered. The
-    # review runs before the call-mistake repair so its findings join those rounds: one
-    # repair loop, not a second one after the review.
-    written, shortening = await _shortened(tenant_id, inputs, context, first, started, owners)
-    review, reviewing = await _reviewed(inputs, tenant_id, written, documents, started)
-    found = review_findings(review, written)
+    # What a stopped draft has already spent, metered when the job ends early.
+    spent_so_far: list[Spent] = [draft]
+    try:
+        if base is None:
+            first, refining = await _refined(
+                inputs, context, draft.script, started, ask=ask, documents=documents, owners=owners
+            )
+            spent_so_far += refining
+        await _phase(holder, "checking")
+        # Shortened before the checks, so the review and the repairs read what is offered. The
+        # review runs before the call-mistake repair so its findings join those rounds: one
+        # repair loop, not a second one after the review.
+        written, shortening = await _shortened(tenant_id, inputs, context, first, started, owners)
+        spent_so_far += shortening
+        review, reviewing = await _reviewed(inputs, tenant_id, written, documents, started)
+        spent_so_far += [reviewing] if reviewing is not None else []
+        found = review_findings(review, written)
+        # Repair rounds are certain only when the review flagged a line; the call-mistake
+        # checks inside `finish_written` may add rounds the stream still calls checking.
+        await _phase(holder, "repairing" if found.noted else "checking")
+    except _DraftStoppedError:
+        async with tenant_session(tenant_id) as session:
+            await _meter(session, tenant_id, spent_so_far)
+        log.info("holder_script_cancelled", extra={**log_ids, "spends": len(spent_so_far)})
+        return "cancelled"
     finished = await finish_written(
         tenant_id,
         inputs.agent_id,
@@ -907,23 +966,7 @@ async def _write(
         stored = await _store(session, holder, update)
         if stored:
             await _save_if_asked(session, holder, finished.script)
-        for spent in spends:
-            if isinstance(spent, ProblemError):
-                await crm_assist.meter_refusal(
-                    session, tenant_id=tenant_id, refusal=spent, feature=feature
-                )
-                continue
-            await crm_assist.meter_earlier(
-                session, tenant_id=tenant_id, earlier=spent.earlier, feature=feature
-            )
-            await crm_assist.meter_assist(
-                session,
-                tenant_id=tenant_id,
-                ref=new_assist_ref(),
-                result=spent,
-                model=spent.model,
-                feature=feature,
-            )
+        await _meter(session, tenant_id, spends)
     log.info(
         "holder_script_written",
         extra={

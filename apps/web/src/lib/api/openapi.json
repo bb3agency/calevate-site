@@ -24948,6 +24948,20 @@
         "title": "DownloadOut",
         "type": "object"
       },
+      "DraftCancelOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cancelled": {
+            "title": "Cancelled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cancelled"
+        ],
+        "title": "DraftCancelOut",
+        "type": "object"
+      },
       "DraftOut": {
         "additionalProperties": false,
         "properties": {
@@ -90952,6 +90966,166 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/script-draft/stream": {
+      "get": {
+        "description": "A `text/event-stream` following the campaign's Pip draft (`campaigns/script_draft`). Events:\n\n* `phase` \u00b7 `{\"phase\": \"reading\"|\"writing\"|\"checking\"|\"repairing\"|\"ready\"|\"failed\"|\"cancelled\",\n  \"detail\": str|null}`, whenever it moves. `detail` is the failure note.\n* `line` \u00b7 `{\"path\": \"stages.2.sounds_like\", \"label\": \"Step 3 \u00b7 Greeting\", \"text\": \"...\"}`,\n  every line of the written draft in script order, sent at `ready`.\n* `diff` \u00b7 `{\"changes\": [{\"path\", \"label\", \"op\": \"added\"|\"removed\"|\"changed\"|\"same\",\n  \"before\", \"after\"}], \"proposal_id\": \"<uuid>\"}`, once, after the lines.\n\nThe stream ends after `ready`, `failed` or `cancelled`. Opening it again replays the draft's\ncurrent state; with no draft it answers 404, which stops the browser reconnecting.",
+        "operationId": "stream_script_draft_v1_campaigns__campaign_id__script_draft_stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Follow Pip's draft of the campaign's script as it is written (server-sent events)",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/script-draft/{proposal_id}/cancel": {
+      "post": {
+        "operationId": "cancel_script_draft_v1_campaigns__campaign_id__script_draft__proposal_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftCancelOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Cancel Pip's draft while it is written; the campaign stays as it was",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/script-draft/{proposal_id}/keep-live": {
+      "post": {
+        "description": "The script before Pip's draft stays as the switch-back copy (`restore-before-pip`).",
+        "operationId": "keep_script_draft_live_v1_campaigns__campaign_id__script_draft__proposal_id__keep_live_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "The draft is not the one ready now"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Keep Pip's written draft as the campaign's script and put it live, as Save does",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/campaigns/{campaign_id}/script/proposal": {
       "post": {
         "operationId": "request_proposal_v1_campaigns__campaign_id__script_proposal_post",
@@ -98119,6 +98293,179 @@
           }
         },
         "summary": "Save the line's script and put it live on its numbers",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/script-draft/stream": {
+      "get": {
+        "description": "A `text/event-stream` following the line's Pip draft, with exactly the events of\n`GET /v1/campaigns/{campaign_id}/script-draft/stream`: `phase`, then at `ready` every `line`\nand one `diff`. It ends after `ready`, `failed` or `cancelled`; opening it again replays the\ndraft's current state, and a line with no draft answers 404.",
+        "operationId": "stream_script_draft_v1_inbound_lines__line_id__script_draft_stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Follow Pip's draft of the line's script as it is written (server-sent events)",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/script-draft/{line_proposal_id}/cancel": {
+      "post": {
+        "operationId": "cancel_script_draft_v1_inbound_lines__line_id__script_draft__line_proposal_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "line_proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftCancelOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Cancel Pip's draft while it is written; the line stays as it was",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/script-draft/{line_proposal_id}/keep-live": {
+      "post": {
+        "operationId": "keep_script_draft_live_v1_inbound_lines__line_id__script_draft__line_proposal_id__keep_live_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "line_proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "The draft is not the one ready now"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/EngineAgentAllowanceFull"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "RFC 9457 problem+json"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Keep Pip's written draft as the line's script and put it live, as Save does",
         "tags": [
           "inbound"
         ],

@@ -1195,6 +1195,16 @@ _UNMODELLED_SUCCESS: dict[str, str] = {
         "`GET /v1/copilot/jobs/{job_id}` beside it, so the payload shape IS declared — on "
         "the polling twin — and `apps/api/copilot/jobs_test.py` reads it at runtime."
     ),
+    "GET /v1/campaigns/{campaign_id}/script-draft/stream": (
+        "an SSE stream (Pip live, 24 Nov 2026), exempt for `POST /v1/copilot/ask`'s reason. "
+        "Its three payloads are `apps/api/campaigns/script_draft.py` (`DraftPhaseEvent`, "
+        '`DraftLineEvent`, `DraftDiffEvent`, all `extra="forbid"`), read at runtime by '
+        "`tests/script_draft_live_test.py`."
+    ),
+    "GET /v1/inbound-lines/{line_id}/script-draft/stream": (
+        "the Inbound line twin of the campaign draft stream above, the same three payloads; "
+        "listed by name so a pattern cannot exempt the next stream somebody adds."
+    ),
     "GET /v1/live": (
         "an SSE stream (D-774), exempt for `POST /v1/copilot/ask`'s reason. Its four "
         'payloads are `apps/api/live/schemas.py` (`extra="forbid"`), and the property this '

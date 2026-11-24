@@ -12,12 +12,14 @@ line's draft with the campaign's review.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript
 from fastapi import APIRouter, Depends, Request
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +29,7 @@ from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import notes as job_notes
-from apps.api.campaigns import notes_live, number_catalog
+from apps.api.campaigns import notes_live, number_catalog, script_draft
 from apps.api.campaigns.workspace import MAIN_TASK_MAX
 from apps.api.campaigns.workspace_routes import (
     TEST_CALLS_SHOWN,
@@ -368,11 +370,30 @@ class InboundLineScriptIn(BaseModel):
 async def save_script(
     line_id: UUID, payload: InboundLineScriptIn, request: Request, principal: Writer
 ) -> InboundLineOut:
+    return await _save_then_put_live(
+        request, principal, line_id, script=payload.script, proposal_id=payload.proposal_id
+    )
+
+
+async def _save_then_put_live(
+    request: Request,
+    principal: Principal,
+    line_id: UUID,
+    *,
+    script: CallScript | None,
+    proposal_id: UUID | None,
+) -> InboundLineOut:
+    """Save, settle the draft it came from, then put the line live: the one way the page's
+    Save and Keep on a streamed draft both take. `script` None keeps the draft exactly as
+    Pip wrote it, read under the row lock (`script_draft.ready_script`)."""
     tenant_id = _tenant(principal)
     async with tenant_session(tenant_id) as session:
-        version = await lines.save_script(session, line_id, payload.script)
-        if payload.proposal_id is not None:
-            await lines.clear_proposal(session, line_id, payload.proposal_id)
+        if script is None:
+            assert proposal_id is not None
+            script = await script_draft.ready_script(session, "inbound_line", line_id, proposal_id)
+        version = await lines.save_script(session, line_id, script)
+        if proposal_id is not None:
+            await lines.clear_proposal(session, line_id, proposal_id)
         await write_audit(
             session,
             action="inbound_line.script_saved",
@@ -381,10 +402,76 @@ async def save_script(
             object_type="inbound_line",
             object_id=str(line_id),
             ip=client_request_ip(request),
-            summary={"version": version, "from_draft": payload.proposal_id is not None},
+            summary={"version": version, "from_draft": proposal_id is not None},
         )
     await _put_live_after_save(tenant_id, line_id)
     return await _read(tenant_id, line_id)
+
+
+_DRAFT_STREAM_DESCRIPTION = """\
+A `text/event-stream` following the line's Pip draft, with exactly the events of
+`GET /v1/campaigns/{campaign_id}/script-draft/stream`: `phase`, then at `ready` every `line`
+and one `diff`. It ends after `ready`, `failed` or `cancelled`; opening it again replays the
+draft's current state, and a line with no draft answers 404.\
+"""
+
+
+async def _line_draft_open(line_id: UUID, principal: Reader) -> None:
+    """The stream's checks as a dependency, so another account's line, or one with no draft,
+    is an ordinary 404 before the stream opens."""
+    async with tenant_session(_tenant(principal)) as session:
+        if (await script_draft.read_draft(session, "inbound_line", line_id)).proposal is None:
+            raise ProblemError.not_found("Draft")
+
+
+@router.get(
+    "/{line_id}/script-draft/stream",
+    response_class=EventSourceResponse,
+    openapi_extra=permission_meta("agents:read"),
+    summary="Follow Pip's draft of the line's script as it is written (server-sent events)",
+    description=_DRAFT_STREAM_DESCRIPTION,
+)
+async def stream_script_draft(
+    line_id: UUID, principal: Reader, _open: None = Depends(_line_draft_open)
+) -> AsyncIterator[ServerSentEvent]:
+    """NO `Depends(db)`: a stream must not hold a pooled connection while it waits."""
+    async for event in script_draft.draft_events(_tenant(principal), "inbound_line", line_id):
+        yield event
+
+
+@router.post(
+    "/{line_id}/script-draft/{line_proposal_id}/keep-live",
+    response_model=InboundLineOut,
+    responses={**SLOTS_FULL_RESPONSES, 409: {"description": "The draft is not the one ready now"}},
+    openapi_extra=permission_meta("org:manage"),
+    summary="Keep Pip's written draft as the line's script and put it live, as Save does",
+)
+async def keep_script_draft_live(
+    line_id: UUID, line_proposal_id: UUID, request: Request, principal: Writer
+) -> InboundLineOut:
+    return await _save_then_put_live(
+        request, principal, line_id, script=None, proposal_id=line_proposal_id
+    )
+
+
+@router.post(
+    "/{line_id}/script-draft/{line_proposal_id}/cancel",
+    response_model=script_draft.DraftCancelOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Cancel Pip's draft while it is written; the line stays as it was",
+)
+async def cancel_script_draft(
+    line_id: UUID, line_proposal_id: UUID, session: Session, principal: Writer
+) -> script_draft.DraftCancelOut:
+    await script_draft.read_draft(session, "inbound_line", line_id)
+    cancelled = await script_draft.cancel_draft(
+        session,
+        tenant_id=_tenant(principal),
+        holder_kind="inbound_line",
+        holder_id=line_id,
+        proposal_id=line_proposal_id,
+    )
+    return script_draft.DraftCancelOut(cancelled=cancelled)
 
 
 @router.post(
