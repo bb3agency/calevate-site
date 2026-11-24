@@ -617,11 +617,6 @@
           "use": "Mild surprise or 'is that so?' after news from the caller."
         },
         {
-          "id": "kada",
-          "text": "కదా",
-          "use": "A tag asking for agreement: '..., కదా?'"
-        },
-        {
           "id": "enti",
           "text": "ఏంటి",
           "use": "A casual 'what?', as in 'ఏంటి ప్రాబ్లం?'"
