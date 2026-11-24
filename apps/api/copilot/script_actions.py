@@ -318,14 +318,11 @@ async def _draft_holder(session: AsyncSession, parsed: _DraftArgs) -> _DraftHold
                 "from SCREEN STATE, `campaigns_list` or `agent_settings` part script",
                 plain="That Inbound line or campaign was not found.",
             )
-        holder = _DraftHolder(kind=row.kind, id=row.id, name=str(row.name), agent_id=row.agent_id)
-        if parsed.agent_id is not None and holder.agent_id != parsed.agent_id:
-            raise WriteRefusedError(
-                "that Inbound line or campaign is spoken by a different agent; call again "
-                "with only its `holder_id`, or with one of this agent's own",
-                plain="That Inbound line or campaign does not use this agent.",
-            )
-        return holder
+        # The line or campaign names its own agent, and the script belongs to it, so an
+        # `agent_id` beside it is ignored rather than checked: a model that paired the right
+        # campaign with the account's other agent was refused, retried and gave up (founder,
+        # 24 Nov 2026), on a request that was never ambiguous.
+        return _DraftHolder(kind=row.kind, id=row.id, name=str(row.name), agent_id=row.agent_id)
     if parsed.agent_id is None:
         raise WriteRefusedError(
             "name the Inbound line or campaign (`holder_id`) or the agent (`agent_id`) whose "
@@ -512,7 +509,8 @@ SCRIPT_DRAFT: Final = ActionTool(
         {
             "agent_id": {
                 "anyOf": [{"type": "string"}, {"type": "null"}],
-                "description": "The agent, when the person named it and not the line.",
+                "description": "The agent, only when the person named it and not the line "
+                "or campaign; ignored when `holder_id` is given.",
             },
             "holder_id": {
                 "anyOf": [{"type": "string"}, {"type": "null"}],

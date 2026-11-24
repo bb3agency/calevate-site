@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.24 — 24-Nov-2026
+
+- Pip: asking for a campaign or Inbound line script to be rewritten always reaches that
+  campaign or line. Pip had paired the right campaign with the account's other agent and
+  the request was refused as "does not use this agent".
+
 ## 0.5.23 — 24-Nov-2026
 
 - Call flow: a scenario has one script box with a language switch instead of a box per
