@@ -43,6 +43,11 @@ from apps.api.whatsapp.models import TEMPLATE_CATEGORIES
 
 log = get_logger(__name__)
 
+#: Who may send a template to Meta for review: the owner, on the WhatsApp screen and on
+#: every path that writes one for them (a campaign's WhatsApp follow-up, Pip's tool),
+#: because a template goes out in the business's name.
+TEMPLATE_PERMISSION: Final = "org:manage"
+
 #: The languages Calevate's own templates are submitted in, as Meta codes them
 #: (templates/supported-languages.md: Telugu `te`, Hindi `hi`, English `en`).
 STANDARD_LANGUAGES: Final = ("te", "hi", "en")

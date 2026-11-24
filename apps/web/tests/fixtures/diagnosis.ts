@@ -1,4 +1,15 @@
-import type { HolderDiagnosis } from "@/lib/api/improve";
+import type { HolderDiagnosis, HolderGiveTime } from "@/lib/api/improve";
+
+/** "Give callers time" on a holder whose script asks the caller to act; the owner has not chosen. */
+export const GIVE_TIME_ON: HolderGiveTime = {
+  on: true,
+  owner_choice: null,
+  script_asks: true,
+  nudge_after_seconds: 20,
+  nudge_count: 3,
+  end_after_silence_seconds: 120,
+  call_cap_s: 900,
+};
 
 /** A campaign's or line's Improve readings with no calls yet (`GET …/diagnosis`). */
 export const EMPTY_DIAGNOSIS: HolderDiagnosis = {

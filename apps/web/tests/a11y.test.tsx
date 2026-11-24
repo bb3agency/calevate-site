@@ -24,7 +24,7 @@ import {
   workspaceFixture,
 } from "./campaignFixtures";
 import { ADMIN_FORWARDING, CODES, READY_TO_FORWARD, SETTLED_TEST, WITH_LINE } from "./fixtures/forwarding";
-import { FULL_DIAGNOSIS } from "./fixtures/diagnosis";
+import { FULL_DIAGNOSIS, GIVE_TIME_ON } from "./fixtures/diagnosis";
 
 import type { AiQuota } from "@/lib/api/aiQuota";
 import type {
@@ -3323,6 +3323,7 @@ const CLIENT_SCREENS: Screen[] = [
       },
       // The Improve section with every card drawn, and the latest test call's review.
       [`/v1/inbound-lines/${INBOUND_LINE.id}/diagnosis`]: FULL_DIAGNOSIS,
+      [`/v1/inbound-lines/${INBOUND_LINE.id}/give-callers-time`]: GIVE_TIME_ON,
       "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
       "/v1/calls/call-2": {
         steps: [{ step: 1, name: "Greets", state: "reached", turn_idx: 1 }],

@@ -6,7 +6,13 @@
  * campaign and a line show the same card from the same code.
  */
 
-import { useQuery, type UseMutationResult, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { useCampaignTestCalls, useRequestCampaignScript } from "./campaignWorkspace";
 import { apiRequest, type Session } from "./client";
@@ -33,6 +39,35 @@ export function useHolderDiagnosis(session: Session, holder: Holder): UseQueryRe
   return useQuery({
     queryKey: diagnosisKey(session.orgSlug, holder),
     queryFn: () => apiRequest<HolderDiagnosis>(session, `${holderPath(holder)}/diagnosis`),
+  });
+}
+
+export type HolderGiveTime = Schemas["HolderGiveTimeOut"];
+
+export const giveTimeKey = (org: string, holder: Holder) =>
+  ["holder-give-time", org, holder.kind, holder.id] as const;
+
+/** "Give callers time" on this holder's calls (`agents/give_callers_time`). */
+export function useHolderGiveTime(session: Session, holder: Holder): UseQueryResult<HolderGiveTime> {
+  return useQuery({
+    queryKey: giveTimeKey(session.orgSlug, holder),
+    queryFn: () => apiRequest<HolderGiveTime>(session, `${holderPath(holder)}/give-callers-time`),
+  });
+}
+
+/** The owner's choice for this holder; the script no longer decides after it. */
+export function useSetHolderGiveTime(
+  session: Session,
+  holder: Holder,
+): UseMutationResult<HolderGiveTime, Error, boolean> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (on: boolean) =>
+      apiRequest<HolderGiveTime>(session, `${holderPath(holder)}/give-callers-time`, {
+        method: "PUT",
+        body: { on },
+      }),
+    onSuccess: (data) => client.setQueryData(giveTimeKey(session.orgSlug, holder), data),
   });
 }
 

@@ -29,25 +29,43 @@ main language whatever the caller speaks. The owner may change it like any other
 
 Switching "caller follows along on a screen" on applies the preset to every setting the
 owner has left at Calevate's default (`apply_where_default`); the button applies it to all.
+
+A campaign or inbound line (a holder) carries the preset on its own engine agent when its
+script asks the caller to act on their phone (founder, 25 Nov 2026): a step-by-step list, or
+a line that gives an on-screen action (`script_lint.asks_caller_to_act`). Without it a silent
+caller is hung up on after about 30 s. It is laid over the settings the holder's agent and
+account leave at Calevate's level, at every publish of the holder, so it never touches the
+agent's own calls or a value the owner chose, and it follows the script as it changes. The
+owner may switch it off or on for that holder (`campaigns.give_callers_time`,
+`inbound_lines.give_callers_time`); that choice is kept and the script no longer decides.
+It is per holder rather than the agent's `caller_has_screen` because one agent's campaigns
+can differ (one guides an install, another only books) and the screen switch also changes
+the agent's prompt on every holder.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Final
+from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
 
 from calevate_shared import spoken_lines
+from calevate_shared.call_script import CallScript
+from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import call_handling
-from apps.api.agents.call_handling import AgentCallHandling, ResolvedSettings
+from apps.api.agents.call_handling import AgentCallHandling, CallSettings, ResolvedSettings
 from apps.api.agents.live_apply import queue_live_apply
 from apps.api.agents.models import REASK_NEVER, is_published
+from apps.api.agents.script_lint import asks_caller_to_act
 from apps.api.agents.service import call_cap_max_s, effective_call_cap
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from apps.api.agents.mistake_fixes import Holder
 
 log = get_logger(__name__)
 
@@ -236,21 +254,135 @@ async def apply_where_default(
     return moved
 
 
+# --- On a campaign's or inbound line's engine agent ------------------------------------------
+
+#: The row key `_to_config` reads (`agents/service._call_settings_fields`).
+HOLDER_ROW_KEY: Final = "holder_gives_time"
+
+
+def holder_gives_time(owner_choice: bool | None, script: CallScript | None) -> bool:
+    """Does a holder's engine agent carry the preset? The owner's choice for that holder once
+    they made one, never overridden; until then, whether its script asks the caller to act on
+    their phone."""
+    if owner_choice is not None:
+        return owner_choice
+    return script is not None and asks_caller_to_act(script)
+
+
+def holder_row(row: dict[str, Any], *, on: bool) -> dict[str, Any]:
+    """A holder's agent row as `_to_config` builds its engine agent, with the preset marked
+    for the call settings and the longest call raised where the agent has none of its own.
+    Pure: the agent's stored values are never written."""
+    if not on:
+        return row
+    held = {**row, HOLDER_ROW_KEY: True}
+    if held.get("max_call_duration_s") is None and preset_call_cap_s() > effective_call_cap(None):
+        held["max_call_duration_s"] = preset_call_cap_s()
+    return held
+
+
+def over_platform_level(resolved: ResolvedSettings, language: str) -> CallSettings:
+    """The settings in force with the preset laid over each one still at Calevate's level:
+    a value the agent or the account chose is kept, as `apply_where_default` keeps it."""
+    changes = {
+        field: value
+        for field, value in preset_changes(language, caller_has_screen=True).items()
+        if resolved.sources[field] == "platform"
+    }
+    return call_handling.settings_of({**call_handling.as_mapping(resolved.values), **changes})
+
+
+@dataclass(frozen=True, slots=True)
+class HolderGiveTime:
+    """The preset on one holder: in force, the owner's own choice (None: the script decides),
+    and whether the script asks the caller to act."""
+
+    on: bool
+    owner_choice: bool | None
+    script_asks: bool
+
+
+def _script_or_none(raw: object) -> CallScript | None:
+    if not raw:
+        return None
+    try:
+        return CallScript.model_validate(raw)
+    except ValidationError:
+        return None
+
+
+async def read_holder_give_time(session: AsyncSession, holder: Holder) -> HolderGiveTime:
+    """The preset on a campaign or line. RLS scopes the read; 404 for one this session cannot
+    see. A campaign with no script of its own speaks its agent's (`campaign_agent_row`)."""
+    if holder.kind == "campaign":
+        sql = (
+            "SELECT c.give_callers_time, COALESCE(c.script, pv.structured_script) "
+            "FROM campaigns c JOIN agents a ON a.id = c.agent_id "
+            "LEFT JOIN prompt_versions pv "
+            "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
+            "WHERE c.id = :hid AND c.archived_at IS NULL"
+        )
+    else:
+        sql = (
+            "SELECT give_callers_time, script FROM inbound_lines "
+            "WHERE id = :hid AND archived_at IS NULL"
+        )
+    row = (await session.execute(text(sql), {"hid": holder.id})).first()
+    if row is None:
+        raise ProblemError.not_found("Campaign" if holder.kind == "campaign" else "Inbound line")
+    choice = None if row[0] is None else bool(row[0])
+    script = _script_or_none(row[1])
+    asks = script is not None and asks_caller_to_act(script)
+    return HolderGiveTime(
+        on=holder_gives_time(choice, script), owner_choice=choice, script_asks=asks
+    )
+
+
+async def set_holder_give_time(session: AsyncSession, holder: Holder, *, on: bool) -> bool:
+    """Record the owner's choice for this holder, in the caller's transaction; the script no
+    longer decides. Answers whether the value moved. The caller republishes a live holder."""
+    from apps.api.agents.mistake_fixes import holder_table
+
+    table = holder_table(holder.kind)
+    moved = (
+        await session.execute(
+            text(
+                f"UPDATE {table} SET give_callers_time = CAST(:on AS boolean), "
+                "updated_at = now() WHERE id = :hid AND archived_at IS NULL "
+                "AND give_callers_time IS DISTINCT FROM CAST(:on AS boolean) RETURNING id"
+            ),
+            {"on": on, "hid": holder.id},
+        )
+    ).first()
+    log.info(
+        "holder_give_callers_time_set",
+        extra={"holder": holder.kind, "holder_id": str(holder.id), "on": on, "moved": bool(moved)},
+    )
+    return moved is not None
+
+
 __all__ = [
     "CALL_CAP_FIELD",
     "CALL_CAP_S",
     "END_AFTER_SILENCE_S",
+    "HOLDER_ROW_KEY",
     "NUDGE_AFTER_S",
     "NUDGE_COUNT",
     "NUDGE_PHRASES",
     "REASK_AFTER_MS",
     "GiveCallersTime",
     "GiveCallersTimeApplied",
+    "HolderGiveTime",
     "apply_give_callers_time",
     "apply_where_default",
+    "holder_gives_time",
+    "holder_row",
     "is_applied",
     "nudge_phrase_for",
+    "over_platform_level",
     "preset_call_cap_s",
     "preset_changes",
     "read_give_callers_time",
+    "read_holder_give_time",
+    "set_holder_give_time",
 ]

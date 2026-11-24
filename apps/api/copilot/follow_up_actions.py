@@ -55,6 +55,7 @@ from apps.api.copilot.tools import ReadTool, ToolContext, _clean
 from apps.api.core.errors import ProblemError
 from apps.api.follow_ups import definition as d
 from apps.api.follow_ups import runner, service, starters
+from apps.api.whatsapp.templates import TEMPLATE_PERMISSION
 
 _WHERE: Final = "on the Follow-ups screen"
 _PERMISSION: Final = "leads:dispatch"
@@ -988,7 +989,8 @@ FOLLOW_UP_CAMPAIGN_WHATSAPP: Final = ActionTool(
     name="follow_up_campaign_whatsapp",
     tier="confirm",
     undo=None,
-    permission=_PERMISSION,
+    # It submits a WhatsApp template, which the WhatsApp screen keeps to the owner.
+    permission=TEMPLATE_PERMISSION,
     object_type="campaign",
     audit_action="campaign.whatsapp_follow_up_requested",
     where="on the campaign's Improve tab",

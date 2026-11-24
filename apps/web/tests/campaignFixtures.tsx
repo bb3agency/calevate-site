@@ -20,7 +20,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 
 import { formatDateLong, todayIST } from "@/components/arc/ist-dates";
 
-import { EMPTY_DIAGNOSIS } from "./fixtures/diagnosis";
+import { EMPTY_DIAGNOSIS, GIVE_TIME_ON } from "./fixtures/diagnosis";
 import { jobTeamAlert } from "./fixtures/sharedReads";
 import type { Routes } from "./harness";
 
@@ -246,6 +246,7 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [`/v1/campaigns/${id}/insights`]: insightsFixture(),
     // The Improve tab's Diagnose readings: no calls yet.
     [`/v1/campaigns/${id}/diagnosis`]: EMPTY_DIAGNOSIS,
+    [`/v1/campaigns/${id}/give-callers-time`]: GIVE_TIME_ON,
     // The Improve tab's WhatsApp follow-up card: connected, nothing set up yet.
     [`/v1/campaigns/${id}/whatsapp-follow-up`]: {
       phase: "none",

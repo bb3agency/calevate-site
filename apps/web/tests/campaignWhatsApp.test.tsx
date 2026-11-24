@@ -24,11 +24,13 @@ const OWNER: Me = {
   user_id: "u1",
   realm: "client",
   role: "owner",
-  permissions: ["leads:read", "leads:dispatch"],
+  permissions: ["leads:read", "leads:dispatch", "org:manage"],
   impersonating: false,
   withheld_acts: [],
   organization: { id: "o1", name: "Rytu Khata", slug: "acme", status: "active" },
 };
+/** Runs campaigns but may not send WhatsApp templates. */
+const DISPATCHER: Me = { ...OWNER, role: "staff", permissions: ["leads:read", "leads:dispatch"] };
 
 function made(overrides: Partial<CampaignWhatsAppMade> = {}): CampaignWhatsAppMade {
   return {
@@ -53,7 +55,7 @@ function card(overrides: Partial<CampaignWhatsApp> = {}): CampaignWhatsApp {
   return { phase: "none", connected: true, failure: null, made: null, ...overrides };
 }
 
-async function show(routes: Record<string, unknown>, canWrite = true) {
+async function show(routes: Record<string, unknown>, canWrite = true, me: Me = OWNER) {
   return renderClientPage(
     <ToastProvider>
       <WhatsAppFollowUp
@@ -63,7 +65,7 @@ async function show(routes: Record<string, unknown>, canWrite = true) {
         refusal="Only the owner can change this."
       />
     </ToastProvider>,
-    { "/v1/me": OWNER, ...routes },
+    { "/v1/me": me, ...routes },
   );
 }
 
@@ -176,8 +178,27 @@ describe("the campaign's WhatsApp follow-up card", () => {
   });
 
   it("holds every control for someone who cannot change it", async () => {
-    await show({ [PATH]: card() }, false);
+    await show({ [PATH]: card() }, false, DISPATCHER);
     const button = (await screen.findByRole("button", { name: "Set up WhatsApp follow-up" })) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    await waitFor(() => expect(button.disabled).toBe(true));
+  });
+
+  it("keeps setting up to the owner and says why, while the switch stays with campaign runners", async () => {
+    const { container } = await show(
+      { [PATH]: card({ phase: "made", made: made({ message_status: "rejected" }) }) },
+      true,
+      DISPATCHER,
+    );
+    const again = (await screen.findByRole("button", { name: "Write it again" })) as HTMLButtonElement;
+    await waitFor(() => expect(again.disabled).toBe(true));
+    expect(screen.getByText("Only an account owner can set up a WhatsApp follow-up.")).toBeTruthy();
+    await expectNoA11yViolations(container, "WhatsApp card, not the owner");
+  });
+
+  it("refuses the first set-up to someone who runs campaigns but is not the owner", async () => {
+    await show({ [PATH]: card() }, true, DISPATCHER);
+    const button = (await screen.findByRole("button", { name: "Set up WhatsApp follow-up" })) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(true));
+    expect(screen.getByText("Only an account owner can set up a WhatsApp follow-up.")).toBeTruthy();
   });
 });

@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import give_callers_time
 from apps.api.agents import service as agents_service
 from apps.api.agents.mistake_fixes import Holder
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
@@ -33,18 +34,22 @@ from apps.api.campaigns import notes as job_notes
 from apps.api.campaigns import notes_live, number_catalog, script_draft, script_history
 from apps.api.campaigns.workspace import MAIN_TASK_MAX
 from apps.api.campaigns.workspace_routes import (
+    GIVE_TIME_DESCRIPTION,
     TEST_CALLS_SHOWN,
     CampaignProposalOut,
     CampaignTestCallIn,
     CampaignTestCallItem,
     CampaignTestCallOut,
     HolderDiagnosisOut,
+    HolderGiveTimeIn,
+    HolderGiveTimeOut,
     JobNotesIn,
     JobNotesOut,
     ScriptAskIn,
     TestNumbersOut,
     asked_summary,
     holder_diagnosis,
+    holder_give_time_out,
     job_notes_out,
     remember_test_number,
     saved_test_numbers,
@@ -774,6 +779,50 @@ async def line_calls(line_id: UUID, session: Session, _: Reader) -> LineCallsOut
 async def line_diagnosis(line_id: UUID, session: Session, _: TestReader) -> HolderDiagnosisOut:
     await lines.read_line(session, line_id)
     return await holder_diagnosis(session, Holder("inbound_line", line_id))
+
+
+@router.get(
+    "/{line_id}/give-callers-time",
+    response_model=HolderGiveTimeOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="Whether this line's calls give a quiet caller time",
+    description=GIVE_TIME_DESCRIPTION,
+)
+async def line_give_time(line_id: UUID, session: Session, _: Reader) -> HolderGiveTimeOut:
+    return holder_give_time_out(
+        await give_callers_time.read_holder_give_time(session, Holder("inbound_line", line_id))
+    )
+
+
+@router.put(
+    "/{line_id}/give-callers-time",
+    response_model=HolderGiveTimeOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Switch giving a quiet caller time on or off for this line",
+    description=GIVE_TIME_DESCRIPTION + " A live line is put live again with the choice.",
+)
+async def set_line_give_time(
+    line_id: UUID, payload: HolderGiveTimeIn, request: Request, principal: Writer
+) -> HolderGiveTimeOut:
+    tenant_id = _tenant(principal)
+    holder = Holder("inbound_line", line_id)
+    async with tenant_session(tenant_id) as session:
+        await give_callers_time.read_holder_give_time(session, holder)
+        moved = await give_callers_time.set_holder_give_time(session, holder, on=payload.on)
+        await write_audit(
+            session,
+            action="inbound_line.give_callers_time",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="inbound_line",
+            object_id=str(line_id),
+            ip=client_request_ip(request),
+            summary={"on": payload.on},
+        )
+    if moved:
+        await _republish_if_live(tenant_id, line_id)
+    async with tenant_session(tenant_id) as session:
+        return holder_give_time_out(await give_callers_time.read_holder_give_time(session, holder))
 
 
 @router.post(

@@ -53,7 +53,7 @@ def test_a_mode_or_switch_changed_in_the_vendor_console_is_drift() -> None:
 
 def test_the_console_takes_only_the_three_modes_and_republishes_live_agents() -> None:
     assert get_settings().thinnest_turn_detection == "timer"
-    assert get_settings().thinnest_acknowledgements is True
+    assert get_settings().thinnest_acknowledgements is False
     assert validated_value("thinnest_turn_detection", "ear") == "ear"
     with pytest.raises(ProblemError):
         validated_value("thinnest_turn_detection", "fast")

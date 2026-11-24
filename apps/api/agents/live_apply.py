@@ -175,6 +175,7 @@ PLATFORM_PROMPT_REASON: Final = "platform_prompt"
 #: Console settings every agent is published with whose code default goes into
 #: `platform_prompt_revision`.
 ENGINE_CONSOLE_DEFAULT_KEYS: Final = (
+    "thinnest_acknowledgements",
     "thinnest_interrupt_words",
     "thinnest_agent_temperature_tenths",
     "thinnest_thinking_delay_ms",
@@ -351,6 +352,13 @@ def platform_prompt_revision() -> str:
 
     for key in ENGINE_CONSOLE_DEFAULT_KEYS:
         parts.append(f"{key}:{Settings.model_fields[key].default}")
+    # "Give callers time" on a campaign or line whose script asks the caller to act (founder,
+    # 25 Nov 2026) reaches its engine agent only by a publish, so introducing it or moving
+    # its values walks the fleet once, holders included.
+    from apps.api.agents import give_callers_time as gct
+
+    preset = gct.preset_changes("", caller_has_screen=False)
+    parts.append(f"holder_give_callers_time:{json.dumps(preset, sort_keys=True)}:{gct.CALL_CAP_S}")
     # Which agents a platform run converges: widening it (ready agents, D-876) walks the fleet
     # once more, so agents a narrower walk skipped are brought onto this build's text.
     from apps.api.agents.models import PUBLISHED_STATUSES

@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import script_proposals
+from apps.api.agents import give_callers_time, script_proposals
 from apps.api.agents.extraction_routes import MAX_EXTRACTION_FIELDS
 from apps.api.agents.languages import LANGUAGE_LABELS, client_language_tags
 from apps.api.agents.mistake_fixes import Holder
@@ -862,8 +862,16 @@ async def save_opening_b(
         await refuse_campaign_opening_over_limit(
             session, tenant_id=principal.tenant_id, campaign_id=campaign_id, opening_line=line
         )
+    # A different second opening is a new test: only calls from now count toward it
+    # (`learning.opening_results`), so an earlier test's calls under the same per-contact
+    # labels are not counted for this one.
     await session.execute(
-        text("UPDATE campaigns SET opening_b = :o, updated_at = now() WHERE id = :cid"),
+        text(
+            "UPDATE campaigns SET opening_test_started_at = CASE "
+            "WHEN CAST(:o AS text) IS NOT NULL AND opening_b IS DISTINCT FROM CAST(:o AS text) "
+            "THEN now() ELSE opening_test_started_at END, "
+            "opening_b = CAST(:o AS text), updated_at = now() WHERE id = :cid"
+        ),
         {"o": line or None, "cid": campaign_id},
     )
 
@@ -985,6 +993,96 @@ async def holder_diagnosis(session: AsyncSession, holder: Holder) -> HolderDiagn
 async def campaign_diagnosis(campaign_id: UUID, session: Session, _: Reader) -> HolderDiagnosisOut:
     await _campaign_visible(session, campaign_id)
     return await holder_diagnosis(session, Holder("campaign", campaign_id))
+
+
+class HolderGiveTimeOut(_Out):
+    """ "Give callers time" on this campaign or line (`agents/give_callers_time`)."""
+
+    #: The preset is on this holder's calls.
+    on: bool
+    #: The owner's own choice; null while the script decides.
+    owner_choice: bool | None
+    #: The script asks the caller to do things on their phone.
+    script_asks: bool
+    nudge_after_seconds: int
+    nudge_count: int
+    end_after_silence_seconds: int
+    call_cap_s: int
+
+
+class HolderGiveTimeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    on: bool
+
+
+def holder_give_time_out(state: give_callers_time.HolderGiveTime) -> HolderGiveTimeOut:
+    return HolderGiveTimeOut(
+        on=state.on,
+        owner_choice=state.owner_choice,
+        script_asks=state.script_asks,
+        nudge_after_seconds=give_callers_time.NUDGE_AFTER_S,
+        nudge_count=give_callers_time.NUDGE_COUNT,
+        end_after_silence_seconds=give_callers_time.END_AFTER_SILENCE_S,
+        call_cap_s=give_callers_time.preset_call_cap_s(),
+    )
+
+
+GIVE_TIME_DESCRIPTION: Final = (
+    "On, a quiet caller is asked whether they are still there after "
+    f"{give_callers_time.NUDGE_AFTER_S} s, up to {give_callers_time.NUDGE_COUNT} times, and the "
+    f"call ends after {give_callers_time.END_AFTER_SILENCE_S} s of silence, so a caller doing "
+    "what the agent asked on their phone is not hung up on. It covers the call settings the "
+    "agent and account leave at Calevate's default. Until the owner chooses, it is on when the "
+    "script asks the caller to act on their phone (`script_asks`); a choice is kept."
+)
+
+
+@router.get(
+    "/{campaign_id}/give-callers-time",
+    response_model=HolderGiveTimeOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="Whether this campaign's calls give a quiet caller time",
+    description=GIVE_TIME_DESCRIPTION,
+)
+async def campaign_give_time(campaign_id: UUID, session: Session, _: Reader) -> HolderGiveTimeOut:
+    return holder_give_time_out(
+        await give_callers_time.read_holder_give_time(session, Holder("campaign", campaign_id))
+    )
+
+
+@router.put(
+    "/{campaign_id}/give-callers-time",
+    response_model=HolderGiveTimeOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Switch giving a quiet caller time on or off for this campaign",
+    description=GIVE_TIME_DESCRIPTION
+    + " A running or paused campaign's calls carry the choice from the next call.",
+)
+async def set_campaign_give_time(
+    campaign_id: UUID,
+    payload: HolderGiveTimeIn,
+    session: Session,
+    request: Request,
+    principal: Dispatcher,
+) -> HolderGiveTimeOut:
+    assert principal.tenant_id is not None
+    holder = Holder("campaign", campaign_id)
+    async with tenant_session(principal.tenant_id) as own:
+        await give_callers_time.read_holder_give_time(own, holder)
+        moved = await give_callers_time.set_holder_give_time(own, holder, on=payload.on)
+        await write_audit(
+            own,
+            action="campaign.give_callers_time",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+            summary={"on": payload.on},
+        )
+    if moved and await workspace.holds_engine_agent(session, campaign_id):
+        await _put_live_after_save(principal.tenant_id, campaign_id)
+    return holder_give_time_out(await give_callers_time.read_holder_give_time(session, holder))
 
 
 class CampaignTestCallIn(BaseModel):

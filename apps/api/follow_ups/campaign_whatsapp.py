@@ -17,6 +17,10 @@ NOTHING IS SENT UNTIL THE OWNER SWITCHES IT ON. `install` leaves the Follow-up a
 approved the message. Every message a run sends still passes the dispatch gate and the
 recipient's WhatsApp opt-in at the moment it goes out (`crm/lead_message.send_lead_whatsapp`).
 
+ONLY THE OWNER SETS IT UP. `set_up` ends in a WhatsApp template submitted in the business's
+name, so both doors require `whatsapp/templates.TEMPLATE_PERMISSION`, the WhatsApp screen's
+own (founder, 25 Nov 2026); `switch` stays `leads:dispatch`.
+
 NOT CONNECTED IS A REFUSAL, NOT A BROKEN DRAFT. Without a connected WhatsApp account that can
 send, `set_up` refuses with `whatsapp_not_connected` and makes nothing.
 """

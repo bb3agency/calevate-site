@@ -386,14 +386,14 @@ async def list_templates(
     "/templates",
     response_model=WhatsAppTemplateOut,
     status_code=201,
-    openapi_extra=permission_meta("org:manage"),
+    openapi_extra=permission_meta(templates.TEMPLATE_PERMISSION),
     summary="Write a message template and send it to Meta for review",
 )
 async def create_template(
     payload: WhatsAppTemplateIn,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("org:manage")),
+    principal: Principal = Depends(requires(templates.TEMPLATE_PERMISSION)),
 ) -> WhatsAppTemplateOut:
     tenant_id, _ = _owner(principal)
     account = await accounts.get_account(session, payload.account_id)

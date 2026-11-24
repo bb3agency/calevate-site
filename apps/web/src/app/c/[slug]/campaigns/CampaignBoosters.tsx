@@ -22,6 +22,7 @@ import { TEXT_ACTION } from "@/components/console/section";
 import { BestHoursCard } from "@/components/improve/BestHoursCard";
 import { CallAgainCard } from "@/components/improve/CallAgainCard";
 import { DiagnoseCards } from "@/components/improve/DiagnoseCards";
+import { GiveCallersTimeCard } from "@/components/improve/GiveCallersTimeCard";
 import { ImproveCard as Card } from "@/components/improve/ImproveCard";
 import { OpeningTestCard } from "@/components/improve/OpeningTestCard";
 import { RetrySpreadCard } from "@/components/improve/RetrySpreadCard";
@@ -49,6 +50,7 @@ import {
   useSwitchCampaignWhatsApp,
   type CampaignWhatsAppMade,
 } from "@/lib/api/followUps";
+import { useActAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useTestRingsFrom } from "@/lib/api/trialCalls";
 
@@ -90,6 +92,12 @@ export function ImproveTab(props: Common & { status?: string | null }) {
       <BestHoursCard {...props} data={insights.data.best_hours} />
       <OpeningTestCard {...props} data={insights.data.opening} />
       <RetrySpreadCard {...props} data={insights.data.retry} />
+      <GiveCallersTimeCard
+        slug={props.slug}
+        holder={{ kind: "campaign", id: props.campaignId }}
+        canWrite={props.canWrite}
+        refusal={props.refusal}
+      />
       <CallAgainCard {...props} />
       <WhatsAppFollowUp
         slug={props.slug}
@@ -384,18 +392,30 @@ export function WhatsAppFollowUp({ slug, campaignId, canWrite, refusal }: Omit<C
   const setUp = useSetUpCampaignWhatsApp(session, campaignId);
   const setUpFeedback = useActionFeedback(setUp, { errorDisplay: "inline" });
   const connectHref = href(`/c/${slug}/integrations/whatsapp`);
+  // Writing the message sends a WhatsApp template for review, which the WhatsApp screen keeps
+  // to the owner (founder, 25 Nov 2026); turning a made one on or off stays with `canWrite`.
+  const templates = useActAccess(
+    session,
+    "org:manage",
+    "billing.ai_assist",
+    "set up a WhatsApp follow-up",
+  );
+  const setUpReason = !templates.allowed ? templates.reason : null;
 
   const setUpButton = (label: string) => (
-    <ActionButton
-      variant="secondary-sm"
-      status={setUpFeedback.status}
-      pendingLabel="Asking Pip…"
-      disabled={!canWrite}
-      title={!canWrite ? refusal : undefined}
-      onClick={() => setUp.mutate()}
-    >
-      {label}
-    </ActionButton>
+    <div className="space-y-1">
+      <ActionButton
+        variant="secondary-sm"
+        status={setUpFeedback.status}
+        pendingLabel="Asking Pip…"
+        disabled={!templates.allowed}
+        title={setUpReason ?? undefined}
+        onClick={() => setUp.mutate()}
+      >
+        {label}
+      </ActionButton>
+      {setUpReason && <p className="text-meta text-ink-muted">{setUpReason}</p>}
+    </div>
   );
 
   return (
