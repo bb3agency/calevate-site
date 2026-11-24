@@ -46,6 +46,7 @@ from apps.api.db.session import admin_session, tenant_session
 from apps.api.reliability.service import enqueue_outbox_once
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.trial_notices import ist_moment
 
 log = get_logger(__name__)
@@ -86,8 +87,13 @@ async def expire_credit_lots(ctx: dict[str, Any]) -> str:
     now = datetime.now(UTC)
     async with admin_session() as directory:
         tenants = [UUID(str(t)) for t in (await directory.execute(text(_ALL_TENANTS))).scalars()]
-    expired = failed = promised = notice_failed = 0
-    for tenant_id in tenants:
+    expired = failed = promised = notice_failed = probed = 0
+    # Budgeted and resumed (`fleet_walk`): run past `job_timeout`, arq cancels the tick and
+    # never retries it, so the newest accounts (last in uuid7 order) would keep spendable
+    # credit past its expiry every hour.
+    budget = WalkBudget()
+    async for tenant_id in resumed_walk("credit_expiry", tenants, budget):
+        probed += 1
         try:
             async with tenant_session(tenant_id) as scoped:
                 due = await due_lots(scoped, now=now)
@@ -127,6 +133,17 @@ async def expire_credit_lots(ctx: dict[str, Any]) -> str:
                 "credit is still spendable. The next hourly run tries them again."
             ),
         )
+    unreached = len(tenants) - probed
+    if unreached:
+        alert(
+            "WORKER_STALL",
+            "credit_expiry_truncated",
+            detail=(
+                f"the credit expiry sweep reached {probed} of {len(tenants)} account(s) inside "
+                f"its time budget; lots of the other {unreached} past their expiry stay "
+                "spendable until the next hourly run, which resumes after the last one reached"
+            ),
+        )
     if notice_failed:
         alert(
             "WORKER_DELIVERY",
@@ -141,6 +158,7 @@ async def expire_credit_lots(ctx: dict[str, Any]) -> str:
         "failed": failed,
         "notices_promised": promised,
         "notice_failed": notice_failed,
+        "unreached": unreached,
     }
     log.info("credit_lots_expired", extra=summary)
     return str(summary)

@@ -42,6 +42,7 @@ from apps.api.notifications.daily_summary import (
 )
 from apps.workers.account_closure import account_recipients
 from apps.workers.email_render import Email, product_email
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.whatsapp import WhatsAppMessage, get_whatsapp_transport, resolve_destination
 
 log = get_logger(__name__)
@@ -144,8 +145,13 @@ async def send_owner_digests(ctx: dict[str, Any]) -> str:
     async with admin_session() as directory:
         tenants = [UUID(str(t)) for t in (await directory.execute(text(_OPTED_IN))).scalars()]
     counts: dict[str, int] = {}
-    failed = 0
-    for tenant_id in tenants:
+    failed = probed = 0
+    # Budgeted (`fleet_walk`): past `job_timeout` arq cancels the run and never retries it, so
+    # every account after that point would get no summary that evening. A pass that stops
+    # here retries instead, and the claims keep the accounts already sent from a second one.
+    budget = WalkBudget()
+    async for tenant_id in resumed_walk("owner_digests", tenants, budget):
+        probed += 1
         try:
             outcome = await send_one(tenant_id, day=day)
         except Exception as exc:
@@ -157,22 +163,27 @@ async def send_owner_digests(ctx: dict[str, Any]) -> str:
             continue
         counts[outcome] = counts.get(outcome, 0) + 1
     undelivered = counts.get("undelivered", 0)
-    if (failed or undelivered) and attempt < WORKER_MAX_TRIES:
+    unreached = len(tenants) - probed
+    if (failed or undelivered or unreached) and attempt < WORKER_MAX_TRIES:
         # Every account already sent keeps its claim, so the retry reaches only these.
         raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt))
-    if failed or undelivered:
+    if failed or undelivered or unreached:
         alert(
             "WORKER_DELIVERY",
             "owner_digest_incomplete",
             detail=(
-                f"{failed} account(s) failed and {undelivered} had no channel deliver their "
-                f"daily summary after {attempt} tries; tomorrow's run sends the next one. "
+                f"{failed} account(s) failed, {undelivered} had no channel deliver their "
+                f"daily summary and {unreached} were not reached inside the time budget "
+                f"after {attempt} tries; tomorrow's run sends the next one. "
                 "Read owner_digest_failed in the logs for the error type."
             ),
         )
     summary = " ".join(f"{k}={v}" for k, v in sorted(counts.items()))
-    log.info("owner_digests_sent", extra={"accounts": len(tenants), "failed": failed, **counts})
-    return f"accounts={len(tenants)} failed={failed} {summary}".strip()
+    log.info(
+        "owner_digests_sent",
+        extra={"accounts": len(tenants), "failed": failed, "unreached": unreached, **counts},
+    )
+    return f"accounts={len(tenants)} failed={failed} unreached={unreached} {summary}".strip()
 
 
 __all__ = ["SEND_HOUR", "SEND_MINUTE", "compose_email", "send_one", "send_owner_digests"]
