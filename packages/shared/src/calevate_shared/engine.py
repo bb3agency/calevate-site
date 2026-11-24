@@ -3084,6 +3084,10 @@ _REGISTER_BULLET: Final = (
 #: - A step the caller was to check was closed with "everything is right, isn't it?". The
 #:   result is asked for openly ("ask what they see"); the step-by-step and step-outcome leads
 #:   in `call_script` say the same for a script's own steps.
+#: From the founder's Telugu campaign call of 24 Nov 2026: one filler from the register's list
+#: opened nine of twelve replies. "Often none" and "never to open" were already here; the
+#: register line introduced its fillers as "lightly", so the cap is now said at that list
+#: (`spoken_style.FILLERS_LEAD`), and here a reaction is never said twice a call.
 _WRITTEN_FORM_BULLET: Final = f"- {WRITTEN_FORM_RULE}\n"
 #: The language `VOICE_STYLE_GUIDANCE`'s amounts bullet is written for, and the default of
 #: an `AgentConfig` built without one (every app path passes the agent's own). Not what a
@@ -3103,7 +3107,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     "- Open with the point in one short sentence with no comma; one or two short sentences, "
     "then wait: one point a turn.\n"
     "- Asked something? Answer just that, never your last point again. Told something? A "
-    "reaction only if it fits, often none, never to open; no two replies start or end alike.\n"
+    "reaction only if it fits, often none, never to open or twice a call; no two replies start "
+    "or end alike.\n"
     '- One question a turn, on one thing, last; choices for times ("morning or evening?"), '
     "never for counts or amounts, not even as examples. Never re-ask what they said or repeat a "
     "sentence. Adapt to the answer.\n"
@@ -3161,6 +3166,10 @@ _PACK_REGISTER_BULLET: Final = f'- Never say "uhm". {_SWITCH_RULE}\n'
 #:   build/prompt-situation-guide, read 9 Nov 2026); a word is spelled only when it was not
 #:   understood, as Phonic's agents do by default (docs.phonic.ai prompting guide, read 9 Nov
 #:   2026). Sending the link, where a tool can, spares the caller typing it.
+#: - A label or address is said once. Told to say it word for word, an agent said a button in
+#:   the call's letters and then again in English in brackets, and the voice read both (Telugu
+#:   campaign call of 24 Nov 2026); the brackets rule in HOW TO SPEAK did not stop a pair it
+#:   read as one name.
 _NO_REPEAT: Final = "Never re-ask what they said or repeat a sentence."
 _SCREEN_NO_REPEAT: Final = (
     "Never re-ask what they said or repeat a sentence; a step they could not do, say again, "
@@ -3174,9 +3183,10 @@ def screen_steps_bullet(language: str | None) -> str:
     example = spelled_address(language)
     spelled = f' ("{example}")' if example else ""
     return (
-        "- They follow you on their screen: one step a turn, naming what to tap by its label "
-        "word for word, then wait until they say it is done. Say a web "
-        "address as it reads, no www: a word as a word, initials each by its English letter "
+        "- They follow you on their screen: one step a turn, naming what to tap once, by its "
+        "label word for word, never again in brackets or other letters, then wait until they "
+        "say it is done. Say a web address once, as it reads, no www: a word as a word, "
+        "initials each by its English letter "
         f'name in the call\'s letters, a comma between, "dot" as a word{spelled}. Spell a word '
         "by letters only if they cannot find it, or send the link if a tool can.\n"
     )
@@ -3212,6 +3222,13 @@ FACTS_INLINE_GUIDANCE: Final = (
 )
 
 
+#: When a search is due besides a business question. A step-by-step call asks none, so an
+#: agent told to search "before answering about the business" never searched (0 of 12 on the
+#: Telugu campaign call of 24 Nov 2026) and, told a menu option was missing, improvised while
+#: its knowledge held the answer for exactly that case. Still a trigger, not "search every
+#: turn": each search delays the first word (`docs/evidence/latency-research-2026-10-27.md`).
+STUCK_SEARCH: Final = "if stuck on a step"
+
 #: Said by a language pack's keep-English-nouns rule when the agent has one (D-830).
 _NAMES_RULE: Final = " Say names as your facts give them, never translated."
 
@@ -3232,15 +3249,15 @@ def _knowledge_section(cfg: AgentConfig, pack: PackChoice | None = None) -> str:
         tool = f"the {cfg.knowledge_tool} tool" if cfg.knowledge_tool else "your knowledge search"
         where = (
             f"{FACTS_IN_KNOWLEDGE_GUIDANCE} {FACTS_INLINE_GUIDANCE} Search with {tool}, in the "
-            "caller's words and the plain English name, only for what they do not cover, and "
-            "before saying you do not know."
+            f"caller's words and the plain English name, only for what they do not cover, "
+            f"{STUCK_SEARCH}, and before saying you do not know."
         )
     elif cfg.facts_in_knowledge:
         tool = f"the {cfg.knowledge_tool} tool" if cfg.knowledge_tool else "your knowledge search"
         where = (
             f"{FACTS_IN_KNOWLEDGE_GUIDANCE} Search with {tool}, in the caller's words and the "
-            "plain English name, before answering about the business or saying you do not "
-            "know."
+            f"plain English name, {STUCK_SEARCH} or before answering about the business or "
+            "saying you do not know."
         )
     else:
         where = "Answer about the business from the facts here and your knowledge search."
@@ -7030,6 +7047,7 @@ __all__ = [
     "SAID_FIRST_RULE",
     "SAID_FIRST_VARIABLE",
     "SCREEN_CALL_INSTRUCTIONS",
+    "STUCK_SEARCH",
     "TEST_CALL_OPENING_RULE",
     "THIS_CALL_HEADER",
     "TODAY_LINE",

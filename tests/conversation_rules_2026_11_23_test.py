@@ -35,7 +35,8 @@ SPEAKING_RULES = (
     # Only what was asked is answered.
     "Asked something? Answer just that, never your last point again.",
     # No acknowledgement or closing words used reply after reply, and often none at all.
-    "A reaction only if it fits, often none, never to open; no two replies start or end alike.",
+    "A reaction only if it fits, often none, never to open or twice a call; no two replies start "
+    "or end alike.",
     # A reply off the point (a misheard "Friday") is asked about, never guessed at.
     '- Unclear, off the point, or a bare "OK" to your question? Ask what they meant, reworded; '
     "never guess or pick for them.",

@@ -192,6 +192,12 @@ _CASES: list[tuple[str, CallScript, str, CallScript]] = [
             _stage("s3", "Thank you."),
         ),
     ),
+    (
+        "brackets",
+        _script(_stage("s1", "Now tap Add to home screen (Add to Home screen). Is it done?")),
+        "stages.0.sounds_like",
+        _script(_stage("s1", "Now tap Add to Home screen. Is it done?")),
+    ),
 ]
 
 
@@ -204,7 +210,10 @@ def test_each_kind_names_the_line_that_causes_it(
 
 
 def test_the_cases_cover_every_kind() -> None:
-    assert {case[0] for case in _CASES} | {"wrong_language"} == SCRIPT_FIXABLE_KINDS
+    # The two language-bound kinds have their own tests (formal_words: call_2026_11_24_1215).
+    assert {case[0] for case in _CASES} | {"wrong_language", "formal_words"} == (
+        SCRIPT_FIXABLE_KINDS
+    )
 
 
 def test_a_line_wholly_in_english_in_a_telugu_call_is_the_wrong_language() -> None:

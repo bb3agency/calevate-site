@@ -112,7 +112,7 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
         return next(line for line in lines if line.startswith(start))
 
     react = bullet("- Asked something?")
-    assert "A reaction only if it fits, often none, never to open;" in react
+    assert "A reaction only if it fits, often none, never to open or twice a call;" in react
     assert "no two replies start or end alike." in react
     # The voice starts on the first comma after three words (D-901), so a reply opens with a
     # short whole sentence with no comma: the first piece is a whole sentence (D-986, 20 Nov 2026).

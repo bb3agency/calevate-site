@@ -165,7 +165,7 @@ def test_the_floor_and_confidentiality_keep_their_content_and_position() -> None
 def test_the_spoken_register_is_concrete_for_telugu() -> None:
     prompt = compose_engine_prompt(_cfg(compile_call_script(V2)))
     assert "--- SPOKEN REGISTER ---" in prompt
-    assert 'not "క్షమించండి" but "sorry అండి"' in prompt
+    assert '"క్షమించండి" → "sorry అండి"' in prompt
     assert "never formal or written-style words" in prompt
 
 

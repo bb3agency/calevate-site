@@ -91,7 +91,7 @@ from calevate_shared.engine import (
     truthful_answer_directive,
 )
 from calevate_shared.spoken_guard import textbook_words
-from calevate_shared.spoken_style import shipped_pack_choice, style_for
+from calevate_shared.spoken_style import FILLERS_LEAD, SWAPS_LEAD, shipped_pack_choice, style_for
 
 LANGUAGE: Final = "te-IN"
 #: What every eval agent's name starts with; `--cleanup` deletes by it.
@@ -136,9 +136,11 @@ BASELINE: Final = "A"
 #: HOW TO SPEAK's register bullet starts with this; B keeps its language and "uhm" halves.
 BAN_BULLET_START: Final = "- Match the caller's language and register;"
 NO_BAN_BULLET: Final = '- Match the caller\'s language; never "uhm".'
-#: The `not "X" but "Y"` sentence `spoken_style.register_guidance` writes into each language's
+#: The word-list sentence `spoken_style.register_guidance` writes into each language's
 #: register line, up to the fillers sentence that follows it or the end of the line.
-_SWAP_SENTENCE: Final = re.compile(r" ?Spoken words: .*?\.(?= Fillers, lightly:|$)", re.M)
+_SWAP_SENTENCE: Final = re.compile(
+    rf" ?{re.escape(SWAPS_LEAD)} .*?\.(?= {re.escape(FILLERS_LEAD)}|$)", re.M
+)
 
 #: The two example calls of D, every line copied from `spoken_style.json`'s Telugu
 #: `language_pack.exchanges` (tests/register_chat_eval_test.py proves each is there), none

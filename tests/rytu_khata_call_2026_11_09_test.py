@@ -101,7 +101,7 @@ def test_a_dropped_introduction_carries_the_name_and_a_title_only_before_a_break
 
 def test_a_web_address_is_said_as_it_reads_and_spelled_only_when_not_found() -> None:
     bullet = screen_steps_bullet("en-IN")
-    assert "Say a web address as it reads, no www: a word as a word" in bullet
+    assert "Say a web address once, as it reads, no www: a word as a word" in bullet
     assert "Spell a word by letters only if they cannot find it" in bullet
     assert "send the link if a tool can" in bullet
     assert "one letter at a time" not in bullet
