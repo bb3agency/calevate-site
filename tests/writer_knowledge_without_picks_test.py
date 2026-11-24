@@ -54,3 +54,34 @@ async def test_a_line_with_no_sources_picked_is_written_from_all_knowledge() -> 
     inputs = await campaign_script.line_inputs(tenant_id, line_id)
 
     assert ("About the app", ABOUT) in inputs.words
+
+
+async def test_an_older_approved_version_beside_the_live_one_is_read_once() -> None:
+    """Production, 24 Nov 2026: a guide's version 1 stayed approved beside its live version
+    2, both were picked, and both were read, halving every other source's share."""
+    from apps.workers.company_training_draft import knowledge_words
+
+    tenant_id, _campaign_id = await _campaign()
+    async with tenant_session(tenant_id) as session:
+        old = await _source(
+            session, tenant_id, name="Guide.md", kind="file", active=False, words="Old guide."
+        )
+        live = await _source(
+            session, tenant_id, name="Guide.md", kind="file", version=2, words="Live guide."
+        )
+        picked = await knowledge_words(session, only=[old, live])
+        everything = await knowledge_words(session)
+    assert picked == [("Guide.md", "Live guide.")]
+    assert everything == [("Guide.md", "Live guide.")]
+
+
+def test_a_whole_manual_fits_beside_other_sources_in_the_writers_budget() -> None:
+    from apps.api.first_run.models import KNOWLEDGE_DOCUMENT_CHARS
+    from apps.workers.first_run import documents_block
+
+    manual = "Step. " * 3400 + "Press Dashboard to see the totals."
+    others = [(f"Note {i}", "A short note. " * 70) for i in range(4)]
+    block = documents_block(
+        [("Operation manual", manual), *others], budget=KNOWLEDGE_DOCUMENT_CHARS
+    )
+    assert "Press Dashboard to see the totals." in block

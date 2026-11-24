@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.26 — 24-Nov-2026
+
+- Pip reads your documents whole when it writes the company training and campaign and line
+  scripts: up to 40,000 characters together instead of 20,000, so a long manual is no
+  longer cut to a fifth of itself beside your other files.
+- An older version of a document is no longer read beside its live version.
+
 ## 0.5.25 — 24-Nov-2026
 
 - Pip writes a campaign or Inbound line script from everything your agents know when no

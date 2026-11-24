@@ -52,6 +52,7 @@ from apps.api.core.queue import WORKER_JOB_TIMEOUT_S
 from apps.api.core.settings import get_settings
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
+from apps.api.first_run.models import KNOWLEDGE_DOCUMENT_CHARS
 from apps.workers.campaign_script_ask import (
     CAMPAIGN_ASK,
     FLOW_ASK,
@@ -784,7 +785,7 @@ async def _write(
     tenant_id = holder.tenant_id
     base = inputs.base
     notes = inputs.notes
-    documents = documents_block(inputs.words)
+    documents = documents_block(inputs.words, budget=KNOWLEDGE_DOCUMENT_CHARS)
     change = campaign_change(
         inputs.main_task,
         notes,

@@ -67,6 +67,7 @@ from apps.api.core.queue import WORKER_JOB_TIMEOUT_S, enqueue, job_id_for
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.first_run.documents import document_words
+from apps.api.first_run.models import KNOWLEDGE_DOCUMENT_CHARS
 from apps.api.teach.facts import FACTS_SOURCE_NAME
 from apps.workers.campaign_script_ask import quoted_in
 from apps.workers.extraction import ASSIST_LADDER_LEGS
@@ -152,13 +153,18 @@ KNOWLEDGE_SOURCES_READ: Final = 20
 #: campaign or a line picked (`only`) are read once approved, before the publish job makes
 #: them live: a note added from a campaign page and Generate pressed straight after would
 #: otherwise be written without, as would a note whose newest version is still publishing.
+#: One version per source: the newest that qualifies, the live one first. A picked list can
+#: name an older approved version beside the live one, and reading both doubled one guide
+#: and halved every other source's share of the budget.
 _KNOWLEDGE_SQL: Final = text(
-    "SELECT s.id, s.name, u.id AS upload_id FROM kb_sources s "
-    "LEFT JOIN kb_uploads u ON u.source_id = s.id "
+    "SELECT id, name, upload_id FROM ("
+    "SELECT DISTINCT ON (s.kind, s.name) s.id, s.name, u.id AS upload_id, s.updated_at "
+    "FROM kb_sources s LEFT JOIN kb_uploads u ON u.source_id = s.id "
     "WHERE (s.is_active OR (CAST(:only AS uuid[]) IS NOT NULL AND s.status = 'approved')) "
     "AND s.name <> :facts "
     "AND (CAST(:only AS uuid[]) IS NULL OR s.id = ANY(CAST(:only AS uuid[]))) "
-    "ORDER BY s.updated_at DESC, s.id DESC LIMIT :n"
+    "ORDER BY s.kind, s.name, s.is_active DESC, s.version DESC, s.id DESC"
+    ") newest ORDER BY updated_at DESC, id DESC LIMIT :n"
 )
 _NOTE_WORDS_SQL: Final = text("SELECT content FROM kb_documents WHERE source_id = :s ORDER BY idx")
 
@@ -821,7 +827,7 @@ async def _inputs(tenant_id: UUID, claim: _Claim) -> tuple[str, str, Any, bool] 
         words = await knowledge_words(session)
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
-    documents = documents_block(words)
+    documents = documents_block(words, budget=KNOWLEDGE_DOCUMENT_CHARS)
     # The name alone is no material; the business type on file is left out above, because
     # an account given one by default would have Pip write about a business it is not.
     if not (claim.overview.strip() or documents or len(business.splitlines()) > 1):

@@ -62,6 +62,11 @@ MAX_DOCUMENTS: Final = 3
 #: (a Telugu one runs about three times the old 5,000) shapes the script rather than its
 #: first third; the rest still reaches calls as knowledge either way.
 DOCUMENT_CHARS: Final = 20000
+#: The same budget for the writers that read every source the agents use (company training,
+#: campaign and line scripts), up to `KNOWLEDGE_SOURCES_READ` of them rather than three.
+#: Founder, 24 Nov 2026: at 20,000 a 20,000-character manual beside four other sources kept
+#: a fifth of itself, and the Rytu Khata scripts missed the screens it names.
+KNOWLEDGE_DOCUMENT_CHARS: Final = 40000
 
 #: One agent does every job picked, so at most all three (D-863).
 MAX_JOBS: Final = len(FIRST_RUN_JOBS)
