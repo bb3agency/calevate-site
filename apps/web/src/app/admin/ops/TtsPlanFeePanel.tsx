@@ -21,7 +21,6 @@ import {
   FIELD_LABEL,
   NoticeBox,
   ProblemNotice,
-  SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatINRExact,
@@ -250,18 +249,17 @@ function PlanFeeSlot({
             >
               {actionLabel}
             </ActionButton>
-            <button
-              type="button"
+            <ActionButton
+              variant="secondary"
               disabled={attest.isPending}
               onClick={() => {
                 setEditing(false);
                 setConfirm("");
                 valid.reset();
               }}
-              className={SECONDARY_BUTTON}
             >
               Cancel
-            </button>
+            </ActionButton>
           </div>
         </form>
       )}

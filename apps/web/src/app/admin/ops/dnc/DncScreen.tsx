@@ -11,7 +11,7 @@ import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { Drawer } from "@/components/console/drawer";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
-import { useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { RowMenu } from "@/components/arc/menu";
 import { SearchField } from "@/components/arc/search-field";
 import { CopyButton } from "@/components/interior/copy-button";
@@ -19,7 +19,6 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
   Skeleton,
   formatCount,
   formatIST,
@@ -280,14 +279,14 @@ export function DncScreen() {
                   truncated && lookup.data === undefined ? (
                     <div className="flex flex-col items-center gap-3">
                       {lookup.error ? <ProblemNotice error={lookup.error} /> : null}
-                      <button
-                        type="button"
-                        className={SECONDARY_BUTTON}
-                        disabled={lookupFeedback.status === "pending"}
+                      <ActionButton
+                        variant="secondary"
+                        status={lookupFeedback.status}
+                        pendingLabel="Searching…"
                         onClick={() => lookupFeedback.run(query)}
                       >
-                        {lookupFeedback.status === "pending" ? "Searching…" : "Search every suppression"}
-                      </button>
+                        Search every suppression
+                      </ActionButton>
                     </div>
                   ) : undefined
                 }

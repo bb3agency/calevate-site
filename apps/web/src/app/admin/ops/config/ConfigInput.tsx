@@ -5,6 +5,7 @@ import { Check, RefreshCw } from "lucide-react";
 
 import { MoneyInput } from "@/components/arc/money-input";
 import { SearchField } from "@/components/arc/search-field";
+import { ActionButton } from "@/components/arc/feedback";
 import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import {
@@ -13,7 +14,6 @@ import {
   FIELD_LABEL,
   NoticeBox,
   ProblemNotice,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
   formatINRExact,
@@ -425,10 +425,15 @@ function EntityPicker(props: ConfigInputProps) {
 
 function RefreshButton({ onClick, busy }: { onClick: () => void; busy: boolean }) {
   return (
-    <button type="button" onClick={onClick} disabled={busy} className={SECONDARY_BUTTON_SM}>
-      <RefreshCw aria-hidden className={`h-3.5 w-3.5 ${busy ? "motion-safe:animate-spin" : ""}`} />
-      {busy ? "Refreshing…" : "Refresh"}
-    </button>
+    <ActionButton
+      variant="secondary-sm"
+      onClick={onClick}
+      status={busy ? "pending" : "idle"}
+      pendingLabel="Refreshing…"
+    >
+      <RefreshCw aria-hidden className="h-3.5 w-3.5" />
+      Refresh
+    </ActionButton>
   );
 }
 

@@ -14,8 +14,6 @@ import {
   FIELD_LABEL,
   NoticeBox,
   ProblemNotice,
-  SECONDARY_BUTTON,
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
   formatRupeeRateExact,
@@ -186,9 +184,8 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
                     </p>
                   )}
                 </div>
-                <button
-                  type="button"
-                  className={SECONDARY_BUTTON_SM}
+                <ActionButton
+                  variant="secondary-sm"
                   disabled={!access.allowed || attest.isPending}
                   title={access.reason ?? undefined}
                   onClick={() => {
@@ -199,7 +196,7 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
                   }}
                 >
                   {row.inr_per_min ? "Record a new rate" : "Record a rate"}
-                </button>
+                </ActionButton>
               </li>
             ))}
           </ul>
@@ -290,17 +287,16 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
               >
                 Record the rate
               </ActionButton>
-              <button
-                type="button"
+              <ActionButton
+                variant="secondary"
                 disabled={attest.isPending}
                 onClick={() => {
                   setEditing(null);
                   valid.reset();
                 }}
-                className={SECONDARY_BUTTON}
               >
                 Cancel
-              </button>
+              </ActionButton>
             </div>
           </form>
         )}
@@ -348,9 +344,8 @@ function CostInputs({ costs, access }: { costs: CostAttestation[]; access: Acces
                 <p className="text-meta font-medium text-warn">Not recorded — left out of costs</p>
               )}
             </div>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
+            <ActionButton
+              variant="secondary-sm"
               disabled={!access.allowed || attest.isPending}
               title={access.reason ?? undefined}
               onClick={() => {
@@ -361,7 +356,7 @@ function CostInputs({ costs, access }: { costs: CostAttestation[]; access: Acces
               }}
             >
               {cost.value ? "Record a new figure" : "Record a figure"}
-            </button>
+            </ActionButton>
           </li>
         ))}
       </ul>
@@ -429,17 +424,16 @@ function CostInputs({ costs, access }: { costs: CostAttestation[]; access: Acces
             >
               Record the figure
             </ActionButton>
-            <button
-              type="button"
+            <ActionButton
+              variant="secondary"
               disabled={attest.isPending}
               onClick={() => {
                 setEditing(null);
                 valid.reset();
               }}
-              className={SECONDARY_BUTTON}
             >
               Cancel
-            </button>
+            </ActionButton>
           </div>
         </form>
       )}

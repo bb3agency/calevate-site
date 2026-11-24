@@ -13,7 +13,6 @@ import {
   FIELD_LABEL,
   NoticeBox,
   ProblemNotice,
-  SECONDARY_BUTTON,
   istInputToInstant,
 } from "@/components/ui";
 import {
@@ -85,9 +84,9 @@ export function AmendWindowDrawer({
       description="Only the fields you change are sent."
       footer={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onClose} disabled={amend.isPending}>
+          <ActionButton variant="secondary" onClick={onClose} disabled={amend.isPending}>
             Cancel
-          </button>
+          </ActionButton>
           <ActionButton
             status={amendFeedback.status}
             disabled={!dirty}
@@ -186,9 +185,9 @@ export function ScheduleWindowDrawer({
       description="It drains first, then closes the client portals until it ends."
       footer={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onClose} disabled={schedule.isPending}>
+          <ActionButton variant="secondary" onClick={onClose} disabled={schedule.isPending}>
             Cancel
-          </button>
+          </ActionButton>
           <ActionButton
             status={scheduleFeedback.status}
             disabled={!ready}

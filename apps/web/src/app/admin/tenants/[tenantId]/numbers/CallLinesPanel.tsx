@@ -243,9 +243,9 @@ function DeclineDialog({
       }}
       actions={
         <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onClose} disabled={pending}>
+          <ActionButton variant="secondary" onClick={onClose} disabled={pending}>
             Cancel
-          </button>
+          </ActionButton>
           <ActionButton
             variant="danger"
             status={feedback.status}

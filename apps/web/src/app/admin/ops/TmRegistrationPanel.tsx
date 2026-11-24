@@ -11,7 +11,6 @@ import {
   FIELD,
   FIELD_LABEL,
   NoticeBox,
-  SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   formatIST,
   formatISTInput,
@@ -286,17 +285,16 @@ export function TmRegistrationPanel({
                 ? "Record registration as active"
                 : `Record as “${tmStatusCopy(status).label}”`}
             </ActionButton>
-            <button
-              type="button"
+            <ActionButton
+              variant="secondary"
               disabled={record.isPending}
               onClick={() => {
                 setEditing(false);
                 setConfirm("");
               }}
-              className={SECONDARY_BUTTON}
             >
               Cancel
-            </button>
+            </ActionButton>
           </div>
 
           {!access.allowed && access.reason && (

@@ -15,7 +15,6 @@ import {
   FIELD_LABEL,
   NoticeBox,
   ProblemNotice,
-  SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatINRExact,
@@ -228,18 +227,17 @@ export function NumberPricePanel() {
               >
                 {actionLabel}
               </ActionButton>
-              <button
-                type="button"
+              <ActionButton
+                variant="secondary"
                 disabled={attest.isPending}
                 onClick={() => {
                   setEditing(false);
                   setOverCeiling(false);
                   valid.reset();
                 }}
-                className={SECONDARY_BUTTON}
               >
                 Cancel
-              </button>
+              </ActionButton>
             </div>
           </form>
         )}

@@ -10,7 +10,6 @@ import {
   FIELD_INLINE,
   NoticeBox,
   ProblemNotice,
-  SECONDARY_BUTTON_SM,
   formatIST,
 } from "@/components/ui";
 import { WriteFailure } from "@/app/admin/writeFailure";
@@ -135,9 +134,8 @@ export function MemberRow({
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
+          <ActionButton
+            variant="secondary-sm"
             disabled={busy || !write.allowed}
             onClick={() => {
               setRemoving(true);
@@ -147,7 +145,7 @@ export function MemberRow({
           >
             <UserMinus aria-hidden className="h-4 w-4" />
             Remove access
-          </button>
+          </ActionButton>
         </div>
       </div>
 

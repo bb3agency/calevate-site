@@ -16,7 +16,6 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON,
   SECONDARY_BUTTON_SM,
   Skeleton,
 } from "@/components/ui";
@@ -146,9 +145,9 @@ function EntryEditor({ entry, onClose }: { entry: CallWord; onClose: () => void 
             Use the shipped words
           </ActionButton>
         ) : null}
-        <button type="button" disabled={change.isPending} onClick={onClose} className={SECONDARY_BUTTON}>
+        <ActionButton variant="secondary" disabled={change.isPending} onClick={onClose}>
           Cancel
-        </button>
+        </ActionButton>
       </div>
       {detail.data && detail.data.history.length > 0 ? (
         <div className="space-y-1">

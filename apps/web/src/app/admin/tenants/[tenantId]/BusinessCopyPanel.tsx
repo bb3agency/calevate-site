@@ -2,7 +2,7 @@
 
 import { useAdminAccess } from "@/app/admin/access";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { Section, TEXT_ACTION } from "@/components/console/section";
+import { Section } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import {
   FIELD,
@@ -68,14 +68,9 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
           title="Still learning what this business does"
           action={
             access.allowed ? (
-              <button
-                type="button"
-                className={TEXT_ACTION}
-                disabled={refresh.isPending}
-                onClick={() => refreshFeedback.run()}
-              >
+              <ActionButton variant="text" status={refreshFeedback.status} onClick={() => refreshFeedback.run()}>
                 Retry
-              </button>
+              </ActionButton>
             ) : undefined
           }
         >

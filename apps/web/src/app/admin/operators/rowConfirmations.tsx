@@ -6,7 +6,7 @@ import { MailCheck, TimerOff, UserCog, UserMinus } from "lucide-react";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
-import { FIELD, FIELD_LABEL, SECONDARY_BUTTON } from "@/components/ui";
+import { FIELD, FIELD_LABEL } from "@/components/ui";
 import {
   ROLE_COPY,
   operatorConfirmPhrase,
@@ -133,9 +133,9 @@ function ConfirmBlock({
         >
           {actionLabel}
         </ActionButton>
-        <button type="button" disabled={pending} onClick={onClose} className={SECONDARY_BUTTON}>
+        <ActionButton variant="secondary" disabled={pending} onClick={onClose}>
           Cancel
-        </button>
+        </ActionButton>
       </div>
     </div>
   );
