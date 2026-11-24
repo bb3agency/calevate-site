@@ -36,11 +36,11 @@ from apps.api.billing.display import display_inr
 from apps.api.billing.platform_fee import (
     REMINDER_BEFORE,
     FeeCharge,
+    charge_exemption,
     exemption_of,
     fee_switch,
     issue_charge,
     list_charges,
-    month_on_trial,
 )
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -171,22 +171,26 @@ TenantOutcome = Literal["exempt", "issued", "noticed", "nothing", "no_billing_em
 async def settle_tenant(tenant_id: UUID, *, amount_inr: Decimal, now: datetime) -> TenantOutcome:
     """One client's month: raise the fee if owed, then send the one notice it is due."""
     async with tenant_session(tenant_id) as session:
-        if await exemption_of(session, tenant_id=tenant_id, at=now) is not None:
-            return "exempt"
-        issued = await issue_charge(session, tenant_id=tenant_id, amount_inr=amount_inr, at=now)
+        # This month's exemption stops only this month's fee. A gift this month does not
+        # excuse last month's unpaid fee, which still pauses outbound (`overdue_charge`), so
+        # its notices are still owed; each charge is judged on its own (`charge_exemption`).
+        exempt = await exemption_of(session, tenant_id=tenant_id, at=now) is not None
+        issued = (
+            None
+            if exempt
+            else await issue_charge(session, tenant_id=tenant_id, amount_inr=amount_inr, at=now)
+        )
         row = (
             await session.execute(
                 text("SELECT billing_email, slug FROM organizations WHERE id = :tid"),
                 {"tid": tenant_id},
             )
         ).first()
-        # A fee for a month a trial touched is not owed (`platform_fee.month_on_trial`), so
-        # it is told about nothing, however it was raised.
         charges = [
             charge
             for charge in await list_charges(session, tenant_id=tenant_id)
-            if charge.paid
-            or not await month_on_trial(session, tenant_id=tenant_id, period=charge.period)
+            if not charge.paid
+            and await charge_exemption(session, tenant_id=tenant_id, charge=charge, at=now) is None
         ]
     if row is None:
         return "nothing"
@@ -194,7 +198,7 @@ async def settle_tenant(tenant_id: UUID, *, amount_inr: Decimal, now: datetime) 
     slug = str(row[1])
     due = [(charge, notice) for charge in charges if (notice := notice_due(charge, now=now))]
     if not due:
-        return "issued" if issued else "nothing"
+        return "exempt" if exempt else "issued" if issued else "nothing"
     if address is None:
         alert("WORKER_DELIVERY", "platform_fee_notice_no_billing_email")
         log.warning("platform_fee_notice_no_address", extra={"tenant_id": str(tenant_id)})

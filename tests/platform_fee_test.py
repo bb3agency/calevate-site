@@ -685,3 +685,43 @@ async def test_a_month_no_trial_touched_still_raises_and_enforces_its_fee() -> N
     await _tenant_with_late_fee(tenant_id, charge.id)
     decision = await _gate(tenant_id, agent_id)
     assert not decision.allowed and decision.rule == PLATFORM_FEE_RULE, decision
+
+
+@pytest.mark.usefixtures("_gate_reaches_money")
+async def test_a_gift_this_month_still_tells_the_client_about_last_months_pausing_fee(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A gift this month waives this month only. Last month's unpaid fee still pauses
+    outbound, so the job must still send its pause notice rather than skip the account."""
+    from apps.workers.billing import settle_tenant
+
+    sent: list[str] = []
+
+    class _Transport:
+        def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
+            sent.append(subject)
+            return True
+
+    monkeypatch.setattr("apps.workers.billing.get_transport", lambda _purpose=None: _Transport())
+    tenant_id, agent_id = await _dialling_tenant()
+    now = datetime.now(UTC)
+    start = _month_start(now)
+    charge_id = await _issue(tenant_id, at=start - timedelta(days=12))
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET billing_email = 'owner@example.com' WHERE id = :t"),
+            {"t": tenant_id},
+        )
+        await session.execute(
+            text("UPDATE monthly_fee_charges SET grace_ends_at = :g WHERE id = :c"),
+            {"g": start - timedelta(days=2), "c": charge_id},
+        )
+    await _gift(tenant_id, start=now - timedelta(minutes=30), end=now - timedelta(minutes=10))
+    decision = await _gate(tenant_id, agent_id)
+    assert not decision.allowed and decision.rule == PLATFORM_FEE_RULE, decision
+
+    outcome = await settle_tenant(tenant_id, amount_inr=FEE, now=now)
+    assert outcome == "noticed"
+    assert sent == ["Outgoing calls are paused: your platform fee is unpaid"]
+    async with tenant_session(tenant_id) as session:
+        assert len(await list_charges(session, tenant_id=tenant_id)) == 1, "none raised now"
