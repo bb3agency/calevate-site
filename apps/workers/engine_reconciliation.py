@@ -79,6 +79,7 @@ from __future__ import annotations
 
 import time
 from typing import Any, cast
+from uuid import UUID
 
 from arq import Retry
 from calevate_shared.backoff import jittered_delay_s
@@ -286,6 +287,21 @@ async def _is_holder_route(session: AsyncSession, ref: str) -> bool:
     return found.first() is not None
 
 
+async def _another_route_lacks_truthful_answer(
+    session: AsyncSession, *, agent_id: UUID, ref: str
+) -> bool:
+    """Whether a live route of `agent_id` other than `ref` was last read back without the
+    truthful-answer rule."""
+    found = await session.execute(
+        text(
+            "SELECT 1 FROM engine_agent_routes WHERE agent_id = :aid AND active "
+            "AND engine_agent_ref <> :ref AND drift_state = :missing LIMIT 1"
+        ),
+        {"aid": agent_id, "ref": ref, "missing": TRUTHFUL_ANSWER_MISSING},
+    )
+    return found.first() is not None
+
+
 async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | None:
     """One vendor round trip, one recorded verdict — or None when there was no verdict.
 
@@ -392,6 +408,13 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
             # A line's or a campaign's engine agent (D-997, D-1003) proven sound says nothing
             # about the agent's own, so it may silence the voice and never lift a silence:
             # the agent's own route's verdict does that.
+            truthful = None
+        if truthful and await _another_route_lacks_truthful_answer(
+            session, agent_id=candidate.agent_id, ref=candidate.engine_agent_ref
+        ):
+            # The silence covers every route of the agent, so one proven sound (a test copy,
+            # an arm) lifts it only once no other live route is still proven unsound;
+            # otherwise the next tick of that route silences it again and the line flaps.
             truthful = None
         silence = await reconcile_inbound_truthful_answer(
             session,

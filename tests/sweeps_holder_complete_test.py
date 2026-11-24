@@ -281,3 +281,61 @@ async def test_an_agent_with_no_engine_agent_gets_a_held_script_back_at_once() -
         # through an agent that holds none.
         assert await _restore_held(session, tenant_id=tenant_id) == (1, 0)
     assert await _live_body(tenant_id, agent_id) == own
+
+
+class _Reconciled(Exception):
+    pass
+
+
+async def test_a_sound_test_copy_never_lifts_a_silence_another_route_still_earns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ref-less agent whose line's engine agent lost the truthful answer: its test copy
+    reading back sound says nothing about the line, so it must not hand the numbers back."""
+    from types import SimpleNamespace
+
+    from apps.api.agents import service as agents_service
+    from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
+
+    engine = _fresh_engine()
+    tenant_id, agent_id, _ = await _live_agent()
+    line_id = await _line(tenant_id, agent_id)
+    line_ref = await put_line_live(tenant_id=tenant_id, line_id=line_id)
+    await _forget_own_ref(tenant_id, agent_id)
+    copy_ref = "ag_copy_sound"
+    async with tenant_session(tenant_id) as session:
+        await agents_service._record_test_copy(
+            session, engine, tenant_id=tenant_id, agent_id=agent_id, ref=copy_ref
+        )
+        await session.execute(
+            text("UPDATE engine_agent_routes SET drift_state = :s WHERE engine_agent_ref = :r"),
+            {"s": TRUTHFUL_ANSWER_MISSING, "r": line_ref},
+        )
+
+    async def sound(**_: Any) -> Any:
+        return SimpleNamespace(state="applied", truthful_answer_applied=True)
+
+    seen: list[bool | None] = []
+
+    async def reconcile(_session: Any, _engine: Any, **kw: Any) -> str:
+        seen.append(kw["truthful_answer_applied"])
+        raise _Reconciled
+
+    monkeypatch.setattr(engine_reconciliation, "engine_drift_for", sound)
+    monkeypatch.setattr(engine_reconciliation, "reconcile_inbound_truthful_answer", reconcile)
+    candidate = DriftCandidate(
+        tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=copy_ref, drift_checked_at=None
+    )
+    with pytest.raises(_Reconciled):
+        await engine_reconciliation._reconcile_one(engine.name, candidate)
+    assert seen == [None], "a sound test copy was allowed to lift the line's silence"
+
+    await _sql(
+        tenant_id,
+        "UPDATE engine_agent_routes SET drift_state = 'applied' WHERE engine_agent_ref = :r "
+        "RETURNING 1",
+        r=line_ref,
+    )
+    with pytest.raises(_Reconciled):
+        await engine_reconciliation._reconcile_one(engine.name, candidate)
+    assert seen == [None, True], "with every route sound, the copy's verdict may lift it"
