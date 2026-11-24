@@ -227,9 +227,16 @@ export function usePublishInboundLine(session: Session, lineId: string) {
   );
 }
 
+/** How the owner wants Pip to write the draft: a tone and what to change. Empty for a draft
+ * as Pip sees fit. */
+export type LineScriptAsk = Schemas["ScriptAskIn"];
+
 export function useRequestLineScript(session: Session, lineId: string) {
-  return useLineMutation(session, lineId, () =>
-    apiRequest<CampaignProposal>(session, `${linePath(lineId)}/proposal`, { method: "POST" }),
+  return useLineMutation(session, lineId, (asked?: LineScriptAsk) =>
+    apiRequest<CampaignProposal>(session, `${linePath(lineId)}/proposal`, {
+      method: "POST",
+      ...(asked && Object.keys(asked).length > 0 ? { body: asked } : {}),
+    }),
   );
 }
 
@@ -316,10 +323,15 @@ export function useLineTestCall(session: Session, lineId: string) {
 const LIVE_STATUSES = new Set(["queued", "ringing", "in_progress"]);
 
 /** The test calls rung through this line, re-read every 10 s while one is still going. */
-export function useLineTestCalls(session: Session, lineId: string): UseQueryResult<LineTestCallItem[]> {
+export function useLineTestCalls(
+  session: Session,
+  lineId: string,
+  enabled = true,
+): UseQueryResult<LineTestCallItem[]> {
   return useQuery({
     queryKey: lineTestCallsKey(session.orgSlug, lineId),
     queryFn: () => apiRequest<LineTestCallItem[]>(session, `${linePath(lineId)}/test-calls`),
+    enabled,
     refetchInterval: untilRefused((query: { state: { data?: LineTestCallItem[] } }) =>
       (query.state.data ?? []).some((call) => LIVE_STATUSES.has(call.status)) ? 10_000 : false,
     ),

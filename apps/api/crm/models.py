@@ -355,6 +355,9 @@ class Call(PKMixin, TimestampMixin, Base):
     next_step: Mapped[str | None] = mapped_column(Text)
     #: Who acts on `next_step`: `business` / `caller` / `nobody` (migration a9d3f6c2b7e4).
     next_step_by: Mapped[str | None] = mapped_column(String)
+    #: Why the person said no or put it off, one of `calevate_shared.extraction.
+    #: REFUSAL_REASONS`; NULL when they did not (migration b7e2c4a91d06).
+    refusal_reason: Mapped[str | None] = mapped_column(String)
     #: Why `goal_reached` is what it is, one English sentence, stored redacted.
     goal_reason: Mapped[str | None] = mapped_column(Text)
     #: The caller asked to be called back (the extraction's reading), booked or not.

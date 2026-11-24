@@ -15,7 +15,7 @@ from uuid import UUID
 
 import openpyxl
 from calevate_shared.call_script import CallScript
-from calevate_shared.extraction import ExtractionField
+from calevate_shared.extraction import ExtractionField, RefusalReason
 from calevate_shared.lead_fields import core_fields
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.sse import EventSourceResponse, ServerSentEvent
@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import script_proposals
 from apps.api.agents.extraction_routes import MAX_EXTRACTION_FIELDS
 from apps.api.agents.languages import LANGUAGE_LABELS, client_language_tags
+from apps.api.agents.mistake_fixes import Holder
 from apps.api.agents.service import (
     CAMPAIGN_HOLDING_STATUSES,
     refuse_campaign_opening_over_limit,
@@ -34,7 +35,14 @@ from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import notes as campaign_notes
-from apps.api.campaigns import notes_live, script_draft, script_history, step_outcomes, workspace
+from apps.api.campaigns import (
+    diagnose,
+    notes_live,
+    script_draft,
+    script_history,
+    step_outcomes,
+    workspace,
+)
 from apps.api.campaigns import settings as campaign_settings_rules
 from apps.api.campaigns.engine_agent import needs_its_own, put_campaign_live
 from apps.api.compliance.audit import write_audit
@@ -626,14 +634,11 @@ async def add_link(
     return await _workspace_out(session, campaign_id)
 
 
-class CampaignProposalIn(BaseModel):
-    """Empty for the whole script. With `part` and `language`: that one part, in that
-    language. `tone` and `instruction` say how either is written (D-1004)."""
+class ScriptAskIn(BaseModel):
+    """How the owner wants Pip to write a campaign's or line's script draft (D-1004): a tone
+    and what they want changed. Empty for a draft as Pip sees fit."""
 
     model_config = ConfigDict(extra="forbid")
-    #: The part's name as the script editor shows it ("Quick facts", "Opening line when it calls").
-    part: str | None = Field(default=None, min_length=1, max_length=80)
-    language: str | None = Field(default=None, min_length=2, max_length=16)
     tone: Tone | None = None
     #: What the owner wants changed, in their words ("make the opening warmer").
     instruction: str | None = Field(default=None, max_length=INSTRUCTION_MAX)
@@ -646,6 +651,33 @@ class CampaignProposalIn(BaseModel):
         if isinstance(value, str) and len(value) > INSTRUCTION_MAX:
             raise ValueError(f"Keep the note for Pip to {INSTRUCTION_MAX:,} characters or fewer.")
         return value
+
+    def ask(self) -> dict[str, str]:
+        """The draft record's `ask`, as the writer reads it."""
+        ask: dict[str, str] = {}
+        if self.tone:
+            ask["tone"] = self.tone
+        if self.instruction and self.instruction.strip():
+            ask["instruction"] = " ".join(self.instruction.split())
+        return ask
+
+
+def asked_summary(ask: dict[str, str]) -> dict[str, str | bool]:
+    """The audit row's account of `ask`: the tone, and only whether an instruction was
+    typed, since it is free text."""
+    asked: dict[str, str | bool] = {"tone": ask["tone"]} if "tone" in ask else {}
+    if "instruction" in ask:
+        asked["instructed"] = True
+    return asked
+
+
+class CampaignProposalIn(ScriptAskIn):
+    """Empty for the whole script. With `part` and `language`: that one part, in that
+    language. `tone` and `instruction` say how either is written (D-1004)."""
+
+    #: The part's name as the script editor shows it ("Quick facts", "Opening line when it calls").
+    part: str | None = Field(default=None, min_length=1, max_length=80)
+    language: str | None = Field(default=None, min_length=2, max_length=16)
 
 
 @router.post(
@@ -674,11 +706,7 @@ async def request_proposal(
                 detail="Name the part to rewrite and one of the offered languages.",
             )
         focus = {"part": payload.part, "language": payload.language}
-    ask: dict[str, str] = {}
-    if payload is not None and payload.tone:
-        ask["tone"] = payload.tone
-    if payload is not None and payload.instruction and payload.instruction.strip():
-        ask["instruction"] = " ".join(payload.instruction.split())
+    ask = payload.ask() if payload is not None else {}
     # Writing the script spends the account's dashboard AI allowance, as the agent Script
     # page's Pip does: refused at the ceiling or under view-as, before anything is queued.
     assert_view_as_may(principal, "billing.ai_assist")
@@ -691,10 +719,7 @@ async def request_proposal(
         focus=focus,
         ask=ask or None,
     )
-    # The owner's typed instruction stays out of the audit row: it is free text.
-    asked: dict[str, str | bool] = {"tone": ask["tone"]} if "tone" in ask else {}
-    if "instruction" in ask:
-        asked["instructed"] = True
+    asked = asked_summary(ask)
     await write_audit(
         session,
         action="campaign.script_requested",
@@ -841,6 +866,125 @@ async def save_opening_b(
         text("UPDATE campaigns SET opening_b = :o, updated_at = now() WHERE id = :cid"),
         {"o": line or None, "cid": campaign_id},
     )
+
+
+# --- What goes wrong on a campaign's or line's calls (founder, 24 Nov 2026) ----------------
+
+
+class DiagnosisStepOut(_Out):
+    step: int
+    #: The step's name from the script, never what was said on a call.
+    name: str
+    reached: int
+    not_reached: int
+    unclear: int
+    #: Calls that got as far as the step before and not this one.
+    lost_here: int
+
+
+class DropOffOut(_Out):
+    judged_calls: int
+    #: Below this many judged calls the bars are not drawn.
+    min_calls: int
+    steps: list[DiagnosisStepOut]
+    #: The step that loses the most people; null below `min_calls` or with no loss.
+    worst_step: int | None
+
+
+class HolderMistakeOut(_Out):
+    kind: str
+    label: str
+    calls: int
+    last_call_id: UUID
+    last_seen_at: datetime
+    #: `repaired` (the script was repaired of it since), `repairing` (a repair is under
+    #: way), `told` (no repair reached it, so our team has it): the call page's words.
+    status: diagnose.FixStatus
+
+
+class EarlyHangUpsOut(_Out):
+    answered: int
+    early: int
+    #: Null below `min_answered` answered calls.
+    rate: float | None
+    others_answered: int
+    #: The account's other campaigns (or other lines) pooled; null below `min_answered`.
+    others_rate: float | None
+    min_answered: int
+    early_seconds: int
+
+
+class RefusalReasonOut(_Out):
+    reason: RefusalReason
+    calls: int
+
+
+class HolderDiagnosisOut(_Out):
+    window_days: int
+    drop_off: DropOffOut
+    mistakes: list[HolderMistakeOut]
+    early_hang_ups: EarlyHangUpsOut
+    refusal_reasons: list[RefusalReasonOut]
+
+
+async def holder_diagnosis(session: AsyncSession, holder: Holder) -> HolderDiagnosisOut:
+    """The Improve tab's four readings of one campaign's or Inbound line's calls."""
+    steps = await diagnose.drop_off(session, holder)
+    early = await diagnose.early_hang_ups(session, holder)
+    return HolderDiagnosisOut(
+        window_days=diagnose.WINDOW_DAYS,
+        drop_off=DropOffOut(
+            judged_calls=steps.judged_calls,
+            min_calls=diagnose.MIN_JUDGED_CALLS,
+            steps=[
+                DiagnosisStepOut(
+                    step=s.step,
+                    name=s.name,
+                    reached=s.reached,
+                    not_reached=s.not_reached,
+                    unclear=s.unclear,
+                    lost_here=s.lost_here,
+                )
+                for s in steps.steps
+            ],
+            worst_step=steps.worst_step,
+        ),
+        mistakes=[
+            HolderMistakeOut(
+                kind=m.kind,
+                label=m.label,
+                calls=m.calls,
+                last_call_id=m.last_call_id,
+                last_seen_at=m.last_seen_at,
+                status=m.status,
+            )
+            for m in await diagnose.holder_mistakes(session, holder)
+        ],
+        early_hang_ups=EarlyHangUpsOut(
+            answered=early.answered,
+            early=early.early,
+            rate=None if early.rate is None else round(early.rate, 4),
+            others_answered=early.others_answered,
+            others_rate=None if early.others_rate is None else round(early.others_rate, 4),
+            min_answered=diagnose.MIN_ANSWERED_CALLS,
+            early_seconds=diagnose.EARLY_HANG_UP_S,
+        ),
+        refusal_reasons=[
+            RefusalReasonOut(reason=r.reason, calls=r.calls)
+            for r in await diagnose.refusal_reasons(session, holder)
+        ],
+    )
+
+
+@router.get(
+    "/{campaign_id}/diagnosis",
+    response_model=HolderDiagnosisOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="Where this campaign's calls lose people, its mistakes, and why people said no",
+)
+async def campaign_diagnosis(campaign_id: UUID, session: Session, _: Reader) -> HolderDiagnosisOut:
+    await _campaign_visible(session, campaign_id)
+    return await holder_diagnosis(session, Holder("campaign", campaign_id))
 
 
 class CampaignTestCallIn(BaseModel):

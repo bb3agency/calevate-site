@@ -21,6 +21,7 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 import { TEXT_ACTION } from "@/components/console/section";
 import { BestHoursCard } from "@/components/improve/BestHoursCard";
 import { CallAgainCard } from "@/components/improve/CallAgainCard";
+import { DiagnoseCards } from "@/components/improve/DiagnoseCards";
 import { ImproveCard as Card } from "@/components/improve/ImproveCard";
 import { OpeningTestCard } from "@/components/improve/OpeningTestCard";
 import { RetrySpreadCard } from "@/components/improve/RetrySpreadCard";
@@ -85,6 +86,7 @@ export function ImproveTab(props: Common & { status?: string | null }) {
     );
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <DiagnoseCards {...props} holder={{ kind: "campaign", id: props.campaignId }} />
       <BestHoursCard {...props} data={insights.data.best_hours} />
       <OpeningTestCard {...props} data={insights.data.opening} />
       <RetrySpreadCard {...props} data={insights.data.retry} />

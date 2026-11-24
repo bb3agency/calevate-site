@@ -123,6 +123,7 @@ from calevate_shared.extraction import (
     NEXT_STEP_BY,
     NEXT_STEP_WHY,
     OUTCOME_HINTS,
+    REFUSAL_REASONS,
     ExtractionField,
     ExtractionOutput,
     ExtractionSchemaSpec,
@@ -135,6 +136,7 @@ from calevate_shared.extraction import (
     clip_headline,
     goal_verdict,
     next_step_owner,
+    refusal_reason_of,
     settled_next_step,
     validate_extraction,
 )
@@ -574,6 +576,8 @@ _FIXED_PROPERTIES: Final[dict[str, dict[str, Any]]] = {
     "next_step_by": {"type": "string", "enum": list(NEXT_STEP_BY)},
     "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]},
     "outcome_tag": {"type": "string", "enum": list(OUTCOME_HINTS)},
+    # A nullable enum, so a call with no refusal says so and no free text can take its place.
+    "refusal_reason": {"type": ["string", "null"], "enum": [*REFUSAL_REASONS, None]},
     "out_of_scope": {"type": "boolean"},
     "callback_requested": {"type": "boolean"},
     # Nullable: a caller who asked for a call later without naming when gave neither, and
@@ -2693,6 +2697,7 @@ async def extract_call(
         sentiment=sentiment if sentiment in ("positive", "neutral", "negative") else "neutral",
         # Unknown is None, never a verdict (first-call review F-4).
         outcome_tag=hint_of(raw.get("outcome_tag")),
+        refusal_reason=refusal_reason_of(raw.get("refusal_reason")),
         business_outcome=_chosen_key(raw.get("business_outcome"), outcomes),
         goal_reached=(
             goal_verdict(raw.get("goal_reached"))

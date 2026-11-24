@@ -11,7 +11,7 @@ export type CallStep = components["schemas"]["CallProgressStepOut"];
 
 export const STEPS_TITLE = "Where the call got to";
 
-const STATE: Record<CallStep["state"], { word: string; tone: NoticeTone }> = {
+export const STEP_STATE: Record<CallStep["state"], { word: string; tone: NoticeTone }> = {
   reached: { word: "Done", tone: "ok" },
   not_reached: { word: "Not done", tone: "warn" },
   unclear: { word: "Not clear", tone: "neutral" },
@@ -33,7 +33,7 @@ export function CallStepsCard({
     <Section title={STEPS_TITLE}>
       <ol className="mt-1 divide-y divide-line" aria-label={STEPS_TITLE}>
         {steps.map((step) => {
-          const shown = STATE[step.state];
+          const shown = STEP_STATE[step.state];
           return (
             <li key={step.step} className="flex flex-wrap items-center gap-x-3 py-2 first:pt-0">
               <span className="min-w-0 flex-1 text-body text-ink [overflow-wrap:anywhere]">

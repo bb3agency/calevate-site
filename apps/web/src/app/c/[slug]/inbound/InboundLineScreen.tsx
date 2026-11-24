@@ -5,7 +5,7 @@
  * centre; the agent is only the voice. The page follows the campaign page: a header with the
  * name (renamed in place) and the line's state, then coloured fold sections in the order an
  * owner sets a line up: Voice, Main task, Sources, Script, Actions, Outside hours, Numbers,
- * Test call, Calls taken, Archive.
+ * Test call, Calls taken, Improve, Archive.
  *
  * Saving the script puts it live, as does any edit to what a live line's callers hear. When
  * the platform step fails the edit is still saved (the refusal is titled "Saved, but not live
@@ -24,6 +24,7 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
 import { TEXT_ACTION, TEXT_ACTION_SM } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
+import { DiagnoseCards } from "@/components/improve/DiagnoseCards";
 import { ScriptDraftLive } from "@/components/scriptDraft/ScriptDraftLive";
 import {
   FIELD,
@@ -200,6 +201,11 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
         />
         <TestCallSection line={data} slug={slug} canWrite={canTest.allowed} refusal={canTest.reason ?? undefined} />
         <CallsSection line={data} slug={slug} />
+        <FoldSection id="line-improve" title="Improve" tone="results" hint="Where its calls lose people, and the fixes.">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <DiagnoseCards slug={slug} holder={{ kind: "inbound_line", id: data.id }} canWrite={write.allowed} refusal={refusal} />
+          </div>
+        </FoldSection>
         <ArchiveSection {...props} slug={slug} />
       </FoldGroup>
     </div>

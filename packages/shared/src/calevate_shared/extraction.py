@@ -67,6 +67,22 @@ NextStepWhy = Literal["caller_asked", "agreed", "left_undone", "none"]
 NEXT_STEP_WHY: tuple[NextStepWhy, ...] = ("caller_asked", "agreed", "left_undone", "none")
 #: The longest reason a goal verdict may carry: one sentence a screen shows under the verdict.
 GOAL_REASON_MAX: Final = 160
+#: Why the person said no or put it off, as one countable category, the same for every
+#: business so an owner's Improve tab can count them (founder, 24 Nov 2026). Never the
+#: caller's own words: a reason is chosen from this list or left null, and nothing the model
+#: writes is stored for it (hard rule 6).
+RefusalReason = Literal[
+    "price", "busy_now", "already_has", "not_interested", "wants_person", "no_trust", "other"
+]
+REFUSAL_REASONS: tuple[RefusalReason, ...] = (
+    "price",
+    "busy_now",
+    "already_has",
+    "not_interested",
+    "wants_person",
+    "no_trust",
+    "other",
+)
 
 #: The speaker labels the pipeline actually writes — `TranscriptTurn.speaker` is
 #: `Literal["agent", "caller"]` and `_persist_transcript` renders `f"{speaker}: {text}"`.
@@ -377,6 +393,9 @@ class ExtractionOutput(BaseModel):
     #: One English sentence saying why `goal_reached` is what it is, written BEFORE the
     #: verdict in the answer so the verdict follows from it. "" when no goal was asked.
     goal_reason: str = ""
+    #: Why the person refused or put it off, when they did; None otherwise, and for a
+    #: reading that never asked.
+    refusal_reason: RefusalReason | None = None
     out_of_scope: bool = False
     callback_requested: bool = False
     #: When the caller asked to be called back, as the model resolved their words against
@@ -874,6 +893,17 @@ Also include:
     hung_up_early  the conversation never really started: silence, a wrong number, an
                    answering machine, or the caller hung up within the first exchange;
     answered       the agent dealt with what the caller wanted and nothing is left open.
+- "refusal_reason": when the caller said no to what the call was for, or put it off, the ONE
+  reason their own words give, else null. One of:
+    price           the cost, the fee or the price;
+    busy_now        they cannot talk or do it now;
+    already_has     they already have it, use it or did it;
+    not_interested  they do not want it, and gave no other reason;
+    wants_person    they want to speak to a person first;
+    no_trust        they doubt the call, the business or the offer;
+    other           some other reason.
+  Null when they agreed, when nothing was asked of them, and when the call never got that
+  far. Never guess a reason they did not give: a plain "no" is not_interested.
 {_goal_section(goal)}{_business_outcome_section(outcomes, goal=goal)}{_OUT_OF_SCOPE_LINE}
 - "callback_requested": true only when the caller asked the BUSINESS to call them: they
   asked to be called back, in any language or script, or said they are busy and to call
@@ -1098,6 +1128,13 @@ def _business_outcome_section(
         )
         + f"{rows}\n"
     )
+
+
+def refusal_reason_of(raw: object) -> RefusalReason | None:
+    """The model's `refusal_reason` as one of ours, or None for anything else: a reason is a
+    category from `REFUSAL_REASONS`, never words the model wrote."""
+    word = raw.strip().lower() if isinstance(raw, str) else ""
+    return next((v for v in REFUSAL_REASONS if v == word), None)
 
 
 def goal_verdict(raw: object) -> GoalVerdict | None:
@@ -1633,6 +1670,7 @@ __all__ = [
     "OUTBOUND_NEED_REASON",
     "OUTCOME_HINTS",
     "PHONE_NEEDS_REVIEW",
+    "REFUSAL_REASONS",
     "UNLISTED_MAX",
     "ExtractionField",
     "ExtractionOutput",
@@ -1648,6 +1686,7 @@ __all__ = [
     "NextStepWhy",
     "OutcomeHint",
     "OutcomeTag",
+    "RefusalReason",
     "Sentiment",
     "ValidationOutcome",
     "ascii_digits",
@@ -1668,6 +1707,7 @@ __all__ = [
     "next_step_owner",
     "numbered_lines",
     "owner_step",
+    "refusal_reason_of",
     "settled_next_step",
     "spell_business_name",
     "validate_extraction",

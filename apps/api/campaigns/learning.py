@@ -77,6 +77,8 @@ BLOCK_CHANCE: Final = 0.9875
 
 #: A person picked up: the call connected (`crm/outcomes.CONNECTED_STATUSES`).
 _PICKED_UP: Final = "c.status = 'completed'"
+#: A call someone answered: it has an outcome and it is not "not answered".
+ANSWERED_SQL: Final = "(c.outcome_tag IS NOT NULL AND c.outcome_tag <> 'missed')"
 
 
 @dataclass(frozen=True)

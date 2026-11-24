@@ -924,6 +924,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ),
     ("GET", "/v1/inbound-lines/{line_id}/test-calls", {}, {}),
     ("GET", "/v1/inbound-lines/{line_id}/test-numbers", {}, {}),
+    ("GET", "/v1/inbound-lines/{line_id}/diagnosis", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/script/proposal", {}, {}),
     (
         "POST",
@@ -975,6 +976,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PUT", "/v1/campaigns/{campaign_id}/retry-spread", {"on": True}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/opening-test/undo", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/opening-practice", {"opening_b": "Hello there"}, {}),
+    ("GET", "/v1/campaigns/{campaign_id}/diagnosis", {}, {}),
     (
         "POST",
         "/v1/campaigns/{campaign_id}/test-call",
