@@ -358,7 +358,8 @@ from apps.workers.retention import (
     prune_reliability_tables,
 )
 from apps.workers.retired_line_strip import strip_retired_example_lines
-from apps.workers.script_proposal import draft_mistake_fix
+from apps.workers.script_heal import SWEEP_MINUTE as SCRIPT_HEAL_SWEEP_MINUTE
+from apps.workers.script_heal import repair_holder_script, sweep_script_heal
 from apps.workers.starter_steps import write_starter_steps
 from apps.workers.studio_voice_key import (
     push_studio_voice_key,
@@ -466,9 +467,10 @@ FUNCTIONS: list[Any] = [
         # a run with failures (D-724), from the outbox (`agents/test_conversations`).
         improve_agent_test_run,
         run_agent_test_conversations,
-        # The healer's fix of a mistake on real calls, as a Pip draft on the line or campaign
-        # (D-1005), from the outbox (`agents/mistake_fixes.request_holder_fix`).
-        draft_mistake_fix,
+        # Pip's repair of the faulted lines of a line's or campaign's script, from the outbox
+        # (`agents/script_heal`: a save, the healer's fix of a real call's mistake, the
+        # hourly sweep), deferring itself to its debounce.
+        repair_holder_script,
         draft_campaign_script,
         draft_line_script,
         # The company training Pip writes in the background, from the outbox
@@ -1489,6 +1491,21 @@ CRON_JOBS = [
         walk=fleet_wide("one tenant_session per open organization, under a time budget"),
         hour={10},
         minute={44},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # Hourly: a repair pass for each open line or campaign script not checked in its current
+    # form (`agents/script_heal`), most of which find no fault and ask no model.
+    # `script_heal.HOLDERS_PER_TICK` bounds the passes queued. Retrying is safe: queueing a
+    # pass already queued is a no-op (`agents/agent_pass`).
+    _cron(
+        traced_job(sweep_script_heal),
+        walk=bounded(
+            "one admin read (`script_heal_scan`, an in-database loop), then one "
+            "tenant_session per account with work, at most `HOLDERS_PER_TICK` holders, "
+            "resuming after the last one reached"
+        ),
+        minute={SCRIPT_HEAL_SWEEP_MINUTE},
+        second={45},
         max_tries=WORKER_MAX_TRIES,
     ),
     # D-896. Daily: every open client's facts known by heart are chosen again, because what

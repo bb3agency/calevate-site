@@ -645,8 +645,8 @@ describe("what went wrong on this call (D-949)", () => {
       routes(
         detail({
           mistakes: [
-            { kind: "said_again", label: "Said the same line again", instead: "Ask once in other words.", turn_idx: 0 },
-            { kind: "wrong_language", label: "Answered in a different language from the caller", instead: "Reply in the caller's language.", turn_idx: 7 },
+            { kind: "said_again", label: "Said the same line again", instead: "Ask once in other words.", turn_idx: 0, fix: "told" },
+            { kind: "wrong_language", label: "Answered in a different language from the caller", instead: "Reply in the caller's language.", turn_idx: 7, fix: "told" },
           ],
         }),
       ),
@@ -663,6 +663,24 @@ describe("what went wrong on this call (D-949)", () => {
     expect(line).not.toBeNull();
     fireEvent.click(jumps[0]!);
     expect(document.activeElement).toBe(line);
+  });
+
+  it("says the script was fixed, or is being fixed, where Pip repaired what caused it", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          mistakes: [
+            { kind: "same_opening", label: "Began reply after reply with the same words", instead: "", turn_idx: 0, fix: "repaired" },
+            { kind: "same_closing", label: "Ended reply after reply with the same words", instead: "", turn_idx: 1, fix: "repairing" },
+          ],
+        }),
+      ),
+    );
+    const list = await screen.findByRole("list", { name: "What went wrong on this call" });
+    expect(list.textContent).toContain("Fixed in your script");
+    expect(list.textContent).toContain("Fixing it in your script");
+    expect(list.textContent).not.toContain("Our team has been told");
   });
 });
 

@@ -39,6 +39,7 @@ from apps.api.agents.mistake_fixes import fix_paths
 from apps.api.agents.script_lint import (
     OPENING_FIELDS,
     LintContext,
+    bracket_problems,
     caller_paths,
     flow_problems,
     next_steps,
@@ -310,9 +311,10 @@ def _delegate(lint: Callable[[CallScript], list[str]]) -> _Check:
     return check
 
 
-#: Each mistake kind's script check. The three that `script_lint.flow_problems` already
+#: Each mistake kind's script check. The four that `script_lint.flow_problems` already
 #: finds go to that lint, so the readiness card and the healer read one check.
 _CHECKS: Final[dict[str, _Check]] = {
+    "brackets": _delegate(bracket_problems),
     "opened_again": _opened_again,
     "same_opening": _delegate(lambda s: [*same_opener_problems(s), *reacted_line_problems(s)]),
     "same_closing": _delegate(same_ending_problems),

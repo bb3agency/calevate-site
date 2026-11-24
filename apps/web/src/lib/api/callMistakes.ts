@@ -208,8 +208,26 @@ export const FIX_FOUND_BY_WORDS: Record<FleetFix["found_by"], string> = {
   script_check: "Found in the script before any call",
 };
 
-/** What the call page says beside a mistake on that call, whatever has happened since. */
-export const CALL_MISTAKE_TOLD = "Our team has been told";
+type CallMistakeFix = CallMistake["fix"];
+
+const CALL_MISTAKE_FIX_WORDS: Record<CallMistakeFix, string> = {
+  repaired: "Fixed in your script",
+  repairing: "Fixing it in your script",
+  told: "Our team has been told",
+};
+
+/**
+ * What the call page says beside a mistake on that call (`CallMistakeOut.fix`): the script it
+ * was spoken from repaired of it since, being repaired now, or else with our team. An API
+ * older than this screen sends no `fix`, which reads as with our team.
+ */
+export function callMistakeFix(fix: CallMistakeFix | undefined): {
+  words: string;
+  tone: "ok" | "neutral";
+} {
+  const settled = fix ?? "told";
+  return { words: CALL_MISTAKE_FIX_WORDS[settled], tone: settled === "repaired" ? "ok" : "neutral" };
+}
 
 export function callsLine(calls: number, windowDays: number): string {
   return `${calls} ${calls === 1 ? "call" : "calls"} in ${windowDays} days`;

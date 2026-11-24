@@ -2311,6 +2311,14 @@ class InboundLine(PKMixin, TimestampMixin, Base):
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     field_suggestions_at: Mapped[datetime | None]
+    #: Pip's repair of the script's faulted lines and its pass, as on `campaigns` (migration
+    #: a6d2f8c4e1b7, which holds their CHECKs).
+    script_heal_state: Mapped[str | None] = mapped_column(Text)
+    script_heal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    script_heal_inputs: Mapped[str | None] = mapped_column(Text)
+    script_heal_fixed: Mapped[dict[str, str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
     #: The agent's actions this line switches off; every other action of the agent is on.
     actions_off: Mapped[list[str]] = mapped_column(
         ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")

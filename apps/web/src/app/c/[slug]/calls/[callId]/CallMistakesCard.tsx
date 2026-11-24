@@ -2,12 +2,13 @@
 
 import { Section, TEXT_ACTION_SM } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
-import { CALL_MISTAKE_TOLD, type CallMistake } from "@/lib/api/callMistakes";
+import { callMistakeFix, type CallMistake } from "@/lib/api/callMistakes";
 
 /**
- * "What went wrong on this call" (D-949): the mistakes the agent made on this call, each a
- * rule we fix, so every row says our team has been told and none asks the owner to act. A row
- * whose transcript line is on screen jumps to it. Hidden when empty (the screen decides).
+ * "What went wrong on this call" (D-949): the mistakes the agent made on this call, each one
+ * we fix, so no row asks the owner to act. Each says what was done since: the script it was
+ * spoken from fixed by Pip, being fixed, or else that our team has been told. A row whose
+ * transcript line is on screen jumps to it. Hidden when empty (the screen decides).
  */
 export function CallMistakesCard({
   mistakes,
@@ -19,25 +20,36 @@ export function CallMistakesCard({
 }) {
   return (
     <Section title="What went wrong on this call">
-      <ul className="mt-1 divide-y divide-line" aria-label="What went wrong on this call">
-        {mistakes.map((mistake) => (
-          <li key={`${mistake.kind}-${mistake.turn_idx}`} className="py-2.5 first:pt-0">
-            <p className="text-body text-ink [overflow-wrap:anywhere]">{mistake.label}</p>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-3">
-              <StatusPill tone="neutral">{CALL_MISTAKE_TOLD}</StatusPill>
-              {turnsOnScreen.has(mistake.turn_idx) ? (
-                <button
-                  type="button"
-                  className={`${TEXT_ACTION_SM} -mx-2`}
-                  aria-label={`Show where it happened: ${mistake.label}`}
-                  onClick={() => jumpToTurn(mistake.turn_idx)}
-                >
-                  Show where
-                </button>
-              ) : null}
-            </div>
-          </li>
-        ))}
+      <ul
+        className="mt-1 divide-y divide-line"
+        aria-label="What went wrong on this call"
+      >
+        {mistakes.map((mistake) => {
+          const fix = callMistakeFix(mistake.fix);
+          return (
+            <li
+              key={`${mistake.kind}-${mistake.turn_idx}`}
+              className="py-2.5 first:pt-0"
+            >
+              <p className="text-body text-ink [overflow-wrap:anywhere]">
+                {mistake.label}
+              </p>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-3">
+                <StatusPill tone={fix.tone}>{fix.words}</StatusPill>
+                {turnsOnScreen.has(mistake.turn_idx) ? (
+                  <button
+                    type="button"
+                    className={`${TEXT_ACTION_SM} -mx-2`}
+                    aria-label={`Show where it happened: ${mistake.label}`}
+                    onClick={() => jumpToTurn(mistake.turn_idx)}
+                  >
+                    Show where
+                  </button>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </Section>
   );
@@ -51,7 +63,11 @@ export function CallMistakesCard({
 function jumpToTurn(idx: number) {
   const line = document.querySelector<HTMLElement>(`[data-turn="${idx}"]`);
   if (!line) return;
-  const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-  line.scrollIntoView?.({ block: "center", behavior: reduce ? "auto" : "smooth" });
+  const reduce =
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  line.scrollIntoView?.({
+    block: "center",
+    behavior: reduce ? "auto" : "smooth",
+  });
   line.focus({ preventScroll: true });
 }
