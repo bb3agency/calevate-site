@@ -43,6 +43,7 @@ from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.workers.engine_delivery import post_call_truth
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.pipeline import (
     RETRY_BACKOFF_S,
     _copy_recordings,
@@ -327,9 +328,14 @@ async def report_missing_recordings(ctx: dict[str, Any]) -> str:
     now = datetime.now(UTC)
     found: list[tuple[UUID, MissingCopy]] = []
     tenants_affected = 0
-    unreached = 0
+    unreached = probed = 0
     tenants = await callable_tenants()
-    for tenant_id in tenants:
+    # Budgeted and resumed (`fleet_walk`): past `job_timeout` arq cancels the tick and never
+    # retries it, so the newest accounts' missing copies would never be found or re-copied.
+    # A tenant past the budget counts as unreached and the next pass starts after the last.
+    budget = WalkBudget()
+    async for tenant_id in resumed_walk("recording_watch", tenants, budget):
+        probed += 1
         try:
             async with tenant_session(tenant_id) as session:
                 missing = await missing_copies(session, now=now)
@@ -341,6 +347,7 @@ async def report_missing_recordings(ctx: dict[str, Any]) -> str:
         if missing:
             tenants_affected += 1
             found.extend((tenant_id, copy) for copy in missing)
+    unreached += len(tenants) - probed
 
     at_risk = sorted(
         (

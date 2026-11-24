@@ -42,6 +42,7 @@ from apps.api.core.queue import enqueue, job_id_for
 from apps.api.db.session import tenant_session
 from apps.api.integrations import service as integrations
 from apps.workers.extraction import MODEL_FAILURE, ExtractionTruncatedError, model_answered
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.pipeline import (
     PIPELINE_STALL_AFTER,
     _agent_business_outcomes,
@@ -451,9 +452,14 @@ async def sweep_failed_extractions(ctx: dict[str, Any]) -> str:
     now = datetime.now(UTC)
     due: list[tuple[UUID, FailedRead]] = []
     exhausted: list[tuple[UUID, UUID]] = []
-    unreached = 0
+    unreached = probed = 0
     tenants = await callable_tenants()
-    for tenant_id in tenants:
+    # Budgeted and resumed (`fleet_walk`): past `job_timeout` arq cancels the tick and never
+    # retries it, so the newest accounts' failed readings would never be re-read. A tenant
+    # past the budget counts as unreached and the next pass starts after the last reached.
+    budget = WalkBudget()
+    async for tenant_id in resumed_walk("extraction_reread", tenants, budget):
+        probed += 1
         try:
             async with tenant_session(tenant_id) as session:
                 due.extend((tenant_id, read) for read in await due_rereads(session, now=now))
@@ -465,6 +471,7 @@ async def sweep_failed_extractions(ctx: dict[str, Any]) -> str:
             log.exception("extraction_reread_probe_failed", extra={"tenant_id": str(tenant_id)})
             unreached += 1
             continue
+    unreached += len(tenants) - probed
 
     queued, pending, not_queued = await _queue(due)
     if exhausted or unreached or not_queued:

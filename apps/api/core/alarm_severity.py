@@ -442,6 +442,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # margin is a day of hourly retries, so an operator acts in the day. A hold email not
     # delivered leaves a date on the client's Phone numbers page unannounced.
     "number_hold_unsettled": "attention",
+    "number_holds_truncated": "attention",
     "number_hold_notice_undelivered": "attention",
     "engine_business_details_submit_failed": "attention",
     "engine_agent_retire_failed": "attention",
@@ -1041,6 +1042,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # the sweep selects the same documents until it succeeds. It is not `record`, because a
     # WITHDRAWAL that failed leaves content the client has retracted still searchable.
     "supermemory_index_sync_failed": "attention",
+    "kb_index_sync_truncated": "attention",
     # AN ERASURE CANNOT REACH A COPY. Rows say this account's knowledge was written into
     # box 3 and this deployment holds no credential for it, so nothing can address the
     # documents. A page rather than `attention`: the erasure is blocked (deliberately — no
@@ -1087,6 +1089,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # the platform refused and an incident that needs a person are each callers going
     # unanswered or a repair that has run out, and wake somebody.
     "agent_health_degraded": "attention",
+    "agent_health_truncated": "attention",
     # An operator's own status post: the incident is the record, nobody needs waking.
     "status_post": "record",
     "agent_line_broken": "page",

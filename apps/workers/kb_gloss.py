@@ -108,6 +108,7 @@ from apps.api.kb.service import refresh_projection_keys
 from apps.workers import chat
 from apps.workers.background_leg import BackgroundLeg, background_leg
 from apps.workers.extraction import azure_credentials
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.set_aside import (
     REFUSED_INPUT_SET_ASIDE,
     RefusalStreak,
@@ -416,7 +417,14 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
     rekeyed = 0
     failed = 0
     set_aside_chunks = await set_aside_ids(_SET_ASIDE_SWEEP)
-    for tenant_id in tenants:
+    # Budgeted in TIME as well as in chunks, and resumed (`fleet_walk`): the re-key below
+    # visits every tenant holding knowledge, and past `job_timeout` arq cancels the tick and
+    # never retries it, so the newest tenants would never be re-keyed. A tenant past the
+    # budget waits for the next tick, which starts after the last one reached.
+    walk = WalkBudget()
+    probed = 0
+    async for tenant_id in resumed_walk("kb_gloss", tenants, walk):
+        probed += 1
         # THE PAID HALF IS BUDGETED; THE RE-KEY BELOW IS NOT, AND THE LOOP NO LONGER BREAKS.
         # It used to `break` the moment the tick's translations were spent, which was right
         # while the only work here cost money. The re-key costs one statement and no
@@ -526,19 +534,22 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
         # anything here, for the reason above.
         rekeyed += await _rekey_one_tenant(tenant_id)
 
-    if failed:
+    unreached = len(tenants) - probed
+    if failed or unreached:
         alert(
             "WORKER_TERMINAL",
             "kb_gloss_sweep_incomplete",
             detail=(
-                f"{failed} of {len(tenants)} tenant(s) failed the knowledge gloss sweep; "
-                "their chunks stay pending and the sweep runs again in thirty minutes"
+                f"{failed} of {len(tenants)} tenant(s) failed the knowledge gloss sweep and "
+                f"{unreached} were not reached inside its time budget; their chunks stay "
+                "pending and the sweep runs again in thirty minutes, after the last one reached"
             ),
         )
     log.info(
         "kb_gloss_tick",
         extra={
             "tenants": len(tenants),
+            "unreached": unreached,
             "translated": translated,
             "not_needed": not_needed,
             "rekeyed": rekeyed,
