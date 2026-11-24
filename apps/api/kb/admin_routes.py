@@ -36,13 +36,20 @@ class AgentKnowledgeItemOut(BaseModel):
     name: str | None = None
     kind: str | None = None
     detail: str | None = None
+    #: The engine agent the row is about (D-1019): `agent` (its own), `arm`, `test_copy`,
+    #: `line` or `campaign`; null when nothing holds the agent's work.
+    holder_kind: Literal["agent", "arm", "test_copy", "line", "campaign"] | None = None
+    #: The arm's, line's or campaign's id.
+    holder_id: UUID | None = None
+    holder_name: str | None = None
 
 
 class AgentKnowledgeOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_id: UUID
-    #: False when the platform's list could not be read: `held` then means "ours on record".
+    #: False when nothing holds the agent's work, or a holder's list could not be read: `held`
+    #: then means "ours on record".
     listed: bool
     items: list[AgentKnowledgeItemOut]
 
@@ -57,10 +64,12 @@ class RemoveDocumentIn(BaseModel):
     "/{tenant_id}/agents/{agent_id}/knowledge",
     response_model=AgentKnowledgeOut,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="Everything one agent holds on the voice platform",
+    summary="Everything one agent's engine agents hold on the voice platform",
     description=(
-        "Our copies (held, or missing on the platform), the client's live items not on this "
-        "agent and why, and documents the platform holds that we did not send."
+        "Per engine agent carrying the agent's work (its lines, campaigns, test copy and "
+        "script test arms): our copies (held, or missing on the platform), the client's live "
+        "items not on it "
+        "and why, and documents the platform holds that we did not send."
     ),
 )
 async def admin_agent_knowledge(
@@ -84,6 +93,9 @@ async def admin_agent_knowledge(
                 name=item.name,
                 kind=item.kind,
                 detail=item.detail,
+                holder_kind=item.holder.kind if item.holder else None,
+                holder_id=item.holder.id if item.holder else None,
+                holder_name=item.holder.name if item.holder else None,
             )
             for item in view.items
         ],

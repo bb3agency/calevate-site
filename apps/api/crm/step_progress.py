@@ -122,12 +122,15 @@ async def store_progress(session: AsyncSession, call_id: UUID, progress: StepPro
     )
 
 
-#: The script a call followed: its campaign's, its inbound line's, or, for a campaign's Test
-#: call (kept out of `calls.campaign_id`), the campaign that placed it.
+#: The script a call followed: its inbound line's, else its campaign's, or, for a campaign's
+#: Test call (kept out of `calls.campaign_id`), the campaign that placed it. The line comes
+#: first because only a call that rang through a line's engine agent carries it: a campaign's
+#: call-back placed through a line keeps the campaign (D-905) and was spoken from the line's
+#: script, the one `mistake_fixes.holder_of_latest_call` repairs.
 _HOLDER_SCRIPT_SQL: Final = text(
     "SELECT COALESCE("
-    "  (SELECT g.script FROM campaigns g WHERE g.id = c.campaign_id),"
     "  (SELECT l.script FROM inbound_lines l WHERE l.id = c.inbound_line_id),"
+    "  (SELECT g.script FROM campaigns g WHERE g.id = c.campaign_id),"
     "  (SELECT g.script FROM campaigns g WHERE c.id = ANY(g.test_call_ids) LIMIT 1)"
     ") FROM calls c WHERE c.id = :c"
 )

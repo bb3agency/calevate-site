@@ -196,11 +196,17 @@ _ACCOUNT_LISTS_SQL: Final = (
 )
 
 
+#: The campaign a call was made for: its own `campaign_id`, else the campaign whose Test call
+#: it was (`campaigns.test_call_ids`, see `CALL_JOB_JOINS`). The caller aliases `calls` as `c`.
+CALL_CAMPAIGN_SQL: Final = (
+    "COALESCE(c.campaign_id, (SELECT t.id FROM campaigns t WHERE c.campaign_id IS NULL "
+    "AND c.id = ANY (t.test_call_ids) LIMIT 1))"
+)
+
 #: The job a call was made for: its campaign, the campaign whose Test call it was, or its line.
 #: Unlike `CALL_JOB_SQL` it does not ask whether the job has a list of its own.
 _CALL_JOB_IDS_SQL: Final = (
-    "SELECT c.campaign_id, (SELECT t.id FROM campaigns t WHERE c.campaign_id IS NULL "
-    "AND c.id = ANY (t.test_call_ids) LIMIT 1), c.inbound_line_id FROM calls c WHERE c.id = :cid"
+    f"SELECT {CALL_CAMPAIGN_SQL}, c.inbound_line_id FROM calls c WHERE c.id = :cid"
 )
 
 
@@ -209,9 +215,9 @@ async def call_job(session: AsyncSession, call_id: UUID) -> tuple[JobKind, UUID]
     row = (await session.execute(text(_CALL_JOB_IDS_SQL), {"cid": call_id})).first()
     if row is None or not any(row):
         return None
-    if row[0] is not None or row[1] is not None:
-        return "campaign", UUID(str(row[0] or row[1]))
-    return "line", UUID(str(row[2]))
+    if row[0] is not None:
+        return "campaign", UUID(str(row[0]))
+    return "line", UUID(str(row[1]))
 
 
 async def account_fields(
@@ -238,6 +244,7 @@ async def account_fields(
 
 
 __all__ = [
+    "CALL_CAMPAIGN_SQL",
     "JobKind",
     "JobNotes",
     "account_fields",

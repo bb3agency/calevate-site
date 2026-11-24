@@ -2034,8 +2034,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Everything one agent holds on the voice platform
-         * @description Our copies (held, or missing on the platform), the client's live items not on this agent and why, and documents the platform holds that we did not send.
+         * Everything one agent's engine agents hold on the voice platform
+         * @description Per engine agent carrying the agent's work (its lines, campaigns, test copy and script test arms): our copies (held, or missing on the platform), the client's live items not on it and why, and documents the platform holds that we did not send.
          */
         get: operations["admin_agent_knowledge_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_get"];
         put?: never;
@@ -16879,6 +16879,12 @@ export interface components {
             detail?: string | null;
             /** Handle */
             handle?: string | null;
+            /** Holder Id */
+            holder_id?: string | null;
+            /** Holder Kind */
+            holder_kind?: ("agent" | "arm" | "test_copy" | "line" | "campaign") | null;
+            /** Holder Name */
+            holder_name?: string | null;
             /** Kind */
             kind?: string | null;
             /** Name */

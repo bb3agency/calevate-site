@@ -3602,6 +3602,47 @@
             ],
             "title": "Handle"
           },
+          "holder_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder Id"
+          },
+          "holder_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "agent",
+                  "arm",
+                  "test_copy",
+                  "line",
+                  "campaign"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder Kind"
+          },
+          "holder_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Holder Name"
+          },
           "kind": {
             "anyOf": [
               {
@@ -77653,7 +77694,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge": {
       "get": {
-        "description": "Our copies (held, or missing on the platform), the client's live items not on this agent and why, and documents the platform holds that we did not send.",
+        "description": "Per engine agent carrying the agent's work (its lines, campaigns, test copy and script test arms): our copies (held, or missing on the platform), the client's live items not on it and why, and documents the platform holds that we did not send.",
         "operationId": "admin_agent_knowledge_v1_admin_tenants__tenant_id__agents__agent_id__knowledge_get",
         "parameters": [
           {
@@ -77695,7 +77736,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Everything one agent holds on the voice platform",
+        "summary": "Everything one agent's engine agents hold on the voice platform",
         "tags": [
           "admin"
         ],

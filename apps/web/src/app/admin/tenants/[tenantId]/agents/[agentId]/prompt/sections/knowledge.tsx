@@ -43,9 +43,22 @@ function rowLabel(item: AgentKnowledgeItem): string {
   return `Document ${item.handle ?? ""}`.trim();
 }
 
+const HOLDER: Record<string, string> = {
+  line: "Inbound line",
+  campaign: "Campaign",
+  arm: "Script test arm",
+  test_copy: "Test copy",
+  agent: "Agent's own",
+};
+
+// Since D-1019 an agent's lines, campaigns and test copy hold its knowledge, so each row
+// names which engine agent it is about.
 function rowHint(item: AgentKnowledgeItem): string {
   const kind = item.kind ? (lookup(KIND, item.kind) ?? item.kind.toUpperCase()) : "Unknown origin";
-  return item.detail ? `${kind} · ${item.detail}` : kind;
+  const label = item.holder_kind ? lookup(HOLDER, item.holder_kind) : undefined;
+  const holder =
+    label && item.holder_name && item.holder_name !== label ? `${label}: ${item.holder_name}` : label;
+  return [holder, kind, item.detail].filter(Boolean).join(" · ");
 }
 
 export function AgentKnowledgePanel({
@@ -78,7 +91,8 @@ export function AgentKnowledgePanel({
     <div className="space-y-3">
       {!listed && (
         <p className="text-meta text-ink-muted">
-          ThinnestAI&apos;s list could not be read. Rows show our records only.
+          Nothing holds this agent&apos;s work yet, or ThinnestAI&apos;s list could not be read. Rows show
+          our records only.
         </p>
       )}
       {feedback.error ? <ProblemNotice error={feedback.error} /> : null}
@@ -88,7 +102,7 @@ export function AgentKnowledgePanel({
         <SettingRows>
           {items.map((item) => (
             <SettingRow
-              key={`${item.verdict}:${item.handle ?? item.source_id ?? ""}`}
+              key={`${item.holder_kind ?? ""}:${item.holder_id ?? ""}:${item.verdict}:${item.handle ?? item.source_id ?? ""}`}
               label={rowLabel(item)}
               hint={rowHint(item)}
               value={<StatusPill tone={VERDICT[item.verdict].tone}>{VERDICT[item.verdict].label}</StatusPill>}

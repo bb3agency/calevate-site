@@ -48,7 +48,7 @@ from apps.api.billing.caps import read_spend_counters
 from apps.api.billing.models import LEDGER_KEY_SINCE_SQL
 from apps.api.callbacks.service import booked_by as callbacks_booked_by
 from apps.api.callbacks.service import time_from as callbacks_time_from
-from apps.api.campaigns.notes import account_fields
+from apps.api.campaigns.notes import account_fields, call_job
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
@@ -480,10 +480,19 @@ async def _call_mistakes_out(
     started_at: datetime | None,
 ) -> list[CallMistakeOut]:
     """The call's mistakes, each with what was done since: the script it was spoken from
-    repaired of it, being repaired, or else with our team (`script_heal.call_fix_states`)."""
+    repaired of it, being repaired, or else with our team (`script_heal.call_fix_states`).
+
+    The script is the one `mistake_fixes.holder_of_latest_call` repairs: the line's when the
+    call rang through a line (a campaign's call-back placed through a line carries both), else
+    its campaign's, a campaign's Test call included, which `calls.campaign_id` leaves out."""
     mistakes = await read_call_mistakes(session, call_id)
     if not mistakes:
         return []
+    if inbound_line_id is not None:
+        campaign_id = None
+    elif campaign_id is None:
+        found = await call_job(session, call_id)
+        campaign_id = found[1] if found is not None and found[0] == "campaign" else None
     fixes = await script_heal.call_fix_states(
         session,
         campaign_id=campaign_id,
