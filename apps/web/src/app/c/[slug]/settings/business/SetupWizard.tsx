@@ -18,6 +18,7 @@ import { ApiProblem } from "@/lib/api/client";
 import {
   draftFromProfile,
   rebaseDraft,
+  takeSavedStep,
   fieldMessage,
   setupHref,
   stepStates,
@@ -189,7 +190,12 @@ function Wizard({
 
   const saveAndNext = () => {
     if (!step || problem || busy) return;
-    save.mutate(toPatch(draft, step.id), { onSuccess: () => go(index + 1) });
+    save.mutate(toPatch(draft, step.id), {
+      onSuccess: (saved) => {
+        setDraft((current) => takeSavedStep(current, draftFromProfile(saved), step.id));
+        go(index + 1);
+      },
+    });
   };
   const skip = () => {
     if (!step || busy) return;

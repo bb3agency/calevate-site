@@ -10,7 +10,7 @@
  * edits them here. A call keeps the name it was given, so an edit never rewrites a past call.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, PenLine, Plus, Trash2 } from "lucide-react";
 import type { UseMutationResult } from "@tanstack/react-query";
 
@@ -71,6 +71,34 @@ export function toWire(rows: readonly OutcomeRow[]): CallOutcomeIn[] {
     meaning: row.meaning.trim(),
     lead_status: row.lead_status,
   }));
+}
+
+/**
+ * The rows once the server's list changed under them. Untouched since the last copy, or
+ * exactly what the last save sent, they follow the server (each row keeps its identity, so
+ * the field being typed in keeps its focus). Typed on while the save was out, the typing is
+ * kept and only learns the keys that save gave its new rows, so the next save updates
+ * those outcomes instead of adding them twice.
+ */
+export function followServer(
+  current: readonly OutcomeRow[],
+  server: readonly OutcomeRow[],
+  before: string,
+  sent: string | null,
+): OutcomeRow[] {
+  const typed = JSON.stringify(toWire(current));
+  if (typed === before || typed === sent) {
+    return server.map((row, index) => ({ ...row, uid: current[index]?.uid ?? row.uid }));
+  }
+  if (sent === null) return [...current];
+  const sentRows = JSON.parse(sent) as CallOutcomeIn[];
+  const taken = new Set(current.map((row) => row.key).filter((key) => key !== null));
+  return current.map((row, index) => {
+    const given = server[index]?.key ?? null;
+    if (row.key !== null || sentRows[index]?.key !== null || given === null || taken.has(given)) return row;
+    taken.add(given);
+    return { ...row, key: given };
+  });
 }
 
 /** Why the list cannot be saved yet, said about the list; null when it can. */
@@ -145,7 +173,7 @@ export function CallOutcomesView({
             </div>
           )}
           <OutcomesEditor
-            key={`${agent.id}:${agent.outcomes.map((o) => `${o.key}=${o.label}=${o.meaning}=${o.lead_status}`).join("|")}`}
+            key={agent.id}
             agent={agent}
             max={data.max_outcomes}
             canWrite={canWrite}
@@ -188,20 +216,40 @@ function OutcomesEditor({
   // refusal is read rather than retried every pause.
   const [refused, setRefused] = useState<string | null>(null);
   const { mutate, isPending } = save;
+  // The editor is not remounted on each stored change (that dropped what was typed while a
+  // save was out, and the focus with it); the rows follow the server here instead.
+  const sent = useRef<string | null>(null);
+  const shown = useRef(saved);
+  useEffect(() => {
+    if (saved === shown.current) return;
+    const before = shown.current;
+    shown.current = saved;
+    const justSent = sent.current;
+    sent.current = null;
+    setRows((current) => followServer(current, toRows(agent), before, justSent));
+  }, [saved, agent]);
+  const send = (body: string) => {
+    sent.current = body;
+    mutate(
+      { agentId: agent.id, outcomes: JSON.parse(body) as CallOutcomeIn[] },
+      {
+        onError: () => {
+          sent.current = null;
+          setRefused(body);
+        },
+      },
+    );
+  };
 
   // Saves on its own once typing pauses and the list is whole (founder, 23 Nov 2026), the
   // script editor's delay. One save at a time: an edit made during a save is sent after it.
   useEffect(() => {
     if (!canWrite || !dirty || problem || isPending || wire === refused) return;
-    const timer = window.setTimeout(() => {
-      const outcomes: CallOutcomeIn[] = JSON.parse(wire);
-      mutate(
-        { agentId: agent.id, outcomes },
-        { onError: () => setRefused(wire) },
-      );
-    }, AUTOSAVE_DELAY_MS);
+    const timer = window.setTimeout(() => send(wire), AUTOSAVE_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [agent.id, canWrite, dirty, isPending, mutate, problem, refused, wire]);
+    // `send` is rebuilt each render and reads only what these dependencies cover.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.id, canWrite, dirty, isPending, problem, refused, wire]);
 
   function patch(id: string, change: Partial<OutcomeRow>) {
     setRows((current) => current.map((row) => (row.uid === id ? { ...row, ...change } : row)));
@@ -222,7 +270,7 @@ function OutcomesEditor({
       className="space-y-4"
       onSubmit={validation.onSubmit(() => {
         if (disabled || !dirty || problem || isPending) return;
-        mutate({ agentId: agent.id, outcomes: toWire(rows) }, { onError: () => setRefused(wire) });
+        send(wire);
       })}
     >
       <p className="max-w-prose text-xs text-ink-muted [text-wrap:pretty]">{originLine(agent)}</p>

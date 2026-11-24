@@ -13,7 +13,7 @@
 import type { UseMutationResult, UseQueryResult } from "@tanstack/react-query";
 import { PhoneOff, Play, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { CallAudioPlayer } from "@/components/callAudioPlayer";
 import { ConfirmDialog } from "@/components/confirmDialog";
@@ -135,6 +135,22 @@ function TestCallRow({
   const { session, href } = useClientRealm();
   const link = useRecordingLink(session, call.call_id);
   useActionFeedback(link, { errorDisplay: "inline" });
+  // As on the call's own page (`RecordingCard`): a re-mint clears `link.data`, so the last
+  // link is held or the player unmounts mid-play, and one re-mint per row, whose failure is
+  // the player's own refusal rather than an unhandled rejection.
+  const lastLink = useRef(link.data);
+  if (link.data) lastLink.current = link.data;
+  const recording = link.data ?? lastLink.current;
+  const remints = useRef(0);
+  const remint = async (): Promise<string | null> => {
+    if (remints.current >= 1) return null;
+    remints.current += 1;
+    try {
+      return (await link.mutateAsync()).url ?? null;
+    } catch {
+      return null;
+    }
+  };
   // One End mutation serves every row, so its state counts only for the row it ended.
   const mine = end?.variables === call.call_id;
   const ending = mine && end?.isPending === true;
@@ -150,7 +166,7 @@ function TestCallRow({
           {call.duration_s ? ` · ${length(call.duration_s)}` : ""}
         </span>
         <span className="ml-auto flex flex-wrap items-center gap-2">
-          {call.has_recording && !link.data && (
+          {call.has_recording && !recording && (
             <ActionButton
               variant="secondary-sm"
               status={link.isPending ? "pending" : "idle"}
@@ -188,12 +204,12 @@ function TestCallRow({
           <ProblemNotice error={link.error} />
         </div>
       )}
-      {link.data && (
+      {recording && (
         <div className="mt-3">
           <CallAudioPlayer
-            src={link.data.url}
+            src={recording.url}
             fallbackDurationS={call.duration_s}
-            onExpired={async () => (await link.mutateAsync()).url ?? null}
+            onExpired={remint}
           />
         </div>
       )}

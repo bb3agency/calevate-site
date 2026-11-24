@@ -254,6 +254,32 @@ describe("useActionFeedback", () => {
     expect(screen.getAllByRole("group", { name: "Done: Agent renamed" })).toHaveLength(1);
   });
 
+  it("still announces a mutate after the same action was once started through run", async () => {
+    // A campaign's Start goes through `run`, its Stop dialog through `mutate`: both settle
+    // on one mutation, and the second must still say what happened.
+    function StartStop() {
+      const setStatus = useMutation({ mutationFn: async (action: "pause" | "resume") => action });
+      const feedback = useActionFeedback(setStatus, {
+        successToast: (_out, action) => (action === "pause" ? "Campaign paused" : "Campaign resumed"),
+      });
+      return (
+        <>
+          <button type="button" onClick={() => feedback.run("resume")}>
+            Start
+          </button>
+          <button type="button" onClick={() => setStatus.mutate("pause")}>
+            Stop
+          </button>
+        </>
+      );
+    }
+    render(wrap(<StartStop />));
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    await screen.findByRole("group", { name: "Done: Campaign resumed" });
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(await screen.findByRole("group", { name: "Done: Campaign paused" })).toBeTruthy();
+  });
+
   it("raises no toast when the screen shows the failure inline", async () => {
     render(wrap(<Rename fail inline />));
     fireEvent.click(screen.getByRole("button", { name: "Rename agent" }));

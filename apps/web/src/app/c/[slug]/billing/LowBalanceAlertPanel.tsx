@@ -7,7 +7,7 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { StatusPill } from "@/components/console/statusPill";
 import { Disclosure, FIELD, FIELD_HINT, ProblemNotice, formatINR, hasNonZeroDigit } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
-import { rupeeFault } from "@/lib/api/credits";
+import { rupeeFault, sameRupees } from "@/lib/api/credits";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useSetLowBalanceAlert, type Wallet } from "@/lib/api/wallet";
 
@@ -36,7 +36,7 @@ export function LowBalanceAlertPanel({ session, wallet }: { session: Session; wa
         ? "Digits only, like 500 or 500.50 — no commas or ₹ sign."
         : null;
   const off = fault === "zero";
-  const changed = line.trim() !== wallet.low_balance_threshold_inr;
+  const changed = problem !== null || !sameRupees(line, wallet.low_balance_threshold_inr);
 
   return (
     <Disclosure

@@ -222,18 +222,23 @@ export interface RowEditing {
  *
  * The error map is keyed by lead id and cleared on that lead's next success, so a fixed
  * row stops complaining without the client reloading.
+ *
+ * Each edit settles through its own `mutateAsync` promise, and in-flight rows are counted
+ * here, rather than through `mutate`'s per-call callbacks and `mutation.variables`: those
+ * follow only the LATEST call, so a row edited while another was saving lost the first
+ * row's refusal and its busy state, and its control snapped back with nothing said.
  */
 export function useLeadRowEdit(session: Session): RowEditing {
-  const mutation = useEditLead(session);
+  const { mutateAsync } = useEditLead(session);
   const [errors, setErrors] = useState<Record<string, unknown>>({});
+  const [inFlight, setInFlight] = useState<Record<string, number>>({});
 
   const edit = useCallback(
     (leadId: string, patch: LeadEdit) => {
-      mutation.mutate(
-        { leadId, edit: patch },
-        {
-          onError: (error) => setErrors((prev) => ({ ...prev, [leadId]: error })),
-          onSuccess: () =>
+      setInFlight((prev) => ({ ...prev, [leadId]: (prev[leadId] ?? 0) + 1 }));
+      mutateAsync({ leadId, edit: patch })
+        .then(
+          () =>
             setErrors((prev) => {
               // `Object.hasOwn`, not `in`: `in` walks the prototype chain, which is the
               // defect `lib/lookup.ts` exists for and the lint rule forbids.
@@ -242,10 +247,19 @@ export function useLeadRowEdit(session: Session): RowEditing {
               delete next[leadId];
               return next;
             }),
-        },
-      );
+          (error: unknown) => setErrors((prev) => ({ ...prev, [leadId]: error })),
+        )
+        .finally(() =>
+          setInFlight((prev) => {
+            const next = { ...prev };
+            const left = (prev[leadId] ?? 1) - 1;
+            if (left > 0) next[leadId] = left;
+            else delete next[leadId];
+            return next;
+          }),
+        );
     },
-    [mutation],
+    [mutateAsync],
   );
 
   return {
@@ -255,8 +269,7 @@ export function useLeadRowEdit(session: Session): RowEditing {
     // `lib/lookup.ts` exists because this app has already shipped that bug once, and a
     // guarded read costs nothing.
     errorFor: (leadId: string) => (Object.hasOwn(errors, leadId) ? errors[leadId] : null),
-    pendingFor: (leadId: string) =>
-      mutation.isPending && mutation.variables?.leadId === leadId,
+    pendingFor: (leadId: string) => Object.hasOwn(inFlight, leadId),
   };
 }
 

@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
+import { ProblemNotice } from "@/components/ui";
 
 /**
  * THE SAVE FOR A CHOICE THAT IS ALWAYS ON SCREEN (a voice, a model, what an agent is): it
@@ -30,6 +31,7 @@ export function SaveBar({
   disabled = false,
   title,
   waitingFor = null,
+  error = null,
 }: {
   /** The consequence, as the button says it ("Use this voice", "Save model"). */
   label: string;
@@ -43,6 +45,9 @@ export function SaveBar({
   title?: string;
   /** Another save it shares a write with is running: held, with this reason. */
   waitingFor?: ReactNode;
+  /** Why the last save was refused: said in the bar, beside the button that was pressed,
+   *  not at the top of a form scrolled out of view. */
+  error?: unknown;
 }) {
   const shown: FeedbackStatus = status ?? (saving ? "pending" : "idle");
   const busy = shown === "pending";
@@ -72,6 +77,11 @@ export function SaveBar({
         </ActionButton>
       </div>
       {note ? <span className="text-meta text-ink-muted">{note}</span> : null}
+      {error != null ? (
+        <div className="w-full">
+          <ProblemNotice error={error} />
+        </div>
+      ) : null}
     </div>
   );
 }

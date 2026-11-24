@@ -346,6 +346,26 @@ function NotesEditor({
   // An accepted suggestion kept its change but did not reach the calls: Save over the same list
   // is the retry the refusal names, so it is offered with nothing changed.
   const kept = suggestions.kept != null;
+  // A refusal is said beside the control that saved: Save below the list, or Save again in
+  // the suggestions above it. Above the list, a refusal of Save sat off screen.
+  const [savedFrom, setSavedFrom] = useState<"save" | "again">("save");
+  const saveRefusal = save.error != null && (
+    <div className="w-full">
+      <ProblemNotice error={save.error} />
+      {conflict && (
+        <button
+          type="button"
+          className={`mt-2 ${SECONDARY_BUTTON}`}
+          onClick={() => {
+            save.reset();
+            onReload();
+          }}
+        >
+          Load the current list
+        </button>
+      )}
+    </div>
+  );
   const submit = () => {
     if (disabled || (!dirty && !kept) || clientError) return;
     // From here the save answers for itself, a refused put-live included.
@@ -357,32 +377,26 @@ function NotesEditor({
   };
 
   return (
-    <form className="space-y-4" noValidate onSubmit={valid.onSubmit(submit)}>
+    <form
+      className="space-y-4"
+      noValidate
+      onSubmit={valid.onSubmit(() => {
+        setSavedFrom("save");
+        submit();
+      })}
+    >
       <LeadSuggestions
         api={suggestions}
         canWrite={canWrite}
         dirty={dirty}
         audience={source.audience}
-        onSaveAgain={submit}
+        onSaveAgain={() => {
+          setSavedFrom("again");
+          submit();
+        }}
         savingAgain={save.isPending}
       />
-      {save.error != null && (
-        <div>
-          <ProblemNotice error={save.error} />
-          {conflict && (
-            <button
-              type="button"
-              className={`mt-2 ${SECONDARY_BUTTON}`}
-              onClick={() => {
-                save.reset();
-                onReload();
-              }}
-            >
-              Load the current list
-            </button>
-          )}
-        </div>
-      )}
+      {savedFrom === "again" && saveRefusal}
       {importError != null && <ProblemNotice error={importError} />}
       {imported && dirty && (
         <p role="status" className="text-meta text-ink-muted">
@@ -453,6 +467,7 @@ function NotesEditor({
         ) : dirty ? (
           <span className="text-xs text-ink-muted">You have unsaved changes.</span>
         ) : null}
+        {savedFrom === "save" && saveRefusal}
       </div>
       <p className="text-xs text-ink-muted">{takeEffect(data.applied_now)} Old leads keep their values.</p>
       {data.fields.length > 0 && alertsHref && (

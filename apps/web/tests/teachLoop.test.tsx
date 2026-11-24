@@ -262,6 +262,26 @@ describe("what it knows", () => {
     );
   });
 
+  it("opens Edit on the fact as stored, not on text a Cancel left behind", async () => {
+    await renderKnowledge({
+      "/v1/kb/knows": {
+        facts: [
+          { id: "f3", text: "We deliver in Kukatpally.", question: null, pinned: false, origin: "taught", created_at: "2026-10-10T10:00:00Z" },
+        ],
+        facts_state: "live",
+        items: [],
+        pinned_not_yet_on: [],
+      },
+      "/v1/kb/uploads": [],
+    });
+    await screen.findByText("We deliver in Kukatpally.");
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("The fact"), { target: { value: "We deliver everywhere." } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    expect((screen.getByLabelText("The fact") as HTMLTextAreaElement).value).toBe("We deliver in Kukatpally.");
+  });
+
   it("names each agent that does not have the pinned facts yet, and links to its script", async () => {
     await renderKnowledge({
       "/v1/kb/knows": {

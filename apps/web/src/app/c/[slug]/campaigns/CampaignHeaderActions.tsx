@@ -53,9 +53,11 @@ export function CampaignHeaderActions({
   const remove = useDeleteCampaign(session, campaignId);
   const duplicate = useDuplicateCampaign(session, campaignId);
   const shelve = useArchiveCampaign(session, campaignId);
+  // Only Restore runs this here. It sits in the action group, which has no room for a notice,
+  // so its refusal is toasted, as Duplicate's is.
   const shelveFeedback = useActionFeedback(shelve, {
-    errorDisplay: "inline",
-    successToast: (_out, action) => (action === "archive" ? "Campaign archived" : "Campaign restored"),
+    errorTitle: "Could not restore this campaign",
+    successToast: "Campaign restored",
   });
   const archived = progress.archived_at != null;
   const removeFeedback = useActionFeedback(remove, {

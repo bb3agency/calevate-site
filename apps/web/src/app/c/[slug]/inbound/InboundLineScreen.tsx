@@ -17,7 +17,7 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useRef, useState } from "react";
 
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
 import { InlineEdit } from "@/components/arc/inline-edit";
 import { ConfirmDialog } from "@/components/confirmDialog";
@@ -156,6 +156,7 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
             wrap
             disabled={!write.allowed}
             status={renameFeedback.status}
+            errorMessage={problemToast(rename.error, "That name did not save").description}
             validate={(next) => (next.trim() ? null : "Give the line a name.")}
             onSave={(name) => renameFeedback.run({ name })}
           />

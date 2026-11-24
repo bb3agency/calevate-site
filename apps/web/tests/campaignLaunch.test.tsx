@@ -511,6 +511,16 @@ describe("launching", () => {
     expect(launched[0].method).toBe("POST");
   });
 
+  it("says why a launch from the checks card was refused, beside the button", async () => {
+    await openLaunchPanel(check(), ME, {
+      [`/v1/campaigns/${CAMPAIGN_ID}`]: READY_PROGRESS,
+      [LAUNCH_ROUTE]: problem(402, { title: "Your credit has run out", detail: "Top up to start calling." }),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Call 120 people" }));
+    const card = screen.getByText("Mandatory Regulatory Compliance Checks").closest("section") as HTMLElement;
+    expect(await within(card).findByText(/Top up to start calling\./)).toBeTruthy();
+  });
+
   /** The Other call settings section, where hours, calls at once, the number and the kind of call sit. */
   function otherSettings(): HTMLElement {
     return screen.getByRole("button", { name: "Other call settings" }).closest("section") as HTMLElement;

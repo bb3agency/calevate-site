@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LeadDetailsScreen } from "@/app/c/[slug]/settings/lead-details/LeadDetailsScreen";
 import { DRAFT_REQUEST } from "@/components/leadFields/LeadDetailsView";
+import { followServer, toWire, type OutcomeRow } from "@/components/leadFields/CallOutcomesView";
 import type { CallOutcomes } from "@/lib/api/callOutcomes";
 import type { LeadFields, LeadFieldsJob } from "@/lib/api/leadFields";
 import { businessTypeLabel } from "@/lib/businessTypes";
@@ -346,6 +347,43 @@ describe("how calls end (D-836)", () => {
     expect(calls.filter((c) => c.path === "/v1/agents/a1/call-outcomes")).toHaveLength(1);
   });
 
+  it("keeps the field being typed in when an autosave lands, and learns the new outcome's key", async () => {
+    const owned = { ...STARTING_AGENT, starting: false, draft: "done" as const };
+    const stored = {
+      ...owned,
+      outcomes: [...owned.outcomes, { key: "asked_price", label: "Asked price only", meaning: "", lead_status: "contacted" as const }],
+    };
+    let saves = 0;
+    const { calls } = await renderClientPage(<LeadDetailsScreen />, {
+      "/v1/me": OWNER,
+      "/v1/lead-fields": leadFields(),
+      "/v1/call-outcomes": () => callOutcomes({ agents: [saves > 0 ? stored : owned] }),
+      "PUT /v1/agents/a1/call-outcomes": () => {
+        saves += 1;
+        return stored;
+      },
+    });
+    await screen.findByRole("heading", { name: "How calls end" });
+    fireEvent.click(screen.getByRole("button", { name: "Add an outcome" }));
+    const box = screen.getAllByRole("textbox", { name: "Outcome name" }).at(-1) as HTMLInputElement;
+    fireEvent.change(box, { target: { value: "Asked price only" } });
+    await waitFor(() => expect(saves).toBe(1), { timeout: 4000 });
+    await waitFor(() => expect(calls.filter((c) => c.path === "/v1/call-outcomes").length).toBeGreaterThan(1));
+    await act(async () => {});
+    // The same field, not a fresh one put in its place.
+    expect(box.isConnected).toBe(true);
+    // Typed on after the save: the next save updates the stored outcome rather than adding it again.
+    fireEvent.change(box, { target: { value: "Asked the price" } });
+    await waitFor(
+      () => {
+        const last = calls.filter((c) => c.path === "/v1/agents/a1/call-outcomes").at(-1);
+        const sent = JSON.parse(last?.body ?? "{}") as { outcomes: { key: string | null; label: string }[] };
+        expect(sent.outcomes.at(-1)).toMatchObject({ key: "asked_price", label: "Asked the price" });
+      },
+      { timeout: 4000 },
+    );
+  });
+
   it("refuses two outcomes with one name before asking the server", async () => {
     const { calls } = await renderClientPage(<LeadDetailsScreen />, {
       "/v1/me": OWNER,
@@ -360,6 +398,19 @@ describe("how calls end (D-836)", () => {
     // Past the autosave pause: a list with a problem is never sent.
     await new Promise((resolve) => setTimeout(resolve, 1600));
     expect(calls.some((c) => c.method === "PUT")).toBe(false);
+  });
+
+  it("keeps what was typed while a save was out, with the key that save gave the new row", () => {
+    const row = (key: string | null, label: string): OutcomeRow => ({ uid: label, key, label, meaning: "", lead_status: "contacted" });
+    const before = JSON.stringify(toWire([row("a", "First")]));
+    const sent = JSON.stringify(toWire([row("a", "First"), row(null, "Asked price")]));
+    const typing = [row("a", "First"), row(null, "Asked price only")];
+    const server = [row("a", "First"), row("asked_price", "Asked price")];
+    const next = followServer(typing, server, before, sent);
+    expect(next.map((r) => [r.key, r.label])).toEqual([
+      ["a", "First"],
+      ["asked_price", "Asked price only"],
+    ]);
   });
 });
 

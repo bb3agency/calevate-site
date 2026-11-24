@@ -205,6 +205,25 @@ describe("Integrations > WhatsApp", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Send them again/ }));
     await waitFor(() => expect(finished).toBe(1));
   });
+
+  it("says why sending the standard templates again was refused, beside the button", async () => {
+    const unsent = TEMPLATES.map((t, i) => (i === 0 ? { ...t, status: "submit_failed" } : t));
+    await renderClientPage(
+      <IntegrationsPage />,
+      routes({
+        "/v1/whatsapp": WHATSAPP_CONNECTED,
+        "/v1/whatsapp/templates": unsent,
+        [`POST /v1/whatsapp/accounts/${ACCOUNT.id}/finish`]: problem(422, {
+          title: "This WhatsApp account is disconnected.",
+          detail: "This WhatsApp account is disconnected.",
+        }),
+      }),
+    );
+    const button = await screen.findByRole("button", { name: /Send them again/ });
+    fireEvent.click(button);
+    const row = button.parentElement as HTMLElement;
+    await waitFor(() => expect(row.textContent).toContain("This WhatsApp account is disconnected."));
+  });
 });
 
 describe("Admin > Clients' WhatsApp", () => {

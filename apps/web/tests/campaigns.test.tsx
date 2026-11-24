@@ -1,6 +1,7 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { ToastProvider } from "@/components/arc/toast";
 import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
 import { nameFromGoal } from "@/app/c/[slug]/campaigns/campaignForm";
 import type { Agent } from "@/lib/api/agents";
@@ -431,6 +432,21 @@ describe("one campaign's page", () => {
     expect(container.textContent).toContain("Why: Several people asked not to be called");
     expect(screen.getAllByRole("button", { name: /Restore/ }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /^Resume/ })).toBeNull();
+  });
+
+  it("says why Restore was refused on an archived campaign's own page", async () => {
+    await renderClientPage(
+      <ToastProvider>{campaignPage()}</ToastProvider>,
+      detail(progressFixture({ status: "paused", launched_at: "2026-10-14T04:30:00Z", archived_at: "2026-11-05T10:00:00Z" }), {
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/restore`]: problem(404, {
+          title: "Campaign not found",
+          detail: "This campaign was deleted meanwhile.",
+        }),
+      }),
+    );
+    await screen.findByText("Archived. It calls nobody.");
+    fireEvent.click(screen.getAllByRole("button", { name: "Restore" })[0]);
+    expect(await screen.findAllByText(/This campaign was deleted meanwhile\./)).not.toHaveLength(0);
   });
 
   it("says Not calling, with the reason, for a running campaign the gate refuses", async () => {

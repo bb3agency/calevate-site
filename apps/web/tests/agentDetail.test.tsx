@@ -1685,6 +1685,26 @@ describe("changing what an agent is", () => {
     expect(JSON.parse(patched?.body ?? "{}")).toEqual({ name: "Front desk" });
   });
 
+  it("says why a save was refused in the save bar, beside the button pressed", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "PATCH /v1/agents/agent-1": problem(409, { title: "That name is taken", detail: "Another agent is already called Front desk." }),
+      }),
+    );
+    await screen.findByText("Reception");
+    const panel = card("What it is");
+    await act(async () => {
+      fireEvent.change(within(panel).getByLabelText(/^Name/), { target: { value: "Front desk" } });
+    });
+    const save = await pressable(panel, /Save changes/);
+    await act(async () => {
+      fireEvent.click(save);
+    });
+    const bar = save.closest(".sticky") as HTMLElement;
+    await waitFor(() => expect(bar.textContent).toContain("Another agent is already called Front desk."));
+  });
+
   it("marks the agent as one that helps customers (founder, 21 Nov 2026)", async () => {
     const { calls } = await renderClientPage(
       page,

@@ -231,6 +231,20 @@ describe("one inbound line", () => {
     await waitFor(() => expect(numberReads()).toBeGreaterThan(1));
   });
 
+  it("says the server's own reason when a new line name is refused", async () => {
+    await renderClientPage(
+      linePage(),
+      lineRoutes(line(), {
+        [`PATCH /v1/inbound-lines/${LINE_ID}`]: problem(422, { title: "Name this line", detail: "Give the line a short name." }),
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Line name: Calls to your number" }));
+    const box = screen.getByRole("textbox", { name: "Line name" });
+    fireEvent.change(box, { target: { value: "​" } });
+    fireEvent.click(within(box.closest("form") as HTMLElement).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Give the line a short name.")).toBeTruthy();
+  });
+
   it("keeps Pip's draft by its proposal id, which saves and puts it live", async () => {
     const proposal = {
       id: "prop-1",
