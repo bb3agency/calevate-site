@@ -407,11 +407,14 @@ def test_no_viewer_renders_no_element() -> None:
 
 AGENT_TABS_SOURCE = CLIENT_APP / "agents/[agentId]/sections/agentSections.tsx"
 BILLING_VIEWS_SOURCE = CLIENT_APP / "billing/tabs.ts"
+CAMPAIGN_TABS_SOURCE = CLIENT_APP / "campaigns/CampaignScreen.tsx"
 
 #: `script: "Script",` inside `export const AGENT_TABS = { ... } as const;`.
 _AGENT_TAB = re.compile(r"^\s*\w+:\s*\"(?P<label>[^\"]+)\",\s*$", re.M)
 #: `{ value: "usage", label: "Usage" },` inside `BILLING_VIEWS = [ ... ] as const;`.
 _BILLING_VIEW = re.compile(r"\{\s*value:\s*\"\w+\",\s*label:\s*\"(?P<label>[^\"]+)\"\s*\}")
+#: `{ value: "improve", label: "Improve", accent: ... },` in the campaign page's tab items.
+_CAMPAIGN_TAB = re.compile(r"\{\s*value:\s*\"\w+\",\s*label:\s*\"(?P<label>[^\"]+)\",\s*accent:")
 
 
 def _declaration(source: Path, opener: str) -> str:
@@ -431,10 +434,17 @@ def _billing_view_labels() -> list[str]:
     return [m["label"] for m in _BILLING_VIEW.finditer(block)]
 
 
+def _campaign_tab_labels() -> list[str]:
+    text = CAMPAIGN_TABS_SOURCE.read_text(encoding="utf-8")
+    start = text.index('label="This campaign"')
+    return [m["label"] for m in _CAMPAIGN_TAB.finditer(text[start : text.index("]}", start)])]
+
+
 def test_the_tab_parsers_still_find_the_tabs() -> None:
     assert len(_agent_tab_labels()) >= 4
     assert "Settings" in _agent_tab_labels()
     assert len(_billing_view_labels()) >= 3
+    assert "Improve" in _campaign_tab_labels()
 
 
 def test_the_agent_page_tabs_pip_knows_are_the_ones_the_page_shows() -> None:
@@ -469,7 +479,7 @@ def _string_literals(path: Path) -> list[tuple[int, str]]:
 def test_every_tab_pip_names_is_a_real_tab() -> None:
     """Every "<X> tab" in a sentence Pip says or reads is a tab the console has: the agent
     page's or the billing screen's views. A wrong name sends an owner looking for nothing."""
-    known = {*_agent_tab_labels(), *_billing_view_labels()}
+    known = {*_agent_tab_labels(), *_billing_view_labels(), *_campaign_tab_labels()}
     wrong: list[str] = []
     for path in sorted((REPO_ROOT / "apps/api/copilot").glob("*.py")):
         if path.name.endswith("_test.py") or path.name.startswith("admin_"):

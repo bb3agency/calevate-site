@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.42 — 25-Nov-2026
+
+- Save flow works the way it looks: once saved, the unsaved changes clear and "Saved" shows;
+  if it is refused, the reason shows right beside the button and your changes stay.
+- A new Improve page in the sidebar looks across all your campaigns and Inbound lines: how
+  each calling number is answering (and a warning if one may be labelled spam), a weekly
+  summary Pip writes from your figures, a side-by-side of your campaigns with "Use what
+  works", mistakes that repeat across campaigns, questions no agent could answer, people
+  waiting on you, contact list health, cost per result, and everything Pip fixed by itself.
+
 ## 0.5.41 — 25-Nov-2026
 
 - The call flow shows how the call goes on: a quiet dashed arrow from each scenario to the
