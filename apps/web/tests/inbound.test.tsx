@@ -432,6 +432,25 @@ describe("one inbound line", () => {
     expect(screen.queryByText("2 chosen")).toBeNull();
   });
 
+  it("keeps Archive off while the line answers a number, which the server refuses", async () => {
+    await renderClientPage(linePage(), lineRoutes(line({ numbers: [{ id: "num-1", e164: NUMBER.e164 }] })));
+    const fold = (await screen.findByRole("heading", { name: "Archive" })).closest("section") as HTMLElement;
+    const toggle = within(fold).queryByRole("button", { expanded: false });
+    if (toggle) fireEvent.click(toggle);
+    const archive = await within(fold).findByRole("button", { name: "Archive this line" });
+    expect((archive as HTMLButtonElement).disabled).toBe(true);
+    expect(within(fold).getByText("Move its numbers to another line first.")).toBeTruthy();
+  });
+
+  it("lets a line with no number be archived", async () => {
+    await renderClientPage(linePage(), lineRoutes(line()));
+    const fold = (await screen.findByRole("heading", { name: "Archive" })).closest("section") as HTMLElement;
+    const toggle = within(fold).queryByRole("button", { expanded: false });
+    if (toggle) fireEvent.click(toggle);
+    const archive = await within(fold).findByRole("button", { name: "Archive this line" });
+    expect((archive as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("links from the calls it took to all its calls in the call log (D-1006)", async () => {
     await renderClientPage(
       linePage(),

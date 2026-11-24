@@ -98,6 +98,7 @@ export const SCRIPT_INFO = "Pip writes it from your main task and sources. Savin
 export const ACTIONS_INFO = "Actions are set up on the agent. Switch off the ones this line should not use.";
 export const NUMBERS_INFO = "A number answers with one line. Adding it here moves it from its old line.";
 export const ARCHIVE_INFO = "A line that still answers a number cannot be archived. Move its numbers first.";
+const ARCHIVE_BLOCKED = "Move its numbers to another line first.";
 export const TEST_CALL_INFO = "It uses this line's saved script, so you hear what callers will. It works before the line has a number.";
 
 type Props = { line: InboundLine; canWrite: boolean; refusal?: string };
@@ -843,6 +844,8 @@ function ArchiveSection({ line, canWrite, refusal, slug }: Props & { slug: strin
   const archive = useArchiveInboundLine(session, line.id);
   const feedback = useActionFeedback(archive, { errorDisplay: "inline", successToast: "Line archived" });
   const [confirming, setConfirming] = useState(false);
+  // The api refuses to archive a line that still answers a number (`line_answers_numbers`).
+  const answersNumbers = line.numbers.length > 0;
   return (
     <FoldSection
       id="line-archive"
@@ -852,11 +855,12 @@ function ArchiveSection({ line, canWrite, refusal, slug }: Props & { slug: strin
       info={ARCHIVE_INFO}
       defaultOpen={false}
     >
+      {answersNumbers && <p className="mb-2 text-meta text-ink-muted">{ARCHIVE_BLOCKED}</p>}
       <button
         type="button"
         className={SECONDARY_BUTTON_SM}
-        disabled={!canWrite}
-        title={refusal}
+        disabled={!canWrite || answersNumbers}
+        title={canWrite && answersNumbers ? ARCHIVE_BLOCKED : refusal}
         onClick={() => setConfirming(true)}
       >
         Archive this line
