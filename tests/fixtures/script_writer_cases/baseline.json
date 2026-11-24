@@ -180,7 +180,7 @@
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 2
+      "lint.heal_findings": 3
     },
     "insurance_renewal": {
       "check.judged_field_asked": 0,
@@ -318,10 +318,10 @@
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 2
+      "lint.heal_findings": 3
     },
     "rytu_khata_install": {
-      "check.judged_field_asked": 3,
+      "check.judged_field_asked": 5,
       "check.known_value_asked": 2,
       "check.multi_question_line": 1,
       "check.multi_action_line": 2,
@@ -332,7 +332,7 @@
       "check.register_in_line": 0,
       "check.agent_claims_caller_action": 2,
       "check.outcome_tailored": 0,
-      "lint.script_problems": 0,
+      "lint.script_problems": 1,
       "lint.bracket_problems": 0,
       "lint.empty_title_problems": 0,
       "lint.flow_problems": 0,
@@ -365,7 +365,7 @@
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 4
+      "lint.heal_findings": 9
     },
     "school_admission": {
       "check.judged_field_asked": 0,

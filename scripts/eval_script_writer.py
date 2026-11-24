@@ -80,7 +80,7 @@ from typing import Any, Final, Literal
 
 from apps.api.agents import mistake_lints, script_lint, turn_checks
 from apps.api.agents.script_heal import heal_findings
-from apps.api.agents.script_lint import CapabilityManifest, LintContext, question_count
+from apps.api.agents.script_lint import CapabilityManifest, LintContext
 from calevate_shared.call_script import (
     CallScript,
     ConversationStage,
@@ -195,6 +195,7 @@ class Case:
             agent_name=self.agent_name,
             business_name=self.business_name,
             collect=tuple(n.label for n in self.noted if not whole_call_detail("", n.label)),
+            judged=tuple(n.label for n in self.noted if whole_call_detail("", n.label)),
             language=self.language if language is None else language,
             places_calls=self.places_calls(),
         )
@@ -416,12 +417,12 @@ def _asks_for(instruction: str, label: str) -> bool:
 
 
 def judged_field_asked(rec: Recorded, case: Case) -> list[str]:
-    """A detail read from the whole call (an outcome, a level, whether the goal was met)
-    that a step collects, tells the agent to ask, or a line asks: nobody can answer "what is
-    your technical comfort level?", and the founder's call of 25 Nov 2026 filed three such
-    details nobody discussed."""
+    """A detail the case marks as judged whose label `whole_call_detail` does not read ("Lead
+    quality"), which a step collects, tells the agent to ask, or a line asks. The details it
+    does read are the lint's (`script_lint.judged_field_asked_problems` through
+    `LintContext.judged`), as production reads them."""
     found: list[str] = []
-    judged = [n for n in case.noted if n.is_judged()]
+    judged = [n for n in case.noted if n.is_judged() and not whole_call_detail("", n.label)]
     for i, stage in enumerate(rec.script.stages):
         for n in judged:
             if any(mentions(entry, n.label) for entry in stage.collect):
@@ -472,36 +473,6 @@ def known_value_asked(rec: Recorded, case: Case) -> list[str]:
             if asked:
                 found.append(f'{line.path}: asks "{label}", which the list gives.')
     return found
-
-
-_SENTENCE: Final = re.compile(r"[^.?!।]+[.?!।]?")
-_LIST_SPLIT: Final = re.compile(r",|\band\b", re.IGNORECASE)
-
-
-def asks_in(text: str, *, readable: bool) -> int:
-    """How many things a line asks: its question marks, and in English a question that lists
-    several of the person's things ("your name, your goal and another number?")."""
-    count = question_count(text)
-    if not readable:
-        return count
-    listed = 0
-    for sentence in _SENTENCE.findall(text):
-        if not sentence.strip().endswith("?"):
-            continue
-        items = [part for part in _LIST_SPLIT.split(sentence) if re.search(r"\byour\b", part, re.I)]
-        listed += max(len(items) - 1, 0)
-    return count + listed
-
-
-def multi_question_line(rec: Recorded, case: Case) -> list[str]:
-    """A step's line that asks several things. Openings are left out, as
-    `script_lint.multi_question_line_problems` leaves them out, so the two read the same
-    lines and differ only in what `asks_in` counts."""
-    return [
-        f"{line.path}: asks {n} things in one turn; ask one and wait."
-        for line in spoken_lines(rec, case, openings=False)
-        if (n := asks_in(line.text, readable=line.readable)) > 1
-    ]
 
 
 def no_purpose_line(rec: Recorded, case: Case) -> list[str]:
@@ -637,7 +608,7 @@ def outcome_tailored(rec: Recorded, case: Case) -> list[str]:
 CHECKS: Final[dict[str, tuple[Check | None, Callable[[Case], bool]]]] = {
     "judged_field_asked": (judged_field_asked, lambda c: any(n.is_judged() for n in c.noted)),
     "known_value_asked": (known_value_asked, lambda c: bool(c.known)),
-    "multi_question_line": (multi_question_line, lambda c: True),
+    "multi_question_line": (None, lambda c: True),
     "multi_action_line": (None, lambda c: True),
     "fake_branch": (None, lambda c: True),
     "steps_after_close": (None, lambda c: True),
@@ -656,18 +627,12 @@ CHECKS: Final[dict[str, tuple[Check | None, Callable[[Case], bool]]]] = {
 #: stand and the eval's own are added at the places the lint did not name (`structural`), so
 #: the problem keeps one count. Each value is what the eval reads that the lint cannot.
 EXTENDS: Final[dict[str, str]] = {
-    # The 25 Nov script asked "campaign goal met" and "technical comfort level" in its
-    # instruction and its line, never in a collect list, and a case marks a judgement whose
-    # label does not give it away (`Noted.judged`); `whole_call_detail` on collect lists
-    # sees neither.
-    "judged_field_asked": "the details the case marks as judged, in instructions and lines "
-    "as well as collect lists",
+    # The lint reads the job's details whose label `whole_call_detail` judges, as production
+    # passes them; a case may mark a judgement whose label does not say so (`Noted.judged`).
+    "judged_field_asked": "the details the case marks as judged whose label does not say so",
     # The lint fires only on the name, and only when the opening greets by `{{lead_name}}`;
     # what else the calling list gives (a vehicle number, an order) only the case says.
     "known_value_asked": "every value the case's calling list gives, the name in any wording",
-    # The lint counts question marks; the 25 Nov line put five asks under one.
-    "multi_question_line": "several of the person's things listed under one question mark, "
-    "in English",
 }
 
 #: What each check can read in a Telugu or Hindi script (instructions are always English; a
@@ -678,7 +643,8 @@ READS: Final[dict[str, str]] = {
     "multi_question_line": "question marks in any language; listed asks in English",
     "multi_action_line": "English lines only",
     "fake_branch": "structure",
-    "steps_after_close": 'structure; the close by its fixed name, "Finalise the call"',
+    "steps_after_close": "structure; the close by its role (a way on to the end, or an "
+    'instruction that closes the call), else by its name, "Finalise the call"',
     "no_purpose_line": "openings; purpose words kept in English letters",
     "main_task_uncovered": "instructions, step names and English lines",
     "register_in_line": "Telugu and Hindi lines, by the register data",
