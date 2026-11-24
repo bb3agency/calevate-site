@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.29 — 24-Nov-2026
+
+- Pip rewrites a campaign's or Inbound line's script when asked, from any page: it no longer
+  says it cannot, sends you to change it by hand, or pastes a draft into the chat.
+- Pip's chat shows divider lines and # headings cleanly instead of as *** and #.
+
 ## 0.5.28 — 24-Nov-2026
 
 - Company training is written in fixed sections: About the business, What it offers, Who

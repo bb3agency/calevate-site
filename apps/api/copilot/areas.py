@@ -102,7 +102,10 @@ INTROS: Final[dict[Area, tuple[str, str]]] = {
     "calls": ("Look up calls.", "Act on calls."),
     "callbacks": ("Look up call-backs.", "Book, move or cancel call-backs."),
     "leads": ("Look up leads and Follow-ups.", "Change leads, do-not-call and Follow-ups."),
-    "campaigns": ("Look up outbound campaigns.", "Create and run outbound campaigns."),
+    "campaigns": (
+        "Look up outbound campaigns.",
+        "Create and run outbound campaigns; to rewrite what one says: agents_do script_draft.",
+    ),
     "agents": ("Look up voice agents.", "Create, change, publish and pause voice agents."),
     "knowledge": ("Look up what the agents know.", "Change what the agents know."),
     "numbers": ("Look up phone numbers.", "Buy, release and assign numbers; forwarded lines."),
