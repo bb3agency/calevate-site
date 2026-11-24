@@ -28,7 +28,7 @@ import {
   useCampaignWorkspace,
   useClearCampaignProposal,
   useRequestCampaignScript,
-  useRestoreScriptBeforePip,
+  useRestoreCampaignScript,
   useSaveCampaignScript,
   useSaveMainTask,
   useSetCampaignSources,
@@ -36,6 +36,7 @@ import {
   type ScriptAsk,
 } from "@/lib/api/campaignWorkspace";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
+import { useScriptVersions } from "@/lib/api/scriptVersions";
 import { useClientRealm } from "@/lib/api/session";
 
 import { LeftOutNotice } from "../agents/[agentId]/script/PipProposal";
@@ -47,6 +48,7 @@ import { PipAskRefused, PipFailed, PipWriting, retryable } from "./PipScriptStat
 import { FoldSection } from "./FoldSection";
 import { SourcePicker, useChosenCount } from "./SourcePicker";
 import { CampaignFlow, FLOW_PART } from "./CampaignFlow";
+import { restoredToast } from "./ScriptVersions";
 import { ScriptLanguagePick, languageName } from "./ScriptLanguages";
 import { MAIN_TASK_PLACEHOLDER } from "./NewCampaignSteps";
 import { MAIN_TASK_MAX_CHARS } from "@/lib/textLimits";
@@ -307,8 +309,9 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const clear = useClearCampaignProposal(session, campaignId);
   const save = useSaveCampaignScript(session, campaignId);
-  const restore = useRestoreScriptBeforePip(session, campaignId);
-  const restoreFeedback = useActionFeedback(restore, { errorDisplay: "inline", successToast: "Flow put back" });
+  const restore = useRestoreCampaignScript(session, campaignId);
+  const restoreFeedback = useActionFeedback(restore, { errorDisplay: "inline", successToast: restoredToast });
+  const versions = useScriptVersions(session, { kind: "campaign", id: campaignId }, space.script, space.script != null);
   const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
   useActionFeedback(save, { errorDisplay: "inline" });
   const ask = useRequestCampaignScript(session, campaignId);
@@ -481,10 +484,10 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                   await save.mutateAsync({ script: next });
                 }}
                 mapping={ask.isPending}
-                beforePipAt={space.script_before_pip_at ?? null}
+                versions={versions.data}
                 outcomesPending={space.step_outcomes_pending}
                 restore={restoreFeedback}
-                onRestore={() => restore.mutateAsync()}
+                onRestore={(input) => restore.mutateAsync(input)}
                 onMapScenarios={
                   main ? () => askFeedback.run({ part: FLOW_PART, language: main }) : undefined
                 }

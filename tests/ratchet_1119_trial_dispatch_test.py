@@ -31,7 +31,7 @@ async def _draft_line(tenant_id: UUID, agent_id: UUID) -> UUID:
         line_id = await lines.create_line(
             session, tenant_id=tenant_id, agent_id=agent_id, name="Front desk", created_by=None
         )
-        await lines.save_script(session, line_id, SCRIPT)
+        await lines.save_script(session, line_id, SCRIPT, author="owner")
     return line_id
 
 

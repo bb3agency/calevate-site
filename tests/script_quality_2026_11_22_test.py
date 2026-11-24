@@ -296,7 +296,7 @@ async def test_a_first_run_draft_never_replaces_a_script_the_owner_saved_meanwhi
 
     async def owner_saves() -> None:
         async with tenant_session(tenant_id) as session:
-            await workspace.save_script(session, campaign_id, owners)
+            await workspace.save_script(session, campaign_id, owners, author="owner")
             owner_holds_lock.set()
             await release.wait()
 

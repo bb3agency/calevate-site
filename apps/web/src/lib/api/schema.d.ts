@@ -7729,6 +7729,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/script-draft/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow Pip's draft of the campaign's script as it is written (server-sent events)
+         * @description A `text/event-stream` following the campaign's Pip draft (`campaigns/script_draft`). Events:
+         *
+         *     * `phase` · `{"phase": "reading"|"writing"|"checking"|"repairing"|"ready"|"failed"|"cancelled",
+         *       "detail": str|null}`, whenever it moves. `detail` is the failure note.
+         *     * `line` · `{"path": "stages.2.sounds_like", "label": "Step 3 · Greeting", "text": "..."}`,
+         *       every line of the written draft in script order, sent at `ready`.
+         *     * `diff` · `{"changes": [{"path", "label", "op": "added"|"removed"|"changed"|"same",
+         *       "before", "after"}], "proposal_id": "<uuid>"}`, once, after the lines.
+         *
+         *     The stream ends after `ready`, `failed` or `cancelled`. Opening it again replays the draft's
+         *     current state; with no draft it answers 404, which stops the browser reconnecting.
+         */
+        get: operations["stream_script_draft_v1_campaigns__campaign_id__script_draft_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script-draft/{proposal_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Pip's draft while it is written; the campaign stays as it was */
+        post: operations["cancel_script_draft_v1_campaigns__campaign_id__script_draft__proposal_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script-draft/{proposal_id}/keep-live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Keep Pip's written draft as the campaign's script and put it live, as Save does
+         * @description The script before Pip's draft stays as the switch-back copy (`restore-before-pip`).
+         */
+        post: operations["keep_script_draft_live_v1_campaigns__campaign_id__script_draft__proposal_id__keep_live_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/script/proposal": {
         parameters: {
             query?: never;
@@ -7772,8 +7839,42 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Put back the script from before Pip's last draft (the two swap) */
+        /** Put back the owner's own last version of the script, before Pip's changes */
         post: operations["restore_script_before_pip_v1_campaigns__campaign_id__script_restore_before_pip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The campaign's saved script versions, and what putting back the flow restores */
+        get: operations["read_script_versions_v1_campaigns__campaign_id__script_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script/versions/{script_version_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put back one saved version of the campaign's script */
+        post: operations["restore_script_version_v1_campaigns__campaign_id__script_versions__script_version_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10641,6 +10742,114 @@ export interface paths {
         /** Save the line's script and put it live on its numbers */
         put: operations["save_script_v1_inbound_lines__line_id__script_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script-draft/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Follow Pip's draft of the line's script as it is written (server-sent events)
+         * @description A `text/event-stream` following the line's Pip draft, with exactly the events of
+         *     `GET /v1/campaigns/{campaign_id}/script-draft/stream`: `phase`, then at `ready` every `line`
+         *     and one `diff`. It ends after `ready`, `failed` or `cancelled`; opening it again replays the
+         *     draft's current state, and a line with no draft answers 404.
+         */
+        get: operations["stream_script_draft_v1_inbound_lines__line_id__script_draft_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script-draft/{line_proposal_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Pip's draft while it is written; the line stays as it was */
+        post: operations["cancel_script_draft_v1_inbound_lines__line_id__script_draft__line_proposal_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script-draft/{line_proposal_id}/keep-live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Keep Pip's written draft as the line's script and put it live, as Save does */
+        post: operations["keep_script_draft_live_v1_inbound_lines__line_id__script_draft__line_proposal_id__keep_live_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script/restore-before-pip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put back the owner's own last version of the line's script, before Pip's changes */
+        post: operations["restore_script_before_pip_v1_inbound_lines__line_id__script_restore_before_pip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The line's saved script versions, and what putting back the script restores */
+        get: operations["read_script_versions_v1_inbound_lines__line_id__script_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script/versions/{script_version_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put back one saved version of the line's script */
+        post: operations["restore_script_version_v1_inbound_lines__line_id__script_versions__script_version_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -23951,6 +24160,11 @@ export interface components {
             /** Url */
             url: string;
         };
+        /** DraftCancelOut */
+        DraftCancelOut: {
+            /** Cancelled */
+            cancelled: boolean;
+        };
         /** DraftOut */
         DraftOut: {
             /**
@@ -34410,6 +34624,17 @@ export interface components {
              */
             take_bookings: boolean;
         };
+        /** ScriptPutBackOut */
+        ScriptPutBackOut: {
+            /** Unavailable */
+            unavailable: ("no_owner_version" | "already_current") | null;
+            version: components["schemas"]["ScriptVersionOut"] | null;
+        };
+        /** ScriptRestoreIn */
+        ScriptRestoreIn: {
+            /** Expected Version Id */
+            expected_version_id: string | null;
+        };
         /**
          * ScriptStep
          * @description One ordered instruction in the task flow — a natural-language sentence, not code.
@@ -34443,6 +34668,40 @@ export interface components {
             key: string;
             /** Label */
             label: string;
+        };
+        /** ScriptVersionOut */
+        ScriptVersionOut: {
+            /**
+             * Author
+             * @enum {string}
+             */
+            author: "owner" | "pip_draft" | "pip_repair" | "pip_outcomes" | "pip_notices" | "system" | "restored" | "copied" | "earlier";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Owner Made */
+            owner_made: boolean;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * ScriptVersionsOut
+         * @description A campaign's or line's script versions, newest first (at most `KEEP` + 1), and what
+         *     "Put back the flow from before Pip" would restore.
+         */
+        ScriptVersionsOut: {
+            /** Current Version Id */
+            current_version_id: string | null;
+            put_back: components["schemas"]["ScriptPutBackOut"];
+            /** Versions */
+            versions: components["schemas"]["ScriptVersionOut"][];
         };
         /** SecondFactorIn */
         SecondFactorIn: {
@@ -40145,8 +40404,6 @@ export interface components {
             main_task: string;
             proposal: components["schemas"]["CampaignProposalOut"] | null;
             script: components["schemas"]["CallScript"] | null;
-            /** Script Before Pip At */
-            script_before_pip_at?: string | null;
             /** Script Live Version */
             script_live_version: number | null;
             /** Source Ids */
@@ -54403,6 +54660,108 @@ export interface operations {
             };
         };
     };
+    stream_script_draft_v1_campaigns__campaign_id__script_draft_stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    cancel_script_draft_v1_campaigns__campaign_id__script_draft__proposal_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftCancelOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    keep_script_draft_live_v1_campaigns__campaign_id__script_draft__proposal_id__keep_live_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description The draft is not the one ready now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     request_proposal_v1_campaigns__campaign_id__script_proposal_post: {
         parameters: {
             query?: never;
@@ -54477,7 +54836,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScriptRestoreIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -54487,6 +54850,87 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["WorkspaceOut"];
                 };
+            };
+            /** @description Nothing to put back, or the script changed since */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_script_versions_v1_campaigns__campaign_id__script_versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptVersionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_script_version_v1_campaigns__campaign_id__script_versions__script_version_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                script_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScriptRestoreIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description That version is the script now, or it changed since */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -59888,6 +60332,251 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["InboundLineOut"];
                 };
+            };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    stream_script_draft_v1_inbound_lines__line_id__script_draft_stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    cancel_script_draft_v1_inbound_lines__line_id__script_draft__line_proposal_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+                line_proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftCancelOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    keep_script_draft_live_v1_inbound_lines__line_id__script_draft__line_proposal_id__keep_live_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+                line_proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundLineOut"];
+                };
+            };
+            /** @description The draft is not the one ready now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_script_before_pip_v1_inbound_lines__line_id__script_restore_before_pip_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScriptRestoreIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundLineOut"];
+                };
+            };
+            /** @description Nothing to put back, or the script changed since */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC 9457 problem+json */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_script_versions_v1_inbound_lines__line_id__script_versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptVersionsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_script_version_v1_inbound_lines__line_id__script_versions__script_version_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+                script_version_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScriptRestoreIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundLineOut"];
+                };
+            };
+            /** @description That version is the script now, or it changed since */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC 9457 problem+json */
             422: {

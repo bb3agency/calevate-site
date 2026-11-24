@@ -38,7 +38,7 @@ async def _draft_line(tenant_id: UUID, agent_id: UUID, *, script: bool = True) -
             session, tenant_id=tenant_id, agent_id=agent_id, name="Front desk", created_by=None
         )
         if script:
-            await lines.save_script(session, line_id, SCRIPT)
+            await lines.save_script(session, line_id, SCRIPT, author="owner")
     return line_id
 
 
@@ -114,6 +114,6 @@ async def test_a_line_with_no_script_is_refused_by_name_and_frees_the_key(line: 
         await _ring(principal, agent_id, line_id, key)
     assert refused.value.code == "line_has_no_script"
     async with tenant_session(tenant_id) as session:
-        await lines.save_script(session, line_id, SCRIPT)
+        await lines.save_script(session, line_id, SCRIPT, author="owner")
     placed = await _ring(principal, agent_id, line_id, key)
     assert placed.status == "queued", "the same key may try again once the line has a script"

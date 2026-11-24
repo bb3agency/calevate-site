@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_proposals
 from apps.api.agents.field_suggestions import queue_job
-from apps.api.campaigns import step_outcomes
+from apps.api.campaigns import script_history, step_outcomes
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.kb.picks import CAMPAIGN_PICKS, add_pick, read_picks, replace_picks
@@ -92,8 +92,6 @@ class Workspace:
     proposal: CampaignProposal | None
     #: The sources from What your agents know it is written from.
     sources: tuple[UUID, ...]
-    #: When the copy of the script from before Pip's last draft was taken; None: no copy.
-    script_before_pip_at: datetime | None = None
     #: Pip is writing the outcome of a step that has none (`step_outcomes`).
     step_outcomes_pending: bool = False
 
@@ -142,7 +140,7 @@ async def _campaign_row(session: AsyncSession, campaign_id: UUID, *, lock: bool 
         await session.execute(
             text(
                 "SELECT id, tenant_id, agent_id, status, main_task, script, script_proposal, "
-                "script_live_version, script_before_pip_at FROM campaigns "
+                "script_live_version FROM campaigns "
                 "WHERE id = :cid AND archived_at IS NULL" + (" FOR UPDATE" if lock else "")
             ),
             {"cid": campaign_id},
@@ -165,7 +163,6 @@ async def read_workspace(session: AsyncSession, campaign_id: UUID) -> Workspace:
         script_live_version=row.script_live_version,
         proposal=_proposal(row.script_proposal, now=datetime.now(UTC)),
         sources=tuple(picked[campaign_id]),
-        script_before_pip_at=row.script_before_pip_at,
         step_outcomes_pending=await step_outcomes.pending(session, "campaign", campaign_id),
     )
 
@@ -194,8 +191,18 @@ async def save_main_task(session: AsyncSession, campaign_id: UUID, value: str) -
     return task
 
 
-async def save_script(session: AsyncSession, campaign_id: UUID, script: CallScript) -> None:
-    """The owner's edit, or a reviewed Pip draft they kept. Measured as the campaign's own
+async def save_script(
+    session: AsyncSession,
+    campaign_id: UUID,
+    script: CallScript,
+    *,
+    author: script_history.Author,
+    made_by: UUID | None = None,
+    reason: str | None = None,
+    restored_from: UUID | None = None,
+) -> None:
+    """The owner's edit, a reviewed Pip draft they kept, or a pass's write, kept as a version
+    under `author` (`script_history`). Measured as the campaign's own
     engine agent Start sends, its notes included (`script_builder.refuse_job_if_too_long`),
     so Start can never be refused for its length. Pip repairs any line the script checks
     fault once the owner stops saving (`agents/script_heal`)."""
@@ -213,56 +220,54 @@ async def save_script(session: AsyncSession, campaign_id: UUID, script: CallScri
         text("UPDATE campaigns SET script = CAST(:s AS jsonb), updated_at = now() WHERE id = :cid"),
         {"s": script.model_dump_json(), "cid": campaign_id},
     )
+    await script_history.record(
+        session,
+        tenant_id=UUID(str(row.tenant_id)),
+        kind="campaign",
+        holder_id=campaign_id,
+        script=script,
+        author=author,
+        made_by=made_by,
+        reason=reason,
+        restored_from=restored_from,
+    )
     await queue_job(session, "campaign", campaign_id)
     await step_outcomes.queue_after_save(session, "campaign", campaign_id, script)
     await script_heal.queue_after_save(session, "campaign", campaign_id, script)
 
 
-async def _keep_before_pip(session: AsyncSession, campaign_id: UUID) -> None:
-    """Copy the saved script aside before Pip writes (founder, 17 Nov 2026), so whatever the
-    owner keeps of the draft, the flow they had can be put back. One copy, the latest."""
-    await session.execute(
-        text(
-            "UPDATE campaigns SET script_before_pip = script, script_before_pip_at = now() "
-            "WHERE id = :cid AND script IS NOT NULL"
-        ),
-        {"cid": campaign_id},
-    )
-
-
-async def restore_before_pip(session: AsyncSession, campaign_id: UUID) -> None:
-    """Put back the script from before Pip's last draft. The two swap, so the script it
-    replaces is kept as the copy and pressing again brings it back."""
+async def restore_version(
+    session: AsyncSession,
+    campaign_id: UUID,
+    *,
+    version_id: UUID | None,
+    expected_version_id: UUID | None,
+    made_by: UUID | None,
+) -> script_history.Version:
+    """Put back one version of the script, or with `version_id` None the owner's own last one
+    ("Put back the flow from before Pip"). Saved as a new version, so it can be undone;
+    refused when another save landed since the page read the history. Answers the version
+    brought back."""
     row = await _campaign_row(session, campaign_id, lock=True)
-    held = (
-        await session.execute(
-            text("SELECT script_before_pip FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
-        )
-    ).scalar()
-    if not held:
-        raise _invalid(
-            "campaign_no_script_before_pip",
-            "There is nothing to put back",
-            "Pip has not written this campaign's script since it had one.",
-        )
-    previous = CallScript.model_validate(held)
-    from apps.api.agents import script_builder
-
-    await script_builder.refuse_job_if_too_long(
+    current = _script(row.script)
+    script, brought = await script_history.script_to_restore(
         session,
-        kind="campaign",
-        tenant_id=UUID(str(row.tenant_id)),
-        job_id=campaign_id,
-        script=previous,
+        "campaign",
+        campaign_id,
+        version_id=version_id,
+        expected_version_id=expected_version_id,
+        current=current,
     )
-    await session.execute(
-        text(
-            "UPDATE campaigns SET script_before_pip = script, script = script_before_pip, "
-            "script_before_pip_at = now(), updated_at = now() WHERE id = :cid"
-        ),
-        {"cid": campaign_id},
+    await save_script(
+        session,
+        campaign_id,
+        script,
+        author="restored",
+        made_by=made_by,
+        reason=script_history.restored_reason(brought.created_at),
+        restored_from=brought.id,
     )
-    await step_outcomes.queue_after_save(session, "campaign", campaign_id, previous)
+    return brought
 
 
 async def set_sources(
@@ -436,16 +441,6 @@ async def request_proposal(
         )
     now = datetime.now(UTC)
     pending = _proposal(row.script_proposal, now=now)
-    # The copy this request replaces, kept on the draft so a draft cancelled while it is
-    # written puts it back (`script_draft.cancel_draft`) and the switch-back is unchanged.
-    held = (
-        await session.execute(
-            text("SELECT script_before_pip, script_before_pip_at FROM campaigns WHERE id = :cid"),
-            {"cid": campaign_id},
-        )
-    ).one()
-    if pending is None or pending.status != "drafting":
-        await _keep_before_pip(session, campaign_id)
     if pending is not None and pending.status == "drafting":
         raise ProblemError.conflict(
             "campaign_script_in_progress",
@@ -460,13 +455,6 @@ async def request_proposal(
         "requested_by": None if requested_by is None else str(requested_by),
         "base_script": row.script,
     }
-    if row.script is not None:
-        record["before_pip"] = {
-            "script": held.script_before_pip,
-            "at": None
-            if held.script_before_pip_at is None
-            else held.script_before_pip_at.isoformat(),
-        }
     if focus is not None:
         record["focus"] = focus
     if ask:
@@ -523,6 +511,26 @@ async def copy_workspace(
         ),
         {"t": target_id, "s": source_id},
     )
+    copied = _script(
+        (
+            await session.execute(
+                text("SELECT script FROM campaigns WHERE id = :t"), {"t": target_id}
+            )
+        ).scalar()
+    )
+    if copied is not None:
+        # The copy's put-back follows the source's: owner-made only when the source's
+        # newest version was the owner's own.
+        source_latest = await script_history.versions(session, "campaign", source_id)
+        await script_history.record(
+            session,
+            tenant_id=tenant_id,
+            kind="campaign",
+            holder_id=target_id,
+            script=copied,
+            author="copied",
+            owner_made=bool(source_latest and source_latest[0].owner_made),
+        )
     for kb_source_id in (await read_picks(session, CAMPAIGN_PICKS, [source_id]))[source_id]:
         await add_pick(
             session,
@@ -547,6 +555,7 @@ __all__ = [
     "read_script_proposal",
     "read_workspace",
     "request_proposal",
+    "restore_version",
     "save_main_task",
     "save_script",
     "set_sources",

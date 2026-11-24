@@ -46,6 +46,7 @@ from sqlalchemy import text
 from apps.api.agents import agent_pass
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
+from apps.api.campaigns import script_history
 from apps.api.campaigns.step_outcomes import (
     DEBOUNCE_S,
     SLOTS,
@@ -510,6 +511,15 @@ async def _save(
                 {"s": script.model_dump_json(), "d": digest, "h": holder.id, "v": holder.version},
             )
         saved = written.first() is not None
+        if saved:
+            await script_history.record(
+                session,
+                tenant_id=tenant_id,
+                kind=kind,
+                holder_id=holder.id,
+                script=script,
+                author="pip_outcomes",
+            )
         await agent_pass.finish(
             session, SLOTS[kind], tenant_id=tenant_id, row_id=holder.id, state="done"
         )

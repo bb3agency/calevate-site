@@ -297,9 +297,13 @@ async def weave_holder_opening_notices(ctx: dict[str, Any], payload: dict[str, A
             try:
                 async with session.begin_nested():
                     if kind == "line":
-                        await inbound_lines.save_script(session, holder_id, script)
+                        await inbound_lines.save_script(
+                            session, holder_id, script, author="pip_notices"
+                        )
                     else:
-                        await campaign_workspace.save_script(session, holder_id, script)
+                        await campaign_workspace.save_script(
+                            session, holder_id, script, author="pip_notices"
+                        )
                 saved = True
             except ProblemError as refused:
                 # The stored sentences are still said beside the old line.

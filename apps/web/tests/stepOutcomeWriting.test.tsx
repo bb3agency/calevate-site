@@ -6,7 +6,13 @@ import { OUTCOME_PLACEHOLDER, OUTCOME_WRITING } from "@/app/c/[slug]/campaigns/S
 import { outcomeOf, setOutcome, withPipOutcomes } from "@/app/c/[slug]/campaigns/scenarioModel";
 import { EMPTY_SCRIPT, type CallScript, type ConversationStage } from "@/lib/api/script";
 
-import { FIXTURE_AGENT_ID, FIXTURE_CAMPAIGN_ID, settingsFixture, workspaceFixture } from "./campaignFixtures";
+import {
+  FIXTURE_AGENT_ID,
+  FIXTURE_CAMPAIGN_ID,
+  scriptVersionsFixture,
+  settingsFixture,
+  workspaceFixture,
+} from "./campaignFixtures";
 import { noReply, renderClientPage, type Routes } from "./harness";
 
 /**
@@ -45,6 +51,7 @@ const WRITTEN = "The person says they remember the shop.";
 const routes = (workspace: Routes[string]): Routes => ({
   [`${base}/workspace`]: workspace,
   [`${base}/settings`]: settingsFixture(),
+  [`${base}/script/versions`]: scriptVersionsFixture(),
   "/v1/kb/notes": { notes: [] },
   "/v1/kb/uploads": [],
   "/v1/agents": [],

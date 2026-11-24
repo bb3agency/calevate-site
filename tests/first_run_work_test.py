@@ -226,7 +226,7 @@ async def test_a_draft_never_replaces_a_script_the_owner_saved() -> None:
     line_id = await _drafted_line(tenant_id, await _owner(tenant_id))
     own = CallScript(opening_line="Hello, this is Madhav Homes.")
     async with tenant_session(tenant_id) as session:
-        await lines.save_script(session, line_id, own)
+        await lines.save_script(session, line_id, own, author="owner")
     await _written(tenant_id, line_id)
     async with tenant_session(tenant_id) as session:
         line = await lines.read_line(session, line_id)
@@ -314,7 +314,7 @@ async def test_a_failed_draft_never_replaces_a_script_the_owner_saved() -> None:
     line_id = await _drafted_line(tenant_id, await _owner(tenant_id))
     own = CallScript(opening_line="Hello, this is Madhav Homes.")
     async with tenant_session(tenant_id) as session:
-        await lines.save_script(session, line_id, own)
+        await lines.save_script(session, line_id, own, author="owner")
     await _failed(tenant_id, line_id, "crashed")
     async with tenant_session(tenant_id) as session:
         line = await lines.read_line(session, line_id)
@@ -511,8 +511,8 @@ async def test_renaming_the_agent_renames_it_in_its_first_works_scripts() -> Non
         identity="Your name is Anjali. You help callers.",
     )
     async with tenant_session(tenant_id) as session:
-        await lines.save_script(session, uuid.UUID(line_id), written)
-        await workspace.save_script(session, uuid.UUID(campaign_id), written)
+        await lines.save_script(session, uuid.UUID(line_id), written, author="owner")
+        await workspace.save_script(session, uuid.UUID(campaign_id), written, author="owner")
     async with _client() as http:
         renamed = await http.put(
             "/v1/first-run/agent",
@@ -536,7 +536,7 @@ async def test_renaming_the_agent_renames_it_in_its_first_works_scripts() -> Non
 
     # A version 1 script has no identity to rename and is left as it is.
     async with tenant_session(tenant_id) as session:
-        await lines.save_script(session, uuid.UUID(line_id), SCRIPT)
+        await lines.save_script(session, uuid.UUID(line_id), SCRIPT, author="owner")
     async with _client() as http:
         again = await http.put(
             "/v1/first-run/agent",

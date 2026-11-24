@@ -143,7 +143,9 @@ class Campaign(PKMixin, TimestampMixin, Base):
     script_proposal: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: The agent's script version this campaign put live at its last Start.
     script_live_version: Mapped[int | None]
-    #: The saved script as it was when Pip was last asked to write it, to switch back to.
+    #: RETIRED (D-1039): the one switch-back copy, overwritten by every automatic pass, so
+    #: putting it back restored a near-identical script. `script_versions` replaced it and
+    #: nothing reads or writes these; a later release drops them (hard rule 8).
     script_before_pip: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     script_before_pip_at: Mapped[datetime | None]
     #: A second opening line tested against the script's own, alternating per person (D-992).
@@ -389,3 +391,56 @@ class DltTemplate(PKMixin, TimestampMixin, Base):
     body: Mapped[str] = mapped_column(Text, nullable=False)
     dlt_ref: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="draft")
+
+
+SCRIPT_VERSION_AUTHORS = (
+    "owner",
+    "pip_draft",
+    "pip_repair",
+    "pip_outcomes",
+    "pip_notices",
+    "system",
+    "restored",
+    "copied",
+    "earlier",
+)
+
+
+class ScriptVersion(PKMixin, Base):
+    """One saved version of a campaign's or inbound line's script (D-1039,
+    `campaigns/script_history`): who wrote it, whether it is the owner's own, and why.
+    "Put back the flow from before Pip" restores the newest owner-made row."""
+
+    __tablename__ = "script_versions"
+    __table_args__ = (
+        CheckConstraint("num_nonnulls(campaign_id, inbound_line_id) = 1", name="one_holder"),
+        CheckConstraint(f"author IN {SCRIPT_VERSION_AUTHORS!r}", name="author_known"),
+        CheckConstraint("length(reason) <= 200", name="reason_short"),
+        Index(
+            "ix_script_versions_campaign",
+            "campaign_id",
+            text("created_at DESC"),
+            postgresql_where=text("campaign_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_script_versions_line",
+            "inbound_line_id",
+            text("created_at DESC"),
+            postgresql_where=text("inbound_line_id IS NOT NULL"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    campaign_id: Mapped[UUID | None] = mapped_column(ForeignKey("campaigns.id", ondelete="CASCADE"))
+    inbound_line_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("inbound_lines.id", ondelete="CASCADE")
+    )
+    script: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    author: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_made: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    made_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    restored_from: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True))
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"), nullable=False)

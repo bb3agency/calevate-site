@@ -26,7 +26,7 @@ from uuid import UUID
 import pytest
 from apps.api.agents.script_lint import LintContext
 from apps.api.agents.script_proposals import script_diff
-from apps.api.campaigns import script_draft, workspace, workspace_routes
+from apps.api.campaigns import script_draft, script_history, workspace, workspace_routes
 from apps.api.core.settings import get_settings
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
@@ -67,6 +67,15 @@ async def _campaign(script: CallScript | None = OLD) -> tuple[UUID, UUID, str]:
                 "s": None if script is None else script.model_dump_json(),
             },
         )
+        if script is not None:
+            await script_history.record(
+                session,
+                tenant_id=tenant_id,
+                kind="campaign",
+                holder_id=campaign_id,
+                script=script,
+                author="owner",
+            )
         await workspace.save_main_task(session, campaign_id, MAIN_TASK)
     return tenant_id, campaign_id, token
 
@@ -147,22 +156,26 @@ def _frames(body: str) -> list[tuple[str, Any]]:
     return out
 
 
-async def _http(token: str, method: str, path: str) -> Any:
+async def _http(token: str, method: str, path: str, body: Any = None) -> Any:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
-        return await http.request(method, path, headers={"Authorization": f"Bearer {token}"})
+        return await http.request(
+            method, path, headers={"Authorization": f"Bearer {token}"}, json=body
+        )
 
 
 async def _row(tenant_id: UUID, campaign_id: UUID) -> Any:
     async with tenant_session(tenant_id) as session:
         return (
             await session.execute(
-                text(
-                    "SELECT script, script_proposal, script_before_pip, script_before_pip_at "
-                    "FROM campaigns WHERE id = :c"
-                ),
+                text("SELECT script, script_proposal FROM campaigns WHERE id = :c"),
                 {"c": campaign_id},
             )
         ).one()
+
+
+async def _versions(tenant_id: UUID, campaign_id: UUID) -> list[script_history.Version]:
+    async with tenant_session(tenant_id) as session:
+        return await script_history.versions(session, "campaign", campaign_id)
 
 
 async def test_the_stream_reports_the_phases_then_every_line_and_the_diff(
@@ -265,8 +278,15 @@ async def test_keep_puts_the_draft_live_and_keeps_the_switch_back(
     assert put_live == [campaign_id]
     row = await _row(tenant_id, campaign_id)
     assert CallScript.model_validate(row.script) == CallScript.model_validate(written)
-    assert CallScript.model_validate(row.script_before_pip) == OLD
-    back = await _http(token, "POST", f"/v1/campaigns/{campaign_id}/script/restore-before-pip")
+    listed = (await _http(token, "GET", f"/v1/campaigns/{campaign_id}/script/versions")).json()
+    assert [v["author"] for v in listed["versions"]] == ["pip_draft", "owner"]
+    assert listed["put_back"]["version"]["id"] == listed["versions"][1]["id"]
+    back = await _http(
+        token,
+        "POST",
+        f"/v1/campaigns/{campaign_id}/script/restore-before-pip",
+        {"expected_version_id": listed["current_version_id"]},
+    )
     assert back.status_code == 200, back.text
     assert CallScript.model_validate((await _row(tenant_id, campaign_id)).script) == OLD
 
@@ -301,19 +321,11 @@ async def test_cancel_while_writing_leaves_the_campaign_as_it_was_and_ends_the_j
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """FAILS IF: a draft cancelled mid-write is stored, the job runs its later passes, the
-    switch-back copy is left replaced by the cancelled request, or the pass it had already
-    paid for goes unmetered."""
+    request or the cancel adds a script version, or the pass it had already paid for goes
+    unmetered."""
     tenant_id, campaign_id, token = await _campaign()
-    earlier = _script("An older flow?")
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "UPDATE campaigns SET script_before_pip = CAST(:s AS jsonb), "
-                "script_before_pip_at = '2026-11-01T00:00:00+00:00' WHERE id = :c"
-            ),
-            {"s": earlier.model_dump_json(), "c": campaign_id},
-        )
     before = await _row(tenant_id, campaign_id)
+    versions_before = await _versions(tenant_id, campaign_id)
     calls: list[str] = []
     answers: list[Any] = []
 
@@ -336,8 +348,7 @@ async def test_cancel_while_writing_leaves_the_campaign_as_it_was_and_ends_the_j
     after = await _row(tenant_id, campaign_id)
     assert after.script_proposal is None
     assert after.script == before.script
-    assert CallScript.model_validate(after.script_before_pip) == earlier
-    assert after.script_before_pip_at == before.script_before_pip_at
+    assert await _versions(tenant_id, campaign_id) == versions_before
     # Nothing left to cancel: idempotent, and the stream now has no draft to follow.
     again = await _http(
         token, "POST", f"/v1/campaigns/{campaign_id}/script-draft/{proposal_id}/cancel"
@@ -438,7 +449,7 @@ async def _line_with_draft(status: str) -> tuple[UUID, UUID, str, UUID]:
             main_task=MAIN_TASK,
             created_by=None,
         )
-        await lines.save_script(session, line_id, OLD)
+        await lines.save_script(session, line_id, OLD, author="owner")
         proposal = await lines.request_proposal(
             session, tenant_id=tenant_id, line_id=line_id, requested_by=None
         )

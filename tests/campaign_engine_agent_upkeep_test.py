@@ -24,7 +24,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.campaigns import notes, workspace_routes
+from apps.api.campaigns import notes, script_history, workspace_routes
 from apps.api.campaigns.workspace_routes import router as workspace_router
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
@@ -188,21 +188,42 @@ async def test_saving_what_it_notes_again_puts_a_refused_save_live(
     assert [f["key"] for f in again["fields"]] == ["visit_day"]
 
 
-async def _post(token: str, path: str) -> tuple[int, dict[str, Any]]:
+async def _post(
+    token: str, path: str, body: dict[str, Any] | None = None
+) -> tuple[int, dict[str, Any]]:
     async with _client(_app()) as http:
-        response = await http.post(path, headers={"Authorization": f"Bearer {token}"})
+        response = await http.post(path, headers={"Authorization": f"Bearer {token}"}, json=body)
     return response.status_code, response.json()
 
 
-async def _hold_before_pip(tenant_id: UUID, campaign_id: UUID, script: CallScript) -> None:
+async def _hold_before_pip(tenant_id: UUID, campaign_id: UUID, script: CallScript) -> str:
+    """`script` as the owner's own version, then Pip's repair of what the campaign holds
+    now. Answers the newest version, which a restore names for its compare-and-set."""
     async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "UPDATE campaigns SET script_before_pip = CAST(:s AS jsonb), "
-                "script_before_pip_at = now() WHERE id = :c"
-            ),
-            {"s": script.model_dump_json(), "c": campaign_id},
+        current = CallScript.model_validate(
+            (
+                await session.execute(
+                    text("SELECT script FROM campaigns WHERE id = :c"), {"c": campaign_id}
+                )
+            ).scalar_one()
         )
+        await script_history.record(
+            session,
+            tenant_id=tenant_id,
+            kind="campaign",
+            holder_id=campaign_id,
+            script=script,
+            author="owner",
+        )
+        latest = await script_history.record(
+            session,
+            tenant_id=tenant_id,
+            kind="campaign",
+            holder_id=campaign_id,
+            script=current,
+            author="pip_repair",
+        )
+    return str(latest)
 
 
 async def _draft(tenant_id: UUID, campaign_id: UUID) -> UUID:
@@ -237,10 +258,14 @@ async def test_putting_back_the_script_before_pip_reaches_a_running_campaigns_ca
     tenant_id, agent_id, token = await _live_agent_and_token()
     campaign_id = await _campaign(tenant_id, agent_id, status="running")
     ref = await _publish(tenant_id, campaign_id)
-    await _hold_before_pip(tenant_id, campaign_id, NEW)
+    latest = await _hold_before_pip(tenant_id, campaign_id, NEW)
     assert "Sunday camp" not in engine._agents[ref].system_prompt
 
-    code, body = await _post(token, f"/v1/campaigns/{campaign_id}/script/restore-before-pip")
+    code, body = await _post(
+        token,
+        f"/v1/campaigns/{campaign_id}/script/restore-before-pip",
+        {"expected_version_id": latest},
+    )
 
     assert code == 200, body
     assert "Sunday camp" in engine._agents[ref].system_prompt, (
@@ -255,10 +280,14 @@ async def test_a_restore_whose_put_live_is_refused_is_kept(
     tenant_id, agent_id, token = await _live_agent_and_token()
     campaign_id = await _campaign(tenant_id, agent_id, status="paused")
     await _publish(tenant_id, campaign_id)
-    await _hold_before_pip(tenant_id, campaign_id, NEW)
+    latest = await _hold_before_pip(tenant_id, campaign_id, NEW)
     monkeypatch.setattr(workspace_routes, "put_campaign_live", _platform_refuses)
 
-    code, refused = await _post(token, f"/v1/campaigns/{campaign_id}/script/restore-before-pip")
+    code, refused = await _post(
+        token,
+        f"/v1/campaigns/{campaign_id}/script/restore-before-pip",
+        {"expected_version_id": latest},
+    )
 
     assert code != 200 and refused["title"] == "Saved, but not on its calls yet", refused
     script, _ = await _stored(tenant_id, campaign_id)

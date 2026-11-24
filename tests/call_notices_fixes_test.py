@@ -329,7 +329,7 @@ async def test_an_owners_save_during_the_holder_reweave_is_never_written_over(
             )
             locked.set()
             await release.wait()
-            await inbound_lines.save_script(session, line_id, owners)
+            await inbound_lines.save_script(session, line_id, owners, author="owner")
 
     owner = asyncio.create_task(owner_saves())
     await locked.wait()

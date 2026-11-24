@@ -29,7 +29,7 @@ from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.workspace_slots import SLOTS_FULL_RESPONSES
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import notes as job_notes
-from apps.api.campaigns import notes_live, number_catalog, script_draft
+from apps.api.campaigns import notes_live, number_catalog, script_draft, script_history
 from apps.api.campaigns.workspace import MAIN_TASK_MAX
 from apps.api.campaigns.workspace_routes import (
     TEST_CALLS_SHOWN,
@@ -391,7 +391,13 @@ async def _save_then_put_live(
         if script is None:
             assert proposal_id is not None
             script = await script_draft.ready_script(session, "inbound_line", line_id, proposal_id)
-        version = await lines.save_script(session, line_id, script)
+        version = await lines.save_script(
+            session,
+            line_id,
+            script,
+            author="owner" if proposal_id is None else "pip_draft",
+            made_by=principal.user_id,
+        )
         if proposal_id is not None:
             await lines.clear_proposal(session, line_id, proposal_id)
         await write_audit(
@@ -406,6 +412,99 @@ async def _save_then_put_live(
         )
     await _put_live_after_save(tenant_id, line_id)
     return await _read(tenant_id, line_id)
+
+
+@router.get(
+    "/{line_id}/script/versions",
+    response_model=script_history.ScriptVersionsOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="The line's saved script versions, and what putting back the script restores",
+)
+async def read_script_versions(
+    line_id: UUID, session: Session, _: Reader
+) -> script_history.ScriptVersionsOut:
+    line = await lines.read_line(session, line_id)
+    return await script_history.versions_out(session, "line", line_id, line.script)
+
+
+async def _restore(
+    request: Request,
+    principal: Principal,
+    line_id: UUID,
+    *,
+    version_id: UUID | None,
+    expected_version_id: UUID | None,
+) -> InboundLineOut:
+    """Saved as a new version, then put live as the line's Save is."""
+    tenant_id = _tenant(principal)
+    async with tenant_session(tenant_id) as session:
+        brought = await lines.restore_version(
+            session,
+            line_id,
+            version_id=version_id,
+            expected_version_id=expected_version_id,
+            made_by=principal.user_id,
+        )
+        await write_audit(
+            session,
+            action="inbound_line.script_version_restored",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="inbound_line",
+            object_id=str(line_id),
+            ip=client_request_ip(request),
+            summary={"version_id": str(brought.id), "owner_made": brought.owner_made},
+        )
+    await _put_live_after_save(tenant_id, line_id)
+    return await _read(tenant_id, line_id)
+
+
+@router.post(
+    "/{line_id}/script/restore-before-pip",
+    response_model=InboundLineOut,
+    responses={
+        **SLOTS_FULL_RESPONSES,
+        409: {"description": "Nothing to put back, or the script changed since"},
+    },
+    openapi_extra=permission_meta("org:manage"),
+    summary="Put back the owner's own last version of the line's script, before Pip's changes",
+)
+async def restore_script_before_pip(
+    line_id: UUID, payload: script_history.ScriptRestoreIn, request: Request, principal: Writer
+) -> InboundLineOut:
+    return await _restore(
+        request,
+        principal,
+        line_id,
+        version_id=None,
+        expected_version_id=payload.expected_version_id,
+    )
+
+
+@router.post(
+    "/{line_id}/script/versions/{script_version_id}/restore",
+    response_model=InboundLineOut,
+    responses={
+        **SLOTS_FULL_RESPONSES,
+        409: {"description": "That version is the script now, or it changed since"},
+    },
+    openapi_extra=permission_meta("org:manage"),
+    summary="Put back one saved version of the line's script",
+)
+async def restore_script_version(
+    line_id: UUID,
+    script_version_id: UUID,
+    payload: script_history.ScriptRestoreIn,
+    request: Request,
+    principal: Writer,
+) -> InboundLineOut:
+    return await _restore(
+        request,
+        principal,
+        line_id,
+        version_id=script_version_id,
+        expected_version_id=payload.expected_version_id,
+    )
 
 
 _DRAFT_STREAM_DESCRIPTION = """\

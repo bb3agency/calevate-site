@@ -8,7 +8,13 @@ import { DEFAULT_LIMITS, SAY_EXACT_STEP, asSection, sectionDetail } from "@/app/
 import type { WriteAccess } from "@/lib/api/hooks";
 import { EMPTY_SCRIPT, STEP_OUTCOME_MAX, type CallScript, type ConversationStage } from "@/lib/api/script";
 
-import { FIXTURE_AGENT_ID, FIXTURE_CAMPAIGN_ID, settingsFixture, workspaceFixture } from "./campaignFixtures";
+import {
+  FIXTURE_AGENT_ID,
+  FIXTURE_CAMPAIGN_ID,
+  scriptVersionsFixture,
+  settingsFixture,
+  workspaceFixture,
+} from "./campaignFixtures";
 import { noReply, renderClientPage, type ApiCall, type Routes } from "./harness";
 
 /**
@@ -46,6 +52,7 @@ const SCRIPT: CallScript = {
 const routes = (script: CallScript): Routes => ({
   [`${base}/workspace`]: workspaceFixture({ script }),
   [`${base}/settings`]: settingsFixture(),
+  [`${base}/script/versions`]: scriptVersionsFixture(),
   "/v1/kb/notes": { notes: [] },
   "/v1/kb/uploads": [],
   "/v1/agents": [],

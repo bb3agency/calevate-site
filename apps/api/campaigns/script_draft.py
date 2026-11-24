@@ -281,40 +281,22 @@ async def cancel_draft(
     proposal_id: UUID,
 ) -> bool:
     """Cancel a draft still being written, by compare-and-set on its id, and leave the holder
-    as it was before it was asked for: its script is never touched, and a campaign gets back
-    the switch-back copy the request replaced (`workspace.request_proposal`'s `before_pip`).
-    The writer's job sees the draft gone at its next phase and ends without storing anything
-    (`workers/campaign_script._phase`). Returns whether a draft was cancelled; a written
-    draft is left for Discard. Pip's Stop calls this for the drafts its run started."""
-    if holder_kind == "campaign":
-        done = (
-            await session.execute(
-                text(
-                    "UPDATE campaigns SET "
-                    "script_before_pip = CASE WHEN script_proposal ? 'before_pip' "
-                    "THEN NULLIF(script_proposal->'before_pip'->'script', 'null'::jsonb) "
-                    "ELSE script_before_pip END, "
-                    "script_before_pip_at = CASE WHEN script_proposal ? 'before_pip' "
-                    "THEN CAST(script_proposal->'before_pip'->>'at' AS timestamptz) "
-                    "ELSE script_before_pip_at END, "
-                    "script_proposal = NULL "
-                    "WHERE id = :hid AND tenant_id = :t AND script_proposal->>'id' = :pid "
-                    "AND script_proposal->>'status' = 'drafting' RETURNING id"
-                ),
-                {"hid": holder_id, "t": tenant_id, "pid": str(proposal_id)},
-            )
-        ).first()
-    else:
-        done = (
-            await session.execute(
-                text(
-                    "UPDATE inbound_lines SET script_proposal = NULL "
-                    "WHERE id = :hid AND tenant_id = :t AND script_proposal->>'id' = :pid "
-                    "AND script_proposal->>'status' = 'drafting' RETURNING id"
-                ),
-                {"hid": holder_id, "t": tenant_id, "pid": str(proposal_id)},
-            )
-        ).first()
+    as it was before it was asked for: its script and its versions are never touched (a
+    request writes no version; only a kept draft does). The writer's job sees the draft gone
+    at its next phase and ends without storing anything (`workers/campaign_script._phase`).
+    Returns whether a draft was cancelled; a written draft is left for Discard. Pip's Stop
+    calls this for the drafts its run started."""
+    table = "campaigns" if holder_kind == "campaign" else "inbound_lines"
+    done = (
+        await session.execute(
+            text(
+                f"UPDATE {table} SET script_proposal = NULL "
+                "WHERE id = :hid AND tenant_id = :t AND script_proposal->>'id' = :pid "
+                "AND script_proposal->>'status' = 'drafting' RETURNING id"
+            ),
+            {"hid": holder_id, "t": tenant_id, "pid": str(proposal_id)},
+        )
+    ).first()
     return done is not None
 
 

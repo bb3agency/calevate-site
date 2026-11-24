@@ -193,7 +193,7 @@ async def _state(tenant_id: uuid.UUID, table: str, holder_id: uuid.UUID) -> Any:
 
 async def _save_campaign(tenant_id: uuid.UUID, campaign_id: uuid.UUID, script: CallScript) -> None:
     async with tenant_session(tenant_id) as session:
-        await workspace.save_script(session, campaign_id, script)
+        await workspace.save_script(session, campaign_id, script, author="owner")
 
 
 async def _past_debounce(tenant_id: uuid.UUID, table: str, holder_id: uuid.UUID) -> None:
@@ -250,7 +250,7 @@ async def test_a_line_save_queues_too_and_waits_while_pip_is_off(
         line_id = await inbound_lines.create_line(
             session, tenant_id=tenant_id, agent_id=agent_id, name="Help", created_by=None
         )
-        await inbound_lines.save_script(session, line_id, _script())
+        await inbound_lines.save_script(session, line_id, _script(), author="owner")
 
     assert await _jobs(tenant_id, line_id) == []
     assert (await _state(tenant_id, "inbound_lines", line_id))[0] == "skipped"
@@ -357,13 +357,13 @@ async def test_a_line_saved_meanwhile_keeps_its_version_and_script(
         line_id = await inbound_lines.create_line(
             session, tenant_id=tenant_id, agent_id=agent_id, name="Help", created_by=None
         )
-        await inbound_lines.save_script(session, line_id, _script())
+        await inbound_lines.save_script(session, line_id, _script(), author="owner")
     await _past_debounce(tenant_id, "inbound_lines", line_id)
     edited = _script().model_copy(update={"goal": "The owner changed the goal."})
 
     async def owner_saves() -> None:
         async with tenant_session(tenant_id) as session:
-            await inbound_lines.save_script(session, line_id, edited)
+            await inbound_lines.save_script(session, line_id, edited, author="owner")
 
     _stub_model(monkeypatch, _answer, during=owner_saves)
 

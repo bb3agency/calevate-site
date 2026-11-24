@@ -233,7 +233,7 @@ async def test_a_draft_line_is_tested_from_its_own_number_and_stays_a_draft(
         line_id = await lines.create_line(
             session, tenant_id=tenant_id, agent_id=agent_id, name="Front desk", created_by=None
         )
-        await lines.save_script(session, line_id, SCRIPT)
+        await lines.save_script(session, line_id, SCRIPT, author="owner")
     its_own = await _number(tenant_id, workspace, line_id=line_id)
 
     async with tenant_session(tenant_id) as session:
@@ -552,7 +552,7 @@ async def test_a_paying_account_with_no_number_tests_a_draft_line_from_the_share
         line_id = await lines.create_line(
             session, tenant_id=tenant_id, agent_id=agent_id, name="Front desk", created_by=None
         )
-        await lines.save_script(session, line_id, SCRIPT)
+        await lines.save_script(session, line_id, SCRIPT, author="owner")
 
     async with tenant_session(tenant_id) as session:
         placed = await trial_calls.place_trial_call(
@@ -587,7 +587,7 @@ async def test_an_idle_draft_lines_test_holder_is_retired_and_a_live_ones_kept()
             session, tenant_id=tenant_id, agent_id=agent_id, name="Live", created_by=None
         )
         for line_id in (draft, live):
-            await lines.save_script(session, line_id, SCRIPT)
+            await lines.save_script(session, line_id, SCRIPT, author="owner")
     async with tenant_session(tenant_id) as session:
         await agents_service.publish_line(session, tenant_id=tenant_id, line_id=draft, test=True)
         await agents_service.publish_line(session, tenant_id=tenant_id, line_id=live)
