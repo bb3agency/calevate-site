@@ -40,7 +40,6 @@ import {
   FIELD_LABEL,
   NOTICE_BAR,
   NOTICE_BASE,
-  ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
 } from "@/components/ui";
@@ -210,7 +209,6 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
       })}
     >
       <RestrictionNote reason={write.reason} />
-      {save.error && <ProblemNotice error={save.error} />}
       {rewriteOffer !== null && (
         <OpeningLineOffer agentId={agent.id} language={rewriteOffer} onDismiss={() => setRewriteOffer(null)} />
       )}
@@ -307,6 +305,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
           status={saveFeedback.status}
           disabled={!write.allowed}
           title={write.reason ?? undefined}
+          error={save.error}
           onCancel={clearEdits}
         />
       )}

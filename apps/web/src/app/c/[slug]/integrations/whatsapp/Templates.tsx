@@ -120,6 +120,11 @@ export function Templates({
           >
             Send them again
           </ActionButton>
+          {finishFeedback.error != null && (
+            <div className="w-full">
+              <ProblemNotice error={finishFeedback.error} />
+            </div>
+          )}
         </div>
       )}
       {templates.isPending ? (

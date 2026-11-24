@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { ToastProvider } from "@/components/arc/toast";
 import { PipNotes } from "@/app/c/[slug]/PipNotes";
 import { useClientRealm } from "@/lib/api/session";
 import type { CopilotNote, CopilotNotes } from "@/lib/copilot/notes";
@@ -116,6 +117,23 @@ describe("Pip's notes on the dashboard", () => {
     await waitFor(() => expect(screen.queryByText(note().line)).toBeNull());
     expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/dismiss"))).toBe(true);
     expect(calls.some((c) => c.path === "/v1/copilot/notes/seen")).toBe(false);
+  });
+
+  it("says why a note came back when putting it away was refused", async () => {
+    await renderClientPage(
+      <ToastProvider>
+        <Harnessed onOpen={vi.fn()} onAsk={vi.fn()} />
+      </ToastProvider>,
+      {
+        "GET /v1/copilot/notes": { notes: [note({ unread: false })], unread: 0 },
+        [`POST /v1/copilot/notes/${note().id}/dismiss`]: problem(403, {
+          title: "Not while viewing as",
+          detail: "Only the account can put its notes away.",
+        }),
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: `Dismiss: ${note().line}` }));
+    expect(await screen.findAllByText(/Only the account can put its notes away\./)).not.toHaveLength(0);
   });
 
   it("shows two notes and the rest behind Show more", async () => {

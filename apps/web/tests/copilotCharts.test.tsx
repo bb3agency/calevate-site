@@ -9,7 +9,7 @@ import type { Session } from "@/lib/api/client";
 import { openHref, specCsv, specTable, type ChartSpec } from "@/lib/copilot/charts";
 import { askCopilot, type CopilotAskBody } from "@/lib/copilot/stream";
 
-import { renderClientPage } from "./harness";
+import { problem, renderClientPage } from "./harness";
 
 /**
  * Pip's charts (D-934): the `chart` frame is parsed into a spec, drawn with the console's
@@ -204,6 +204,29 @@ describe("pinned cards on the home", () => {
     await waitFor(() =>
       expect(calls.some((c) => c.method === "POST" && c.path === "/v1/copilot/pins/p1/restore")).toBe(true),
     );
+  });
+});
+
+describe("renaming a pinned card", () => {
+  it("says the server's own reason when a new name is refused", async () => {
+    await renderClientPage(
+      <ToastProvider>
+        <PinnedCards session={SESSION} realm="client" canEdit />
+      </ToastProvider>,
+      {
+        "/v1/copilot/pins": {
+          max_pins: 12,
+          pins: [{ id: "p1", chart: "calls_by_day", args: { days: 3 }, title: "Daily calls", position: 0 }],
+        },
+        "/v1/copilot/pins/p1/card": { pin: { id: "p1" }, spec: BY_DAY, refused: null },
+        "PATCH /v1/copilot/pins/p1": problem(404, { title: "Card not found", detail: "This card was removed meanwhile." }),
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Card name: Daily calls" }));
+    const box = screen.getByRole("textbox", { name: "Card name" });
+    fireEvent.change(box, { target: { value: "Calls per day" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("This card was removed meanwhile.")).toBeTruthy();
   });
 });
 

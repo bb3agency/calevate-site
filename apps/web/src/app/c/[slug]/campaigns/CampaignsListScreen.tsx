@@ -502,9 +502,13 @@ function ShelfButton({
 }) {
   const { session } = useClientRealm();
   const shelve = useArchiveCampaign(session, campaign.id);
-  const feedback = useActionFeedback(shelve, {
-    errorDisplay: "inline",
-    successToast: (_out, action) => (action === "archive" ? "Campaign archived" : "Campaign restored"),
+  // Archive's refusal is said in its confirm dialog; Restore has no dialog, and a row has no
+  // room for a notice, so Restore is its own mutation whose refusal is toasted.
+  const feedback = useActionFeedback(shelve, { errorDisplay: "inline", successToast: "Campaign archived" });
+  const restore = useArchiveCampaign(session, campaign.id);
+  const restoreFeedback = useActionFeedback(restore, {
+    errorTitle: `Could not restore ${campaign.name}`,
+    successToast: "Campaign restored",
   });
   const [confirming, setConfirming] = useState(false);
   const archived = campaign.archived_at != null;
@@ -515,9 +519,9 @@ function ShelfButton({
         variant="secondary-sm"
         title={refusal}
         disabled={!canWrite}
-        status={feedback.status}
+        status={restoreFeedback.status}
         successLabel="Restored"
-        onClick={() => feedback.run("restore")}
+        onClick={() => restoreFeedback.run("restore")}
         aria-label={`Restore ${campaign.name}`}
       >
         <ArchiveRestore aria-hidden className="h-3.5 w-3.5" />

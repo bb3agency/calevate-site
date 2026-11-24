@@ -13,7 +13,7 @@ import Link from "next/link";
 import { useId, useState } from "react";
 
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
-import { TEXT_ACTION, TEXT_ACTION_SM } from "@/components/console/section";
+import { TEXT_ACTION } from "@/components/console/section";
 import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import {
@@ -103,11 +103,18 @@ function ContactRow({ contact, canWrite, reason }: { contact: TeamContact; canWr
   const verify = useVerifyTeamContact(session);
   const resend = useResendTeamCode(session);
   const remove = useRemoveTeamContact(session);
-  useActionFeedback(remove, { errorDisplay: "inline", successToast: "Removed" });
+  const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline", successToast: "Removed" });
   const verifyFeedback = useActionFeedback(verify, { errorDisplay: "inline", successToast: "Confirmed" });
   const resendFeedback = useActionFeedback(resend, { errorDisplay: "inline", successToast: "New code sent" });
   const [code, setCode] = useState("");
   const codeId = useId();
+  // One notice for the row, so it says the latest press only: each action clears the
+  // others' refusals, or a wrong code stayed on screen after a new code was sent.
+  const startOnly = (keep: "verify" | "resend" | "remove") => {
+    if (keep !== "verify") verify.reset();
+    if (keep !== "resend") resend.reset();
+    if (keep !== "remove") remove.reset();
+  };
   const error = verify.error ?? resend.error ?? remove.error;
   const unplugged = contact.channel === "whatsapp" && !contact.whatsapp_account_id;
   return (
@@ -121,15 +128,20 @@ function ContactRow({ contact, canWrite, reason }: { contact: TeamContact; canWr
             {!contact.verified ? "Waiting for the code" : unplugged ? "Its WhatsApp was disconnected" : "Gets the alerts you chose"}
           </p>
         </div>
-        <button
-          type="button"
-          className={TEXT_ACTION_SM}
+        <ActionButton
+          variant="text"
+          status={removeFeedback.status}
+          pendingLabel="Removing"
+          successLabel="Removed"
           disabled={!canWrite}
           title={reason ?? undefined}
-          onClick={() => remove.mutate(contact.id)}
+          onClick={() => {
+            startOnly("remove");
+            removeFeedback.run(contact.id);
+          }}
         >
           Remove
-        </button>
+        </ActionButton>
       </div>
       {!contact.verified ? (
         <form
@@ -137,7 +149,9 @@ function ContactRow({ contact, canWrite, reason }: { contact: TeamContact; canWr
           className="flex flex-wrap items-end gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            if (code.trim()) verifyFeedback.run({ id: contact.id, code: code.trim() });
+            if (!code.trim()) return;
+            startOnly("verify");
+            verifyFeedback.run({ id: contact.id, code: code.trim() });
           }}
         >
           <div>
@@ -163,7 +177,10 @@ function ContactRow({ contact, canWrite, reason }: { contact: TeamContact; canWr
             status={resendFeedback.status}
             successLabel="Sent"
             disabled={!canWrite}
-            onClick={() => resendFeedback.run(contact.id)}
+            onClick={() => {
+              startOnly("resend");
+              resendFeedback.run(contact.id);
+            }}
           >
             Send a new code
           </ActionButton>

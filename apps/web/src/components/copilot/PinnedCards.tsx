@@ -2,7 +2,7 @@
 
 import { ArrowDown, ArrowUp, X } from "lucide-react";
 
-import { useActionFeedback } from "@/components/arc/feedback";
+import { problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { InlineEdit } from "@/components/arc/inline-edit";
 import { Section } from "@/components/console/section";
 import { ProblemNotice, QUIET_ICON_BUTTON, Skeleton } from "@/components/ui";
@@ -116,6 +116,7 @@ function PinnedCard({
             maxLength={80}
             textClassName="text-body font-semibold"
             status={renameFeedback.status}
+            errorMessage={problemToast(rename.error, "That name did not save").description}
             onSave={(title) => renameFeedback.run({ id: pin.id, title })}
           />
         ) : (

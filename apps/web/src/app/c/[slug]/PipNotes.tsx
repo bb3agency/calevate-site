@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { NOTICE_BAR, NOTICE_BASE, QUIET_ICON_BUTTON, SECONDARY_BUTTON_SM, type NoticeTone } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -46,6 +47,9 @@ export function PipNotes({
 }) {
   const notes = useCopilotNotes(session);
   const actions = useNoteActions(session);
+  // The line leaves at once (optimistic), so a refusal that brings it back is said in a
+  // toast: there is no control left to say it on.
+  const dismiss = useActionFeedback(actions.dismiss, { errorTitle: "Could not put this note away" });
   const [expanded, setExpanded] = useState(false);
   const markedSeen = useRef(false);
   // Null until the read arrives: an unread count we never received marks nothing seen.
@@ -103,7 +107,7 @@ export function PipNotes({
               {note.dismissible && (
                 <button
                   type="button"
-                  onClick={() => actions.dismiss.mutate(note.id)}
+                  onClick={() => dismiss.run(note.id)}
                   aria-label={`Dismiss: ${note.line}`}
                   title="Dismiss"
                   className={QUIET_ICON_BUTTON}

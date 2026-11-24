@@ -327,6 +327,18 @@ export function rebaseDraft(
   return next;
 }
 
+/**
+ * The draft with one step's part taken from the profile a save of it returned. The server
+ * tidies what it stores (blank rows dropped, text trimmed, ids given to new rows), so the
+ * typing that was sent never equals the stored answer again; kept as typed, the step read
+ * as unsaved after it saved, and the leave-without-saving guard never let go.
+ */
+export function takeSavedStep(draft: ProfileDraft, saved: ProfileDraft, step: StepId): ProfileDraft {
+  const next: ProfileDraft = { ...draft };
+  for (const field of STEP_FIELDS[step]) Object.assign(next, { [field]: saved[field] });
+  return next;
+}
+
 /** The DOM id a control carries, derived from the wire path it edits — so a field error
  *  and the control it is about cannot have two names. */
 export function profileFieldId(path: string): string {

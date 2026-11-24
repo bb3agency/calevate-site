@@ -21,7 +21,7 @@ import { Disclosure, FIELD, FIELD_LABEL, ProblemNotice, RestrictionNote, ToggleS
 import {
   RUN_STATUS_LABELS,
   useCredentials,
-  useSetActionEnabled,
+  useSetBookingEnabled,
   useTestAction,
   type ActionTool,
 } from "@/lib/api/actions";
@@ -47,7 +47,7 @@ export function BookingJob({
   onChange: () => void;
 }) {
   const creds = useCredentials(session);
-  const setEnabled = useSetActionEnabled(session, agentId);
+  const setEnabled = useSetBookingEnabled(session, agentId);
   const onWithheld = useSwitchOnWithheld(session);
   useActionFeedback(setEnabled, { errorDisplay: "inline" });
   const settings = readBooking(check, book);
@@ -70,7 +70,7 @@ export function BookingJob({
         checked={on}
         disabled={setEnabled.isPending || parts.length < 2 || (!on && onWithheld !== null)}
         onChange={(next) => {
-          for (const t of parts) setEnabled.mutate({ toolId: t.id, enabled: next });
+          setEnabled.mutate({ toolIds: parts.map((t) => t.id), enabled: next });
         }}
       />
       {!on && <RestrictionNote reason={onWithheld} />}

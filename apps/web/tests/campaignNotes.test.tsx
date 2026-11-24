@@ -57,8 +57,11 @@ describe("a campaign's What it notes", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "Add a detail" }));
     fireEvent.change(screen.getAllByLabelText(/^Name/).at(-1)!, { target: { value: "Budget" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const save = screen.getByRole("button", { name: "Save" });
+    fireEvent.click(save);
     expect(await screen.findByText("The calling platform did not answer.")).toBeTruthy();
+    // Beside the Save that was pressed, below the list, not above it out of view.
+    expect(save.parentElement?.textContent).toContain("The calling platform did not answer.");
   });
 
   it("links Set alerts as a button to the campaign's own alerts", async () => {

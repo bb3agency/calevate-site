@@ -38,6 +38,7 @@ import {
   useAgentActions,
   useCredentials,
   useSetActionEnabled,
+  useSetBookingEnabled,
   useSetMasterSwitch,
   type ActionTool,
 } from "@/lib/api/actions";
@@ -105,10 +106,12 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
   const creds = useCredentials(session);
   const setMaster = useSetMasterSwitch(session, agentId);
   const setEnabled = useSetActionEnabled(session, agentId);
+  const setBooking = useSetBookingEnabled(session, agentId);
   // Both are switches: the switch's own position is the success, and the failure is the
   // ProblemNotice under it.
   useActionFeedback(setMaster, { errorDisplay: "inline" });
   useActionFeedback(setEnabled, { errorDisplay: "inline" });
+  useActionFeedback(setBooking, { errorDisplay: "inline" });
   const [requested, setView] = useState<View>({ at: "list" });
   const eg = useVerticalExamples();
   const caps = capabilitiesOf(useBusinessCopy(session).data);
@@ -302,10 +305,10 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
                   problem={bookingProblem}
                   enabled={bookingOn}
                   switchDisabled={
-                    setEnabled.isPending || check === undefined || book === undefined || (!bookingOn && onWithheld !== null)
+                    setBooking.isPending || check === undefined || book === undefined || (!bookingOn && onWithheld !== null)
                   }
                   onToggle={(next) => {
-                    for (const t of [check, book]) if (t) setEnabled.mutate({ toolId: t.id, enabled: next });
+                    if (check && book) setBooking.mutate({ toolIds: [check.id, book.id], enabled: next });
                   }}
                   onOpen={() => setView({ at: "booking" })}
                 />
@@ -337,6 +340,7 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
             />
           )}
           {setEnabled.error ? <ProblemNotice error={setEnabled.error} /> : null}
+          {setBooking.error ? <ProblemNotice error={setBooking.error} /> : null}
         </Section>
 
         {catalogue.length > 0 ? (

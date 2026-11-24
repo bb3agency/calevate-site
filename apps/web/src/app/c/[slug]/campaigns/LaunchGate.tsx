@@ -22,7 +22,7 @@ import { ConsentProvenanceAnswer, ConsentProvenanceFields } from "./ConsentProve
 import { FoldSection } from "./FoldSection";
 import { complianceCardId } from "./StartCampaign";
 import { LaunchConfirm } from "./LaunchConfirm";
-import { SLOTS_FULL_RULE, SlotHolders } from "./SlotHolders";
+import { SLOTS_FULL_RULE, SlotHolders, SlotsFullProblem, isSlotsFull } from "./SlotHolders";
 import { CONSENT_SOURCES } from "./choices";
 import { Why } from "@/components/why";
 import {
@@ -185,6 +185,13 @@ export function LaunchGate({
                 onLaunch={() => launch.run()}
                 waiting={check.isRefetching && launch.status !== "pending" ? "Checking your campaign again" : null}
               />
+              {/* The launch's feedback is inline, so a refusal of this button is said here. */}
+              {launch.error != null &&
+                (isSlotsFull(launch.error) ? (
+                  <SlotsFullProblem slug={slug} error={launch.error} />
+                ) : (
+                  <ProblemNotice error={launch.error} />
+                ))}
               {!canWrite && writeReason && <p className="text-meta text-ink-muted">{writeReason}</p>}
             </div>
           ) : (

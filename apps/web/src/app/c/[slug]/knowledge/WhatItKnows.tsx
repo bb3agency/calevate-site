@@ -569,6 +569,18 @@ function FactRow({
   const [question, setQuestion] = useState(fact.question ?? "");
   const busy = edit.isPending || remove.isPending;
   const error = edit.error ?? remove.error;
+  // Each Edit starts from the fact as stored now, so text left by a Cancel, or a fact that
+  // changed since (Pip, another tab, the server tidying a save), is never saved back over it.
+  const startEditing = () => {
+    setText(fact.text);
+    setQuestion(fact.question ?? "");
+    edit.reset();
+    setEditing(true);
+  };
+  const stopEditing = () => {
+    edit.reset();
+    setEditing(false);
+  };
 
   return (
     <li className="py-3">
@@ -617,7 +629,7 @@ function FactRow({
             >
               Save
             </ActionButton>
-            <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setEditing(false)}>
+            <button type="button" className={SECONDARY_BUTTON_SM} onClick={stopEditing}>
               Cancel
             </button>
           </div>
@@ -636,7 +648,7 @@ function FactRow({
             // Wraps within itself on a phone: the kit buttons are as wide as their widest face.
             <div className="flex min-w-0 flex-wrap gap-1.5 sm:shrink-0">
               {ordering}
-              <ActionButton variant="secondary-sm" onClick={() => setEditing(true)} disabled={busy}>
+              <ActionButton variant="secondary-sm" onClick={startEditing} disabled={busy}>
                 Edit
               </ActionButton>
               <ActionButton

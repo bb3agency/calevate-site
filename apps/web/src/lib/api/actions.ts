@@ -197,17 +197,39 @@ export function useUpdateAction(session: Session, agentId: string) {
   });
 }
 
+function putEnabled(session: Session, agentId: string, toolId: string, enabled: boolean) {
+  return apiRequest<ActionTool>(session, `${agentPath(agentId)}/${encodeURIComponent(toolId)}/enabled`, {
+    method: "PUT",
+    body: { enabled },
+  });
+}
+
+/**
+ * The refetch is awaited, not fired: a switch reads `tool.enabled`, and a mutation that
+ * settled before the list came back let the switch spring back and be pressed again.
+ */
 export function useSetActionEnabled(session: Session, agentId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ toolId, enabled }: { toolId: string; enabled: boolean }) =>
-      apiRequest<ActionTool>(
-        session,
-        `${agentPath(agentId)}/${encodeURIComponent(toolId)}/enabled`,
-        { method: "PUT", body: { enabled } },
-      ),
-    onSuccess: () =>
-      void client.invalidateQueries({ queryKey: actionKeys.agent(session.orgSlug, agentId) }),
+      putEnabled(session, agentId, toolId, enabled),
+    onSuccess: () => client.invalidateQueries({ queryKey: actionKeys.agent(session.orgSlug, agentId) }),
+  });
+}
+
+/**
+ * Booking is two actions (check the calendar, book a time) behind one switch. One
+ * submission covers both, in turn, so its pending state and its refusal describe the
+ * switch: two `mutate`s on one mutation reported only the second, and a refused first
+ * half left booking half on with nothing said.
+ */
+export function useSetBookingEnabled(session: Session, agentId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ toolIds, enabled }: { toolIds: readonly string[]; enabled: boolean }) => {
+      for (const toolId of toolIds) await putEnabled(session, agentId, toolId, enabled);
+    },
+    onSettled: () => client.invalidateQueries({ queryKey: actionKeys.agent(session.orgSlug, agentId) }),
   });
 }
 

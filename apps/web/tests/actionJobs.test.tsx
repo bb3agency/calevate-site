@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Actions } from "@/app/c/[slug]/agents/actions/Actions";
@@ -19,7 +19,7 @@ import { useClientSession } from "@/lib/api/session";
 
 import { examplesOf } from "./businessTypesFixture";
 import { OWNER_ME } from "./fixtures/sharedReads";
-import { noReply, renderClientPage } from "./harness";
+import { noReply, problem, renderClientPage, stillLoading } from "./harness";
 
 /**
  * THE GUIDED ACTIONS FLOW (REDESIGN-2): the owner picks a job and a few plain settings,
@@ -314,6 +314,36 @@ describe("every action is a peer (founder, 10 Oct 2026)", () => {
     expect(screen.getByText("Google · sri@example.in · 9 am – 6 pm · Mon – Sat")).toBeTruthy();
     expect(screen.queryByText("Calendar")).toBeNull();
     expect(screen.queryByText("Try it")).toBeNull();
+  });
+
+  it("keeps an action's switch held until the list shows the new position", async () => {
+    let reads = 0;
+    const { calls } = await renderClientPage(<Panel />, {
+      ...setUpRoutes(),
+      // The list read after the switch never answers: the switch must stay held, not spring
+      // back to Off and take another press meanwhile.
+      "/v1/agents/agent-1/actions": () => (++reads === 1 ? SET_UP : stillLoading()),
+      "PUT /v1/agents/agent-1/actions/tool-wa/enabled": { ...WHATSAPP, enabled: true },
+    });
+    const toggle = await screen.findByRole("switch", { name: "Send a WhatsApp message" });
+    fireEvent.click(toggle);
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    await waitFor(() => expect(reads).toBe(2));
+    await act(async () => {});
+    expect((screen.getByRole("switch", { name: "Send a WhatsApp message" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("says why the booking switch was refused when its first half is refused", async () => {
+    await renderClientPage(<Panel />, {
+      ...setUpRoutes(),
+      "PUT /v1/agents/agent-1/actions/tool-check/enabled": problem(403, {
+        title: "Not while viewing as",
+        detail: "Switching an action off is the owner's to do.",
+      }),
+      "PUT /v1/agents/agent-1/actions/tool-book/enabled": { ...calendarTool("tool-book", "book_the_time", "book"), enabled: false },
+    });
+    fireEvent.click(await screen.findByRole("switch", { name: "Take bookings" }));
+    expect(await screen.findByText(/Switching an action off is the owner's to do\./)).toBeTruthy();
   });
 
   it("offers only what is not set up, in its own order rather than booking first", async () => {

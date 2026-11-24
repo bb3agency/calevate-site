@@ -165,6 +165,15 @@ describe("the low-credit warning", () => {
     expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({ threshold_inr: "750" });
   });
 
+  it("offers no Save for the amount it already holds, typed without its paise", async () => {
+    await renderClientPage(<AlertHarness wallet={WALLET} />, { "/v1/me": ME });
+    const box = await screen.findByLabelText("Warn me below (₹)");
+    fireEvent.change(box, { target: { value: "200" } });
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    fireEvent.change(box, { target: { value: "250" } });
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+  });
+
   it("refuses commas and treats 0 as switching the warning off", async () => {
     await renderClientPage(<AlertHarness wallet={WALLET} />, { "/v1/me": ME });
     const box = await screen.findByLabelText("Warn me below (₹)");

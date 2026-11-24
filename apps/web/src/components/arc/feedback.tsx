@@ -201,8 +201,12 @@ export function useActionFeedback<TData, TError, TVars, TContext>(
   // A submission started by `run` is announced from its own promise, which settles whether
   // or not this component is still mounted: a form or drawer that closes itself on success
   // (or is closed while it saves) unmounts before an effect could see the outcome, and its
-  // toast was lost. The effect below announces only submissions `run` never started.
-  const viaRun = useRef(false);
+  // toast was lost. The effect below announces only submissions `run` never started, so a
+  // screen that starts one action both ways (Start through `run`, Stop through `mutate`)
+  // still hears about each. A run's promise settles before the mutation's next render (the
+  // query cache notifies on a zero timeout), so its entry is here before the effect looks;
+  // an entry older than the submission being announced belongs to one superseded unseen.
+  const settledByRun = useRef<{ vars: unknown; at: number }[]>([]);
   // The same action with the same arguments, started again before the first settles, is
   // dropped: the button disables itself only once React re-renders into pending, so two
   // presses in one tick sent a signed confirm twice and the second's "already confirmed"
@@ -213,10 +217,10 @@ export function useActionFeedback<TData, TError, TVars, TContext>(
       const key = flightKey(vars);
       if (key !== null && inFlight.current.has(key)) return;
       if (key !== null) inFlight.current.add(key);
-      viaRun.current = true;
       mutateAsync(vars)
         .finally(() => {
           if (key !== null) inFlight.current.delete(key);
+          settledByRun.current.push({ vars, at: Date.now() });
         })
         .then(
         (result) => raiseSuccess(toasts, toastId, optionsRef.current, result, vars),
@@ -236,7 +240,10 @@ export function useActionFeedback<TData, TError, TVars, TContext>(
     const key = `${submittedAt}:${status}`;
     if (announced.current === key) return;
     announced.current = key;
-    if (viaRun.current) return;
+    const byRun = settledByRun.current;
+    const own = byRun.findIndex((entry) => Object.is(entry.vars, variables) && entry.at >= submittedAt);
+    settledByRun.current = byRun.filter((entry, at) => at !== own && entry.at >= submittedAt);
+    if (own >= 0) return;
     const current = optionsRef.current;
     if (status === "success") {
       raiseSuccess(toasts, toastId, current, data as TData, variables as TVars);

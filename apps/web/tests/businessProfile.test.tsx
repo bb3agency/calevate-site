@@ -168,6 +168,25 @@ describe("the setup wizard", () => {
     await screen.findByRole("heading", { name: "Where are you?" });
   });
 
+  it("lets go of the unsaved-changes guard once a step saves, though the server tidied it", async () => {
+    window.history.replaceState(null, "", "/c/acme/settings/business/setup?step=services");
+    const { calls } = await renderClientPage(<SetupWizard />, {
+      "/v1/me": OWNER,
+      "/v1/business-profile": profile(),
+      // Stored trimmed, as the server stores every name.
+      "PATCH /v1/business-profile": profile({ services: [{ name: "Scaling", price_inr: "8000", notes: null }] }),
+    });
+    await screen.findByRole("heading", { name: "What do you offer?" });
+    const name = document.getElementById("profile-services-0-name") as HTMLInputElement;
+    fireEvent.change(name, { target: { value: "Scaling " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save and continue" }));
+    await waitFor(() => expect(calls.some((call) => call.method === "PATCH")).toBe(true));
+    await screen.findByRole("heading", { name: "What do callers often ask?" });
+    const leaving = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(leaving);
+    expect(leaving.defaultPrevented).toBe(false);
+  });
+
   it("refuses a day with only one time before anything is sent", async () => {
     const { calls } = await renderClientPage(<SetupWizard />, {
       "/v1/me": OWNER,

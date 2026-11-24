@@ -230,6 +230,22 @@ describe("archived campaigns (F-10)", () => {
     );
   });
 
+  it("says why a Restore on a row was refused", async () => {
+    await renderClientPage(<ToastProvider>{listPage()}</ToastProvider>, {
+      "/v1/me": ME,
+      [LIST_PATH]: { ...pageFixture([RUNNING]), archived_total: 1 },
+      "/v1/campaigns/page?limit=25&offset=0&archived=true": { ...pageFixture([SHELVED]), archived_total: 1 },
+      [`POST /v1/campaigns/${SHELVED.id}/restore`]: problem(404, {
+        title: "Campaign not found",
+        detail: "This campaign was deleted meanwhile.",
+      }),
+    });
+    const segments = await screen.findByRole("radiogroup", { name: "Show campaigns by status" });
+    fireEvent.click(await within(segments).findByRole("radio", { name: /Archived/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Restore Old reminders" }));
+    expect(await screen.findAllByText(/This campaign was deleted meanwhile\./)).not.toHaveLength(0);
+  });
+
   it("offers Delete only on an archived campaign the server could delete", async () => {
     const DONE = { ...FINISHED, id: "0192f0aa-2222-7000-8000-000000000012", name: "Done list", archived_at: SHELVED.archived_at };
     await renderClientPage(listPage(), {
