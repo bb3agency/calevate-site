@@ -29,9 +29,9 @@ from apps.api.engine.thinnest import ThinnestEngine
 from calevate_shared.call_script import CallScript
 from calevate_shared.engine import (
     CALL_INSTRUCTIONS,
-    CallContext,
     SCREEN_CALL_INSTRUCTIONS,
     AgentConfig,
+    CallContext,
     call_instructions,
     compose_engine_prompt,
     screen_steps_bullet,
