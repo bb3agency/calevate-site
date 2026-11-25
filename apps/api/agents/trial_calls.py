@@ -63,7 +63,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings, resolve_hmac_key
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
-from apps.api.engine.outage import dial_hold_refusal
+from apps.api.engine.outage import counts_as_engine_down, dial_hold_refusal, note_dial_failure
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.ingest.service import normalize_phone
 from apps.api.reliability.service import (
@@ -117,6 +117,17 @@ class TrialCallResult:
             caller_number=payload.get("caller_number"),
             shared_fallback=payload.get("shared_fallback") is True,
         )
+
+
+async def note_publish_failure(exc: BaseException) -> None:
+    """Count a test call's publish that met an engine outage toward the dial hold.
+
+    The publish before the dial is the engine request a test call meets first, so an outage
+    fails it there and the dial (which counts its own failures) is never reached: on 26 Nov
+    2026 the hold never tripped, so there was no banner and no paused "Call me", only another
+    ten-second timeout on every press."""
+    if counts_as_engine_down(exc):
+        await note_dial_failure()
 
 
 def trial_calling_ready() -> bool:
@@ -379,8 +390,9 @@ async def place_trial_call(
             log.info("test_call_slots_full_fallback", extra={"tenant_id": str(tenant_id)})
             shared_fallback = True
             return await make(False)
-        except Exception:
+        except Exception as exc:
             await release()
+            await note_publish_failure(exc)
             raise
 
     line_test: LineTestDial | None = None

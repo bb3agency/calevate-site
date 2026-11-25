@@ -30,7 +30,7 @@ from apps.api.engine.answering import (
     engine_outage,
 )
 from apps.api.engine.outage import OUTAGE_HOLD_CODE, outage_hold_error
-from apps.api.engine.vendor_http import EngineRejectedError, vendor_request
+from apps.api.engine.vendor_http import EngineRejectedError, unreachable_error, vendor_request
 from apps.api.main import app
 from apps.api.ops import engine_health_routes
 from apps.workers import job_notes_live
@@ -267,6 +267,27 @@ async def test_a_test_call_while_held_is_refused_before_anything_is_published(
     body = refused.json()
     assert body["type"].endswith(f"/{OUTAGE_HOLD_CODE}")
     assert not PROVIDER.search(f"{body['title']} {body['detail']} {body.get('remediation')}")
+
+
+async def test_a_test_call_whose_publish_times_out_counts_toward_the_hold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """26 Nov 2026: "Call me" met the outage at the publish before the dial, which never
+    reached the dial's own count, so the hold never tripped: no banner, no paused button,
+    another ten-second timeout on every press."""
+    noted: list[bool] = []
+
+    async def note() -> None:
+        noted.append(True)
+
+    monkeypatch.setattr(trial_calls, "note_dial_failure", note)
+    await trial_calls.note_publish_failure(unreachable_error(httpx.ReadTimeout("slow")))
+    await trial_calls.note_publish_failure(unreachable_error(httpx.ConnectError("refused")))
+    assert noted == [True, True]
+    # An answer about the request (a 4xx) and the hold's own refusal are not an outage.
+    await trial_calls.note_publish_failure(EngineRejectedError(status=422))
+    await trial_calls.note_publish_failure(outage_hold_error())
+    assert noted == [True, True]
 
 
 # ------------------------------------------------------------------ saves are kept

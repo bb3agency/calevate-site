@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.70 — 26-Nov-2026
+
+- A test call that meets the outage while getting the agent ready now counts toward pausing
+  calls, so the banner shows and Call me pauses after two tries instead of timing out on
+  every press.
+
 ## 0.5.69 — 26-Nov-2026
 
 - Folding section headers read by their own name again for screen readers, and the Lead
