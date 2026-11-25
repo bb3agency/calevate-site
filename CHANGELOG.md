@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.65 — 26-Nov-2026
+
+- A new campaign or line whose main task is a plain numbered list gets a first script held to
+  it exactly: Pip reads each item as a named step with an outcome, in your order, and the
+  draft's step outcomes say how it read them. Your main task text is never changed.
+
 ## 0.5.64 — 26-Nov-2026
 
 - A long way out in your step list ("Still cannot log in after being guided step by step:
