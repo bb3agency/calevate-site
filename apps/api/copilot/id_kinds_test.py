@@ -414,3 +414,47 @@ def test_the_loop_never_shows_a_problem_title() -> None:
         assert "_tool_problem(" in body
         assert "refusal_reasons = (problem." not in body
         assert "detail=problem." not in body
+
+
+# --- an action written out as text ----------------------------------------------------------
+
+_WRITTEN = (
+    "I will start drafting the new script now.\n\n<agent_action>\n  <action>script_draft"
+    "</action>\n</agent_action>"
+)
+
+
+async def test_an_action_written_as_markup_is_never_shown_and_is_called_on_the_retry(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Production, 25 Nov 2026: the model wrote `<agent_action>…script_draft…` as its
+    answer. FAILS IF: the person reads the markup, or the model is not asked to call it."""
+    tenant_id, _slug, token = await _make_tenant()
+    campaign_id = await _campaign(tenant_id, await _agent_of(tenant_id))
+    sent = _scripted(
+        monkeypatch, [_turn(content=_WRITTEN), _draft_call(1, holder_id=str(campaign_id))]
+    )
+
+    events = await _run(tenant_id, token)
+
+    assert "agent_action" not in _said(events)
+    assert sent[1][-1]["content"] == service.WRITTEN_CALL_NOTE
+    (proposal,) = [e.proposal for e in events if e.proposal is not None]
+    assert proposal.tool == "script_draft"
+
+
+async def test_markup_written_twice_ends_in_a_plain_sentence(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tenant_id, _slug, token = await _make_tenant()
+    _scripted(monkeypatch, [_turn(content=_WRITTEN), _turn(content=_WRITTEN)])
+
+    said = _said(await _run(tenant_id, token))
+
+    assert "agent_action" not in said
+    assert service.WRITTEN_CALL_FAILED in said
+
+
+def test_prose_about_actions_is_not_read_as_a_written_call() -> None:
+    assert not service.writes_a_call("I can draft the script for the campaign now.")
+    assert service.writes_a_call("<tool_call>{}</tool_call>")

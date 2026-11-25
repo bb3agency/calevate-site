@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.56 — 25-Nov-2026
+
+- When Pip writes an action out as text instead of doing it, you no longer see the code: Pip
+  is sent back to do it, and if it slips twice you get one plain sentence.
+
 ## 0.5.55 — 25-Nov-2026
 
 - When Pip's last try at a new campaign or line script still breaks a rule, you get the

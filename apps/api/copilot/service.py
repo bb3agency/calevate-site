@@ -419,6 +419,24 @@ MALFORMED_CALL_NOTE: Final = (
     "smaller calls, one part of the script at a time."
 )
 
+#: An action written out as markup instead of called: a tag the model invents for a call
+#: (`<agent_action>`, `<tool_call>`, `<function_call>`), or a fenced `tool_code` block.
+_WRITTEN_CALL_RE: Final = re.compile(
+    r"<\s*/?\s*(?:agent_action|tool_call|function_call|tool_code)\b|```\s*tool_code",
+    re.IGNORECASE,
+)
+WRITTEN_CALL_NOTE: Final = (
+    "You wrote an action out as text, so nothing ran and the person would have seen markup. "
+    "Never write tags, XML or JSON for an action in your answer. Call the tool itself now, "
+    "through function calling, with the same arguments."
+)
+WRITTEN_CALL_FAILED: Final = "I couldn't start that just now. Nothing was changed. Try again."
+
+
+def writes_a_call(text: str) -> bool:
+    """Whether `text` holds an action written out instead of called."""
+    return bool(_WRITTEN_CALL_RE.search(text))
+
 
 def _malformed_call(outcome: chat.ChatOutcome) -> bool:
     return "malformed_function_call" in (outcome.finish_reason or "").lower()
@@ -2305,6 +2323,7 @@ async def _run_tool_loop(
     )
 
     malformed_retried = False
+    written_call_retried = False
     #: The fields of a fill this run grounded in the latest message; a repair naming only
     #: these inherits the grounding (`validate_fill`).
     fill_grounded: frozenset[str] = frozenset()
@@ -2473,6 +2492,23 @@ async def _run_tool_loop(
             and call not in background_calls
         ]
         acts = bool(fill_calls or write_calls or nav_calls or background_calls)
+        if not tool_calls and writes_a_call("".join(held)):
+            # The model wrote its action out as markup instead of calling it (Gemini, 25 Nov
+            # 2026: `<agent_action><action>script_draft</action>…`), so nothing ran and the
+            # owner would read the tags. The held text is dropped; the model is asked once
+            # to make the real call, and a second slip is a plain sentence.
+            held = []
+            if not written_call_retried:
+                written_call_retried = True
+                log.warning("copilot_written_call_retry", extra={"turn": turn_index})
+                messages = [
+                    *messages,
+                    {"role": "assistant", "content": outcome.content},
+                    {"role": "user", "content": WRITTEN_CALL_NOTE},
+                ]
+                continue
+            log.warning("copilot_written_call_again", extra={"turn": turn_index})
+            held = [WRITTEN_CALL_FAILED]
         if not acts:
             # Prose or a lookup: nothing in this turn can have been refused, so its words
             # stand. A turn that acts shows them only once its act has gone through.
