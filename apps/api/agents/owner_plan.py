@@ -35,6 +35,7 @@ from calevate_shared.call_script import (
     STAGE_TITLE_MAX,
     STEP_OUTCOME_MAX,
     CallScript,
+    ConversationStage,
     StepOutcome,
     stage_steps,
 )
@@ -86,6 +87,39 @@ class OwnerPlan:
     def named(self, name: str) -> PlannedStep | None:
         key = name_key(name)
         return next((step for step in self.steps if step.key == key), None)
+
+    @property
+    def numbered(self) -> tuple[PlannedStep, ...]:
+        return tuple(step for step in self.fitting if step.number is not None)
+
+    def reached_from(self, side: PlannedStep) -> int | None:
+        """The number of the earliest numbered step a way out of which reaches the side step
+        `side`, directly or through another side step; None when nothing numbered does."""
+        seen = {side.key}
+        todo = [side.key]
+        found: list[int] = []
+        while todo:
+            key = todo.pop()
+            for step in self.fitting:
+                if not any(name_key(b.goes_to) == key for b in step.branches if b.goes_to):
+                    continue
+                if step.number is not None:
+                    found.append(step.number)
+                elif step.key not in seen:
+                    seen.add(step.key)
+                    todo.append(step.key)
+        return min(found, default=None)
+
+    def side_home(self, side: PlannedStep) -> int | None:
+        """The numbered step a side step is a scenario of: the one right after the earliest
+        step that reaches it, so the way out into it is a move to the next step (a line on the
+        call-flow canvas, `flowLayout.ts`) and no step's own way on leads into it; the
+        reaching step itself when that is the last. None when nothing numbered reaches it."""
+        reacher = self.reached_from(side)
+        if reacher is None:
+            return None
+        numbers = [step.number for step in self.numbered]
+        return reacher + 1 if reacher + 1 in numbers else reacher
 
 
 _STEP_PREFIX: Final = re.compile(r"^\s*step\s*\d{1,2}\s*[:.)-]?\s*", re.IGNORECASE)
@@ -301,6 +335,45 @@ def owner_plan(text: str | None) -> OwnerPlan | None:
     return OwnerPlan(tuple(routed(step) for step in (*steps, *unique_sides)))
 
 
+#: A case where the person cannot do something ("Cannot log in", "They are unable to find
+#: the icon"), with where "still" goes in it.
+_CANNOT: Final = re.compile(
+    r"^\s*(?P<who>(?:they|the person|he|she|the caller)\s+(?:(?:is|are)\s+)?)?"
+    r"(?P<cannot>cannot|can'?t|can not|could not|couldn'?t|unable to|"
+    r"do(?:es)? not know how to|do(?:es)?n'?t know how to)\b",
+    re.IGNORECASE,
+)
+_STILL: Final = re.compile(r"\b(?:still|after)\b", re.IGNORECASE)
+LAST_RESORT_TAIL: Final = " after being guided step by step"
+
+
+def last_resort_condition(when: str) -> str:
+    """`when`, a case where the person cannot do something, said as the last resort: "Cannot
+    log in" reads "Still cannot log in after being guided step by step". A call back is
+    offered only when the agent cannot help after trying everything it can (founder, 25 Nov
+    2026: the agent guides the person through every step in detail), and a condition that
+    says so keeps the in-call model from reaching for it at the first difficulty. Any other
+    condition, or one already saying so, is returned as it is."""
+    said = " ".join(when.split())
+    found = _CANNOT.match(said)
+    if found is None or _STILL.search(said):
+        return said
+    who = found.group("who") or ""
+    cannot = found.group("cannot")
+    rest = said[found.end() :].rstrip(" .")
+    if who:
+        return f"{who}still {cannot}{rest}{LAST_RESORT_TAIL}"
+    return f"Still {cannot.lower()}{rest}{LAST_RESORT_TAIL}"
+
+
+def last_resort(branch: PlanBranch) -> str:
+    """The condition of an owner's way out as the script states it: a call back for someone
+    who cannot do something in its last-resort form (`last_resort_condition`), every other
+    condition in the owner's own words."""
+    when = " ".join(branch.when.split())
+    return last_resort_condition(when) if branch.goes_to == CALL_BACK else when
+
+
 def _target_words(goes_to: str) -> str:
     if goes_to in SPECIAL_TARGETS:
         return goes_to
@@ -309,20 +382,26 @@ def _target_words(goes_to: str) -> str:
 
 def plan_block(plan: OwnerPlan) -> str:
     """The plan as the writer reads it, one step per line and one way out per line below it,
-    each named in the owner's words."""
+    each named in the owner's words, a call back for someone who cannot do something in its
+    last-resort form (`last_resort`)."""
     lines = []
     for step in plan.steps:
+        home = plan.side_home(step) if step.number is None else None
         head = (
             f'Step {step.number} "{step.name}"'
             if step.number is not None
+            else f'Side step "{step.name}" (a scenario of step {home}, reached only by a way out)'
+            if home is not None
             else f'Side step "{step.name}" (reached only by a way out)'
         )
         outcome = f" Outcome: {step.outcome}" if step.outcome else ""
         lines.append(f"{head}: {step.instruction}{outcome}")
         lines += [
-            f'  - way out when "{b.when}" ({b.said}) goes to {_target_words(b.goes_to)}'
+            f'  - way out when "{last_resort(b)}" ({b.said}) goes to {_target_words(b.goes_to)}'
             for b in step.branches
         ]
+        if step.number is not None and not step.branches:
+            lines.append("  - no ways out: guide them through it")
     if plan.over:
         names = ", ".join(f'"{step.name}"' for step in plan.over)
         lines.append(
@@ -446,7 +525,6 @@ def _plan_problems(script: CallScript, plan: OwnerPlan) -> list[str]:
                     "what it does into the owner's step it belongs to, or leave it out."
                 )
     ids_of = {step.key: {stages[i].id for i in at[step.key]} for step in planned}
-    named_specials = {b.goes_to for s in planned for b in s.branches} & SPECIAL_TARGETS
     for step in planned:
         where = at[step.key]
         if not where:
@@ -476,19 +554,84 @@ def _plan_problems(script: CallScript, plan: OwnerPlan) -> list[str]:
                     f'stages.{where[0]}.branches: the owner\'s step "{step.name}" has the way '
                     f'out "{branch.when}" going to {said}; give it that way out.'
                 )
-        if step.number is None or not step.branches:
-            continue
         own = {b.goes_to for b in step.branches} & SPECIAL_TARGETS
+        allowed = own | _platform_ways(step, plan)
         # A side step sharing this step's number has ways out of its own.
-        for i in (i for i in starts if keys[i] == step.key or keys[i] not in planned_keys):
+        mine = [i for i in starts if keys[i] == step.key or keys[i] not in planned_keys]
+        for i in mine:
             for way in stages[i].branches:
-                if way.target in named_specials and way.target not in own:
+                if way.target in SPECIAL_TARGETS and way.target not in allowed:
                     problems.append(
                         f'stages.{i}.branches: the way out "{way.when}" goes to '
                         f'{way.target}, which the owner did not give step "{step.name}"; '
-                        "keep only the ways out the owner named for it."
+                        "guide them through the step instead and keep only the ways out the "
+                        "owner named for it."
                     )
-    return problems
+        # Another case the owner sends to a call back ("Busy now") is not a difficulty.
+        other_cases = {
+            name_key(b.when) for b in step.branches if last_resort(b) == " ".join(b.when.split())
+        }
+        for branch in step.branches:
+            wanted = last_resort(branch)
+            if wanted == " ".join(branch.when.split()):
+                continue
+            plain = [
+                (i, way.when)
+                for i in mine
+                for way in stages[i].branches
+                if way.target == CALL_BACK
+                and not _STILL.search(way.when)
+                and name_key(way.when) not in other_cases
+            ]
+            for i, when in plain:
+                problems.append(
+                    f'stages.{i}.branches: the way out "{when}" offers a call back at the first '
+                    f'difficulty; it is the last resort, so say "{wanted}", and have the '
+                    "step's instruction guide them through it in detail first."
+                )
+    problems += _side_problems(script, plan, at)
+    return list(dict.fromkeys(problems))
+
+
+def _platform_ways(step: PlannedStep, plan: OwnerPlan) -> set[str]:
+    """The end points a plan step may go to that the owner did not write: on the first step,
+    a call back for someone busy now and the end for someone not interested or the wrong
+    person, which every placed call needs because its opening asks whether they can talk
+    (`script_assist.way_out_problems`); on the last, the end. Nowhere else: a step the owner
+    gave no ways out is one the agent guides them through (founder, 25 Nov 2026)."""
+    numbers = [s.number for s in plan.numbered if s.number is not None]
+    if not numbers or step.number is None:
+        return set()
+    if step.number == min(numbers):
+        return {CALL_BACK, END_OF_CALL}
+    return {END_OF_CALL} if step.number == max(numbers) else set()
+
+
+def _side_problems(script: CallScript, plan: OwnerPlan, at: dict[str, list[int]]) -> list[str]:
+    """A side step placed anywhere but its home (`OwnerPlan.side_home`), or with no way on of
+    its own, so the call would fall from it into the next step."""
+    stages = script.stages
+    steps = stage_steps(stages)
+    found: list[str] = []
+    for side in plan.fitting:
+        home = plan.side_home(side) if side.number is None else None
+        anchor = next((s for s in plan.numbered if s.number == home), None)
+        if anchor is None or not at.get(side.key) or not at.get(anchor.key):
+            continue
+        want = steps[at[anchor.key][0]]
+        for i in at[side.key]:
+            if steps[i] != want:
+                found.append(
+                    f'stages.{i}: "{side.name}" is reached only by a way out, so it is a '
+                    f'scenario of step {want}, beside "{anchor.name}", never a step of its own '
+                    "or one after the last step; give it that step's number."
+                )
+            elif not stages[i].otherwise:
+                found.append(
+                    f'stages.{i}: "{side.name}" has no Otherwise, so the call would fall from '
+                    "it into the next step; give it an Otherwise to where its own ways out go."
+                )
+    return found
 
 
 def with_owner_plan(script: CallScript, plan: OwnerPlan | None) -> CallScript:
@@ -498,6 +641,7 @@ def with_owner_plan(script: CallScript, plan: OwnerPlan | None) -> CallScript:
     the model's, since outcomes are read as English instructions."""
     if plan is None or script.raw_override is not None or not script.stages:
         return script
+    script = _last_resort_ways(_sides_placed(script, plan), plan)
     steps = stage_steps(script.stages)
     stages = list(script.stages)
     outcomes = {o.step: o.outcome for o in script.step_outcomes}
@@ -531,6 +675,117 @@ def with_owner_plan(script: CallScript, plan: OwnerPlan | None) -> CallScript:
         }
     )
     return script if out == script else CallScript.model_validate(out.model_dump())
+
+
+def _side_default(side: PlannedStep, rest: Sequence[ConversationStage]) -> str:
+    """Where a side step goes when none of its ways out holds: the step its owner's first way
+    out to a step names ("Yes: go to App on the home screen"), else its first end point. The
+    call then never falls from the side scenario into whatever step follows it."""
+    by_key = {name_key(stage.name): stage.id for stage in reversed(rest)}
+    for branch in side.branches:
+        if branch.goes_to and branch.goes_to not in SPECIAL_TARGETS:
+            target = by_key.get(name_key(branch.goes_to))
+            if target is not None:
+                return target
+    return next((b.goes_to for b in side.branches if b.goes_to in SPECIAL_TARGETS), "")
+
+
+def _sides_placed(script: CallScript, plan: OwnerPlan) -> CallScript:
+    """`script` with each of the owner's side steps moved to its home (`OwnerPlan.side_home`)
+    as a scenario of that step, after its other scenarios, with an Otherwise of its own
+    (`_side_default`), and the steps numbered 1, 2, 3 ... again. A model told so still put
+    "Not registered" as a step after the close (25 Nov 2026); where it goes is the plan's to
+    say, so code places it rather than spending a repair round."""
+    numbers = stage_steps(script.stages)
+    stages = [
+        stage if stage.step == n else stage.model_copy(update={"step": n})
+        for stage, n in zip(script.stages, numbers, strict=True)
+    ]
+    changed = False
+    for side in plan.fitting:
+        home = plan.side_home(side) if side.number is None else None
+        anchor = next((s for s in plan.numbered if s.number == home), None)
+        if anchor is None:
+            continue
+        moving = [stage for stage in stages if name_key(stage.name) == side.key]
+        rest = [stage for stage in stages if name_key(stage.name) != side.key]
+        want = next((s.step for s in rest if name_key(s.name) == anchor.key), None)
+        if not moving or want is None:
+            continue
+        default = _side_default(side, rest)
+        placed = [
+            stage.model_copy(update={"step": want, "otherwise": stage.otherwise or default})
+            for stage in moving
+        ]
+        after = max(i for i, stage in enumerate(rest) if stage.step == want) + 1
+        before = rest[after - 1]
+        if not before.otherwise and after < len(rest):
+            # Its way on was the stage after it in the list, which is now the side scenario:
+            # it goes on to the next step as it did, and never into "Not registered".
+            rest = [
+                *rest[: after - 1],
+                before.model_copy(update={"otherwise": rest[after].id}),
+                *rest[after:],
+            ]
+        candidate = [*rest[:after], *placed, *rest[after:]]
+        if candidate != stages:
+            stages, changed = candidate, True
+    if not changed:
+        return script
+    order = {n: k for k, n in enumerate(sorted({stage.step or 0 for stage in stages}), 1)}
+    stages = [stage.model_copy(update={"step": order[stage.step or 0]}) for stage in stages]
+    # An outcome moves with its step; the side step's own former step had none of the owner's.
+    sides = _side_keys(plan)
+    still = {
+        n
+        for stage, n in zip(script.stages, numbers, strict=True)
+        if name_key(stage.name) not in sides
+    }
+    outcomes = [
+        o.model_copy(update={"step": order[o.step]})
+        for o in script.step_outcomes
+        if o.step in still and o.step in order
+    ]
+    return CallScript.model_validate(
+        script.model_copy(update={"stages": stages, "step_outcomes": outcomes}).model_dump()
+    )
+
+
+def _side_keys(plan: OwnerPlan) -> set[str]:
+    return {step.key for step in plan.fitting if step.number is None}
+
+
+def _last_resort_ways(script: CallScript, plan: OwnerPlan) -> CallScript:
+    """`script` with each way out to the call back on a plan step that offers it for a case
+    where the person cannot do something said in its last-resort form
+    (`last_resort_condition`). Only a step the owner sent such a case to the call back from:
+    elsewhere a way out to the call back is not the owner's, and `plan_problems` names it."""
+    steps = stage_steps(script.stages)
+    by_key: dict[str, int] = {}
+    for i, stage in enumerate(script.stages):
+        by_key.setdefault(name_key(stage.name), steps[i])
+    homes = {
+        by_key[step.key]
+        for step in plan.fitting
+        if step.key in by_key
+        and any(last_resort(b) != " ".join(b.when.split()) for b in step.branches)
+    }
+    stages = []
+    for stage, n in zip(script.stages, steps, strict=True):
+        if n not in homes:
+            stages.append(stage)
+            continue
+        branches = [
+            b.model_copy(update={"when": last_resort_condition(b.when)})
+            if b.target == CALL_BACK
+            else b
+            for b in stage.branches
+        ]
+        stages.append(
+            stage if branches == stage.branches else stage.model_copy(update={"branches": branches})
+        )
+    out = script.model_copy(update={"stages": stages})
+    return script if out == script else out
 
 
 __all__ = [

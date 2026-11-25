@@ -166,7 +166,10 @@ log = get_logger(__name__)
 #: the script knows. The ways out only one kind of call meets are that kind's
 #: (`campaign_script_ask.CALL_KINDS`), so the kinds are listed once. Sources and the
 #: decisions: docs/evidence/script-generation-2026-11-21/
-#: BRANCHES.md.
+#: BRANCHES.md. A call back for someone who cannot do something is the last resort (founder,
+#: 25 Nov 2026: the agent guides the person through every step in detail, and offers a call
+#: back only when it cannot help after trying everything), so "busy" is required on the first
+#: stage only, not on every stage that asks them to do something.
 WAYS_OUT_RULE: Final = (
     "Ways out: plan, for every stage that asks the person something or asks them to do "
     "something, what they may say that does not go on, and give each its way out. A way "
@@ -179,8 +182,8 @@ WAYS_OUT_RULE: Final = (
     f"ways out a stage and {MAX_SCRIPT_STAGES} stages in all, so prefer a way out to "
     "call_back or end over a new stage. "
     "On a call the agent places, cover at least: busy now or later (to call_back, on the "
-    "first stage and on any stage that asks them to do something; never push the steps "
-    "on someone who said not now); wrong person or wrong number (to end); not interested "
+    "first stage; never push the steps on someone who said not now); wrong person or wrong "
+    "number (to end); not interested "
     "or not relevant to them, after at most one short answer (to end). The person who does "
     "not remember it or asks who is calling gets a stage of its own at the same step (it may "
     "take the stages past 6): its "
@@ -194,7 +197,11 @@ WAYS_OUT_RULE: Final = (
     "never to end while the main task still has something for them. A way out's "
     "condition never says call back or transfer; where it goes says that. An instruction "
     "that says what to do if the person cannot or will not go on (offer a call back, end "
-    "politely) has that as a way out too."
+    "politely) has that as a way out too. A call back for someone who cannot do or understand "
+    "something is the last resort, after the agent has guided them through every way the "
+    "steps and sources give: the stage's instruction carries that guidance in detail, one "
+    "action at a time, and the way out's condition says so (for example: Still cannot log in "
+    "after being guided step by step)."
 )
 
 #: How each step and its lines are written (Rytu Khata campaign script, 23 Nov 2026: a step's
@@ -583,8 +590,8 @@ def shape_problems(script: CallScript, before: CallScript | None = None) -> list
 #: wording of `when`, so no word list decides it.
 NOT_NOW_WAY_OUT: Final = (
     "stages: no step has a way out for a person who is busy now or says later; give the "
-    "first step (and any step asking them to do something) one whose condition says so, "
-    "going to call_back, with no words about a call back in any line."
+    "first step one whose condition says so, going to call_back, with no words about a call "
+    "back in any line."
 )
 NOT_INTERESTED_WAY_OUT: Final = (
     "stages: no step before the last has a way out that ends the call for a person who is "

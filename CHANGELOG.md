@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.63 — 25-Nov-2026
+
+- A side step in your list, like "Not registered", becomes a second scenario of the step
+  after the one that leads to it, not a step after the last one, so the call never runs
+  into it after closing.
+- A call back is the last resort in every script: the agent guides the person through each
+  step in detail, and Pip adds no call back to a step you gave no ways out.
+
 ## 0.5.62 — 25-Nov-2026
 
 - When you give Pip a list of steps for a script, the writer now gets your own words, not

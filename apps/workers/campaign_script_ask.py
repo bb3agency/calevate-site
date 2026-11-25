@@ -122,7 +122,8 @@ CALL_KINDS: Final[tuple[CallKind, ...]] = (
         "the actions one by one in the step's procedure, each with what shows it is done; "
         "check it worked before the close by asking what they see.",
         "already done (on to the stage after it), using a different phone or device than "
-        "expected, and stuck on an action after trying it one other way (to call_back)",
+        "expected, and still stuck on an action after being guided through every way the "
+        "step and sources give (to call_back, the last resort)",
     ),
     CallKind(
         "news",
@@ -417,11 +418,14 @@ PLAN_HEAD: Final = (
 PLAN_RULE: Final = (
     "Write exactly these steps, in this order, each named as written here, and no other step. "
     "Give each numbered step the owner's outcome, in the owner's words, in step_outcomes. A "
-    "side step is a scenario stage sharing the step number of the step whose way out reaches "
-    "it. Each way out listed is a way out of that step with the owner's condition, going where "
-    "it says. call_back, end and hand_over are where a way out goes, never steps: no step is "
-    "named or written as a call back, an end or a hand over. Give a step that has ways out "
-    "listed no other way out to call_back, end or hand_over. Everything else the owner asks "
+    "side step is a scenario stage with the step number given beside it, never a step of its "
+    "own and never after the last step. Each way out listed is a way out of that step with the "
+    "condition as written here, going where it says. call_back, end and hand_over are where a "
+    "way out goes, never steps: no step is named or written as a call back, an end or a hand "
+    "over. These are a step's only ways out; a step with none listed gets none, and its "
+    "instruction guides the person through it in detail, one action at a time, since a call "
+    "back is the last resort. Only the first step may also send someone busy now to call_back "
+    "and someone not interested or the wrong person to end. Everything else the owner asks "
     "(tone, rules for each turn) still holds for every line.\n"
 )
 

@@ -101,11 +101,24 @@ def _kept_delivery() -> CallScript:
                 "s1",
                 "Welcome back",
                 1,
-                branches=[("They are busy now", "call_back"), ("Not a customer", "s2")],
-                otherwise="s3",
+                branches=[("They are busy now", "call_back"), ("Not a customer", "s3")],
             ),
-            _stage("s2", "Wrong person", 1, branches=[("They heard the apology", "end")]),
-            _stage("s3", "Delivery day", 2, branches=[("No day suits them", "call_back")]),
+            _stage(
+                "s2",
+                "Delivery day",
+                2,
+                branches=[("No day suits them", "call_back")],
+                otherwise="s4",
+            ),
+            # The side step a way out of step 1 reaches: a scenario of step 2, with its own
+            # way on, so the call never falls from it into step 3.
+            _stage(
+                "s3",
+                "Wrong person",
+                2,
+                branches=[("They heard the apology", "end")],
+                otherwise="end",
+            ),
             _stage("s4", "Close", 3, instruction="Thank them and end the call.", otherwise="end"),
         ],
         step_outcomes=[
@@ -208,11 +221,11 @@ def test_a_script_that_keeps_the_plan_has_no_departure() -> None:
     assert plan_problems(_kept_delivery(), owner_plan(DELIVERY)) == []
 
 
-def test_code_mends_keep_a_side_step_and_the_step_after_it_apart() -> None:
-    """FAILS IF: the step a step goes on to by default, after a side step placed between them,
-    is renumbered into the same step as the side step, which reorders the owner's steps."""
+def test_code_mends_keep_the_side_scenario_in_its_step() -> None:
+    """FAILS IF: the code mends after drafting move the side scenario or the step after it
+    into another step, which reorders the owner's steps."""
     mended = renumbered(_kept_delivery())
-    assert [s.step for s in mended.stages] == [1, 1, 2, 3]
+    assert [s.step for s in mended.stages] == [1, 2, 2, 3]
     assert plan_problems(mended, owner_plan(DELIVERY)) == []
 
 
@@ -225,21 +238,21 @@ def test_reordered_dropped_duplicated_and_extra_ways_out_are_each_named() -> Non
         update={
             "stages": [
                 s1,
-                s2,
                 s4.model_copy(update={"step": 2}),
-                s3.model_copy(update={"step": 3, "otherwise": "end"}),
+                s2.model_copy(update={"step": 3}),
+                s3.model_copy(update={"step": 3}),
             ]
         }
     )
     assert any("not in the owner's order" in p for p in plan_problems(reordered, plan))
 
-    dropped = kept.model_copy(update={"stages": [s1.model_copy(update={"branches": []}), s3, s4]})
+    dropped = kept.model_copy(update={"stages": [s1.model_copy(update={"branches": []}), s2, s4]})
     found = plan_problems(dropped, plan)
     assert any('"Wrong person" is missing' in p for p in found)
     assert any('way out "Busy now" going to call_back' in p for p in found)
 
     twice = kept.model_copy(
-        update={"stages": [s1, s2, s3, s3.model_copy(update={"id": "s5", "step": 3}), s4]}
+        update={"stages": [s1, s2, s3, s2.model_copy(update={"id": "s5", "step": 3}), s4]}
     )
     assert any('"Delivery day" is written as 2 steps' in p for p in plan_problems(twice, plan))
 
@@ -248,15 +261,161 @@ def test_reordered_dropped_duplicated_and_extra_ways_out_are_each_named() -> Non
         update={
             "stages": [
                 s1,
-                s2,
-                s3.model_copy(
-                    update={"branches": [*s3.branches, StageBranch(when="Not keen", target="end")]}
+                s2.model_copy(
+                    update={"branches": [*s2.branches, StageBranch(when="Not keen", target="end")]}
                 ),
+                s3,
                 s4,
             ]
         }
     )
     assert any("which the owner did not give step" in p for p in plan_problems(extra, plan))
+
+
+def _rytu_kept() -> CallScript:
+    """The Rytu Khata plan kept as the founder wants it, every step one scenario, and "Not
+    registered" in step 2 beside "App on the home screen"."""
+    plan = owner_plan(RYTU.instruction)
+    assert plan is not None
+    numbered = [s for s in plan.steps if s.number is not None]
+    ids = {s.name: f"s{s.number}" for s in numbered}
+    ways = {
+        "Introduction": [
+            ("They are busy now", "call_back"),
+            ("Not interested", "end"),
+            ("Says they never registered", "side"),
+        ],
+        "App on the home screen": [
+            ("Already has it", ids["Login"]),
+            ("Still cannot open the website after being guided step by step", "call_back"),
+        ],
+        "Login": [("Still cannot log in after being guided step by step", "call_back")],
+    }
+    stages = [
+        _stage(
+            ids[s.name],
+            s.name,
+            s.number or 0,
+            branches=ways.get(s.name, []),
+            otherwise="end"
+            if s.name == "Close"
+            else ids["Login"]
+            if s.name == "App on the home screen"
+            else "",
+            instruction="Thank them and end the call." if s.name == "Close" else s.instruction,
+        )
+        for s in numbered
+    ]
+    side = _stage(
+        "side",
+        "Not registered",
+        2,
+        branches=[("Yes", ids["App on the home screen"]), ("No", "end")],
+        otherwise=ids["App on the home screen"],
+    )
+    return CallScript(
+        schema_version=2,
+        stages=[stages[0], stages[1], side, *stages[2:]],
+        step_outcomes=[StepOutcome(step=s.number or 0, outcome=s.outcome) for s in numbered],
+    )
+
+
+def test_a_side_step_is_a_scenario_of_the_step_after_the_one_that_reaches_it() -> None:
+    """FAILS IF: "Not registered" may sit as a step of its own after the close (production,
+    25 Nov 2026: scenario 10.1, so the canvas drew Close -> Not registered as the call's own
+    way on and the way out from Introduction as a jump chip), or code does not move it to
+    step 2 beside "App on the home screen" with a way on of its own."""
+    plan = owner_plan(RYTU.instruction)
+    kept = _rytu_kept()
+    assert plan is not None and plan_problems(kept, plan) == []
+    assert 'Side step "Not registered" (a scenario of step 2' in plan_block(plan)
+
+    side = kept.stages[2]
+    at_end = kept.model_copy(
+        update={
+            "stages": [
+                kept.stages[0],
+                # As drafted: no way on of its own, so the list order carried it on.
+                kept.stages[1].model_copy(update={"otherwise": ""}),
+                *kept.stages[3:],
+                side.model_copy(update={"step": 10, "otherwise": ""}),
+            ]
+        }
+    )
+    found = plan_problems(at_end, plan)
+    assert any('"Not registered" is reached only by a way out' in p for p in found)
+
+    placed = with_owner_plan(at_end, plan)
+    assert [(s.name, s.step) for s in placed.stages][:4] == [
+        ("Introduction", 1),
+        ("App on the home screen", 2),
+        ("Not registered", 2),
+        ("Login", 3),
+    ]
+    moved = placed.stages[2]
+    # Its "Yes" is its way on, so the call never falls from it into step 3.
+    assert moved.otherwise == "s2"
+    assert [(b.when, b.target) for b in moved.branches] == [("Yes", "s2"), ("No", "end")]
+    # The scenario before it goes on to step 3 as it did, never into "Not registered".
+    assert placed.stages[1].otherwise == "s3"
+    assert max(s.step or 0 for s in placed.stages) == 9
+    assert [o.step for o in placed.step_outcomes] == list(range(1, 10))
+    assert plan_problems(placed, plan) == []
+
+
+def test_a_plan_step_with_no_ways_out_gets_no_call_back_and_the_first_gets_the_platforms() -> None:
+    """FAILS IF: a call back or an end the owner did not write is accepted on a step they gave
+    no ways out (production, 25 Nov 2026: "They cannot or will not ... -> Call back" on
+    Language and My Farms), or the first step's busy and wrong-person ways out, which every
+    placed call needs, are refused."""
+    plan = owner_plan(RYTU.instruction)
+    kept = _rytu_kept()
+    stages = list(kept.stages)
+    language = next(i for i, s in enumerate(stages) if s.name == "Language")
+    stages[language] = stages[language].model_copy(
+        update={"branches": [StageBranch(when="They cannot or will not do it", target="call_back")]}
+    )
+    stages[0] = stages[0].model_copy(
+        update={"branches": [*stages[0].branches, StageBranch(when="Wrong number", target="end")]}
+    )
+    found = plan_problems(kept.model_copy(update={"stages": stages}), plan)
+    assert len(found) == 1
+    assert f"stages.{language}.branches" in found[0] and '"Language"' in found[0]
+
+
+def test_a_call_back_for_someone_who_cannot_is_the_last_resort() -> None:
+    """FAILS IF: an owner's "Cannot log in: offer a call back" reaches the script as a call
+    back at the first difficulty rather than after the agent has guided them step by step."""
+    from apps.api.agents.owner_plan import last_resort_condition
+
+    assert last_resort_condition("Cannot log in") == (
+        "Still cannot log in after being guided step by step"
+    )
+    assert last_resort_condition("They cannot find the icon.") == (
+        "They still cannot find the icon after being guided step by step"
+    )
+    assert last_resort_condition("They are busy now") == "They are busy now"
+    assert last_resort_condition("Still cannot log in") == "Still cannot log in"
+    plan = owner_plan(RYTU.instruction)
+    assert plan is not None
+    assert '"Still cannot log in after being guided step by step"' in plan_block(plan)
+    assert "Busy now" in plan_block(plan)
+
+    kept = _rytu_kept()
+    stages = list(kept.stages)
+    login = next(i for i, s in enumerate(stages) if s.name == "Login")
+    stages[login] = stages[login].model_copy(
+        update={"branches": [StageBranch(when="Cannot log in", target="call_back")]}
+    )
+    eager = kept.model_copy(update={"stages": stages})
+    assert any(
+        "offers a call back at the first difficulty" in p for p in plan_problems(eager, plan)
+    )
+    mended = with_owner_plan(eager, plan)
+    assert mended.stages[login].branches[0].when == (
+        "Still cannot log in after being guided step by step"
+    )
+    assert plan_problems(mended, plan) == []
 
 
 def test_an_empty_outcome_is_named_and_the_owners_outcome_and_name_are_kept_by_code() -> None:
@@ -415,8 +574,8 @@ async def test_a_departing_draft_is_sent_back_with_the_mismatch_and_a_kept_one_i
     script = draft.script
     assert [stage.name for stage in script.stages] == [
         "Welcome back",
-        "Wrong person",
         "Delivery day",
+        "Wrong person",
         "Close",
     ]
     assert not any(stage.name == "Call back" for stage in script.stages)
@@ -505,8 +664,8 @@ async def test_a_request_with_the_owners_steps_is_written_whole_from_them(
     assert space.proposal.base_script == old
     assert [s.name for s in space.proposal.script.stages] == [
         "Welcome back",
-        "Wrong person",
         "Delivery day",
+        "Wrong person",
         "Close",
     ]
     assert not [p for p in space.proposal.left_out if "owner" in p.rule]
