@@ -2898,8 +2898,8 @@ _DEFAULT_AMOUNTS: Final = amounts_rule(DEFAULT_PRIMARY_LANGUAGE) or _NEUTRAL_AMO
 TURN_RULES: Final = (
     "--- HOW TO SPEAK ---\n"
     "- Say one thing a turn, one instruction or one question, in one or two short sentences, "
-    "then stop. Start with a short sentence without a comma: the voice starts at the first "
-    "comma.\n"
+    "then stop. Start with a short sentence without a comma; every sentence ten words or "
+    "fewer.\n"
     "- Answer just what they asked. React only when it fits, and never begin or end two "
     "replies alike.\n"
     "- Never ask again what they already told you, and never say a sentence twice; to say "

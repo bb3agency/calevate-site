@@ -88,8 +88,8 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: 25 Nov 2026: the lean rebuild (`docs/evidence/lean-prompt-2026-11-25.md`); the fillers are no
 #: longer quoted.
 PINNED = (
-    "d47d18b12465381015b768b44f6e68eb8826000ebfcfc5a2c8e912d6f3b60238",
-    "39e1410760f790ed1d608896a7f452c022b98991d19842904759b4b20346a7f9",
+    "70c6b8e3904f66f324db763752c219e58bf6beb498e96dd827ab09d5197bf872",
+    "fb50d4a511c90637485c181cc25db4b14c25da2fa8c03193b400f361998b606a",
 )
 
 
