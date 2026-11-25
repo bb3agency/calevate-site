@@ -2,8 +2,9 @@
  * Where the call-flow canvas puts its boxes and how each link between them is drawn. Pure:
  * scenarios in, rectangles and SVG paths out, so the routing is tested without a browser.
  *
- * Columns left to right: the call's opening (column 0), then a column per step, then the end
- * points. A link to the very next column is a curve inside the gap between the two columns,
+ * Columns left to right: the call's opening (column 0), then a column per step. End points
+ * (call back, end of call, hand over) are not columns and take no lines: each way out to one
+ * is a chip on the scenario it leaves (`exitsOf`). A link to the very next column is a curve inside the gap between the two columns,
  * as before. Any other link is ORTHOGONAL with rounded corners, the "smooth step" edge of
  * React Flow (`getSmoothStepPath`, reactflow.dev/api-reference/utils/get-smooth-step-path)
  * that n8n also uses for a connection whose target sits left of its source: n8n takes it out
@@ -51,10 +52,10 @@ export const BAND_INSET = COL_GAP / 2 - 8;
 export const PAD_X = BAND_INSET + 12;
 /** The least room between a column's heading and its first card. */
 const TOP_GAP = 20;
-export const END_W = 150;
-export const END_H = 40;
-/** Room between the opening and the end its "not now" arrow points to. */
-export const NOT_NOW_GAP = 44;
+/** Room right of the last step for its "Add step" button. */
+const TAIL_W = 150;
+/** The height one way-out chip adds to its card: a 20px chip and the gap above it. */
+export const CHIP_LINE = 24;
 /** The distance between two links running side by side in one gap. */
 export const LANE = 7;
 /** The distance between two arrowheads on one card's left edge. */
@@ -151,7 +152,7 @@ function along(points: Point[]): Point[] {
   return out;
 }
 
-export type LinkKind = "next" | "skip" | "back" | "not-now";
+export type LinkKind = "next" | "skip" | "back";
 
 export interface Routed {
   key: string;
@@ -159,9 +160,8 @@ export interface Routed {
   to: string;
   kind: LinkKind;
   d: string;
-  /** Where the arrowhead's tip sits, and which way it points. */
+  /** Where the arrowhead's tip sits; every link enters its card from the left. */
   end: Point;
-  dir: "right" | "down";
   color: string;
   /** `branch` and `otherwise` are the script's own ways out, `then` the implicit way on to
    * the next step, `opening` the opening's links. */
@@ -172,22 +172,39 @@ export interface Routed {
 
 export type LinkVia = "branch" | "otherwise" | "then" | "opening";
 
+/**
+ * A way out of a scenario that is NOT drawn as a line: one to an end point (call back, end of
+ * call, hand over) or back into the scenario itself. Drawn as lines, an eight-step script's
+ * ends were ten parallel strokes running the full width of the canvas to a column of end
+ * nodes at the far right, crossing every step on the way; none of them says anything the
+ * scenario it leaves cannot say in one line. So they sit on that scenario as chips, and the
+ * lines are left for what only a line can show: the call moving from one step to another.
+ */
+export interface Exit {
+  /** The same key the link had when it was drawn: `<id>-<branch index>` or `<id>-otherwise`. */
+  key: string;
+  target: string;
+  /** The branch's own words; "" for an Otherwise. */
+  when: string;
+  via: "branch" | "otherwise";
+}
+
 export interface FlowLayout {
   colX: (column: number) => number;
   cardTop: number;
-  /** Scenarios and the end points of the step columns: what a dragged link can land on. */
+  /** The scenarios' boxes: what a dragged link can land on. */
   boxes: Map<string, Box>;
-  usedEnds: string[];
+  /** Each scenario's ways out shown on its card rather than drawn. */
+  exits: Map<string, Exit[]>;
   opening: Box | null;
-  /** Where the opening's "not now" goes, drawn under the opening. */
-  notNow: { target: string; box: Box } | null;
   links: Routed[];
   width: number;
   height: number;
 }
 
 export interface OpeningInput {
-  /** The end a caller who cannot talk now reaches (`CALL_BACK` or `END`). */
+  /** The end a caller who cannot talk now reaches (`CALL_BACK` or `END`): a chip on the
+   * opening, so it adds one chip line to the first row. */
   notNow: string;
 }
 
@@ -204,7 +221,24 @@ interface Edge {
 }
 
 /**
- * Lays the flow out. `ends` are the end-point targets in the order they are drawn;
+ * The ways out of a scenario that go on its card: every one to an end point in `ends`, and a
+ * branch back into itself. An Otherwise into itself is not one: "Otherwise stays on this
+ * step" is the card's own Then line (`thenOf`).
+ */
+export function exitsOf(item: Placed, ends: readonly string[]): Exit[] {
+  const s = item.section;
+  const out: Exit[] = s.branches.flatMap((b, j) =>
+    ends.includes(b.target) || b.target === s.id
+      ? [{ key: `${s.id}-${j}`, target: b.target, when: b.when, via: "branch" as const }]
+      : [],
+  );
+  if (s.otherwise && ends.includes(s.otherwise))
+    out.push({ key: `${s.id}-otherwise`, target: s.otherwise, when: "", via: "otherwise" });
+  return out;
+}
+
+/**
+ * Lays the flow out. `ends` are the end-point targets, which are never boxes or lines;
  * `opening` adds the opening column, linked to every step-1 scenario.
  */
 export function layoutFlow(
@@ -215,15 +249,9 @@ export function layoutFlow(
   const steps = Math.max(0, ...items.map((p) => p.step));
   const first = opening ? 0 : 1;
   const colX = (column: number) => PAD_X + (column - first) * (BOX_W + COL_GAP);
-  const usedEnds = ends.filter((t) =>
-    items.some(
-      (p) => p.section.otherwise === t || p.section.branches.some((b) => b.target === t),
-    ),
-  );
-  const endCol = steps + 1;
   const where = new Map<string, { col: number; row: number }>();
   for (const p of items) where.set(p.section.id, { col: p.step, row: p.row });
-  usedEnds.forEach((t, i) => where.set(t, { col: endCol, row: i + 1 }));
+  const exits = new Map(items.map((p) => [p.section.id, exitsOf(p, ends)]));
 
   const edges: Edge[] = [];
   if (opening)
@@ -239,10 +267,12 @@ export function layoutFlow(
         fromRow: 1,
         toRow: p.row,
       });
+  // Only a move to ANOTHER scenario is a line: `where` holds scenarios alone, so an end point
+  // has nowhere to be drawn to, and a scenario's way back into itself is skipped here.
   for (const p of items)
     p.section.branches.forEach((b, j) => {
       const to = where.get(b.target);
-      if (!to) return;
+      if (!to || b.target === p.section.id) return;
       edges.push({
         key: `${p.section.id}-${j}`,
         from: p.section.id,
@@ -258,7 +288,7 @@ export function layoutFlow(
   for (const p of items) {
     if (p.section.otherwise) {
       const to = where.get(p.section.otherwise);
-      if (to)
+      if (to && p.section.otherwise !== p.section.id)
         edges.push({
           key: `${p.section.id}-otherwise`,
           from: p.section.id,
@@ -300,29 +330,25 @@ export function layoutFlow(
   const widest = Math.max(1, ...[...inChannel.values()].map((l) => l.length));
   const rowGap = Math.max(ROW_GAP, (widest + 1) * LANE);
   const cardTop = HEAD_H + Math.max(TOP_GAP, 12 + back.length * LANE);
-  const rowY = (row: number) => cardTop + (row - 1) * (BOX_H + rowGap);
+
+  // Rows line up across columns, so a row is as tall as its card with the most chips: the
+  // gap under every row then holds no card, which is what the skip lanes run along.
+  const tallest = Math.max(1, ...items.map((p) => p.row));
+  const chipLines = Array.from({ length: tallest + 1 }, () => 0);
+  for (const p of items)
+    chipLines[p.row] = Math.max(chipLines[p.row], exits.get(p.section.id)?.length ?? 0);
+  if (opening) chipLines[1] = Math.max(chipLines[1], 1);
+  const rowH = (row: number) => BOX_H + (chipLines[row] ?? 0) * CHIP_LINE;
+  const rowY = (row: number) => {
+    let y = cardTop;
+    for (let r = 1; r < row; r++) y += rowH(r) + rowGap;
+    return y;
+  };
 
   const boxes = new Map<string, Box>();
   for (const p of items)
-    boxes.set(p.section.id, { x: colX(p.step), y: rowY(p.row), w: BOX_W, h: BOX_H });
-  usedEnds.forEach((t, i) =>
-    boxes.set(t, { x: colX(endCol), y: cardTop + i * (END_H + ROW_GAP), w: END_W, h: END_H }),
-  );
-  const openBox: Box | null = opening
-    ? { x: colX(0), y: cardTop, w: BOX_W, h: BOX_H }
-    : null;
-  const notNow =
-    opening && openBox
-      ? {
-          target: opening.notNow,
-          box: {
-            x: openBox.x + (BOX_W - END_W) / 2,
-            y: openBox.y + BOX_H + NOT_NOW_GAP,
-            w: END_W,
-            h: END_H,
-          },
-        }
-      : null;
+    boxes.set(p.section.id, { x: colX(p.step), y: rowY(p.row), w: BOX_W, h: rowH(p.row) });
+  const openBox: Box | null = opening ? { x: colX(0), y: cardTop, w: BOX_W, h: rowH(1) } : null;
   const boxOf = (id: string) => (id === OPENING_KEY ? openBox : boxes.get(id)) ?? null;
 
   // The vertical lanes of each gap, `gap` g lying between column g and column g + 1.
@@ -340,7 +366,9 @@ export function layoutFlow(
 
   // Each link into a card has its own place on the card's left edge, in the order they arrive
   // from top to bottom (a back link comes down from above), so two arrowheads never share a
-  // point and a line's colour is never hidden under another's.
+  // point and a line's colour is never hidden under another's. Links leave and enter at the
+  // middle of a chipless card, so a row grown by chips keeps its lines level with the dot.
+  const mid = (box: Box) => box.y + BOX_H / 2;
   const arrival = (e: Edge) =>
     kindOf(e) === "back" ? -1 : (boxOf(e.from)?.y ?? 0) + e.fromRow / 100;
   const entry = new Map<string, number>();
@@ -349,12 +377,10 @@ export function layoutFlow(
   for (const [to, list] of into) {
     const box = boxOf(to);
     if (!box) continue;
-    const spread = Math.min(ENTRY_GAP, (box.h - 16) / Math.max(1, list.length - 1));
+    const spread = Math.min(ENTRY_GAP, (BOX_H - 16) / Math.max(1, list.length - 1));
     [...list]
       .sort((p, q) => arrival(p) - arrival(q))
-      .forEach((e, i) =>
-        entry.set(e.key, box.y + box.h / 2 + (i - (list.length - 1) / 2) * spread),
-      );
+      .forEach((e, i) => entry.set(e.key, mid(box) + (i - (list.length - 1) / 2) * spread));
   }
 
   const links: Routed[] = [];
@@ -362,11 +388,11 @@ export function layoutFlow(
     const from = boxOf(e.from);
     const to = boxOf(e.to);
     if (!from || !to) continue;
-    const a = { x: from.x + from.w, y: from.y + from.h / 2 };
-    const b = { x: to.x, y: entry.get(e.key) ?? to.y + to.h / 2 };
+    const a = { x: from.x + from.w, y: mid(from) };
+    const b = { x: to.x, y: entry.get(e.key) ?? mid(to) };
     const kind = kindOf(e);
     if (kind === "next") {
-      links.push({ ...base(e, kind), d: curve(a, b), end: b, dir: "right", samples: curvePoints(a, b) });
+      links.push({ ...base(e, kind), d: curve(a, b), end: b, samples: curvePoints(a, b) });
       continue;
     }
     let y: number;
@@ -375,38 +401,18 @@ export function layoutFlow(
     } else {
       const list = inChannel.get(channel(e)) ?? [e];
       const i = list.indexOf(e);
-      y = rowY(channel(e)) + BOX_H + rowGap / 2 + (i - (list.length - 1) / 2) * LANE;
+      y = rowY(channel(e)) + rowH(channel(e)) + rowGap / 2 + (i - (list.length - 1) / 2) * LANE;
     }
     const xs = laneX(e.fromCol, `${e.key}:out`);
     const xt = laneX(e.toCol - 1, `${e.key}:in`);
     const points = [a, { x: xs, y: a.y }, { x: xs, y }, { x: xt, y }, { x: xt, y: b.y }, b];
-    links.push({ ...base(e, kind), d: rounded(points), end: b, dir: "right", samples: along(points) });
-  }
-  if (openBox && notNow) {
-    const top = { x: openBox.x + BOX_W / 2, y: openBox.y + BOX_H };
-    const tip = { x: top.x, y: notNow.box.y };
-    links.push({
-      key: `${OPENING_KEY}-not-now`,
-      from: OPENING_KEY,
-      to: notNow.target,
-      kind: "not-now",
-      color: NO_COLOR,
-      via: "opening",
-      d: `M ${top.x} ${top.y} L ${tip.x} ${tip.y}`,
-      end: tip,
-      dir: "down",
-      samples: along([top, tip]),
-    });
+    links.push({ ...base(e, kind), d: rounded(points), end: b, samples: along(points) });
   }
 
-  const tallest = Math.max(1, ...items.map((p) => p.row));
-  const cardsBottom = rowY(tallest) + BOX_H;
-  const endsBottom = usedEnds.length ? cardTop + usedEnds.length * (END_H + ROW_GAP) : 0;
-  const notNowBottom = notNow ? notNow.box.y + END_H : 0;
-  const width = colX(endCol) + (usedEnds.length ? END_W : BOX_W) + PAD_X;
-  const height = Math.max(cardsBottom, endsBottom, notNowBottom) + FOOT;
+  const width = colX(steps + 1) + TAIL_W + PAD_X;
+  const height = rowY(tallest) + rowH(tallest) + FOOT;
 
-  return { colX, cardTop, boxes, usedEnds, opening: openBox, notNow, links, width, height };
+  return { colX, cardTop, boxes, exits, opening: openBox, links, width, height };
 }
 
 function base(e: Edge, kind: LinkKind) {
@@ -415,21 +421,23 @@ function base(e: Edge, kind: LinkKind) {
 
 export type Then =
   | { kind: "otherwise"; target: string }
+  | { kind: "stay" }
   | { kind: "step"; step: number }
   | { kind: "end" };
 
 /**
- * Where a scenario goes once none of its ways out applies: its Otherwise when it has one,
- * else the next step, else the end of the call. The canvas's label and its implicit link.
+ * Where a scenario goes once none of its ways out applies: its Otherwise when it has one
+ * (`stay` when that is the scenario itself), else the next step, else the end of the call.
+ * The canvas's label and its implicit link.
  */
 export function thenOf(item: Placed, steps: number): Then {
-  if (item.section.otherwise) return { kind: "otherwise", target: item.section.otherwise };
+  const otherwise = item.section.otherwise;
+  if (otherwise === item.section.id) return { kind: "stay" };
+  if (otherwise) return { kind: "otherwise", target: otherwise };
   return item.step < steps ? { kind: "step", step: item.step + 1 } : { kind: "end" };
 }
 
-/** The arrowhead at a link's end. */
-export function arrowHead(end: Point, dir: "right" | "down"): string {
-  return dir === "right"
-    ? `M ${end.x - 8} ${end.y - 5} L ${end.x} ${end.y} L ${end.x - 8} ${end.y + 5} z`
-    : `M ${end.x - 5} ${end.y - 8} L ${end.x} ${end.y} L ${end.x + 5} ${end.y - 8} z`;
+/** The arrowhead at a link's end, pointing into the card's left edge. */
+export function arrowHead(end: Point): string {
+  return `M ${end.x - 8} ${end.y - 5} L ${end.x} ${end.y} L ${end.x - 8} ${end.y + 5} z`;
 }

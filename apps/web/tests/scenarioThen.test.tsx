@@ -75,14 +75,21 @@ describe("the call's own order on the canvas", () => {
     expect(login?.getAttribute("data-via")).toBe("then");
     expect(login?.getAttribute("stroke-dasharray")).toBeTruthy();
     expect(container.querySelector('path[data-link="farms~then~expenses"]')).not.toBeNull();
-    // The way out the owner set is drawn solid beside it.
-    expect(container.querySelector('path[data-link="login-0"]')?.getAttribute("stroke-dasharray")).toBeNull();
+    // The owner's way out to a call back is a chip on 1.1, never a line.
+    expect(container.querySelector('path[data-link="login-0"]')).toBeNull();
+    expect(container.querySelector('[data-scenario="login"] [data-exit="call_back"]')?.textContent).toContain(
+      "Offer a call back",
+    );
 
     const overridden = await view({
       script: { ...RYTU, stages: RYTU.stages?.map((s) => (s.id === "farms" ? { ...s, otherwise: "end" } : s)) },
     }).rendered;
     expect(overridden.container.querySelector('path[data-link="farms~then~expenses"]')).toBeNull();
-    expect(overridden.container.querySelector('path[data-link="farms-otherwise"]')).not.toBeNull();
+    // An Otherwise to an end point is a chip on its card, not a line.
+    expect(overridden.container.querySelector('path[data-link="farms-otherwise"]')).toBeNull();
+    const chip = overridden.container.querySelector('[data-scenario="farms"] [data-exit="end"]');
+    expect(chip?.textContent).toContain("Otherwise");
+    expect(chip?.textContent).toContain("End the call");
   });
 
   it("says where each scenario goes on, and the last step ends the call", async () => {
@@ -101,8 +108,8 @@ describe("the call's own order on the canvas", () => {
     await screen.findByRole("button", { name: /Scenario 1\.1/ });
     expect(container.querySelector('[data-link-hit="login~then~farms"]')).toBeNull();
     expect(container.querySelector('[data-unlink="login~then~farms"]')).toBeNull();
-    // The owner's own way out keeps its ×.
-    expect(container.querySelector('[data-unlink="login-0"]')).not.toBeNull();
+    // The owner's own way out keeps its ×, on its chip.
+    expect(screen.getByRole("button", { name: "Remove the link from 1.1 Login to Offer a call back" })).toBeTruthy();
   });
 
   it("removes an Otherwise with its ×, and the call goes on to the next step again", async () => {

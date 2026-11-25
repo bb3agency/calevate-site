@@ -3,6 +3,7 @@
 import { PageHeader } from "@/components/console/pageHeader";
 import { SECONDARY_BUTTON_SM } from "@/components/ui";
 
+import { CallFlowSection } from "./sections/callFlow";
 import { ChartsSection } from "./sections/charts";
 import { ContentSection } from "./sections/content";
 import { FeedbackSection } from "./sections/feedback";
@@ -19,6 +20,7 @@ const CONTENTS = [
   { id: "structure", label: "Structure" },
   { id: "content", label: "Content" },
   { id: "pip-live", label: "Pip at work" },
+  { id: "call-flow", label: "Call flow" },
 ] as const;
 
 /**
@@ -51,6 +53,7 @@ export function KitScreen() {
       <StructureSection />
       <ContentSection />
       <PipLiveSection />
+      <CallFlowSection />
     </div>
   );
 }
