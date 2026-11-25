@@ -325,13 +325,13 @@ def restates(candidate: ExtractionField, fields: list[ExtractionField]) -> bool:
     """
     label = _words(candidate.label)
     mine = {normalise(v) for v in candidate.enum_values or []}
-    for field in fields:
-        if label & _words(field.label):
+    for other in fields:
+        if label & _words(other.label):
             return True
-        theirs = [normalise(v) for v in field.enum_values or []]
+        theirs = [normalise(v) for v in other.enum_values or []]
         if mine and len(mine & set(theirs)) * 2 >= len(mine):
             return True
-        if label and any(label <= _words(choice) for choice in field.enum_values or []):
+        if label and any(label <= _words(choice) for choice in other.enum_values or []):
             return True
     return False
 
