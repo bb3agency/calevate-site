@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.62 — 25-Nov-2026
+
+- When you give Pip a list of steps for a script, the writer now gets your own words, not
+  Pip's summary of them. Pip had been shortening such lists and dropping the outcomes, so the
+  writer never saw your steps and kept the old ones.
+
 ## 0.5.61 — 25-Nov-2026
 
 - On the script canvas each card is only as tall as its own ways out, so short cards no

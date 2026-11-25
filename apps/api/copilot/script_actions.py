@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import test_conversations, test_fixes
 from apps.api.agents.mistake_fixes import Holder
+from apps.api.agents.owner_plan import owner_plan
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import workspace as campaign_workspace
 from apps.api.copilot import id_kinds, run_control
@@ -435,11 +436,38 @@ def _ask(parsed: _DraftArgs) -> dict[str, str]:
     return ask
 
 
+#: A message this short after the person's step list is a go-ahead ("yes", "do it"), so the
+#: list before it is still the request.
+_GO_AHEAD_MAX: Final = 80
+
+
+def _with_owners_steps(ask: dict[str, str], said: tuple[str, ...]) -> dict[str, str]:
+    """`ask` with the person's own step list as its instruction, when they wrote one.
+
+    The model passing a request on rewrites it: on 25 Nov 2026 a nine-step list with an
+    outcome on each step reached the writer three times as a summary with no outcomes, once
+    as "only include this introduction step", so the writer never saw the plan it is built to
+    keep (`agents.owner_plan`). A list the person laid out is therefore taken from their own
+    message, not from the model's wording of it. Only their latest message, or the one before
+    a short go-ahead, counts: an older list must not override a later, different request.
+    """
+    if owner_plan(ask.get("instruction")) is not None:
+        return ask
+    recent = said[-1:]
+    if len(said) >= 2 and len(said[-1]) <= _GO_AHEAD_MAX:
+        recent = said[-2:]
+    for message in reversed(recent):
+        folded = " ".join(strip_invisible(message).split())
+        if len(folded) <= INSTRUCTION_MAX and owner_plan(folded) is not None:
+            return {**ask, "instruction": folded}
+    return ask
+
+
 async def _plan_draft(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
     """READ ONLY. Where the draft goes, whether it may be asked for there, then the
     allowance."""
     parsed = parse_args(_DraftArgs, args)
-    ask = _ask(parsed)
+    ask = _with_owners_steps(_ask(parsed), actor.said)
     if len(ask.get("instruction", "")) > INSTRUCTION_MAX:
         raise WriteRefusedError(
             f"`instruction` holds at most {INSTRUCTION_MAX} characters. Put every change the "
