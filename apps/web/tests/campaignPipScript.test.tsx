@@ -88,11 +88,11 @@ describe("Pip writing a campaign's script", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Add a note for Pip" }));
     const box = screen.getByLabelText("Note for Pip");
     expect(box.tagName).toBe("TEXTAREA");
-    expect(box.getAttribute("maxLength")).toBe("2000");
+    expect(box.getAttribute("maxLength")).toBe("4000");
     const note = "The agent is Priya from Sunrise Homes. Keep the words EMI and loan in English. ".repeat(11).trim();
     expect(note.length).toBeGreaterThan(800);
     fireEvent.change(box, { target: { value: note } });
-    expect(screen.getByText(`${2000 - note.length} characters left`)).toBeTruthy();
+    expect(screen.getByText(`${4000 - note.length} characters left`)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Generate" }));
     await waitFor(() => expect(posted(rendered.calls)).toEqual([{ instruction: note }]));
   });

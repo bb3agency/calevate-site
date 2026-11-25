@@ -203,35 +203,46 @@ export function FoldSection({
       id={id}
       className={`scroll-mt-24 rounded-card border border-line border-l-4 bg-surface shadow-card ${look.edge}`}
     >
-      <div className="flex items-center gap-2 pr-3 sm:pr-4">
-        <h2 className="min-w-0 flex-1">
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-controls={bodyId}
-            onClick={(e) => {
-              keepInView(e.currentTarget);
-              setOpen(!open);
-            }}
-            className="flex w-full min-w-0 items-center gap-3 rounded-card py-3 pl-3 text-left touch:min-h-11 sm:pl-4"
-          >
-            <ChevronDown
-              aria-hidden
-              className={`h-4 w-4 shrink-0 text-ink-muted transition-transform ${open ? "" : "-rotate-90"}`}
-            />
-            <span aria-hidden className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${look.chip}`}>
-              <Icon className="h-4 w-4" />
-            </span>
-            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+      {/* The button holds only the name, and its ::after stretches over the whole row so
+          pressing anywhere on it folds. The hint sits beside the button rather than inside it:
+          inside, it became part of the button's name and any link in it (a job's "Open line")
+          was a control nested in a control. The hint lets presses through to the row; its
+          links and the (i) sit above the stretched target. */}
+      <div className="relative flex items-center gap-2 pr-3 sm:pr-4">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 py-3 pl-3 sm:pl-4">
+          <h2 className="min-w-0">
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-controls={bodyId}
+              onClick={(e) => {
+                keepInView(e.currentTarget);
+                setOpen(!open);
+              }}
+              className="flex min-w-0 items-center gap-3 rounded-sm text-left after:absolute after:inset-0 after:rounded-card after:content-[''] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand touch:min-h-11"
+            >
+              <ChevronDown
+                aria-hidden
+                className={`h-4 w-4 shrink-0 text-ink-muted transition-transform ${open ? "" : "-rotate-90"}`}
+              />
+              <span aria-hidden className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${look.chip}`}>
+                <Icon className="h-4 w-4" />
+              </span>
               <span className={`text-body font-semibold ${look.title}`}>{title}</span>
-              {hint ? <span className="text-meta font-normal text-ink-muted">{hint}</span> : null}
+            </button>
+          </h2>
+          {hint ? (
+            <span className="pointer-events-none text-meta text-ink-muted [&_a]:pointer-events-auto [&_a]:relative">
+              {hint}
             </span>
-          </button>
-        </h2>
+          ) : null}
+        </div>
         {info ? (
-          <InfoTip label={title.toLowerCase()} align="end">
-            {info}
-          </InfoTip>
+          <span className="relative shrink-0">
+            <InfoTip label={title.toLowerCase()} align="end">
+              {info}
+            </InfoTip>
+          </span>
         ) : null}
         {aside ? <span className="shrink-0 rounded-full bg-surface-muted px-2 py-0.5 text-meta">{aside}</span> : null}
       </div>
