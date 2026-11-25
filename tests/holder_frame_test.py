@@ -177,9 +177,7 @@ async def _contact(tenant_id: UUID, campaign_id: UUID, name: str | None) -> None
 
 async def _name_for(tenant_id: UUID, campaign_id: UUID, principal: Principal) -> str | None:
     async with tenant_session(tenant_id) as session:
-        return await trial_calls._tester_name(
-            session, principal=principal, campaign_id=campaign_id
-        )
+        return await trial_calls._tester_name(session, principal=principal, campaign_id=campaign_id)
 
 
 async def test_the_testers_name_is_used_only_where_the_list_carries_names() -> None:

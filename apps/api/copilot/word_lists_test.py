@@ -21,8 +21,6 @@ def test_no_indian_language_word_is_written_in_these_modules(module: str) -> Non
     assert not _INDIC.search((_HERE / module).read_text(encoding="utf-8"))
 
 
-
-
 def test_every_provider_spelling_in_the_file_is_caught_in_an_answer() -> None:
     spellings = word_lists.provider_spellings()
     assert spellings, "provider_spellings.json lists no spellings"
