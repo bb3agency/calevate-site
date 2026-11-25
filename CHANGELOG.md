@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.57 — 25-Nov-2026
+
+- The campaign script canvas is calmer: a way out that ends the call (call back, end call,
+  hand over) is a small label on its step, not a line across the screen. Lines now only join
+  one step to another.
+
 ## 0.5.56 — 25-Nov-2026
 
 - When Pip writes an action out as text instead of doing it, you no longer see the code: Pip
