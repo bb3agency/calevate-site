@@ -2867,7 +2867,8 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: here.
 #:
 #: THE ENGINE'S CALL RULES ARE READ ON CALLS ONLY. Its default call rules
-#: (`scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt`, the same text as §23.0 item 3 of the
+#: (`scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt`,
+#: the same text as §23.0 item 3 of the
 #: replies file, VENDOR-STATED) are "the rules the agent follows on calls, and only on calls"
 #: and leave chat replies untouched (`channels/voice.md:180-181`, 19 Oct 2026 snapshot), while
 #: the practice tests run in the engine's chat. So the rules a call is judged by live HERE, in
@@ -3363,7 +3364,8 @@ CANNOT_HELP_HEADER: Final = "--- PLATFORM RULES: WHAT YOU CAN DO ---"
 #: confirms it, a tool's answer on this call, so an agent whose client connected a booking,
 #: WhatsApp, payment-link or sheet action still says it was done once that action succeeds.
 #: "Booked, cancelled or confirmed" is ThinnestAI's own speaking rule
-#: (`scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt`), read on calls only, so "placed" is
+#: (`scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt`),
+#: read on calls only, so "placed" is
 #: named for the chat (D-845). What to say instead is concrete, the starters' own "for the
 #: team to confirm" (`agents/starters.py`): "say what happens next" left the model to invent
 #: a next step. Noting what the caller asked for is NOT a claim (founder, 21 Oct 2026): the
@@ -3408,7 +3410,8 @@ OWN_RULES_HANDOVER_RULE: Final = (
 #: `AgentConfig.engine_call_instructions` is on (D-850). That field REPLACES the engine's
 #: default call rules (about 1,675 characters on every turn, verbatim in
 #: `docs/vendor/thinnest-replies-2026-10-12.md` §23.0 item 3, the same text as
-#: `scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt`); `tests/call_instructions_test.py`
+#: `scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt`);
+#: `tests/call_instructions_test.py`
 #: maps each default sentence to where it now lives. Titles and abbreviations in full are the
 #: engine's always-added speaking rules (VENDOR-STATED, same email). "Acknowledge what they
 #: just said before you answer it" is dropped for HOW TO SPEAK's "Lead with the answer": the
