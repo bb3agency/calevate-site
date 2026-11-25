@@ -1,10 +1,11 @@
 "use client";
 
 /**
- * A FOLDABLE SECTION with its name outside the card (founder, 15 Nov 2026): a coloured pill
- * sits on the card's top edge, and pressing it folds the card to a thin bar. Each section has
- * its own colour so the eye finds it again; the pill keeps the name, so colour is never the
- * only signal.
+ * A FOLDABLE SECTION (founder, 25 Nov 2026, in the deal screen's style): a white card with a
+ * coloured left edge, and a header row of chevron, tinted icon, the name in the section's
+ * colour and its one-line description beside it. Pressing the row folds the card to that
+ * row. Each section has its own colour so the eye finds it again; the name and icon go with
+ * it, so colour is never the only signal.
  *
  * `FoldGroup` adds Collapse all / Expand all for every section inside it. A command is a
  * counter rather than a boolean so pressing the same one twice still reaches sections a
@@ -16,7 +17,23 @@
  * the section.
  */
 
-import { ChevronDown } from "lucide-react";
+import {
+  Activity,
+  BarChart3,
+  Bot,
+  ChevronDown,
+  FileText,
+  Info,
+  PhoneCall,
+  ScrollText,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Target,
+  UserPlus,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import { InfoTip } from "@/components/console/infoTip";
 import { keepInView } from "@/lib/keepInView";
 import { usePathname } from "next/navigation";
@@ -57,22 +74,23 @@ export type FoldTone =
   | "results"
   | "details";
 
-/** One colour per section, none of them a status colour except compliance's amber warning. */
-const TONE: Record<FoldTone, { pill: string; card: string }> = {
-  task: { pill: "bg-brand-strong text-white", card: "border-success-line border-l-brand-strong bg-brand-soft/30" },
-  materials: { pill: "bg-info text-white", card: "border-info-line border-l-info bg-info-soft/40" },
-  generate: { pill: "bg-series-5 text-white", card: "border-series-5/30 border-l-series-5 bg-series-5/5" },
-  script: { pill: "bg-series-2 text-white", card: "border-series-2/30 border-l-series-2 bg-series-2/5" },
-  agent: { pill: "bg-series-3 text-white", card: "border-series-3/30 border-l-series-3 bg-series-3/5" },
-  test: { pill: "bg-series-6 text-white", card: "border-series-6/30 border-l-series-6 bg-series-6/5" },
-  compliance: { pill: "bg-warn text-white", card: "border-warn-line border-l-warn bg-warn-soft/40" },
-  add: { pill: "bg-series-1 text-white", card: "border-series-1/30 border-l-series-1 bg-series-1/5" },
-  people: { pill: "bg-series-4 text-white", card: "border-series-4/30 border-l-series-4 bg-series-4/5" },
-  settings: { pill: "bg-ink text-surface", card: "border-line border-l-ink bg-surface-muted/60" },
+/** One colour and icon per section, none of them a status colour except compliance's amber
+ *  warning. Full class names, so the build keeps them. */
+const TONE: Record<FoldTone, { edge: string; title: string; chip: string; icon: LucideIcon }> = {
+  task: { edge: "border-l-brand-strong", title: "text-brand-strong", chip: "bg-brand-soft text-brand-strong", icon: Target },
+  materials: { edge: "border-l-info", title: "text-info", chip: "bg-info-soft text-info", icon: FileText },
+  generate: { edge: "border-l-series-5", title: "text-series-5", chip: "bg-series-5/10 text-series-5", icon: Sparkles },
+  script: { edge: "border-l-series-2", title: "text-series-2", chip: "bg-series-2/10 text-series-2", icon: ScrollText },
+  agent: { edge: "border-l-series-3", title: "text-series-3", chip: "bg-series-3/10 text-series-3", icon: Bot },
+  test: { edge: "border-l-series-6", title: "text-series-6", chip: "bg-series-6/10 text-series-6", icon: PhoneCall },
+  compliance: { edge: "border-l-warn", title: "text-warn", chip: "bg-warn-soft text-warn", icon: ShieldCheck },
+  add: { edge: "border-l-series-1", title: "text-series-1", chip: "bg-series-1/10 text-series-1", icon: UserPlus },
+  people: { edge: "border-l-series-4", title: "text-series-4", chip: "bg-series-4/10 text-series-4", icon: Users },
+  settings: { edge: "border-l-ink", title: "text-ink", chip: "bg-ink/[0.07] text-ink", icon: SlidersHorizontal },
   // A running campaign's page.
-  progress: { pill: "bg-brand-deep text-white", card: "border-success-line border-l-brand-deep bg-brand-soft/30" },
-  results: { pill: "bg-series-2 text-white", card: "border-series-2/30 border-l-series-2 bg-series-2/5" },
-  details: { pill: "bg-series-4 text-white", card: "border-series-4/30 border-l-series-4 bg-series-4/5" },
+  progress: { edge: "border-l-brand-deep", title: "text-brand-deep", chip: "bg-brand-soft text-brand-deep", icon: Activity },
+  results: { edge: "border-l-series-2", title: "text-series-2", chip: "bg-series-2/10 text-series-2", icon: BarChart3 },
+  details: { edge: "border-l-series-4", title: "text-series-4", chip: "bg-series-4/10 text-series-4", icon: Info },
 };
 
 export function FoldGroup({
@@ -178,10 +196,15 @@ export function FoldSection({
     lastCommand.current = command;
   }, [command, setOpen]);
   const look = TONE[tone];
+  const Icon = look.icon;
   return (
-    <section ref={sectionRef} id={id} className="relative scroll-mt-24 pt-4">
-      <div className="absolute left-4 top-0 z-raised flex items-center gap-3">
-        <h2 className="text-body font-semibold">
+    <section
+      ref={sectionRef}
+      id={id}
+      className={`scroll-mt-24 rounded-card border border-line border-l-4 bg-surface shadow-card ${look.edge}`}
+    >
+      <div className="flex items-center gap-2 pr-3 sm:pr-4">
+        <h2 className="min-w-0 flex-1">
           <button
             type="button"
             aria-expanded={open}
@@ -190,32 +213,31 @@ export function FoldSection({
               keepInView(e.currentTarget);
               setOpen(!open);
             }}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 shadow-card touch:min-h-11 ${look.pill}`}
+            className="flex w-full min-w-0 items-center gap-3 rounded-card py-3 pl-3 text-left touch:min-h-11 sm:pl-4"
           >
-            <ChevronDown aria-hidden className={`h-4 w-4 transition-transform ${open ? "" : "-rotate-90"}`} />
-            {title}
+            <ChevronDown
+              aria-hidden
+              className={`h-4 w-4 shrink-0 text-ink-muted transition-transform ${open ? "" : "-rotate-90"}`}
+            />
+            <span aria-hidden className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${look.chip}`}>
+              <Icon className="h-4 w-4" />
+            </span>
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+              <span className={`text-body font-semibold ${look.title}`}>{title}</span>
+              {hint ? <span className="text-meta font-normal text-ink-muted">{hint}</span> : null}
+            </span>
           </button>
         </h2>
-        {aside ? <span className="rounded-full bg-surface px-2 py-0.5 text-meta">{aside}</span> : null}
+        {info ? (
+          <InfoTip label={title.toLowerCase()} align="end">
+            {info}
+          </InfoTip>
+        ) : null}
+        {aside ? <span className="shrink-0 rounded-full bg-surface-muted px-2 py-0.5 text-meta">{aside}</span> : null}
       </div>
-      <div
-        id={bodyId}
-        className={`rounded-card border border-l-4 ${look.card} ${open ? "px-4 pb-5 pt-7 touch:pt-9 sm:px-6" : "h-5"}`}
-      >
-        {/* Hidden rather than unmounted, so a half-filled form survives a fold. */}
-        <div hidden={!open}>
-          {hint ? (
-            <p className="mb-3 flex items-center gap-1 text-meta text-ink-muted">
-              <span className="block">{hint}</span>
-              {info ? (
-                <InfoTip label={title.toLowerCase()} align="start">
-                  {info}
-                </InfoTip>
-              ) : null}
-            </p>
-          ) : null}
-          {children}
-        </div>
+      {/* Hidden rather than unmounted, so a half-filled form survives a fold. */}
+      <div id={bodyId} hidden={!open} className="mx-3 border-t border-line px-1 pb-5 pt-4 sm:mx-4">
+        {children}
       </div>
     </section>
   );

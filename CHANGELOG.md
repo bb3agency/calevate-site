@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.52 — 25-Nov-2026
+
+- Campaign sections fold like the deal screen's: a white card with a coloured left edge, and
+  one header row with the chevron, a tinted icon, the section's name in its colour and its
+  description beside it. Folded, a section is just that row.
+
 ## 0.5.51 — 25-Nov-2026
 
 - Agents keep each sentence to ten words or fewer, with full stops between, so the voice
