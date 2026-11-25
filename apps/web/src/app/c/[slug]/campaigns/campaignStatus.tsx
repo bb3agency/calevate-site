@@ -3,7 +3,7 @@ import { formatCount, type NoticeTone } from "@/components/ui";
 import type { PauseReason } from "@/lib/api/campaigns";
 import { lookup } from "@/lib/lookup";
 
-import { PAUSE_COPY } from "./blockerCopy";
+import { OUTAGE_WAIT, PAUSE_COPY } from "./blockerCopy";
 
 /**
  * A campaign's status as a pill, and the slim progress bar its row carries.
@@ -37,11 +37,18 @@ export function CampaignStatusPill({
   status,
   pauseReason,
   notCalling = false,
+  phoneServiceDown = false,
 }: {
   status: string;
   pauseReason?: PauseReason | null;
   notCalling?: boolean;
+  /** The phone service is not answering (`usePhoneServiceDown`): a running campaign waits,
+   *  which is not the owner's pause and needs nothing from them. */
+  phoneServiceDown?: boolean;
 }) {
+  if (status === "running" && phoneServiceDown) {
+    return <StatusPill tone="warn">{OUTAGE_WAIT.title}</StatusPill>;
+  }
   if (status === "running" && notCalling) return <StatusPill tone="stop">Not calling</StatusPill>;
   if (status === "paused" && pauseReason && pauseReason !== "person") {
     return <StatusPill tone="warn">{lookup(PAUSE_COPY, pauseReason)?.title ?? "Paused"}</StatusPill>;

@@ -13,6 +13,12 @@ vi.mock("@/lib/api/session", () => ({
     session: { orgSlug: "rytu-khata" },
   }),
 }));
+// The phone service answers: these tests render the form with no query client.
+vi.mock("@/lib/api/phoneService", async (original) => ({
+  ...(await original<typeof import("@/lib/api/phoneService")>()),
+  usePhoneServiceDown: () => false,
+  useRefreshPhoneService: () => () => undefined,
+}));
 /** What `GET /v1/trial/rings-from` answered; undefined while it has not. */
 const ringsFrom = vi.hoisted(() => ({
   ownNumber: undefined as string | null | undefined,

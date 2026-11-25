@@ -26,13 +26,14 @@ from apps.api.engine.outage import (
     SAVED_GOES_LIVE_LATER_CODE,
     EngineOutage,
     engine_outage,
-    is_engine_not_answering,
+
 )
 from apps.api.engine.vendor_http import EngineRejectedError, vendor_request
 from apps.api.main import app
 from apps.api.ops import engine_health_routes
 from apps.workers import alerts as alert_sweep
 from apps.workers import job_notes_live
+from apps.workers.engine_outage import engine_unavailable
 from arq import Retry
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -118,7 +119,7 @@ async def test_a_refused_connection_and_a_5xx_both_count() -> None:
 
     with pytest.raises(EngineRejectedError) as caught:
         await _request(bad_gateway)
-    assert is_engine_not_answering(caught.value)
+    assert engine_unavailable(caught.value)
     state = await engine_outage(ENGINE)
     assert state.failing is True
     assert (state.last_kind, state.last_error) == ("server_error", "HTTP 502")
@@ -138,7 +139,7 @@ async def test_a_4xx_is_an_answer_and_never_waited_out() -> None:
     await _fail(2)
     with pytest.raises(EngineRejectedError) as caught:
         await _request(not_found)
-    assert not is_engine_not_answering(caught.value)
+    assert not engine_unavailable(caught.value)
     assert (await engine_outage(ENGINE)).consecutive_failures == 0
 
 

@@ -212,18 +212,6 @@ SAVED_GOES_LIVE_LATER_CODE: Final = "saved_goes_live_later"
 PHONE_SERVICE_DOWN_CODE: Final = "phone_service_down"
 
 
-def is_engine_not_answering(exc: BaseException) -> bool:
-    """A refusal that says the engine did not answer (no reply, or a 5xx), not that our
-    request was wrong. A 4xx is ours to fix and is never waited out."""
-
-    if not isinstance(exc, ProblemError):
-        return False
-    if exc.code == "engine_unreachable":
-        return True
-    status = getattr(exc, "vendor_status", None)
-    return exc.code == "engine_rejected" and isinstance(status, int) and status >= 500
-
-
 def saved_goes_live_later() -> ProblemError:
     """The answer to a save that committed and whose put-live is queued until the engine
     answers. A 503 rather than a 200 so a screen cannot read it as "live now"; the screens
@@ -271,7 +259,6 @@ __all__ = [
     "EngineOutage",
     "FailureKind",
     "engine_outage",
-    "is_engine_not_answering",
     "phone_service_down",
     "record_answer",
     "record_failure",

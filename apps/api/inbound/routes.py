@@ -62,9 +62,11 @@ from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
+from apps.api.engine.outage import saved_goes_live_later
 from apps.api.inbound import lines
 from apps.api.inbound.publish import put_line_live, route_numbers
 from apps.api.reliability.service import require_idempotency_key
+from apps.workers.engine_outage import engine_unavailable
 
 router = APIRouter(prefix="/v1/inbound-lines", tags=["inbound"])
 Session = Annotated[AsyncSession, Depends(db)]

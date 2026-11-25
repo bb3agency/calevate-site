@@ -24,6 +24,7 @@ import {
 import { useWriteAccess } from "@/lib/api/hooks";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useCopilotSurface } from "@/lib/copilot/registry";
+import { usePhoneServiceDown } from "@/lib/api/phoneService";
 import { useClientRealm } from "@/lib/api/session";
 
 import { DraftPeople, peopleSectionId } from "./DraftPeople";
@@ -90,6 +91,7 @@ const CAMPAIGN_TABS: readonly string[] = ["setup", "progress", "calls", "questio
  */
 export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId: string }) {
   const { session, href } = useClientRealm();
+  const phoneServiceDown = usePhoneServiceDown(session);
   const router = useRouter();
   // `?tab=improve` from the account Improve page opens the tab its link is about.
   const linkedTab = useSearchParams().get("tab");
@@ -262,6 +264,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               status={data.status}
               pauseReason={data.pause_reason}
               notCalling={data.not_calling.length > 0}
+              phoneServiceDown={phoneServiceDown}
             />
           }
           description={

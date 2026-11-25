@@ -26,10 +26,11 @@ from apps.api.campaigns.engine_agent import put_campaign_live
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
-from apps.api.engine.outage import is_engine_not_answering, saved_goes_live_later
+from apps.api.engine.outage import saved_goes_live_later
 from apps.api.inbound import lines
 from apps.api.inbound.publish import put_line_live
 from apps.api.reliability.service import enqueue_outbox
+from apps.workers.engine_outage import engine_unavailable
 
 log = get_logger(__name__)
 
@@ -134,7 +135,7 @@ async def put_live_or_queue(
         else:
             await put_line_live(tenant_id=tenant_id, line_id=job_id)
     except ProblemError as exc:
-        if not is_engine_not_answering(exc):
+        if not engine_unavailable(exc):
             kept_not_live(exc, retry=retry, operator=operator)
             raise
         async with tenant_session(tenant_id) as session:
@@ -170,7 +171,7 @@ async def put_live_sorted(
             await put_live(tenant_id, kind, job_id, always=always)
         except ProblemError as exc:
             refused += 1
-            if is_engine_not_answering(exc):
+            if engine_unavailable(exc):
                 waiting.append((kind, job_id))
             log.warning(
                 "job_notes_put_live_refused",
