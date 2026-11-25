@@ -269,6 +269,13 @@ from apps.api.engine.dial_lines import (
     start_dial_backoff,
 )
 from apps.api.engine.hosted_platform import hosted_agent_limits
+from apps.api.engine.outage import (
+    OUTAGE_HOLD_CODE,
+    counts_as_engine_down,
+    dial_hold_refusal,
+    note_dial_failure,
+    note_dial_success,
+)
 from apps.api.engine.publish_view import publish_digest
 from apps.api.engine.thinnest_workspace import (
     trial_agent_in_developer_workspace,
@@ -281,6 +288,7 @@ from apps.api.engine.vendor_http import (
     EngineNumberDailyLimitError,
     EngineRateLimitedError,
     EngineRejectedError,
+    EngineUnreachableError,
 )
 from apps.api.forwarding.service import has_forwarded_line
 from apps.api.ingest.lead_policy import machine_detection_on
@@ -349,11 +357,15 @@ CLIENT_NUMBER_UNAVAILABLE_RULE: Final = "client_number_unavailable"
 #: (`vendor_http.EngineRejectedError`), so the four statuses the vendor documents as refusals
 #: are separated from the ambiguous rest — by the exception, not by adding four codes here.
 #:
-#: What would let us do better STILL is a vendor-side idempotency key on the dial request:
-#: with one, a retry is safe whatever the failure was, including the 5xx half. No adapter
-#: sends one, which is why the 5xx half stays "the phone may be ringing".
+#: The 5xx and read-timeout half stays "the phone may be ringing" at the moment it fails.
+#: It is settled afterwards, not guessed: ThinnestAI's dial carries our `calls.id` as its
+#: `reference` and `Idempotency-Key` (`engine/thinnest.start_outbound_call`), and the call is
+#: looked up by that reference once the engine answers again (`FindsPlacedCalls`).
 DIAL_NOT_PLACED_CODES = frozenset(
     {
+        # Refused by `dispatch_call` while the engine is held for not answering
+        # (`engine/outage.py`), before the intent row is written.
+        OUTAGE_HOLD_CODE,
         # 429 with the ladder exhausted. The adapter's own note says a throttle "says
         # nothing about the request", and it is raised instead of sending it on.
         "engine_rate_limited",
@@ -425,12 +437,18 @@ def dial_was_not_placed(exc: BaseException) -> bool:
     a tenant's face — *"it may have started the call anyway ... calling again could ring
     them twice"* — about a request the vendor threw away unread.
 
-    Anything else is still "the phone may be ringing": every 5xx, every transport failure,
-    and every 4xx the vendor does not document. See `REQUEST_REFUSED_STATUSES` for why
-    that default cannot be relaxed by reasoning about which statuses feel safe.
+    A transport failure raised before the request was written (no connection could be
+    made, `vendor_http.EngineUnreachableError.request_sent` False) is the third way: the
+    vendor never saw it.
+
+    Anything else is still "the phone may be ringing": every 5xx, every other transport
+    failure, and every 4xx the vendor does not document. See `REQUEST_REFUSED_STATUSES`
+    for why that default cannot be relaxed by reasoning about which statuses feel safe.
     """
     if isinstance(exc, EngineRejectedError):
         return exc.request_refused
+    if isinstance(exc, EngineUnreachableError):
+        return not exc.request_sent
     return isinstance(exc, ProblemError) and exc.code in DIAL_NOT_PLACED_CODES
 
 
@@ -6786,6 +6804,8 @@ async def dispatch_call(
     origin = _dial_origin(dial_ref, caller, trial=trial is not None)
     if engine_capped and (held := await dial_backoff_refusal(origin)) is not None:
         raise held
+    if (engine_down := await dial_hold_refusal()) is not None:
+        raise engine_down
 
     call_id = uuid7()
     intent_engine_call_id = unconfirmed_engine_call_id(call_id)
@@ -6949,6 +6969,8 @@ async def dispatch_call(
         code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
         if engine_capped and isinstance(exc, EngineRateLimitedError | EngineNumberDailyLimitError):
             await start_dial_backoff(exc.retry_after_s, scope=exc.scope, origin=origin)
+        if counts_as_engine_down(exc):
+            await note_dial_failure()
         if dial_was_not_placed(exc):
             await _close_unplaced_dial(
                 tenant_id,
@@ -6968,6 +6990,7 @@ async def dispatch_call(
     # every caller as "not placed", and the campaign and call-back loops then ring the
     # person again (D-841). Both writes below are bookkeeping; each one that fails is
     # logged and alarmed, and the handle is returned.
+    await note_dial_success()
     if await _confirm_dial(tenant_id, call_id=call_id, handle=handle):
         await _recall_if_stopped_while_dialling(tenant_id, call_id=call_id, phone_e164=phone_e164)
     if lead_id is not None:

@@ -76,6 +76,7 @@ from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.engine.dial_lines import LINES_BUSY_RULE
+from apps.api.engine.outage import ENGINE_DOWN_CODES
 from apps.api.engine.vendor_http import NUMBER_DAILY_LIMIT_CODE
 from apps.api.follow_ups import runner as follow_up_runner
 from apps.api.follow_ups.definition import CallStep, first_step
@@ -90,9 +91,15 @@ log = get_logger(__name__)
 #: The dial refusals that say the calling account or number had no line, slot or daily
 #: allowance free, not that this lead may not be called: the call is booked as a call-back
 #: instead of being lost. A number that could not be lent to the agent about to dial is the
-#: same kind of moment: the vendor's re-point failed, nothing was sent, and it clears.
+#: same kind of moment: the vendor's re-point failed, nothing was sent, and it clears. So is a
+#: phone system that could not be reached, or is held for not answering (`engine/outage.py`).
 LINE_REFUSALS: frozenset[str] = frozenset(
-    {LINES_BUSY_RULE, NUMBER_DAILY_LIMIT_CODE, CLIENT_NUMBER_UNAVAILABLE_RULE}
+    {
+        LINES_BUSY_RULE,
+        NUMBER_DAILY_LIMIT_CODE,
+        CLIENT_NUMBER_UNAVAILABLE_RULE,
+        *ENGINE_DOWN_CODES,
+    }
 )
 
 #: Gate refusals about the CLOCK or the whole PLATFORM, never about this person: outside

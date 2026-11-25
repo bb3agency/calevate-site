@@ -489,8 +489,15 @@ Read the two columns apart — they are different incidents wearing one alarm:
   record (D-31): it re-reads executions every ten minutes and repairs what the webhooks
   missed. Expect `reconciliation_repairs{kind=missing_call}` to rise afterwards — that is
   the design working, not a second incident.
-- **Dials attempted during the outage burned a contact attempt each.** They come back
-  through the retry ladder; a campaign may exhaust contacts early if the outage is long.
+- **Dials are held, not burned.** Two dials in a row with no answer (or a 5xx) hold every
+  outbound dial (`engine_dial_hold`, `apps/api/engine/outage.py`). Held contacts and
+  call-backs wait with their attempt refunded; no schedule fires while held. A read probe
+  every 30 seconds lifts the hold by itself, and the first two minutes after it dial at half
+  the line budget.
+- **A dial whose answer was lost** (a read timeout on `POST /calls`) keeps its contact
+  `dialing`. Ten minutes on, once the engine answers, it is looked up by our reference:
+  found, it is adopted like any other call; not found, it is closed `dial_lost` and the
+  person is retried with the attempt refunded. Such a campaign cannot complete until then.
 - **Publishes failed.** An agent whose publish failed is NOT live. Re-publish and confirm
   from the agent's own screen after the engine recovers.
 - **Nothing is dead-lettered by this.** Do not run an outbox replay; that is a different
@@ -498,9 +505,9 @@ Read the two columns apart — they are different incidents wearing one alarm:
 
 ### 9.3 If it is sustained
 
-Halt outbound with the big red switch rather than letting campaigns grind their contacts'
-retry budgets against a dead vendor — every attempt spent now is one not available when the
-platform comes back. Inbound is unaffected by the switch and by definition already broken
+The dial hold already stops campaigns spending attempts against a dead vendor, so the big
+red switch is not needed for that. Throw it only if the vendor itself tells you calls may be
+placed late or twice. Inbound is unaffected by the switch and by definition already broken
 if the engine is down.
 
 ## What NOT to do

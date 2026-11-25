@@ -259,6 +259,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # ── The voice path ────────────────────────────────────────────────────────
     # A FLEET-WIDE vendor outage: dials, publishes and the poller are all down at once.
     "engine_error_spike": "page",
+    # Every outbound dial on the platform is held until the voice platform answers again.
+    "engine_dial_hold": "page",
+    # One dial refused while that hold is on; the hold itself is the page.
+    "engine_outage_hold": "record",
     # Its own index row says "individually routine; it feeds `engine_error_spike`" — so
     # the spike is the alarm and this is the input. Mailing both means mailing the same
     # outage ten times before the one that means something arrives.

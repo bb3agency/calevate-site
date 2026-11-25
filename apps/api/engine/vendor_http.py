@@ -109,49 +109,31 @@ REQUEST_TIMEOUT_S = 10.0
 #    minutes. A `Retry-After` longer than the ceiling is not slept through: it is
 #    reported as `transient`, which is the caller's cue to reschedule the work.
 #
-# **AND THERE IS NO CIRCUIT BREAKER.**
+# **FAILURES HOLD THE DIALS; SLOWNESS DOES NOT.**
 #
-# THE CASE A BREAKER WOULD COVER IS NOT 429, IT IS SLOWNESS. `REQUEST_TIMEOUT_S` bounds
-# ONE call, never the aggregate, so a vendor degrading to nine-second responses trips
-# nothing above — every request succeeds — while each one holds its caller for nine
-# seconds. That is the uncovered shape, and the question is whether anything else already
-# bounds it. Read against the two callers, something does:
+# A vendor that FAILS dials — no answer, or a 5xx — holds every outbound dial platform-wide
+# (`engine/outage.py`): two such dials in a row trip it, a read probe (`GET /calls?
+# reference=`, never `POST /calls`) lifts it, and each dial it stops is refused under
+# `engine_outage_hold`, a code that proves nothing rang, so the contact is refunded rather
+# than silently skipped. That is why the hold lives at the dial gate and not in this
+# ladder: here it would also refuse publishes and reads the caller can retry by hand.
 #
-# * **The dial path is bounded twice over.** `campaign_dispatch._tick_lease` is a
-#   platform-wide single-flight lease, so a slow tick cannot be joined by the next one
-#   thirty seconds later — the second tick takes no lease, dials nothing and exits. And
-#   within a tick the dials are SERIAL (`_dispatch_for_campaign` awaits one contact at a
-#   time) and the tick's whole spend is capped by the outbound line pool
-#   (`engine/dial_lines.outbound_line_pool`, three lines on a five-call workspace). So
-#   the worst case is a handful of sequential ten-second calls, inside both
-#   `WorkerSettings.job_timeout` (300s) and `TICK_LEASE_TTL_S` (330s). A degraded vendor
-#   slows dialling; it cannot accumulate.
-# * **The polling path is bounded by the job, and its failure is already alarmed.**
-#   `pipeline.reconcile_outstanding_calls` probes up to `OUTSTANDING_PROBE_BUDGET` (200)
-#   executions serially, which at ten seconds each does NOT fit in `job_timeout` — so arq
-#   cancels the tick, and a cron cancelled three times running is the alert
-#   `apps/workers/settings.py` already raises. The degradation surfaces as a named
-#   incident rather than as silence.
+# A vendor that is SLOW but answering trips nothing, by design. `REQUEST_TIMEOUT_S` bounds
+# one call, and the aggregate is bounded elsewhere:
 #
-# WHAT A BREAKER WOULD COST, against that. It is only useful if its state is SHARED — the
-# four deployables are separate processes and a per-process breaker learns nothing from
-# the other three — so it is a new Redis key with its own consistency, its own failure
-# mode when Redis is the thing that is down, and its own half-open probe. On this vendor
-# the half-open probe is the problem that decides it: the endpoint whose slowness we care
-# about is `POST /call`, which is NOT idempotent, so "send one request to see if the
-# vendor is back" is a live phone call to a real person placed by a state machine rather
-# than by the compliance gate. An OPEN breaker is worse still — it refuses dials that
-# `check_dispatch` has already cleared, which is a campaign that silently stops with no
-# refusal recorded against any contact.
+# * **The dial path.** `campaign_dispatch._tick_lease` is a platform-wide single-flight
+#   lease, the dials inside a tick are serial, and the tick's spend is capped by the
+#   outbound line pool (`engine/dial_lines.outbound_line_pool`). The worst case is a
+#   handful of sequential ten-second calls, inside `WorkerSettings.job_timeout` (300s) and
+#   `TICK_LEASE_TTL_S` (330s).
+# * **The polling path.** `pipeline.reconcile_outstanding_calls` probes up to
+#   `OUTSTANDING_PROBE_BUDGET` (200) executions serially; at ten seconds each arq cancels
+#   the tick, and a cron cancelled three times running is alarmed in
+#   `apps/workers/settings.py`.
 #
-# So: bounded elsewhere, alarmed elsewhere, and the mechanism would put an unsolicited
-# call in the hands of a timer. The gap this leaves is honest and named — a vendor that is
-# slow but NOT failing makes campaigns dial slowly and makes reconciliation ticks die on
-# `job_timeout`, and neither is repaired by tripping. It is also the gap the existing
-# alarm cannot see: `engine/health.record_engine_failure` counts 5xx and unreachable
-# minutes into `engine_error_spike`, i.e. FAILURES, and a nine-second 200 is not one. If
-# that ever needs a control it is a LATENCY signal into that same surface — which already
-# has the table, the window and the page — not a breaker in front of the dial.
+# `engine/health.record_engine_failure` counts FAILURES into `engine_error_spike`; a
+# nine-second 200 is not one. If slowness ever needs a control it is a latency signal into
+# that surface, not a second hold.
 
 #: The most one JSON answer from a vendor may carry, decoded. A page of calls with their
 #: transcripts is a few megabytes; the cap exists so a misbehaving edge or proxy cannot
@@ -241,6 +223,48 @@ class EngineNumberDailyLimitError(ProblemError):
 def number_daily_limit_error(retry_after_s: float | None = None) -> EngineNumberDailyLimitError:
     """`engine_number_daily_limit`: the calling number's daily allowance is used up."""
     return EngineNumberDailyLimitError(retry_after_s=retry_after_s)
+
+
+#: The code a request is reported under when the voice platform gave no answer at all.
+ENGINE_UNREACHABLE_CODE: Final = "engine_unreachable"
+
+#: Transport failures raised before a single byte of the request was written: no
+#: connection was made (DNS, refused, TLS handshake), none was free in the pool, or the URL
+#: could not be sent at all. Every other `httpx.HTTPError` — a read or write timeout, a
+#: reset, a protocol error mid-response — can follow a request the vendor received and
+#: acted on, so it stays "may have happened".
+_NOT_SENT_TRANSPORT_ERRORS: Final = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.PoolTimeout,
+    httpx.UnsupportedProtocol,
+)
+
+
+class EngineUnreachableError(ProblemError):
+    """`engine_unreachable`, saying whether the request could have reached the vendor.
+
+    Same code, kind and wording for every reader keyed on `code`. `request_sent` is what
+    lets the dial path tell a connection that was never made (`ConnectError`: nobody was
+    rung, so the dial can be retried) from a read timeout on `POST /calls`, after which the
+    vendor may have placed the call (`agents.service.dial_was_not_placed`).
+    """
+
+    def __init__(self, *, request_sent: bool) -> None:
+        super().__init__(
+            kind="dependency",
+            # `ENGINE_UNREACHABLE_CODE`, spelled out for the alarm-wiring scan.
+            code="engine_unreachable",
+            title="Voice engine unreachable",
+            detail="The voice platform did not respond.",
+            failure_stage="CORE_LOGIC",
+        )
+        self.request_sent = request_sent
+
+
+def unreachable_error(exc: httpx.HTTPError) -> EngineUnreachableError:
+    """The `engine_unreachable` error for a transport failure, sent or not."""
+    return EngineUnreachableError(request_sent=not isinstance(exc, _NOT_SENT_TRANSPORT_ERRORS))
 
 
 #: One `engine_number_daily_limit` alarm per calling number per window. A campaign keeps
@@ -835,13 +859,7 @@ async def _vendor_response(
                 "engine_unreachable",
                 extra={"engine": engine, "route": route, "error": type(exc).__name__},
             )
-            raise ProblemError(
-                kind="dependency",
-                code="engine_unreachable",
-                title="Voice engine unreachable",
-                detail="The voice platform did not respond.",
-                failure_stage="CORE_LOGIC",
-            ) from exc
+            raise unreachable_error(exc) from exc
         response = capped.response
         if capped.overflowed:
             # Refused rather than truncated: a cut JSON document either fails to parse or,
@@ -1151,6 +1169,7 @@ async def vendor_audio_request(
 __all__ = [
     "AUDIO_MAX_BYTES",
     "CPS_LIMIT_TYPE",
+    "ENGINE_UNREACHABLE_CODE",
     "INSUFFICIENT_BALANCE_REASONS",
     "LINES_BUSY_CODE",
     "NUMBER_DAILY_LIMIT_CODE",
@@ -1166,12 +1185,14 @@ __all__ = [
     "EngineNumberDailyLimitError",
     "EngineRateLimitedError",
     "EngineRejectedError",
+    "EngineUnreachableError",
     "ThrottleScope",
     "assert_safe_vendor_path",
     "lines_busy_error",
     "number_daily_limit_error",
     "recipient_opted_out_error",
     "throttle_delay_s",
+    "unreachable_error",
     "vendor_audio_request",
     "vendor_request",
 ]

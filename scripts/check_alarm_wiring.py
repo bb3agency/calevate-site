@@ -253,6 +253,22 @@ def _module_constants(tree: ast.Module) -> dict[str, str]:
     return constants
 
 
+def _constructs_problem(node: ast.Call) -> bool:
+    """`ProblemError(...)`, or a subclass's `super().__init__(...)` naming a `code`: both
+    build the error the handler relays into `alert()`."""
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id == "ProblemError"
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "__init__"
+        and isinstance(func.value, ast.Call)
+        and isinstance(func.value.func, ast.Name)
+        and func.value.func.id == "super"
+        and any(kw.arg == "code" for kw in node.keywords)
+    )
+
+
 def _literal_code(node: ast.expr) -> str | None:
     """The alarm a code expression names, or None when it is a runtime value.
 
@@ -334,7 +350,7 @@ def raised_codes() -> tuple[dict[str, set[str]], dict[str, set[str]], list[str]]
                     )
             # (3) a ProblemError with a failure_stage is relayed into alert() verbatim by
             # `core/errors.install_error_handlers`, so its `code` IS an alarm code.
-            if isinstance(node.func, ast.Name) and node.func.id == "ProblemError":
+            if _constructs_problem(node):
                 keywords = {kw.arg: kw.value for kw in node.keywords}
                 # ⚠ **AN OMITTED `failure_stage` IS NOT AN OMITTED ALARM, AND THIS SCAN
                 # USED TO ASSUME IT WAS.** `ProblemError.__init__` DEFAULTS the stage to
