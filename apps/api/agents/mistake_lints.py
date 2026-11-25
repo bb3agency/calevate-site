@@ -379,11 +379,16 @@ def _moved_on_unconfirmed(script: CallScript, _context: LintContext) -> list[str
     with_exit: set[int] = set()
     for i, (stage, step) in enumerate(zip(script.stages, steps, strict=True)):
         first.setdefault(step, i)
-        if stage.branches:
+        # An Otherwise is somewhere to go when the outcome clearly cannot be reached
+        # (`OUTCOMES_LEAD`), and the agent stays on the step until then. Asking for a way out
+        # there made the repair add "cannot or will not reach it -> call back" to every guided
+        # step, when a call back is the last resort (founder, 25 Nov 2026).
+        if stage.branches or stage.otherwise:
             with_exit.add(step)
     return [
-        f"stages.{i}.instruction: step {step} has an outcome and no way out; say what to do "
-        "when the person cannot or will not reach it, so the agent never moves on without it."
+        f"stages.{i}.instruction: step {step} has an outcome and nowhere to go if it cannot "
+        "be reached; give it an Otherwise, and a way out to a call back only for someone who "
+        "still cannot after being guided step by step."
         for step, i in sorted(first.items())
         if step in has_outcome and step != last and step not in with_exit
     ]

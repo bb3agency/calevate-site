@@ -117,7 +117,12 @@ SYSTEM_PROMPT: Final = (
     "- new_field: a detail that serves what this campaign or line is for (source purpose), "
     "that the script asks callers and the owner would act on (source script), or that "
     "callers keep giving and the business would act on (source calls); never business or "
-    "facts alone. When the current lead details are EMPTY, propose the starting set: 3 to "
+    "facts alone. A new detail records something NONE of the current details records, even "
+    "in other words: never a second outcome, status or progress detail beside one already "
+    "there, and never a detail whose answer can be read off another one's choices (a yes/no "
+    "follow-up beside an outcome with a follow-up choice). When an existing detail nearly "
+    "fits, add_choices to it instead. When the current lead details are EMPTY, propose the "
+    "starting set: 3 to "
     f"{MAX_FIELD_SUGGESTIONS} new details, the first recording whether the aim was met. "
     "Never a detail for the "
     "caller's name, phone number, preferred time, language, notes or what they want: every "
@@ -278,11 +283,57 @@ def suggestions_from_model(raw: dict[str, Any], inputs: Inputs) -> list[Suggesti
             continue
         if not applicable(suggestion, inputs.fields):
             continue
+        if suggestion.field is not None and restates(
+            suggestion.field, [*inputs.fields, *(s.field for s in out if s.field is not None)]
+        ):
+            continue
         ids.add(suggestion.id)
         if suggestion.field is not None:
             taken.add(suggestion.field.key)
         out.append(suggestion)
     return out
+
+
+#: Words a detail's label shares with many unrelated details ("Phone Type", "Call Type";
+#: "Installation Status", "Payment Status"), so sharing one says nothing about overlap.
+_GENERIC_WORDS: Final = frozenset(
+    {
+        "the", "of", "and", "for", "to", "a", "an", "their", "is", "by", "in", "on",
+        "call", "calls", "caller", "callers", "lead", "leads", "person", "customer",
+        "type", "kind", "level", "status", "detail", "details", "info", "information",
+        "needed", "required", "preferred", "primary", "main", "current",
+    }
+)  # fmt: skip
+
+
+def _words(text: str) -> set[str]:
+    spaced = "".join(ch if ch.isalnum() else " " for ch in text.lower())
+    return {w for w in spaced.split() if len(w) > 2 and w not in _GENERIC_WORDS}
+
+
+def restates(candidate: ExtractionField, fields: list[ExtractionField]) -> bool:
+    """Whether a new detail records what one already there records, in other words.
+
+    Owners read the suggestions as a list of things they are not recording yet; on 25 Nov 2026
+    a campaign that had "Interaction Outcome", "Installation Status" and "Setup Progress" was
+    offered "Call Outcome" (its choices those three details again) and "Follow Up Needed"
+    (one of that outcome's own choices). The model is told not to, and this holds it to that:
+    a new detail is the same as one that exists when their labels share a word that names what
+    is recorded ("Call Outcome" / "Interaction Outcome"), when half its choices are choices of
+    one detail already there, or when its label is itself a choice of one ("Follow Up Needed"
+    beside a "Follow-up required" choice), since that answer is read off the other detail.
+    """
+    label = _words(candidate.label)
+    mine = {normalise(v) for v in candidate.enum_values or []}
+    for field in fields:
+        if label & _words(field.label):
+            return True
+        theirs = [normalise(v) for v in field.enum_values or []]
+        if mine and len(mine & set(theirs)) * 2 >= len(mine):
+            return True
+        if label and any(label <= _words(choice) for choice in field.enum_values or []):
+            return True
+    return False
 
 
 def _one(

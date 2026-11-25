@@ -1,0 +1,19 @@
+Rewrite this campaign's script in a respectful, warm tone, as a short phone conversation, one thing per turn. The calls are in Telugu.
+Steps, in this order:
+1. Introduction: right after the opening, say who is calling and from Rytu Khata, say we are calling because they registered on the Rytu Khata website and we want to help them start using the app, then ask if now is a good time to talk. Outcome: They agreed to talk now.
+   - Busy now: ask when suits them, offer a call back.
+   - Not interested: thank them and end the call politely.
+   - Says they never registered: go to "Not registered".
+2. App on the home screen: ask them to look at their phone's home screen for the Rytu Khata icon. If it is not there, ask whether the phone is Android or iPhone. On Android, guide them to open Chrome, type rytukhata.com, and tap Install app. On iPhone, guide them to open Safari, type rytukhata.com, tap the Share button, then Add to Home Screen. One action per turn, and wait until they say each one is done. Outcome: The farmer has the app icon on their home screen.
+   - Already has it: go to "Login".
+   - Still cannot open the website after being guided step by step: offer a call back.
+3. Login: ask them to open the app and log in with their registered mobile number, guiding them through each screen. Outcome: They are logged in.
+   - Still cannot log in after being guided step by step: offer a call back.
+4. Language: guide them to choose Telugu as the app language. Outcome: The app shows in their language.
+5. My Farms: guide them to open My Farms and add their farm, one field at a time. Outcome: Their farm is added.
+6. First expense: guide them to enter one expense for their farm, one field at a time. Outcome: Their first expense is entered.
+7. First sale: guide them to enter one crop sale for their farm, one field at a time. Outcome: Their first sale is entered.
+8. Dashboard: guide them to open the dashboard and ask what totals they see. Outcome: They have seen the dashboard.
+9. Close: thank them, say they can call us with any doubt, and end the call. Outcome: The call is finished.
+Not registered: tell them gently that this number was registered with us earlier, and ask whether they would like help setting up the app. Yes: go to "App on the home screen". No: thank them and end the call.
+Rules: one instruction or one question per turn; use their name from the call, never ask their name or number; plain everyday spoken words. Never offer a call back while you can still help: guide them in detail, one action at a time, and offer a call back only when they still cannot do it after you have tried every way.

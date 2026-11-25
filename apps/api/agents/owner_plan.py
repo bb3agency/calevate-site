@@ -140,8 +140,20 @@ _NUMBER_MARK: Final = re.compile(r"(?:^|(?<=\s))(\d{1,2})[.)]\s+", re.MULTILINE)
 _QUOTES: Final = "\"'" + "".join(map(chr, (0x201C, 0x201D, 0x2018, 0x2019)))
 _LABEL: Final = re.compile(
     rf"(?:^|(?<=[.!?]\s)|(?<=[.!?][{_QUOTES})]\s)|(?P<bullet>(?:^|(?<=\s))[-*•]\s+))"
-    rf"(?P<label>[^\W\d_][^:.!?{_QUOTES}\n]{{0,59}}?):(?=\s|$)",
+    rf"(?P<label>[^\W\d_][^:.!?{_QUOTES}\n]{{0,139}}?):(?=\s|$)",
     re.MULTILINE,
+)
+#: A bullet's condition may be a whole clause ("Still cannot open the website after being
+#: guided step by step:"); a label that is not a bullet stays short, so a sentence that merely
+#: has a colon in it is not read as one.
+_BULLET_LABEL_WORDS: Final = 20
+#: Labels that open the request's general part after the steps ("Rules: one question per
+#: turn ..."): the plan ends there, so they are never read as a way out of the last step or
+#: of a side step.
+_CLOSING_LABEL: Final = re.compile(
+    r"(?:^|(?<=[.!?]\s)|(?<=[.!?][\"')]\s))(?:general\s+)?"
+    r"(?:rules?|notes|throughout|for\s+(?:every|each)\s+(?:step|turn))\s*:",
+    re.IGNORECASE | re.MULTILINE,
 )
 _LABEL_WORDS: Final = 8
 _OUTCOME_LABELS: Final = frozenset({"outcome", "done when", "result", "expected outcome", "goal"})
@@ -171,7 +183,12 @@ class _Segment:
 
 def _segments(text: str) -> tuple[str, list[_Segment]]:
     """`text` cut at its labels: what comes before the first, and each labelled part."""
-    marks = [m for m in _LABEL.finditer(text) if len(m.group("label").split()) <= _LABEL_WORDS]
+    marks = [
+        m
+        for m in _LABEL.finditer(text)
+        if len(m.group("label").split())
+        <= (_BULLET_LABEL_WORDS if m.group("bullet") is not None else _LABEL_WORDS)
+    ]
     head = text[: marks[0].start()] if marks else text
     out = [
         _Segment(
@@ -252,6 +269,10 @@ def owner_plan(text: str | None) -> OwnerPlan | None:
     items = _numbered_items(text)
     if len(items) < 2:
         return None
+    number, last_body = items[-1]
+    closing = _CLOSING_LABEL.search(last_body)
+    if closing is not None:
+        items[-1] = (number, last_body[: closing.start()])
     parsed = [_segments(body) for _n, body in items]
     if any(head or not segs or segs[0].start != 0 for head, segs in parsed):
         return None

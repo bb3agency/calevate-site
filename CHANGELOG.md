@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.64 — 26-Nov-2026
+
+- A long way out in your step list ("Still cannot log in after being guided step by step:
+  offer a call back") is read as a way out, not folded into the step's outcome, and a "Rules:"
+  line after your steps is no longer read as a way out.
+- Pip no longer adds "cannot or will not reach it → call back" to every guided step.
+- Suggested lead details never repeat one the campaign already records, such as a second
+  outcome or a yes/no that another detail's choices already answer.
+
 ## 0.5.63 — 25-Nov-2026
 
 - A side step in your list, like "Not registered", becomes a second scenario of the step
