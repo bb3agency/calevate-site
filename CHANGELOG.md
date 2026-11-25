@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.49 — 25-Nov-2026
+
+- Each campaign and Inbound line guides callers on their phone when its own script does,
+  whatever the agent's screen switch says; a booking line on the same agent no longer
+  gets screen guidance.
+- "Can you see it?" is asked after a silence only where the script guides the phone;
+  elsewhere the agent asks whether they are still on the line.
+- A campaign test call carries your name, so the agent greets you by it instead of
+  asking.
+
 ## 0.5.48 — 25-Nov-2026
 
 - Pip's script checks catch more and repair it: a step line that asks the caller about
