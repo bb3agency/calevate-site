@@ -3,13 +3,16 @@
 /**
  * THE CALL FLOW IN STEPS AND SCENARIOS (founder, 17 Nov 2026). Each column is a step of the
  * call; each box in it a scenario (2.1, 2.2, …). A scenario's green dot leads to the
- * scenarios it can go on to, drawn as arrows into the left of their boxes. A box is chosen
- * with a click (its editor opens beside the picture), and a right click offers what can be
- * done to it. Dragging from the dot onto another box links them; a link is removed where it
- * is drawn (`Columns`), from its box's menu, or from the "Next" chips when stacked.
+ * scenarios it can go on to, drawn as arrows into the left of their boxes. A way out that
+ * ends the call (call back, end, hand over) is not an arrow but a chip on its own box,
+ * "Busy → Offer a call back" (founder, 25 Nov 2026: a line per end crossed every step and
+ * overwhelmed a non-technical owner). A box is chosen with a click (its editor opens beside
+ * the picture), and a right click offers what can be done to it. Dragging from the dot onto
+ * another box links them; a link is removed where it is drawn or from its chip (`Columns`),
+ * from its box's menu, or from the "Next" chips when stacked.
  *
  * The call's opening is the first box, left of step 1 and linked into it, because every call
- * starts with those words and whether now suits; "not now" points to the end it reaches.
+ * starts with those words and whether now suits; its "Not now" chip names the end it reaches.
  * How the links are routed is `flowLayout`'s.
  *
  * Laid out by the steps, not by hand: the columns ARE the structure, so a picture somebody
@@ -19,13 +22,19 @@
 
 import {
   ArrowDown,
+  ArrowRight,
   ArrowUp,
+  CalendarClock,
   LoaderCircle,
   MoreHorizontal,
+  PhoneOff,
   Plus,
+  Repeat,
   Trash2,
   Unlink,
+  UserRound,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import {
   Fragment,
@@ -67,6 +76,7 @@ import {
 import {
   CALL_BACK,
   END,
+  HAND_OVER,
   SPECIAL_TARGETS,
   chars,
   saysScenarioLine,
@@ -79,17 +89,16 @@ import {
   BAND_INSET,
   BOX_H,
   BOX_W,
+  CHIP_LINE,
   DROP_MARGIN,
-  END_H,
   HEAD_H,
-  NOT_NOW_GAP,
   OPENING_KEY,
-  ROW_GAP,
   arrowHead,
   curve,
   layoutFlow,
   thenOf,
   type Box,
+  type Exit,
   type LinkVia,
   type Point,
 } from "./flowLayout";
@@ -111,7 +120,79 @@ const THEN_HINT = "A dashed line is the call moving on to the next step by itsel
 export function thenWords(item: Placed, steps: number, named: (id: string) => string): string {
   const then = thenOf(item, steps);
   if (then.kind === "otherwise") return `Otherwise ${named(then.target)}`;
+  if (then.kind === "stay") return STAYS;
   return then.kind === "step" ? `Then step ${then.step}` : "Then end of call";
+}
+
+const STAYS = "Otherwise stays on this step";
+
+/** Each end point's mark on a way-out chip, so the three read apart before they are read. */
+const END_ICONS: Record<string, LucideIcon> = {
+  [END]: PhoneOff,
+  [CALL_BACK]: CalendarClock,
+  [HAND_OVER]: UserRound,
+};
+
+/** An end's name on a chip, short so the way out's own words keep most of a card's width;
+ * a screen reader and the tooltip get the full `END_NAMES` wording. */
+const END_SHORT: Record<string, string> = {
+  [END]: "End call",
+  [CALL_BACK]: "Call back",
+  [HAND_OVER]: "To a person",
+};
+
+/**
+ * A way out that ends the call or stays put, on the card it leaves: "Busy → Call back". The
+ * words truncate and the end's name never does, so a narrow card still says where the call
+ * goes. `onRemove` gives it the × the drawn link used to carry.
+ */
+function ExitChip({
+  when,
+  target,
+  self,
+  removeLabel,
+  onRemove,
+}: {
+  when: string;
+  target: string;
+  /** The way out goes back into the scenario it leaves. */
+  self: boolean;
+  removeLabel?: string;
+  onRemove?: () => void;
+}) {
+  const Icon = self ? Repeat : (lookup(END_ICONS, target) ?? ArrowRight);
+  const end = self ? "Stays on this step" : (lookup(END_NAMES, target) ?? target);
+  const short = self ? "Stays" : (lookup(END_SHORT, target) ?? end);
+  return (
+    <li
+      data-exit={target}
+      title={when ? `${when}: ${end}` : end}
+      className={`flex h-5 max-w-full min-w-0 items-center gap-1 rounded-full border border-line bg-surface-muted text-[11px] text-ink-muted ${onRemove ? "pl-2 pr-0.5" : "px-2"}`}
+    >
+      {when && (
+        <>
+          <span className="min-w-0 truncate">{when}</span>
+          <ArrowRight aria-hidden className="h-3 w-3 shrink-0 text-ink-faint" />
+          <span className="sr-only">: </span>
+        </>
+      )}
+      <Icon aria-hidden className="h-3 w-3 shrink-0" />
+      <span aria-hidden className="shrink-0 font-medium text-ink">
+        {short}
+      </span>
+      <span className="sr-only">{end}</span>
+      {onRemove && (
+        <button
+          type="button"
+          aria-label={removeLabel}
+          className="pointer-events-auto relative ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-ink-faint transition-transform duration-press ease-out before:absolute before:-inset-2 before:content-[''] hover:bg-ink/[0.06] hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand active:scale-[0.97] motion-reduce:transition-none"
+          onClick={onRemove}
+        >
+          <X aria-hidden className="h-3 w-3" />
+        </button>
+      )}
+    </li>
+  );
 }
 
 /**
@@ -589,8 +670,7 @@ function Columns({
       layoutFlow(items, SPECIAL_TARGETS, opening ? { notNow: opening.notNow } : null),
     [items, opening],
   );
-  const { colX, boxes, usedEnds, width, height, cardTop } = layout;
-  const endX = colX(steps + 1);
+  const { colX, boxes, exits, width, height, cardTop } = layout;
 
   const local = (e: { clientX: number; clientY: number }): Point => {
     const r = plane.current?.getBoundingClientRect();
@@ -659,6 +739,7 @@ function Columns({
       ?.querySelector<HTMLButtonElement>(":scope > button")
       ?.focus();
   };
+  const removeExit = (from: string, x: Exit) => removeLink({ from, to: x.target, via: x.via });
 
   const activeLink = layout.links.some((l) => l.key === (chosenLink ?? hoverLink))
     ? (chosenLink ?? hoverLink)
@@ -756,12 +837,7 @@ function Columns({
           <button
             type="button"
             className="absolute inline-flex items-center gap-1 rounded-card border border-dashed border-line bg-surface px-3 py-2 text-meta text-ink-muted hover:border-ink-faint hover:text-ink disabled:opacity-40"
-            style={{
-              left: endX,
-              top: usedEnds.length
-                ? cardTop + usedEnds.length * (END_H + ROW_GAP) + 8
-                : cardTop,
-            }}
+            style={{ left: colX(steps + 1), top: cardTop }}
             disabled={full}
             onClick={() => onAdd(steps + 1)}
           >
@@ -813,7 +889,7 @@ function Columns({
           {drawn.map((l) => (
             <path
               key={`${l.key}-head`}
-              d={arrowHead(l.end, l.dir)}
+              d={arrowHead(l.end)}
               style={{ fill: l.color, opacity: l.lit ? (l.via === "then" ? 0.8 : 1) : 0.25 }}
             />
           ))}
@@ -842,51 +918,16 @@ function Columns({
             pointer={point(OPENING_KEY)}
           />
         )}
-        {layout.notNow && (
-          <>
-            <span
-              className="absolute text-[11px] font-medium text-ink-muted"
-              style={{
-                left: layout.notNow.box.x + layout.notNow.box.w / 2 + 8,
-                top: layout.notNow.box.y - NOT_NOW_GAP / 2 - 8,
-              }}
-            >
-              Not now
-            </span>
-            <span
-              className="absolute flex items-center justify-center rounded-full border border-dashed border-ink-faint bg-surface px-3 text-meta text-ink-muted"
-              style={{
-                left: layout.notNow.box.x,
-                top: layout.notNow.box.y,
-                width: layout.notNow.box.w,
-                height: layout.notNow.box.h,
-              }}
-            >
-              {lookup(END_NAMES, layout.notNow.target)}
-            </span>
-          </>
-        )}
-
-        {usedEnds.map((t) => {
-          const b = boxes.get(t) as Box;
-          return (
-            <span
-              key={t}
-              className="absolute flex items-center justify-center rounded-full border border-dashed border-ink-faint bg-surface px-3 text-meta text-ink-muted"
-              style={{ left: b.x, top: b.y, width: b.w, height: b.h }}
-              {...point(t)}
-            >
-              {lookup(END_NAMES, t)}
-            </span>
-          );
-        })}
-
         {items.map((p) => {
           const b = boxes.get(p.section.id) as Box;
           const on = selected === p.section.id;
           const wrong = issues.some((i) => i.section === p.section.id);
           const scripts = Object.keys(p.section.scripts ?? {}).length;
           const qa = p.section.qa?.length ?? 0;
+          const ends = exits.get(p.section.id) ?? [];
+          const then = thenOf(p, steps);
+          // An Otherwise to an end point is a chip already; the Then line would say it twice.
+          const thenShown = then.kind !== "otherwise" || !ends.some((x) => x.via === "otherwise");
           return (
             <Fragment key={p.section.id}>
             <div
@@ -906,6 +947,9 @@ function Columns({
                       ? "border-danger"
                       : "border-line hover:border-ink-faint"
                 }`}
+                // Room under the text for the chips, which sit over the button rather than in
+                // it: a chip's × is a button of its own, and a button may not hold another.
+                style={{ paddingBottom: 12 + ends.length * CHIP_LINE }}
                 onClick={() => onSelect(on ? null : p.section.id)}
                 onContextMenu={(e) => onMenu(e, p.section.id, p.step)}
               >
@@ -922,10 +966,7 @@ function Columns({
                 </span>
                 <span className="mt-auto truncate text-[11px] text-ink-faint" data-then={p.section.id}>
                   {[
-                    thenWords(p, steps, named),
-                    p.section.branches.length
-                      ? `${p.section.branches.length} ${p.section.branches.length === 1 ? "way" : "ways"} out`
-                      : null,
+                    thenShown ? thenWords(p, steps, named) : null,
                     p.section.mode === "say" ? "Exact words" : null,
                     scripts
                       ? `Script in ${scripts} ${scripts === 1 ? "language" : "languages"}`
@@ -936,6 +977,25 @@ function Columns({
                     .join(" · ")}
                 </span>
               </button>
+              {ends.length > 0 && (
+                <ul
+                  aria-label={`Where ${p.label} ends or stays`}
+                  className="pointer-events-none absolute inset-x-3 bottom-3 flex flex-col items-start gap-1"
+                >
+                  {ends.map((x) => (
+                    <ExitChip
+                      key={x.key}
+                      when={x.via === "otherwise" ? "Otherwise" : x.when.trim()}
+                      target={x.target}
+                      self={x.target === p.section.id}
+                      removeLabel={`Remove the link from ${named(p.section.id)} to ${named(x.target)}`}
+                      onRemove={
+                        onUnlink && (() => removeExit(p.section.id, x))
+                      }
+                    />
+                  ))}
+                </ul>
+              )}
               {!readOnly && (
                 <>
                   <button
@@ -949,7 +1009,8 @@ function Columns({
                   <div
                     aria-hidden
                     title="Drag to a scenario to make it a next scenario"
-                    className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 cursor-crosshair touch-none rounded-full border-2 border-surface bg-brand-strong before:absolute before:-inset-3 before:content-['']"
+                    className="absolute -right-2 h-4 w-4 -translate-y-1/2 cursor-crosshair touch-none rounded-full border-2 border-surface bg-brand-strong before:absolute before:-inset-3 before:content-['']"
+                    style={{ top: BOX_H / 2 }}
                     onPointerDown={(e: ReactPointerEvent<HTMLDivElement>) => {
                       if (e.button !== 0) return;
                       e.stopPropagation();
@@ -977,7 +1038,8 @@ function Columns({
               {readOnly && (
                 <span
                   aria-hidden
-                  className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-surface bg-brand-strong"
+                  className="absolute -right-2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-surface bg-brand-strong"
+                  style={{ top: BOX_H / 2 }}
                 />
               )}
             </div>
@@ -1039,7 +1101,8 @@ function Columns({
 /**
  * The call's first words, the flow's first box: read-only here, since the opening is part of
  * the script and its notices are woven into it (D-971); a click opens the script where it is
- * edited. No dot: nothing links out of it but the steps it always goes on to.
+ * edited. No dot: nothing links out of it but the steps it always goes on to, and its "not
+ * now" end is a chip like every other way out to an end point.
  */
 function OpeningNode({
   box,
@@ -1071,6 +1134,7 @@ function OpeningNode({
   );
   const shell =
     "flex h-full w-full flex-col rounded-card border border-series-1/50 bg-surface p-3 text-left shadow-card";
+  const room = { paddingBottom: 12 + CHIP_LINE };
   return (
     <div
       className="absolute rounded-card"
@@ -1082,13 +1146,19 @@ function OpeningNode({
           type="button"
           aria-label={`Opening: ${opening.line || "no opening line yet"}. Edit it in the script.`}
           className={`${shell} hover:border-series-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand`}
+          style={room}
           onClick={onEdit}
         >
           {body}
         </button>
       ) : (
-        <div className={shell}>{body}</div>
+        <div className={shell} style={room}>
+          {body}
+        </div>
       )}
+      <ul aria-label="If now does not suit" className="pointer-events-none absolute inset-x-3 bottom-3 flex">
+        <ExitChip when="Not now" target={opening.notNow} self={false} />
+      </ul>
     </div>
   );
 }
@@ -1230,7 +1300,7 @@ function Stacked({
                           data-then-chip={p.section.id}
                           className={`inline-flex items-center rounded-full border border-line text-ink-muted ${onUnlink ? "py-0.5 pl-2 pr-0.5" : "px-2 py-0.5"}`}
                         >
-                          Otherwise {labelOf(p.section.otherwise)}
+                          {thenWords(p, steps, labelOf)}
                           {onUnlink && (
                             <button
                               type="button"
@@ -1258,7 +1328,11 @@ function Stacked({
                           data-next-chip={b.target}
                           className={`inline-flex items-center rounded-full border border-line tabular-nums text-ink-muted ${onUnlink ? "py-0.5 pl-2 pr-0.5" : "px-2 py-0.5"}`}
                         >
-                          {labelOf(b.target)}
+                          {/* A way out to an end point says when, as on the canvas's chip; a step's
+                              number is enough for a move to another scenario. */}
+                          {lookup(END_NAMES, b.target) !== undefined && b.when.trim()
+                            ? `${b.when.trim()} → ${labelOf(b.target)}`
+                            : labelOf(b.target)}
                           {onUnlink && (
                             <button
                               type="button"

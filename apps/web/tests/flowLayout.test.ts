@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { OPENING_KEY, layoutFlow, thenOf, type Box, type FlowLayout, type Point } from "@/app/c/[slug]/campaigns/flowLayout";
+import { BOX_H, OPENING_KEY, layoutFlow, thenOf, type Box, type FlowLayout, type Point } from "@/app/c/[slug]/campaigns/flowLayout";
 import { placed } from "@/app/c/[slug]/campaigns/scenarioModel";
 import { CALL_BACK, END, SPECIAL_TARGETS, sectionsOf } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
 import { EMPTY_SCRIPT, type ConversationStage } from "@/lib/api/script";
@@ -50,7 +50,6 @@ const inside = (p: Point, b: Box) => p.x > b.x + 1 && p.x < b.x + b.w - 1 && p.y
 const cards = (l: FlowLayout): [string, Box][] => [
   ...l.boxes.entries(),
   ...(l.opening ? ([[OPENING_KEY, l.opening]] as [string, Box][]) : []),
-  ...(l.notNow ? ([["not-now", l.notNow.box]] as [string, Box][]) : []),
 ];
 
 const linkOf = (l: FlowLayout, from: string, to: string) => {
@@ -78,7 +77,7 @@ describe("call flow routing", () => {
     // It meets 1.1 at its own point, not on the opening's arrowhead.
     expect(back.end).not.toEqual(linkOf(l, OPENING_KEY, "install").end);
     const from = l.boxes.get("farms") as Box;
-    expect(back.samples[0]).toEqual({ x: from.x + from.w, y: from.y + from.h / 2 });
+    expect(back.samples[0]).toEqual({ x: from.x + from.w, y: from.y + BOX_H / 2 });
   });
 
   it("runs a link that skips a step between the rows, round the middle card", () => {
@@ -144,12 +143,67 @@ describe("call flow routing", () => {
     const stages = [stage({ id: "one", step: 1 }), stage({ id: "two", step: 1 }), stage({ id: "three", step: 2 })];
     const l = lay(stages);
     expect(l.opening).not.toBeNull();
-    const fromOpening = l.links.filter((k) => k.from === OPENING_KEY && k.kind !== "not-now").map((k) => k.to);
+    const fromOpening = l.links.filter((k) => k.from === OPENING_KEY).map((k) => k.to);
     expect(fromOpening).toEqual(["one", "two"]);
     const opening = l.opening as Box;
     expect(opening.x + opening.w).toBeLessThan((l.boxes.get("one") as Box).x);
-    expect(l.notNow?.target).toBe(CALL_BACK);
     expect(lay(stages, false).opening).toBeNull();
+  });
+});
+
+describe("ways out to an end point", () => {
+  // The founder's eight-step flow had a call back or an end on most scenarios, each drawn as a
+  // line across every step to a column of end nodes.
+  const ENDED = [
+    stage({
+      id: "intro",
+      step: 1,
+      branches: [
+        { when: "Busy", target: CALL_BACK },
+        { when: "Not interested", target: END },
+        { when: "Ready", target: "login" },
+      ],
+    }),
+    stage({ id: "login", step: 2, branches: [{ when: "Busy", target: CALL_BACK }] }),
+    stage({ id: "lang", step: 3, otherwise: "lang", branches: [{ when: "Asks again", target: "lang" }] }),
+    stage({ id: "close", step: 4, otherwise: END }),
+  ];
+
+  it("draws no line to an end point and puts each on its scenario as a chip", () => {
+    const l = lay(ENDED);
+    for (const end of SPECIAL_TARGETS) {
+      expect(l.links.filter((k) => k.to === end)).toEqual([]);
+      expect(l.boxes.has(end)).toBe(false);
+    }
+    expect(l.exits.get("intro")).toEqual([
+      { key: "intro-0", target: CALL_BACK, when: "Busy", via: "branch" },
+      { key: "intro-1", target: END, when: "Not interested", via: "branch" },
+    ]);
+    expect(l.exits.get("close")).toEqual([{ key: "close-otherwise", target: END, when: "", via: "otherwise" }]);
+    // The step-to-step branch is still a line, under the same key as before.
+    expect(linkOf(l, "intro", "login").key).toBe("intro-2");
+  });
+
+  it("draws no loop for a scenario that stays where it is", () => {
+    const l = lay(ENDED);
+    expect(l.links.filter((k) => k.from === "lang" && k.to === "lang")).toEqual([]);
+    // A branch back into itself is a chip; the Otherwise is the card's own Then line.
+    expect(l.exits.get("lang")?.map((x) => x.key)).toEqual(["lang-0"]);
+    const items = placed(sectionsOf({ ...EMPTY_SCRIPT, stages: ENDED }));
+    expect(thenOf(items[2], 4)).toEqual({ kind: "stay" });
+  });
+
+  it("makes a row as tall as its card with the most chips", () => {
+    const l = lay(ENDED);
+    const intro = l.boxes.get("intro") as Box;
+    const login = l.boxes.get("login") as Box;
+    expect(intro.h).toBeGreaterThan(112);
+    // Row 1 lines up across the columns, whatever each card holds.
+    expect(login.h).toBe(intro.h);
+    expect(login.y).toBe(intro.y);
+    for (const link of l.links)
+      for (const [id, b] of cards(l))
+        expect(link.samples.filter((p) => inside(p, b)), `${link.key} enters ${id}`).toEqual([]);
   });
 });
 
@@ -186,16 +240,16 @@ describe("the call's own order", () => {
     expect(implicit(l).filter((k) => k.from === "login")).toEqual([]);
     const otherwise = linkOf(l, "login", "farms2");
     expect(otherwise.via).toBe("otherwise");
-    // An Otherwise to an end point puts that end on the canvas.
+    // An Otherwise to an end point is a chip on its scenario, and still stops the call's order.
     const ended = lay([{ ...LOOSE[0], otherwise: END }, ...LOOSE.slice(1)]);
-    expect(ended.usedEnds).toContain(END);
-    expect(linkOf(ended, "login", END).via).toBe("otherwise");
+    expect(ended.links.filter((k) => k.from === "login")).toEqual([]);
+    expect(ended.exits.get("login")?.map((x) => x.via)).toEqual(["otherwise"]);
   });
 
   it("never doubles a link the scenario already has, nor the opening's", () => {
     const stages = [{ ...LOOSE[0], branches: [{ when: "Add farms", target: "farms" }] }, ...LOOSE.slice(1)];
     const l = lay(stages);
-    const pairs = l.links.filter((k) => k.kind !== "not-now").map((k) => `${k.from}>${k.to}`);
+    const pairs = l.links.map((k) => `${k.from}>${k.to}`);
     expect(new Set(pairs).size).toBe(pairs.length);
     expect(linkOf(l, "login", "farms").via).toBe("branch");
     expect(linkOf(l, "login", "farms2").via).toBe("then");

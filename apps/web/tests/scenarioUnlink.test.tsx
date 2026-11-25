@@ -101,6 +101,27 @@ describe("unlinking on the canvas", () => {
     expect(onUndo).toHaveBeenCalledTimes(1);
   });
 
+  it("draws the step-to-step link and puts the end of the call on 1.1 as a chip", async () => {
+    const { container } = await view().rendered;
+    await screen.findByRole("button", { name: /Scenario 1\.1/ });
+    expect(container.querySelector('path[data-link="a-0"]')).not.toBeNull();
+    expect(container.querySelector('path[data-link="a-1"]')).toBeNull();
+    expect(container.querySelector('[data-unlink="a-1"]')).toBeNull();
+    const chip = container.querySelector<HTMLElement>('[data-scenario="a"] [data-exit="end"]');
+    expect(chip?.textContent).toContain("Done");
+    expect(chip?.textContent).toContain("End the call");
+    // No end point stands on the canvas as a box of its own.
+    expect(screen.queryByText("End the call", { selector: "span.border-dashed" })).toBeNull();
+  });
+
+  it("removes a way out to an end point with its chip's ×", async () => {
+    const { onChange } = view();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Remove the link from 1.1 Android installation to End the call" }),
+    );
+    expect(targetsOf(changed(onChange), "a")).toEqual(["b"]);
+  });
+
   it("chooses a link with a click and removes it with Delete", async () => {
     const { onChange, rendered } = view();
     const { container } = await rendered;
