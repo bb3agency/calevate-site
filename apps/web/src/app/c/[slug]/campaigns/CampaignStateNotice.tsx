@@ -17,11 +17,12 @@ import {
   useOptOuts,
   type CampaignProgress,
 } from "@/lib/api/campaigns";
+import { usePhoneServiceDown } from "@/lib/api/phoneService";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
 import { Why } from "@/components/why";
-import { BLOCKER_COPY, PAUSE_COPY, blockerDestination } from "./blockerCopy";
+import { BLOCKER_COPY, OUTAGE_WAIT, PAUSE_COPY, blockerDestination } from "./blockerCopy";
 
 /**
  * WHY THIS CAMPAIGN IS NOT CALLING, when that is the case — one quiet left-rule notice.
@@ -45,7 +46,8 @@ export function CampaignStateNotice({
   canWrite: boolean;
   refusal: string | undefined;
 }) {
-  const { href } = useClientRealm();
+  const { href, session } = useClientRealm();
+  const phoneServiceDown = usePhoneServiceDown(session);
   const at = (path: string) => href(`/c/${slug}${path}`);
 
   if (progress.status === "paused" && progress.pause_reason) {
@@ -77,6 +79,15 @@ export function CampaignStateNotice({
             refusal={refusal}
           />
         )}
+      </div>
+    );
+  }
+
+  if (progress.status === "running" && phoneServiceDown) {
+    return (
+      <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
+        <p className="font-semibold">{OUTAGE_WAIT.title}</p>
+        <p className="text-ink-muted">{OUTAGE_WAIT.text}</p>
       </div>
     );
   }

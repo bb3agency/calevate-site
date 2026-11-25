@@ -26,6 +26,7 @@ import { GiveCallersTimeCard } from "@/components/improve/GiveCallersTimeCard";
 import { ImproveCard as Card } from "@/components/improve/ImproveCard";
 import { OpeningTestCard } from "@/components/improve/OpeningTestCard";
 import { RetrySpreadCard } from "@/components/improve/RetrySpreadCard";
+import { TestCallsPausedNote, useTestCallsPaused } from "@/components/phoneService";
 import {
   FIELD,
   ProblemNotice,
@@ -51,6 +52,7 @@ import {
   type CampaignWhatsAppMade,
 } from "@/lib/api/followUps";
 import { useActAccess } from "@/lib/api/hooks";
+import { TEST_CALLS_PAUSED } from "@/lib/api/phoneService";
 import { useClientRealm } from "@/lib/api/session";
 import { useTestRingsFrom } from "@/lib/api/trialCalls";
 
@@ -174,6 +176,7 @@ export function TestCallForm({
 }) {
   const { href, session } = useClientRealm();
   const from = useTestRingsFrom(session, ringsFrom ?? {});
+  const { paused, errorIsPause } = useTestCallsPaused(call.error);
   // Saving replaces the whole list, so nothing is saved or removed until the list is read:
   // a Save over a pending or failed read would drop every number already saved.
   const loaded = saved.data !== undefined;
@@ -307,11 +310,13 @@ export function TestCallForm({
           pendingLabel="Calling…"
           disabled={!canWrite || !typed}
           title={refusal}
+          waitingFor={paused ? TEST_CALLS_PAUSED : null}
           onClick={() => call.mutate({ number, numberIsMine: mine })}
         >
           Call me
         </ActionButton>
       </div>
+      {errorIsPause && !paused && <TestCallsPausedNote />}
       <p className="mt-1 text-meta text-ink-muted">
         A number you call is saved for next time. Up to 10.
       </p>
@@ -331,6 +336,7 @@ export function TestCallForm({
         </p>
       )}
       {call.error != null &&
+        !errorIsPause &&
         (isSlotsFull(call.error) ? (
           <SlotsFullProblem slug={slug} error={call.error} />
         ) : (

@@ -10,6 +10,7 @@ import { noFill } from "@/lib/copilot/types";
 import { AuditChainPanel } from "./AuditChainPanel";
 import { BusinessDetailsPanel } from "./BusinessDetailsPanel";
 import { EngineDriftPanel } from "./EngineDriftPanel";
+import { EngineHealthPanel } from "./EngineHealthPanel";
 import { KnowledgeDriftPanel } from "./KnowledgeDriftPanel";
 import { LoadShedPanel } from "./LoadShedPanel";
 import { OutboundHaltPanel } from "./OutboundHaltPanel";
@@ -289,6 +290,11 @@ export function OpsSurface() {
       </div>
 
       {state.error && <ProblemNotice error={state.error} onRetry={() => state.refetch()} />}
+
+      {/* Whether the voice platform is answering: the first thing to read in an outage. */}
+      <div id="engine-health" className="scroll-mt-4">
+        <EngineHealthPanel />
+      </div>
 
       {state.isLoading ? (
         <Skeleton rows={4} />

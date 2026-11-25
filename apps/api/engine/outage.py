@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import math
 import time
+from datetime import UTC, datetime
 from typing import Final, Protocol, runtime_checkable
 
 from apps.api.core.alerting import alert, resolve_alert
@@ -169,6 +170,22 @@ async def hold_is_on() -> bool:
         return False
 
 
+async def hold_started_at() -> datetime | None:
+    """When the hold began (the epoch seconds `note_dial_failure` writes), or None when no
+    hold is on or Redis cannot say. For the client banner's "since" and the operator panel."""
+    try:
+        raw = await get_redis().get(_key("hold"))
+    except Exception as exc:
+        log.warning("engine_dial_hold_unavailable", extra={"error": type(exc).__name__})
+        return None
+    if raw is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(raw), tz=UTC)
+    except (TypeError, ValueError):
+        return None
+
+
 async def _engine_answers() -> bool:
     engine = get_engine()
     if not isinstance(engine, _ReadsPlacedCalls):
@@ -221,7 +238,8 @@ async def resume_budget(budget: int) -> int:
         return budget
     try:
         ramping = bool(await get_redis().exists(_key("resumed")))
-    except Exception:
+    except Exception as exc:
+        log.warning("engine_dial_hold_unavailable", extra={"error": type(exc).__name__})
         return budget
     return math.ceil(budget / 2) if ramping else budget
 
@@ -238,6 +256,7 @@ __all__ = [
     "counts_as_engine_down",
     "dial_hold_refusal",
     "hold_is_on",
+    "hold_started_at",
     "note_dial_failure",
     "note_dial_success",
     "outage_hold_error",

@@ -267,6 +267,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # the spike is the alarm and this is the input. Mailing both means mailing the same
     # outage ten times before the one that means something arrives.
     "engine_unreachable": "record",
+    # A save kept while the engine did not answer, its put-live queued (`engine/answering`).
+    # The outage seen from one button; `engine_dial_hold` is the page for the outage.
+    "saved_goes_live_later": "record",
     # A client's own provider (their CRM, payment or messaging account) did not answer an
     # owner's request; the owner is told to try again in a minute and nothing changed.
     # Someone else's outage, with nothing for us to do.
@@ -528,6 +531,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-720. A saved setting could not be put on one live agent after its retries; it takes
     # calls on its previous settings until somebody republishes it.
     "live_apply_agent_failed": "attention",
+    # An owner's saved line or campaign change was queued while the phone service did not
+    # answer, and could not be put live although the service now answers other requests.
+    "job_put_live_gave_up": "attention",
     # D-690, per-call cost. A variance is a wrong attested rate on that call's money; a
     # Studio call with no Cartesia cost row understates its cost.
     "engine_call_cost_variance": "page",

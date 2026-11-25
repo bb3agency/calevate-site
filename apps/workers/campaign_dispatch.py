@@ -179,6 +179,10 @@ from apps.workers.engine_delivery import FindsPlacedCalls
 
 log = get_logger(__name__)
 
+#: `pipeline.INGEST_JOB`, spelled here for `scripts/check_job_wiring.py`: the reconcile of an
+#: unconfirmed dial re-drives the call through the same ingest job the pipeline registers.
+INGEST_JOB: Final = "ingest_engine_event"
+
 ACTIVE_STATUSES = ("queued", "ringing", "in_progress")
 
 # A call row is only evidence of an occupied LINE while it is fresh. Rows can strand in
@@ -1876,7 +1880,6 @@ async def _resolve_unconfirmed_dials(tenant_id: UUID, campaign_id: UUID) -> int:
     if not _finds_placed_calls() or await hold_is_on():
         return 0
     from apps.workers.pipeline import (
-        INGEST_JOB,
         UNCONFIRMED_DIAL_PROBE_AFTER,
         _placed_call_handle,
     )

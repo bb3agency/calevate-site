@@ -23,6 +23,7 @@ import { TEXT_ACTION } from "@/components/console/section";
 
 import { MAIN_CONTENT_ID } from "@/lib/mainContent";
 import { ApiProblem } from "@/lib/api/client";
+import { SAVED_GOES_LIVE_LATER, isSavedGoesLiveLater } from "@/lib/api/phoneServiceCodes";
 
 /**
  * The card every panel on every screen is made of.
@@ -954,6 +955,14 @@ export function ProblemNotice({
   shownAtField?: readonly string[];
 }) {
   if (!error) return null;
+  if (isSavedGoesLiveLater(error)) {
+    // Not a failure: the change is kept and goes live by itself. Said as a status, once.
+    return (
+      <p role="status" data-notice="info" className={clsx(NOTICE_BASE, NOTICE_BAR.info)}>
+        {SAVED_GOES_LIVE_LATER}
+      </p>
+    );
+  }
   const problem = error instanceof ApiProblem ? error : null;
   const listed = problem?.fields?.filter((f) => !shownAtField.includes(f.field)) ?? [];
   // A blank `detail` is the ABSENCE of a sentence, and `ApiProblem` now hands one back as

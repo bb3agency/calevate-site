@@ -265,6 +265,29 @@ export const CALLING_NUMBERS_NOT_APPLICABLE = {
   attestation_sha256: "a".repeat(64),
 } satisfies CallingNumberDeclaration;
 
+/** `GET /v1/ops/engine-health` on an ordinary day. */
+export const ENGINE_ANSWERING = {
+  engine: "thinnest",
+  held: false,
+  held_since: null,
+  hold_after_dial_failures: 2,
+  run_is_outage: false,
+  run_since: null,
+  consecutive_failures: 0,
+  outage_after_failures: 3,
+  last_failure_at: null,
+  last_kind: null,
+  last_error: null,
+  last_route: null,
+  last_answer_at: null,
+  recovered_at: null,
+  window_minutes: 5,
+  spike_threshold: 10,
+  window_server_errors: 0,
+  window_unreachable: 0,
+  alarm_open_since: null,
+};
+
 function defaultGrant(): Record<string, unknown> {
   return {
     slug: "stub",
@@ -356,6 +379,12 @@ export function stubApi(routes: Routes): ApiCall[] {
         // TODAY'S TEST CALLS (D-885), answered "none today" by default: every trial card
         // reads them. A test about the card's calls names the route itself.
         if (scoped === "GET /v1/trial/calls") return jsonResponse([]);
+        // THE PHONE SERVICE, answered "answering" by default: the client shell's banner and
+        // every test-call button read it. A test about an outage names the route itself.
+        if (scoped === "GET /v1/phone-service") return jsonResponse({ state: "answering", since: null });
+        // The operations screen's engine-health panel, answered "answering" by default; a
+        // test about an outage names the route itself.
+        if (scoped === "GET /v1/ops/engine-health") return jsonResponse(ENGINE_ANSWERING);
         // WHERE A TEST CALL RINGS FROM (D-1020), answered "our test number" by default: every
         // test-call form reads it. A test about the account's own number names the route.
         if (scoped.startsWith("GET /v1/trial/rings-from?")) return jsonResponse({ own_number: null });

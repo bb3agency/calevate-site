@@ -44,17 +44,16 @@ two adapters, which run in `api` and in `workers`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 from sqlalchemy import text
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.engine.answering import FailureKind, record_failure
 
 log = get_logger(__name__)
-
-FailureKind = Literal["server_error", "unreachable"]
 
 #: How far back the spike rule looks. Five minutes is the window OPERATIONS §4 already
 #: uses for "webhook failures > 3/5min" — one window vocabulary for the section rather
@@ -105,8 +104,14 @@ _PRUNE_SQL = text(
 )
 
 
-async def record_engine_failure(engine: str, *, kind: FailureKind) -> None:
+async def record_engine_failure(
+    engine: str, *, kind: FailureKind, route: str | None = None, error: str | None = None
+) -> None:
     """Count one engine failure, and page when the window says it is an outage.
+
+    `route` (our template) and `error` (a class name or a status) also extend the engine's
+    run of failures (`answering.record_failure`) in the same transaction: the operator
+    panel and the retry ladders read that run, not this rate.
 
     NEVER RAISES. It is called from the failure branch of an adapter that is already
     reporting a problem to its caller; a database hiccup here must not replace the
@@ -138,6 +143,7 @@ async def record_engine_failure(engine: str, *, kind: FailureKind) -> None:
                     },
                 )
             ).first()
+            await record_failure(session, engine, kind=kind, route=route, error=error)
             window = (
                 await session.execute(
                     _WINDOW_SQL, {"engine": engine, "minutes": SPIKE_WINDOW_MINUTES}
@@ -164,7 +170,8 @@ async def record_engine_failure(engine: str, *, kind: FailureKind) -> None:
         detail=(
             f"{total} failed engine requests in {SPIKE_WINDOW_MINUTES} minutes "
             f"({server_errors} answered 5xx, {unreachable} got no answer); "
-            f"threshold is {SPIKE_THRESHOLD}"
+            f"threshold is {SPIKE_THRESHOLD}; the last was {error or kind} on "
+            f"{route or 'an unnamed route'}"
         ),
         # The engine NAME, which is ours (`thinnest`, `fake`), never a route, a payload
         # or a vendor error string — hard rule 6, and the same reason `_request` refuses

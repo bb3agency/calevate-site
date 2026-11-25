@@ -460,6 +460,10 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
 /** Families nothing announces, and why. */
 export const STATIC_FAMILIES: Record<string, string> = {
   authn: "the sign-in options of this deployment; they change with a deploy, not a write",
+  // The phone service's state follows the dial hold, which a failed dial or a probe moves,
+  // never a write anybody announces; both reads poll, faster while it is down.
+  "client/phone-service": "whether the phone service answers, polled by the calls-paused banner",
+  "admin/ops/engine-health": "the voice platform's health, polled by the operations screen",
   public: "the public status page, read by people with no session to stream to",
   "voice-preview": "a rendered audio sample; it is fetched once when asked for",
   "integration-options": "the fixed list of services an account can connect",

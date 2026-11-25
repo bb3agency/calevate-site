@@ -321,6 +321,16 @@ export function blockerInPage(rule: string): "add-people" | "list-source" | "rew
 }
 
 /**
+ * A running campaign while the phone service is not answering (`GET /v1/phone-service`):
+ * nothing rings, and nothing is asked of the owner. Kept apart from `PAUSE_COPY.person`
+ * so it never reads as a pause they made or must undo.
+ */
+export const OUTAGE_WAIT = {
+  title: "Waiting for the phone service",
+  text: "Calls resume by themselves, from where they stopped.",
+} as const;
+
+/**
  * Why a paused campaign is paused, one line each (`ProgressOut.pause_reason`). Every
  * automatic pause names itself; a person's pause is the plain word.
  */

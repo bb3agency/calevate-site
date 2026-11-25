@@ -14,6 +14,7 @@ instead (`queue_put_live`), so it runs only if the change committed.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any, Final, Literal
 from uuid import UUID
 
@@ -25,9 +26,11 @@ from apps.api.campaigns.engine_agent import put_campaign_live
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
+from apps.api.engine.answering import saved_goes_live_later
 from apps.api.inbound import lines
 from apps.api.inbound.publish import put_line_live
 from apps.api.reliability.service import enqueue_outbox
+from apps.workers.engine_outage import engine_unavailable
 
 log = get_logger(__name__)
 
@@ -54,9 +57,13 @@ async def holds_calls(tenant_id: UUID, kind: JobKind, job_id: UUID) -> bool:
     return bool(held)
 
 
-async def put_live(tenant_id: UUID, kind: JobKind, job_id: UUID) -> None:
-    """Put the job live again when it holds calls. Raises what the publish refused."""
-    if not await holds_calls(tenant_id, kind, job_id):
+async def put_live(tenant_id: UUID, kind: JobKind, job_id: UUID, *, always: bool = False) -> None:
+    """Put the job live again when it holds calls. Raises what the publish refused.
+
+    `always` puts a line live even when it is not live yet: a draft line's Save is its first
+    Put it live, and a queued retry of that Save must not wait for a line that never went
+    live. A campaign only ever goes on the engine agent it holds."""
+    if not (always and kind == "line") and not await holds_calls(tenant_id, kind, job_id):
         return
     if kind == "campaign":
         await put_campaign_live(tenant_id=tenant_id, campaign_id=job_id, require_holding=True)
@@ -94,33 +101,91 @@ async def put_live_after_save(
     tenant_id: UUID, kind: JobKind, job_id: UUID, *, operator: bool = False
 ) -> None:
     """`put_live` after an edit to the job's list committed. A refusal asks for Save again,
-    which What it notes offers on the job's page and on Lead details alike."""
+    which What it notes offers on the job's page and on Lead details alike; an engine that
+    is not answering queues it instead (`put_live_or_queue`)."""
+    await put_live_or_queue(tenant_id, kind, job_id, operator=operator, check_holding=True)
+
+
+async def put_live_or_queue(
+    tenant_id: UUID,
+    kind: JobKind,
+    job_id: UUID,
+    *,
+    retry: Retry = "save",
+    operator: bool = False,
+    check_holding: bool = False,
+    publish: Callable[[], Awaitable[object]] | None = None,
+) -> None:
+    """Put a committed edit live. When the engine is not answering the edit is not lost and
+    the owner has nothing to press: the put-live is queued (`put_job_notes_live` waits the
+    outage out) and the owner reads one line saying it goes live by itself. Any other
+    refusal is retitled for the screen's own retry (`kept_not_live`).
+
+    `check_holding` False is the job page's own Save, which puts the job live whatever its
+    state (a draft line's Save is its first Put it live); True is a write made elsewhere,
+    which only reaches a job that already holds calls. `publish` is the page route's own
+    put-live, when it has one."""
     try:
-        await put_live(tenant_id, kind, job_id)
+        if publish is not None:
+            await publish()
+        elif check_holding:
+            await put_live(tenant_id, kind, job_id)
+        elif kind == "campaign":
+            await put_campaign_live(tenant_id=tenant_id, campaign_id=job_id, require_holding=True)
+        else:
+            await put_line_live(tenant_id=tenant_id, line_id=job_id)
     except ProblemError as exc:
-        kept_not_live(exc, operator=operator)
-        raise
+        if not engine_unavailable(exc):
+            kept_not_live(exc, retry=retry, operator=operator)
+            raise
+        async with tenant_session(tenant_id) as session:
+            await queue_put_live(
+                session, tenant_id=tenant_id, jobs=[(kind, job_id)], always=not check_holding
+            )
+        log.warning(
+            "job_put_live_queued_engine_down",
+            extra={"job_kind": kind, "job_id": str(job_id), "reason": exc.code},
+        )
+        raise saved_goes_live_later() from exc
 
 
-async def put_live_each(tenant_id: UUID, jobs: list[tuple[JobKind, UUID]]) -> int:
+async def put_live_each(
+    tenant_id: UUID, jobs: list[tuple[JobKind, UUID]], *, always: bool = False
+) -> int:
     """`put_live` for several jobs after one apply. A refusal leaves that job on its previous
     list until its next put-live and does not stop the others; returns how many were refused.
     Logged by id and code only."""
+    refused, _waiting = await put_live_sorted(tenant_id, jobs, always=always)
+    return refused
+
+
+async def put_live_sorted(
+    tenant_id: UUID, jobs: list[tuple[JobKind, UUID]], *, always: bool = False
+) -> tuple[int, list[tuple[JobKind, UUID]]]:
+    """`put_live_each`, also returning the jobs refused only because the engine did not
+    answer, which a retry once it answers can still put live."""
     refused = 0
+    waiting: list[tuple[JobKind, UUID]] = []
     for kind, job_id in jobs:
         try:
-            await put_live(tenant_id, kind, job_id)
+            await put_live(tenant_id, kind, job_id, always=always)
         except ProblemError as exc:
             refused += 1
+            if engine_unavailable(exc):
+                waiting.append((kind, job_id))
             log.warning(
                 "job_notes_put_live_refused",
                 extra={"job_kind": kind, "job_id": str(job_id), "reason": exc.code},
             )
-    return refused
+    return refused, waiting
 
 
 async def queue_put_live(
-    session: AsyncSession, *, tenant_id: UUID, jobs: list[tuple[JobKind, UUID]]
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    jobs: list[tuple[JobKind, UUID]],
+    always: bool = False,
 ) -> None:
     """`put_live_each` for `jobs`, once `session`'s transaction commits. Nothing is queued
     for an empty list."""
@@ -130,6 +195,8 @@ async def queue_put_live(
         "tenant_id": str(tenant_id),
         "jobs": [{"kind": kind, "job_id": str(job_id)} for kind, job_id in jobs],
     }
+    if always:
+        payload["always"] = True
     await enqueue_outbox(session, job=PUT_LIVE_JOB, payload=payload)
 
 
@@ -142,6 +209,11 @@ def queued_jobs(payload: dict[str, Any]) -> tuple[UUID, list[tuple[JobKind, UUID
     return UUID(str(payload["tenant_id"])), jobs
 
 
+def queued_always(payload: dict[str, Any]) -> bool:
+    """Whether `queue_put_live` was asked to put a line live even if it is not live yet."""
+    return bool(payload.get("always", False))
+
+
 __all__ = [
     "PUT_LIVE_JOB",
     "JobKind",
@@ -150,6 +222,9 @@ __all__ = [
     "put_live",
     "put_live_after_save",
     "put_live_each",
+    "put_live_or_queue",
+    "put_live_sorted",
     "queue_put_live",
+    "queued_always",
     "queued_jobs",
 ]

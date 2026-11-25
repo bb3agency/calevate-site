@@ -18,10 +18,12 @@ import {
   formatIST,
 } from "@/components/ui";
 import { DefaultCheckbox } from "@/components/callHandlingRows";
+import { TestCallsPausedNote, useTestCallsPaused } from "@/components/phoneService";
 import { RowLink } from "@/components/console/checklist";
 import { canTestCall, isDeleted } from "@/lib/agentState";
 import { useAgentLifecycle, useAgents } from "@/lib/api/agents";
 import { ApiProblem } from "@/lib/api/client";
+import { TEST_CALLS_PAUSED } from "@/lib/api/phoneService";
 import { useClientRealm } from "@/lib/api/session";
 import {
   testCallIsLive,
@@ -187,6 +189,7 @@ export function TrialCallCard({
   // Both failures are said beside the form (ProblemNotice below), so neither is toasted.
   const prepareFeedback = useActionFeedback(prepare, { errorDisplay: "inline" });
   const placeFeedback = useActionFeedback(place, { errorDisplay: "inline" });
+  const { paused, errorIsPause } = useTestCallsPaused(place.error);
   const ready = trial.can_call && chosen !== "" && number.trim() !== "";
   /* One button runs both steps, so it shows the step in flight. A refusal (`blocked`) is an
      answer the status line gives, not a success to tick. */
@@ -315,7 +318,9 @@ export function TrialCallCard({
           </label>
           <LiveCallGate callId={followedId}>
             {(onCall) => {
-              const wait = callWait({ onCall, agentsLoading: agents.isPending, number, canCall: trial.can_call });
+              const wait = paused
+                ? TEST_CALLS_PAUSED
+                : callWait({ onCall, agentsLoading: agents.isPending, number, canCall: trial.can_call });
               return (
                 <div className="flex flex-col gap-1">
                   <ActionButton
@@ -352,7 +357,8 @@ export function TrialCallCard({
           </p>
         )}
         <LifecycleError error={prepare.error} />
-        {place.error && <ProblemNotice error={place.error} />}
+        {place.error && errorIsPause && !paused && <TestCallsPausedNote className="" />}
+        {place.error && !errorIsPause && <ProblemNotice error={place.error} />}
         {place.error instanceof ApiProblem && place.error.code === STUDIO_MINUTES_USED && (
           <Link href={href(`/c/${session.orgSlug}/agents/${chosen}?section=settings`)} className={PRIMARY_BUTTON_SM}>
             Choose a Clear voice

@@ -211,6 +211,36 @@ class PlatformEngineHealth(Base):
     unreachable: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
 
 
+class PlatformEngineState(Base):
+    """Whether one voice engine is answering now: its run of consecutive failures.
+
+    `PlatformEngineHealth` counts failures per minute, which a rate alarm needs, but cannot
+    tell a recovered engine from an idle one. This row resets on the first answer, so the
+    operator panel and the retry ladders that wait an outage out see it end
+    (`engine/answering.py`). Platform-scoped for `PlatformEngineHealth`'s reason.
+    """
+
+    __tablename__ = "platform_engine_state"
+
+    engine: Mapped[str] = mapped_column(Text, primary_key=True)
+    consecutive_failures: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0")
+    )
+    #: The first failure of the current run; null while answering.
+    failing_since: Mapped[datetime | None] = mapped_column(nullable=True)
+    last_failure_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    #: The last answer that ended a run of failures (not every answer: those are not written).
+    last_answer_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    #: When the last outage ended.
+    recovered_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    #: `server_error` or `unreachable`.
+    last_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The transport error's class name or the HTTP status; never a message.
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Our route template (`/calls/{id}`), never a filled URL.
+    last_route: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class PlatformModelPrice(Base):
     """One OPERATOR-ATTESTED vendor list price for one LLM model, effective-dated (§5).
 

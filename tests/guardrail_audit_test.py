@@ -625,6 +625,9 @@ class TestRlsCoverage:
             # reason `platform_state` is — the engine is answering or it is not, for
             # everybody at once.
             "platform_engine_health",
+            # Whether the engine is answering now, beside the counter above; platform state
+            # for the same reason.
+            "platform_engine_state",
             # D-544: one planned outage for the whole deployment at an instant, driving
             # the load-shed mode beside it. No tenant whose row it could be, and it holds
             # an operator's sentence, five timestamps and a straggler COUNT — no tenant

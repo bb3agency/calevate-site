@@ -335,12 +335,16 @@ async def rewrite_step_outcomes(
 
 async def _put_live_after_save(tenant_id: UUID, campaign_id: UUID) -> None:
     """Put a committed edit on the campaign's engine agent. A refusal says the edit is kept,
-    so the owner saves again rather than typing it again (`inbound/routes`' same step)."""
-    try:
-        await put_campaign_live(tenant_id=tenant_id, campaign_id=campaign_id, require_holding=True)
-    except ProblemError as exc:
-        notes_live.kept_not_live(exc)
-        raise
+    so the owner saves again rather than typing it again (`inbound/routes`' same step); an
+    engine that is not answering queues it instead."""
+    await notes_live.put_live_or_queue(
+        tenant_id,
+        "campaign",
+        campaign_id,
+        publish=lambda: put_campaign_live(
+            tenant_id=tenant_id, campaign_id=campaign_id, require_holding=True
+        ),
+    )
 
 
 @router.put(

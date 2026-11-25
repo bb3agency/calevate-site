@@ -503,6 +503,16 @@ and a second delivery mechanism is a second thing to be broken on the night it i
     (`campaigns/complaint_spike.py`, D-203 — pauses the campaign as FLOWS §5 promises),
     `engine_error_spike` (`engine/health.py`, D-204), and `tls_certificate_expiring` /
     `tls_certificate_unreadable` (`workers/tls_expiry.py`, D-205).
+  - **Whether the engine is answering NOW** is a separate fact beside that rate. What
+    clients see follows the dial hold (`engine/outage.py`, page `engine_dial_hold`, resolved
+    on lift): a "calls are paused" banner (`GET /v1/phone-service`), Call me paused with its
+    reason, a running campaign shown as waiting, and a test call refused before anything is
+    published. `platform_engine_state` (`engine/answering.py`) keeps the run of consecutive
+    failures across every request, reset on the first answer: the ops console's
+    engine-health panel (`GET /v1/ops/engine-health`) shows it beside the hold (since when,
+    how many, the last error class and route template), and the retry ladders read both
+    (`still_not_answering`), so a script save kept while the engine was down (its put-live
+    queued, `put_job_notes_live`) and a live apply are waited out rather than given up.
   - **D-183's rule holds and is now enforced rather than remembered**: no alarm may depend
     on a `record_*` metric, because every recorder writes to a stream nothing reads. All
     three announce at the producing write and travel `alert()`'s D-49 email path. The two

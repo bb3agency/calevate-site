@@ -260,6 +260,8 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.config_routes import router as ops_config_router
     from apps.api.ops.config_sources import router as ops_config_sources_router
     from apps.api.ops.dashboard_data_use_routes import router as ops_data_use_router
+    from apps.api.ops.engine_health_routes import client_router as phone_service_router
+    from apps.api.ops.engine_health_routes import router as ops_engine_health_router
     from apps.api.ops.engine_minute_routes import cost_router as ops_cost_attestations_router
     from apps.api.ops.engine_minute_routes import router as ops_engine_minute_prices_router
     from apps.api.ops.engine_model_band_routes import router as ops_engine_model_bands_router
@@ -658,6 +660,10 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(ops_inr_llm_prices_router)
     # How far each saved setting has reached the live agents (D-720).
     application.include_router(ops_live_apply_router)
+    # Whether the voice engine is answering: the operator panel, and the client read behind
+    # the "calls are paused" banner and the paused test-call button.
+    application.include_router(ops_engine_health_router)
+    application.include_router(phone_service_router)
     # The per-minute ENGINE price (D-678): an engine that reports no cost per call is
     # metered only at a rate an operator attested (`billing/engine_minutes.py`).
     application.include_router(ops_engine_minute_prices_router)

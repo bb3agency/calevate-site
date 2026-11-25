@@ -39,6 +39,7 @@ import { Check, LoaderCircle, RotateCcw } from "lucide-react";
 import clsx from "clsx";
 
 import { ApiProblem } from "@/lib/api/client";
+import { SAVED_GOES_LIVE_LATER_DETAIL, isSavedGoesLiveLater } from "@/lib/api/phoneServiceCodes";
 import {
   DANGER_BUTTON,
   PRIMARY_BUTTON,
@@ -135,6 +136,11 @@ function raiseFailure(
   title: string,
   retry: () => void,
 ) {
+  if (isSavedGoesLiveLater(error)) {
+    // Not a failure: the change is kept and goes live by itself, so nothing to retry.
+    toasts.toast({ id, kind: "success", title: "Saved", description: SAVED_GOES_LIVE_LATER_DETAIL });
+    return;
+  }
   const retryable = !(error instanceof ApiProblem) || error.retryable;
   toasts.toast({
     id,

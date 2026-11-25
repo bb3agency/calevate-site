@@ -13682,6 +13682,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/engine-health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The voice engine's health now: the dial hold, the failing run, its last error */
+        get: operations["engine_health_v1_ops_engine_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/engine-minute-prices": {
         parameters: {
             query?: never;
@@ -15310,6 +15327,23 @@ export interface paths {
         };
         /** Connect rate, funnel, outcomes, busiest hours IST (teardown §5 floor) */
         get: operations["performance_panel_v1_performance_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/phone-service": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Is the phone service answering? Backs the 'calls are paused' banner */
+        get: operations["phone_service_v1_phone_service_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -25256,6 +25290,47 @@ export interface components {
             /** Undetermined */
             undetermined: number;
         };
+        /** EngineHealthOut */
+        EngineHealthOut: {
+            /** Alarm Open Since */
+            alarm_open_since: string | null;
+            /** Consecutive Failures */
+            consecutive_failures: number;
+            /** Engine */
+            engine: string;
+            /** Held */
+            held: boolean;
+            /** Held Since */
+            held_since: string | null;
+            /** Hold After Dial Failures */
+            hold_after_dial_failures: number;
+            /** Last Answer At */
+            last_answer_at: string | null;
+            /** Last Error */
+            last_error: string | null;
+            /** Last Failure At */
+            last_failure_at: string | null;
+            /** Last Kind */
+            last_kind: ("server_error" | "unreachable") | null;
+            /** Last Route */
+            last_route: string | null;
+            /** Outage After Failures */
+            outage_after_failures: number;
+            /** Recovered At */
+            recovered_at: string | null;
+            /** Run Is Outage */
+            run_is_outage: boolean;
+            /** Run Since */
+            run_since: string | null;
+            /** Spike Threshold */
+            spike_threshold: number;
+            /** Window Minutes */
+            window_minutes: number;
+            /** Window Server Errors */
+            window_server_errors: number;
+            /** Window Unreachable */
+            window_unreachable: number;
+        };
         /** EngineMinutePriceAttestIn */
         EngineMinutePriceAttestIn: {
             /** Effective From */
@@ -32504,6 +32579,16 @@ export interface components {
              * @enum {string}
              */
             source: "business" | "platform";
+        };
+        /** PhoneServiceOut */
+        PhoneServiceOut: {
+            /** Since */
+            since?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "answering" | "not_answering";
         };
         /**
          * PinCardOut
@@ -67084,6 +67169,35 @@ export interface operations {
             };
         };
     };
+    engine_health_v1_ops_engine_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineHealthOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_engine_minute_prices_v1_ops_engine_minute_prices_get: {
         parameters: {
             query?: never;
@@ -70048,6 +70162,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PerformanceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    phone_service_v1_phone_service_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhoneServiceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

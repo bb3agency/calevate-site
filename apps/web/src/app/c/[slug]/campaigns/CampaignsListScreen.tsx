@@ -36,6 +36,7 @@ import {
   type CampaignSummary,
 } from "@/lib/api/campaigns";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { usePhoneServiceDown } from "@/lib/api/phoneService";
 import { useClientRealm } from "@/lib/api/session";
 
 import { TrialLockNotice } from "../TrialLockNotice";
@@ -290,6 +291,8 @@ function CampaignRow({
   refusal: string | undefined;
   at: (path: string) => string;
 }) {
+  const { session } = useClientRealm();
+  const phoneServiceDown = usePhoneServiceDown(session);
   const note = listBlockerNote(campaign);
   const started = campaign.launched_at;
   return (
@@ -300,7 +303,11 @@ function CampaignRow({
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <FlashValue value={`${campaign.status}:${campaign.pause_reason ?? ""}`}>
-            <CampaignStatusPill status={campaign.status} pauseReason={campaign.pause_reason} />
+            <CampaignStatusPill
+              status={campaign.status}
+              pauseReason={campaign.pause_reason}
+              phoneServiceDown={phoneServiceDown}
+            />
           </FlashValue>
           <span className="text-meta text-ink-faint">
             {started ? `Started ${formatIST(started)}` : `Created ${formatIST(campaign.created_at)}`}
