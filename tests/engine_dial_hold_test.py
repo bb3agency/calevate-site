@@ -36,13 +36,13 @@ from apps.api.engine import outage
 from apps.api.engine.fake import FakeEngine
 from apps.api.engine.vendor_http import (
     EngineRejectedError,
-    EngineUnreachableError,
+    request_never_sent,
     unreachable_error,
     vendor_request,
 )
 from apps.workers import callbacks as callback_worker
 from apps.workers import campaign_dispatch
-from apps.workers.campaign_dispatch import ACTIVE_STATUSES
+from apps.workers.campaign_dispatch import ACTIVE_STATUSES, TenantWork
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
 from tests.dispatch_budget_test import _contacts, _dlt_rows, _launched_campaign, _tenant
@@ -178,10 +178,10 @@ async def test_a_transport_failure_says_whether_the_request_could_have_arrived(
     async with httpx.AsyncClient(
         base_url="https://api.example.invalid", transport=httpx.MockTransport(handler)
     ) as client:
-        with pytest.raises(EngineUnreachableError) as caught:
+        with pytest.raises(ProblemError) as caught:
             await vendor_request(client, "POST", "/calls", engine="hold-test", route="/calls")
     assert caught.value.code == "engine_unreachable"
-    assert caught.value.request_sent is sent
+    assert request_never_sent(caught.value) is not sent
     # Only a request that never left proves nobody was rung.
     assert dial_was_not_placed(caught.value) is not sent
 
@@ -194,6 +194,7 @@ def test_only_the_engines_own_failures_count_toward_the_hold() -> None:
         ProblemError(kind="transient", code="engine_rate_limited", title="t", detail="d")
     )
     assert not outage.counts_as_engine_down(RuntimeError("ours"))
+    assert not outage.counts_as_engine_down(outage.outage_hold_error()), "never feeds itself"
 
 
 # ------------------------------------------------------------------ the hold itself
@@ -381,6 +382,37 @@ async def test_lost_answers_hold_the_platform_and_are_settled_by_reference_once_
     after = await _calls(tenant_id)
     assert after[0][1:] == ("failed", "dial_lost")
     assert after[1][1] == "queued"
+
+
+async def test_a_held_tick_fires_no_schedule_and_spends_no_line(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Starting a campaign publishes its engine agent, which would time out like a dial."""
+    engine = _Engine(failure=None)
+    _use(monkeypatch, engine)
+    _quiet_alarms(monkeypatch)
+    await outage.note_dial_failure()
+    await outage.note_dial_failure()
+    await get_redis().set(outage._key("probe"), "1", px=30_000)
+    work = TenantWork(uuid.uuid4(), 0, False, True, False)
+
+    async def scan() -> list[TenantWork]:
+        return [work]
+
+    fired: list[uuid.UUID] = []
+
+    async def fire(tenant_id: uuid.UUID) -> int:
+        fired.append(tenant_id)
+        return 1
+
+    monkeypatch.setattr(campaign_dispatch, "_tenants_with_work", scan)
+    monkeypatch.setattr(campaign_dispatch, "_fire_due_schedules", fire)
+
+    outcome = await campaign_dispatch._dispatch_fleet(5, [])
+
+    assert fired == []
+    assert outcome.startswith("no_running_campaigns started=0"), outcome
+    assert engine.probes == 0, "the probe interval had not passed"
 
 
 async def test_a_stranded_lost_answer_is_never_reaped_onto_the_ladder(

@@ -288,7 +288,7 @@ from apps.api.engine.vendor_http import (
     EngineNumberDailyLimitError,
     EngineRateLimitedError,
     EngineRejectedError,
-    EngineUnreachableError,
+    request_never_sent,
 )
 from apps.api.forwarding.service import has_forwarded_line
 from apps.api.ingest.lead_policy import machine_detection_on
@@ -438,8 +438,7 @@ def dial_was_not_placed(exc: BaseException) -> bool:
     them twice"* — about a request the vendor threw away unread.
 
     A transport failure raised before the request was written (no connection could be
-    made, `vendor_http.EngineUnreachableError.request_sent` False) is the third way: the
-    vendor never saw it.
+    made, `vendor_http.request_never_sent`) is the third way: the vendor never saw it.
 
     Anything else is still "the phone may be ringing": every 5xx, every other transport
     failure, and every 4xx the vendor does not document. See `REQUEST_REFUSED_STATUSES`
@@ -447,8 +446,8 @@ def dial_was_not_placed(exc: BaseException) -> bool:
     """
     if isinstance(exc, EngineRejectedError):
         return exc.request_refused
-    if isinstance(exc, EngineUnreachableError):
-        return not exc.request_sent
+    if request_never_sent(exc):
+        return True
     return isinstance(exc, ProblemError) and exc.code in DIAL_NOT_PLACED_CODES
 
 

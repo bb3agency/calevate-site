@@ -52,11 +52,8 @@ from apps.api.core.redis import get_redis
 from apps.api.engine import get_engine
 from apps.api.engine.health import SPIKE_WINDOW_MINUTES
 from apps.api.engine.thinnest_workspace import in_workspace
-from apps.api.engine.vendor_http import (
-    ENGINE_UNREACHABLE_CODE,
-    EngineRejectedError,
-    EngineUnreachableError,
-)
+from apps.api.engine.vendor_http import ENGINE_UNREACHABLE_CODE
+from apps.workers.engine_outage import engine_unavailable
 
 log = get_logger(__name__)
 
@@ -101,16 +98,16 @@ class _ReadsPlacedCalls(Protocol):
 
 
 def counts_as_engine_down(exc: BaseException) -> bool:
-    """Is this dial failure the ENGINE's — no answer at all, or a 5xx it did not document
-    as a refusal — rather than an answer about the request?"""
-    if isinstance(exc, EngineUnreachableError):
-        return True
-    return (
-        isinstance(exc, EngineRejectedError)
-        and exc.vendor_status is not None
-        and exc.vendor_status >= 500
-        and not exc.request_refused
-    )
+    """Is this dial failure the ENGINE's — no answer at all, or a 5xx — rather than an
+    answer about the request?
+
+    `engine_outage.engine_unavailable` is the one test for "did not answer"; a throttle it
+    also counts is left out here, because a 429 is the vendor answering and already holds
+    dials for its own `Retry-After` (`dial_lines.start_dial_backoff`), and this hold's own
+    refusal is transient too and must not feed itself."""
+    if isinstance(exc, ProblemError) and exc.kind == "transient":
+        return False
+    return engine_unavailable(exc)
 
 
 def outage_hold_error() -> ProblemError:

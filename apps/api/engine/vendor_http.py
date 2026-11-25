@@ -241,30 +241,32 @@ _NOT_SENT_TRANSPORT_ERRORS: Final = (
 )
 
 
-class EngineUnreachableError(ProblemError):
-    """`engine_unreachable`, saying whether the request could have reached the vendor.
+def unreachable_error(exc: httpx.HTTPError) -> ProblemError:
+    """`engine_unreachable` for a transport failure, chained to it.
 
-    Same code, kind and wording for every reader keyed on `code`. `request_sent` is what
-    lets the dial path tell a connection that was never made (`ConnectError`: nobody was
-    rung, so the dial can be retried) from a read timeout on `POST /calls`, after which the
-    vendor may have placed the call (`agents.service.dial_was_not_placed`).
-    """
-
-    def __init__(self, *, request_sent: bool) -> None:
-        super().__init__(
-            kind="dependency",
-            # `ENGINE_UNREACHABLE_CODE`, spelled out for the alarm-wiring scan.
-            code="engine_unreachable",
-            title="Voice engine unreachable",
-            detail="The voice platform did not respond.",
-            failure_stage="CORE_LOGIC",
-        )
-        self.request_sent = request_sent
+    The transport error rides as `__cause__` (what `raise ... from exc` sets) rather than
+    as a subclass attribute, so every reader keyed on `code` is unchanged and
+    `request_never_sent` can still tell a connection that was never made from a read
+    timeout after which the vendor may have acted."""
+    error = ProblemError(
+        kind="dependency",
+        code="engine_unreachable",
+        title="Voice engine unreachable",
+        detail="The voice platform did not respond.",
+        failure_stage="CORE_LOGIC",
+    )
+    error.__cause__ = exc
+    return error
 
 
-def unreachable_error(exc: httpx.HTTPError) -> EngineUnreachableError:
-    """The `engine_unreachable` error for a transport failure, sent or not."""
-    return EngineUnreachableError(request_sent=not isinstance(exc, _NOT_SENT_TRANSPORT_ERRORS))
+def request_never_sent(exc: BaseException) -> bool:
+    """Is this `engine_unreachable` from a transport failure raised before the request was
+    written, so the vendor cannot have acted on it? False for anything else."""
+    return (
+        isinstance(exc, ProblemError)
+        and exc.code == ENGINE_UNREACHABLE_CODE
+        and isinstance(exc.__cause__, _NOT_SENT_TRANSPORT_ERRORS)
+    )
 
 
 #: One `engine_number_daily_limit` alarm per calling number per window. A campaign keeps
@@ -1185,12 +1187,12 @@ __all__ = [
     "EngineNumberDailyLimitError",
     "EngineRateLimitedError",
     "EngineRejectedError",
-    "EngineUnreachableError",
     "ThrottleScope",
     "assert_safe_vendor_path",
     "lines_busy_error",
     "number_daily_limit_error",
     "recipient_opted_out_error",
+    "request_never_sent",
     "throttle_delay_s",
     "unreachable_error",
     "vendor_audio_request",

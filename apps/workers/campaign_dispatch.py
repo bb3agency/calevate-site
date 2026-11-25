@@ -591,14 +591,16 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
                 settling.extend(await _stopped_campaigns_dialing(work.tenant_id))
             except Exception as exc:
                 _tenant_failed(failures, work.tenant_id, "settle", exc)
+        if engine_down:
+            # A schedule that falls due while held waits for the hold to lift, inside its
+            # own grace (`scheduling.claim_slot_at_start`).
+            work = work._replace(has_due_schedule=False)
         if not (work.has_running_campaign or work.has_due_schedule):
             # Holding lines but nothing to dial. It has already been counted into
             # `total_active`; there is nothing a session could add.
             continue
         try:
-            started_here, planned, closed = await _plan_tenant(
-                work, pool, fire_schedules=not engine_down
-            )
+            started_here, planned, closed = await _plan_tenant(work, pool)
         except Exception as exc:
             _tenant_failed(failures, work.tenant_id, "plan", exc)
             continue
@@ -784,7 +786,7 @@ async def _settle_each(settling: list[_Settling], failures: list[_TenantFailure]
 
 
 async def _plan_tenant(
-    work: TenantWork, pool: int, *, fire_schedules: bool = True
+    work: TenantWork, pool: int
 ) -> tuple[int, list[tuple[UUID, UUID, int, dict[str, Any]]], list[_Settling]]:
     """One tenant's schedules fired and campaigns budgeted: `(started, planned slices,
     campaigns outside their hours)`."""
@@ -796,10 +798,7 @@ async def _plan_tenant(
     # that "starts at 10:00" and "first dial at 10:00:30" differ by a tick's worth of
     # explaining. Reached only after the big red switch check at the top of `_run_tick`,
     # which is what stops a schedule firing into a halted platform.
-    # A schedule that falls due while the engine is held waits for the hold to lift, inside
-    # its own grace (`scheduling.claim_slot_at_start`).
-    due = work.has_due_schedule and fire_schedules
-    started_here = await _fire_due_schedules(work.tenant_id) if due else 0
+    started_here = await _fire_due_schedules(work.tenant_id) if work.has_due_schedule else 0
     if not (work.has_running_campaign or started_here):
         return started_here, planned, settling
     async with tenant_session(work.tenant_id) as session:
