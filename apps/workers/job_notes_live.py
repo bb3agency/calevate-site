@@ -23,7 +23,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import tenant_session
-from apps.api.engine.outage import engine_outage
+from apps.api.engine.answering import still_not_answering
 
 log = get_logger(__name__)
 
@@ -54,7 +54,7 @@ async def put_job_notes_live(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         # Putting a job live twice changes nothing, so the jobs that did go through are
         # safe to repeat with the ones that waited.
         raise Retry(defer=ladder_delay_s(RETRY_AFTER_S, attempt))
-    if (await engine_outage()).failing:
+    if await still_not_answering():
         async with tenant_session(tenant_id) as session:
             await notes_live.queue_put_live(
                 session, tenant_id=tenant_id, jobs=waiting, always=always

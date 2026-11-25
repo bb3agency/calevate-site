@@ -62,6 +62,7 @@ from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.callbacks.models import STATUSES
 from apps.api.compliance.audit import write_audit
 from apps.api.db.result import rowcount_of
+from apps.api.engine.vendor_http import ENGINE_UNREACHABLE_CODE
 from apps.workers.redaction import redact
 
 #: How long past the promised time we keep trying before giving up and SAYING SO.
@@ -88,6 +89,9 @@ RETRY_AFTER: Final[timedelta] = timedelta(minutes=5)
 #: answers the same question — "could this call still legitimately be in progress?" — and
 #: two numbers for it would mean one of the two reapers was wrong.
 STUCK_DIALING_AFTER: Final[timedelta] = timedelta(seconds=CALL_CAP_MAX_S) + timedelta(minutes=10)
+
+#: What the client reads on a call-back whose dial never reached the phone system.
+DIAL_LOST_REASON: Final = "The phone system was not answering, so nobody was rung; trying again."
 
 #: How much of the caller's stated reason we keep. It is model-written text about what a
 #: person said, arriving on an unsigned endpoint, and it is spoken back into the callback
@@ -464,7 +468,9 @@ async def call_off_for_stopped_campaigns(
     return len(rows)
 
 
-async def settle_dialled(session: AsyncSession, *, now: datetime | None = None) -> int:
+async def settle_dialled(
+    session: AsyncSession, *, now: datetime | None = None, unconfirmed_wait: bool = False
+) -> int:
     """End the callbacks whose dial has finished. Returns how many.
 
     Read off OUR `calls` row rather than hooked into the post-call pipeline, and that is a
@@ -484,9 +490,27 @@ async def settle_dialled(session: AsyncSession, *, now: datetime | None = None) 
     The last arm is the backstop `campaign_dispatch._reap_stuck_dialing` has: a `dialing`
     callback whose call never reached a terminal status at all, past the longest a call may
     legally last. It ends `failed` rather than going back on the ladder, for that reaper's
-    reason — a dial we cannot prove did not ring must never be retried.
+    reason — a dial we cannot prove did not ring must never be retried. `unconfirmed_wait`
+    (the engine can be asked about such a dial by our reference) keeps one whose answer was
+    lost out of it until the engine has said.
     """
+    from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX
+
     moment = now or datetime.now(UTC)
+    # A dial whose answer was lost and that the engine then said it never placed
+    # (`not_placed_reason = 'dial_lost'`, `pipeline._settle_lost_dial`): nobody was rung, so
+    # the promise goes back to `scheduled` with its attempt refunded, inside its own grace.
+    retried = await session.execute(
+        text(
+            "UPDATE scheduled_callbacks s SET status = 'scheduled', "
+            "  attempts = greatest(s.attempts - 1, 0), next_attempt_at = now(), "
+            "  last_refusal_rule = :rule, last_refusal_reason = :reason, updated_at = now() "
+            "FROM calls c "
+            "WHERE c.id = s.last_call_id AND s.status = 'dialing' "
+            "  AND c.status = 'failed' AND c.not_placed_reason = 'dial_lost'"
+        ),
+        {"rule": ENGINE_UNREACHABLE_CODE, "reason": DIAL_LOST_REASON},
+    )
     settled = await session.execute(
         text(
             "UPDATE scheduled_callbacks s SET "
@@ -499,13 +523,21 @@ async def settle_dialled(session: AsyncSession, *, now: datetime | None = None) 
     )
     stuck = await session.execute(
         text(
-            "UPDATE scheduled_callbacks SET status = 'failed', settled_at = now(), "
+            "UPDATE scheduled_callbacks s SET status = 'failed', settled_at = now(), "
             "  updated_at = now() "
-            "WHERE status = 'dialing' AND updated_at < :cutoff"
+            "WHERE s.status = 'dialing' AND s.updated_at < :cutoff "
+            # On an engine that will say whether it placed a dial we lost the answer to, that
+            # dial waits for its answer however long the engine is silent.
+            "  AND NOT (:wait AND EXISTS (SELECT 1 FROM calls c WHERE c.id = s.last_call_id "
+            "    AND c.status = 'queued' AND c.engine_call_id LIKE :unconfirmed))"
         ),
-        {"cutoff": moment - STUCK_DIALING_AFTER},
+        {
+            "cutoff": moment - STUCK_DIALING_AFTER,
+            "wait": unconfirmed_wait,
+            "unconfirmed": f"{UNCONFIRMED_ENGINE_CALL_PREFIX}%",
+        },
     )
-    return rowcount_of(settled) + rowcount_of(stuck)
+    return rowcount_of(retried) + rowcount_of(settled) + rowcount_of(stuck)
 
 
 async def claim_due(

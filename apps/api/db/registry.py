@@ -781,7 +781,7 @@ RLS_EXEMPT_TENANT_COLUMNS = {
     ),
     "platform_engine_state": (
         "platform-scoped. One row per engine: its current run of consecutive failures, "
-        "behind the client 'calls are paused' banner and the operator health panel. The "
+        "behind the operator engine-health panel and the retry ladders. The "
         "engine is answering or it is not, for everybody at once, so there is no tenant "
         "whose row it could be. Holds an engine name, a count, four instants, a route "
         "template and an error class: no tenant id, no call, no number."

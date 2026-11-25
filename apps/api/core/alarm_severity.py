@@ -259,14 +259,16 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # ── The voice path ────────────────────────────────────────────────────────
     # A FLEET-WIDE vendor outage: dials, publishes and the poller are all down at once.
     "engine_error_spike": "page",
+    # Every outbound dial on the platform is held until the voice platform answers again.
+    "engine_dial_hold": "page",
+    # One dial refused while that hold is on; the hold itself is the page.
+    "engine_outage_hold": "record",
     # Its own index row says "individually routine; it feeds `engine_error_spike`" — so
     # the spike is the alarm and this is the input. Mailing both means mailing the same
     # outage ten times before the one that means something arrives.
     "engine_unreachable": "record",
-    # The engine-down answers an owner's press gets (`engine/outage.py`): a test call
-    # refused while it is not answering, and a save kept with its put-live queued. Each is
-    # the outage seen from one button; `engine_error_spike` is the page for the outage.
-    "phone_service_down": "record",
+    # A save kept while the engine did not answer, its put-live queued (`engine/answering`).
+    # The outage seen from one button; `engine_dial_hold` is the page for the outage.
     "saved_goes_live_later": "record",
     # A client's own provider (their CRM, payment or messaging account) did not answer an
     # owner's request; the owner is told to try again in a minute and nothing changed.

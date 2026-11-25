@@ -63,7 +63,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings, resolve_hmac_key
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
-from apps.api.engine.outage import engine_outage, phone_service_down
+from apps.api.engine.outage import dial_hold_refusal
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.ingest.service import normalize_phone
 from apps.api.reliability.service import (
@@ -240,11 +240,13 @@ async def place_trial_call(
     phone = normalize_phone(number)
     if phone is None:
         raise _bad_number()
-    # Before the idempotency claim and every engine request: while the engine is not
-    # answering, a press costs one clear sentence rather than a ten-second timeout, an
-    # unconfirmed dial holding the shared test line, and a key stuck "in flight".
-    if (await engine_outage()).failing:
-        raise phone_service_down()
+    # The dial hold, asked before the idempotency claim and BEFORE the line or campaign
+    # holder is published: `dispatch_call` refuses a held dial too, but only after that
+    # publish, which is itself an engine request that times out the same way. Asked here,
+    # a press while held costs one sentence (the hold's own refusal), not a ten-second
+    # timeout; and a press may be the read probe that lifts the hold.
+    if (refusal := await dial_hold_refusal()) is not None:
+        raise refusal
     # A paid account's own test call rings from its own number, so only the engine is asked;
     # every call on the shared trial line needs that number too.
     paid_account = await has_paid(session, tenant_id=tenant_id)

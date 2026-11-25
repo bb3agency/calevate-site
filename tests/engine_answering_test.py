@@ -1,13 +1,15 @@
 """What owners and operators see while the voice engine does not answer, and after it does.
 
-Driven through the real vendor ladder (`vendor_http.vendor_request`) over a mock transport
-that times out, refuses the connection, then answers, against the real
-`platform_engine_state` row: the outage is a fact shared by every process, so a stub of the
-state would prove nothing about it.
+The run of failures is driven through the real vendor ladder (`vendor_http.vendor_request`)
+over a mock transport that times out, refuses the connection, then answers, against the real
+`platform_engine_state` row: the run is a fact shared by every process, so a stub of it would
+prove nothing. What clients are shown follows the dial hold (`engine/outage.py`, tested in
+`engine_dial_hold_test.py`), which is stubbed here at the seams that read it.
 """
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -19,19 +21,18 @@ from apps.api.campaigns import notes_live
 from apps.api.core.errors import ProblemError
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import untenanted_session
-from apps.api.engine import health, outage
-from apps.api.engine.outage import (
+from apps.api.engine import answering as outage
+from apps.api.engine import health
+from apps.api.engine.answering import (
     OUTAGE_MIN_FAILURES,
-    PHONE_SERVICE_DOWN_CODE,
     SAVED_GOES_LIVE_LATER_CODE,
     EngineOutage,
     engine_outage,
-
 )
+from apps.api.engine.outage import OUTAGE_HOLD_CODE, outage_hold_error
 from apps.api.engine.vendor_http import EngineRejectedError, vendor_request
 from apps.api.main import app
 from apps.api.ops import engine_health_routes
-from apps.workers import alerts as alert_sweep
 from apps.workers import job_notes_live
 from apps.workers.engine_outage import engine_unavailable
 from arq import Retry
@@ -181,17 +182,8 @@ async def test_the_owner_reads_plain_words_and_no_provider() -> None:
 # ------------------------------------------------------------------ the routes
 
 
-def _down() -> EngineOutage:
-    return EngineOutage(
-        engine=ENGINE,
-        failing=True,
-        since=datetime.now(UTC) - timedelta(minutes=2),
-        consecutive_failures=7,
-        last_failure_at=datetime.now(UTC),
-        last_kind="unreachable",
-        last_error="ReadTimeout",
-        last_route="/calls",
-    )
+#: A provider's or our machinery's name, which no client-facing sentence may carry (D-679).
+PROVIDER = re.compile(r"thinnest|vendor|engine", re.IGNORECASE)
 
 
 async def test_the_client_banner_read_says_only_whether_calls_go_through(
@@ -199,23 +191,31 @@ async def test_the_client_banner_read_says_only_whether_calls_go_through(
 ) -> None:
     tenant_id = await _tenant()
     headers = await _owner(tenant_id)
+    held = {"on": False}
+    started = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=3)
 
-    async def down(engine: str | None = None) -> EngineOutage:
-        return _down()
+    async def hold_is_on() -> bool:
+        return held["on"]
 
+    async def hold_started_at() -> datetime | None:
+        return started if held["on"] else None
+
+    monkeypatch.setattr(engine_health_routes, "hold_is_on", hold_is_on)
+    monkeypatch.setattr(engine_health_routes, "hold_started_at", hold_started_at)
     async with _client() as http:
         up = await http.get("/v1/phone-service", headers=headers)
-        monkeypatch.setattr(engine_health_routes, "engine_outage", down)
-        failing = await http.get("/v1/phone-service", headers=headers)
+        held["on"] = True
+        down = await http.get("/v1/phone-service", headers=headers)
         anonymous = await http.get("/v1/phone-service")
     assert up.status_code == 200, up.text
-    assert up.json()["state"] in ("answering", "not_answering")
-    assert failing.json()["state"] == "not_answering"
-    assert set(failing.json()) == {"state", "since"}
+    assert up.json() == {"state": "answering", "since": None}
+    assert down.json()["state"] == "not_answering"
+    assert datetime.fromisoformat(down.json()["since"]) == started
+    assert set(down.json()) == {"state", "since"}
     assert anonymous.status_code in (401, 403)
 
 
-async def test_the_operator_panel_shows_the_run_and_its_last_error(
+async def test_the_operator_panel_shows_the_hold_the_run_and_its_last_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await _fail(OUTAGE_MIN_FAILURES)
@@ -223,7 +223,15 @@ async def test_the_operator_panel_shows_the_run_and_its_last_error(
     async def ours(engine: str | None = None) -> EngineOutage:
         return await engine_outage(ENGINE)
 
+    async def held() -> bool:
+        return True
+
+    async def since() -> datetime | None:
+        return datetime.now(UTC)
+
     monkeypatch.setattr(engine_health_routes, "engine_outage", ours)
+    monkeypatch.setattr(engine_health_routes, "hold_is_on", held)
+    monkeypatch.setattr(engine_health_routes, "hold_started_at", since)
     token = await _make_admin()
     async with _client() as http:
         panel = await http.get(
@@ -231,22 +239,24 @@ async def test_the_operator_panel_shows_the_run_and_its_last_error(
         )
     assert panel.status_code == 200, panel.text
     body = panel.json()
-    assert body["failing"] is True
+    assert (body["held"], body["run_is_outage"]) == (True, True)
+    assert body["held_since"] is not None
     assert body["consecutive_failures"] == OUTAGE_MIN_FAILURES
     assert (body["last_error"], body["last_route"]) == ("ReadTimeout", "/calls")
     assert body["window_unreachable"] == OUTAGE_MIN_FAILURES
 
 
-async def test_a_test_call_while_down_is_refused_before_any_engine_request(
+async def test_a_test_call_while_held_is_refused_before_anything_is_published(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Asked before the holder publish, which would itself time out against a held engine."""
     tenant_id = await _tenant()
     headers = await _owner(tenant_id)
 
-    async def down(engine: str | None = None) -> EngineOutage:
-        return _down()
+    async def held() -> ProblemError:
+        return outage_hold_error()
 
-    monkeypatch.setattr(trial_calls, "engine_outage", down)
+    monkeypatch.setattr(trial_calls, "dial_hold_refusal", held)
     async with _client() as http:
         refused = await http.post(
             "/v1/trial/calls",
@@ -254,8 +264,9 @@ async def test_a_test_call_while_down_is_refused_before_any_engine_request(
             json={"agent_id": str(uuid.uuid4()), "number": "+919000000001"},
         )
     assert refused.status_code == 503, refused.text
-    assert refused.json()["type"].endswith(f"/{PHONE_SERVICE_DOWN_CODE}")
-    assert refused.headers.get("Retry-After") == "60"
+    body = refused.json()
+    assert body["type"].endswith(f"/{OUTAGE_HOLD_CODE}")
+    assert not PROVIDER.search(f"{body['title']} {body['detail']} {body.get('remediation')}")
 
 
 # ------------------------------------------------------------------ saves are kept
@@ -310,6 +321,13 @@ async def test_a_refusal_that_is_ours_still_asks_for_the_retry() -> None:
     assert await _put_live_messages(tenant_id) == []
 
 
+def _engine_down(state: dict[str, bool]) -> Any:
+    async def still_not_answering() -> bool:
+        return state["down"]
+
+    return still_not_answering
+
+
 async def test_the_queued_put_live_waits_the_outage_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -318,18 +336,15 @@ async def test_the_queued_put_live_waits_the_outage_out(
     payload = {"tenant_id": str(tenant_id), "jobs": [{"kind": "line", "job_id": str(line_id)}]}
     calls: list[tuple[uuid.UUID, bool]] = []
     alarms: list[str] = []
-    state = {"answering": False}
+    state = {"down": True}
 
     async def put_live(tid: uuid.UUID, kind: str, job_id: uuid.UUID, *, always: bool) -> None:
         calls.append((job_id, always))
-        if not state["answering"]:
+        if state["down"]:
             raise ProblemError(kind="dependency", code="engine_unreachable", title="x", detail="y")
 
-    async def down(engine: str | None = None) -> EngineOutage:
-        return _down()
-
     monkeypatch.setattr(notes_live, "put_live", put_live)
-    monkeypatch.setattr(job_notes_live, "engine_outage", down)
+    monkeypatch.setattr(job_notes_live, "still_not_answering", _engine_down(state))
     monkeypatch.setattr(job_notes_live, "alert", lambda stage, code, **kw: alarms.append(code))
 
     with pytest.raises(Retry):
@@ -339,7 +354,7 @@ async def test_the_queued_put_live_waits_the_outage_out(
         "waiting:1"
     )
     assert len(await _put_live_messages(tenant_id)) == 1
-    state["answering"] = True
+    state["down"] = False
     assert await job_notes_live.put_job_notes_live({"job_try": 1}, payload) == "done"
     assert alarms == []
     assert calls[-1] == (line_id, False)
@@ -358,70 +373,37 @@ async def test_a_put_live_still_unanswered_after_recovery_alarms_once(
     async def put_live(tid: uuid.UUID, kind: str, job_id: uuid.UUID, *, always: bool) -> None:
         raise ProblemError(kind="dependency", code="engine_unreachable", title="x", detail="y")
 
-    async def up(engine: str | None = None) -> EngineOutage:
-        return EngineOutage(engine=ENGINE, failing=False)
-
     monkeypatch.setattr(notes_live, "put_live", put_live)
-    monkeypatch.setattr(job_notes_live, "engine_outage", up)
+    monkeypatch.setattr(job_notes_live, "still_not_answering", _engine_down({"down": False}))
     monkeypatch.setattr(job_notes_live, "alert", lambda stage, code, **kw: alarms.append(code))
     result = await job_notes_live.put_job_notes_live({"job_try": WORKER_MAX_TRIES}, payload)
     assert result == "gave_up:1"
     assert alarms == ["job_put_live_gave_up"]
 
 
-# ------------------------------------------------------------------ the alarm clears
-
-
-async def test_the_outage_alarm_clears_when_the_engine_answers_again(
+async def test_still_not_answering_reads_the_hold_or_the_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    code = alert_sweep.ENGINE_SPIKE_CODE
-    async with untenanted_session() as session:
-        await session.execute(
-            text(
-                "UPDATE platform_alerts SET cleared_at = now() "
-                "WHERE code = :c AND cleared_at IS NULL"
-            ),
-            {"c": code},
-        )
-        await session.execute(
-            text(
-                "INSERT INTO platform_alerts (id, fingerprint, code, stage, severity, service, "
-                "occurrences, emailed, first_seen_at, last_seen_at) VALUES (:id, :fp, :c, "
-                "'CORE_LOGIC', 'page', 'api', 12, false, now() - interval '3 minutes', now())"
-            ),
-            {"id": uuid.uuid4(), "fp": f"CORE_LOGIC:{code}", "c": code},
-        )
+    """A put-live can meet an outage no dial has tripped (no campaign running): the run
+    alone must keep it waiting, and the hold alone must too."""
+    from apps.api.engine import outage as hold
 
-    async def still_down(engine: str | None = None) -> EngineOutage:
-        return _down()
+    held = {"on": False}
 
-    monkeypatch.setattr(alert_sweep, "engine_outage", still_down)
-    await alert_sweep.sweep_alert_clears({})
-    assert await _open(code) == 1
+    async def hold_is_on() -> bool:
+        return held["on"]
 
-    async def recovered(engine: str | None = None) -> EngineOutage:
-        return EngineOutage(engine=ENGINE, failing=False, recovered_at=datetime.now(UTC))
+    async def run(engine: str | None = None) -> EngineOutage:
+        return await engine_outage(ENGINE)
 
-    monkeypatch.setattr(alert_sweep, "engine_outage", recovered)
-    await alert_sweep.sweep_alert_clears({})
-    assert await _open(code) == 0
-
-
-async def _open(code: str) -> int:
-    async with untenanted_session() as session:
-        return int(
-            (
-                await session.execute(
-                    text(
-                        "SELECT count(*) FROM platform_alerts "
-                        "WHERE code = :c AND cleared_at IS NULL"
-                    ),
-                    {"c": code},
-                )
-            ).scalar()
-            or 0
-        )
+    monkeypatch.setattr(hold, "hold_is_on", hold_is_on)
+    monkeypatch.setattr(outage, "engine_outage", run)
+    assert await outage.still_not_answering() is False
+    held["on"] = True
+    assert await outage.still_not_answering() is True
+    held["on"] = False
+    await _fail(OUTAGE_MIN_FAILURES)
+    assert await outage.still_not_answering() is True
 
 
 async def test_an_unreadable_state_never_invents_an_outage(monkeypatch: pytest.MonkeyPatch) -> None:

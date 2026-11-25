@@ -85,7 +85,7 @@ def _thinnest(handler: Any) -> ThinnestEngine:
 async def test_a_request_the_platform_never_answers_reads_as_an_outage(
     monkeypatch: pytest.MonkeyPatch, failure: httpx.HTTPError
 ) -> None:
-    async def _uncounted(_engine: str, *, kind: str) -> None:
+    async def _uncounted(_engine: str, *, kind: str, **_where: str | None) -> None:
         return None
 
     monkeypatch.setattr(vendor_http, "record_engine_failure", _uncounted)

@@ -60,6 +60,11 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "Every client: calls, agent publishes and call reconciliation can all fail until it "
         "recovers.",
     ),
+    "engine_dial_hold": _s(
+        "Outbound calls are held: the voice platform is not answering",
+        "Every client: no campaign, call-back or new-lead call is placed until it answers "
+        "again. Nothing is marked failed and no attempt is spent; it resumes by itself.",
+    ),
     "engine_agent_drift_detected": _s(
         "A live agent is running a script we did not publish",
         "One client's callers are hearing a script someone edited outside Calevate.",

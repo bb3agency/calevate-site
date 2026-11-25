@@ -13,12 +13,15 @@ export type EngineHealth = components["schemas"]["EngineHealthOut"];
 
 export const ENGINE_HEALTH_PATH = "/v1/ops/engine-health";
 
-/** Every 15 seconds while failing, so an operator watching recovery sees it; a minute otherwise. */
+/** Every 15 seconds while held or failing, so recovery shows as it happens; a minute otherwise. */
 export function useEngineHealth() {
   return useQuery({
     queryKey: ["admin", "ops", "engine-health"],
     queryFn: () => apiRequest<EngineHealth>(adminSession(), ENGINE_HEALTH_PATH),
-    refetchInterval: untilRefused((query) => (query.state.data?.failing ? 15_000 : 60_000)),
+    refetchInterval: untilRefused((query: { state: { data?: EngineHealth } }) => {
+      const data = query.state.data;
+      return data?.held || data?.run_is_outage ? 15_000 : 60_000;
+    }),
   });
 }
 
@@ -28,9 +31,9 @@ const KIND_WORDS: Record<string, string> = {
 };
 
 /**
- * Whether the voice engine is answering, from the same read the client banner and the
- * test-call buttons use (`engine/outage.py`), with what an operator needs to start: since
- * when, how many in a row, the last error and its route, the paging alarm's window.
+ * Whether the voice engine is answering. The dial hold is what clients see (their "calls are
+ * paused" banner, Call me paused); the run of failures across every request says what failed
+ * last and where, which is where an operator starts.
  */
 export function EngineHealthPanel() {
   const health = useEngineHealth();
@@ -55,17 +58,21 @@ export function EngineHealthPanel() {
       title={title}
       info={
         <p>
-          {data.outage_after_failures} failed requests in a row, with no answer between them and the
-          newest under five minutes old, is an outage: clients then see a &ldquo;calls are
-          paused&rdquo; banner and their test calls are paused. The first answer ends it. The page
-          (<code>engine_error_spike</code>) needs {data.spike_threshold} failures in{" "}
-          {data.window_minutes} minutes and clears on the next alert sweep after it answers.
+          {data.hold_after_dial_failures} failed dials in a row hold every dial on the platform
+          (page <code>engine_dial_hold</code>); clients then see &ldquo;calls are paused&rdquo; and
+          their test calls are paused. A read probe every 30 seconds lifts it. Separately,{" "}
+          {data.outage_after_failures} failed requests of any kind in a row is an outage run: saved
+          changes wait it out instead of giving up.
         </p>
       }
     >
-      {data.failing ? (
-        <NoticeBox tone="stop" title={`Not answering since ${formatIST(data.since)}`}>
-          {data.consecutive_failures} failed in a row. Clients see the paused banner.
+      {data.held ? (
+        <NoticeBox tone="stop" title={`Dials held since ${formatIST(data.held_since)}`}>
+          Clients see the paused banner. It lifts by itself when the platform answers.
+        </NoticeBox>
+      ) : data.run_is_outage ? (
+        <NoticeBox tone="warn" title={`Requests failing since ${formatIST(data.run_since)}`}>
+          {data.consecutive_failures} in a row. Dials are not held yet.
         </NoticeBox>
       ) : (
         <p role="status" className="text-body font-medium text-ink">
@@ -73,6 +80,8 @@ export function EngineHealthPanel() {
         </p>
       )}
       <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-2 text-body sm:grid-cols-[max-content_1fr]">
+        <dt className="text-ink-muted">Failed in a row</dt>
+        <dd className="text-ink tabular-nums">{data.consecutive_failures}</dd>
         <dt className="text-ink-muted">Last failure</dt>
         <dd className="text-ink">
           {data.last_failure_at ? (
@@ -99,16 +108,16 @@ export function EngineHealthPanel() {
         </dd>
         <dt className="text-ink-muted">Last {data.window_minutes} minutes</dt>
         <dd className="text-ink tabular-nums">
-          {data.window_unreachable} no answer, {data.window_server_errors} server errors (page at{" "}
-          {data.spike_threshold})
+          {data.window_unreachable} no answer, {data.window_server_errors} server errors (spike page
+          at {data.spike_threshold})
         </dd>
-        <dt className="text-ink-muted">Alarm</dt>
+        <dt className="text-ink-muted">Hold page</dt>
         <dd className="text-ink">
           {data.alarm_open_since ? `Open since ${formatIST(data.alarm_open_since)}` : "Not open"}
         </dd>
         {data.recovered_at && (
           <>
-            <dt className="text-ink-muted">Last outage ended</dt>
+            <dt className="text-ink-muted">Last outage run ended</dt>
             <dd className="text-ink">{formatIST(data.recovered_at)}</dd>
           </>
         )}

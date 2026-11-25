@@ -216,8 +216,8 @@ class PlatformEngineState(Base):
 
     `PlatformEngineHealth` counts failures per minute, which a rate alarm needs, but cannot
     tell a recovered engine from an idle one. This row resets on the first answer, so the
-    client banner and the disabled test-call button go away when the engine is back
-    (`engine/outage.py`). Platform-scoped for `PlatformEngineHealth`'s reason.
+    operator panel and the retry ladders that wait an outage out see it end
+    (`engine/answering.py`). Platform-scoped for `PlatformEngineHealth`'s reason.
     """
 
     __tablename__ = "platform_engine_state"

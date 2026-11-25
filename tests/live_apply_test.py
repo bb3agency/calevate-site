@@ -402,8 +402,6 @@ async def test_an_outage_longer_than_the_ladder_is_waited_out(
 ) -> None:
     """The platform down for everybody is not this agent failing: a saved change is not
     turned into a republish somebody has to remember."""
-    from apps.api.engine.outage import EngineOutage
-
     tenant_id, agent_id, _bearer = await _tenant()
     await _published(tenant_id, agent_id)
     alarms: list[str] = []
@@ -412,11 +410,11 @@ async def test_an_outage_longer_than_the_ladder_is_waited_out(
     async def down(**_: Any) -> Any:
         raise ProblemError(kind="dependency", code="engine_unreachable", title="x", detail="y")
 
-    async def outage(engine: str | None = None) -> EngineOutage:
-        return EngineOutage(engine="fake", failing=True)
+    async def still_down() -> bool:
+        return True
 
     monkeypatch.setattr(worker, "converge_agent", down)
-    monkeypatch.setattr(worker, "engine_outage", outage)
+    monkeypatch.setattr(worker, "still_not_answering", still_down)
     run_id = await _queue(tenant_id)
     await drain_live_apply(tenant_id)
     before = await _outbox(AGENT_JOB, run_id)

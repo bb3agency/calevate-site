@@ -26754,6 +26754,183 @@
         "title": "EngineDriftOut",
         "type": "object"
       },
+      "EngineHealthOut": {
+        "additionalProperties": false,
+        "properties": {
+          "alarm_open_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alarm Open Since"
+          },
+          "consecutive_failures": {
+            "title": "Consecutive Failures",
+            "type": "integer"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "held": {
+            "title": "Held",
+            "type": "boolean"
+          },
+          "held_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held Since"
+          },
+          "hold_after_dial_failures": {
+            "title": "Hold After Dial Failures",
+            "type": "integer"
+          },
+          "last_answer_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Answer At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_failure_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Failure At"
+          },
+          "last_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "server_error",
+                  "unreachable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Kind"
+          },
+          "last_route": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Route"
+          },
+          "outage_after_failures": {
+            "title": "Outage After Failures",
+            "type": "integer"
+          },
+          "recovered_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovered At"
+          },
+          "run_is_outage": {
+            "title": "Run Is Outage",
+            "type": "boolean"
+          },
+          "run_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Since"
+          },
+          "spike_threshold": {
+            "title": "Spike Threshold",
+            "type": "integer"
+          },
+          "window_minutes": {
+            "title": "Window Minutes",
+            "type": "integer"
+          },
+          "window_server_errors": {
+            "title": "Window Server Errors",
+            "type": "integer"
+          },
+          "window_unreachable": {
+            "title": "Window Unreachable",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "engine",
+          "held",
+          "held_since",
+          "hold_after_dial_failures",
+          "run_is_outage",
+          "run_since",
+          "consecutive_failures",
+          "outage_after_failures",
+          "last_failure_at",
+          "last_kind",
+          "last_error",
+          "last_route",
+          "last_answer_at",
+          "recovered_at",
+          "window_minutes",
+          "spike_threshold",
+          "window_server_errors",
+          "window_unreachable",
+          "alarm_open_since"
+        ],
+        "title": "EngineHealthOut",
+        "type": "object"
+      },
       "EngineMinutePriceAttestIn": {
         "additionalProperties": false,
         "properties": {
@@ -46942,6 +47119,36 @@
         "title": "PerformanceOutcomeOut",
         "type": "object"
       },
+      "PhoneServiceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "state": {
+            "enum": [
+              "answering",
+              "not_answering"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "PhoneServiceOut",
+        "type": "object"
+      },
       "PinCardOut": {
         "additionalProperties": false,
         "description": "One card, re-run for the viewer: `spec`, or `refused` with the reason.",
@@ -55450,7 +55657,7 @@
           "instruction": {
             "anyOf": [
               {
-                "maxLength": 2000,
+                "maxLength": 4000,
                 "type": "string"
               },
               {
@@ -108790,6 +108997,34 @@
         "x-calevate-permission": "platform:config"
       }
     },
+    "/v1/ops/engine-health": {
+      "get": {
+        "operationId": "engine_health_v1_ops_engine_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineHealthOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The voice engine's health now: the dial hold, the failing run, its last error",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
     "/v1/ops/engine-minute-prices": {
       "get": {
         "operationId": "list_engine_minute_prices_v1_ops_engine_minute_prices_get",
@@ -113103,6 +113338,34 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/phone-service": {
+      "get": {
+        "operationId": "phone_service_v1_phone_service_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneServiceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Is the phone service answering? Backs the 'calls are paused' banner",
+        "tags": [
+          "phone-service"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/public/business-types": {

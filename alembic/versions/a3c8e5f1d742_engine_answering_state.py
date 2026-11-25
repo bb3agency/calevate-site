@@ -6,9 +6,9 @@ Create Date: 2026-11-26
 
 `platform_engine_health` counts failures per minute, which is what a RATE alarm needs, but it
 cannot say whether the engine has come back: a minute with no failures is either a recovered
-engine or no traffic. Owners and operators need the second fact (a banner that says calls are
-paused and disappears on recovery, a test call button that is disabled while the engine is not
-answering), so this row carries the run of consecutive failures and resets on the first answer.
+engine or no traffic. Operators need the second fact (since when, what failed last, on which
+route), and the retry ladders that must not give a saved change up need to know an outage is
+still on, so this row carries the run of consecutive failures and resets on the first answer.
 
 One row per engine, upserted, rather than a row per failure, for `c4f70b1e28da`'s reason: a
 hard outage fails thousands of requests a minute, and the table's size must not depend on that.

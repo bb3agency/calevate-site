@@ -6,8 +6,12 @@
 
 import { ApiProblem } from "./client";
 
-/** A test call refused because the phone service is not answering (`engine/outage.py`). */
-export const PHONE_SERVICE_DOWN_CODE = "phone_service_down";
+/**
+ * A dial refused because dials are held while the phone service is not answering
+ * (`engine/outage.py`'s `engine_outage_hold`): a test call refused before anything was
+ * published, or any other dial. Nothing rang.
+ */
+export const PHONE_SERVICE_DOWN_CODE = "engine_outage_hold";
 /** A save that was kept and goes live by itself once the phone service answers. */
 export const SAVED_GOES_LIVE_LATER_CODE = "saved_goes_live_later";
 

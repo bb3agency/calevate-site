@@ -51,7 +51,7 @@ from sqlalchemy import text
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.engine.outage import FailureKind, record_failure
+from apps.api.engine.answering import FailureKind, record_failure
 
 log = get_logger(__name__)
 
@@ -110,8 +110,8 @@ async def record_engine_failure(
     """Count one engine failure, and page when the window says it is an outage.
 
     `route` (our template) and `error` (a class name or a status) also extend the engine's
-    run of failures (`outage.record_failure`) in the same transaction: the client banner,
-    the operator panel and the test-call gate read that run, not this rate.
+    run of failures (`answering.record_failure`) in the same transaction: the operator
+    panel and the retry ladders read that run, not this rate.
 
     NEVER RAISES. It is called from the failure branch of an adapter that is already
     reporting a problem to its caller; a database hiccup here must not replace the

@@ -86,7 +86,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any, Final, NamedTuple
+from typing import Any, Final, NamedTuple, cast
 from uuid import UUID
 
 from sqlalchemy import text
@@ -101,6 +101,7 @@ from apps.api.agents.service import (
     campaign_dial_backoff_s,
     dial_was_not_placed,
     dispatch_call,
+    unconfirmed_engine_call_id,
 )
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.campaigns.brief import campaign_call_reason
@@ -141,17 +142,21 @@ from apps.api.core.alerting import (
     record_campaign_dials,
     record_compliance_block,
     record_dispatch_tick,
+    record_reconciliation_repair,
 )
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import enqueue, job_id_for
 from apps.api.core.redis import get_redis, release_lease
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.engine import get_engine
 from apps.api.engine.dial_lines import (
     ENGINE_BACKOFF_DEFAULT_S,
     dial_backoff_remaining_s,
     outbound_line_pool,
 )
+from apps.api.engine.outage import ENGINE_DOWN_CODES, dial_hold_refusal, hold_is_on, resume_budget
 
 # OUR normalized engine error, not a vendor payload shape — hard rule 2 bounds what
 # may cross this line and an HTTP status is on the safe side of it.
@@ -170,8 +175,13 @@ from apps.api.tenancy.call_lines import CALL_LINES_BUSY_RULE, read_call_lines
 # tick's line budget.
 from apps.workers.callbacks import MAX_PER_TICK as MAX_CALLBACKS_PER_TICK
 from apps.workers.callbacks import dispatch_due_callbacks
+from apps.workers.engine_delivery import FindsPlacedCalls
 
 log = get_logger(__name__)
+
+#: `pipeline.INGEST_JOB`, spelled here for `scripts/check_job_wiring.py`: the reconcile of an
+#: unconfirmed dial re-drives the call through the same ingest job the pipeline registers.
+INGEST_JOB: Final = "ingest_engine_event"
 
 ACTIVE_STATUSES = ("queued", "ringing", "in_progress")
 
@@ -571,6 +581,11 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
     # omitted has zero live outbound calls by the function's own filter.
     total_active = sum(work.active_outbound for work in tenants)
 
+    # The engine is not answering dials (`engine/outage.py`; this read also probes it). Held,
+    # the tick dials nobody and fires no schedule — starting a campaign publishes its engine
+    # agent, which would time out the same way — but still settles what finished.
+    engine_down = (await dial_hold_refusal()) is not None
+
     running: list[tuple[UUID, UUID, int, dict[str, Any]]] = []  # (tenant, campaign, slots, retry)
     settling: list[_Settling] = []
     started = 0
@@ -580,6 +595,10 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
                 settling.extend(await _stopped_campaigns_dialing(work.tenant_id))
             except Exception as exc:
                 _tenant_failed(failures, work.tenant_id, "settle", exc)
+        if engine_down:
+            # A schedule that falls due while held waits for the hold to lift, inside its
+            # own grace (`scheduling.claim_slot_at_start`).
+            work = work._replace(has_due_schedule=False)
         if not (work.has_running_campaign or work.has_due_schedule):
             # Holding lines but nothing to dial. It has already been counted into
             # `total_active`; there is nothing a session could add.
@@ -608,8 +627,10 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
     # what finished. A hold scoped to one client's workspace or one calling number is asked
     # per campaign before its claim (`_dispatch_for_campaign`), since it holds no other
     # client's dials. Always 0.0 on an engine without its own ceiling.
-    if global_budget and await dial_backoff_remaining_s() > 0:
+    if global_budget and (engine_down or await dial_backoff_remaining_s() > 0):
         global_budget = 0
+    # Just after the hold lifted, half the lines: a held backlog is spread over ticks.
+    global_budget = await resume_budget(global_budget)
 
     # CALL-BACKS FIRST, OUT OF THE SAME POOL (D-514). Two decisions in one placement:
     #
@@ -747,6 +768,7 @@ async def _settle_out_of_hours(
     at 20:59 end after 21:00, and a campaign narrowed to 10:00-12:00 has its last one end
     after 12:00; without this it stayed "running", and `campaign.completed` waited, until
     its window next opened, usually the next morning."""
+    await _resolve_unconfirmed_dials(tenant_id, campaign_id)
     async with tenant_session(tenant_id) as session:
         await _reap_stuck_dialing(
             session,
@@ -928,15 +950,17 @@ async def _dispatch_for_campaign(
 
     With the claim committed first, that same failure leaves the contact in `dialing`,
     pointing at the call row `dispatch_call` committed before it dialled. Nothing
-    re-claims it; `_reap_stuck_dialing` settles it after `STUCK_DIALING_AFTER` — back on
-    the ladder
-    if the vendor named the call, terminally if it never did, because a dial we cannot
-    prove did not ring must not be retried. One dial, one attempt, no second ring. The
-    split also stops a DB transaction being held open across an engine HTTP round trip.
+    re-claims it. If the vendor named the call, `_reap_stuck_dialing` puts it back on the
+    ladder after `STUCK_DIALING_AFTER`; if it never did, the engine is asked by our
+    reference (`_resolve_unconfirmed_dials`) and the contact is retried only once the
+    engine says it holds no such call, because a dial we cannot prove did not ring must not
+    be retried. One dial, one attempt, no second ring. The split also stops a DB
+    transaction being held open across an engine HTTP round trip.
     """
     max_attempts = int(retry_policy.get("max_attempts", 3))
     dialled = blocked = exhausted = 0
 
+    await _resolve_unconfirmed_dials(tenant_id, campaign_id)
     async with tenant_session(tenant_id) as session:
         await _reap_stuck_dialing(
             session,
@@ -1226,12 +1250,7 @@ async def _dispatch_for_campaign(
                 # THE THIRD OUTCOME: the engine may have started this call. Not the
                 # ladder — a retry here is a second unsolicited call to somebody whose
                 # phone may already have rung, which is the thing the compliance gate
-                # exists to prevent. The contact is finished with, the escalation tells
-                # the client a human should look, and the unconfirmed `calls` row
-                # `dispatch_call` committed is what an operator reconciles against.
-                await _settle_unconfirmed_dial(
-                    session, contact_id, tenant_id=tenant_id, campaign_id=campaign_id
-                )
+                # exists to prevent.
                 log.warning(
                     "campaign_dial_unconfirmed",
                     extra={
@@ -1239,6 +1258,18 @@ async def _dispatch_for_campaign(
                         "call_id": str(unconfirmed.call_id),
                         "code": unconfirmed.code,
                     },
+                )
+                if _finds_placed_calls():
+                    # The contact stays `dialing` on the unconfirmed call, which may hold
+                    # a line, until the engine says whether it placed it
+                    # (`_resolve_unconfirmed_dials`).
+                    dialled += 1
+                    continue
+                # Nothing can ever say: the contact is finished with, the escalation tells
+                # the client a human should look, and the unconfirmed `calls` row
+                # `dispatch_call` committed is what an operator reconciles against.
+                await _settle_unconfirmed_dial(
+                    session, contact_id, tenant_id=tenant_id, campaign_id=campaign_id
                 )
                 exhausted += 1
                 continue
@@ -1608,8 +1639,10 @@ _SETTLE_LINE_WAIT = (
 _LINE_LIMIT_RULES: Final = frozenset({LINES_BUSY_CODE, CALL_LINES_BUSY_RULE})
 #: The voice platform's throttle and a calling number's daily cap: each holds dials for as
 #: long as the vendor said (`dial_lines.start_dial_backoff`), so the contact waits exactly
-#: that long, attempt refunded, rather than the thirty minutes a halt is given.
-_HOLD_RULES: Final = frozenset({"engine_rate_limited", NUMBER_DAILY_LIMIT_CODE})
+#: that long, attempt refunded, rather than the thirty minutes a halt is given. A dial the
+#: engine never received (no connection) or one refused while it is held for not answering
+#: (`engine/outage.py`) waits the same way: the vendor's fault spends nobody's attempt.
+_HOLD_RULES: Final = frozenset({"engine_rate_limited", NUMBER_DAILY_LIMIT_CODE, *ENGINE_DOWN_CODES})
 _SETTLE_HOLD_WAIT = (
     "status = 'pending', next_attempt_at = now() + make_interval(secs => :wait), "
     "attempts = attempts - 1"
@@ -1790,6 +1823,118 @@ async def _settle_unconfirmed_dial(
     await _exhaust_contact(session, contact_id, tenant_id=tenant_id, campaign_id=campaign_id)
 
 
+def _finds_placed_calls() -> bool:
+    """Can the engine say, after the fact, whether it placed a dial we lost the answer to?"""
+    return isinstance(get_engine(), FindsPlacedCalls)
+
+
+#: Unconfirmed dials asked about per campaign visit, oldest first. Each costs up to two
+#: engine reads (the client's workspace and ours); the rest wait for the next tick.
+UNCONFIRMED_RESOLVE_PER_VISIT: Final = 5
+
+#: A campaign's contacts still `dialing` on a dial whose answer we lost.
+_UNCONFIRMED_CONTACTS_SQL = text(
+    "SELECT cc.id, c.id FROM campaign_contacts cc JOIN calls c ON c.id = cc.last_call_id "
+    "WHERE cc.campaign_id = :cid AND cc.status = 'dialing' AND c.status = 'queued' "
+    "AND c.engine_call_id LIKE :unconfirmed "
+    "AND c.created_at < now() - make_interval(secs => :after) "
+    "ORDER BY c.created_at, c.id LIMIT :cap"
+)
+
+#: CAS on our placeholder and `queued`, so a row the ingest adopted meanwhile is left alone.
+_CLOSE_LOST_CAMPAIGN_DIAL_SQL = text(
+    "UPDATE calls SET status = 'failed', not_placed_reason = 'dial_lost', updated_at = now() "
+    "WHERE id = :call AND engine_call_id = :local AND status = 'queued' RETURNING id"
+)
+
+#: Nobody was rung, so the claim's attempt is handed back and the contact is due at once;
+#: the ordinary claim then re-reads the hours, DNC, the gate and the big red switch.
+_RETRY_LOST_DIAL_SQL = text(
+    "UPDATE campaign_contacts SET status = 'pending', attempts = greatest(attempts - 1, 0), "
+    "next_attempt_at = now(), updated_at = now() "
+    f"WHERE id = :id AND last_call_id = :call AND {_STILL_CLAIMED}"
+)
+
+
+async def _resolve_unconfirmed_dials(tenant_id: UUID, campaign_id: UUID) -> int:
+    """Ask the engine about this campaign's dials whose answer we lost. Returns how many
+    were settled either way.
+
+    Our `calls.id` is the dial's `reference` and its `Idempotency-Key`
+    (`engine/thinnest.start_outbound_call`), so the engine is asked by it
+    (`GET /calls?reference=`, snapshots/2026-10-29/pages/api-reference/calls/list-calls.md:
+    484-493):
+
+    * **found** — the call was placed. The ingest adopts our row (the reconciliation
+      sweep's own job and key), and the contact settles from that call like any other.
+    * **none** — the engine holds no call under our reference, so nobody was rung. The
+      row is closed `dial_lost` and the contact goes back to `pending` with its attempt
+      refunded: the vendor's failure spends nothing of the person's.
+    * **no answer** — left exactly as it is, `dialing`, for the next visit. A campaign
+      with such a contact cannot complete, which is right: we do not know its outcome.
+
+    Asked only after `pipeline.UNCONFIRMED_DIAL_PROBE_AFTER` (a dial that went out rings at
+    once, and a lost response is lost in seconds), never while the engine is held, and
+    each engine round trip outside any transaction.
+    """
+    if not _finds_placed_calls() or await hold_is_on():
+        return 0
+    from apps.workers.pipeline import (
+        UNCONFIRMED_DIAL_PROBE_AFTER,
+        _placed_call_handle,
+    )
+
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                _UNCONFIRMED_CONTACTS_SQL,
+                {
+                    "cid": campaign_id,
+                    "unconfirmed": f"{UNCONFIRMED_ENGINE_CALL_PREFIX}%",
+                    "after": UNCONFIRMED_DIAL_PROBE_AFTER.total_seconds(),
+                    "cap": UNCONFIRMED_RESOLVE_PER_VISIT,
+                },
+            )
+        ).all()
+    engine = get_engine()
+    settled = 0
+    for contact_id, call_id in rows:
+        call = UUID(str(call_id))
+        try:
+            handle = await _placed_call_handle(cast(FindsPlacedCalls, engine), tenant_id, call)
+        except Exception as exc:
+            # The engine could not say. Nothing is written; the next visit asks again.
+            log.info(
+                "campaign_unconfirmed_dial_unresolved",
+                extra={"call_id": str(call), "error": type(exc).__name__},
+            )
+            break
+        if handle is not None:
+            await enqueue(
+                INGEST_JOB,
+                {"engine": engine.name, "execution_id": handle, "source": "reconciliation"},
+                job_id=job_id_for(INGEST_JOB, engine.name, handle, "reconcile"),
+            )
+            record_reconciliation_repair(kind="unconfirmed_dial_found")
+            settled += 1
+            continue
+        async with tenant_session(tenant_id) as session:
+            closed = (
+                await session.execute(
+                    _CLOSE_LOST_CAMPAIGN_DIAL_SQL,
+                    {"call": call, "local": unconfirmed_engine_call_id(call)},
+                )
+            ).first()
+            if closed is not None:
+                await session.execute(_RETRY_LOST_DIAL_SQL, {"id": contact_id, "call": call})
+                settled += 1
+        log.warning(
+            "campaign_dial_lost_retried",
+            extra={"campaign_id": str(campaign_id), "call_id": str(call)},
+        )
+    return settled
+
+
 async def _exhaust_contact(
     session: Any, contact_id: UUID, *, tenant_id: UUID | None, campaign_id: UUID | None
 ) -> bool:
@@ -1845,13 +1990,10 @@ async def _reap_stuck_dialing(
     signature of a dial whose response we lost (`dispatch_call` commits the intent row
     with an `engine_call_id` of its own and stamps the vendor's over it only on a clean
     return), and returning THAT contact to `pending` is exactly the second ring this
-    whole path exists to prevent. Those are exhausted instead, with the escalation, and
-    the unconfirmed `calls` row is the operator's reconciliation handle.
-
-    This is the backstop rather than the main defence: `_dispatch_for_campaign` settles a
-    `DialUnconfirmedError` the moment it happens. What reaches here is the case that outruns
-    an `except` clause — a `CancelledError` through the dial, i.e. a worker killed
-    mid-tick, which is a `BaseException` and by design not caught there.
+    whole path exists to prevent. On an engine that can look a dial up by our reference they
+    are left for `_resolve_unconfirmed_dials`, which asks it; on one that cannot they are
+    exhausted, with the escalation, and the unconfirmed `calls` row is the operator's
+    reconciliation handle.
 
     FIRST, THE UNANSWERED DIALS. A dial nobody answered never reaches the post-call
     pipeline: no conversation ran, so no worker settled it and `resolve_campaign_contact`
@@ -1874,25 +2016,32 @@ async def _reap_stuck_dialing(
         _SETTLE_ANSWERED_SQL,
         {"cid": campaign_id, "stuck": STUCK_DIALING_AFTER.total_seconds()},
     )
-    stranded = (
-        (
-            await session.execute(
-                text(
-                    "SELECT cc.id FROM campaign_contacts cc "
-                    "JOIN calls c ON c.id = cc.last_call_id "
-                    "WHERE cc.campaign_id = :cid AND cc.status = 'dialing' "
-                    "AND cc.last_attempt_at < now() - make_interval(secs => :stuck) "
-                    "AND c.engine_call_id LIKE :unconfirmed"
-                ),
-                {
-                    "cid": campaign_id,
-                    "stuck": STUCK_DIALING_AFTER.total_seconds(),
-                    "unconfirmed": f"{UNCONFIRMED_ENGINE_CALL_PREFIX}%",
-                },
+    # An engine that can be asked later leaves them `dialing` for `_resolve_unconfirmed_dials`
+    # however long it stays silent: exhausting one would end a reachable person on the
+    # vendor's outage. Only an engine that can never say has them exhausted here.
+    stranded: list[Any] = (
+        []
+        if _finds_placed_calls()
+        else list(
+            (
+                await session.execute(
+                    text(
+                        "SELECT cc.id FROM campaign_contacts cc "
+                        "JOIN calls c ON c.id = cc.last_call_id "
+                        "WHERE cc.campaign_id = :cid AND cc.status = 'dialing' "
+                        "AND cc.last_attempt_at < now() - make_interval(secs => :stuck) "
+                        "AND c.engine_call_id LIKE :unconfirmed"
+                    ),
+                    {
+                        "cid": campaign_id,
+                        "stuck": STUCK_DIALING_AFTER.total_seconds(),
+                        "unconfirmed": f"{UNCONFIRMED_ENGINE_CALL_PREFIX}%",
+                    },
+                )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
     )
     for contact_id in stranded:
         await _exhaust_contact(
@@ -1912,12 +2061,20 @@ async def _reap_stuck_dialing(
     reaped = (
         await session.execute(
             text(
-                "SELECT id, attempts FROM campaign_contacts "
-                "WHERE campaign_id = :cid AND status = 'dialing' "
-                "AND last_attempt_at < now() - make_interval(secs => :stuck) "
-                "FOR UPDATE SKIP LOCKED"
+                "SELECT cc.id, cc.attempts FROM campaign_contacts cc "
+                "WHERE cc.campaign_id = :cid AND cc.status = 'dialing' "
+                "AND cc.last_attempt_at < now() - make_interval(secs => :stuck) "
+                # Never a dial the vendor did not name: back on the ladder, that is the
+                # second ring the pass above exists to prevent.
+                "AND NOT EXISTS (SELECT 1 FROM calls c WHERE c.id = cc.last_call_id "
+                "  AND c.engine_call_id LIKE :unconfirmed) "
+                "FOR UPDATE OF cc SKIP LOCKED"
             ),
-            {"cid": campaign_id, "stuck": STUCK_DIALING_AFTER.total_seconds()},
+            {
+                "cid": campaign_id,
+                "stuck": STUCK_DIALING_AFTER.total_seconds(),
+                "unconfirmed": f"{UNCONFIRMED_ENGINE_CALL_PREFIX}%",
+            },
         )
     ).all()
     for contact_id, attempts in reaped:

@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.67 — 26-Nov-2026
+
+- When the phone service stops answering, new calls are held everywhere instead of each one
+  timing out, and resume by themselves (gently) once it answers. A call whose start we could
+  not confirm is looked up before anyone is dialled again, and nobody loses an attempt or is
+  marked failed because of the outage.
+
 ## 0.5.66 — 26-Nov-2026
 
 - When the phone service stops answering, calls already placed or in progress are never

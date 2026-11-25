@@ -96,12 +96,13 @@ describe("the test-call button", () => {
     expect(view.queryByText(TEST_CALLS_PAUSED)).toBeNull();
   });
 
-  it("shows a refused press as the pause, not as a red failure", async () => {
+  it("shows a press the dial hold refused as the pause, not as a red failure", async () => {
+    // `engine/outage.outage_hold_error`, as the API sends it.
     const refused = new ApiProblem(503, {
-      type: "https://calevate.tech/problems/phone_service_down",
-      title: "Test calls are paused",
-      detail: "Our phone service is not answering right now.",
-      kind: "dependency",
+      type: "https://calevate.tech/problems/engine_outage_hold",
+      title: "Calls are paused for a moment",
+      detail: "The phone system is not answering right now, so this call was not placed.",
+      kind: "transient",
       retryable: true,
     });
     const view = await renderClientPage(testForm(refused), { "/v1/phone-service": UP });
@@ -146,8 +147,11 @@ describe("the operator's engine-health panel", () => {
     const view = renderAdminPage(<EngineHealthPanel />, {
       "/v1/ops/engine-health": {
         engine: "thinnest",
-        failing: true,
-        since: "2026-11-25T18:53:00Z",
+        held: true,
+        held_since: "2026-11-25T18:53:00Z",
+        hold_after_dial_failures: 2,
+        run_is_outage: true,
+        run_since: "2026-11-25T18:52:00Z",
         consecutive_failures: 14,
         outage_after_failures: 3,
         last_failure_at: "2026-11-25T18:57:00Z",
@@ -163,8 +167,8 @@ describe("the operator's engine-health panel", () => {
         alarm_open_since: "2026-11-25T18:55:00Z",
       },
     });
-    expect(await view.findByText(/Not answering since/)).toBeTruthy();
-    expect(view.container.textContent).toContain("14 failed in a row");
+    expect(await view.findByText(/Dials held since/)).toBeTruthy();
+    expect(view.container.textContent).toContain("Failed in a row14");
     expect(view.getByText("ReadTimeout")).toBeTruthy();
     expect(view.getByText("/calls")).toBeTruthy();
     expect(view.container.textContent).toContain("Open since");

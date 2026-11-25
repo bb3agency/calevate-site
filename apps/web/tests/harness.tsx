@@ -268,8 +268,11 @@ export const CALLING_NUMBERS_NOT_APPLICABLE = {
 /** `GET /v1/ops/engine-health` on an ordinary day. */
 export const ENGINE_ANSWERING = {
   engine: "thinnest",
-  failing: false,
-  since: null,
+  held: false,
+  held_since: null,
+  hold_after_dial_failures: 2,
+  run_is_outage: false,
+  run_since: null,
   consecutive_failures: 0,
   outage_after_failures: 3,
   last_failure_at: null,
