@@ -108,6 +108,7 @@ from apps.api.billing.models import (
     UsageEvent,
 )
 from apps.api.billing.plans import (
+    IST,
     OVERAGE_RATE_SECOND_SQL,
     ist_billing_month,
     month_pricing_instant,
@@ -169,6 +170,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.observability import set_span_attributes, span, tracing_enabled
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
+from apps.api.core.redis import get_redis
 from apps.api.crm.outcomes import CallFacts, derive_outcome, hint_of
 from apps.api.crm.service import emit_lead_created, emit_lead_updated
 from apps.api.crm.step_progress import StepProgress, holder_script, stored_progress
@@ -178,7 +180,6 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.recording_source import EngineRecordingSource
 from apps.api.engine.thinnest_workspace import in_workspace
-from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.forwarding.save_number import queue_if_booked
 from apps.api.forwarding.testing import (
     claim_inbound_call,
@@ -216,6 +217,11 @@ from apps.workers.engine_delivery import (
     seal_listing,
     talked,
 )
+from apps.workers.engine_outage import (
+    TRANSIENT_ENGINE_CODES,
+    OutageStreak,
+    engine_unavailable,
+)
 from apps.workers.extraction import (
     MODEL_FAILURE,
     CallSetting,
@@ -224,7 +230,7 @@ from apps.workers.extraction import (
     extract_call,
     model_answered,
 )
-from apps.workers.fleet_walk import WalkCursor
+from apps.workers.fleet_walk import FLEET_WALK_DEADLINE, WalkBudget, WalkCursor
 from apps.workers.handoff import settle_handoff
 from apps.workers.moments import (
     derive_moments,
@@ -458,34 +464,32 @@ async def _withdrawn_route_tenant(
 # and an engine that is genuinely down should not be re-hit every few seconds.
 RETRY_BACKOFF_S: tuple[float, ...] = (30.0, 120.0)
 
-# Engine failures where an IDENTICAL retry can still succeed, which is the only kind
-# worth a rung on the ladder. `engine_unreachable` is the transport never completing
-# (DNS, refused, timeout, TLS) — the adapter's own equivalent of "no status at all" —
-# and `engine_rate_limited` is `kind="transient"`, which the error ladder defines as
-# "identical retry can work".
-#
-# Deliberately NOT here: `engine_rejected`. A 4xx is the engine's verdict on the request —
-# most often a 404 for an execution it has never heard of (a replayed webhook, a hand-typed
-# id, an execution on another account) — and re-fetching it fails identically three times.
-# A 5xx under the same code is the engine failing, not refusing, and `_is_transient` reads
-# it off `EngineRejectedError.vendor_status`: left unretried, one 502 on Get Call ended the
-# job with a "permanent" terminal page and the call waited for the poller.
-TRANSIENT_ENGINE_CODES = frozenset({"engine_unreachable", "engine_rate_limited"})
-
 
 def _is_transient(exc: BaseException) -> bool:
     """Is another attempt capable of a different outcome?
 
-    A `ProblemError` is the engine layer's considered verdict, so it is read as one. Any
-    OTHER exception is our own infrastructure failing mid-job — a database blip, a Redis
-    hiccup — and those are blips by nature; a genuine bug retries three times and stops,
-    which is a cheap price for not dropping an at-most-once call on a transient fault.
+    A `ProblemError` is the engine layer's considered verdict, so it is read as one
+    (`engine_outage.engine_unavailable`: a 5xx or an unanswered request retries, a 4xx does
+    not). Any OTHER exception is our own infrastructure failing mid-job — a database blip, a
+    Redis hiccup — and those are blips by nature; a genuine bug retries three times and
+    stops, which is a cheap price for not dropping an at-most-once call on a transient fault.
     """
-    if isinstance(exc, EngineRejectedError) and exc.vendor_status >= 500:
-        return True
     if isinstance(exc, ProblemError):
-        return exc.kind == "transient" or exc.code in TRANSIENT_ENGINE_CODES
+        return engine_unavailable(exc)
     return True
+
+
+def _abandon_detail(exc: Exception, attempt: int) -> str:
+    """The terminal alarm's sentence. An engine that is not answering is said so, because
+    the call is not lost: the reconciliation sweeps re-drive it once the engine answers."""
+    if engine_unavailable(exc):
+        return (
+            f"{type(exc).__name__} after {attempt} attempt(s): the voice platform is not "
+            "answering; the reconciliation sweeps re-drive this call once it answers"
+        )
+    if _is_transient(exc):
+        return f"{type(exc).__name__} after {attempt} attempt(s)"
+    return f"{type(exc).__name__} is permanent, not retried"
 
 
 async def _abandon_ingest(
@@ -517,11 +521,7 @@ async def _abandon_ingest(
     alert(
         "WORKER_TERMINAL",
         "engine_ingest_abandoned",
-        detail=(
-            f"{type(exc).__name__} after {attempt} attempt(s)"
-            if _is_transient(exc)
-            else f"{type(exc).__name__} is permanent, not retried"
-        ),
+        detail=_abandon_detail(exc, attempt),
         execution_id=execution_id,
     )
     raise exc
@@ -1041,11 +1041,7 @@ async def _abandon_post_call(
     alert(
         "WORKER_TERMINAL",
         "post_call_abandoned",
-        detail=(
-            f"{type(exc).__name__} after {attempt} attempt(s)"
-            if _is_transient(exc)
-            else f"{type(exc).__name__} is permanent, not retried"
-        ),
+        detail=_abandon_detail(exc, attempt),
         call_id=call_id,
         execution_id=execution_id,
     )
@@ -6150,6 +6146,35 @@ OUTSTANDING_PROBE_BUDGET = 200
 #: is far past any plausible SMB call.
 CALL_ABANDONED_AFTER = timedelta(hours=2)
 
+#: Wall clock one sweep may spend asking the engine. `OUTSTANDING_PROBE_BUDGET` bounds the
+#: requests, not the time: two hundred serial probes at `vendor_http.REQUEST_TIMEOUT_S` each
+#: is past `WorkerSettings.job_timeout`, and arq then kills the tick before it writes its
+#: set-asides, its cursor or its alarm. One probe can still run past the deadline, so it is
+#: the fleet walks' budget, which leaves two minutes under `job_timeout` for that.
+OUTSTANDING_PROBE_DEADLINE = FLEET_WALK_DEADLINE
+
+#: How long after a call falls past `OUTSTANDING_PROBE_HORIZON` it is still reported, and
+#: how long a reported call is set aside from the report. The sweep is half-hourly, so an
+#: hour reaches every call through one missed tick; set aside for longer than the window,
+#: each is reported once.
+EXPIRED_REPORT_WINDOW = timedelta(hours=1)
+_EXPIRED_SET_ASIDE_SWEEP = "outstanding_expired"
+
+# A call still non-terminal past the horizon is not asked about again: nothing automatic
+# will settle it. Before this report it left the sweep silently, which is how a call that
+# was unreadable for its whole horizon (an engine down for a day) disappeared. Placeholder
+# rows are left out: the dial path and `_UNCONFIRMED_DIALS_SQL` settle those, with no
+# horizon.
+_EXPIRED_CALLS_SQL = (
+    "SELECT c.id FROM calls c "
+    "WHERE COALESCE(c.started_at, c.created_at) <= now() - :horizon "
+    "AND COALESCE(c.started_at, c.created_at) > now() - :horizon - :window "
+    "AND c.status <> ALL(:terminal) "
+    "AND c.engine_call_id NOT LIKE :unconfirmed "
+    "AND NOT (CAST(c.id AS text) = ANY(CAST(:set_aside AS text[]))) "
+    "ORDER BY COALESCE(c.started_at, c.created_at) LIMIT :cap"
+)
+
 # TWO SHAPES OF UNFINISHED CALL, and both of them are invisible once the execution has
 # aged out of the listing window:
 #
@@ -6287,6 +6312,13 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
     shape `reconcile_executions`, `report_stalled_pipeline`, `retention.sweep_tenants` and
     `qa_sampling.draw_for_tenants` all take (R-4). Every counter rides the return string
     and the alert, so a repair count reads as a FLOOR rather than a total.
+
+    AN ENGINE THAT IS NOT ANSWERING is waited out, never acted on. After
+    `engine_outage.OUTAGE_STOP_AFTER` unanswered probes in a row the sweep stops asking:
+    no row is closed, none is set aside (each is asked again on the next tick rather than
+    two hours later), the cursor stays on the first tenant not reached, and no alarm is
+    raised here, because `reconcile_executions` and `engine_error_spike` already say the
+    engine is down. The calls past the horizon are still reported, from our own rows.
     """
     engine = get_engine()
     # An engine that cannot be asked about a dial by our reference leaves placeholder rows
@@ -6297,19 +6329,48 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
     abandoned = 0
     lost_closed = 0
     probes = 0
+    # Unanswered probes while the sweep went on: isolated failures, alarmed with `unreached`.
+    unanswered = 0
     truncated = False
+    out_of_time = False
+    streak = OutageStreak()
+    clock = WalkBudget(OUTSTANDING_PROBE_DEADLINE)
     excluded = await set_aside_ids(_OUTSTANDING_SET_ASIDE_SWEEP)
+    reported = await set_aside_ids(_EXPIRED_SET_ASIDE_SWEEP)
     # Asked and not moved: still running, unreadable, or settled with nothing owed.
     unmoved: list[str] = []
+    expired: list[tuple[UUID, UUID]] = []
     # Resumed after the last tenant a sweep finished, so a truncated sweep does not leave
     # the same tail of the ordering unprobed every half hour.
     cursor = WalkCursor("outstanding_calls")
     for tenant_id in await cursor.order(await callable_tenants()):
-        if probes >= OUTSTANDING_PROBE_BUDGET:
-            truncated = True
-            break
+        stopped = truncated or streak.stopped
         try:
             async with tenant_session(tenant_id) as session:
+                expired.extend(
+                    (tenant_id, UUID(str(call_id)))
+                    for call_id in (
+                        await session.execute(
+                            text(_EXPIRED_CALLS_SQL),
+                            {
+                                "terminal": sorted(TERMINAL_STATUSES),
+                                "horizon": OUTSTANDING_PROBE_HORIZON,
+                                "window": EXPIRED_REPORT_WINDOW,
+                                "unconfirmed": f"{UNCONFIRMED_ENGINE_CALL_PREFIX}%",
+                                "set_aside": reported,
+                                "cap": OUTSTANDING_PROBE_PER_TENANT,
+                            },
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                if stopped:
+                    # Only the report above needs no engine; the probes wait for next tick.
+                    continue
+                if probes >= OUTSTANDING_PROBE_BUDGET:
+                    truncated = True
+                    continue
                 rows = (
                     await session.execute(
                         text(_OUTSTANDING_CALLS_SQL),
@@ -6350,21 +6411,31 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
             if probes >= OUTSTANDING_PROBE_BUDGET:
                 truncated = True
                 break
+            if streak.stopped:
+                break
+            if clock.spent():
+                truncated = out_of_time = True
+                break
             execution_id = str(engine_call_id)
             probes += 1
             try:
                 snapshot = await engine.get_execution(execution_id)
-            except Exception:
-                # Includes the honest refusal an adapter raises for an execution the
-                # vendor does not hold — a real answer about a real problem, but not one
-                # a re-drive fixes, so it is counted rather than acted on.
+            except Exception as exc:
                 log.warning(
                     "outstanding_probe_unreadable",
                     extra={"execution_id": execution_id, "engine": engine.name},
                 )
+                if streak.failed(exc):
+                    # The engine did not answer: asked again next tick, not set aside.
+                    unanswered += 1
+                    continue
+                # The honest refusal an adapter raises for an execution the vendor does
+                # not hold — a real answer about a real problem, but not one a re-drive
+                # fixes, so it is counted rather than acted on.
                 unreached += 1
                 unmoved.append(execution_id)
                 continue
+            streak.answered()
             if not snapshot.terminal:
                 if datetime.now(UTC) - began >= CALL_ABANDONED_AFTER:
                     abandoned += 1
@@ -6401,6 +6472,11 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
             if truncated or probes >= OUTSTANDING_PROBE_BUDGET:
                 truncated = True
                 break
+            if streak.stopped:
+                break
+            if clock.spent():
+                truncated = out_of_time = True
+                break
             probes += 1
             call_id = UUID(str(lost_id))
             try:
@@ -6408,23 +6484,51 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
                 closed = await _settle_lost_dial(
                     engine.name, cast(FindsPlacedCalls, finder), tenant_id, call_id
                 )
-            except Exception:
+            except Exception as exc:
                 log.warning(
                     "unconfirmed_dial_unreadable",
                     extra={"call_id": str(call_id), "engine": engine.name},
                 )
+                if streak.failed(exc):
+                    # Unanswered is not "no such call": the row stays queued and is asked
+                    # again next tick, never closed on a guess.
+                    unanswered += 1
+                    continue
                 unreached += 1
                 closed = False
+            else:
+                streak.answered()
             lost_closed += closed
             if not closed:
                 # Found and re-driven, unreadable, or taken by something else: not asked
                 # again until the set-aside lapses.
                 unmoved.append(unconfirmed_engine_call_id(call_id))
-        if not truncated:
+        if not truncated and not streak.stopped:
             # A tenant cut part-way is not reached, so the next sweep starts with it.
             await cursor.reached(tenant_id)
 
+    engine_down = streak.stopped
     await set_aside(_OUTSTANDING_SET_ASIDE_SWEEP, unmoved, for_=OUTSTANDING_PROBE_SET_ASIDE)
+    if expired:
+        await set_aside(
+            _EXPIRED_SET_ASIDE_SWEEP,
+            [str(call_id) for _tenant, call_id in expired],
+            for_=EXPIRED_REPORT_WINDOW * 2,
+        )
+        oldest_tenant, oldest_call = expired[0]
+        horizon_h = OUTSTANDING_PROBE_HORIZON.total_seconds() / 3600
+        alert(
+            "WORKER_STALL",
+            "calls_never_finished",
+            detail=(
+                f"{len(expired)} call(s) passed {horizon_h:.0f}h with no end recorded, so "
+                "the engine is no longer asked about them: check each in the engine console "
+                "and the worker log for outstanding_probe_unreadable"
+            ),
+            engine=engine.name,
+            tenant_id=str(oldest_tenant),
+            call_id=str(oldest_call),
+        )
     if abandoned:
         # NOT a repair: there is nothing to re-drive, because the engine says the call has
         # not ended. Either it is genuinely still up hours later — platform minutes burning
@@ -6441,6 +6545,14 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
             ),
             engine=engine.name,
         )
+    if engine_down:
+        log.warning(
+            "outstanding_probe_engine_unavailable",
+            extra={"engine": engine.name, "probes": probes, "unanswered": unanswered},
+        )
+    elif unanswered:
+        # Isolated: the engine answered around them, so they are not an outage.
+        unreached += unanswered
     if unreached:
         alert(
             "WORKER_DELIVERY",
@@ -6461,25 +6573,117 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
             "WORKER_DELIVERY",
             "outstanding_probe_budget_exhausted",
             detail=(
-                f"more than {OUTSTANDING_PROBE_BUDGET} unfinished calls are outstanding; "
-                "this sweep stopped there and the rest were not probed. That many at once "
-                "is an engine or ingest incident, not a backlog to wait out"
+                (
+                    f"this sweep spent its {OUTSTANDING_PROBE_DEADLINE.total_seconds():.0f}s "
+                    f"after {probes} probe(s): the engine is answering slowly. The next "
+                    "sweep resumes where this one stopped"
+                )
+                if out_of_time
+                else (
+                    f"more than {OUTSTANDING_PROBE_BUDGET} unfinished calls are outstanding; "
+                    "this sweep stopped there and the rest were not probed. That many at once "
+                    "is an engine or ingest incident, not a backlog to wait out"
+                )
             ),
             engine=engine.name,
         )
+    tail = " engine_unavailable=1" if engine_down else ""
     return (
         f"repaired={repaired} probed={probes} unreached={unreached} abandoned={abandoned} "
-        f"lost_dials_closed={lost_closed}"
+        f"lost_dials_closed={lost_closed} expired={len(expired)}{tail}"
     )
 
 
-async def _listing_over_workspaces(engine: VoiceEngine, since: datetime) -> ExecutionListing:
+#: The listing's window in steady state: executions created this long ago or later.
+LISTING_WINDOW = timedelta(minutes=30)
+
+#: How far before the last tick that heard the engine a catch-up listing starts: one tick
+#: of overlap, for a call the vendor lists a little after it started.
+LISTING_OVERLAP = timedelta(minutes=10)
+
+#: The furthest back a catch-up listing reaches. The outstanding probe's horizon, so the two
+#: halves of the guarantee give up on the same day; past it the gap is alarmed rather than
+#: listed, because a listing is newest first and a page cap would cut the oldest calls.
+LISTING_CATCH_UP_MAX = OUTSTANDING_PROBE_HORIZON
+
+# When the last listing tick heard every workspace, as epoch seconds. A hint in Redis: a lost
+# key falls back to `LISTING_WINDOW`, which is how the sweep always ran.
+_LISTING_HEARD_KEY = "calevate:reconcile:listing-heard:{engine}"
+
+
+class EngineNotAnsweringError(Exception):
+    """The workspace walk stopped because the engine stopped answering (`OutageStreak`)."""
+
+
+class _ListingWalk:
+    """What one listing walk could not read. `unreadable` counts workspaces that raised."""
+
+    __slots__ = ("streak", "unreadable")
+
+    def __init__(self) -> None:
+        self.streak = OutageStreak()
+        self.unreadable = 0
+
+
+async def _listing_since(engine_name: str, now: datetime) -> tuple[datetime, bool]:
+    """Where this tick's listing starts, and whether the catch-up was cut at its maximum.
+
+    A FIXED WINDOW LOST CALLS TO AN OUTAGE. An inbound call has no row of ours until its
+    first delivery is ingested, so the outstanding probe cannot ask about it and this listing
+    is its only recovery. With the window fixed at thirty minutes, an engine down for longer
+    left every call that started during it outside every later listing: the vendor's webhook
+    retries end after about 8½ hours (`engine_webhooks` module docstring) and an ingest that
+    could not read the engine gave up after its ladder. So the listing starts where the last
+    tick that heard the engine left off, and only steady state uses the fixed window.
+    """
+    since = now - LISTING_WINDOW
+    try:
+        raw = await get_redis().get(_LISTING_HEARD_KEY.format(engine=engine_name))
+    except Exception as exc:
+        log.warning("reconciliation_watermark_unreadable", extra={"error": type(exc).__name__})
+        return since, False
+    if raw is None:
+        return since, False
+    try:
+        heard = datetime.fromtimestamp(float(raw), UTC)
+    except (TypeError, ValueError, OverflowError):
+        return since, False
+    since = min(since, heard - LISTING_OVERLAP)
+    floor = now - LISTING_CATCH_UP_MAX
+    if since < floor:
+        return floor, True
+    return since, False
+
+
+async def _remember_listing_heard(engine_name: str, at: datetime) -> None:
+    try:
+        await get_redis().set(
+            _LISTING_HEARD_KEY.format(engine=engine_name),
+            str(at.timestamp()),
+            ex=int((LISTING_CATCH_UP_MAX + timedelta(days=1)).total_seconds()),
+        )
+    except Exception as exc:
+        log.warning("reconciliation_watermark_unwritable", extra={"error": type(exc).__name__})
+
+
+async def _listing_over_workspaces(
+    engine: VoiceEngine, since: datetime, *, walk_state: _ListingWalk | None = None
+) -> ExecutionListing:
     """`list_executions` over every workspace an engine with customer workspaces runs calls
     in (D-693): the developer workspace, then each client's own, bounded and resumable
     (`workers/workspace_walk.py`). A walk that left workspaces for a later tick is reported
-    incomplete, so the alert below says so. Unchanged on every other engine."""
+    incomplete, so the alert below says so. Unchanged on every other engine.
+
+    Raises `EngineNotAnsweringError` once `OUTAGE_STOP_AFTER` workspaces in a row went
+    unanswered: a hundred workspaces at a ten-second timeout each is past `job_timeout`,
+    and the caller reports the outage once instead of a workspace alarm per tick."""
+    state = walk_state or _ListingWalk()
     if not engine_has_workspaces(engine.name):
-        return await engine.list_executions(since=since)
+        try:
+            return await engine.list_executions(since=since)
+        except Exception:
+            state.unreadable += 1
+            raise
     snapshots: list[ExecutionSnapshot] = []
     complete = True
     reason: ListingIncompleteReason | None = None
@@ -6499,10 +6703,15 @@ async def _listing_over_workspaces(engine: VoiceEngine, since: datetime) -> Exec
                 "reconciliation_workspace_unreadable",
                 extra={"workspace": label, "engine": engine.name, "error": type(exc).__name__},
             )
+            state.unreadable += 1
+            state.streak.failed(exc)
+            if state.streak.stopped:
+                raise EngineNotAnsweringError from exc
             unreadable.append(f"{label} ({type(exc).__name__})")
             complete = False
             reason = reason or "partial_fan_out"
             continue
+        state.streak.answered()
         snapshots.extend(part.snapshots)
         complete = complete and part.complete
         reason = reason or part.incomplete_reason
@@ -6555,20 +6764,49 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
     half: it asks the engine directly about every call row we hold that has not reached a
     terminal status, which needs no vendor filter and covers a call of any length.
 
-    ONE REPAIR ATTEMPT PER EXECUTION PER HOUR, and it is worth naming because it bounds
-    the guarantee: the ARQ job id below is fixed per execution and `WorkerSettings.
-    keep_result` is 3600s, so a re-drive that itself fails is not re-attempted until the
-    dedupe window closes — by which time the 30-minute listing window has moved past the
-    execution. A repair that fails is therefore the terminal alert's problem, not this
-    job's, and `_abandon_ingest`/`_abandon_post_call` are what make that alert exist.
+    A REPAIR THAT FAILS IS RE-DRIVEN ON THE NEXT TICK. The ARQ job id below is fixed per
+    execution, which refuses a second repair while one is queued or running, and the ingest
+    keeps no result once it finishes (`settings.RESULT_WINDOW_S`), so a repair that failed
+    does not hold the id for an hour while the window moves past the execution.
+
+    AN ENGINE THAT IS NOT ANSWERING is one alarm per tick (`reconciliation_fetch_failed`),
+    and the window does not move while it lasts: the next tick that hears every workspace
+    lists from where the last one that did left off (`_listing_since`), up to
+    `LISTING_CATCH_UP_MAX`.
     """
     engine = get_engine()
-    since = datetime.now(UTC) - timedelta(minutes=30)
+    now = datetime.now(UTC)
+    since, capped = await _listing_since(engine.name, now)
+    walk_state = _ListingWalk()
     try:
-        listing = await _listing_over_workspaces(engine, since)
-    except Exception as exc:  # engine down: the next tick retries
-        alert("WORKER_DELIVERY", "reconciliation_fetch_failed", detail=type(exc).__name__)
+        listing = await _listing_over_workspaces(engine, since, walk_state=walk_state)
+    except Exception as exc:  # engine down: the next tick retries, from the same `since`
+        alert(
+            "WORKER_DELIVERY",
+            "reconciliation_fetch_failed",
+            detail=(
+                "the voice platform is not answering; calls are listed again from the last "
+                "tick that heard it once it answers"
+                if isinstance(exc, EngineNotAnsweringError) or engine_unavailable(exc)
+                else type(exc).__name__
+            ),
+        )
         return "engine_unavailable"
+    if walk_state.unreadable == 0:
+        await _remember_listing_heard(engine.name, now)
+    if capped:
+        alert(
+            "WORKER_DELIVERY",
+            "reconciliation_listing_incomplete",
+            detail=(
+                "the engine was not heard for longer than "
+                f"{LISTING_CATCH_UP_MAX.total_seconds() / 3600:.0f}h, so this listing starts "
+                f"there: calls that started before {since.astimezone(IST):%d %b %H:%M} IST "
+                "and whose deliveries "
+                "never arrived are not listed. Compare the engine console's call log with ours."
+            ),
+            engine=engine.name,
+        )
 
     # A LISTING THAT MIGHT HAVE BEEN CUT SHORT IS AN INCIDENT, NOT A DETAIL. Everything
     # this job repairs is a call whose webhook was lost, so an execution missing from the
@@ -6685,6 +6923,7 @@ __all__ = [
     "INGEST_JOB",
     "PIPELINE_STALL_AFTER",
     "POSTCALL_JOB",
+    "TRANSIENT_ENGINE_CODES",
     "ReconcileVerdict",
     "book_asked_callback",
     "callable_tenants",

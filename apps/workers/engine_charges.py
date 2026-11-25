@@ -130,7 +130,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.charges import EngineCharge, ReportsCharges
 from apps.api.engine.thinnest_workspace import in_workspace
-from apps.api.engine.vendor_http import EngineRejectedError
+from apps.workers.engine_outage import OutageStreak, engine_unavailable
 from apps.workers.workspace_walk import WalkReport, walk_workspaces
 
 log = get_logger(__name__)
@@ -819,14 +819,6 @@ async def queue_billing_check(
         )
 
 
-def _vendor_busy(exc: ProblemError) -> bool:
-    """A refusal that says nothing about the call: throttled (after the adapter's own 429
-    ladder), unreachable, or a 5xx. The next run asks again with no attempt spent."""
-    if isinstance(exc, EngineRejectedError):
-        return exc.vendor_status >= 500
-    return exc.kind == "transient" or exc.code == "engine_unreachable"
-
-
 _CALL_ROUTE_SQL = text(
     "SELECT max(meta->>'engine_rate_key'), max(meta->>'billed_minutes'), "
     "max(meta->>'inr_per_min'), bool_or(meta->>'own_model' IS NOT NULL) "
@@ -872,7 +864,10 @@ async def listed_billing(
     listing per workspace the calls belong to. A workspace whose listing fails is skipped,
     and its calls are read from Get Call."""
     rows: dict[str, ExecutionSnapshot] = {}
+    streak = OutageStreak()
     for workspace in sorted({scope_of(call_id) for call_id in engine_call_ids}, key=str):
+        if streak.stopped:
+            break
         try:
             with in_workspace(workspace):
                 listing = await engine.list_executions(since=since)
@@ -881,7 +876,9 @@ async def listed_billing(
                 "engine_billing_listing_unread",
                 extra={"workspace": workspace or "developer", "code": exc.code},
             )
+            streak.failed(exc)
             continue
+        streak.answered()
         rows.update(
             (snapshot.engine_call_id, snapshot)
             for snapshot in listing.snapshots
@@ -923,7 +920,8 @@ async def check_late_billing(engine: VoiceEngine, *, now: datetime | None = None
             try:
                 snapshot = await engine.get_execution(entry["engine_call_id"])
             except ProblemError as exc:
-                if _vendor_busy(exc):
+                # Says nothing about the call: the next run asks again, no attempt spent.
+                if engine_unavailable(exc):
                     log.warning(
                         "engine_billing_check_deferred",
                         extra={"call_id": call_id, "code": exc.code, "left": len(pending)},
@@ -1003,6 +1001,10 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
     other_currency = 0
     walk = WalkReport()
     unreadable: list[str] = []
+    # A platform that stops answering stops the walk: each workspace costs up to the
+    # request timeout, and a hundred of them is past `job_timeout`. Nothing is compared
+    # against a charge list we could not read, so nothing is charged or corrected on it.
+    streak = OutageStreak()
     async for visit in walk_workspaces("engine_charges", report=walk):
         try:
             with in_workspace(visit.workspace):
@@ -1018,12 +1020,26 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
             )
             unreadable.append(f"{label} ({type(exc).__name__})")
             complete = False
+            streak.failed(exc)
+            if streak.stopped:
+                break
             continue
+        streak.answered()
         charges.extend(listing.charges)
         complete = complete and listing.complete
         other_currency += listing.other_currency
     complete = complete and walk.deferred == 0
-    if unreadable:
+    if streak.stopped:
+        alert(
+            "WORKER_DELIVERY",
+            "engine_charge_workspace_unreadable",
+            detail=(
+                f"engine={engine.name}: the voice platform stopped answering after "
+                f"{len(unreadable)} workspace(s), so call charges were not compared this run; "
+                "the next run reads them again"
+            ),
+        )
+    elif unreadable:
         alert(
             "WORKER_DELIVERY",
             "engine_charge_workspace_unreadable",
@@ -1048,7 +1064,8 @@ async def reconcile_engine_charges(ctx: dict[str, Any], *, now: datetime | None 
             )
             tally.unreached += 1
     # After the comparison, which queued this run's late-settled calls.
-    billing_checked = await check_late_billing(engine, now=now)
+    # Kept queued while the platform is not answering: each check is another unanswered read.
+    billing_checked = 0 if streak.stopped else await check_late_billing(engine, now=now)
     fresh = (
         await _newly_mismatched(engine.name, [call_id for call_id, _m, _e in tally.mismatched])
         if tally.mismatched

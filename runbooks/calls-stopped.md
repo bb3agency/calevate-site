@@ -503,6 +503,28 @@ retry budgets against a dead vendor — every attempt spent now is one not avail
 platform comes back. Inbound is unaffected by the switch and by definition already broken
 if the engine is down.
 
+### 9.4 Calls in progress, and what settles them afterwards
+
+Nothing of ours hangs up, fails or closes a call because the engine did not answer
+(`apps/workers/engine_outage.py`). A call that was live when the outage began stays live on
+the call log and reads "Ended — details coming" once it is past the longest a call can run.
+
+- **The sweeps wait it out.** `reconcile_executions`, `reconcile_outstanding_calls`,
+  `reconcile_engine_charges` and `reconcile_engine_webhooks` each stop after three
+  unanswered requests in a row instead of running into `job_timeout`, and ask again next
+  tick. The outage is paged once per tick as `reconciliation_fetch_failed` beside
+  `engine_error_spike`; the other sweeps stay quiet about it.
+- **The listing catches up.** Once the engine answers, `reconcile_executions` lists from the
+  last tick that heard it (up to 24 hours back), so inbound calls whose deliveries never
+  arrived are recovered too. A gap longer than that raises
+  `reconciliation_listing_incomplete` naming where the listing stopped.
+- **Abandoned ingests are not lost.** `engine_ingest_abandoned` / `post_call_abandoned`
+  during an outage say "the voice platform is not answering": the sweeps re-drive those
+  calls, and nothing needs replaying by hand. Minutes are metered once per call whatever
+  re-drives it.
+- **A call still unfinished after 24 hours** is reported once as `calls_never_finished`,
+  with its ids. Check it in the engine console.
+
 ## What NOT to do
 
 - **Never UPDATE `spend_state.capped`, `platform_state` or a campaign's `status` by
