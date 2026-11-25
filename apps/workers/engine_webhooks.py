@@ -46,6 +46,7 @@ from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.reliability.engine_webhooks import WEBHOOK_ENGINES, ensure_agent_webhook
+from apps.workers.engine_outage import OutageStreak
 
 log = get_logger(__name__)
 
@@ -185,7 +186,13 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
         ).all()
     reenabled = registered = unreached = redelivered = retired = 0
     agent_absent = vendor_failed = events_pending = 0
+    # A platform that stops answering stops the sweep: every endpoint costs several
+    # requests at the request timeout each, which two hundred endpoints turn into a tick arq
+    # kills at `job_timeout`. The endpoints not reached keep their place at the head.
+    streak = OutageStreak()
     for tenant_id, ref in rows:
+        if streak.stopped:
+            break
         try:
             async with tenant_session(UUID(str(tenant_id))) as session:
                 registration = await ensure_agent_webhook(
@@ -216,8 +223,13 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
             elif isinstance(exc, EngineRejectedError) and (exc.vendor_status or 0) >= 500:
                 vendor_failed += 1
             unreached += 1
+            streak.failed(exc)
+            # Stamped even when unanswered, so an endpoint the platform keeps failing on
+            # (a 5xx for that one object) cannot hold the head of the queue and, three in a
+            # row, stop every sweep before the rest are reached.
             await _stamp_visited(UUID(str(tenant_id)), engine, str(ref))
             continue
+        streak.answered()
         # A switched-off endpoint is re-enabled, alarmed and re-sent inside
         # `ensure_agent_webhook`, the same as when a publish finds it so.
         outcome = registration.outcome
@@ -245,13 +257,20 @@ async def reconcile_engine_webhooks(ctx: dict[str, Any]) -> str:
             if vendor_failed
             else ""
         )
+        stopped_note = (
+            " The voice platform stopped answering, so the sweep stopped there; the rest are "
+            "checked on the next sweep."
+            if streak.stopped
+            else ""
+        )
         alert(
             "WORKER_DELIVERY",
             "engine_webhook_sweep_incomplete",
             detail=(
                 f"{unreached} of {len(rows)} agent webhook endpoint(s) could not be checked; "
                 "any switched-off endpoint among them is still losing deliveries."
-                f"{absent_note}{vendor_note} See engine_webhook_check_failed (vendor_status, "
+                f"{stopped_note}{absent_note}{vendor_note} See engine_webhook_check_failed "
+                "(vendor_status, "
                 "vendor_code) "
                 "and the engine_error line before it in the worker log."
             ),

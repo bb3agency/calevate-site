@@ -30,6 +30,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
+from apps.workers.engine_outage import engine_unavailable
 
 log = get_logger(__name__)
 
@@ -40,9 +41,12 @@ FIRST_FETCH_AFTER: Final = timedelta(seconds=60)
 #: Then these waits between tries, the last try having nothing after it.
 RETRY_BACKOFF_S: Final[tuple[float, ...]] = (120.0, 600.0)
 
-#: Engine failures another identical try can get past (`pipeline.TRANSIENT_ENGINE_CODES`'s
-#: reasoning: a 404 or a refusal is a verdict, not a blip).
-_TRANSIENT_CODES: Final = frozenset({"engine_unreachable", "engine_rate_limited"})
+#: A fetch the engine did not answer through the whole ladder is queued again this much
+#: later, up to `OUTAGE_ROUNDS` times: about six hours of an engine not answering before the
+#: timeline is given up. Under a new job id per round, because the spent job's kept result
+#: holds its own id for an hour.
+OUTAGE_REQUEUE_AFTER: Final = timedelta(minutes=30)
+OUTAGE_ROUNDS: Final = 12
 
 _HELD_SQL: Final = "SELECT engine_timeline IS NOT NULL FROM calls WHERE id = :cid"
 _STORE_SQL: Final = (
@@ -87,6 +91,22 @@ def _retry_or_stop(attempt: int, outcome: str, call_id: UUID) -> str:
     return outcome
 
 
+async def _after_outage(payload: dict[str, Any], call_id: UUID, outcome: str) -> str:
+    """Queue the fetch again for after the outage, or give it up once the rounds are spent."""
+    round_ = int(payload.get("outage_round") or 0) + 1
+    if round_ > OUTAGE_ROUNDS:
+        log.info("call_timeline_not_recorded", extra={"call_id": str(call_id), "outcome": outcome})
+        return outcome
+    await enqueue(
+        JOB_NAME,
+        {**payload, "outage_round": round_},
+        job_id=job_id_for(JOB_NAME, str(call_id), f"outage-{round_}"),
+        _defer_by=OUTAGE_REQUEUE_AFTER,
+    )
+    log.info("call_timeline_requeued", extra={"call_id": str(call_id), "round": round_})
+    return f"requeued:{round_}"
+
+
 async def fetch_call_timeline(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     attempt = job_try(ctx)
     tenant_id = UUID(str(payload["tenant_id"]))
@@ -103,8 +123,12 @@ async def fetch_call_timeline(ctx: dict[str, Any], payload: dict[str, Any]) -> s
     try:
         timeline = await get_engine().get_call_timeline(execution_id)
     except ProblemError as exc:
-        if exc.kind == "transient" or exc.code in _TRANSIENT_CODES:
-            return _retry_or_stop(attempt, f"unreachable:{exc.code}", call_id)
+        # A 5xx is the engine failing, not refusing: read here as a verdict, one 502 lost
+        # the call's timeline for good.
+        if engine_unavailable(exc):
+            if attempt < WORKER_MAX_TRIES:
+                raise Retry(defer=ladder_delay_s(RETRY_BACKOFF_S, attempt)) from exc
+            return await _after_outage(payload, call_id, f"unreachable:{exc.code}")
         # The engine answered and refused: a verdict on the request, not worth a retry.
         log.warning(
             "call_timeline_refused",

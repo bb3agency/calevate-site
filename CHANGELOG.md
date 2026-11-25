@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.66 — 26-Nov-2026
+
+- When the phone service stops answering, calls already placed or in progress are never
+  marked failed or lost: our checks wait it out, and every call, recording, transcript and
+  charge settles once it answers again, including inbound calls during a long outage.
+
 ## 0.5.65 — 26-Nov-2026
 
 - A new campaign or line whose main task is a plain numbered list gets a first script held to
