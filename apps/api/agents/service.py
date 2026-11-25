@@ -6875,6 +6875,7 @@ async def dispatch_call(
             CallContext(
                 lead_id=str(lead_id) if lead_id else None,
                 lead_name=lead_name or prefill.name,
+                lead_name_files_contact=trial is None and owner_test is None,
                 fields=prefill.variables,
                 contact_details=details,
                 context_note=context_note,

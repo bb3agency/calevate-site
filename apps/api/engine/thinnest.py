@@ -3560,7 +3560,7 @@ class ThinnestEngine:
             body["callingHours"] = dict(CALLING_HOURS)
         if ctx.from_e164:
             body["from"] = ctx.from_e164
-        if ctx.lead_name:
+        if ctx.lead_name and ctx.lead_name_files_contact:
             # "The lead's name": a number that is not yet a contact in the agent's workspace
             # becomes one with it, and an existing contact's name is never overwritten
             # (snapshots/2026-10-08/pages/api-reference/calls/place-call.md:895-899).

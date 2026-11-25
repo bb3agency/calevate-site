@@ -8,6 +8,7 @@ follow its own script, and a campaign's test call carries the tester's name.
    callers time" by the owner's choice on a booking script keeps the ordinary question.
 3. A campaign's test call is placed with the tester's own name as `lead_name` when the
    campaign's list carries names; never a name holding a digit, and none from an empty list.
+   It only fills `{{lead_name}}`: no contact is filed under it at the engine.
 """
 
 from __future__ import annotations
@@ -16,16 +17,19 @@ import uuid
 from typing import Any
 from uuid import UUID
 
+import httpx
 import pytest
 from apps.api.agents import give_callers_time as gct
 from apps.api.agents import service as agents_service
 from apps.api.agents import trial_calls
 from apps.api.core.context import Principal
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.engine.fake import FakeEngine
 from apps.api.engine.thinnest import ThinnestEngine
 from calevate_shared.call_script import CallScript
 from calevate_shared.engine import (
     CALL_INSTRUCTIONS,
+    CallContext,
     SCREEN_CALL_INSTRUCTIONS,
     AgentConfig,
     call_instructions,
@@ -38,6 +42,7 @@ from tests.campaign_engine_agents_test import _campaign
 from tests.decisions_2026_11_25_test import BOOKING, GUIDED, _campaign_config, _line_config
 from tests.notes_per_job_test import _campaign as _dlt_campaign
 from tests.notes_per_job_test import _line
+from tests.thinnest_engine_test import _agent_with_greeting, _body, _engine, _recorder
 from tests.thinnest_publish_limits_test import _agent_with_script
 from tests.trial_call_placement_test import Line, line  # noqa: F401
 from tests.workspace_slots_test import (
@@ -214,14 +219,14 @@ async def test_a_campaigns_test_call_is_placed_with_the_testers_name(
     )
     del principal
 
-    sent: list[str | None] = []
-    real = agents_service.dispatch_call
+    sent: list[CallContext] = []
+    real = FakeEngine.start_outbound_call
 
-    async def recording(*args: Any, **kwargs: Any) -> str:
-        sent.append(kwargs.get("lead_name"))
-        return await real(*args, **kwargs)
+    async def recording(self: FakeEngine, ref: str, to: str, ctx: CallContext) -> Any:
+        sent.append(ctx)
+        return await real(self, ref, to, ctx)
 
-    monkeypatch.setattr(agents_service, "dispatch_call", recording)
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", recording)
     async with tenant_session(tenant_id) as session:
         placed = await trial_calls.place_trial_call(
             session,
@@ -232,4 +237,18 @@ async def test_a_campaigns_test_call_is_placed_with_the_testers_name(
             campaign_id=campaign_id,
         )
     assert placed.status == "queued", placed
-    assert sent == ["Umesh"]
+    assert [(c.lead_name, c.lead_name_files_contact) for c in sent] == [("Umesh", False)]
+
+
+async def test_a_test_calls_name_fills_the_variable_and_files_no_contact() -> None:
+    handler, seen = _recorder(
+        {
+            ("GET", "/agents/ag_1"): _agent_with_greeting("Namaskaram {{lead_name}} garu."),
+            ("POST", "/calls"): httpx.Response(202, json={"id": "out_1", "status": "ringing"}),
+        }
+    )
+    ctx = CallContext(lead_name="Umesh", lead_name_files_contact=False)
+    await _engine(handler).start_outbound_call("ag_1", "+919876543210", ctx)
+    body = _body(seen[-1])
+    assert body["variables"]["lead_name"] == "Umesh"
+    assert "name" not in body, "no contact is filed under the tester's name"
