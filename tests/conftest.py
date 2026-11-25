@@ -13,7 +13,7 @@ import shutil
 import sys
 import tempfile
 import uuid
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -1169,6 +1169,22 @@ def _a2p_declaration_clock_is_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
     from apps.api.compliance import autodialer
 
     monkeypatch.setattr(autodialer, "ist_today", lambda: A2P_PINNED_TODAY)
+
+
+# The dial hold (`engine/outage.py`) is shared state in Redis that two failed dials set for
+# up to an hour. A test that fails two dials on purpose would otherwise hold every dial of
+# every test after it, and the refusal would land in a suite that has nothing to do with it.
+@pytest.fixture(autouse=True)
+async def _engine_dial_hold_is_cleared() -> AsyncIterator[None]:
+    yield
+    from apps.api.core.redis import get_redis
+    from apps.api.engine import outage
+
+    try:
+        await get_redis().delete(*outage.state_keys())
+    except Exception:
+        # No Redis in this test's world: nothing was held either.
+        return
 
 
 # --- engine-hosted voices (D-687) ---------------------------------------------------------

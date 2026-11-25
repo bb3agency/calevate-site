@@ -37,13 +37,16 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
+from apps.api.engine import get_engine
 from apps.api.engine.dial_lines import LINES_BUSY_RULE
+from apps.api.engine.outage import ENGINE_DOWN_CODES
 from apps.api.follow_ups import runner as follow_up_runner
 from apps.api.ingest.lead_policy import (
     book_retry,
     new_lead_attempt,
     retry_still_wanted,
 )
+from apps.workers.engine_delivery import FindsPlacedCalls
 
 log = get_logger(__name__)
 
@@ -73,13 +76,18 @@ LINES_BUSY_REASON = "All our phone lines were busy; we will try again shortly."
 #: ...and when the phone system has this person marked as not to be called.
 OPTED_OUT_REASON = "This number is marked as not to be called, so the call-back was not placed."
 
+#: ...and when the phone system was not answering, so nothing was placed.
+ENGINE_DOWN_REASON = "The phone system was not answering; we will try again shortly."
+
 #: The refusals that waiting lifts rather than that the phone system refused, each with the
-#: sentence the client reads on the deferred call-back: no line was free, or the dial reached
+#: sentence the client reads on the deferred call-back: no line was free, the dial reached
 #: the phone system after the calling hours we sent it had closed (D-872), which is deferred
-#: under the gate's own rule exactly as if the gate had refused it a moment later.
+#: under the gate's own rule exactly as if the gate had refused it a moment later, or the
+#: phone system could not be reached or was held for not answering (`engine/outage.py`).
 _WAIT_REFUSALS = {
     LINES_BUSY_RULE: LINES_BUSY_REASON,
     CALLING_HOURS_RULE: CALLING_HOURS_REASON,
+    **dict.fromkeys(ENGINE_DOWN_CODES, ENGINE_DOWN_REASON),
 }
 
 #: ...and when a new lead's retry stood down because they answered (or rang in) since.
@@ -113,7 +121,9 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
     """
     dialled = blocked = 0
     async with tenant_session(tenant_id) as session:
-        settled = await callbacks.settle_dialled(session)
+        settled = await callbacks.settle_dialled(
+            session, unconfirmed_wait=isinstance(get_engine(), FindsPlacedCalls)
+        )
         # A campaign's call-backs follow it (D-914): called off when it stopped, held while
         # it is paused, back in line once it resumed. Before `expire_stale`, so a held one
         # never runs out of time behind the pause, and before the claim.
@@ -308,16 +318,23 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                 blocked += 1
                 continue
             except DialUnconfirmedError as unconfirmed:
+                log.warning(
+                    "callback_dial_unconfirmed",
+                    extra={"call_id": str(unconfirmed.call_id), "code": unconfirmed.code},
+                )
+                if isinstance(get_engine(), FindsPlacedCalls):
+                    # Left `dialing` on its call, which the reconciliation sweep asks the
+                    # engine about by our reference (`pipeline._settle_lost_dial`): adopted,
+                    # the call-back settles from the call; closed as never placed, it is
+                    # dialled again (`callbacks.settle_dialled`).
+                    dialled += 1
+                    continue
                 await callbacks.settle(
                     session,
                     callback.id,
                     status="failed",
                     reason=UNCONFIRMED_REASON,
                     call_id=unconfirmed.call_id,
-                )
-                log.warning(
-                    "callback_dial_unconfirmed",
-                    extra={"call_id": str(unconfirmed.call_id), "code": unconfirmed.code},
                 )
                 continue
             except Exception as exc:
