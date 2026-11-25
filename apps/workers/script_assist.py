@@ -652,6 +652,39 @@ def drafted_script(
     return script
 
 
+def _warned_part(problem: str, script: CallScript) -> LeftOut:
+    """A problem ("<path>: <rule>") as a warning on the part it names, a step by its id."""
+    path, _, rule = problem.partition(": ")
+    head, *rest = path.split(".")
+    if head == "stages" and rest and rest[0].isdigit() and int(rest[0]) < len(script.stages):
+        stage = script.stages[int(rest[0])]
+        return LeftOut(f"stages.{stage.id}", stage.name, rule or problem, unfixed=True)
+    return LeftOut(head, "", rule or problem, unfixed=True)
+
+
+def drafted_with_warnings(
+    raw: dict[str, Any], *, trace: AskTrace, direction: str = "both", **checks: Any
+) -> CallScript:
+    """A whole draft read once its repairs are spent: a draft that still breaks a rule is
+    kept, and each line still breaking one is a warning on the review (`trace.left_out`),
+    rather than the owner getting no script at all for one line. Nothing goes live until
+    the owner keeps it. A draft with no steps is still refused."""
+    try:
+        return drafted_script(raw, direction=direction, **checks)
+    except UnusableAnswerError:
+        pass
+    script = _script_from_model_json(raw)
+    if not script.stages:
+        raise UnusableAnswerError("stages: the script has no steps")
+    if direction != "both":
+        script = script.model_copy(update={"outbound_opening_line": ""})
+    script = with_spoken_swaps(script, checks.get("language"), allowed=checks.get("allowed", ""))
+    problems = language_problems(script, direction=direction, **checks)
+    trace.left_out = [_warned_part(problem, script) for problem in problems]
+    log.info("script_assist_draft_kept_with_warnings", extra={"count": len(problems)})
+    return script
+
+
 def edited_script(
     raw: dict[str, Any],
     current: CallScript,
@@ -2214,6 +2247,7 @@ async def draft_script(
     repair_rounds: int | None = None,
     standby_after_answer: bool | None = None,
     owners_words: str = "",
+    keep_with_warnings: bool = False,
 ) -> ScriptDraft:
     """Draft a `CallScript` from a business description (the AI writing assist), or, with
     `CONVERT_INSTRUCTION`, propose sections for a hand-written prompt, or, with `edit_of`,
@@ -2233,6 +2267,8 @@ async def draft_script(
     the standby). A job writing a whole long script passes both, since the standby's token
     ceiling cannot hold it. `owners_words`: the owner's own text a new script is written
     from, whose words are theirs to keep (`language_problems`' `allowed`).
+    `keep_with_warnings`: a new script still breaking a rule after its repairs comes back
+    with each broken line as a warning (`drafted_with_warnings`), for a job's last try.
     """
     # A bare string is the old one-box description; the builder now sends a full brief.
     full = ScriptBrief(description=brief) if isinstance(brief, str) else brief
@@ -2291,17 +2327,19 @@ async def draft_script(
                 full.business_type, full.direction, dict(full.step_plans), full.fit
             )
             description = f"{description}\n{plan}"
-        parse = partial(
-            drafted_script,
-            language=full.language,
-            allowed=full.description if converting else owners_words,
-            instructions=not converting,
-            names=names,
-            introduced=full.introduced,
-            direction=full.direction,
-            lint=None if converting else full.lint_context(),
-            woven=None if converting else full.woven,
-        )
+        checks: dict[str, Any] = {
+            "language": full.language,
+            "allowed": full.description if converting else owners_words,
+            "instructions": not converting,
+            "names": names,
+            "introduced": full.introduced,
+            "direction": full.direction,
+            "lint": None if converting else full.lint_context(),
+            "woven": None if converting else full.woven,
+        }
+        parse = partial(drafted_script, **checks)
+        if keep_with_warnings and not converting:
+            salvage = partial(drafted_with_warnings, trace=seen, **checks)
     answer = await ask_json(
         description,
         instruction,

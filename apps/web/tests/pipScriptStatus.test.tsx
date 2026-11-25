@@ -6,7 +6,7 @@ import type { CampaignProposal } from "@/lib/api/campaignWorkspace";
 
 import { renderClientPage } from "./harness";
 
-function failed(reason: string | null, note = "Pip's script still broke a call rule after its repairs."): CampaignProposal {
+function failed(reason: string | null, note = "Pip could not write a clean script this time. Your script is unchanged."): CampaignProposal {
   return {
     id: "p1",
     status: "failed",
@@ -36,8 +36,8 @@ describe("Pip's campaign script when it could not be written", () => {
       />,
       {},
     );
-    expect(screen.getByText("Pip's script broke a call rule")).toBeTruthy();
-    expect(screen.getByText(/still broke a call rule after its repairs/)).toBeTruthy();
+    expect(screen.getByText("Pip could not write a clean script")).toBeTruthy();
+    expect(screen.getByText(/Your script is unchanged/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(onRetry).toHaveBeenCalledOnce();
     expect(screen.getByRole("button", { name: "Dismiss" })).toBeTruthy();

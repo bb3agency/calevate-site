@@ -25,7 +25,7 @@ type PipDraft = { status: string; requested_at: string; reason?: string | null; 
 const ALLOWANCE_REASONS = new Set(["ai_quota_exceeded", "ai_quota_exhausted", "ai_paused_platform_wide"]);
 
 const TITLES: Record<string, string> = {
-  assist_answer_unusable: "Pip's script broke a call rule",
+  assist_answer_unusable: "Pip could not write a clean script",
   provider_unavailable: "Pip's AI did not answer",
   crashed: "Pip stopped before it finished",
   stale: "Pip stopped before it finished",

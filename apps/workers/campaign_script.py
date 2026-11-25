@@ -108,8 +108,8 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 UNUSABLE_NOTE: Final = (
-    "Pip's script still broke a call rule after its repairs. Press Generate to try again, or "
-    "add a note saying what the calls should say."
+    "Pip could not write a clean script this time. Your script is unchanged. "
+    "Try again, or add a note saying what the calls should say."
 )
 #: The review pass and the shortening pass run only with this much of the job left, so a job
 #: killed by the queue's timeout never leaves a paid answer unmetered.
@@ -1072,6 +1072,9 @@ async def _write(
             # that broke a rule is repaired by the account's model, never handed to it.
             standby_after_answer=False,
             owners_words=owners,
+            # The last try keeps a draft that still broke a rule, its lines as warnings:
+            # three clean tries first, then a script to review rather than none.
+            keep_with_warnings=attempt >= WRITE_ATTEMPTS or _left_s(started) < 2 * _RETRY_MIN_S,
         )
         try:
             if base is None:

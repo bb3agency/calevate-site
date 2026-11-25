@@ -515,3 +515,27 @@ def test_writers_follow_the_language_pack_only_once_it_is_approved(
     assert spoken_guard.generation_guidance("te-IN", side="caller") == caller_guidance(
         "te-IN", None
     )
+
+
+def test_a_draft_still_breaking_a_rule_after_its_repairs_is_kept_with_warnings() -> None:
+    """FAILS IF: one line still breaking a rule leaves the owner with no script at all."""
+    trace = script_assist.AskTrace()
+    raw = _draft(opening_line="నమస్తే అండి, మిర్చి మరియు కారం ఉన్నాయి.")
+    script = script_assist.drafted_with_warnings(raw, trace=trace, language=TE)
+    assert script.stages and script.opening_line == raw["opening_line"]
+    assert [(p.part, p.unfixed) for p in trace.left_out] == [("opening_line", True)]
+    assert "మరియు" in trace.left_out[0].rule
+
+
+async def test_the_last_try_keeps_a_draft_that_still_broke_a_rule(
+    gemini: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: the job's last try still leaves the owner with no script."""
+    bad = _draft(identity=ROLE_TE)
+    _answers(monkeypatch, [bad, bad], bad)
+    trace = script_assist.AskTrace()
+    drafted = await script_assist.draft_script(
+        ScriptBrief(language=TE), tenant_leg=GOOGLE_LEG, trace=trace, keep_with_warnings=True
+    )
+    assert drafted.script.stages
+    assert any(p.part == "identity" and p.unfixed for p in trace.left_out)

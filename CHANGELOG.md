@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.55 — 25-Nov-2026
+
+- When Pip's last try at a new campaign or line script still breaks a rule, you get the
+  script to review with those lines marked to fix, instead of no script.
+- The failed card says your script is unchanged and points to Try again.
+
 ## 0.5.54 — 25-Nov-2026
 
 - Steps Pip writes into the old step list with their ids are moved into the steps again, as
