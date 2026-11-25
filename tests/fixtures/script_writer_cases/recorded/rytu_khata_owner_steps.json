@@ -1,0 +1,126 @@
+{
+  "case": "rytu_khata_owner_steps",
+  "source": "stand-in",
+  "model": "",
+  "recorded_at": "2026-11-25",
+  "notes": "The step canvas Pip's rewrite produced in production on 25 Nov 2026 for the owner's eleven-step request, in English stand-in form: the step names, their order, the outcomes and the ways out are as the founder described them (step 1's outcome about phone type, Login before the install, Android and iPhone install, Login again with Password issues and no outcome, Enter Expense, Finalise the call, then Call back and End call as steps of their own; Language, My Farms, First sale, Dashboard and Not registered missing; many ways out to the call-back and end steps). The lines and instructions are not in the evidence and are written in its shape as English glosses keyed en-IN.",
+  "stand_in": {
+    "for": "te-IN"
+  },
+  "script": {
+    "schema_version": 2,
+    "opening_line": "Hello {{lead_name}}, this is Varsha from Rytu Khata, calling to help you start using the Rytu Khata app you registered for. Can you talk now?",
+    "stages": [
+      {
+        "id": "s1",
+        "name": "Introduction",
+        "step": 1,
+        "instruction": "Ask which phone they use, Android or iPhone, and explain that the app is installed from the website.",
+        "scripts": {"en-IN": "Which phone do you use, Android or iPhone?"},
+        "branches": [
+          {"when": "They are busy now", "target": "s9"},
+          {"when": "They are not interested", "target": "s10"},
+          {"when": "They say it is the wrong number", "target": "s10"}
+        ]
+      },
+      {
+        "id": "s2",
+        "name": "Login",
+        "step": 2,
+        "instruction": "Ask them to log in with their mobile number.",
+        "scripts": {"en-IN": "Please log in with your mobile number."},
+        "branches": [
+          {"when": "They cannot log in", "target": "s9"},
+          {"when": "They are busy now", "target": "s9"}
+        ]
+      },
+      {
+        "id": "s3",
+        "name": "Android install",
+        "step": 3,
+        "instruction": "On Android, ask them to open rytukhata.com in Chrome and press Install app.",
+        "scripts": {"en-IN": "Open rytukhata.com in Chrome and press Install app."},
+        "branches": [
+          {"when": "They use an iPhone", "target": "s4"},
+          {"when": "They cannot open the website", "target": "s9"},
+          {"when": "They are not interested", "target": "s10"}
+        ]
+      },
+      {
+        "id": "s4",
+        "name": "iPhone install",
+        "step": 3,
+        "instruction": "On iPhone, ask them to open rytukhata.com in Safari, tap Share and then Add to Home Screen.",
+        "scripts": {"en-IN": "Open rytukhata.com in Safari and tap Share."},
+        "branches": [
+          {"when": "They cannot open the website", "target": "s9"},
+          {"when": "They are not interested", "target": "s10"}
+        ]
+      },
+      {
+        "id": "s5",
+        "name": "Login",
+        "step": 4,
+        "instruction": "Ask them to open the installed app and log in.",
+        "scripts": {"en-IN": "Now open the app and log in."},
+        "branches": [
+          {"when": "They forgot the password", "target": "s6"},
+          {"when": "They are busy now", "target": "s9"}
+        ]
+      },
+      {
+        "id": "s6",
+        "name": "Password issues",
+        "step": 4,
+        "instruction": "Ask them to use the code sent to their mobile number to log in.",
+        "scripts": {"en-IN": "Please use the code that came to your mobile."},
+        "branches": [
+          {"when": "They still cannot log in", "target": "s9"},
+          {"when": "They are not interested", "target": "s10"}
+        ]
+      },
+      {
+        "id": "s7",
+        "name": "Enter Expense",
+        "step": 5,
+        "instruction": "Ask them to enter one expense in the app.",
+        "scripts": {"en-IN": "Now enter one expense in the app."},
+        "branches": [
+          {"when": "They are busy now", "target": "s9"},
+          {"when": "They are not interested", "target": "s10"}
+        ]
+      },
+      {
+        "id": "s8",
+        "name": "Finalise the call",
+        "step": 6,
+        "instruction": "Read back what they did, thank them and close the call.",
+        "scripts": {"en-IN": "Thank you, you can call us any time."},
+        "otherwise": "end"
+      },
+      {
+        "id": "s9",
+        "name": "Call back",
+        "step": 7,
+        "instruction": "Ask when suits them for a call back.",
+        "scripts": {"en-IN": "When shall we call you back?"},
+        "otherwise": "call_back"
+      },
+      {
+        "id": "s10",
+        "name": "End call",
+        "step": 8,
+        "instruction": "Thank them and end the call.",
+        "scripts": {"en-IN": "Thank you, have a good day."},
+        "otherwise": "end"
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "The caller has confirmed their phone type and understood the installation method."},
+      {"step": 2, "outcome": "The caller is logged in."},
+      {"step": 3, "outcome": "The app is installed on the caller's phone."},
+      {"step": 5, "outcome": "The caller has entered one expense."},
+      {"step": 6, "outcome": "The call is finished."}
+    ]
+  }
+}

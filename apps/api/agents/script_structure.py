@@ -71,6 +71,18 @@ def _alternatives(stages: Sequence[ConversationStage], a: int, b: int) -> bool:
     )
 
 
+def _numbered_way_on(stages: Sequence[ConversationStage], i: int) -> bool:
+    """Whether stage `i` is numbered as a later step than the one before it and an earlier
+    stage reaches it as its way on (`otherwise`) rather than by a way out: the step after a
+    scenario placed between them (a side step such as "Not registered" that a way out of step
+    1 reaches), which the writer numbered on purpose and which is not another way step 1 can
+    go. A way out named for the stage ("iPhone") still chooses between scenarios."""
+    prev, own = stages[i - 1].step, stages[i].step
+    if prev is None or own is None or own <= prev:
+        return False
+    return any(stage.otherwise == stages[i].id for stage in stages[: i - 1])
+
+
 def renumbered(script: CallScript) -> CallScript:
     """`script` with its step numbers following the call: each stage the next step, unless it
     and the one before it are numbered alike or are alternatives (`_alternatives`), and each
@@ -81,7 +93,8 @@ def renumbered(script: CallScript) -> CallScript:
     steps = [1]
     for i in range(1, len(stages)):
         same = stages[i].step is not None and stages[i].step == stages[i - 1].step
-        steps.append(steps[-1] if same or _alternatives(stages, i - 1, i) else steps[-1] + 1)
+        alternative = _alternatives(stages, i - 1, i) and not _numbered_way_on(stages, i)
+        steps.append(steps[-1] if same or alternative else steps[-1] + 1)
     if steps == [stage.step for stage in stages] and not step_numbers_broken(script):
         return script
     old = [stage.step if stage.step is not None else i for i, stage in enumerate(stages, 1)]

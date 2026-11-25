@@ -79,6 +79,7 @@ from pathlib import Path
 from typing import Any, Final, Literal
 
 from apps.api.agents import mistake_lints, script_lint, turn_checks
+from apps.api.agents.owner_plan import owner_plan, plan_problems
 from apps.api.agents.script_heal import heal_findings
 from apps.api.agents.script_lint import CapabilityManifest, LintContext
 from calevate_shared.call_script import (
@@ -158,6 +159,9 @@ class Case:
     purpose: str = ""
     goal: str = ""
     consent_source: str | None = None
+    #: The owner's request for this draft (`campaign_script._Inputs.instruction`), which may
+    #: lay out the steps itself (`owner_plan`).
+    instruction: str = ""
 
     def places_calls(self) -> bool:
         return self.holder == "campaign"
@@ -172,6 +176,7 @@ class Case:
                 self.main_task,
                 self.purpose,
                 self.goal,
+                self.instruction,
                 *(part for pair in self.knowledge for part in pair),
                 *self.screen_terms,
             ]
@@ -244,6 +249,7 @@ def case_from(raw: dict[str, Any]) -> Case:
         purpose=str(raw.get("purpose") or ""),
         goal=str(raw.get("goal") or ""),
         consent_source=raw.get("consent_source"),
+        instruction=str(raw.get("instruction") or ""),
     )
 
 
@@ -506,6 +512,12 @@ def main_task_uncovered(rec: Recorded, case: Case) -> list[str]:
     ]
 
 
+def owner_plan_kept(rec: Recorded, case: Case) -> list[str]:
+    """Each place the script departs from the steps the owner's request lays out: the writer's
+    own check (`owner_plan.plan_problems`), so the eval and the writer never disagree."""
+    return plan_problems(rec.script, owner_plan(case.instruction))
+
+
 def _language(tag: str) -> str:
     return tag.split("-")[0].lower()
 
@@ -620,6 +632,7 @@ CHECKS: Final[dict[str, tuple[Check | None, Callable[[Case], bool]]]] = {
     ),
     "agent_claims_caller_action": (None, lambda c: True),
     "outcome_tailored": (outcome_tailored, lambda c: True),
+    "owner_plan_kept": (owner_plan_kept, lambda c: owner_plan(c.instruction) is not None),
 }
 
 #: Checks the writer's lint of the same name makes only in part, because the lint reads the
@@ -650,6 +663,7 @@ READS: Final[dict[str, str]] = {
     "register_in_line": "Telugu and Hindi lines, by the register data",
     "agent_claims_caller_action": "English lines only",
     "outcome_tailored": "step outcomes, by their English words",
+    "owner_plan_kept": "step names, step numbers, outcomes and ways out (structure)",
 }
 
 
@@ -1296,10 +1310,19 @@ async def write_live(case: Case, spend: Spend) -> CallScript:
         consent_source=case.consent_source,
         inbound=not case.places_calls(),
     )
+    # As `_Inputs.plan` reads it for a script written whole.
+    plan = owner_plan(case.instruction) or owner_plan(case.main_task)
     change = campaign_change(
-        case.main_task, "", documents, edit=False, ask=ask, situation=situation
+        case.main_task,
+        "",
+        documents,
+        edit=False,
+        ask=ask,
+        situation=situation,
+        instruction=case.instruction,
+        plan=plan,
     )
-    owners = owners_words(case.main_task, "")
+    owners = owners_words(case.main_task, "", case.instruction)
     brief = ScriptBrief(
         description=case.description,
         business_name=case.business_name,
@@ -1313,6 +1336,7 @@ async def write_live(case: Case, spend: Spend) -> CallScript:
         facts=tuple(text for _t, text in case.knowledge),
         grounding=change,
         placed_calls=case.places_calls(),
+        owner_plan=plan,
     )
     leg = google_assist_leg()
     rounds = get_settings().campaign_script_repair_rounds
@@ -1329,7 +1353,15 @@ async def write_live(case: Case, spend: Spend) -> CallScript:
     )
     spend.add(draft.usage, draft.model)
     refine = campaign_change(
-        case.main_task, "", documents, edit=True, refine=True, ask=ask, situation=situation
+        case.main_task,
+        "",
+        documents,
+        edit=True,
+        refine=True,
+        ask=ask,
+        situation=situation,
+        instruction=case.instruction,
+        plan=plan,
     )
     refined = await draft_script(
         brief,

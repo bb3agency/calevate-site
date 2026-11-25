@@ -105,6 +105,7 @@ from apps.api.agents.call_rules import (
     writer_rules,
 )
 from apps.api.agents.languages import platform_default_language
+from apps.api.agents.owner_plan import OwnerPlan, plan_problems, with_owner_plan
 from apps.api.agents.retired_lines import retired_line_problem
 from apps.api.agents.script_lint import (
     CapabilityManifest,
@@ -627,15 +628,18 @@ def drafted_script(
     direction: str = "both",
     lint: LintContext | None = None,
     woven: WovenNotices | None = None,
+    plan: OwnerPlan | None = None,
 ) -> CallScript:
     """A whole draft (or a conversion) as `_script_from_model_json` reads it, refused with
-    the language problems for the one repair when it breaks the language rules. An agent of
-    one direction keeps no outbound opening, whatever the model wrote (D-920)."""
+    the language problems for the one repair when it breaks the language rules, and with each
+    departure from the owner's own steps (`plan`, `owner_plan.plan_problems`), named first so
+    the cap on what one refusal names never drops them. An agent of one direction keeps no
+    outbound opening, whatever the model wrote (D-920)."""
     script = _script_from_model_json(raw)
     if direction != "both":
         script = script.model_copy(update={"outbound_opening_line": ""})
-    script = with_spoken_swaps(script, language, allowed=allowed)
-    problems = language_problems(
+    script = with_owner_plan(with_spoken_swaps(script, language, allowed=allowed), plan)
+    problems = plan_problems(script, plan) + language_problems(
         script,
         language,
         allowed=allowed,
@@ -668,7 +672,9 @@ def drafted_with_warnings(
     """A whole draft read once its repairs are spent: a draft that still breaks a rule is
     kept, and each line still breaking one is a warning on the review (`trace.left_out`),
     rather than the owner getting no script at all for one line. Nothing goes live until
-    the owner keeps it. A draft with no steps is still refused."""
+    the owner keeps it. A draft with no steps is still refused. A departure from the owner's
+    steps is not one of these warnings: the job names those once, on the script it stores
+    (`campaign_script.built_wrong_left`), after the passes that may still mend them."""
     try:
         return drafted_script(raw, direction=direction, **checks)
     except UnusableAnswerError:
@@ -678,8 +684,12 @@ def drafted_with_warnings(
         raise UnusableAnswerError("stages: the script has no steps")
     if direction != "both":
         script = script.model_copy(update={"outbound_opening_line": ""})
-    script = with_spoken_swaps(script, checks.get("language"), allowed=checks.get("allowed", ""))
-    problems = language_problems(script, direction=direction, **checks)
+    lines = {key: value for key, value in checks.items() if key != "plan"}
+    script = with_owner_plan(
+        with_spoken_swaps(script, checks.get("language"), allowed=checks.get("allowed", "")),
+        checks.get("plan"),
+    )
+    problems = language_problems(script, direction=direction, **lines)
     trace.left_out = [_warned_part(problem, script) for problem in problems]
     log.info("script_assist_draft_kept_with_warnings", extra={"count": len(problems)})
     return script
@@ -824,6 +834,7 @@ def salvaged_edit(
     woven: WovenNotices | None = None,
     lenient: bool = False,
     direction: str = "inbound",
+    plan: OwnerPlan | None = None,
 ) -> tuple[CallScript, list[LeftOut]]:
     """`edited_script`, plus the parts a `lenient` read put back as the owner had them.
 
@@ -832,7 +843,12 @@ def salvaged_edit(
     came back): each part still breaking a rule, or failing the script's own validation, is
     put back as the owner had it and the rest is kept, the business copy's `salvage` rule
     applied to an edit. Only an answer with nothing left once those parts are put back is
-    refused, and that refusal carries the parts (`UnusableAnswerError.left_out`)."""
+    refused, and that refusal carries the parts (`UnusableAnswerError.left_out`).
+
+    `plan`: the owner's own steps. A departure from them the edit made is a problem like any
+    other while repairs are left; once they are spent the edit is refused rather than salvaged,
+    because putting steps back one by one is how a half-old, half-new step list is made, and the
+    script before the edit (Pip's own earlier draft, `campaign_script._refined`) is kept."""
     fields = _stages_where_they_belong(
         {k: v for k, v in raw.items() if k in CallScript.model_fields and k not in NOTICE_RECORDS},
         current,
@@ -870,8 +886,15 @@ def salvaged_edit(
         # Blanked again after its repair: the step was meant to go, so it goes, and the
         # review shows it as a step Pip removes, unticked until the owner keeps it.
         edited = without_placeholder_steps(edited)
-    edited = with_spoken_swaps(edited, language, before=current, allowed=allowed)
-    problems = language_problems(
+    edited = with_owner_plan(
+        with_spoken_swaps(edited, language, before=current, allowed=allowed), plan
+    )
+    departures = plan_problems(edited, plan, before=current)
+    if departures and lenient:
+        refused = UnusableAnswerError("; ".join(departures[:_EDIT_PROBLEMS_SENT]))
+        refused.left_out = tuple(put_back)
+        raise refused
+    problems = departures + language_problems(
         edited,
         language,
         before=current,
@@ -887,6 +910,11 @@ def salvaged_edit(
         # is kept (A-07), rather than the owner getting nothing.
         put_back += left_out_parts(problems, edited, current)
         edited = owners_where(edited, current, problems)
+        if plan_problems(edited, plan, before=current):
+            # A step put back as it was can undo the owner's plan the edit had kept.
+            refused = UnusableAnswerError("; ".join(problems[:_EDIT_PROBLEMS_SENT]))
+            refused.left_out = tuple(put_back)
+            raise refused
         if edited == current:
             refused = UnusableAnswerError("; ".join(problems[:_EDIT_PROBLEMS_SENT]))
             refused.left_out = tuple(put_back)
@@ -1159,6 +1187,9 @@ class ScriptBrief:
     #: line's never. None reads it from `direction`, where only an outbound agent's is; a
     #: "both" agent's own script also serves the calls it answers.
     placed_calls: bool | None = None
+    #: The steps the owner laid out in their own request (`owner_plan.owner_plan`): the draft
+    #: is written and checked against them instead of the trade's step plan.
+    owner_plan: OwnerPlan | None = None
 
     def places_calls(self) -> bool:
         return self.placed_calls if self.placed_calls is not None else self.direction == "outbound"
@@ -2296,6 +2327,7 @@ async def draft_script(
             lint=full.lint_context(),
             woven=full.woven,
             direction=full.direction,
+            plan=full.owner_plan,
         )
 
         def strict(raw: dict[str, Any]) -> CallScript | None:
@@ -2321,8 +2353,10 @@ async def draft_script(
         # A conversion keeps the owner's own sentences, in whatever language they wrote them,
         # so only a textbook word the owner did not write is the model's to fix.
         converting = instruction == CONVERT_INSTRUCTION
-        if not converting:
-            # D-856: a new script starts from the trade's step plan, the starters' skeleton.
+        if not converting and full.owner_plan is None:
+            # D-856: a new script starts from the trade's step plan, the starters' skeleton,
+            # unless the owner laid out the steps: two plans in one ask is how the trade's
+            # steps replaced the owner's on 25 Nov 2026.
             plan = playbook_guidance(
                 full.business_type, full.direction, dict(full.step_plans), full.fit
             )
@@ -2336,6 +2370,7 @@ async def draft_script(
             "direction": full.direction,
             "lint": None if converting else full.lint_context(),
             "woven": None if converting else full.woven,
+            "plan": None if converting else full.owner_plan,
         }
         parse = partial(drafted_script, **checks)
         if keep_with_warnings and not converting:

@@ -21,6 +21,7 @@ from typing import Any, Final, Literal
 from calevate_shared.business_frame import BUSINESS_FRAME
 from calevate_shared.call_script import CallScript, ConversationStage, stage_steps
 
+from apps.api.agents.owner_plan import OwnerPlan, plan_block
 from apps.api.agents.script_shape import main_task_items
 from apps.api.tenancy.business_copy import provider_words
 
@@ -403,6 +404,32 @@ def items_block(main_task: str) -> str:
     return ITEMS_HEAD + "\n".join(f"{n}. {item}" for n, item in enumerate(items, 1)) + "\n"
 
 
+#: The owner's own steps (`owner_plan`), which replace the main task's items in the ask. The
+#: guidance above them (the kinds of call, the trade's step plan, the closing step's name, the
+#: ways out every placed call gets) is for a request that leaves the shape to Pip; an owner who
+#: lays out the steps has chosen it, and on 25 Nov 2026 that guidance won over their plan. Each
+#: departure is also checked by code and sent back (`owner_plan.plan_problems`).
+PLAN_HEAD: Final = (
+    "THE OWNER'S STEPS (the call's steps exactly as the owner laid them out; where the kind of "
+    "call, a step plan, the closing step's name, the main task's items or the ways-out rules "
+    "differ, these win):\n"
+)
+PLAN_RULE: Final = (
+    "Write exactly these steps, in this order, each named as written here, and no other step. "
+    "Give each numbered step the owner's outcome, in the owner's words, in step_outcomes. A "
+    "side step is a scenario stage sharing the step number of the step whose way out reaches "
+    "it. Each way out listed is a way out of that step with the owner's condition, going where "
+    "it says. call_back, end and hand_over are where a way out goes, never steps: no step is "
+    "named or written as a call back, an end or a hand over. Give a step that has ways out "
+    "listed no other way out to call_back, end or hand_over. Everything else the owner asks "
+    "(tone, rules for each turn) still holds for every line.\n"
+)
+
+
+def owner_plan_block(plan: OwnerPlan) -> str:
+    return f"{PLAN_HEAD}{plan_block(plan)}\n{PLAN_RULE}"
+
+
 #: Long sources sit between the ask and the end of the message; the task is said again after
 #: them. "Provide all context first and put the specific instructions near the end"
 #: (ai.google.dev/gemini-api/docs/prompting-strategies, now aistudio.google.com/docs/
@@ -541,15 +568,23 @@ def campaign_change(
     budget: int | None = None,
     situation: str = "",
     refine: bool = False,
+    plan: OwnerPlan | None = None,
 ) -> str:
     """What the script is written from: the ask, the owner's tone and instruction, the length
     it may take, the main task and its items (`items_block`), the campaign's own settings
     (`situation_block`), the notes and the documents, then the task again after the documents.
     A one-part rewrite replaces the whole ask, edit tail included. `refine`: the edit is of Pip's
-    own first draft (`REFINE_TAIL`) rather than of a script the owner has."""
+    own first draft (`REFINE_TAIL`) rather than of a script the owner has. `plan`: the steps the
+    owner laid out, shown in place of the main task's items."""
     tail = REFINE_TAIL if refine else EDIT_TAIL if edit else ""
     lead = part_ask if part_ask is not None else f"{ask}{tail}"
-    items = items_block(main_task) if part_ask is None else ""
+    items = (
+        ""
+        if part_ask is not None
+        else owner_plan_block(plan)
+        if plan is not None
+        else items_block(main_task)
+    )
     change = (
         f"{lead}\n{tone_line(tone)}{instruction_line(instruction)}{length_line(budget)}"
         f"MAIN TASK:\n{main_task.strip()}\n{items}{situation}"

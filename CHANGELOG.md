@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.59 — 25-Nov-2026
+
+- When you give Pip your own list of steps, the script keeps them: the same steps in the same
+  order, with your outcomes and ways out. Call back and end call stay places the call ends,
+  never steps of their own, and a draft that drops, repeats or reorders a step is sent back
+  to Pip before you see it.
+
 ## 0.5.58 — 25-Nov-2026
 
 - The script canvas draws a line only from one step to the very next. A way out that jumps

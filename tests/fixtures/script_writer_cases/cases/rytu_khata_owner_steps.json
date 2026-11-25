@@ -1,0 +1,41 @@
+{
+  "id": "rytu_khata_owner_steps",
+  "title": "Rytu Khata rewrite to the owner's steps",
+  "holder": "campaign",
+  "business_name": "Rytu Khata",
+  "business_type": "custom",
+  "agent_name": "Varsha",
+  "description": "Rytu Khata is a farm accounts web app for farmers: they record their farms, expenses and crop sales and see the totals on a dashboard.",
+  "language": "te-IN",
+  "languages": ["te-IN", "en-IN"],
+  "direction": "outbound",
+  "capabilities": {"call_backs": true},
+  "main_task": "Call our existing customers who registered on the Rytu Khata web app and help them install it as an app on their phone.\n1. Find out whether it is installed as an app; if it is not, explain why installing it is better than using the website.\n2. Help them install it on Android or iPhone, screen by screen, and help them set the app language.\n3. Confirm it is installed, take them to the dashboard and explain that farms are set up first in My Farms.\n4. Set up their farms.\n5. Enter their expenses.\n6. Then enter their sales, and show how the dashboard summarises them.",
+  "instruction": "Rewrite this campaign's script in a respectful, warm tone, as a short phone conversation, one thing per turn. The calls are in Telugu.\nSteps, in this order:\n1. Introduction: right after the opening, say who is calling and from Rytu Khata, say we are calling because they registered on the Rytu Khata website and we want to help them start using the app, then ask if now is a good time to talk. Outcome: They agreed to talk now.\n   - Busy now: ask when suits them, offer a call back.\n   - Not interested: thank them and end the call politely.\n   - Says they never registered: go to \"Not registered\".\n2. App on the home screen: ask them to look at their phone's home screen for the Rytu Khata icon. If it is not there, guide them to open rytukhata.com in their browser and add it to the home screen, one action per turn, waiting until they say it is done. Outcome: The farmer has the app icon on their home screen.\n   - Already has it: go to \"Login\".\n   - Cannot open the website: offer a call back.\n3. Login: ask them to open the app and log in with their registered mobile number. Outcome: They are logged in.\n   - Cannot log in: offer a call back.\n4. Language: ask them to choose Telugu as the app language. Outcome: The app shows in their language.\n5. My Farms: ask them to open My Farms and add their farm. Outcome: Their farm is added.\n6. First expense: ask them to enter one expense for their farm. Outcome: Their first expense is entered.\n7. First sale: ask them to enter one crop sale for their farm. Outcome: Their first sale is entered.\n8. Dashboard: ask them to open the dashboard and say what totals they see. Outcome: They have seen the dashboard.\n9. Close: thank them, say they can call us with any doubt, and end the call. Outcome: The call is finished.\nNot registered: tell them gently that this number was registered with us earlier, and ask whether they would like help setting up the app. Yes: go to \"App on the home screen\". No: thank them and end the call.\nRules: one instruction or one question per turn; use their name from the call, never ask name or number; plain everyday spoken words; collect phone comfort and main use only when it fits.",
+  "items": [
+    {"id": "introduction", "text": "Say who is calling and why, then ask if now is a good time", "terms": [["registered", "register"], ["app"]]},
+    {"id": "home_screen", "text": "Find the app icon on the home screen, or add it from the website", "terms": [["home screen"], ["icon"]]},
+    {"id": "login", "text": "Log in with the registered mobile number", "terms": [["log in", "login"]]},
+    {"id": "language", "text": "Choose Telugu as the app language", "terms": [["language"]]},
+    {"id": "my_farms", "text": "Open My Farms and add their farm", "terms": [["my farms"]]},
+    {"id": "first_expense", "text": "Enter a first expense", "terms": [["expense"]]},
+    {"id": "first_sale", "text": "Enter a first sale", "terms": [["sale"]]},
+    {"id": "dashboard", "text": "See the dashboard", "terms": [["dashboard"]]},
+    {"id": "not_registered", "text": "Someone who never registered is told gently and offered help", "terms": [["never registered", "not registered"]]}
+  ],
+  "noted": [
+    {"label": "Phone comfort", "judged": true},
+    {"label": "Main use"},
+    {"label": "Alternative number", "reason": "asked only for a call back"}
+  ],
+  "known": ["name"],
+  "knowledge": [
+    {"title": "Install steps", "text": "Open rytukhata.com in Chrome on Android and press Install app at the top, or on iPhone open it in Safari, tap Share and then Add to Home Screen."},
+    {"title": "First steps", "text": "After logging in with the phone number, farms are added first in My Farms; expenses and sales are entered per farm and the dashboard shows the totals."}
+  ],
+  "purpose_terms": ["app", "registered"],
+  "screen_terms": ["home", "screen", "icon", "login", "dashboard", "my farms"],
+  "purpose": "Help registered farmers start using the Rytu Khata app.",
+  "goal": "The farmer has the app on their home screen and has entered a first expense and sale.",
+  "consent_source": "existing_customer"
+}

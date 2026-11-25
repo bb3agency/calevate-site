@@ -8,7 +8,9 @@ holder's agent's language and business context (`agents/script_proposals.brief_f
 script is written whole, from the trade's step plan like any new script, then edited once
 with the same ask (D-1031), so a script written as its campaign or line is made is as good
 as one asked for later, which edits the script there; one that already exists gets an edit
-of it, so the owner's own wording survives wherever the sources do not change it. The
+of it, so the owner's own wording survives wherever the sources do not change it, unless the
+owner's request lays out the steps itself (`agents/owner_plan`): that is written whole, from
+those steps instead of the trade's, and every draft is checked against them. The
 inputs are read when the job runs (`campaign_inputs`, `line_inputs`), whoever asked and
 when, and include the holder's own "What it notes". Documents are read
 the way onboarding reads them (`first_run.documents_block`: redacted, fenced, one word budget).
@@ -38,13 +40,19 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
 
-from calevate_shared.call_script import CallScript, CollectField, ScriptPolicies
+from calevate_shared.call_script import (
+    MAX_SCRIPT_STAGES,
+    CallScript,
+    CollectField,
+    ScriptPolicies,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.languages import LANGUAGE_LABELS
+from apps.api.agents.owner_plan import OwnerPlan, owner_plan, plan_problems
 from apps.api.agents.prompt_size import PromptSize
 from apps.api.agents.script_shape import structure_problems
 from apps.api.agents.script_structure import collected, policies_for_job, without_judged_asks
@@ -122,14 +130,15 @@ def _left_s(started: float) -> float:
 
 
 def _proposal(
-    proposal_id: UUID, base: CallScript | None, request: str
+    proposal_id: UUID, base: CallScript | None, request: str, *, whole: bool = False
 ) -> script_proposals.ScriptProposal:
     """The campaign's request in the agent proposal's shape, which `finish_written` reads: a
-    `change` of the campaign's script, or a `whole` first script, so a finding the owner's own
-    script already had stays theirs to fix."""
+    `change` of the campaign's script, or a `whole` script, so a finding the owner's own
+    script already had stays theirs to fix only where Pip edited that script. A whole rewrite
+    keeps the base for the openings a blank line falls back to."""
     return script_proposals.ScriptProposal(
         id=proposal_id,
-        mode="change" if base is not None else "whole",
+        mode="change" if base is not None and not whole else "whole",
         status="drafting",
         request=request,
         answers={},
@@ -158,8 +167,15 @@ def _writes_again(refused: ProblemError, trace: AskTrace, attempt: int, started:
     )
 
 
-def retry_change(change: str, unwritten: Sequence[LeftOut]) -> str:
-    """The owner's change, told which rules the last answer broke and where."""
+def retry_change(change: str, unwritten: Sequence[LeftOut], problems: str = "") -> str:
+    """The owner's change, told which rules the last answer broke and where: the parts an
+    edit could not write, else the problems a whole draft's last repair was sent (`AskTrace.
+    problems`), which name a departure from the owner's steps as well as a broken line."""
+    if not unwritten and problems:
+        return (
+            f"{change}\nThe last answer broke these rules. Write the script again and keep to "
+            f"them: {problems}."
+        )
     if not unwritten:
         return (
             f"{change}\nThe last answer broke the call rules. Write every line again in plain "
@@ -468,6 +484,27 @@ class _Inputs:
     #: What the holder's calls ask (`script_builder.job_details`); each needs a step.
     details: JobDetails | None = None
 
+    @property
+    def replans(self) -> bool:
+        """Whether the owner's request lays out the call's steps itself. Such a script is
+        written whole rather than as an edit of the one it replaces: an edit keeps whatever
+        the request does not change and puts back a step whose new version broke a rule, which
+        is how the old install steps survived beside the owner's on 25 Nov 2026."""
+        return owner_plan(self.instruction) is not None
+
+    @property
+    def whole(self) -> bool:
+        return self.base is None or self.replans
+
+    @property
+    def plan(self) -> OwnerPlan | None:
+        """The steps the script is written and checked against: the request's, else the main
+        task's when the script is written whole. An edit of the owner's script with no plan in
+        the request keeps whatever shape the owner gave it."""
+        return owner_plan(self.instruction) or (
+            owner_plan(self.main_task) if self.base is None else None
+        )
+
 
 def _asked(raw: Any) -> tuple[str | None, str]:
     """The tone and instruction a request stored (`workspace.request_proposal`'s `ask`)."""
@@ -721,6 +758,7 @@ async def _refined(
         instruction=inputs.instruction,
         budget=inputs.budget,
         situation=inputs.situation,
+        plan=context.owner_plan,
     )
     try:
         draft = await draft_script(
@@ -749,31 +787,46 @@ def built_wrong(inputs: _Inputs, script: CallScript) -> list[str]:
     """What only a rewrite of the whole `script` mends (`script_shape.structure_problems`),
     read as the steps will stand once code has mended them (`script_structure.collected`): a
     detail the job does not ask, judges from the call or takes on the call-back path is not a
-    second ask of its step."""
+    second ask of its step. With the owner's own steps (`_Inputs.plan`), each departure from
+    them, and the main task's items are not read: the owner's steps replace them."""
     ids = {stage.id for stage in script.stages}
     details = inputs.details
     probe = without_judged_asks(script, ids)
     if details is not None:
         probe = collected(probe, details.labels(), ids, details.call_back)
-    return structure_problems(
+    plan = inputs.plan
+    return plan_problems(probe, plan) + structure_problems(
         probe,
-        main_task=inputs.main_task,
+        main_task="" if plan is not None else inputs.main_task,
         call_back=details.call_back if details is not None else (),
     )
 
 
 def _pips_built_wrong(inputs: _Inputs, script: CallScript) -> list[str]:
-    """`built_wrong`, less what the owner's script already had: theirs to fix."""
+    """`built_wrong`, less what the owner's script already had: theirs to fix. A script
+    written whole owes nothing to the one it replaces."""
     found = built_wrong(inputs, script)
-    if inputs.base is None:
+    if inputs.base is None or inputs.whole:
         return found
     had = set(built_wrong(inputs, inputs.base))
     return [problem for problem in found if problem not in had]
 
 
 def built_wrong_left(inputs: _Inputs, script: CallScript) -> list[LeftOut]:
-    """What is still built wrong once every pass is spent, as warnings the owner reads."""
-    return script_proposals.fix_left(_pips_built_wrong(inputs, script), script)
+    """What is still built wrong once every pass is spent, as warnings the owner reads, and
+    each of the owner's steps the step limit could not hold."""
+    plan = inputs.plan
+    over = [
+        LeftOut(
+            "stages",
+            "",
+            f'Only {MAX_SCRIPT_STAGES} steps fit a script, so "{step.name}" is not in it; '
+            "merge two steps or take one out to make room.",
+            unfixed=True,
+        )
+        for step in (plan.over if plan is not None else ())
+    ]
+    return [*script_proposals.fix_left(_pips_built_wrong(inputs, script), script), *over]
 
 
 async def _restructured(
@@ -806,6 +859,7 @@ async def _restructured(
         instruction=inputs.instruction,
         budget=inputs.budget,
         situation=inputs.situation,
+        plan=context.owner_plan,
     )
     try:
         draft = await draft_script(
@@ -1031,24 +1085,36 @@ async def _write(
     base = inputs.base
     notes = inputs.notes
     documents = documents_block(inputs.words, budget=KNOWLEDGE_DOCUMENT_CHARS)
+    # A one-part rewrite is always an edit of the part; otherwise a request that lays out the
+    # steps is written whole, like a first script (`_Inputs.replans`).
+    whole = inputs.whole and part_ask is None
+    plan = inputs.plan if part_ask is None else None
     change = campaign_change(
         inputs.main_task,
         notes,
         documents,
-        edit=base is not None,
+        edit=not whole,
         ask=ask,
         part_ask=part_ask,
         tone=inputs.tone,
         instruction=inputs.instruction,
         budget=inputs.budget,
         situation=inputs.situation,
+        plan=plan,
     )
     owners = owners_words(inputs.main_task, notes, inputs.instruction)
-    proposal = _proposal(holder.proposal_id, base, owners)
+    # The proposal keeps the script the request was made from, so the review still shows what
+    # a whole rewrite changes against it.
+    proposal = _proposal(holder.proposal_id, base, owners, whole=whole)
     feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
     # The holder's own words are what a spoken figure may come from, an edit's included.
     # A campaign's calls are placed whatever the agent's direction; a line's are answered.
-    context = replace(inputs.context, grounding=change, placed_calls=holder.table == "campaigns")
+    context = replace(
+        inputs.context,
+        grounding=change,
+        placed_calls=holder.table == "campaigns",
+        owner_plan=plan,
+    )
     log_ids = {holder.log_key: str(holder.holder_id)}
     try:
         await _phase(holder, "writing")
@@ -1077,9 +1143,10 @@ async def _write(
             keep_with_warnings=attempt >= WRITE_ATTEMPTS or _left_s(started) < 2 * _RETRY_MIN_S,
         )
         try:
-            if base is None:
-                # A first script: written whole from the trade's step plan, the holder's words
-                # as the owner's description, so every figure in them may be spoken.
+            if whole or base is None:
+                # Written whole, from the owner's steps or else the trade's step plan, the
+                # holder's words as the owner's description, so every figure in them may be
+                # spoken.
                 draft: ScriptDraft = await write(replace(context, description=asked))
             else:
                 draft = await write(context, edit_of=base, change=asked)
@@ -1101,7 +1168,7 @@ async def _write(
                 )
             if _writes_again(refused, trace, attempt, started):
                 # A fresh answer told what the last one broke, before the owner hears of it.
-                asked = retry_change(change, trace.unwritten)
+                asked = retry_change(change, trace.unwritten, trace.problems)
                 continue
             await _fail(holder, _failed_note(refused, trace), trace.unwritten, reason=refused.code)
             await _ready_made_if_asked(holder)
@@ -1118,7 +1185,7 @@ async def _write(
     # What a stopped draft has already spent, metered when the job ends early.
     spent_so_far: list[Spent] = [draft]
     try:
-        if base is None:
+        if base is None or whole:
             first, refining = await _refined(
                 inputs, context, draft.script, started, ask=ask, documents=documents, owners=owners
             )
