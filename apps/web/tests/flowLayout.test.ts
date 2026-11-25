@@ -168,13 +168,13 @@ describe("ways out to an end point", () => {
     expect(thenOf(items[2], 4)).toEqual({ kind: "stay" });
   });
 
-  it("makes a row as tall as its card with the most chips", () => {
+  it("makes each card as tall as its own chips, with no empty room for another card's", () => {
     const l = lay(ENDED);
     const intro = l.boxes.get("intro") as Box;
     const login = l.boxes.get("login") as Box;
     expect(intro.h).toBeGreaterThan(112);
-    // Row 1 lines up across the columns, whatever each card holds.
-    expect(login.h).toBe(intro.h);
+    // A card with fewer ways out stays short, level with the top of the column.
+    expect(login.h).toBeLessThan(intro.h);
     expect(login.y).toBe(intro.y);
     for (const link of l.links)
       for (const [id, b] of cards(l))

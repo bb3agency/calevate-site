@@ -251,23 +251,25 @@ export function layoutFlow(
   }
 
   const cardTop = HEAD_H + TOP_GAP;
-  // Rows line up across columns, so a row is as tall as its card with the most chips.
-  const tallest = Math.max(1, ...items.map((p) => p.row));
-  const chipLines = Array.from({ length: tallest + 1 }, () => 0);
-  for (const p of items)
-    chipLines[p.row] = Math.max(chipLines[p.row], exits.get(p.section.id)?.length ?? 0);
-  if (opening) chipLines[1] = Math.max(chipLines[1], 1);
-  const rowH = (row: number) => BOX_H + (chipLines[row] ?? 0) * CHIP_LINE;
-  const rowY = (row: number) => {
-    let y = cardTop;
-    for (let r = 1; r < row; r++) y += rowH(r) + ROW_GAP;
-    return y;
-  };
-
+  // Each card is as tall as its own chips and stacks under the one above it in its column.
+  // No line runs between rows any more, so rows need not line up across columns, and lining
+  // them up made every card in a row as tall as the one with the most chips.
+  const heightOf = (p: Placed) => BOX_H + (exits.get(p.section.id)?.length ?? 0) * CHIP_LINE;
   const boxes = new Map<string, Box>();
-  for (const p of items)
-    boxes.set(p.section.id, { x: colX(p.step), y: rowY(p.row), w: BOX_W, h: rowH(p.row) });
-  const openBox: Box | null = opening ? { x: colX(0), y: cardTop, w: BOX_W, h: rowH(1) } : null;
+  let bottom = cardTop;
+  for (let step = 1; step <= steps; step++) {
+    let y = cardTop;
+    for (const p of items.filter((q) => q.step === step).sort((a, b) => a.row - b.row)) {
+      const h = heightOf(p);
+      boxes.set(p.section.id, { x: colX(step), y, w: BOX_W, h });
+      y += h + ROW_GAP;
+      bottom = Math.max(bottom, y - ROW_GAP);
+    }
+  }
+  const openBox: Box | null = opening
+    ? { x: colX(0), y: cardTop, w: BOX_W, h: BOX_H + CHIP_LINE }
+    : null;
+  if (openBox) bottom = Math.max(bottom, openBox.y + openBox.h);
   const boxOf = (id: string) => (id === OPENING_KEY ? openBox : boxes.get(id)) ?? null;
 
   // Each link into a card has its own place on the card's left edge, in the order its source
@@ -307,7 +309,7 @@ export function layoutFlow(
   }
 
   const width = colX(steps + 1) + TAIL_W + PAD_X;
-  const height = rowY(tallest) + rowH(tallest) + FOOT;
+  const height = bottom + FOOT;
 
   return { colX, cardTop, boxes, exits, opening: openBox, links, width, height };
 }

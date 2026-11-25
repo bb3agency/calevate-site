@@ -139,3 +139,38 @@ describe("the call's own order on the canvas", () => {
     await expectNoA11yViolations(narrow.container, "stacked call flow with then chips");
   });
 });
+
+describe("a jump to a later step on the canvas", () => {
+  it("is a chip whose target is a button that selects that scenario", async () => {
+    const onSelect = vi.fn();
+    const script: CallScript = {
+      ...RYTU,
+      stages: [
+        stage({ id: "login", name: "Login", step: 1, branches: [{ when: "Already set up", target: "expenses" }] }),
+        stage({ id: "farms", name: "Add Farms", step: 2 }),
+        stage({ id: "expenses", name: "Enter Expenses", step: 3 }),
+      ],
+    };
+    const { container } = await renderClientPage(
+      <ToastProvider>
+        <ScenarioFlow
+          agent={null}
+          hear={{ allowed: true, reason: null, unknown: false }}
+          script={script}
+          limits={DEFAULT_LIMITS}
+          issues={[]}
+          languages={["te-IN"]}
+          selected={null}
+          readOnly={false}
+          wide
+          onSelect={onSelect}
+          onChange={() => {}}
+        />
+      </ToastProvider>,
+      {},
+    );
+    expect(container.querySelector('path[data-link="login-0"]')).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: "Go to 3.1 Enter Expenses" }));
+    expect(onSelect).toHaveBeenCalledWith("expenses");
+  });
+});

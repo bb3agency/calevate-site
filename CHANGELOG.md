@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.61 — 25-Nov-2026
+
+- On the script canvas each card is only as tall as its own ways out, so short cards no
+  longer carry empty space. A label that jumps to another step, like "→ 3.1 Login", is a
+  link: click it to open that step.
+
 ## 0.5.60 — 25-Nov-2026
 
 - A request to Pip can be up to 4,000 characters, so a full step list with outcomes and ways

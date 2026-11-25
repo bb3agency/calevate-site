@@ -155,6 +155,7 @@ function ExitChip({
   scenario,
   removeLabel,
   onRemove,
+  onGo,
 }: {
   when: string;
   target: string;
@@ -164,6 +165,8 @@ function ExitChip({
   scenario?: string;
   removeLabel?: string;
   onRemove?: () => void;
+  /** Selects the scenario a jump goes to, so the link can be followed like a line. */
+  onGo?: () => void;
 }) {
   const Icon = self ? Repeat : (lookup(END_ICONS, target) ?? CornerDownRight);
   const end = self ? "Stays on this step" : (scenario ?? lookup(END_NAMES, target) ?? target);
@@ -181,11 +184,25 @@ function ExitChip({
           <span className="sr-only">: </span>
         </>
       )}
-      <Icon aria-hidden className="h-3 w-3 shrink-0" />
-      <span aria-hidden className="shrink-0 font-medium text-ink">
-        {short}
-      </span>
-      <span className="sr-only">{end}</span>
+      {onGo ? (
+        <button
+          type="button"
+          aria-label={`Go to ${end}`}
+          className="pointer-events-auto flex shrink-0 items-center gap-1 rounded-full font-medium text-brand underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+          onClick={onGo}
+        >
+          <Icon aria-hidden className="h-3 w-3 shrink-0" />
+          <span aria-hidden>{short}</span>
+        </button>
+      ) : (
+        <>
+          <Icon aria-hidden className="h-3 w-3 shrink-0" />
+          <span aria-hidden className="shrink-0 font-medium text-ink">
+            {short}
+          </span>
+          <span className="sr-only">{end}</span>
+        </>
+      )}
       {onRemove && (
         <button
           type="button"
@@ -994,6 +1011,16 @@ function Columns({
                       target={x.target}
                       self={x.target === p.section.id}
                       scenario={lookup(END_NAMES, x.target) ? undefined : named(x.target)}
+                      onGo={
+                        lookup(END_NAMES, x.target) || x.target === p.section.id
+                          ? undefined
+                          : () => {
+                              onSelect(x.target);
+                              document
+                                .querySelector(`[data-scenario="${CSS.escape(x.target)}"]`)
+                                ?.scrollIntoView?.({ behavior: "smooth", block: "nearest", inline: "center" });
+                            }
+                      }
                       removeLabel={`Remove the link from ${named(p.section.id)} to ${named(x.target)}`}
                       onRemove={
                         onUnlink && (() => removeExit(p.section.id, x))
