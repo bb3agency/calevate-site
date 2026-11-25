@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BOX_H, OPENING_KEY, layoutFlow, thenOf, type Box, type FlowLayout, type Point } from "@/app/c/[slug]/campaigns/flowLayout";
+import { OPENING_KEY, layoutFlow, thenOf, type Box, type FlowLayout, type Point } from "@/app/c/[slug]/campaigns/flowLayout";
 import { placed } from "@/app/c/[slug]/campaigns/scenarioModel";
 import { CALL_BACK, END, SPECIAL_TARGETS, sectionsOf } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
 import { EMPTY_SCRIPT, type ConversationStage } from "@/lib/api/script";
@@ -59,36 +59,26 @@ const linkOf = (l: FlowLayout, from: string, to: string) => {
 };
 
 describe("call flow routing", () => {
-  it("draws a loop back over the cards, never behind one", () => {
+  it("draws only moves to the next step; a jump forward or back is a chip on its card", () => {
     const l = lay(RYTU);
-    const back = linkOf(l, "farms", "install");
-    expect(back.kind).toBe("back");
-    for (const [id, b] of cards(l)) {
-      expect(back.samples.filter((p) => inside(p, b)), `back link enters ${id}`).toEqual([]);
-    }
-    // It rises above the cards and comes down into the left edge of 1.1, not in from the
-    // canvas's edge.
-    const target = l.boxes.get("install") as Box;
-    expect(Math.min(...back.samples.map((p) => p.y))).toBeLessThan(l.cardTop);
-    expect(Math.min(...back.samples.map((p) => p.x))).toBeGreaterThan(target.x - 88);
-    expect(back.end.x).toBe(target.x);
-    expect(back.end.y).toBeGreaterThan(target.y);
-    expect(back.end.y).toBeLessThan(target.y + target.h);
-    // It meets 1.1 at its own point, not on the opening's arrowhead.
-    expect(back.end).not.toEqual(linkOf(l, OPENING_KEY, "install").end);
-    const from = l.boxes.get("farms") as Box;
-    expect(back.samples[0]).toEqual({ x: from.x + from.w, y: from.y + BOX_H / 2 });
+    expect(l.links.every((k) => k.kind === "next")).toBe(true);
+    expect(l.links.some((k) => k.from === "farms" && k.to === "install")).toBe(false);
+    expect(l.links.some((k) => k.from === "install" && k.to === "farms")).toBe(false);
+    expect(l.exits.get("install")).toEqual([
+      { key: "install-1", target: "farms", when: "Setup farms", via: "branch" },
+    ]);
+    expect(l.exits.get("farms")).toEqual([
+      { key: "farms-0", target: "install", when: "Not installed yet", via: "branch" },
+    ]);
+    // 1.1 to 2.1 is the next column, so it stays a line.
+    expect(linkOf(l, "install", "android").kind).toBe("next");
   });
 
-  it("runs a link that skips a step between the rows, round the middle card", () => {
-    const l = lay(RYTU);
-    const skip = linkOf(l, "install", "farms");
-    expect(skip.kind).toBe("skip");
-    const middle = l.boxes.get("android") as Box;
-    expect(skip.samples.filter((p) => inside(p, middle))).toEqual([]);
-    for (const [id, b] of cards(l)) {
-      expect(skip.samples.filter((p) => inside(p, b)), `skip link enters ${id}`).toEqual([]);
-    }
+  it("does not repeat a self Otherwise as a chip beside the card's own Stays line", () => {
+    const l = lay([
+      stage({ id: "bye", name: "End", step: 1, otherwise: "bye", branches: [{ when: "Otherwise", target: "bye" }] }),
+    ]);
+    expect(l.exits.get("bye")).toEqual([]);
   });
 
   it("never starts a line beside a box but its own", () => {
@@ -102,7 +92,7 @@ describe("call flow routing", () => {
     }
   });
 
-  it("keeps every link out of every card and off every other link", () => {
+  it("keeps every link out of every card", () => {
     const stages = [
       ...RYTU.slice(0, 2),
       stage({ id: "android2", name: "iPhone", step: 2, branches: [{ when: "Done", target: "install" }] }),
@@ -122,21 +112,6 @@ describe("call flow routing", () => {
     for (const link of l.links)
       for (const [id, b] of cards(l))
         expect(link.samples.filter((p) => inside(p, b)), `${link.key} enters ${id}`).toEqual([]);
-    // Two links may cross; they never run along each other, except where links of one source
-    // fan out of its one dot, or links into one card meet at its edge.
-    const orthogonal = l.links.filter((k) => k.kind === "back" || k.kind === "skip");
-    for (const a of orthogonal)
-      for (const b of l.links) {
-        if (a === b) continue;
-        const start = a.samples[0];
-        const fanning = (p: Point) =>
-          (a.from === b.from && Math.hypot(p.x - start.x, p.y - start.y) <= 48) ||
-          (a.to === b.to && Math.hypot(p.x - a.end.x, p.y - a.end.y) <= 48);
-        const shared = a.samples.filter(
-          (p) => !fanning(p) && b.samples.some((q) => Math.hypot(p.x - q.x, p.y - q.y) < 1.5),
-        );
-        expect(shared.length, `${a.key} runs along ${b.key}`).toBeLessThan(6);
-      }
   });
 
   it("starts the flow at the opening, linked into every step-1 scenario", () => {

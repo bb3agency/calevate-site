@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.58 — 25-Nov-2026
+
+- The script canvas draws a line only from one step to the very next. A way out that jumps
+  further ahead or back is a label on its scenario, like "Cannot log in → 7.1 Call back", so
+  no lines run under the cards any more.
+
 ## 0.5.57 — 25-Nov-2026
 
 - The campaign script canvas is calmer: a way out that ends the call (call back, end call,

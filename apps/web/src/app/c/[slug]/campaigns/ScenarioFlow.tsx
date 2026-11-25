@@ -25,6 +25,7 @@ import {
   ArrowRight,
   ArrowUp,
   CalendarClock,
+  CornerDownRight,
   LoaderCircle,
   MoreHorizontal,
   PhoneOff,
@@ -142,14 +143,16 @@ const END_SHORT: Record<string, string> = {
 };
 
 /**
- * A way out that ends the call or stays put, on the card it leaves: "Busy → Call back". The
- * words truncate and the end's name never does, so a narrow card still says where the call
- * goes. `onRemove` gives it the × the drawn link used to carry.
+ * A way out that is not a line, on the card it leaves: "Busy → Call back", or a jump to a
+ * step other than the next, "Cannot log in → 7.1 Call back". The words truncate and the
+ * target's name never does, so a narrow card still says where the call goes. `onRemove`
+ * gives it the × a drawn link carries.
  */
 function ExitChip({
   when,
   target,
   self,
+  scenario,
   removeLabel,
   onRemove,
 }: {
@@ -157,12 +160,14 @@ function ExitChip({
   target: string;
   /** The way out goes back into the scenario it leaves. */
   self: boolean;
+  /** The target scenario's name ("7.1 Call back") when the way out jumps to another step. */
+  scenario?: string;
   removeLabel?: string;
   onRemove?: () => void;
 }) {
-  const Icon = self ? Repeat : (lookup(END_ICONS, target) ?? ArrowRight);
-  const end = self ? "Stays on this step" : (lookup(END_NAMES, target) ?? target);
-  const short = self ? "Stays" : (lookup(END_SHORT, target) ?? end);
+  const Icon = self ? Repeat : (lookup(END_ICONS, target) ?? CornerDownRight);
+  const end = self ? "Stays on this step" : (scenario ?? lookup(END_NAMES, target) ?? target);
+  const short = self ? "Stays" : (scenario ?? lookup(END_SHORT, target) ?? end);
   return (
     <li
       data-exit={target}
@@ -979,7 +984,7 @@ function Columns({
               </button>
               {ends.length > 0 && (
                 <ul
-                  aria-label={`Where ${p.label} ends or stays`}
+                  aria-label={`Where ${p.label} goes next`}
                   className="pointer-events-none absolute inset-x-3 bottom-3 flex flex-col items-start gap-1"
                 >
                   {ends.map((x) => (
@@ -988,6 +993,7 @@ function Columns({
                       when={x.via === "otherwise" ? "Otherwise" : x.when.trim()}
                       target={x.target}
                       self={x.target === p.section.id}
+                      scenario={lookup(END_NAMES, x.target) ? undefined : named(x.target)}
                       removeLabel={`Remove the link from ${named(p.section.id)} to ${named(x.target)}`}
                       onRemove={
                         onUnlink && (() => removeExit(p.section.id, x))
