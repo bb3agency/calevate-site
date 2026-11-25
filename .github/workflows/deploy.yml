@@ -161,6 +161,9 @@ jobs:
           echo "$PUBLIC_ENV" | base64 -d > apps/web/.env.local
           export CALEVATE_DEPLOY_BUILD=1 CALEVATE_SKIP_BUILD_CHECKS=1 CALEVATE_DIST_DIR=.next-build
           export CALEVATE_BUILD_COMMIT="$BUILD_SHA"
+          # The build reached Node's default ~4 GB heap and died (run 45605286197,
+          # 25 Nov 2026); the runner has 16 GB, so it gets 6 GB.
+          export NODE_OPTIONS="--max-old-space-size=6144"
           pnpm -C apps/web build
           echo "$BUILD_SHA" > apps/web/.next-build/.calevate-commit
           # The cache stays on the runner for the next build; it is not shipped to the host.

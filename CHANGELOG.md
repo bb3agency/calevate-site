@@ -3,7 +3,7 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
-## 0.5.52 — 25-Nov-2026
+## 0.5.53 — 25-Nov-2026
 
 - Pip writes a campaign or line script again on its own, up to three times, when a draft
   breaks a call rule, telling itself what the last one broke. You hear only if all fail.
@@ -12,6 +12,12 @@ page (`apps/web/package.json` holds the version). Dates are IST.
 - A change to a script now lands in its steps: Pip no longer writes new steps into an old,
   unused list, which made a draft fail or change nothing.
 - A failed draft says your script is unchanged; the reasons sit behind "Why".
+
+## 0.5.52 — 25-Nov-2026
+
+- Campaign sections fold like the deal screen's: a white card with a coloured left edge, and
+  one header row with the chevron, a tinted icon, the section's name in its colour and its
+  description beside it. Folded, a section is just that row.
 
 ## 0.5.51 — 25-Nov-2026
 
