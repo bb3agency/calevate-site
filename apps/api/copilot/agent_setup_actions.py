@@ -24,7 +24,6 @@ click it saves.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -38,7 +37,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import (
     call_handling,
-    caller_help,
     lifecycle,
     publishing,
     voice_tuning,
@@ -78,10 +76,8 @@ from apps.api.copilot.actions import (
     parse_args,
 )
 from apps.api.copilot.sanitize import strip_invisible
-from apps.api.copilot.word_lists import mentions_screen_word
 from apps.api.core.errors import ProblemError
 from apps.api.db.ownership import assert_visible
-from apps.api.tenancy import business_copy
 
 _ID: Final[dict[str, Any]] = {"type": "string", "description": "The agent's id, never invented."}
 
@@ -768,59 +764,6 @@ async def _execute_settings(
         },
         also_audit=tuple(AuditEntry(flip, "agent", str(agent_id)) for flip in flips),
     )
-
-
-#: Words that say a call walks the person through something on their phone or computer
-#: (D-906). A hint for Pip to ASK the owner, never a switch it flips: a false match costs one
-#: question, which is why plain words like "app" and "website" are enough. The English ones
-#: are here; every other language's are founder-owned data (`word_lists.screen_words`).
-_SCREEN_WORDS: Final = re.compile(
-    r"\b(?:install\w*|download\w*|apps?|website|web ?site|log ?in|sign ?(?:up|in)|browser|"
-    r"chrome|tap|click|screen|online form|fill (?:in|out)|step by step|troubleshoot\w*)\b",
-    re.IGNORECASE,
-)
-
-
-async def screen_guide_hint(session: AsyncSession, agent_id: UUID, context: str) -> str:
-    """A sentence for Pip when `context` (a campaign's name) plus the agent's own judgement
-    (`agents/caller_help`) say the calls are screen-guided and the agent's switch is off, or
-    plainly are not and it is on; empty otherwise. Pip asks the owner, then proposes
-    `agent_settings_set`."""
-    row = (
-        await session.execute(
-            text(
-                "SELECT a.caller_has_screen, pv.body, a.caller_help "
-                "FROM agents a LEFT JOIN prompt_versions pv "
-                "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
-                "WHERE a.id = :aid AND a.deleted_at IS NULL"
-            ),
-            {"aid": agent_id},
-        )
-    ).first()
-    if row is None:
-        return ""
-    # The agent's own judgement decides; the business's analysis stands in only for an agent
-    # not judged yet. The words catch a campaign being written now, before a pass has read it.
-    judged = caller_help.parse_stored(row[2])
-    if judged is not None:
-        suggested = judged.screen_guide.suggested
-    else:
-        state = await business_copy.read_state(session)
-        guide = state.copy.screen_guide if state is not None and state.copy is not None else None
-        suggested = guide is not None and guide.suggested
-    said = f"{context}\n{row[1] or ''}"
-    guided = bool(_SCREEN_WORDS.search(said)) or mentions_screen_word(said) or suggested
-    if guided and not row[0]:
-        return (
-            " These calls look like they walk people through their phone or computer: ask "
-            "the owner whether to switch on the agent's caller_has_screen (agent_settings_set)."
-        )
-    if row[0] and not guided:
-        return (
-            " Its agent is set to guide callers through a screen, which these calls do not "
-            "seem to need: ask the owner whether to switch caller_has_screen off."
-        )
-    return ""
 
 
 AGENT_SETTINGS_SET: Final = ActionTool(

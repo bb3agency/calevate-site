@@ -932,7 +932,10 @@ async def _plan_campaign_whatsapp(
         )
     ).scalar()
     if name is None:
-        raise WriteRefusedError("`campaign_id` is not a campaign of this account; see campaigns")
+        raise WriteRefusedError(
+            "`campaign_id` is not a campaign of this account; see campaigns",
+            plain="I couldn't find that campaign. Open it from Campaigns and ask again.",
+        )
     card = await cw.card(session, campaign_id)
     if card.phase == "writing":
         raise WriteRefusedError(

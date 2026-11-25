@@ -493,6 +493,11 @@ async def place_trial_call(
         if campaign_test is not None and trial is None
         else None
     )
+    tester_name = (
+        await _tester_name(session, principal=principal, campaign_id=campaign_test.campaign_id)
+        if campaign_test is not None
+        else None
+    )
     reserved: list[UUID] = []
 
     async def note_call_id(_intent: AsyncSession, call_id: UUID) -> None:
@@ -509,6 +514,7 @@ async def place_trial_call(
             agent_id=agent_id,
             lead_id=None,
             phone_e164=phone,
+            lead_name=tester_name,
             on_reserved=note_call_id,
             trial=trial,
             owner_test=owner_test,
@@ -578,6 +584,32 @@ TRIAL_CALL_NOT_PLACED: Final = "trial_call_not_placed"
 #: workspace there is nothing it can ring from yet.
 LINE_TEST_NO_NUMBER_RULE: Final = "line_test_no_number"
 LINE_TEST_NO_NUMBER_REASON: Final = "Get a number first. Test calls ring from your own number."
+
+
+async def _tester_name(
+    session: AsyncSession, *, principal: Principal, campaign_id: UUID
+) -> str | None:
+    """The name of the client user placing a campaign's test call, sent as the call's
+    `{{lead_name}}` where the campaign's list carries names (D-1045): its script greets a
+    known contact by name, so a nameless test is asked what a real call already has. None,
+    and the call stays nameless, for an operator's call, a user with no name on file, or a
+    name holding a digit, which may be a phone number."""
+    if principal.realm != "client" or principal.user_id is None:
+        return None
+    row = (
+        await session.execute(
+            text(
+                "SELECT u.name FROM users u WHERE u.id = :uid AND u.deactivated_at IS NULL "
+                "AND EXISTS (SELECT 1 FROM campaign_contacts cc WHERE cc.campaign_id = :cid "
+                "AND btrim(coalesce(cc.name, '')) <> '')"
+            ),
+            {"uid": principal.user_id, "cid": campaign_id},
+        )
+    ).first()
+    name = " ".join(str(row[0] or "").split()) if row is not None else ""
+    if not name or any(ch.isdigit() for ch in name):
+        return None
+    return name
 
 
 async def _tests_on_shared_line(

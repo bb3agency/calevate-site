@@ -621,7 +621,9 @@ class AgentRow(TypedDict):
     company_training: NotRequired[str]
     #: An operator's turn detection for this agent alone (D-901); None follows the console.
     turn_detection: NotRequired[TurnDetection | None]
-    #: The caller follows the agent's steps on a screen of their own (D-906).
+    #: The caller follows the agent's steps on a screen of their own (D-906): the agent's
+    #: switch, or on a campaign's or line's row what its script calls for
+    #: (`agents/give_callers_time.holder_row`).
     caller_has_screen: NotRequired[bool]
     #: Set on a campaign's or line's row whose engine agent carries "Give callers time"
     #: (`agents/give_callers_time.holder_row`); never on an agent's own.
@@ -995,7 +997,11 @@ def _call_settings_fields(agent: AgentRow, *, languages: Sequence[str]) -> dict[
         # Imported here: `give_callers_time` imports this module.
         from apps.api.agents.give_callers_time import over_platform_level
 
-        v = over_platform_level(resolved, languages[0])
+        v = over_platform_level(
+            resolved,
+            languages[0],
+            caller_has_screen=bool(agent.get("caller_has_screen", False)),
+        )
     after = v.nudge_after_seconds
     return {
         "turn_silence_ms": v.turn_silence_ms,
@@ -4359,7 +4365,7 @@ async def line_config(
     `script` stands in for the saved one, so a save is measured on what put-live would send
     before it is stored (`script_builder.refuse_job_if_too_long`)."""
     from apps.api.actions import service as actions_service
-    from apps.api.agents.give_callers_time import holder_gives_time, holder_row
+    from apps.api.agents.give_callers_time import holder_row
     from apps.api.agents.script_builder import line_collect_fields
 
     line = (
@@ -4391,7 +4397,8 @@ async def line_config(
     tools = await actions_service.declare(session, agent_id=agent_id, direction="inbound")
     row = holder_row(
         dict(_line_agent_row(agent, script, body)),
-        on=holder_gives_time(line.give_callers_time, script),
+        owner_choice=line.give_callers_time,
+        script=script,
     )
     return _to_config(
         tenant_id,
@@ -4850,7 +4857,7 @@ async def campaign_agent_row(
     A campaign with no script of its own (made before D-992) speaks the agent's script,
     asking for the campaign's own list. `script` stands in for the saved one, for a save
     measured before it is stored (`script_builder.refuse_job_if_too_long`)."""
-    from apps.api.agents.give_callers_time import holder_gives_time, holder_row
+    from apps.api.agents.give_callers_time import holder_row
     from apps.api.agents.script_builder import campaign_collect_fields
     from apps.api.campaigns.settings import apply_overrides
 
@@ -4882,7 +4889,8 @@ async def campaign_agent_row(
         AgentRow,
         holder_row(
             apply_overrides(dict(row), camp.settings_overrides),
-            on=holder_gives_time(camp.give_callers_time, script),
+            owner_choice=camp.give_callers_time,
+            script=script,
         ),
     )
     # A campaign only places calls, whatever its voice answers; it answers no number, so it
@@ -6867,6 +6875,7 @@ async def dispatch_call(
             CallContext(
                 lead_id=str(lead_id) if lead_id else None,
                 lead_name=lead_name or prefill.name,
+                lead_name_files_contact=trial is None and owner_test is None,
                 fields=prefill.variables,
                 contact_details=details,
                 context_note=context_note,

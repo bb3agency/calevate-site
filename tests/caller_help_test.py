@@ -25,7 +25,6 @@ from apps.api.billing.models import (
     ASSIST_FEATURE_CALLER_HELP_ABSORBED,
 )
 from apps.api.campaigns import service as campaigns_service
-from apps.api.copilot.agent_setup_actions import screen_guide_hint
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from apps.workers import caller_help as passer
@@ -373,21 +372,6 @@ async def test_a_setting_turned_on_is_no_longer_asked_about(
     body = (await _http("GET", f"/v1/agents/{agent_id}/caller-help", token, slug)).json()
     assert body["give_time"]["on"] and not body["give_time"]["ask"]
     assert body["screen_guide"]["ask"], "the other is still asked about"
-
-
-async def test_pip_follows_the_agents_own_judgement_over_the_words() -> None:
-    tenant_id, _slug, _token, agent_id = await _agent()
-    judged = caller_help.CallerHelp(
-        screen_guide=caller_help.Judgement(suggested=True, reason=INSTALL_REASON),
-        give_time=caller_help.Judgement(suggested=True, reason=INSTALL_REASON),
-    )
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET caller_help = CAST(:j AS jsonb) WHERE id = :a"),
-            {"j": judged.model_dump_json(), "a": agent_id},
-        )
-        hint = await screen_guide_hint(session, agent_id, "Winter recall")
-    assert "switch on the agent's caller_has_screen" in hint
 
 
 def test_the_job_is_registered() -> None:

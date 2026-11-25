@@ -5541,6 +5541,10 @@ class CallContext(BaseModel):
 
     lead_id: str | None = None
     lead_name: str | None = None
+    #: False: `lead_name` only fills `{{lead_name}}` for this call and no contact is filed
+    #: under it at the engine. A test call's name is the tester's (D-1045), and contact data
+    #: belongs only in a client's own workspace, never under the number a test rang.
+    lead_name_files_contact: bool = True
     context_note: str | None = None
     # NO `prior_call_summary`. It was declared here, was read by the Bolna adapter into a
     # `user_data` dynamic variable, and was written by NOTHING in `apps/api` — the defect

@@ -42,7 +42,7 @@ from apps.api.copilot.campaign_actions import (
     CAMPAIGN_CONSENT_SET,
 )
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
-from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS
+from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS, JOB_ALERT_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
 from apps.api.copilot.follow_up_actions import FOLLOW_UP_ACTIONS
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_ACTIONS
@@ -198,6 +198,8 @@ def test_the_console_actions_are_appended_after_the_earlier_ones() -> None:
         + len(CAMPAIGN_ARCHIVE_ACTIONS)
         # The script draft APPENDS.
         + len(SCRIPT_DRAFT_ACTIONS)
+        # The job alert actions APPEND.
+        + len(JOB_ALERT_ACTIONS)
     )
     assert names[-len(console) - later : -later] == console
     assert len(set(names)) == len(names)

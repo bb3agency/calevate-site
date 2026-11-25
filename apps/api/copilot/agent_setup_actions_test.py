@@ -9,7 +9,7 @@ Every test mints its own tenant; `_make_tenant`'s agent is live with a script.
 from __future__ import annotations
 
 import json
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -326,70 +326,6 @@ async def test_pip_reads_and_changes_what_an_agent_is_for() -> None:
     with pytest.raises(write_tools.WriteRefusedError) as refused:
         await _propose(tenant_id, token, "agent_settings_set", args)
     assert "set per agent" in refused.value.reason
-
-
-async def test_a_screen_guided_campaign_has_pip_ask_about_the_switch() -> None:
-    """D-906: a campaign whose calls walk people through an app tells Pip to ask the owner;
-    one that plainly does not, on an agent switched on, tells it to ask about switching off."""
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent(tenant_id)
-    guided = await _run(
-        tenant_id,
-        token,
-        "campaign_create",
-        {"name": "Install the app", "agent_id": str(agent_id), "classification": "service"},
-    )
-    assert "switch on the agent's caller_has_screen" in guided.detail
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET caller_has_screen = true WHERE id = :a"), {"a": agent_id}
-        )
-    plain = await _run(
-        tenant_id,
-        token,
-        "campaign_create",
-        {"name": "Winter recall", "agent_id": str(agent_id), "classification": "service"},
-    )
-    assert "switch caller_has_screen off" in plain.detail
-
-
-async def test_pip_asks_about_the_screen_when_the_business_analysis_suggests_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Founder, 4 Nov 2026: the owner is asked from what the business does, not only when a
-    campaign's name happens to say "app"."""
-    from apps.api.tenancy import business_copy
-
-    guide = business_copy.ScreenGuide(
-        suggested=True, reason="Your callers install your app and sign up while on the phone."
-    )
-    state = business_copy.CopyState(
-        # Only the screen judgement is read here, so the rest of the copy is not built.
-        copy=cast(Any, business_copy.GeneratedCopy).model_construct(screen_guide=guide),
-        language="te-IN",
-        model=None,
-        generated_at=None,
-        cost_inr=None,
-        absorbed=False,
-        running=False,
-        last_trigger=None,
-        last_attempt_at=None,
-        stop_reason=None,
-    )
-
-    async def analysed(_session: object) -> business_copy.CopyState:
-        return state
-
-    monkeypatch.setattr(business_copy, "read_state", analysed)
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent(tenant_id)
-    asked = await _run(
-        tenant_id,
-        token,
-        "campaign_create",
-        {"name": "Winter recall", "agent_id": str(agent_id), "classification": "service"},
-    )
-    assert "switch on the agent's caller_has_screen" in asked.detail
 
 
 # --- agent_handover_set ------------------------------------------------------------------------
