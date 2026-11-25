@@ -402,7 +402,7 @@
       "lint.mistake.false_recall": 0,
       "lint.mistake.formal_words": 0,
       "lint.mistake.goodbye_while_asking": 0,
-      "lint.mistake.moved_on_unconfirmed": 1,
+      "lint.mistake.moved_on_unconfirmed": 0,
       "lint.mistake.offered_more_too_soon": 0,
       "lint.mistake.opened_again": 0,
       "lint.mistake.reasked_name": 0,
@@ -413,7 +413,7 @@
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 7
+      "lint.heal_findings": 6
     },
     "school_admission": {
       "check.judged_field_asked": 0,

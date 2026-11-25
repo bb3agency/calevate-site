@@ -434,6 +434,118 @@ def owner_plan_block(plan: OwnerPlan) -> str:
     return f"{PLAN_HEAD}{plan_block(plan)}\n{PLAN_RULE}"
 
 
+#: The main task's numbered list read as the call's steps (founder, 26 Nov 2026: a first draft
+#: must be as exact as a rewrite to a step list). A main task written as plain numbered
+#: sentences gives `owner_plan` no names or outcomes, so the writer had only the items as
+#: guidance and code could check nothing; one small pass names each item and states its
+#: outcome, and code then holds the draft to that plan like an owner's own
+#: (`campaign_script._task_plan`). One step per item, so the reading can only label the
+#: owner's list, never reshape it; code refuses any answer that does not keep the count.
+TASK_STEPS_INSTRUCTION: Final = (
+    "You read the numbered list in a business owner's main task for a phone call as the "
+    "call's steps. Return one step per numbered item, in the same order: never merge two "
+    "items, split one, drop one or add one. Keep each item's meaning, in plain English. "
+    "`name` is 1 to 4 plain words naming the step. `does` says in one or two short sentences "
+    "what the agent does in it, from the item's own words, keeping every case the item "
+    "handles inside the step (if they have not done it, explain why; help them on each kind "
+    "of device it names). `outcome` is one sentence saying what is true once the step is "
+    "done, checkable "
+    "from what the person says, so the call can move on. `ways_out` only where the item "
+    "itself sends the call elsewhere: `when` names the case in a few words and `to` is "
+    'another step\'s name, "end", or "call_back"; a call back only for someone who still '
+    "cannot do something after being guided step by step. Most items have no ways out. "
+    "Return ONLY JSON."
+)
+TASK_STEPS_MAX_TOKENS: Final = 1_500
+
+_TASK_WAY: Final[dict[str, object]] = {
+    "type": "object",
+    "properties": {"when": {"type": "string"}, "to": {"type": "string"}},
+    "required": ["when", "to"],
+    "additionalProperties": False,
+}
+_TASK_STEP: Final[dict[str, object]] = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "does": {"type": "string"},
+        "outcome": {"type": "string"},
+        "ways_out": {"type": "array", "items": _TASK_WAY},
+    },
+    "required": ["name", "does", "outcome", "ways_out"],
+    "additionalProperties": False,
+}
+TASK_STEPS_FORMAT: Final[dict[str, object]] = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "task_steps",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {"steps": {"type": "array", "items": _TASK_STEP}},
+            "required": ["steps"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+def task_steps_request(main_task: str, items: Sequence[str]) -> str:
+    listed = "\n".join(f"{n}. {item}" for n, item in enumerate(items, 1))
+    return f"MAIN TASK:\n{main_task.strip()}\nITS {len(items)} NUMBERED ITEMS:\n{listed}"
+
+
+def _one_line(value: object, limit: int) -> str:
+    # A colon would start a label of its own in the plan text `owner_plan` reads.
+    text = " ".join(str(value).split()).replace(":", " -") if isinstance(value, str) else ""
+    return text[:limit].strip()
+
+
+def task_steps_text(raw: dict[str, Any]) -> str | None:
+    """The answer as the owner-plan text form ("1. Name: what to do. Outcome: ...", a way out
+    "   - When: go to "Step"."), for `owner_plan` to read like an owner's own list; None
+    when it holds no step."""
+    steps = raw.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return None
+    lines: list[str] = []
+    for n, step in enumerate(steps, 1):
+        if not isinstance(step, dict):
+            return None
+        name = " ".join(_one_line(step.get("name"), 60).split()[:4])
+        does = _one_line(step.get("does"), 400).rstrip(".")
+        outcome = _one_line(step.get("outcome"), 300).rstrip(".")
+        if not (name and does and outcome):
+            return None
+        lines.append(f"{n}. {name}: {does}. Outcome: {outcome}.")
+        for way in step.get("ways_out") or []:
+            if not isinstance(way, dict):
+                continue
+            when = _one_line(way.get("when"), 120).rstrip(".")
+            to = _one_line(way.get("to"), 60).strip("\"' ")
+            if not when or not to:
+                continue
+            said = (
+                "offer a call back"
+                if to == "call_back"
+                else "end the call"
+                if to == "end"
+                else f'go to "{to}"'
+            )
+            lines.append(f"   - {when}: {said}.")
+    return "\n".join(lines)
+
+
+def task_steps_note(plan: OwnerPlan) -> str:
+    """What the owner reads beside the steps: how Pip read their main task."""
+    steps = "; ".join(
+        f"{step.number}. {step.name}: {step.outcome.rstrip('.')}"
+        for step in plan.steps
+        if step.number is not None
+    )
+    return f"Pip read your main task as these steps: {steps}."
+
+
 #: Long sources sit between the ask and the end of the message; the task is said again after
 #: them. "Provide all context first and put the specific instructions near the end"
 #: (ai.google.dev/gemini-api/docs/prompting-strategies, now aistudio.google.com/docs/

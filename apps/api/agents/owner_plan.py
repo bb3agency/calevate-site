@@ -261,6 +261,13 @@ def _numbered_items(text: str) -> list[tuple[int, str]]:
     ]
 
 
+def numbered_items(text: str | None) -> list[str]:
+    """The numbered list 1, 2, 3 ... in `text`, each item's text on one line; [] for fewer
+    than two. A main task written as plain numbered sentences has these and no plan."""
+    items = [" ".join(body.split()) for _n, body in _numbered_items(text or "")]
+    return items if len(items) >= 2 and all(items) else []
+
+
 def owner_plan(text: str | None) -> OwnerPlan | None:
     """The steps `text` lays out, or None when it lays out none: at least two numbered items,
     each starting with its name ("Login: ..."), and at least half giving an outcome."""
@@ -814,6 +821,7 @@ __all__ = [
     "PlanBranch",
     "PlannedStep",
     "name_key",
+    "numbered_items",
     "owner_plan",
     "plan_block",
     "plan_problems",

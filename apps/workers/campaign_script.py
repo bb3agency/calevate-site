@@ -52,7 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.languages import LANGUAGE_LABELS
-from apps.api.agents.owner_plan import OwnerPlan, owner_plan, plan_problems
+from apps.api.agents.owner_plan import OwnerPlan, numbered_items, owner_plan, plan_problems
 from apps.api.agents.prompt_size import PromptSize
 from apps.api.agents.script_shape import structure_problems
 from apps.api.agents.script_structure import collected, policies_for_job, without_judged_asks
@@ -76,6 +76,9 @@ from apps.workers.campaign_script_ask import (
     REVIEW_INSTRUCTION,
     REVIEW_MAX_TOKENS,
     SHORTEN_ASK,
+    TASK_STEPS_FORMAT,
+    TASK_STEPS_INSTRUCTION,
+    TASK_STEPS_MAX_TOKENS,
     TONES,
     TOO_LONG_RULE,
     Review,
@@ -87,6 +90,9 @@ from apps.workers.campaign_script_ask import (
     review_sources,
     reviewed_parts,
     situation_block,
+    task_steps_note,
+    task_steps_request,
+    task_steps_text,
 )
 from apps.workers.extraction import ASSIST_LADDER_LEGS
 from apps.workers.first_run import documents_block
@@ -502,8 +508,12 @@ class _Inputs:
         task's when the script is written whole. An edit of the owner's script with no plan in
         the request keeps whatever shape the owner gave it."""
         return owner_plan(self.instruction) or (
-            owner_plan(self.main_task) if self.base is None else None
+            (owner_plan(self.main_task) or self.task_plan) if self.base is None else None
         )
+
+    #: The main task's numbered list read as steps by `_task_plan`, for a first script whose
+    #: main task gives no plan of its own; None when it was not read or did not hold.
+    task_plan: OwnerPlan | None = None
 
 
 def _asked(raw: Any) -> tuple[str | None, str]:
@@ -1074,7 +1084,61 @@ def _job_policies(inputs: _Inputs, script: CallScript, documents: str) -> CallSc
     )
 
 
-Spent = ScriptDraft | JsonAnswer[WrittenOpening] | JsonAnswer[Review] | ProblemError
+Spent = (
+    ScriptDraft | JsonAnswer[WrittenOpening] | JsonAnswer[Review] | JsonAnswer[str] | ProblemError
+)
+
+
+async def _task_plan(
+    inputs: _Inputs, started: float, log_ids: dict[str, str]
+) -> tuple[_Inputs, JsonAnswer[str] | ProblemError | None]:
+    """`inputs` with its main task's numbered list read as the call's steps (`task_plan`), and
+    what the reading cost; `inputs` as they were when the main task lists nothing, the job is
+    short of time, or the answer does not keep one step per item, which leaves the writer
+    with the main task's items as it had before. Read once per job, so a retry of the draft
+    reuses it. The main task itself is never changed."""
+    items = numbered_items(inputs.main_task)
+    timeout_s = _late_timeout(started)
+    if not items or timeout_s is None:
+        return inputs, None
+    try:
+        answer = await ask_json(
+            task_steps_request(inputs.main_task, items),
+            TASK_STEPS_INSTRUCTION,
+            parse=task_steps_text,
+            azure_format=TASK_STEPS_FORMAT,
+            tenant_leg=inputs.tenant_leg,
+            quota_exhausted=inputs.quota_exhausted,
+            max_tokens=TASK_STEPS_MAX_TOKENS,
+            temperature=0.2,
+            timeout_s=timeout_s,
+        )
+    except ProblemError as refused:
+        log.info("holder_script_task_plan_refused", extra={**log_ids, "reason": refused.code})
+        return inputs, refused
+    except Exception:
+        # The draft is written from the items as before; a failed reading never stops it.
+        log.exception("holder_script_task_plan_crashed", extra=log_ids)
+        return inputs, None
+    plan = owner_plan(answer.value)
+    steps = sum(step.number is not None for step in plan.steps) if plan is not None else 0
+    used = plan is not None and steps == len(items)
+    log.info(
+        "holder_script_task_plan",
+        extra={**log_ids, "items": len(items), "steps": steps, "used": used},
+    )
+    return (replace(inputs, task_plan=plan) if used else inputs), answer
+
+
+def _with_read_steps(notes: dict[str, str], plan: OwnerPlan | None) -> dict[str, str]:
+    """The review's notes with, on the steps' outcomes, how Pip read the main task's list
+    (`task_steps_note`), so the owner sees the plan their first script was held to beside the
+    outcomes it gave each step."""
+    if plan is None:
+        return notes
+    said = notes.get("step_outcomes", "").strip()
+    note = task_steps_note(plan)
+    return {**notes, "step_outcomes": f"{note} {said}" if said else note}
 
 
 async def _write(
@@ -1085,6 +1149,15 @@ async def _write(
     base = inputs.base
     notes = inputs.notes
     documents = documents_block(inputs.words, budget=KNOWLEDGE_DOCUMENT_CHARS)
+    log_ids = {holder.log_key: str(holder.holder_id)}
+    reading: JsonAnswer[str] | ProblemError | None = None
+    if part_ask is None and base is None and inputs.plan is None:
+        inputs, reading = await _task_plan(inputs, started, log_ids)
+        if reading is not None:
+            # Metered at once: every way this job ends after it has already paid for it.
+            async with tenant_session(tenant_id) as session:
+                await _meter(session, tenant_id, [reading])
+    read_plan = inputs.task_plan if part_ask is None and inputs.plan is inputs.task_plan else None
     # A one-part rewrite is always an edit of the part; otherwise a request that lays out the
     # steps is written whole, like a first script (`_Inputs.replans`).
     whole = inputs.whole and part_ask is None
@@ -1115,7 +1188,6 @@ async def _write(
         placed_calls=holder.table == "campaigns",
         owner_plan=plan,
     )
-    log_ids = {holder.log_key: str(holder.holder_id)}
     try:
         await _phase(holder, "writing")
     except _DraftStoppedError:
@@ -1233,6 +1305,8 @@ async def _write(
         *finished.opening_spends,
         *([reviewing] if reviewing is not None else []),
     ]
+    # The reading of the main task is metered already; it is disclosed like any other pass.
+    shown = [*spends, *([reading] if reading is not None else [])]
     left_out = [
         *trace.left_out,
         *finished.left_out,
@@ -1247,13 +1321,13 @@ async def _write(
         "disclosure": next(
             (
                 spent.capability.disclosure
-                for spent in spends
+                for spent in shown
                 if not isinstance(spent, ProblemError) and spent.capability.disclosure
             ),
             None,
         ),
         "left_out": script_proposals.left_out_record(left_out),
-        "why": review.notes,
+        "why": _with_read_steps(review.notes, read_plan),
     }
     # A completed run is money spent: metered in the same transaction that stores the draft.
     async with tenant_session(tenant_id) as session:
