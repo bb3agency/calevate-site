@@ -5720,8 +5720,8 @@ docs/vendor/thinnest-replies-2026-10-12.md	1519	Calevate:	brand-text	docs	no
 docs/vendor/thinnest-replies-2026-10-12.md	1553	Calevate:	brand-text	docs	no
 docs/vendor/thinnest-replies-2026-10-12.md	1568	Calevate	brand-text	docs	no
 docs/vendor/thinnest-replies-2026-10-12.md	1750	calevate_shared.engine._start_of_call_section	package	docs	no
-docs/vendor/thinnest-speaking-rules-2026-10-18.md	8	calevate_shared.engine.engine_prompt_layers	package	docs	no
-docs/vendor/thinnest-speaking-rules-2026-10-18.md	15	calevate_shared.engine.CALL_INSTRUCTIONS	package	docs	no
+scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt	8	calevate_shared.engine.engine_prompt_layers	package	docs	no
+scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt	15	calevate_shared.engine.CALL_INSTRUCTIONS	package	docs	no
 incident_report.md	30	Calevate	brand-text	(root)	no
 incident_report.md	42	Calevate	brand-text	(root)	no
 incident_report.md	47	Calevate	brand-text	(root)	no

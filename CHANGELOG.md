@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.50 — 25-Nov-2026
+
+- The simulated-call comparison runs on the server: the speaking rules it reads now ship
+  in the image.
+
 ## 0.5.49 — 25-Nov-2026
 
 - Each campaign and Inbound line guides callers on their phone when its own script does,

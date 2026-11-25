@@ -26,7 +26,7 @@ claim stays VENDOR-STATED.
 | 8 | Post-call summary and extraction model; cached tokens | VENDOR-STATED. No page states which model writes the summary and the collected fields. Whether Google bills `cachedInputTokens` at its cached rate is "the provider's decision" |
 | 9 | Own model on a Clear agent | **DOCUMENTED.** `409` only when the workspace brings no keys or only its voice key; `llm`, `llm_voice` and `all` can set an agent's model (`api-reference/agents/set-agent-byok-model.md:514-525`). Live: **NOT CONFIRMED** (release pending) |
 | 10 | Prices | VENDOR-STATED. No page in the snapshot states Studio ₹3.00, Premium ₹2.50, Standard ₹2.00 a minute or the Scale plan's 5% |
-| 11 | The speaking rules | VENDOR-STATED; the text is `docs/vendor/thinnest-speaking-rules-2026-10-18.md` |
+| 11 | The speaking rules | VENDOR-STATED; the text is `scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt` |
 | 12 | `voice.surfaces: []` on an agent with no number | **VERIFIED.** `phone_number_required` names adding `phone` with no number (`api-reference/agents/update-agent.md:612-622`) |
 | 13 | What the model sees when the caller goes quiet | VENDOR-STATED. The docs define `nudgeAfterSeconds` and its silence window (`channels/voice.md:660-667`), not what the model receives |
 | 14 | Where our instructions sit; caching | VENDOR-STATED. No page states the prompt order or the cached prefix |

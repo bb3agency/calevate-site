@@ -6,7 +6,7 @@ Follows `telugu-register-chat-eval-plan-2026-10-20.md` (D-837).
 ## 1. What we measured
 
 `scripts/register_eval` on production: our real composed prompt for a reference retail shop,
-ThinnestAI's speaking rules after it (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`),
+ThinnestAI's speaking rules after it (`scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt`),
 `gemini-3.1-flash-lite` on our Google key, Telugu, 5 runs per caller line, 100 replies per
 version, scored by `agents/turn_checks` (`formal_words` is a reply holding at least one word
 from `spoken_style.json`'s Telugu list).

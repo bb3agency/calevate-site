@@ -86,7 +86,7 @@ rules, the date line and per-turn blocks such as a transfer instruction. Three t
   the cached prefix there; the script is matched verbatim on read-back, so the platform does
   not move the client's words.
 - **The call rules live in our instructions, once (D-856, 23 Oct 2026).** The engine's default
-  call rules (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`) are read on calls only, never
+  call rules (`scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt`) are read on calls only, never
   in the practice chat, and `voice.callInstructions` replaces them (D-850). So HOW TO SPEAK,
   BUSINESS FACTS and WHAT YOU CAN DO say every rule a call is judged by, and
   `engine.CALL_INSTRUCTIONS` keeps only the call frame (139 characters; never blank, which

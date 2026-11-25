@@ -13,7 +13,7 @@ This measures one thing, the speaking register, on a fixed set:
 - the REAL in-call system prompt, `compose_engine_prompt` over the retail starter of a
   reference shop with its pinned facts (`scripts/fixtures/register_eval_callers.json`), one per
   language, followed by ThinnestAI's own speaking rules, which it reads to the model after
-  our instructions (`docs/vendor/thinnest-speaking-rules-2026-10-18.md`, VENDOR-STATED);
+  our instructions (`scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt`, VENDOR-STATED);
 - the agent's real first words, then one fixed caller line, each line asked `--runs` times;
 - the cross-language cases of the fixture's `cross` section: a caller speaking another
   language than the agent's main one, with and without it among the agent's languages.
@@ -102,7 +102,9 @@ from calevate_shared.spoken_style import (
 
 ROOT: Final = Path(__file__).resolve().parent.parent
 FIXTURE: Final = ROOT / "scripts" / "fixtures" / "register_eval_callers.json"
-VENDOR_RULES: Final = ROOT / "docs" / "vendor" / "thinnest-speaking-rules-2026-10-18.md"
+VENDOR_RULES: Final = (
+    ROOT / "scripts" / "fixtures" / "vendor" / "thinnest-speaking-rules-2026-10-18.txt"
+)
 
 LANGUAGES: Final = ("te-IN", "hi-IN", "en-IN")
 #: English replies were clean on production (19 Oct 2026), so it runs only when asked.

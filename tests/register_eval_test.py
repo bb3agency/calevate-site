@@ -317,3 +317,15 @@ def test_it_refuses_to_spend_without_being_told_to(capsys: pytest.CaptureFixture
     assert harness.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "platform te+hi+en" in out and "pack-native-noavoid" in out and "estimated ₹" in out
+
+
+def test_the_files_the_eval_reads_ship_in_the_production_image() -> None:
+    # The eval runs inside the workers image, and `.dockerignore` leaves out `docs/` and every
+    # `*.md`; a file read from either is missing there and the run dies before its first call.
+    ignored = (harness.ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    assert "docs" in ignored and "*.md" in ignored
+    for path in (harness.FIXTURE, harness.VENDOR_RULES):
+        relative = path.relative_to(harness.ROOT)
+        assert relative.parts[0] == "scripts" and path.suffix != ".md", relative
+        assert path.is_file(), relative
+    assert harness.vendor_rules()

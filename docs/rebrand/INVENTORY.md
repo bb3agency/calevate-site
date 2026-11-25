@@ -1811,7 +1811,7 @@ Text search cannot see a name drawn in pixels. Every tracked image, PDF and font
 | `docs/vendor/thinnest-email-2026-10-12-consolidated.md` | 1 | 1 | brand-text |
 | `docs/vendor/thinnest-relationship-2026-10-23.md` | 3 | 2 | brand-text |
 | `docs/vendor/thinnest-replies-2026-10-12.md` | 24 | 18 | brand-text, package |
-| `docs/vendor/thinnest-speaking-rules-2026-10-18.md` | 2 | 2 | package |
+| `scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt` | 2 | 2 | package |
 | `incident_report.md` | 6 | 5 | identifier, brand-text |
 | `infra/backup/README.md` | 18 | 18 | brand-text, identifier-dash, identifier, path |
 | `infra/backup/postgresql-archiving.conf` | 2 | 0 | identifier, brand-text |

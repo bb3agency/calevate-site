@@ -878,7 +878,7 @@ open, because the 15 Oct reply answered only the §13.1 requests.
 >
 > **Agent behaviour**
 >
-> The speaking rules. The full current text is below. *(Recorded verbatim in `docs/vendor/thinnest-speaking-rules-2026-10-18.md`.)*
+> The speaking rules. The full current text is below. *(Recorded verbatim in `scripts/fixtures/vendor/thinnest-speaking-rules-2026-10-18.txt`.)*
 >
 > voice.surfaces: []. Yes, accepted on an agent with no number. phone_number_required fires only when phone is added, or calls are switched on with phone present, and the agent has neither its own number nor a lent one.
 >
