@@ -88,8 +88,8 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: 25 Nov 2026 (01:37): the invitation in new words, an unclear reply never counted done, no
 #: "OK after one" clause; a per-call value in the quoted first words is quoted as a mark.
 PINNED = (
-    "e892f0dce58a76bc163499827a2d483d2f9c4e1bb011432415d1002c3e146e5c",
-    "998e27aa6faaa07c4358d6e026164f0087582bb4eb16c9670c77b9b00685bbf5",
+    "c51ecf473d977bd574ccc4e9ee2b8268dbe71b4c42cb401f23d934782bde55be",
+    "4911734e369ba8adde95b45673d45aa9409ada7d28db7c4e9e08e6ab264c75e0",
 )
 
 

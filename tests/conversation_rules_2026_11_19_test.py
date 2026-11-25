@@ -27,7 +27,7 @@ RULES = (
     "A reaction only if it fits, often none, never to open or twice a call;",
     "Never re-ask what they said or repeat a sentence. Adapt to the answer.",
     '"Anything else?" once, when the task is done; "that is all"? Close.',
-    '"?" on every question, else a full stop.',
+    'Sentences of ten words or fewer, full stops between; "?" on every question.',
     "- Never ask a name THIS CALL has, or invent one. None? Ask once: to book, call back, "
     "hand over or close.",
 )

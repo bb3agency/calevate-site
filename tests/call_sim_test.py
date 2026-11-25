@@ -318,6 +318,32 @@ def test_simulate_injects_silence_and_answers_tool_calls() -> None:
     assert json.loads(tool_turn["content"])["status"] == "recorded"
 
 
+def test_a_last_line_said_with_the_hang_up_is_kept_and_answered() -> None:
+    async def agent_ask(messages: Sequence[ChatMessage], _max: int, tools: Any) -> ChatOutcome:
+        if tools and "remove my number" in str(messages[-1].get("content", "")):
+            return _outcome(calls=(ToolCall("c1", "add_number_to_do_not_call", "{}"),))
+        return _outcome("Done. Goodbye.")
+
+    async def caller_ask(_messages: Sequence[ChatMessage], _max: int, _tools: Any) -> ChatOutcome:
+        return _outcome(f"Please remove my number. Bye. {HANG_UP}")
+
+    rec = asyncio.run(
+        simulate(
+            BY_KEY["remove_me"],
+            fixture_agent("rytu"),
+            agent_ask=agent_ask,
+            caller_ask=caller_ask,
+            spend=Spend(),
+            model="m",
+            caller_model="m",
+        )
+    )
+    said = [t.text for t in rec.turns if t.speaker == "caller"]
+    assert said == ["Hello.", "Please remove my number. Bye."]
+    assert rec.turns[-1].speaker == "agent"
+    assert any("add_number_to_do_not_call" in t.tools for t in rec.turns)
+
+
 def test_the_judge_averages_both_orders() -> None:
     answers = iter(['{"evidence_1": ["a"], "evidence_2": ["b"], "better": 1}'] * 4)
 

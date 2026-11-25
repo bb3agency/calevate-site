@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.51 — 25-Nov-2026
+
+- Agents keep each sentence to ten words or fewer, with full stops between, so the voice
+  pauses where it should.
+- The simulated calls keep a caller's last words when they hang up, so a caller who says
+  "remove my number, bye" is heard and answered.
+
 ## 0.5.50 — 25-Nov-2026
 
 - The simulated-call comparison runs on the server: the speaking rules it reads now ship

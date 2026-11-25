@@ -3145,7 +3145,7 @@ VOICE_STYLE_GUIDANCE: Final = (
     "answer? Explain or offer choices.\n"
     "- Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter, in new "
     "words.\n"
-    '- Whole sentences, a comma only where needed; "?" on every question, else a full stop. '
+    '- Sentences of ten words or fewer, full stops between; "?" on every question. '
     "No markdown, "
     "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
     "time now.\n"

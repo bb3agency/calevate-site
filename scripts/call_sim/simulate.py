@@ -206,12 +206,19 @@ async def simulate(
             said = GARBLE[persona.garbled_turns.index(n) % len(GARBLE)]
         else:
             said = await _caller_line(persona, agent, turns, caller_ask, spend, caller_model)
-        if not said or HANG_UP in said:
+        # "Remove my number, bye <END>" is a last line, not silence: dropping its words with
+        # the marker scored the remove-me caller as never taken off the list when it had
+        # never been asked. The agent answers that last line, then the call ends.
+        hung_up = HANG_UP in said
+        said = said.replace(HANG_UP, "").strip()
+        if not said:
             break
         turns.append(SimTurn("caller", said))
         history.append({"role": "user", "content": said})
         reply, tools = await _agent_turn(agent, history, agent_ask, spend, model)
         turns.append(SimTurn("agent", reply, tools))
+        if hung_up:
+            break
     return Recording(
         persona=persona.key,
         holder=agent.holder,
