@@ -765,6 +765,12 @@ FUNCTIONS: list[Any] = [
 #:   dropped after a run on `call.completed` (D-848). Overlapping runs are still refused while
 #:   one is queued or in flight; a finished one leaves the id free, and every stage is
 #:   re-runnable (metering and the CRM fan-out are claimed once per call in the database).
+#: * `ingest_engine_event` keeps nothing, for the same reason. Its ids are the delivery's
+#:   event and the poller's `reconcile` key, so a kept result of a run that gave up (the
+#:   engine not answering through its whole ladder) refused for an hour both the vendor's
+#:   re-send of that event (`webhook_claimed_without_job`: claimed, never run) and every
+#:   poller re-drive of the call, while the listing window moved past it. Duplicate
+#:   deliveries are refused by the inbox claim, not by this id.
 OUTBOX_RESULT_WINDOW_S: Final[int] = int(
     (OUTBOX_CLAIM_LEASE + timedelta(minutes=3)).total_seconds()
 )
@@ -775,6 +781,7 @@ RESULT_WINDOW_S: Final[Mapping[str, int]] = {
     # Carries the agent's note of the caller's problem.
     deliver_team_alert.__name__: OUTBOX_RESULT_WINDOW_S,
     run_post_call_pipeline.__name__: 0,
+    ingest_engine_event.__name__: 0,
     deliver_outbound_webhook.__name__: OUTBOX_RESULT_WINDOW_S,
     recall_dials_for_dnc.__name__: OUTBOX_RESULT_WINDOW_S,
     notify_account_closed.__name__: OUTBOX_RESULT_WINDOW_S,

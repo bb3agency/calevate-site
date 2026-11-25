@@ -91,18 +91,41 @@ class EngineLiveStatus(BaseModel):
     terminal: bool = False
 
 
+#: The adapter's code for a request the engine never answered (`vendor_http`).
+_UNANSWERED_CODE: Final = "engine_unreachable"
+
+
+class _Unanswered:
+    """Set once one read of a live read went unanswered, so the rest are not asked."""
+
+    __slots__ = ("seen",)
+
+    def __init__(self) -> None:
+        self.seen = False
+
+
 async def engine_live_status(
-    *, call_id: UUID, handle: Any, status: str, placed_at: datetime, now: datetime | None = None
+    *,
+    call_id: UUID,
+    handle: Any,
+    status: str,
+    placed_at: datetime,
+    now: datetime | None = None,
+    unanswered: _Unanswered | None = None,
 ) -> EngineLiveStatus | None:
     """The engine's own status for a call our row still holds as live, or None when the
     engine is not to be asked (ended, too old, dial unconfirmed) or could not answer. A
-    failed read is logged by id; the row's own status still answers for the screen."""
+    failed read is logged by id; the row's own status still answers for the screen.
+
+    Nothing here changes the row: a call the engine cannot be asked about while it is down
+    stays live on screen and is settled by its own events or the reconciliation sweeps."""
     young = (now or datetime.now(UTC)) - placed_at < LIVE_LINE_HORIZON
     if (
         status not in LIVE_STATUSES
         or not young
         or not isinstance(handle, str)
         or handle.startswith(UNCONFIRMED_ENGINE_CALL_PREFIX)
+        or (unanswered is not None and unanswered.seen)
     ):
         return None
     try:
@@ -110,6 +133,8 @@ async def engine_live_status(
     except Exception as exc:  # the row still answers; see the docstring
         code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
         log.warning("call_live_status_unread", extra={"call_id": str(call_id), "code": code})
+        if unanswered is not None and code == _UNANSWERED_CODE:
+            unanswered.seen = True
         return None
     return EngineLiveStatus(
         status=snapshot.status,
@@ -151,6 +176,10 @@ async def read_live_calls(session: AsyncSession, ids: list[UUID]) -> list[CallLi
     ).all()
     now = datetime.now(UTC)
     gate = asyncio.Semaphore(_ENGINE_READS_AT_ONCE)
+    # An engine that is not answering costs each read the request timeout: twenty reads,
+    # four at once, held the call log's live poll for five timeouts. After the first
+    # unanswered read the rest are answered from the rows, so it waits one.
+    unanswered = _Unanswered()
 
     async def one(row: Any) -> CallLiveOut:
         call_id, status, direction, handle, created_at, started_at = row
@@ -166,7 +195,12 @@ async def read_live_calls(session: AsyncSession, ids: list[UUID]) -> list[CallLi
             return out
         async with gate:
             engine = await engine_live_status(
-                call_id=call_id, handle=handle, status=status, placed_at=created_at, now=now
+                call_id=call_id,
+                handle=handle,
+                status=status,
+                placed_at=created_at,
+                now=now,
+                unanswered=unanswered,
             )
         if engine is None:
             return out
