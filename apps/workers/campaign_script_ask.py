@@ -475,12 +475,14 @@ TONES: Final[dict[str, str]] = {
     "in everyday spoken words",
     "brief": "short and direct, every line as few words as it can be",
 }
+
 #: The owner's note for one draft, in characters. Real rewrite notes (who the agent is, what
 #: it says first, which English words stay, what it never claims) run 600 to 900 (founder,
-#: 21 Nov 2026), and Pip, passing on a request, writes them longer, so 2,000. The note is
-#: folded onto one line, so however long it is it stays
-#: inside "THE OWNER ASKS:" and cannot start a heading of its own.
-INSTRUCTION_MAX: Final = 2000
+#: 21 Nov 2026), and Pip, passing on a request, writes them longer. An owner who lays out
+#: every step with its outcome and ways out (`agents.owner_plan`) needs about 2,500, so
+#: 4,000. The note is folded onto one line, so however long it is it stays inside
+#: "THE OWNER ASKS:" and cannot start a heading of its own.
+INSTRUCTION_MAX: Final = 4000
 
 
 def tone_line(tone: str | None) -> str:

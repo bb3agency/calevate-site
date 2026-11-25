@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.60 — 25-Nov-2026
+
+- A request to Pip can be up to 4,000 characters, so a full step list with outcomes and ways
+  out fits without Pip shortening it.
+
 ## 0.5.59 — 25-Nov-2026
 
 - When you give Pip your own list of steps, the script keeps them: the same steps in the same

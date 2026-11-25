@@ -14414,7 +14414,7 @@
           "instruction": {
             "anyOf": [
               {
-                "maxLength": 2000,
+                "maxLength": 4000,
                 "type": "string"
               },
               {
