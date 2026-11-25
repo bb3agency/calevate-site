@@ -143,12 +143,15 @@ async def _read(tenant_id: UUID, line_id: UUID) -> InboundLineOut:
 
 async def _put_live_after_save(tenant_id: UUID, line_id: UUID) -> None:
     """Put the line live after an edit committed. A refusal says the edit is kept, so the
-    owner presses Put it live rather than typing it again."""
-    try:
-        await put_line_live(tenant_id=tenant_id, line_id=line_id)
-    except ProblemError as exc:
-        notes_live.kept_not_live(exc, retry="put_live")
-        raise
+    owner presses Put it live rather than typing it again; an engine that is not answering
+    queues the put-live, so the owner has nothing to press."""
+    await notes_live.put_live_or_queue(
+        tenant_id,
+        "line",
+        line_id,
+        retry="put_live",
+        publish=lambda: put_line_live(tenant_id=tenant_id, line_id=line_id),
+    )
 
 
 async def _republish_if_live(tenant_id: UUID, line_id: UUID) -> bool:
@@ -592,7 +595,18 @@ async def cancel_script_draft(
 )
 async def publish(line_id: UUID, principal: Writer) -> InboundLineOut:
     tenant_id = _tenant(principal)
-    await put_line_live(tenant_id=tenant_id, line_id=line_id)
+    try:
+        await put_line_live(tenant_id=tenant_id, line_id=line_id)
+    except ProblemError as exc:
+        # The script is already saved; with the engine not answering, pressing again would
+        # only time out again, so it is queued and goes live by itself.
+        if not engine_unavailable(exc):
+            raise
+        async with tenant_session(tenant_id) as session:
+            await notes_live.queue_put_live(
+                session, tenant_id=tenant_id, jobs=[("line", line_id)], always=True
+            )
+        raise saved_goes_live_later() from exc
     return await _read(tenant_id, line_id)
 
 

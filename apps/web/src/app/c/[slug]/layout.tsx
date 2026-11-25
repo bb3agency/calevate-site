@@ -7,6 +7,7 @@ import { ToastProvider } from "@/components/arc/toast";
 import { ClientLiveUpdates } from "@/components/live/LiveUpdates";
 import { MaintenanceBanner, MaintenanceGate } from "@/components/maintenance";
 import { OfflineBanner } from "@/components/offline";
+import { PhoneServiceBanner } from "@/components/phoneService";
 import { MAIN_CONTENT_ID, SHELL_MAIN_CLASS, SHELL_RAIL_CLASS, SkipLink } from "@/components/ui";
 import { ClientRealmProvider } from "@/lib/api/session";
 
@@ -85,6 +86,9 @@ export default function ClientRealmLayout({
                   than about this screen. It renders nothing at all when no window is
                   scheduled, which is every ordinary day. */}
               <MaintenanceBanner />
+              {/* While the phone service is not answering, from the platform's own health
+                  read; nothing at all otherwise. */}
+              <PhoneServiceBanner />
               <ViewAsBanner slug={slug} />
               {/* What we have told every client (or this one): one strip, the most urgent,
                   until it is dismissed or ends. Nothing renders when there is none. */}

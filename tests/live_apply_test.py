@@ -397,6 +397,37 @@ async def test_an_agent_that_never_recovers_is_given_up_and_alarmed(
     assert alarms == ["live_apply_agent_failed"]
 
 
+async def test_an_outage_longer_than_the_ladder_is_waited_out(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The platform down for everybody is not this agent failing: a saved change is not
+    turned into a republish somebody has to remember."""
+    from apps.api.engine.outage import EngineOutage
+
+    tenant_id, agent_id, _bearer = await _tenant()
+    await _published(tenant_id, agent_id)
+    alarms: list[str] = []
+    monkeypatch.setattr(worker, "alert", lambda stage, code, **kw: alarms.append(code))
+
+    async def down(**_: Any) -> Any:
+        raise ProblemError(kind="dependency", code="engine_unreachable", title="x", detail="y")
+
+    async def outage(engine: str | None = None) -> EngineOutage:
+        return EngineOutage(engine="fake", failing=True)
+
+    monkeypatch.setattr(worker, "converge_agent", down)
+    monkeypatch.setattr(worker, "engine_outage", outage)
+    run_id = await _queue(tenant_id)
+    await drain_live_apply(tenant_id)
+    before = await _outbox(AGENT_JOB, run_id)
+    payload = {"run_id": str(run_id), "tenant_id": str(tenant_id), "agent_id": str(agent_id)}
+    result = await worker.apply_live_agent({"job_try": WORKER_MAX_TRIES}, payload)
+    assert result == "engine_not_answering"
+    assert await _outbox(AGENT_JOB, run_id) == before + 1
+    assert (await _run(run_id)).failed == 0
+    assert alarms == []
+
+
 # ------------------------------------------------------------------ the sources
 
 

@@ -69,6 +69,11 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger, redact_text
 from apps.api.core.redis import get_redis
 from apps.api.engine.health import record_engine_failure
+from apps.api.engine.outage import (
+    ENGINE_NOT_ANSWERING_REMEDIATION,
+    ENGINE_NOT_ANSWERING_TITLE,
+    record_answer,
+)
 from apps.api.integrations.egress_guard import read_capped
 
 log = get_logger(__name__)
@@ -827,7 +832,9 @@ async def _vendor_response(
             # raises, so a database hiccup here cannot replace the vendor's error with
             # ours. Counting lives HERE, in the one shared ladder, because it is the one
             # place both adapters pass through — which is the whole point of D-240.
-            await record_engine_failure(engine, kind="unreachable")
+            await record_engine_failure(
+                engine, kind="unreachable", route=route, error=type(exc).__name__
+            )
             # The route template and the transport error's class, never the URL (it carries
             # ids) or the message: enough to tell a slow reply (ReadTimeout) from a refused
             # connection (ConnectError) after the fact.
@@ -835,11 +842,15 @@ async def _vendor_response(
                 "engine_unreachable",
                 extra={"engine": engine, "route": route, "error": type(exc).__name__},
             )
+            # Worded for the owner who pressed a button, since this reaches client screens
+            # as it is: what happened and what to do, no provider named (D-679). A route
+            # that saved something first says so itself (`engine/outage.saved_goes_live_later`).
             raise ProblemError(
                 kind="dependency",
                 code="engine_unreachable",
-                title="Voice engine unreachable",
-                detail="The voice platform did not respond.",
+                title=ENGINE_NOT_ANSWERING_TITLE,
+                detail="This did not go through.",
+                remediation=ENGINE_NOT_ANSWERING_REMEDIATION,
                 failure_stage="CORE_LOGIC",
             ) from exc
         response = capped.response
@@ -872,6 +883,11 @@ async def _vendor_response(
             "engine_throttled", extra={"engine": engine, "route": route, "attempt": attempt + 1}
         )
         await asyncio.sleep(throttle_delay_s(attempt, retry_after))
+
+    # Any answer of the vendor's own, a refusal included, ends a run of failures; a 5xx is a
+    # failure and a redirect is an intermediary speaking, not the vendor (see below).
+    if response.status_code < 300 or 400 <= response.status_code < 500:
+        await record_answer(engine)
 
     if response.status_code == THROTTLE_STATUS:
         limit_type = _throttle_details(response)[0]
@@ -996,7 +1012,9 @@ async def _vendor_response(
             # page an operator for a bug no vendor can fix. The 429 rung above returns
             # before reaching here, deliberately — a throttle is the vendor working as
             # designed and has its own ladder (D-204).
-            await record_engine_failure(engine, kind="server_error")
+            await record_engine_failure(
+                engine, kind="server_error", route=route, error=f"HTTP {response.status_code}"
+            )
         raise EngineRejectedError(
             status=response.status_code,
             vendor_error=vendor_error,

@@ -52,6 +52,7 @@ from apps.api.core.platform_config import refresh
 from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.api.engine.outage import engine_outage, is_engine_not_answering
 from apps.api.ops.spoken_style_store import refresh_spoken_style
 
 log = get_logger(__name__)
@@ -322,6 +323,12 @@ async def apply_live_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             return "maintenance"
         if not is_permanent(exc) and attempt < WORKER_MAX_TRIES:
             raise Retry(defer=ladder_delay_s(RETRY_AFTER_S, attempt)) from exc
+        if is_engine_not_answering(exc) and (await engine_outage()).failing:
+            # The platform is down for everybody, not refusing this agent: an outage longer
+            # than the ladder must not turn a saved change into one somebody has to
+            # republish by hand. A fresh ladder, as for a maintenance window.
+            await _queue_retry(run_id, tenant_id=tenant_id, agent_id=agent_id)
+            return "engine_not_answering"
         await _record_failure(
             run_id,
             tenant_id=tenant_id,

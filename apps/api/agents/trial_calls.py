@@ -63,6 +63,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings, resolve_hmac_key
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
+from apps.api.engine.outage import engine_outage, phone_service_down
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.ingest.service import normalize_phone
 from apps.api.reliability.service import (
@@ -239,6 +240,11 @@ async def place_trial_call(
     phone = normalize_phone(number)
     if phone is None:
         raise _bad_number()
+    # Before the idempotency claim and every engine request: while the engine is not
+    # answering, a press costs one clear sentence rather than a ten-second timeout, an
+    # unconfirmed dial holding the shared test line, and a key stuck "in flight".
+    if (await engine_outage()).failing:
+        raise phone_service_down()
     # A paid account's own test call rings from its own number, so only the engine is asked;
     # every call on the shared trial line needs that number too.
     paid_account = await has_paid(session, tenant_id=tenant_id)

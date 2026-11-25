@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import text
@@ -38,6 +39,7 @@ from apps.api.core.alert_email import compose_clear
 from apps.api.core.alerting import ALERT_CLEAR_AFTER_S
 from apps.api.core.logging import get_logger
 from apps.api.db.session import untenanted_session
+from apps.api.engine.outage import engine_outage
 
 log = get_logger(__name__)
 
@@ -65,15 +67,42 @@ RETURNING code, stage, severity, service, occurrences, emailed, first_seen_at, l
 """
 
 
+#: The engine outage alarm, which can end on evidence rather than on silence: the engine
+#: answered after the episode began (`engine/outage.py` records that instant).
+ENGINE_SPIKE_CODE = "engine_error_spike"
+
+#: `_CLOSE_SQL` for the one code whose end is observed. Without it the episode stays open an
+#: hour after the engine is back, and an outage starting again inside that hour would mail
+#: nothing, because only an episode's first occurrence mails.
+_CLOSE_RECOVERED_SQL = """
+UPDATE platform_alerts SET cleared_at = now()
+WHERE cleared_at IS NULL AND code = :code AND first_seen_at <= :recovered_at
+RETURNING code, stage, severity, service, occurrences, emailed, first_seen_at, last_seen_at
+"""
+
+QUIET_STATUS = f"no further occurrence for {ALERT_CLEAR_AFTER_S / 60:.0f} minutes"
+RECOVERED_STATUS = "the voice platform is answering again"
+
+
 async def sweep_alert_clears(ctx: dict[str, Any]) -> str:
-    """Close quiet episodes; mail one line for each that had woken somebody.
+    """Close quiet episodes, and the engine outage episode once the engine answers again;
+    mail one line for each that had woken somebody.
 
     Counts and codes only in the log line. An alarm CODE is ours and carries no personal
     data (hard rule 6 is satisfied at the write, in `core/alert_records.py`), but the
     `detail` and `ids` on the row are not read here at all — a clear notice says that a
     condition ended, and the condition's particulars are on the console screen.
     """
+    outage = await engine_outage()
     async with untenanted_session() as session:
+        recovered: Sequence[Any] = []
+        if not outage.failing and outage.recovered_at is not None:
+            recovered = (
+                await session.execute(
+                    text(_CLOSE_RECOVERED_SQL),
+                    {"code": ENGINE_SPIKE_CODE, "recovered_at": outage.recovered_at},
+                )
+            ).all()
         rows = (
             await session.execute(
                 text(_CLOSE_SQL), {"quiet_s": ALERT_CLEAR_AFTER_S, "batch": CLEAR_BATCH}
@@ -82,11 +111,14 @@ async def sweep_alert_clears(ctx: dict[str, Any]) -> str:
     # Leaving the block commits the closes before any notice is mailed, so a mail that
     # fails cannot reopen an episode and a second worker cannot announce it again.
 
+    closed = [(row, RECOVERED_STATUS) for row in recovered]
+    closed += [(row, QUIET_STATUS) for row in rows]
     announced = 0
-    for row in rows:
+    for row, status in closed:
         # Only an episode that actually MAILED gets a clear. See the module docstring.
         if row.emailed:
-            announced += int(await _announce_clear(row))
+            announced += int(await _announce_clear(row, status=status))
+    rows = [row for row, _ in closed]
     totals = {
         "cleared": len(rows),
         "announced": announced,
@@ -96,7 +128,7 @@ async def sweep_alert_clears(ctx: dict[str, Any]) -> str:
     return json.dumps(totals)
 
 
-async def _announce_clear(row: Any) -> bool:
+async def _announce_clear(row: Any, *, status: str = QUIET_STATUS) -> bool:
     """The cleared mail (`core/alert_email.compose_clear`), on the onset's transport.
 
     Returns whether it landed. Best effort — a clear notice that cannot be sent is a log line,
@@ -115,7 +147,7 @@ async def _announce_clear(row: Any) -> bool:
         message = compose_clear(
             row,
             app_env=settings.app_env,
-            status=f"no further occurrence for {ALERT_CLEAR_AFTER_S / 60:.0f} minutes",
+            status=status,
         )
         # Off the event loop: `send` is blocking socket I/O (smtplib, or a sync httpx
         # POST) and this job shares its loop with the outbox and dispatch ticks.

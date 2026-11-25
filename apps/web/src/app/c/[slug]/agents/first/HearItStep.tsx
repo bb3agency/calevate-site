@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, Bot, ExternalLink, PencilLine, PhoneCall, RotateCcw, Sprout, Target } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
+import { useTestCallsPaused } from "@/components/phoneService";
 import {
   FIELD_GROUP,
   FIELD_GROUP_AFFIX,
@@ -23,6 +24,7 @@ import { ApiProblem, type CallSummary } from "@/lib/api/client";
 import type { FirstRunJob } from "@/lib/api/firstRun";
 import { useMe } from "@/lib/api/hooks";
 import { useLineTestCall } from "@/lib/api/inboundLines";
+import { TEST_CALLS_PAUSED, isPhoneServiceDown } from "@/lib/api/phoneServiceCodes";
 import { useClientRealm } from "@/lib/api/session";
 import { useTrialPanel } from "@/lib/api/trialCalls";
 import { useAcceptPledge, useOutboundPledge } from "@/lib/api/verifyBusiness";
@@ -172,9 +174,12 @@ function CallYou({
   const allTicked = outstanding.every((key) => ticked.has(key));
   const busy = acceptAgreement.isPending || acceptPledge.isPending || place.isPending;
   const loading = readiness.isPending || pledge.isPending;
+  const { paused } = useTestCallsPaused(place.error);
   const waitingFor = busy
     ? null
-    : loading
+    : paused
+      ? TEST_CALLS_PAUSED
+      : loading
       ? "Checking what is left to agree."
       : docs.length > 0 && !canAccept
         ? viewing
@@ -550,9 +555,11 @@ function CallInProgress({
     failed: failure !== null && !limitFailure,
     limit,
   });
-  const failedWords = failedProblem
-    ? [failedProblem.message, failedProblem.remediation].filter(Boolean).join(" ")
-    : null;
+  const failedWords = isPhoneServiceDown(failedProblem)
+    ? TEST_CALLS_PAUSED
+    : failedProblem
+      ? [failedProblem.message, failedProblem.remediation].filter(Boolean).join(" ")
+      : null;
   const live = phase === "dialling" || phase === "ringing" || phase === "talking";
   const [answeredAt, setAnsweredAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());

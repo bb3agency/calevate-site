@@ -779,6 +779,13 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "for the whole platform and there is no tenant whose row it could be. Holds an "
         "engine name, a minute and two integers: no tenant id, no call, no number."
     ),
+    "platform_engine_state": (
+        "platform-scoped. One row per engine: its current run of consecutive failures, "
+        "behind the client 'calls are paused' banner and the operator health panel. The "
+        "engine is answering or it is not, for everybody at once, so there is no tenant "
+        "whose row it could be. Holds an engine name, a count, four instants, a route "
+        "template and an error class: no tenant id, no call, no number."
+    ),
     "platform_dashboard_data_use": (
         "platform-scoped, admin realm only (PLATFORM-CONFIG §5). What an operator attested "
         "about ONE LLM provider's data-use terms for the dashboard assist leg — one vendor "
