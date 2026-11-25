@@ -73,6 +73,32 @@ def textbook_words(text: str, tag: str | None) -> list[tuple[str, str]]:
     return [(formal, spoken) for formal, spoken in style.word_swaps if _uses_word(text, formal)]
 
 
+def _ends_word(text: str, at: int) -> bool:
+    return at == len(text) or text[at].isspace() or unicodedata.category(text[at])[0] in "PZ"
+
+
+def spoken_swapped(text: str, tag: str | None, *, allowed: str = "") -> str:
+    """`text` with each listed textbook word that stands as a whole word replaced by the
+    spoken form the language's list gives, where that form is a word to say rather than an
+    instruction ("(join with ఇంకా, or leave it out)"). A word with a suffix joined to it is
+    left for the model: the suffix belongs to the textbook form. A word in `allowed` (the
+    owner's own) is kept. Swapping here rather than sending the line back means a writer
+    never fails a draft over a word the founder's list already says how to replace."""
+    owners = set(textbook_words(allowed, tag))
+    out = text
+    for formal, spoken in textbook_words(text, tag):
+        if (formal, spoken) in owners or spoken.startswith("("):
+            continue
+        pieces: list[str] = []
+        last = 0
+        for found in re.finditer(re.escape(formal), out, re.IGNORECASE):
+            if _starts_word(out, found.start()) and _ends_word(out, found.end()):
+                pieces += [out[last : found.start()], spoken]
+                last = found.end()
+        out = "".join(pieces) + out[last:]
+    return out
+
+
 def textbook_note(swaps: Sequence[tuple[str, str]]) -> str:
     """The words and their spoken forms as one phrase: “మరియు” (join with ఇంకా, or leave it
     out); “వివరాలు” (say “details”)."""

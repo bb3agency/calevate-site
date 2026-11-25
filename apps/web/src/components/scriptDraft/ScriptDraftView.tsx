@@ -5,6 +5,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { RowHead, TimelineList, TimelineRow } from "@/components/copilot/TimelineRow";
+import { Disclosure } from "@/components/ui";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { formatWorkTime } from "@/lib/copilot/liveEvents";
 import { isTerminalPhase, type DraftPhase, type DraftStreamState } from "@/lib/scriptDraft/stream";
@@ -196,8 +197,14 @@ export function ScriptDraftView({
 
       {phase === "failed" ? (
         <TimelineRow as="div" icon={<CircleMinus aria-hidden className="h-3.5 w-3.5" />}>
-          <p className="text-meta text-ink">{ASSISTANT_NAME} could not write the script.</p>
-          {detail ? <p className="text-meta text-ink-muted [overflow-wrap:anywhere]">{detail}</p> : null}
+          <p className="text-meta text-ink">
+            {ASSISTANT_NAME} could not write the script. Your script is unchanged.
+          </p>
+          {detail ? (
+            <Disclosure variant="inline" title="Why" headingLevel={4}>
+              <p className="text-meta text-ink-muted [overflow-wrap:anywhere]">{detail}</p>
+            </Disclosure>
+          ) : null}
         </TimelineRow>
       ) : null}
 

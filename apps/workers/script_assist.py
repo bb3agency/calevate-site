@@ -64,6 +64,7 @@ from calevate_shared.call_script import (
     SPECIAL_TARGETS,
     STAGE_DETAIL_MAX,
     STEP_OUTCOME_MAX,
+    V1_ONLY_FIELDS,
     CallScript,
     ConversationStage,
     ExampleLine,
@@ -89,6 +90,7 @@ from calevate_shared.spoken_guard import (
     generation_guidance,
     introduced_opening_problem,
     latin_word_problem,
+    spoken_swapped,
     textbook_problem,
 )
 from pydantic import ValidationError
@@ -399,6 +401,36 @@ def placed_paths(direction: str) -> frozenset[str]:
     )
 
 
+def with_spoken_swaps(
+    script: CallScript,
+    language: str | None,
+    *,
+    before: CallScript | None = None,
+    allowed: str = "",
+) -> CallScript:
+    """`script` with each textbook word in the model's own spoken lines swapped for its
+    spoken form (`spoken_guard.spoken_swapped`), so a repair round is spent only on what the
+    list cannot fix. A line the owner already had (`before`) and a caller's example line are
+    left as they are."""
+    kept = {text for _, text in spoken_fields(before)} if before is not None else set()
+    callers = caller_paths(script)
+    data = script.model_dump()
+    changed = False
+    for path, text in spoken_fields(script):
+        if not text.strip() or text in kept or path in callers:
+            continue
+        swapped = spoken_swapped(text, language, allowed=allowed)
+        if swapped == text:
+            continue
+        *parents, last = path.split(".")
+        node: Any = data
+        for part in parents:
+            node = node[int(part)] if part.isdigit() else node[part]
+        node[int(last) if last.isdigit() else last] = swapped
+        changed = True
+    return CallScript.model_validate(data) if changed else script
+
+
 def language_problems(
     script: CallScript,
     language: str | None,
@@ -602,6 +634,7 @@ def drafted_script(
     script = _script_from_model_json(raw)
     if direction != "both":
         script = script.model_copy(update={"outbound_opening_line": ""})
+    script = with_spoken_swaps(script, language, allowed=allowed)
     problems = language_problems(
         script,
         language,
@@ -739,6 +772,13 @@ def _owners_fields(
     return kept, left_out
 
 
+def _not_shown(script: CallScript) -> frozenset[str]:
+    """The fields an editing model is neither shown nor taken from: the notice records, the
+    raw prompt, and on a v2 script the v1 fields it never compiles (`V1_ONLY_FIELDS`)."""
+    v1 = V1_ONLY_FIELDS if script.schema_version == SCRIPT_SCHEMA_VERSION else frozenset()
+    return frozenset({"raw_override", *NOTICE_RECORDS, *v1})
+
+
 def salvaged_edit(
     raw: dict[str, Any],
     current: CallScript,
@@ -761,7 +801,11 @@ def salvaged_edit(
     applied to an edit. Only an answer with nothing left once those parts are put back is
     refused, and that refusal carries the parts (`UnusableAnswerError.left_out`)."""
     fields = _stages_where_they_belong(
-        {k: v for k, v in raw.items() if k in CallScript.model_fields and k not in NOTICE_RECORDS},
+        {
+            k: v
+            for k, v in raw.items()
+            if k in CallScript.model_fields and k not in _not_shown(current) - {"raw_override"}
+        },
         current,
     )
     if isinstance(fields.get("stages"), list):
@@ -793,6 +837,7 @@ def salvaged_edit(
         # Blanked again after its repair: the step was meant to go, so it goes, and the
         # review shows it as a step Pip removes, unticked until the owner keeps it.
         edited = without_placeholder_steps(edited)
+    edited = with_spoken_swaps(edited, language, before=current, allowed=allowed)
     problems = language_problems(
         edited,
         language,
@@ -2203,7 +2248,7 @@ async def draft_script(
         instruction = EDIT_INSTRUCTION
         description = (
             f"{description}\nThe owner's change: {change.strip()}\nCurrent script (JSON):\n"
-            f"{edit_of.model_dump_json(exclude={'raw_override', *NOTICE_RECORDS})}"
+            f"{edit_of.model_dump_json(exclude=_not_shown(edit_of))}"
         )
         read_edit = partial(
             salvaged_edit,

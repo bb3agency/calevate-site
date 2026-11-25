@@ -139,6 +139,41 @@ def _proposal(
     )
 
 
+#: Answers a job asks for before the owner is told it could not write the script.
+WRITE_ATTEMPTS: Final = 3
+#: What a fresh answer and its repairs need of the job: a Telugu campaign script took 25 s
+#: on 25 Nov 2026, and its repairs can take as long again.
+_RETRY_MIN_S: Final = 120.0
+
+
+def _writes_again(refused: ProblemError, trace: AskTrace, attempt: int, started: float) -> bool:
+    """An answer that still broke a rule after its repairs is asked for again while the job
+    has time: a new answer often keeps the rules the last one broke, and the owner should
+    not be the retry button. A cut-off answer, a spent quota or a silent model is not."""
+    return (
+        refused.code == ANSWER_UNUSABLE_CODE
+        and not trace.truncated
+        and attempt < WRITE_ATTEMPTS
+        and _left_s(started) >= _RETRY_MIN_S
+    )
+
+
+def retry_change(change: str, unwritten: Sequence[LeftOut]) -> str:
+    """The owner's change, told which rules the last answer broke and where."""
+    if not unwritten:
+        return (
+            f"{change}\nThe last answer broke the call rules. Write every line again in plain "
+            "everyday spoken words, keeping to the rules."
+        )
+    broken = "; ".join(
+        f"{p.part}{f' ({p.name})' if p.name else ''}: {p.rule}" for p in unwritten[:6]
+    )
+    return (
+        f"{change}\nThe last answer broke these rules. Write those parts again and keep to "
+        f"them: {broken}."
+    )
+
+
 def _failed_note(refused: ProblemError, trace: AskTrace) -> str:
     """The agent page's note, except for an answer that broke a rule on every try with no
     part named: its words speak of a change, and a campaign script is written whole."""
@@ -1011,58 +1046,70 @@ async def _write(
     owners = owners_words(inputs.main_task, notes, inputs.instruction)
     proposal = _proposal(holder.proposal_id, base, owners)
     feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
-    trace = AskTrace()
     # The holder's own words are what a spoken figure may come from, an edit's included.
     # A campaign's calls are placed whatever the agent's direction; a line's are answered.
     context = replace(inputs.context, grounding=change, placed_calls=holder.table == "campaigns")
-    write = partial(
-        draft_script,
-        tenant_leg=inputs.tenant_leg,
-        quota_exhausted=inputs.quota_exhausted,
-        timeout_s=PROPOSAL_REQUEST_TIMEOUT_S,
-        max_tokens=PROPOSAL_MAX_TOKENS,
-        trace=trace,
-        repair_rounds=get_settings().campaign_script_repair_rounds,
-        # The standby's 4,096-token ceiling cuts a whole Telugu script off, so an answer that
-        # broke a rule is repaired by the account's model, never handed to it.
-        standby_after_answer=False,
-        owners_words=owners,
-    )
     log_ids = {holder.log_key: str(holder.holder_id)}
     try:
         await _phase(holder, "writing")
     except _DraftStoppedError:
         log.info("holder_script_cancelled", extra={**log_ids, "spends": 0})
         return "cancelled"
-    try:
-        if base is None:
-            # A first script: written whole from the trade's step plan, the holder's words as
-            # the owner's description, so every figure in them may be spoken.
-            draft: ScriptDraft = await write(replace(context, description=change))
-        else:
-            draft = await write(context, edit_of=base, change=change)
-    except ProblemError as refused:
-        log.info(
-            "holder_script_refused",
-            extra={
-                **log_ids,
-                "reason": refused.code,
-                "repairs": trace.repairs,
-                "truncated": trace.truncated,
-            },
+    attempt = 0
+    asked = change
+    while True:
+        attempt += 1
+        trace = AskTrace()
+        write = partial(
+            draft_script,
+            tenant_leg=inputs.tenant_leg,
+            quota_exhausted=inputs.quota_exhausted,
+            timeout_s=PROPOSAL_REQUEST_TIMEOUT_S,
+            max_tokens=PROPOSAL_MAX_TOKENS,
+            trace=trace,
+            repair_rounds=get_settings().campaign_script_repair_rounds,
+            # The standby's 4,096-token ceiling cuts a whole Telugu script off, so an answer
+            # that broke a rule is repaired by the account's model, never handed to it.
+            standby_after_answer=False,
+            owners_words=owners,
         )
-        async with tenant_session(tenant_id) as session:
-            await crm_assist.meter_refusal(
-                session, tenant_id=tenant_id, refusal=refused, feature=feature
+        try:
+            if base is None:
+                # A first script: written whole from the trade's step plan, the holder's words
+                # as the owner's description, so every figure in them may be spoken.
+                draft: ScriptDraft = await write(replace(context, description=asked))
+            else:
+                draft = await write(context, edit_of=base, change=asked)
+            break
+        except ProblemError as refused:
+            log.info(
+                "holder_script_refused",
+                extra={
+                    **log_ids,
+                    "reason": refused.code,
+                    "repairs": trace.repairs,
+                    "truncated": trace.truncated,
+                    "attempt": attempt,
+                },
             )
-        await _fail(holder, _failed_note(refused, trace), trace.unwritten, reason=refused.code)
-        await _ready_made_if_asked(holder)
-        return "refused"
-    except Exception:
-        log.exception("holder_script_crashed", extra=log_ids)
-        await _fail(holder, workspace.FAILED_NOTE, reason="crashed")
-        await _ready_made_if_asked(holder)
-        return "failed"
+            async with tenant_session(tenant_id) as session:
+                await crm_assist.meter_refusal(
+                    session, tenant_id=tenant_id, refusal=refused, feature=feature
+                )
+            if _writes_again(refused, trace, attempt, started):
+                # A fresh answer told what the last one broke, before the owner hears of it.
+                asked = retry_change(change, trace.unwritten)
+                continue
+            await _fail(
+                holder, _failed_note(refused, trace), trace.unwritten, reason=refused.code
+            )
+            await _ready_made_if_asked(holder)
+            return "refused"
+        except Exception:
+            log.exception("holder_script_crashed", extra=log_ids)
+            await _fail(holder, workspace.FAILED_NOTE, reason="crashed")
+            await _ready_made_if_asked(holder)
+            return "failed"
 
     refining: list[ScriptDraft | ProblemError] = []
     restructuring: list[ScriptDraft | ProblemError] = []

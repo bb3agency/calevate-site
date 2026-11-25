@@ -228,6 +228,11 @@ OUTBOUND_OPENING_HEADER: Final = "[OPENING ON CALLS YOU PLACE]"
 #: model's copy of them is never taken: words it named could drop a stored notice.
 NOTICE_RECORDS: Final = frozenset({"opening_notices", "outbound_opening_notices"})
 
+#: The v1 fields a v2 script never compiles (`_compile_v2`). Shown to a model editing a v2
+#: script, an empty `steps` list drew the new steps into it as bare strings, which failed
+#: validation and left the real `stages` unchanged, so the edit changed nothing.
+V1_ONLY_FIELDS: Final = frozenset({"steps", "faq_fallback", "end_call_extra_rules"})
+
 #: The section naming the words of each opening line that say a notice (D-971). The composer
 #: of the first words reads it back (`said_notices_of`), for `opening_line_of`'s reason; the
 #: model reads it as what it already told the caller.
@@ -1682,6 +1687,7 @@ __all__ = [
     "STEP_OUTCOME_MAX",
     "STYLE_HEADER",
     "V1_FAQ_HEADER",
+    "V1_ONLY_FIELDS",
     "CallScript",
     "CanvasPosition",
     "Capabilities",

@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.52 — 25-Nov-2026
+
+- Pip writes a campaign or line script again on its own, up to three times, when a draft
+  breaks a call rule, telling itself what the last one broke. You hear only if all fail.
+- A textbook word in a line Pip writes is swapped for the everyday word from the spoken
+  style list, instead of failing the draft.
+- A change to a script now lands in its steps: Pip no longer writes new steps into an old,
+  unused list, which made a draft fail or change nothing.
+- A failed draft says your script is unchanged; the reasons sit behind "Why".
+
 ## 0.5.51 — 25-Nov-2026
 
 - Agents keep each sentence to ten words or fewer, with full stops between, so the voice
