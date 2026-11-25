@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.69 — 26-Nov-2026
+
+- Folding section headers read by their own name again for screen readers, and the Lead
+  details page no longer has a link inside a button. Pressing anywhere on a header row still
+  folds it; it looks the same.
+
 ## 0.5.68 — 26-Nov-2026
 
 - While the phone service is not answering, the app says so in one line at the top ("Calls are
