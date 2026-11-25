@@ -1100,9 +1100,7 @@ async def _write(
                 # A fresh answer told what the last one broke, before the owner hears of it.
                 asked = retry_change(change, trace.unwritten)
                 continue
-            await _fail(
-                holder, _failed_note(refused, trace), trace.unwritten, reason=refused.code
-            )
+            await _fail(holder, _failed_note(refused, trace), trace.unwritten, reason=refused.code)
             await _ready_made_if_asked(holder)
             return "refused"
         except Exception:

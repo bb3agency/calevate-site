@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.54 — 25-Nov-2026
+
+- Steps Pip writes into the old step list with their ids are moved into the steps again, as
+  before 0.5.53; only loose text there is ignored.
+
 ## 0.5.53 — 25-Nov-2026
 
 - Pip writes a campaign or line script again on its own, up to three times, when a draft

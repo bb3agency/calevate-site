@@ -801,13 +801,13 @@ def salvaged_edit(
     applied to an edit. Only an answer with nothing left once those parts are put back is
     refused, and that refusal carries the parts (`UnusableAnswerError.left_out`)."""
     fields = _stages_where_they_belong(
-        {
-            k: v
-            for k, v in raw.items()
-            if k in CallScript.model_fields and k not in _not_shown(current) - {"raw_override"}
-        },
+        {k: v for k, v in raw.items() if k in CallScript.model_fields and k not in NOTICE_RECORDS},
         current,
     )
+    # After the move: whatever is still in a v2 script's v1 fields (steps written as bare
+    # strings) is not the script's, and is dropped rather than failing the answer.
+    unused = _not_shown(current) - {"raw_override", *NOTICE_RECORDS}
+    fields = {k: v for k, v in fields.items() if k not in unused}
     if isinstance(fields.get("stages"), list):
         # A step the change deleted leaves ways out pointing at it; they go as in a hand
         # delete, so the deletion is a valid script rather than a refused answer.
@@ -2248,7 +2248,7 @@ async def draft_script(
         instruction = EDIT_INSTRUCTION
         description = (
             f"{description}\nThe owner's change: {change.strip()}\nCurrent script (JSON):\n"
-            f"{edit_of.model_dump_json(exclude=_not_shown(edit_of))}"
+            f"{edit_of.model_dump_json(exclude=set(_not_shown(edit_of)))}"
         )
         read_edit = partial(
             salvaged_edit,

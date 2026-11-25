@@ -6,13 +6,6 @@ from __future__ import annotations
 
 import time
 
-from calevate_shared.call_script import (
-    SCRIPT_SCHEMA_VERSION,
-    CallScript,
-    ConversationStage,
-)
-from calevate_shared.spoken_guard import spoken_swapped, textbook_words
-
 from apps.api.core.errors import ProblemError
 from apps.workers import campaign_script
 from apps.workers.script_assist import (
@@ -23,6 +16,12 @@ from apps.workers.script_assist import (
     salvaged_edit,
     with_spoken_swaps,
 )
+from calevate_shared.call_script import (
+    SCRIPT_SCHEMA_VERSION,
+    CallScript,
+    ConversationStage,
+)
+from calevate_shared.spoken_guard import spoken_swapped, textbook_words
 
 FORMAL = "సహాయం"
 

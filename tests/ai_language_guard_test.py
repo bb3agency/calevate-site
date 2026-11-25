@@ -180,10 +180,10 @@ def test_a_spoken_textbook_word_is_named_with_what_people_say() -> None:
         )
     said = refused.value.problems
     assert "opening_line: uses textbook words callers do not say: “మరియు”" in said
-    assert (
-        "style.sample_phrases.0: uses textbook words callers do not say: “వివరాలు” (say “details”)"
-        in said
-    )
+    # A word the list gives a spoken form for is swapped, not sent back.
+    assert "వివరాలు" not in said
+    swapped = script_assist.drafted_script(_draft(sample_phrases=["మీ వివరాలు చెప్పండి"]), language=TE)
+    assert swapped.style.sample_phrases == ["మీ details చెప్పండి"]
 
 
 def test_a_spoken_line_naming_a_provider_is_sent_back_and_a_payment_name_is_not() -> None:
@@ -253,13 +253,15 @@ def test_a_conversion_keeps_the_owners_own_sentences_in_their_language() -> None
         instructions=False,
     )
     assert script.identity.startswith("మీరు")
-    with pytest.raises(UnusableAnswerError):
-        script_assist.drafted_script(
-            _draft(opening_line="మీ వివరాలు చెప్పండి"),
-            language=TE,
-            allowed=owner,
-            instructions=False,
-        )
+    assert script.opening_line == "మిర్చి మరియు కారం."
+    # The model's own textbook word is still fixed: swapped for the list's spoken form.
+    fixed = script_assist.drafted_script(
+        _draft(opening_line="మీ వివరాలు చెప్పండి"),
+        language=TE,
+        allowed=owner,
+        instructions=False,
+    )
+    assert fixed.opening_line == "మీ details చెప్పండి"
 
 
 # --- the repair, end to end on the real ladder ---------------------------------------------
