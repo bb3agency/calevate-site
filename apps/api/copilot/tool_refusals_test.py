@@ -106,7 +106,7 @@ _PLAINLESS_BUDGET: dict[str, int] = {
     "call_actions.py": 10,
     "campaign_actions.py": 7,
     "console_actions.py": 28,
-    "coverage_actions.py": 12,
+    "coverage_actions.py": 10,
     "fact_actions.py": 6,
     "follow_up_actions.py": 15,
     "knowledge_actions.py": 7,
