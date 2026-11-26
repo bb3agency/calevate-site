@@ -90,9 +90,12 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: 26 Nov 2026 (Varsha, 16:03): a step's turn ends on the action, never "say when done";
 #: "what?" after a step gets it again, shorter; no filler list in the register line; a yes
 #: to the opening goes on to the first step, and a step that offers help is done.
+#: 26 Nov 2026 (script rebuild, DESIGN §3.5): the register quotes no example exchanges, the
+#: [OPENING] line is not repeated inside the client fence, and a step's lines are only
+#: examples.
 PINNED = (
-    "24c145ae4501f9a9c025e9db409fab447ce01b19246dc96e84b685988958910f",
-    "ebb5d9066bb9a01b60c30c8b033c1dd3e989411d10831354e13b763a5a5af1d9",
+    "ba777ea4824853656bbb7836f9c715cd8b3e50f275042be0c1115b9637480275",
+    "00168f4c7fc613355b7f56fff5e286fe3eed299c8ffd1674a5a06aa68cf1b16b",
 )
 
 

@@ -4,8 +4,6 @@ of 23 Nov 2026: with no name on the list, "నమస్కారం {{lead_name}
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from apps.api.agents.live_apply import platform_prompt_revision
 from calevate_shared import engine
@@ -15,7 +13,6 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     mark_caller_name,
 )
-from calevate_shared.languages import offered_language_tags
 
 
 def test_the_name_field_and_its_title_become_one_mark() -> None:
@@ -74,19 +71,3 @@ def test_a_change_to_the_mark_or_an_opening_rule_republishes_every_live_agent(
     before = platform_prompt_revision()
     monkeypatch.setattr(engine, name, getattr(engine, name) + " x")
     assert platform_prompt_revision() != before
-
-
-def test_a_change_to_any_languages_own_register_examples_moves_the_revision(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A language's examples are composed only when it is the agent's main language."""
-    for tag in offered_language_tags():
-        before = platform_prompt_revision()
-        original = engine.prompt_example_line
-
-        def changed(language: str | None, *, tag: str = tag, original: Any = original) -> Any:
-            return "changed" if language == tag else original(language)
-
-        with monkeypatch.context() as patch:
-            patch.setattr(engine, "prompt_example_line", changed)
-            assert platform_prompt_revision() != before, tag
