@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.76 — 26-Nov-2026
+
+- Every script is checked by one set of rules wherever it is written or saved. A line that
+  asks the caller to say when they are done, or packs several actions into one turn, is
+  flagged under that line.
+- A script with a line that must be fixed can be saved but not put live or started: the
+  owner sees "A line in the script needs fixing before calls can start." with Let Pip fix it
+  and Show me.
+- Each step can hold example turns, edited and reviewed on the script screens.
+
 ## 0.5.75 — 26-Nov-2026
 
 - Scripts can carry example turns for each step (a few ways the agent says it, and what it
