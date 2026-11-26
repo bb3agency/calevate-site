@@ -133,7 +133,9 @@ export function sectionDetail(
   const text = collapse(section.instruction);
   let detail = saysInstruction(section) ? `Say: ${quote(text)}` : text;
   if (saysScenarioLine(section)) detail += ` ${SAY_EXACT_STEP}`;
-  if (section.sounds_like.trim()) detail += ` It sounds like: ${quote(section.sounds_like)}`;
+  // `call_script.SOUNDS_LIKE_TONE_LEAD` for a section with small steps, else `SOUNDS_LIKE_LEAD`.
+  const lead = section.procedure?.length ? "Its tone only:" : "It sounds like:";
+  if (section.sounds_like.trim()) detail += ` ${lead} ${quote(section.sounds_like)}`;
   if (section.procedure?.length) detail += ` ${procedurePointer(section.name ?? "")}`;
   if (scripted(section) || section.qa?.length) detail += ` ${scenarioPointer(section.name ?? "")}`;
   return detail;

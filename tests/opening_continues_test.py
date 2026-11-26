@@ -86,7 +86,7 @@ def test_the_prompt_quotes_the_exact_opening_already_spoken_and_says_to_go_on() 
     assert "even after answering." in rule
     # A one-word "No" to "can we talk now?" is no yes (D-965).
     assert "A hello or yes, in any language, is a yes" in rule
-    assert "why you call or your first question" in rule
+    assert "why you call or your first step." in rule
 
 
 def test_who_is_calling_goes_on_to_the_first_question_in_every_direction() -> None:

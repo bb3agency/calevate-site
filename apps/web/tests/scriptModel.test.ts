@@ -116,6 +116,12 @@ describe("what the server would refuse, caught first", () => {
     expect(sectionDetail({ mode: s.mode!, instruction: s.instruction, sounds_like: s.sounds_like! })).toBe(
       "Say: \"Hello 'friend'\" It sounds like: \"నమస్కారం\"",
     );
+    // With small steps the line is offered for its tone only (`call_script.SOUNDS_LIKE_TONE_LEAD`).
+    expect(
+      sectionDetail({ mode: "guide", instruction: "Help", sounds_like: "x", procedure: [{}] }).startsWith(
+        'Help Its tone only: "x"',
+      ),
+    ).toBe(true);
     const long = script(stage("a", "A", { instruction: "x".repeat(590), sounds_like: "y".repeat(20) }));
     expect(validate(long).some((i) => i.field === "instruction" && i.message.includes("too long"))).toBe(true);
     expect(chars("👋")).toBe(1);

@@ -343,8 +343,8 @@ def test_several_actions_in_one_line_is_a_finding() -> None:
         stages=[_stage("a", "Install", sounds_like="Open the site and tap install.")],
     )
     assert line_problems(script) == [
-        "stages.0.sounds_like: gives several things to do in one line; give one action, "
-        "wait until they say it is done, then give the next."
+        "stages.0.sounds_like: gives several things to do in one line; give one action and stop; "
+        "they say when it is done, and the next action follows."
     ]
 
 

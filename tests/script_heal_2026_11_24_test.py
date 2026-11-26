@@ -36,8 +36,8 @@ from tests.a2p_declaration_test import _org_headers
 from tests.conftest import create_org_with_receptionist, turn_pip_on_for_tests
 
 OPENING = "Hello, this is Asha from Sunrise Homes. Can we talk for a minute now?"
-BRACKETED = "Tap Add to Home screen (Add to Home screen) and tell me when it shows."
-PLAIN = "Tap Add to Home screen and say when the icon shows."
+BRACKETED = "Tap Add to Home screen (Add to Home screen) at the bottom."
+PLAIN = "Tap Add to Home screen at the bottom."
 
 
 def _stage(sid: str, line: str, **extra: Any) -> ConversationStage:

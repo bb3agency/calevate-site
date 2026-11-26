@@ -148,7 +148,7 @@ def test_a_placed_call_never_takes_what_the_person_has_or_uses_from_a_steps_line
     assert "have or use something unless they said so on this call or THIS CALL says so" in (
         CALL_REASON_RULE
     )
-    assert '"sounds like" is only an example' in CALL_REASON_RULE
+    assert "a step's lines are only examples" in CALL_REASON_RULE
     assert CALL_REASON_RULE in compose_engine_prompt(_placed())
     inbound = _placed().model_copy(update={"direction": "inbound"})
     assert CALL_REASON_RULE not in compose_engine_prompt(inbound)

@@ -51,7 +51,10 @@ from calevate_shared.spoken_style import style_for
 
 from apps.api.agents.script_lint import (
     CapabilityManifest,
+    asks_when_done,
     line_ending,
+    line_opener,
+    stacked_line,
     tells_caller_to_act,
     unbacked_promise,
 )
@@ -129,6 +132,10 @@ Kind = Literal[
     # The Telugu campaign call of 24 Nov 2026 (12:15): "log in. Have you logged in?", an
     # action and the question whether it is done in one turn, before they could do it.
     "asked_done_too_soon",
+    # The Rytu Khata call of 26 Nov 2026: reply after reply ended "... once it opens, tell
+    # me", and one turn gave "once it opens, press Add to Home screen" as two steps.
+    "asks_when_done",
+    "several_actions",
     # --- step outcomes (founder, 24 Nov 2026): a step left before its outcome was reached,
     # read off where the call got to (`call_mistakes.step_mistakes`), not by a reply check.
     "moved_on_unconfirmed",
@@ -186,6 +193,9 @@ SOUND_KINDS: Final = frozenset(
         "stalled",
         # HOW TO SPEAK decides it ("Steps?"), and a step's line written that way causes it.
         "asked_done_too_soon",
+        # HOW TO SPEAK decides these, and a step's line written that way causes them.
+        "asks_when_done",
+        "several_actions",
     }
 )
 #: What breaks the caller's task whatever the words: the caller's part said for them, a
@@ -866,8 +876,25 @@ def turn_problems(
             TurnProblem(
                 "asked_done_too_soon",
                 f"It gave a step and asked in the same turn whether it was done "
-                f"({_quoted(too_soon)}), before they could do it. It should end on asking them "
-                "to say when it is done, and wait.",
+                f"({_quoted(too_soon)}), before they could do it. It should give the step and "
+                "stop: they say when it is done.",
+            )
+        )
+    asked_to_tell = None if too_soon else asks_when_done(reply)
+    if asked_to_tell:
+        found.append(
+            TurnProblem(
+                "asks_when_done",
+                f"It asked them to say when the step was done ({_quoted(asked_to_tell)}). "
+                "People say so on their own; it should give the step and stop.",
+            )
+        )
+    if stacked_line(reply):
+        found.append(
+            TurnProblem(
+                "several_actions",
+                "It gave more than one thing to do in one turn. It should give one action, "
+                "wait until they say it is done, then give the next.",
             )
         )
     repeated = _repeated_sentence(parts)
@@ -1278,12 +1305,25 @@ def _english_question(clause: str) -> bool:
     return bool(_EN_ASKS_TO_BE_TOLD.search(" ".join(words)))
 
 
+#: A Telugu or Hindi question word with an ending joined on ("after what"), in either script:
+#: transcripts often drop the "?", so the word is what shows the question.
+_QUESTION_STEM: Final = _LivePattern(lambda: _say("turn_checks._QUESTION_STEMS"), re.IGNORECASE)
+
+
+def _asks_by_word(said: str) -> bool:
+    """A "?" or a Telugu or Hindi question word, bare or with an ending joined on."""
+    if "?" in said or _WIDE_QUESTION in said:
+        return True
+    words = [w.lower() for w in _TOKEN.findall(said)]
+    return any(w in _QUESTION_WORDS() or _QUESTION_STEM.match(w) for w in words)
+
+
 def asks_question(said: str) -> bool:
     """Whether a line asks something: the one question test for the turn checks and the
     knowledge-gap detector (`insights.detection.caller_asked`)."""
     if "?" in said or _WIDE_QUESTION in said:
         return True
-    if any(w.lower() in _QUESTION_WORDS() for w in _TOKEN.findall(said)):
+    if _asks_by_word(said):
         return True
     return any(_english_question(clause) for clause in _CLAUSES.split(said))
 
@@ -1395,6 +1435,44 @@ def greeted_midway(reply: str) -> str | None:
     return None
 
 
+#: A question offering to go ahead ("shall we set it up?", "do you want me to show you?").
+_OFFERS_TO_GO_ON: Final = _LivePattern(
+    lambda: _extend(
+        r"\bshall (?:we|i)\b|\bshould (?:we|i)\b|\bcan (?:i|we) (?:help|show|guide|walk)\b|"
+        r"\b(?:would|do) you (?:like|want) (?:me|us) to\b|\bwant me to\b|\bmay i\b",
+        "turn_checks._OFFERS_TO_GO_ON",
+    ),
+    re.IGNORECASE,
+)
+#: Characters a word needs before it can name what an offer is about: "app" does, the bare
+#: verb left once the offer's own ending is taken off does not.
+_OFFER_TOPIC_MIN: Final = 3
+_OFFER_STEM: Final = 4
+#: Words of the opening offer's topic a later offer must name to be the same offer: two, so
+#: "shall we add your first expense in the app?" is not "shall we set up the app?" again.
+_OFFER_SHARED: Final = 2
+
+
+def _offers_again(question: str, opening_question: str) -> bool:
+    """Whether `question` offers again what the opening's offer offered: both offer to go
+    ahead, and they name the same thing. On the Rytu Khata call of 26 Nov 2026 the opening
+    asked whether to help set up the app and the first step asked it again in other words,
+    which word overlap alone did not see; a later "shall we add your first expense?" offers
+    something else and is not the opening again."""
+    if not _OFFERS_TO_GO_ON.search(question):
+        return False
+
+    def topic(text: str) -> set[str]:
+        return {w for w in _content(_OFFERS_TO_GO_ON.sub(" ", text)) if len(w) >= _OFFER_TOPIC_MIN}
+
+    def same(a: str, b: str) -> bool:
+        return a == b or (min(len(a), len(b)) >= _OFFER_STEM and a[:_OFFER_STEM] == b[:_OFFER_STEM])
+
+    mine, theirs = topic(question), topic(opening_question)
+    shared = sum(1 for b in theirs if any(same(a, b) for a in mine))
+    return bool(theirs) and shared >= min(_OFFER_SHARED, len(theirs))
+
+
 def asked_opening_again(reply: str, opening_questions: Sequence[str]) -> str | None:
     """Why a reply asks its opening's question again, or None (D-912). The opening's own
     question is the yardstick, so "can we talk now?" is caught in a language our phrase list
@@ -1403,9 +1481,12 @@ def asked_opening_again(reply: str, opening_questions: Sequence[str]) -> str | N
     if not opening_questions or _WRAPS_UP.search(reply):
         return None
     suits = any(_ASKS_IF_NOW_SUITS.search(q) for q in opening_questions)
+    offers = [q for q in opening_questions if _OFFERS_TO_GO_ON.search(q)]
     for question in (s for s in sentences(reply) if is_question(s)):
-        if any(_same_question(question, q) for q in opening_questions) or (
-            suits and _ASKS_IF_NOW_SUITS.search(question)
+        if (
+            any(_same_question(question, q) for q in opening_questions)
+            or (suits and _ASKS_IF_NOW_SUITS.search(question))
+            or any(_offers_again(question, q) for q in offers)
         ):
             return (
                 f"It asked {_quoted(question)} again, which its opening already asked. After "
@@ -1538,8 +1619,11 @@ _CALLER_NOT: Final = _LivePattern(lambda: _say("turn_checks._CALLER_NOT"), re.IG
 
 def caller_says_done(said: str) -> bool:
     """Does this caller line report something they did themselves? A question or a negative
-    never does."""
-    return bool(_CALLER_DONE.search(said)) and "?" not in said and not _CALLER_NOT.search(said)
+    never does, one with no "?" included ("ఏమయ్యాక చెప్పాలి", after what?). English is read by
+    its "?" only, so the caller's "Did it." stays a done."""
+    return (
+        bool(_CALLER_DONE.search(said)) and not _asks_by_word(said) and not _CALLER_NOT.search(said)
+    )
 
 
 def claims_done(text: str, *, caller_said: str = "") -> bool:
@@ -1636,8 +1720,8 @@ def _gives_action(clause: str) -> bool:
 
 def asks_done_too_soon(reply: str) -> str | None:
     """The question, when a reply gives the caller something to do and then asks in the same
-    turn whether it is done; None otherwise. "Tap the menu. Tell me when it opens." is right:
-    it invites them to say when, and asks nothing."""
+    turn whether it is done; None otherwise. "Tap the menu. Tell me when it opens." asks
+    nothing and is not this; it is `asks_when_done`'s."""
     parts = sentences(reply)
     if not parts or not is_question(parts[-1]):
         return None
@@ -1715,8 +1799,6 @@ def same_reply(a: str, b: str) -> bool:
 #: Where a reply's opening reaction ends: its first comma, full stop or other mark.
 #: The full-width comma and question mark are written as escapes (RUF001).
 _OPENER_END: Final = re.compile("[,.!?;:\\u0964\\uff0c\\uff1f]")
-#: A lead longer than this is the turn's content, never a stock reaction.
-_OPENER_MAX_WORDS: Final = 2
 #: Replies one reaction may open before it reads as stock (D-894): on the founder's calls of
 #: 27 Oct 2026 "మంచిది అండి" or "సరే అండి" came before every next question. Three, not two,
 #: because the same "హా" twice in a call is ordinary speech.
@@ -1724,13 +1806,10 @@ STOCK_OPENER_REPLIES: Final = 3
 
 
 def opener(reply: str) -> str | None:
-    """The short reaction a reply opens with ("సరే అండి" of "సరే అండి, ఏ ఏరియా?"), lower
-    case, or None when the reply leads with content."""
-    head = _OPENER_END.split(" ".join(reply.split()), maxsplit=1)[0]
-    words = _words(head)
-    if not words or len(words) > _OPENER_MAX_WORDS:
-        return None
-    return " ".join(words)
+    """The short lead a reply opens with ("సరే అండి" of "సరే అండి, ఏ ఏరియా?"), lower case,
+    or None when the reply leads with content: the script checks' own rule
+    (`script_lint.line_opener`), so a script line and a reply are read alike."""
+    return line_opener(reply)
 
 
 def reaction_lead(line: str) -> str | None:
@@ -1758,13 +1837,19 @@ def reaction_lead(line: str) -> str | None:
     return " ".join(head)
 
 
+#: The words at a reply's end that count as its closing tag. Three, not the two a script's
+#: lines are held to: a spoken Telugu question often ends on the same yes/no verb and the
+#: polite tag ("... ఉందా అండి?"), which is how the language asks, not a habit.
+REPLY_ENDING_WORDS: Final = 3
+
+
 def _stock_closer(replies: Sequence[str]) -> tuple[str, int] | None:
     """The ending (`script_lint.line_ending`) shared by `STOCK_OPENER_REPLIES` or more of
     `replies`, with its count. A goodbye is left out: closing a call alike is not a habit. A
     reply said again word for word counts once, as it is `said_again`'s."""
     counts: dict[str, int] = {}
     for reply in dict.fromkeys(" ".join(r.split()) for r in replies):
-        said = None if _GOODBYE.search(reply) else line_ending(reply)
+        said = None if _GOODBYE.search(reply) else line_ending(reply, REPLY_ENDING_WORDS)
         if said is not None:
             counts[said] = counts.get(said, 0) + 1
     return next(((said, n) for said, n in counts.items() if n >= STOCK_OPENER_REPLIES), None)
@@ -1772,13 +1857,27 @@ def _stock_closer(replies: Sequence[str]) -> tuple[str, int] | None:
 
 def _stock_opener(replies: Sequence[str]) -> tuple[str, int] | None:
     """The first reaction that opens `STOCK_OPENER_REPLIES` or more of `replies`, with its
-    count."""
+    count; else, when that many replies in a row open with SOME reaction before their point
+    (`reaction_lead`), those reactions joined, with their count. In a row, because "Sure,"
+    then "Got it," while taking a number is how anyone talks, and a reply between them that
+    leads with its point breaks the habit. On the
+    26 Nov 2026 call the reactions rotated ("సరే అండి", "చాలా మంచిది అండి", "చాలా సంతోషం
+    అండి"), so no one of them reached three while every reply still opened with one."""
     counts: dict[str, int] = {}
     for reply in replies:
         said = opener(reply)
         if said is not None:
             counts[said] = counts.get(said, 0) + 1
-    return next(((said, n) for said, n in counts.items() if n >= STOCK_OPENER_REPLIES), None)
+    same = next(((said, n) for said, n in counts.items() if n >= STOCK_OPENER_REPLIES), None)
+    if same is not None:
+        return same
+    run: list[str] = []
+    for reply in replies:
+        said = reaction_lead(reply)
+        run = [*run, said] if said is not None else []
+        if len(run) >= STOCK_OPENER_REPLIES:
+            return " / ".join(dict.fromkeys(run)), len(run)
+    return None
 
 
 #: Where a caller could have found the business, each by the spellings a reply uses. Only

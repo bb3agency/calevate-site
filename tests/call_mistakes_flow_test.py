@@ -129,12 +129,13 @@ async def test_a_real_call_is_checked_and_the_owner_sees_what_went_wrong(
             )
         ).all()
     # Nothing was on file for the number, so turn 3's "you enquired before" is invented.
-    assert [tuple(r) for r in rows] == [
+    # Sorted: two kinds first appear on turn 9, and ORDER BY turn_idx leaves ties unordered.
+    assert sorted(tuple(r) for r in rows) == [
+        ("asked_again", 11),
         ("false_history", 3),
         ("said_again", 9),
-        ("asked_again", 11),
-        # The third reply opening with the same word (a real-call lesson since 9 Nov 2026).
-        ("same_opening", 13),
+        # Three replies in a row opening with a reaction (real-call lessons of 9 and 26 Nov).
+        ("same_opening", 9),
     ]
 
     headers = await _org_headers(tenant_id)
@@ -142,13 +143,15 @@ async def test_a_real_call_is_checked_and_the_owner_sees_what_went_wrong(
         detail = (await http.get(f"/v1/calls/{call_id}", headers=headers)).json()
         listed = await http.get(f"/v1/agents/{agent_id}/call-mistakes", headers=headers)
         missing = await http.get(f"/v1/agents/{uuid7()}/call-mistakes", headers=headers)
-    assert [m["kind"] for m in detail["mistakes"]] == [
+    # Sorted: "said_again" and "same_opening" both first appear on turn 9.
+    assert sorted(m["kind"] for m in detail["mistakes"]) == [
+        "asked_again",
         "false_history",
         "said_again",
-        "asked_again",
         "same_opening",
     ]
-    assert detail["mistakes"][1]["label"] == call_mistakes.LESSONS["said_again"].label
+    labels = {m["kind"]: m["label"] for m in detail["mistakes"]}
+    assert labels["said_again"] == call_mistakes.LESSONS["said_again"].label
     # On no line or campaign, so no script was repaired: our team has each one.
     assert {m["fix"] for m in detail["mistakes"]} == {"told"}
     assert listed.status_code == 200, listed.text

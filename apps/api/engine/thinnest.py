@@ -134,6 +134,8 @@ from calevate_shared.events import (
 )
 from calevate_shared.extraction import ascii_digits
 from calevate_shared.invisible_text import plain_joins
+from calevate_shared.languages import find_language
+from calevate_shared.spoken_style import listening_lines
 from calevate_shared.webhook_signature import (
     signed_time_is_fresh,
     timestamped_sha256_signature_matches,
@@ -365,14 +367,50 @@ PLATFORM_VOICE_VALUES: Final[dict[str, Any]] = {
 #: The Ear-only backchannel settings beside `acknowledgements` (same openapi.json,
 #: `AgentVoiceInput`), sent only under `ear`. `backchannelDetection` (default on) is what
 #: tells a caller's "haan ji" from an interruption, which `interruptWords` 2 relies on (D-862),
-#: so it is stated rather than left to a default; both word lists are `[]`, the vendor's own
-#: judgement and a short acknowledgement in the caller's language (null and `[]` mean the
-#: same, so either reads back as in step).
+#: so it is stated rather than left to a default; `backchannelWords` is `[]`, the vendor's own
+#: judgement (null and `[]` mean the same, so either reads back as in step). The agent's own
+#: `acknowledgementWords` are `acknowledgement_words`.
 EAR_VOICE_VALUES: Final[dict[str, Any]] = {
     "backchannelDetection": True,
     "backchannelWords": [],
     "acknowledgementWords": [],
 }
+
+
+def acknowledgement_words(cfg: AgentConfig) -> list[str]:
+    """`voice.acknowledgementWords` under Ear: the listening words of the agent's languages
+    from `spoken_style.json` (`spoken_style.listening_lines`), or `[]` for an agent whose every
+    language is written in Latin letters.
+
+    Empty, the engine says "a short word in the caller's own language" (thinnest-findings/
+    mirror/snapshots/2026-11-26/pages/api-reference/agents/create-agent.md:1821-1832;
+    channels/voice.md:1194-1198), and nothing documents how it tells that language: the Varsha
+    call of 26 Nov 2026 ran under Ear with the list empty, and a Telugu caller transcribed in
+    Latin letters heard an English "Hmm... I see". Our words are said "in turn" whatever the
+    caller speaks (same lines), so a listed word is always in one of the agent's languages."""
+    words: list[str] = []
+    for tag in (cfg.language_primary, *cfg.languages_extra):
+        for word in listening_lines(tag):
+            if word not in words:
+                words.append(word)
+    return words
+
+
+def acknowledgements_on(cfg: AgentConfig) -> bool:
+    """`voice.acknowledgements` under Ear: the console's switch (D-849), except on an agent
+    with a language not written in Latin letters that has no listening word of ours, where the
+    engine would choose the word itself; there it waits silently ("Off: it waits silently",
+    create-agent.md:1814-1820 of the snapshot above)."""
+    if not cfg.acknowledgements:
+        return False
+    for tag in (cfg.language_primary, *cfg.languages_extra):
+        language = find_language(tag)
+        latin = language is not None and language.script.iso15924 == "Latn"
+        if not latin and not listening_lines(tag):
+            return False
+    return True
+
+
 #: `PATCH /agents/{id}/tools` `recall` and `verifyByCode` (same openapi.json,
 #: `UpdateAgentBuiltInToolsRequest`; `concepts.md:97-119` of the same snapshot). `verified`
 #: ("Never, unless they signed in") uses nothing a caller said on another channel: a phone
@@ -2469,7 +2507,11 @@ class ThinnestEngine:
             # An Ear-only field, so sent only under `ear` (update-agent.md:1548-1553, 19 Oct
             # 2026 snapshot; vendor default on).
             **(
-                {"acknowledgements": cfg.acknowledgements, **EAR_VOICE_VALUES}
+                {
+                    "acknowledgements": acknowledgements_on(cfg),
+                    **EAR_VOICE_VALUES,
+                    "acknowledgementWords": acknowledgement_words(cfg),
+                }
                 if cfg.turn_detection == "ear"
                 else {}
             ),

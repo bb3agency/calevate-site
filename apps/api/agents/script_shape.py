@@ -308,8 +308,8 @@ def several_action_problems(script: CallScript) -> list[str]:
     """A line that gives the person several things to do at once (`script_lint.
     stacked_actions`): one caller action per step (research §C "Step design")."""
     return [
-        f"{path}: gives several things to do in one line; give one action, wait until they "
-        "say it is done, then give the next."
+        f"{path}: gives several things to do in one line; give one action and stop; they "
+        "say when it is done, and the next action follows."
         for path, text in _english_lines(script)
         if stacked_actions(text)
     ]
@@ -330,7 +330,7 @@ def caller_action_claimed_problems(script: CallScript) -> list[str]:
             found.append(
                 f"{path}: says the agent will note or record something in a step that notes "
                 "nothing; what the person does in the app is theirs to do, so ask them to do "
-                "it and say when it is done."
+                "it, then stop."
             )
     return found
 

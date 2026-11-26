@@ -81,11 +81,11 @@ def _filler() -> str:
 # --- 1. a filler at most once a call, said at the list ---------------------------------
 
 
-def test_the_filler_cap_sits_at_the_list_it_caps() -> None:
+def test_no_filler_list_is_quoted_to_be_capped() -> None:
+    """The cap at the list did not hold (Varsha call of 26 Nov 2026); the list went (D-894)."""
     guidance = register_guidance("te-IN")
     assert guidance is not None
-    assert f"{FILLERS_LEAD} {_filler()}" in guidance
-    assert "once a call each" in FILLERS_LEAD
+    assert FILLERS_LEAD not in guidance and f" {_filler()}," not in guidance
     assert "lightly" not in guidance
     # HOW TO SPEAK says it of any reaction, not only the listed ones.
     assert "never to open or twice a call" in VOICE_STYLE_GUIDANCE
@@ -149,7 +149,7 @@ def test_the_word_list_says_a_script_line_is_no_exception() -> None:
     assert f'{SWAPS_LEAD} "' in guidance and f'"{formal}" →' in guidance
 
 
-async def test_a_te_in_campaigns_engine_agent_carries_the_word_list_and_the_cap() -> None:
+async def test_a_te_in_campaigns_engine_agent_carries_the_word_list_and_no_fillers() -> None:
     tenant_id, agent_id = await _agent_with_script("Greet, then help.")
     campaign_id = await _campaign(uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id)))
     style = style_for("te-IN")
@@ -168,7 +168,7 @@ async def test_a_te_in_campaigns_engine_agent_carries_the_word_list_and_the_cap(
     register = prompt.split("--- SPOKEN REGISTER ---", 1)[1]
     for formal, _spoken in style.prompt_swaps:
         assert f'"{formal}" →' in register
-    assert f"{FILLERS_LEAD} {_filler()}" in register
+    assert FILLERS_LEAD not in register
 
 
 # --- 7. the knowledge is searched when a step does not work -----------------------------

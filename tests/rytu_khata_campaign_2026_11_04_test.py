@@ -65,7 +65,8 @@ def test_a_placed_call_asks_if_now_is_a_good_time_and_uses_the_name() -> None:
 
 def test_every_agent_gives_one_step_a_turn_and_never_asks_did_you_understand() -> None:
     prompt = compose_engine_prompt(_cfg(direction="inbound"))
-    assert 'inviting them in new words to say when done; never "done?" or "understood?"' in (prompt)
+    assert "- Steps? One action a turn, then stop;" in prompt
+    assert '"done?" or "understood?"' in prompt
 
 
 # --- 3. numbers digit by digit, the first time ---------------------------------------------
