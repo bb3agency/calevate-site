@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from calevate_shared.business_outcomes import BusinessOutcome
 from calevate_shared.calling_window import today_in_india
+from calevate_shared.indian_mobile import INDIA_E164_PREFIX, is_indian_mobile, is_indian_mobile_e164
 from calevate_shared.languages import Language, find_language
 
 FieldType = Literal["text", "number", "bool", "enum", "date"]
@@ -475,15 +476,6 @@ def is_phone_field(field: ExtractionField) -> bool:
     return _PHONE_FIELD_RE.search(" ".join(haystack.replace("-", " ").split())) is not None
 
 
-#: An Indian mobile is ten digits opening 6-9 (TRAI's mobile number range). This is the
-#: whole shape the product dials, so it is what "a phone number we can canonicalise"
-#: means and what a captured number is judged dialable against (`needs_review`, below).
-_INDIAN_MOBILE_RE = re.compile(r"^[6-9][0-9]{9}$")
-
-#: The canonical stored form: E.164 with the +91 the product is scoped to.
-_CANONICAL_MOBILE_RE = re.compile(r"^\+91[6-9][0-9]{9}$")
-
-
 def ascii_digits(raw: str) -> str:
     """Every decimal digit of `raw`, in any script, as ASCII `0-9`; everything else dropped.
 
@@ -522,13 +514,34 @@ def normalize_phone(raw: str) -> str:
     """
     has_plus = raw.strip().startswith("+")
     digits = ascii_digits(raw)
-    if len(digits) == 11 and digits.startswith("0") and _INDIAN_MOBILE_RE.match(digits[1:]):
+    if len(digits) == 11 and digits.startswith("0") and is_indian_mobile(digits[1:]):
         digits = digits[1:]
-    if len(digits) == 12 and digits.startswith("91") and _INDIAN_MOBILE_RE.match(digits[2:]):
-        return "+91" + digits[2:]
-    if _INDIAN_MOBILE_RE.match(digits):
-        return "+91" + digits
+    if len(digits) == 12 and digits.startswith("91") and is_indian_mobile(digits[2:]):
+        return INDIA_E164_PREFIX + digits[2:]
+    if is_indian_mobile(digits):
+        return INDIA_E164_PREFIX + digits
     return ("+" if has_plus else "") + digits
+
+
+def captured_phone(value: str) -> str:
+    """A phone field's answer as the number to store: `normalize_phone` of the whole answer,
+    or of the one phone-shaped run in it that is an Indian mobile when the whole is not one.
+
+    The whole answer first, because that is the number when the model wrote only the number.
+    A model also writes a number with words around it ("8019857559, after 6 pm"); every
+    digit of that answer is not the number, and joining them stored an eleven-digit string
+    and flagged a correct mobile as not one. A run is taken only when exactly one run is a
+    mobile, so two numbers in one answer are kept as written for the owner to choose.
+    """
+    whole = normalize_phone(value)
+    if is_indian_mobile_e164(whole):
+        return whole
+    mobiles = {
+        found
+        for found in (normalize_phone(run.group(0)) for run in _PHONE_SHAPED_RE.finditer(value))
+        if is_indian_mobile_e164(found)
+    }
+    return mobiles.pop() if len(mobiles) == 1 else whole
 
 
 def coerce_value(field: ExtractionField, raw: Any) -> tuple[Any, str | None]:
@@ -571,6 +584,12 @@ def coerce_value(field: ExtractionField, raw: Any) -> tuple[Any, str | None]:
             return None, None
         raw = stripped
     try:
+        if field.type == "number" and is_phone_field(field) and not isinstance(raw, bool):
+            # A phone number is not a quantity, whatever type the field was given: read as
+            # a number it lost its +91 and any leading 0 and was flagged as not a mobile.
+            spoken = str(raw).strip()
+            if _PHONE_SHAPED_RE.search(spoken):
+                return captured_phone(spoken), None
         if field.type == "text":
             if isinstance(raw, bool):
                 return None, f"expected text for {field.label}, got a boolean"
@@ -588,7 +607,7 @@ def coerce_value(field: ExtractionField, raw: Any) -> tuple[Any, str | None]:
                 # column holds one dialable form, not whatever punctuation the number
                 # arrived in. A non-phone-shaped value in a number-named field (a flat
                 # number "A-204", an order ref) is NOT touched — it falls through unchanged.
-                return normalize_phone(value), None
+                return captured_phone(value), None
             return value, None
         if field.type == "number":
             if isinstance(raw, bool):
@@ -665,7 +684,7 @@ def validate_extraction(spec: ExtractionSchemaSpec, raw: dict[str, Any]) -> Vali
             # the SMB dials off this record, so "we heard a number but it does not look like
             # a mobile" is worth a human glance before a call. The message names no digits
             # (hard rule 6) — the value is in `data` for the field's owner to read.
-            if is_phone_field(field) and not _CANONICAL_MOBILE_RE.match(str(value)):
+            if is_phone_field(field) and not is_indian_mobile_e164(str(value)):
                 # Shown under the field's own label, so it does not name the field again.
                 needs_review[field.key] = PHONE_NEEDS_REVIEW
     return ValidationOutcome(data=data, errors=errors, needs_review=needs_review)
@@ -1783,6 +1802,7 @@ __all__ = [
     "callback_clock",
     "callback_day",
     "caller_language_reason",
+    "captured_phone",
     "clean_moment_candidates",
     "clean_unlisted",
     "clip_headline",

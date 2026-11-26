@@ -78,6 +78,23 @@ def prefill_from(payload: dict[str, Any]) -> CallerPrefill:
     return CallerPrefill(name=name, variables=variables)
 
 
+def for_person(prefill: CallerPrefill, name: str | None) -> CallerPrefill:
+    """`prefill` for a dial whose person the owner's records already name as `name`.
+
+    A lookup naming the same person (case and spacing aside) is kept whole. A lookup naming
+    somebody else is the client's other system holding another person on this number, a
+    reassigned number or a stale record, and everything it found is about that person, so
+    none of it reaches the call: the agent greeting "Srinivas" a person the owner calls
+    "Umesh" is the failure this prevents."""
+    if name is None or prefill.name is None or _same_name(name, prefill.name):
+        return prefill
+    return CallerPrefill()
+
+
+def _same_name(a: str, b: str) -> bool:
+    return " ".join(a.split()).casefold() == " ".join(b.split()).casefold()
+
+
 async def pre_dial_lookup(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, phone_e164: str
 ) -> CallerPrefill:
@@ -108,6 +125,7 @@ __all__ = [
     "CALLER_NAME_VARIABLE",
     "PRE_DIAL_BUDGET_S",
     "CallerPrefill",
+    "for_person",
     "pre_dial_lookup",
     "prefill_from",
 ]

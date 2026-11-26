@@ -513,10 +513,12 @@ async def place_trial_call(
         if campaign_test is not None and trial is None
         else None
     )
-    tester_name = (
-        await _tester_name(session, principal=principal, campaign_id=campaign_test.campaign_id)
-        if campaign_test is not None
-        else None
+    tester_name = await _tester_name(
+        session,
+        principal=principal,
+        campaign_id=campaign_test.campaign_id if campaign_test is not None else None,
+        agent_id=agent_id,
+        phone_e164=phone,
     )
     reserved: list[UUID] = []
 
@@ -607,14 +609,34 @@ LINE_TEST_NO_NUMBER_REASON: Final = "Get a number first. Test calls ring from yo
 
 
 async def _tester_name(
-    session: AsyncSession, *, principal: Principal, campaign_id: UUID
+    session: AsyncSession,
+    *,
+    principal: Principal,
+    campaign_id: UUID | None,
+    agent_id: UUID,
+    phone_e164: str,
 ) -> str | None:
-    """The name of the client user placing a campaign's test call, sent as the call's
-    `{{lead_name}}` where the campaign's list carries names (D-1045): its script greets a
-    known contact by name, so a nameless test is asked what a real call already has. None,
-    and the call stays nameless, for an operator's call, a user with no name on file, or a
-    name holding a digit, which may be a phone number."""
+    """The name a test call greets by, sent as its `{{lead_name}}` (D-1045).
+
+    A number the account knows (a lead, or the tested campaign's list row for it) is that
+    person, and is greeted by the owner's current name for them (`contact_details.
+    known_name`, the rule every dial follows): a campaign's test rung to a customer's number
+    greeted them by the tester's name on 26 Nov 2026. A number nobody on the account holds
+    is the tester's own; on a campaign's test it gets the client user's name where the
+    campaign's list carries names, and on any other test none. A campaign's script
+    greets a known contact by name, so a nameless test is asked what a real call already
+    has. None, and the call stays nameless, for an operator's call, a user with no name on
+    file, or a name holding a digit, which may be a phone number."""
+    from apps.api.campaigns.contact_details import known_name
+
     if principal.realm != "client" or principal.user_id is None:
+        return None
+    person = await known_name(
+        session, phone_e164=phone_e164, agent_id=agent_id, lead_id=None, campaign_id=campaign_id
+    )
+    if person is not None:
+        return _spoken_name(person)
+    if campaign_id is None:
         return None
     row = (
         await session.execute(
@@ -626,7 +648,12 @@ async def _tester_name(
             {"uid": principal.user_id, "cid": campaign_id},
         )
     ).first()
-    name = " ".join(str(row[0] or "").split()) if row is not None else ""
+    return _spoken_name(str(row[0] or "")) if row is not None else None
+
+
+def _spoken_name(raw: str) -> str | None:
+    """`raw` with its spacing collapsed, or None when empty or holding a digit."""
+    name = " ".join(raw.split())
     if not name or any(ch.isdigit() for ch in name):
         return None
     return name

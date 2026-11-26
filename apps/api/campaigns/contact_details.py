@@ -78,6 +78,48 @@ async def call_origin(
     )
 
 
+#: The owner's own name for the person on a number: the named campaign's list row for it,
+#: else the dial's lead, else the dialling agent's lead on the number, else the most
+#: recently changed lead (a number is one lead per agent, `leads` UNIQUE(tenant_id,
+#: phone_e164, agent_id)). The list row and the leads are kept on one name by the writes
+#: (`campaigns.service.add_contacts`, `crm.service.set_lead_name`). RLS scopes both reads.
+_KNOWN_NAME_SQL: Final = (
+    "SELECT name FROM ("
+    "  SELECT btrim(cc.name) AS name, 0 AS rank, now() AS at FROM campaign_contacts cc "
+    "  WHERE cc.campaign_id = CAST(:cid AS uuid) AND cc.phone_e164 = :phone "
+    "  AND btrim(COALESCE(cc.name, '')) <> '' "
+    "  UNION ALL "
+    "  SELECT btrim(l.name), CASE WHEN l.id = CAST(:lid AS uuid) THEN 1 "
+    "    WHEN l.agent_id = :aid THEN 2 ELSE 3 END, l.updated_at FROM leads l "
+    "  WHERE l.deleted_at IS NULL AND btrim(COALESCE(l.name, '')) <> '' "
+    "  AND (l.phone_e164 = :phone OR l.id = CAST(:lid AS uuid))"
+    ") known ORDER BY rank, at DESC LIMIT 1"
+)
+
+
+async def known_name(
+    session: AsyncSession,
+    *,
+    phone_e164: str,
+    agent_id: UUID,
+    lead_id: UUID | None,
+    campaign_id: UUID | None = None,
+) -> str | None:
+    """The owner's own name for the person a call rings, or None when no record names them.
+
+    The one resolver every dial asks before anything else names the person: a dial that
+    brings no name of its own (a list row with none, a campaign dial, which never carries a
+    lead) and a campaign's test call to a number the account knows are greeted by the
+    owner's own record, never by a lookup's or the tester's name for somebody else."""
+    row = (
+        await session.execute(
+            text(_KNOWN_NAME_SQL),
+            {"phone": phone_e164, "lid": lead_id, "aid": agent_id, "cid": campaign_id},
+        )
+    ).first()
+    return str(row[0]) if row is not None else None
+
+
 #: Lead fields a dial does not carry as details: the name already rides the dial as the
 #: person's name, and a second phone number is no detail the agent needs to read out (data
 #: minimisation; the number dialled is the call's own).
