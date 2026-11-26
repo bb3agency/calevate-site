@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.75 — 26-Nov-2026
+
+- Scripts can carry example turns for each step (a few ways the agent says it, and what it
+  says if the caller is confused, stuck or busy), and calls follow those examples. The old
+  booking example exchanges are no longer shown to the agent, and the opening line is no
+  longer repeated inside the script.
+
 ## 0.5.74 — 26-Nov-2026
 
 - Pip no longer writes lines asking the caller to say when a step is done, lines with two
