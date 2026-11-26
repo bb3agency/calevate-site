@@ -23,6 +23,7 @@ from apps.api.agents.call_handling_routes import _audit_summary
 from apps.api.agents.service import _load_agent, _to_config
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
+from calevate_shared.spoken_style import thinking_lines
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from tests.call_handling_test import _client, _make_live, _operator, _runs, _tenant
@@ -326,13 +327,14 @@ async def test_the_published_config_carries_the_resolved_settings() -> None:
             headers=headers,
             json={"nudge_phrase": "Hello, are you there?", "filler_lines": ["One moment"]},
         )
-    # Never asking is no `nudge_after_seconds`; the client's question and lines travel.
+    # Never asking is no `nudge_after_seconds`; the client's question and lines travel, with
+    # ours for a language none of theirs is written in.
     assert await config() == (
         None,
         1,
         "Hello, are you there?",
         20,
-        ("One moment",),
+        ("One moment", *thinking_lines(("te-IN",))),
         "office-quiet",
         40,
         False,
@@ -413,9 +415,11 @@ def test_the_platform_filler_lines_follow_the_agents_languages_and_the_clients_w
         return _call_settings_fields(row, languages=languages)["filler_lines"]  # type: ignore[arg-type]
 
     assert lines(None, ("te-IN", "hi-IN")) == ("ఒక్క సెకండ్ అండి", "एक मिनट जी")
-    # The client's "the standard lines" ([]) is ours too; their own lines win.
+    # The client's "the standard lines" ([]) is ours too; their own lines come first, and ours
+    # join them for a language none of theirs is written in (26 Nov 2026).
     assert lines((), ("hi-IN",)) == ("एक मिनट जी",)
-    assert lines(("One moment",), ("te-IN",)) == ("One moment",)
+    assert lines(("One moment",), ("te-IN",)) == ("One moment", "ఒక్క సెకండ్ అండి")
+    assert lines(("One moment",), ("en-IN",)) == ("One moment",)
     # English has no line of ours: the engine keeps its own English filler.
     assert lines(None, ("en-IN",)) == ()
 

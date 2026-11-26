@@ -95,9 +95,9 @@ def test_every_agent_carries_the_rules(direction: str, screen: bool) -> None:
 def test_a_job_scripts_steps_outcomes_and_answers_say_when_to_move_on() -> None:
     body = compile_call_script(_guided_script())
     prompt = compose_engine_prompt(_config("outbound", body))
-    # A step moves on only on a reply that meets its Wait for; anything else is asked about.
-    assert "Next only once their words meet its Wait for or say done" in PROCEDURE_LEAD
-    assert "else ask what they see, never assume." in PROCEDURE_LEAD
+    # A step moves on only on their word that it is done; a "what?" gets the same step again.
+    assert 'Only their "done" moves you on;' in PROCEDURE_LEAD
+    assert "the same step, shorter." in PROCEDURE_LEAD
     # An outcome is reached by what the person says, and a look-and-see one is asked for.
     assert "It is reached only when what they say shows it, never assumed or said" in OUTCOMES_LEAD
     assert "if it needs them to look or do something, ask them to and wait" in OUTCOMES_LEAD

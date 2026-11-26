@@ -23,6 +23,7 @@ from apps.api.engine.thinnest import (
     ThinnestEngine,
     parse_billing,
 )
+from calevate_shared.spoken_style import listening_lines
 from tests.thinnest_engine_test import WS, _cfg, _engine, _recorder, tools_state
 
 AGENT = f"ag_1@{WS}"
@@ -76,8 +77,10 @@ def test_the_backchannel_settings_are_stated_only_under_ear() -> None:
     assert {key: ear[key] for key in EAR_VOICE_VALUES} == {
         "backchannelDetection": True,
         "backchannelWords": [],
-        "acknowledgementWords": [],
+        # A Telugu agent's own listening words, never the engine's pick (26 Nov 2026).
+        "acknowledgementWords": list(listening_lines("te-IN")),
     }
+    assert ear["acknowledgementWords"]
 
 
 def test_the_tools_state_recall_and_code_verification() -> None:
@@ -126,7 +129,8 @@ def test_the_new_labels_are_ours() -> None:
 
 
 async def test_an_agent_holding_what_we_send_has_no_drift_and_null_lists_are_empty() -> None:
-    cfg = _cfg(business="", name="", turn_detection="ear")
+    # English, so every list is ours empty: a Telugu agent names its own listening words.
+    cfg = _cfg(business="", name="", turn_detection="ear", language_primary="en-IN")
     held = ThinnestEngine(api_key="ta_live_test")._agent_body(cfg)
     # How an answer may spell "none": null for each list, a whole-number-looking float.
     held["voice"].update(vocabulary=None, backchannelWords=None, acknowledgementWords=None)
