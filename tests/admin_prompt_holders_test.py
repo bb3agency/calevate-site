@@ -86,8 +86,8 @@ def _holder(body: dict[str, Any], kind: str, holder_id: UUID | None = None) -> d
     return found
 
 
-def _script_layer(holder: dict[str, Any]) -> str:
-    [layer] = [x for x in holder["layers"] if x["key"] == "client_script"]
+def _layer(holder: dict[str, Any], key: str) -> str:
+    [layer] = [x for x in holder["layers"] if x["key"] == key]
     return str(layer["text"])
 
 
@@ -116,8 +116,10 @@ async def test_a_campaigns_anatomy_is_its_own_script_and_overrides_not_the_agent
     campaign = _holder(body, "campaign", campaign_id)
     own = _holder(body, "agent")
     assert campaign["name"].startswith("Calls ") and campaign["status"] == "running"
-    assert "evening hours" in _script_layer(campaign)
-    assert "evening hours" not in _script_layer(own)
+    # The two scripts differ only in their opening, which the model reads quoted as already
+    # said, under START OF THE CALL.
+    assert "evening hours" in _layer(campaign, "notices")
+    assert "evening hours" not in _layer(own, "notices")
     async with tenant_session(tenant_id) as session:
         cfg = await agents_service.campaign_config(
             session, tenant_id=tenant_id, campaign_id=campaign_id
