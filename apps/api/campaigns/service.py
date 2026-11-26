@@ -1095,10 +1095,16 @@ async def add_contacts(
     if batch:
         # ONE statement for the whole upload rather than one round trip per contact: an
         # upload is up to 5,000 rows (`AddContactsIn`), and the per-row INSERT made the
-        # request's time grow with the list. A number already on the campaign returns no
-        # row, so what was not returned is the cross-batch duplicate count.
+        # request's time grow with the list.
+        #
+        # A number already on the campaign is a duplicate, but a name given with it is the
+        # owner's newest name for that person and replaces the stored one: the agent greets
+        # people by the list's name, and keeping the first upload's greeted somebody by a
+        # name the owner had since corrected. A row being dialled keeps its name, so the
+        # call in flight and the row it is recorded against agree; `xmax = 0` tells the
+        # rows this statement inserted from the ones it renamed.
         ids, phones, names, customs = (list(column) for column in zip(*batch, strict=True))
-        inserted = (
+        written = (
             await session.execute(
                 text(
                     "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, "
@@ -1108,7 +1114,12 @@ async def add_contacts(
                     "FROM unnest(CAST(:ids AS uuid[]), CAST(:phones AS text[]), "
                     "CAST(:names AS text[]), CAST(:customs AS text[])) "
                     "AS u(id, phone, name, custom) "
-                    "ON CONFLICT (campaign_id, phone_e164) DO NOTHING RETURNING id"
+                    "ON CONFLICT (campaign_id, phone_e164) DO UPDATE "
+                    "SET name = EXCLUDED.name, updated_at = now() "
+                    "WHERE EXCLUDED.name IS NOT NULL "
+                    "AND campaign_contacts.name IS DISTINCT FROM EXCLUDED.name "
+                    "AND campaign_contacts.status <> 'dialing' "
+                    "RETURNING (xmax = 0) AS inserted"
                 ),
                 {
                     "tid": tenant_id,
@@ -1120,7 +1131,7 @@ async def add_contacts(
                 },
             )
         ).all()
-        added = len(inserted)
+        added = sum(1 for row in written if row[0])
         duplicate += len(batch) - added
     return {"added": added, "malformed": malformed, "duplicate": duplicate, "foreign": foreign}
 

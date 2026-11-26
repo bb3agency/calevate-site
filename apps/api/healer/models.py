@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.indian_mobile import INDIAN_MOBILE_E164_PATTERN
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -207,7 +208,7 @@ class HealFallbackPhone(PKMixin, TimestampMixin, Base):
 
     __tablename__ = "heal_fallback_phones"
     __table_args__ = (
-        CheckConstraint(r"phone_e164 ~ '^\+91[6-9][0-9]{9}$'", name="phone_india_mobile"),
+        CheckConstraint(f"phone_e164 ~ '{INDIAN_MOBILE_E164_PATTERN}'", name="phone_india_mobile"),
         UniqueConstraint("tenant_id"),
     )
 

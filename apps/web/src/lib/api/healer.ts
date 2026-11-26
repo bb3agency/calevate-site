@@ -34,9 +34,6 @@ export const healerKeys = {
   proposals: (org: string) => ["healer", "proposals", org] as const,
 };
 
-/** Indian mobile, the only shape the server accepts for a fallback phone. */
-export const INDIA_MOBILE = /^\+91[6-9]\d{9}$/;
-
 /** "98765 43210" or "+91 98765-43210" → "+919876543210" (`lib/phoneNumber`, so a Telugu
  *  keyboard's digits count); what cannot be read comes back stripped, for the check above. */
 export function normaliseIndianMobile(raw: string): string {

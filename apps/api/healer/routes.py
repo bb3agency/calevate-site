@@ -32,6 +32,7 @@ from datetime import datetime
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
+from calevate_shared.indian_mobile import INDIAN_MOBILE_E164_PATTERN, is_indian_mobile_e164
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 from sqlalchemy import text
@@ -318,7 +319,7 @@ async def restore_client_line(
 
 def _india_mobile(value: str) -> str:
     india_handoff_number(value)
-    if not value.startswith("+91") or len(value) != 13 or value[3] not in "6789":
+    if not is_indian_mobile_e164(value):
         raise ValueError("Enter an Indian mobile number, starting +91.")
     return value
 
@@ -326,7 +327,9 @@ def _india_mobile(value: str) -> str:
 class FallbackPhoneIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    phone_e164: Annotated[str, Field(pattern=r"^\+91[6-9][0-9]{9}$"), AfterValidator(_india_mobile)]
+    phone_e164: Annotated[
+        str, Field(pattern=INDIAN_MOBILE_E164_PATTERN), AfterValidator(_india_mobile)
+    ]
 
 
 class FallbackPhoneOut(_Out):

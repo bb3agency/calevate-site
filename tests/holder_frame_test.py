@@ -180,9 +180,73 @@ async def _contact(tenant_id: UUID, campaign_id: UUID, name: str | None) -> None
         )
 
 
-async def _name_for(tenant_id: UUID, campaign_id: UUID, principal: Principal) -> str | None:
+#: A test number no lead or list row on the account holds: the tester's own.
+TESTERS_OWN = "+916000000001"
+
+
+async def _name_for(
+    tenant_id: UUID,
+    campaign_id: UUID,
+    principal: Principal,
+    *,
+    agent_id: UUID | None = None,
+    phone: str = TESTERS_OWN,
+) -> str | None:
     async with tenant_session(tenant_id) as session:
-        return await trial_calls._tester_name(session, principal=principal, campaign_id=campaign_id)
+        return await trial_calls._tester_name(
+            session,
+            principal=principal,
+            campaign_id=campaign_id,
+            agent_id=agent_id or uuid.uuid4(),
+            phone_e164=phone,
+        )
+
+
+async def _lead_on(tenant_id: UUID, agent_id: UUID, phone: str, name: str) -> None:
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
+                "created_at, updated_at) VALUES (:id, :t, :a, :p, :n, 'inbound_call', 'new', "
+                "now(), now())"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "a": agent_id, "p": phone, "n": name},
+        )
+
+
+async def test_a_test_call_to_a_number_the_account_knows_greets_that_person() -> None:
+    """26 Nov 2026: a campaign's test call rang a customer's number and greeted them by the
+    tester's name. A number on a lead or the campaign's list is that person, by the owner's
+    current name for them; only a number nobody holds gets the tester's name."""
+    tenant_id, agent_id = await _agent_with_script("Greet, then help.")
+    tid, aid = UUID(str(tenant_id)), UUID(str(agent_id))
+    campaign_id = await _dlt_campaign(tid, aid)
+    tester = Principal(
+        realm="client", user_id=await _user("Srinivas J"), tenant_id=tid, role="owner"
+    )
+    await _contact(tid, campaign_id, "Lakshmi")
+    customer = "+918019857559"
+    await _lead_on(tid, aid, customer, "Umesh")
+
+    assert await _name_for(tid, campaign_id, tester, agent_id=aid, phone=customer) == "Umesh"
+    assert await _name_for(tid, campaign_id, tester, agent_id=aid) == "Srinivas J"
+    admin = Principal(realm="admin", user_id=tester.user_id, tenant_id=tid, role="operator")
+    assert await _name_for(tid, campaign_id, admin, agent_id=aid, phone=customer) is None
+
+    # This campaign's own list row for the number is the owner's name for them too.
+    listed = "+917000000002"
+    async with tenant_session(tid) as session:
+        await session.execute(
+            text(
+                "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, name, "
+                "created_at, updated_at) VALUES (:id, :t, :c, :p, 'Ravi', now(), now())"
+            ),
+            {"id": uuid.uuid4(), "t": tid, "c": campaign_id, "p": listed},
+        )
+    assert await _name_for(tid, campaign_id, tester, agent_id=aid, phone=listed) == "Ravi"
+    # A name holding a digit is never said, whoever's record it is.
+    await _lead_on(tid, aid, "+919000000003", "Call 98765 43210")
+    assert await _name_for(tid, campaign_id, tester, agent_id=aid, phone="+919000000003") is None
 
 
 async def test_the_testers_name_is_used_only_where_the_list_carries_names() -> None:

@@ -2070,17 +2070,32 @@ async def set_lead_name(session: AsyncSession, lead_id: UUID, *, name: str) -> b
     Zero rows is then two facts, so it is disambiguated the same way `set_lead_assignee`
     does it: the write ran first and unconditionally, and the SELECT that follows writes
     nothing and cannot reintroduce a race.
+
+    The person's campaign list rows take the new name too, in the same transaction: the
+    agent greets a campaign contact by the list's name, so a rename that stopped at the lead
+    left the next call saying the name the owner had just corrected. One rule for both
+    writes (`campaigns.service.add_contacts`): the newest name the owner gave wins, and a
+    row being dialled keeps the name its call is using.
     """
-    changed = rowcount_of(
+    renamed = (
         await session.execute(
             text(
                 "UPDATE leads SET name = :name, updated_at = now() "
-                f"WHERE id = :lid AND {_LEAD_VISIBLE} AND name IS DISTINCT FROM :name"
+                f"WHERE id = :lid AND {_LEAD_VISIBLE} AND name IS DISTINCT FROM :name "
+                "RETURNING phone_e164"
             ),
             {"lid": lead_id, "name": name},
         )
-    )
-    if changed:
+    ).first()
+    if renamed is not None:
+        await session.execute(
+            text(
+                "UPDATE campaign_contacts SET name = NULLIF(btrim(:name), ''), updated_at = now() "
+                "WHERE phone_e164 = :phone AND status <> 'dialing' "
+                "AND name IS DISTINCT FROM NULLIF(btrim(:name), '')"
+            ),
+            {"phone": renamed[0], "name": name},
+        )
         return True
     exists = (
         await session.execute(

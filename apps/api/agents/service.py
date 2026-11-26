@@ -6865,8 +6865,8 @@ async def dispatch_call(
         await _lend_trial_line(tenant_id, call_id=call_id, agent_ref=dial_ref)
     if borrowed is not None:
         await _lend_client_number(tenant_id, call_id=call_id, number=borrowed, agent_ref=dial_ref)
-    from apps.api.actions.pre_dial import CallerPrefill, pre_dial_lookup
-    from apps.api.campaigns.contact_details import lead_details
+    from apps.api.actions.pre_dial import CallerPrefill, for_person, pre_dial_lookup
+    from apps.api.campaigns.contact_details import known_name, lead_details
 
     # A dial for a known lead that brings no list row of its own (a new lead's first call,
     # a call-back outside a campaign, the "call this lead" button) carries the lead's stored
@@ -6878,22 +6878,34 @@ async def dispatch_call(
         details = await lead_details(session, lead_id=lead_id)
 
     engine = get_engine()
+    # Who the person is, by the owner's own records first: the name the dial brought (the
+    # list's), else the account's lead for this number. A campaign dial brings no lead, and
+    # without this read a list row with no name fell straight to the lookup below.
+    person = lead_name.strip() if lead_name and lead_name.strip() else None
+    if person is None and trial is None and owner_test is None:
+        person = await known_name(
+            session, phone_e164=phone_e164, agent_id=agent_id, lead_id=lead_id
+        )
     # The client's caller lookup, BEFORE the dial on an engine that takes a name and call
-    # variables (D-700): the person is greeted by name with no wait on the line.
-    prefill = (
+    # variables (D-700): the person is greeted by name with no wait on the line. It names
+    # the person only when the owner's records do not, and what it found about somebody
+    # else of another name is not used (`for_person`).
+    prefill = for_person(
         await pre_dial_lookup(
             session, tenant_id=tenant_id, agent_id=agent_id, phone_e164=phone_e164
         )
         if engine.name in ACTION_ENGINES and trial is None
-        else CallerPrefill()
+        else CallerPrefill(),
+        person,
     )
+    person = person or prefill.name
     try:
         handle = await engine.start_outbound_call(
             dial_ref,
             phone_e164,
             CallContext(
                 lead_id=str(lead_id) if lead_id else None,
-                lead_name=lead_name or prefill.name,
+                lead_name=person,
                 lead_name_files_contact=trial is None and owner_test is None,
                 fields=prefill.variables,
                 contact_details=details,
@@ -6909,7 +6921,7 @@ async def dispatch_call(
                     engine,
                     tenant_id,
                     speaker,
-                    merge_values={"lead_name": lead_name, "phone": phone_e164},
+                    merge_values={"lead_name": person, "phone": phone_e164},
                 ),
                 from_e164=from_e164,
                 # Our intent row's id, for an engine whose carrier calls back into our
@@ -6937,7 +6949,7 @@ async def dispatch_call(
                         speaker,
                         test_call=trial is not None or owner_test is not None,
                         call_is_recorded=engine.capabilities.records_audio,
-                        lead_name=lead_name or prefill.name,
+                        lead_name=person,
                         through_line=line is not None,
                     )
                     or held_first_words
