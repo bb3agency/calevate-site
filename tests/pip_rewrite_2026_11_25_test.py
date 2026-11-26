@@ -160,7 +160,7 @@ async def test_a_written_rewrite_is_saved_as_a_pip_version_while_the_script_is_u
     await _record(tenant_id, line_id, "pip_draft")
     holder = await _ask_rewrite(tenant_id, line_id)
     async with tenant_session(tenant_id) as session:
-        await campaign_script._save_if_rewrite(session, holder, REWRITTEN)
+        await campaign_script._save_if_rewrite(session, holder, REWRITTEN, clean=True)
     async with tenant_session(tenant_id) as session:
         line = await lines.read_line(session, line_id)
         newest = (await script_history.versions(session, "line", line_id))[0]
@@ -172,7 +172,7 @@ async def test_a_written_rewrite_is_saved_as_a_pip_version_while_the_script_is_u
     async with tenant_session(tenant_id) as session:
         await lines.save_script(session, line_id, owners, author="owner")
     async with tenant_session(tenant_id) as session:
-        await campaign_script._save_if_rewrite(session, holder, REWRITTEN)
+        await campaign_script._save_if_rewrite(session, holder, REWRITTEN, clean=True)
     async with tenant_session(tenant_id) as session:
         line = await lines.read_line(session, line_id)
     assert line.script == owners and line.proposal is None
@@ -191,3 +191,38 @@ async def test_a_failed_rewrite_leaves_no_failure_on_the_owners_page() -> None:
 def test_a_rewrite_is_written_whole_not_as_an_edit() -> None:
     assert campaign_script._rewrite({"rewrite": script_history.REWRITE_RULES})
     assert not campaign_script._rewrite({"tone": "warm"})
+
+
+async def test_a_rewrite_still_carrying_warnings_is_dropped_and_the_script_kept() -> None:
+    """FAILS IF: a rewrite nobody reviews is saved with the writer's warnings thrown away
+    (founder, 26 Nov 2026: only a clean rewrite replaces a script unasked)."""
+    tenant_id, agent_id = await heal_test._account("warned")
+    line_id = await _new_line(tenant_id, agent_id)
+    await _record(tenant_id, line_id, "pip_draft")
+    async with tenant_session(tenant_id) as session:
+        before = (await lines.read_line(session, line_id)).script
+    holder = await _ask_rewrite(tenant_id, line_id)
+    async with tenant_session(tenant_id) as session:
+        await campaign_script._save_if_rewrite(session, holder, REWRITTEN, clean=False)
+    async with tenant_session(tenant_id) as session:
+        line = await lines.read_line(session, line_id)
+    assert line.script == before and line.proposal is None
+
+
+async def test_a_saved_rewrite_is_queued_to_go_live(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FAILS IF: a rewrite is saved but never reaches the calls a live holder takes."""
+    from apps.api.campaigns import notes_live
+
+    queued: list[list[tuple[str, UUID]]] = []
+
+    async def record(_session: Any, *, tenant_id: UUID, jobs: list[tuple[str, UUID]]) -> None:
+        queued.append(jobs)
+
+    monkeypatch.setattr(notes_live, "queue_put_live", record)
+    tenant_id, agent_id = await heal_test._account("live")
+    line_id = await _new_line(tenant_id, agent_id)
+    await _record(tenant_id, line_id, "pip_draft")
+    holder = await _ask_rewrite(tenant_id, line_id)
+    async with tenant_session(tenant_id) as session:
+        await campaign_script._save_if_rewrite(session, holder, REWRITTEN, clean=True)
+    assert queued == [[("line", line_id)]]

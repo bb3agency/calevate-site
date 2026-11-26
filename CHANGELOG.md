@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.72 — 26-Nov-2026
+
+- When Pip rewrites one of its own scripts under new rules, it now replaces the script only
+  when the rewrite has no warnings left, and puts it live on calls. A rewrite with warnings is
+  dropped and your script stays as it was. Scripts you edited yourself are never rewritten.
+
 ## 0.5.71 — 26-Nov-2026
 
 - A call greets the person by the newest name you gave them: a test call to a number that

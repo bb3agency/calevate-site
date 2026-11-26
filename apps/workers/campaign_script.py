@@ -355,14 +355,26 @@ async def _dropped_if_rewrite(session: AsyncSession, holder: _Holder) -> bool:
     ).first() is not None
 
 
-async def _save_if_rewrite(session: AsyncSession, holder: _Holder, script: CallScript) -> None:
+async def _save_if_rewrite(
+    session: AsyncSession, holder: _Holder, script: CallScript, *, clean: bool
+) -> None:
     """A rewrite under the current rules (founder, 25 Nov 2026) becomes the holder's script
     at once, through the holder's own Save, which keeps it as a `pip_draft` version (so the
-    Versions list and Put back reach the script before it) and puts a live holder live again.
+    Versions list and Put back reach the script before it), and is then put on the calls of a
+    holder that takes them (`notes_live.queue_put_live`, as the heal pass's repairs are).
+    Nobody reviews it (founder, 26 Nov 2026: a non-technical owner should not have to), so
+    only a CLEAN draft is saved: one the writer left warnings on (`clean` False) is dropped
+    and the script keeps its line repairs, rather than saved with its warnings thrown away.
     Only while the script is still the one the rewrite was written from and still Pip's
     (`script_history.pip_owns`): an owner's save meanwhile wins, and the draft is dropped.
-    A save refused for its length drops it too; the script then keeps its line repairs."""
+    A save refused for its length drops it too."""
+    from apps.api.campaigns.notes_live import queue_put_live
     from apps.api.inbound import lines
+
+    if not clean:
+        if await _dropped_if_rewrite(session, holder):
+            log.info("holder_script_rewrite_dropped", extra={"reason": "warnings"})
+        return
 
     kind: script_history.HolderKind = "line" if holder.table == "inbound_lines" else "campaign"
     row = (
@@ -401,6 +413,11 @@ async def _save_if_rewrite(session: AsyncSession, holder: _Holder, script: CallS
                     reason=script_history.REWRITE_REASON,
                 )
             await _dropped_if_rewrite(session, holder)
+            await queue_put_live(
+                session,
+                tenant_id=holder.tenant_id,
+                jobs=[("line" if kind == "line" else "campaign", holder.holder_id)],
+            )
     except ProblemError as refused:
         log.info("holder_script_rewrite_dropped", extra={"reason": refused.code})
         await _dropped_if_rewrite(session, holder)
@@ -1334,7 +1351,7 @@ async def _write(
         stored = await _store(session, holder, update)
         if stored:
             await _save_if_asked(session, holder, finished.script)
-            await _save_if_rewrite(session, holder, finished.script)
+            await _save_if_rewrite(session, holder, finished.script, clean=not left_out)
         await _meter(session, tenant_id, spends)
     log.info(
         "holder_script_written",

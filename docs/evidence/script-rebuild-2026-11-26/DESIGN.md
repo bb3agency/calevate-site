@@ -224,7 +224,7 @@ Rememory: d980cc9b (the call), d9155474 (founder direction).
 - **HOW TO SPEAK is trimmed** to the rules in principle 7. The one-action and "only their own 'done'
   moves on" rules stay, because examples show them but do not enforce them.
 
-### 3.6 Rehearsal: `script_rehearsal` worker job
+### 3.6 Rehearsal: `script_rehearsal` worker job. DROPPED by the founder on 26 Nov 2026 (§6)
 
 - **What it reuses:** `scripts/call_sim` (`holder_agent(..., script=draft)` accepts a draft), moved
   into an ARQ job of its own. It does not share the writer's 300-second job.
@@ -269,12 +269,39 @@ Parallel lanes, each owning its own files. They start after lanes W and P land.
 | R3 Check registry | `script_checks` and moving the existing checks into it; severity on save, Keep and Put it live; the after-call reuse | — |
 | R4 Compile | the `call_script` and `engine` compile of examples; trimming HOW TO SPEAK; the budget tests | R2 schema |
 | R5 Rehearsal | the `script_rehearsal` job, the callers, scoring, the review card, the prompt-release gate | R3, R4 |
+| R7 Auto-improve | the auto-improve job (§6.1): checks-only acceptance, the better-than-current comparison, keeping structure and the owner's own lines, put live, the owner notice with Undo, triggers | R1, R2, R3 |
 | R6 Web | the review card: per-step examples (editable), warnings, rehearsal results, "mark as good example" | R2, R5 |
 
 Every lane gets tests. One more is required before release: the eval set gains Telugu and Hindi
 guided-call cases, and the rehearsal scorecard on fixture scripts must beat today's scorecard.
 
-## 6. Decisions for the founder
+## 6. Founder's answers (26 Nov 2026)
+
+1. **The auto-rewrite stays, at its best possible state.** This replaces an earlier answer on the same
+   day to stop it: the founder said a non-technical owner should not have to review changes.
+   - **Fixed now (0.5.72):**
+     - only a clean draft, with no warnings left, replaces a script;
+     - a saved rewrite is put live;
+     - an owner's hand edits are still never overwritten;
+     - every rewrite is a version, so it can be undone.
+   - **The rebuilt auto-improve (lane R7) replaces a script only when all of these hold:**
+     1. Every check passes with zero warnings, in the call's language.
+     2. It is better by the same checks: fewer findings than the current script, and nothing that
+        passed before now fails.
+     3. The owner's structure is unchanged: the same steps, order, outcomes and ways out. Only
+        the words and examples change.
+     4. It goes live automatically.
+     5. The owner gets one plain notice naming what improved, with a one-tap Undo.
+     6. Lines the owner wrote or edited are never touched. Only Pip's own lines are improved.
+     7. It runs when the rules or examples change, or when real calls show a problem in that
+        script; never on a timer. It is metered against the AI-help allowance.
+   - §4's "reviewed migration draft" is replaced by this.
+2. **No practice calls.** Quality comes from the single check registry, run the same way on every
+   path. §3.6 and lane R5 are dropped. `scripts/call_sim` stays an offline tool we may run by hand;
+   it is never part of writing a script.
+3. **Pip writes the examples, and the owner reviews them on the draft.**
+
+The original questions as asked:
 
 1. **Stop the 25 Nov auto-rewrite now.** (Recommended.) It saves unreviewed drafts that still carry
    warnings, and it rewrites scripts the owner kept.
