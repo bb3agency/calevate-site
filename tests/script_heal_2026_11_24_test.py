@@ -28,6 +28,7 @@ from apps.api.db.session import tenant_session
 from apps.api.inbound import lines
 from apps.api.main import app
 from apps.workers import script_heal as heal_job
+from apps.workers.script_writer import WriteResult
 from calevate_shared.call_script import CallScript, ConversationStage, ProcedureStep
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -188,28 +189,19 @@ async def _queue(tenant_id: UUID, kind: script_heal.HolderKind, holder_id: UUID)
 def _writer(monkeypatch: pytest.MonkeyPatch, written: CallScript | None) -> dict[str, Any]:
     seen: dict[str, Any] = {"changes": [], "metered": 0}
 
-    async def write(_brief: Any, **kwargs: Any) -> Any:
+    async def write(request: Any) -> Any:
+        # The one writer, `lines` mode; what it writes is `script_writer`'s own test's.
         if written is None:
             raise AssertionError("no model may be asked")
-        seen["changes"].append(kwargs["change"])
-        return SimpleNamespace(
-            script=written,
-            capability=SimpleNamespace(disclosure=None),
-            usage=None,
-            model="gemini-2.5-flash-lite",
-            earlier=(),
-        )
+        assert request.mode == "lines"
+        seen["changes"].append("\n".join(request.problems))
+        return WriteResult(written, [SimpleNamespace(model="gemini-2.5-flash-lite")])
 
-    async def meter(*_args: Any, **_kwargs: Any) -> None:
-        seen["metered"] += 1
+    async def meter(_session: Any, _tenant: Any, spends: Any) -> None:
+        seen["metered"] += len(spends)
 
-    async def nothing(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(heal_job, "draft_script", write)
-    monkeypatch.setattr(heal_job.crm_assist, "meter_assist", meter)
-    monkeypatch.setattr(heal_job.crm_assist, "meter_earlier", nothing)
-    monkeypatch.setattr(heal_job.crm_assist, "meter_refusal", meter)
+    monkeypatch.setattr(heal_job, "write_script", write)
+    monkeypatch.setattr(heal_job, "meter", meter)
     return seen
 
 
@@ -264,23 +256,17 @@ async def test_a_campaign_changed_mid_pass_is_never_written_over(
     campaign_id = await _campaign(tenant_id, agent_id, _script())
     owners = _script("Open the browser and tell me which page shows (any one).")
 
-    async def write(_brief: Any, **_kwargs: Any) -> Any:
+    async def write(_request: Any) -> Any:
         # The owner (or the step-outcomes pass) saves while Pip writes.
         async with tenant_session(tenant_id) as session:
             await session.execute(
                 text("UPDATE campaigns SET script = CAST(:s AS jsonb) WHERE id = :c"),
                 {"s": owners.model_dump_json(), "c": campaign_id},
             )
-        return SimpleNamespace(
-            script=_script(PLAIN),
-            capability=SimpleNamespace(disclosure=None),
-            usage=None,
-            model="gemini-2.5-flash-lite",
-            earlier=(),
-        )
+        return WriteResult(_script(PLAIN), [])
 
     _writer(monkeypatch, _script(PLAIN))
-    monkeypatch.setattr(heal_job, "draft_script", write)
+    monkeypatch.setattr(heal_job, "write_script", write)
     await _queue(tenant_id, "campaign", campaign_id)
 
     outcome = await heal_job.repair_holder_script({}, _payload(tenant_id, "campaign", campaign_id))

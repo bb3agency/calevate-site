@@ -53,12 +53,7 @@ from apps.api.agents.turn_checks import JOB_KINDS, SOUND_KINDS, conversation_pro
 from apps.api.db.session import tenant_session
 from apps.api.first_run.questions import ONE_THING, with_one_thing
 from apps.workers import agent_test_ai
-from apps.workers.script_assist import (
-    OWNER_QUESTIONS,
-    VALUE_FACT_NOTE,
-    ScriptBrief,
-    language_problems,
-)
+from apps.workers.script_assist import language_problems
 from calevate_shared.call_script import CallScript, ConversationStage, ExampleLine, ScriptPolicies
 from calevate_shared.engine import (
     DAYS_RULE,
@@ -286,27 +281,6 @@ def test_the_writer_repairs_what_the_lint_finds_in_its_own_lines_only() -> None:
     assert any("best price" in p.lower() for p in problems)
     # The owner's own line, already in the script, is never the model's to fix.
     assert not any("example_exchange" in p for p in language_problems(bad, "en-IN", before=bad))
-
-
-def test_the_brief_carries_the_manifest_the_facts_and_the_sixth_answer() -> None:
-    assert OWNER_QUESTIONS["one_thing"] == "What one thing should every caller know about you?"
-    brief = ScriptBrief(
-        business_name="Acme",
-        direction="outbound",
-        language="en-IN",
-        answers=(("one_thing", "Open since 1998."),),
-        capabilities=CapabilityManifest(call_backs=True, lead_sources=("web_form",)),
-        facts=("Possession in March 2027.",),
-    )
-    message = brief.user_message()
-    assert "What this agent can do on a call: offer a call back" in message
-    assert "It can NOT: book or confirm a time" in message
-    assert "Where its leads come from: web_form" in message
-    assert "- Possession in March 2027." in message
-    assert VALUE_FACT_NOTE in message
-    assert "What one thing should every caller know about you? Open since 1998." in message
-    assert "2027" in brief.lint_context().facts and "1998" in brief.lint_context().facts
-    assert VALUE_FACT_NOTE not in ScriptBrief(direction="inbound").user_message()
 
 
 # --- the plans ---------------------------------------------------------------------------

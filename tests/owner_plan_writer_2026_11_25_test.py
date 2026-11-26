@@ -20,11 +20,9 @@ The model is never called: the provider is faked one layer below the ladder.
 
 from __future__ import annotations
 
-import contextlib
 import json
 from collections.abc import Sequence
 from typing import Any
-from uuid import UUID
 
 import pytest
 from apps.api.agents.owner_plan import (
@@ -35,16 +33,10 @@ from apps.api.agents.owner_plan import (
     with_owner_plan,
 )
 from apps.api.agents.script_structure import renumbered
-from apps.api.campaigns import workspace
 from apps.api.core import provider_health
-from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session
-from apps.workers import campaign_script, chat, script_assist
-from apps.workers import script_proposal as proposal_worker
-from apps.workers.campaign_script_ask import PLAN_HEAD, campaign_change
+from apps.workers import chat
 from apps.workers.extraction import TenantModelLeg
-from apps.workers.script_assist import ScriptBrief
 from calevate_shared.call_script import (
     CallScript,
     ConversationStage,
@@ -52,7 +44,6 @@ from calevate_shared.call_script import (
     StepOutcome,
 )
 from scripts import eval_script_writer as ev
-from tests.campaign_script_writer_2026_11_15_test import LINT, _answer, _campaign
 
 GOOGLE_LEG = TenantModelLeg(model="gemini-3.1-flash-lite", provider="google", serves_dashboard=True)
 
@@ -443,20 +434,6 @@ def test_an_empty_outcome_is_named_and_the_owners_outcome_and_name_are_kept_by_c
     assert plan_problems(pinned, plan) == []
 
 
-def test_the_ask_shows_the_owners_steps_in_place_of_the_main_tasks_items() -> None:
-    """FAILS IF: the main task's numbered items (the old plan) are still listed as the steps
-    to cover when the owner laid out their own."""
-    plan = owner_plan(RYTU.instruction)
-    assert plan is not None
-    change = campaign_change(
-        RYTU.main_task, "", "", edit=False, instruction=RYTU.instruction, plan=plan
-    )
-    assert PLAN_HEAD in change and plan_block(plan) in change
-    assert "THE MAIN TASK'S ITEMS" not in change
-    without = campaign_change(RYTU.main_task, "", "", edit=False)
-    assert "THE MAIN TASK'S ITEMS" in without and PLAN_HEAD not in without
-
-
 # --- 3. the writer -------------------------------------------------------------------------
 
 
@@ -553,119 +530,4 @@ _DEPARTING_ROWS: list[tuple[str, int, list[dict[str, str]]]] = [
 ]
 
 
-async def test_a_departing_draft_is_sent_back_with_the_mismatch_and_a_kept_one_is_kept(
-    gemini: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """FAILS IF: a draft that reorders, drops or adds to the owner's steps, or makes call back
-    a step, reaches the owner without being sent back naming each departure; or a draft that
-    keeps the plan is refused; or the trade's step plan is put beside the owner's."""
-    asked = _answers(monkeypatch, [_draft(_DEPARTING_ROWS), _draft(_KEPT_ROWS)])
-    plan = owner_plan(DELIVERY)
-    draft = await script_assist.draft_script(
-        ScriptBrief(language="en-IN", business_type="retail", owner_plan=plan),
-        tenant_leg=GOOGLE_LEG,
-    )
-    assert len(asked) == 2
-    assert "Step plan for this kind of business" not in asked[0]
-    repair = asked[1]
-    assert "not in the owner's order" in repair
-    assert '"Wrong person" is missing' in repair
-    assert '"Call back" is written as a step of its own' in repair
-    script = draft.script
-    assert [stage.name for stage in script.stages] == [
-        "Welcome back",
-        "Delivery day",
-        "Wrong person",
-        "Close",
-    ]
-    assert not any(stage.name == "Call back" for stage in script.stages)
-    assert [o.outcome for o in script.step_outcomes] == [
-        "They agreed to talk.",
-        "They chose a delivery day.",
-        "The call is finished.",
-    ]
-    assert plan_problems(script, plan) == []
-
-
-async def test_without_an_owners_plan_the_trades_step_plan_is_still_given(
-    gemini: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    asked = _answers(monkeypatch, [_draft(_KEPT_ROWS)])
-    # Whether this answer passes without the plan's outcomes is beside the point.
-    with contextlib.suppress(ProblemError):
-        await script_assist.draft_script(
-            ScriptBrief(language="en-IN", business_type="retail"), tenant_leg=GOOGLE_LEG
-        )
-    assert "Step plan for" in asked[0]
-
-
 # --- 4. the campaign job -------------------------------------------------------------------
-
-
-@pytest.mark.rls
-async def test_a_request_with_the_owners_steps_is_written_whole_from_them(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: a campaign whose request lays out the steps is written as an edit of its old
-    script (whose steps an edit keeps and puts back), or the writer is not given the plan."""
-    monkeypatch.setattr(get_settings(), "script_mistake_repair_passes", 0)
-    old = CallScript(
-        schema_version=2,
-        stages=[
-            ConversationStage(id="login", name="Login", instruction="Ask them to log in."),
-            ConversationStage(id="close", name="Close", instruction="Thank them."),
-        ],
-    )
-    tenant_id, campaign_id = await _campaign(old)
-    async with tenant_session(tenant_id) as session:
-        requested = await workspace.request_proposal(
-            session,
-            tenant_id=tenant_id,
-            campaign_id=campaign_id,
-            requested_by=None,
-            ask={"instruction": " ".join(DELIVERY.split())},
-        )
-    calls: list[dict[str, Any]] = []
-
-    async def write(brief: Any, **kwargs: Any) -> Any:
-        calls.append({"brief": brief, **kwargs})
-        return _answer(_kept_delivery())
-
-    async def lint_context(*_args: Any, **_kwargs: Any) -> Any:
-        return LINT
-
-    async def openings(_t: UUID, _a: UUID, _p: Any, script: CallScript, **_kw: Any) -> Any:
-        return script, []
-
-    async def quiet(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(campaign_script, "draft_script", write)
-    monkeypatch.setattr(proposal_worker, "draft_script", write)
-    monkeypatch.setattr(proposal_worker, "lint_context_for", lint_context)
-    monkeypatch.setattr(proposal_worker, "_opening_repaired", openings)
-    monkeypatch.setattr(campaign_script.crm_assist, "meter_assist", quiet)
-    monkeypatch.setattr(campaign_script.crm_assist, "meter_earlier", quiet)
-    payload = {
-        "tenant_id": str(tenant_id),
-        "campaign_id": str(campaign_id),
-        "proposal_id": str(requested.id),
-    }
-    assert await campaign_script.draft_campaign_script({}, payload) == "ready"
-    first = calls[0]
-    assert "edit_of" not in first
-    assert first["brief"].owner_plan == owner_plan(DELIVERY)
-    assert PLAN_HEAD in first["brief"].description
-    assert "Keep anything already in the script" not in first["brief"].description
-    async with tenant_session(tenant_id) as session:
-        space = await workspace.read_workspace(session, campaign_id)
-    assert space.proposal is not None and space.proposal.script is not None
-    # The review still lists the change against the script it was asked from.
-    assert space.proposal.base_script == old
-    assert [s.name for s in space.proposal.script.stages] == [
-        "Welcome back",
-        "Delivery day",
-        "Wrong person",
-        "Close",
-    ]
-    assert not [p for p in space.proposal.left_out if "owner" in p.rule]

@@ -9,33 +9,25 @@ never typed.
 
 from __future__ import annotations
 
-import time
-import uuid
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from apps.api.agents import script_proposals
 from apps.api.agents.call_rules import (
     OPENING_CEILING_CHARS,
     OPENING_LINE_MAX_CHARS,
-    OPENING_LINE_RULE,
     PLACED_OPENING_MAX_CHARS,
     PLACED_OPENING_RULE,
-    SCRIPT_FLOW_RULE,
     opening_most,
     placed_opening_problems,
     said_line_problem,
 )
 from apps.api.agents.script_lint import CapabilityManifest, LintContext
 from apps.workers import opening_line, script_assist
-from apps.workers import script_proposal as proposal_worker
 from apps.workers.opening_line import WrittenOpening
 from apps.workers.script_assist import ScriptBrief
 from calevate_shared.call_script import CallScript
 from calevate_shared.opening_notices import NONE_SAID
-from tests.conftest import create_org_with_receptionist
 
 AGENT = "Varsha"
 BUSINESS = "Rytu Khata"
@@ -140,16 +132,6 @@ def test_the_writer_is_given_the_agents_name() -> None:
     assert "Agent name" not in ScriptBrief(business_name=BUSINESS).user_message()
 
 
-def test_the_rules_say_who_why_then_the_question_and_the_steps_order() -> None:
-    assert PLACED_OPENING_RULE in OPENING_LINE_RULE
-    assert "first stage starts from their yes" in SCRIPT_FLOW_RULE
-    assert "ask, never state, what the call needs to know" in SCRIPT_FLOW_RULE
-    assert "check it is done" in SCRIPT_FLOW_RULE
-    assert "first stage confirms this is the right person" not in script_assist._SYSTEM_INSTRUCTION
-    assert "one reason" in opening_line.OPENING_WRITER_INSTRUCTION
-    assert "one reason" in opening_line.PLACED_TASK
-
-
 def test_the_opening_writer_is_told_the_placed_rule_with_the_name() -> None:
     brief = ScriptBrief(business_name=BUSINESS, agent_name=AGENT, direction="outbound")
     asked = opening_line.opening_request(brief, placed_rules=True)
@@ -201,56 +183,3 @@ async def test_the_written_opening_is_checked_only_when_asked(
 
 
 # --- 4. a campaign's opening is a placed call's, whatever its agent answers ------------------
-
-
-async def test_a_campaigns_opening_is_repaired_as_a_placed_call_with_its_main_task(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: a campaign on an answering agent has its opening judged and rewritten as an
-    answering line, or the repair is not told the campaign's reason for calling."""
-    created = await create_org_with_receptionist(
-        name=BUSINESS,
-        slug=f"flow-{uuid.uuid4().hex[:8]}",
-        vertical_template="retail",
-        billing_email=None,
-        language="en-IN",
-        created_by=None,
-    )
-    tenant_id, agent_id = uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
-    asked: list[tuple[ScriptBrief, dict[str, Any]]] = []
-
-    async def write(brief: ScriptBrief, **kwargs: Any) -> SimpleNamespace:
-        asked.append((brief, kwargs))
-        return SimpleNamespace(
-            value=WrittenOpening(line=GOOD, said=NONE_SAID),
-            capability=SimpleNamespace(disclosure=None),
-            earlier=(),
-            model=None,
-        )
-
-    monkeypatch.setattr(proposal_worker, "write_opening", write)
-    task = "Help farmers who registered set up the Rytu Khata app."
-    request = script_proposals.ScriptProposal(
-        id=uuid.uuid4(),
-        mode="whole",
-        status="drafting",
-        request=task,
-        answers={},
-        base_script=CallScript(),
-        requested_by=None,
-        requested_at=datetime.now(UTC),
-    )
-    finished = await proposal_worker.finish_written(
-        tenant_id,
-        agent_id,
-        request,
-        CallScript(schema_version=2, opening_line=BARE),
-        time.monotonic(),
-        direction="outbound",
-        purpose=task,
-    )
-    assert finished.script.opening_line == GOOD
-    brief, kwargs = asked[0]
-    assert kwargs["placed_rules"] is True
-    assert brief.direction == "outbound" and brief.description == task
-    assert any("why the call is made" in p for p in kwargs["problems"])

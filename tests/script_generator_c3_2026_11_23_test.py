@@ -21,29 +21,19 @@ from apps.api.agents.call_rules import (
     restated_clause,
 )
 from apps.api.agents.mistake_lints import mistake_findings
-from apps.api.agents.script_builder import job_details
 from apps.api.agents.script_lint import (
     LintContext,
     same_ending_problems,
     same_opener_problems,
-    unasked_details,
-    unasked_problems,
 )
-from apps.api.agents.script_structure import collected, settled, time_taken
-from apps.workers import campaign_script
-from apps.workers import campaign_script_ask as ask
-from apps.workers.script_assist import STEP_RULES, _script_from_model_json
-from apps.workers.script_proposal import _Fix
+from apps.api.agents.script_structure import time_taken
 from calevate_shared.call_script import (
     CALL_BACK,
-    END_OF_CALL,
     CallScript,
     ConversationStage,
     ProcedureStep,
     StageBranch,
-    compile_call_script,
 )
-from calevate_shared.extraction import whole_call_detail
 from calevate_shared.lead_fields import core_fields
 
 TE = "te-IN"
@@ -132,126 +122,7 @@ STORED = [
 ]  # fmt: skip
 
 
-def test_the_job_asks_its_core_details_and_its_own_but_not_what_the_call_shows() -> None:
-    """FAILS IF: the name, a call-back time and another number are not asked, a status or
-    outcome is listed to be asked, or the call-back details are not known as such."""
-    details = job_details(STORED, CORE)
-    assert details.labels() == (
-        "Caller Name",
-        "Satisfaction level",
-        "Call Back Time",
-        "Alternative Number",
-    )
-    assert details.call_back == ("Call Back Time", "Alternative Number")
-    assert whole_call_detail("call_outcome", "Call Outcome")
-    body = compile_call_script(_script(_stage("s1", "Close")), collect=list(details.asked))
-    assert "- Caller Name (only if not known)" in body
-    assert "- Call Back Time (only if they want a call later)" in body
-    assert "Installation Status" not in body and "Setup Progress" not in body
-    # The writer reads each with when it is asked.
-    assert campaign_script._collect_labels(details.asked)[0] == "Caller Name: only if not known"
-
-
-def test_a_detail_no_step_asks_is_a_finding_the_repair_answers() -> None:
-    """FAILS IF: the check every Pip script goes through does not report a detail of the job
-    that no step asks, or counts a step that names it with its hint as not asking it."""
-    labels = ("Caller Name", "Satisfaction level")
-    script = _script(_stage("s1", "Install"), _stage("s2", "Close"))
-    found = _Fix(LintContext(collect=labels), [], frozenset()).problems(script)
-    assert [p for p in found if p.startswith("script: no step asks")] == unasked_problems(
-        script, labels
-    )
-    assert len(unasked_problems(script, labels)) == 2
-    asked = _script(
-        _stage("s1", "Install", collect=["Caller Name: only if not known"]),
-        _stage("s2", "Close", collect=["Satisfaction level"]),
-    )
-    assert unasked_details(asked, labels) == []
-
-
-def test_the_writers_stage_details_are_read_and_settled_to_the_jobs_labels() -> None:
-    """FAILS IF: a drafted stage's details are dropped, a hint stays in the label, a detail
-    the job does not note is kept, or a step asking for a later time does not note the job's
-    own call-back details."""
-    raw = {
-        "stages": [
-            {
-                "name": "Name",
-                "instruction": "If the name is not known, ask it.",
-                "sounds_like": "Mee peru?",
-                "collect": ["Caller Name: only if not known", "Budget"],
-            },
-            {
-                "name": "Busy",
-                "instruction": "Ask for a better time to call them.",
-                "sounds_like": "Eppudu call cheyali?",
-            },
-            {"name": "Close", "instruction": "Thank them.", "sounds_like": "Dhanyavadalu."},
-        ]
-    }
-    drafted = _script_from_model_json(raw)
-    assert drafted.stages[0].collect == ["Caller Name: only if not known", "Budget"]
-    context = LintContext(
-        collect=("Caller Name", "Call Back Time", "Alternative Number"),
-        call_back=("Call Back Time", "Alternative Number"),
-    )
-    mended = settled(drafted, context)
-    assert mended.stages[0].collect == ["Caller Name"]
-    assert mended.stages[1].collect == ["Call Back Time", "Alternative Number"]
-    assert any(b.target == CALL_BACK for b in mended.stages[1].branches)
-    # An owner's step is left as they wrote it.
-    assert collected(drafted, context.collect, set()) == drafted
-    # With no job labels the old mend stands.
-    busy = _script(_stage("b", "Busy", "Ask for a better time.", otherwise=END_OF_CALL))
-    assert time_taken(busy, {"b"}).stages[0].collect == ["When to call back"]
-
-
-def test_the_writer_is_told_to_list_each_detail_where_it_is_asked() -> None:
-    assert "collect list" in SCRIPT_FLOW_RULE and "only on that path" in SCRIPT_FLOW_RULE
-    assert "{{lead_name}} empty" in ask.DETAILS_RULE
-    assert "call later" in ask.DETAILS_RULE
-
-
 # --- 3. the product's own names -------------------------------------------------------------
-
-
-def test_the_writer_and_the_review_hold_the_products_own_names() -> None:
-    """FAILS IF: the writer is not told to keep a screen's exact name, the review does not
-    count a screen's name as a claim to source, or a renamed screen is not a finding."""
-    assert "exact name" in STEP_RULES and "never described" in STEP_RULES
-    assert "screen, tab, button, menu or feature" in ask.REVIEW_INSTRUCTION
-    review = ask.parsed_review(
-        {
-            "notes": [{"part": "stages.s1", "why": "Shows the dashboard."}],
-            "claims": [],
-            "problems": [
-                {"part": "stages.s1", "kind": "renamed", "detail": "home screen for Dashboard"}
-            ],
-        },
-        ["stages.s1"],
-    )
-    assert review is not None
-    assert review.problems("stages.s1") == [
-        ask.WEAK_PROBLEMS["renamed"].format(detail="home screen for Dashboard")
-    ]
-
-
-def test_the_review_reads_and_repairs_each_language_line_and_small_step() -> None:
-    """FAILS IF: the review does not see a step's line in the call language or its small
-    steps, where the renamed screen was said, or the repair may not rewrite them."""
-    script = _script(
-        _stage(
-            "s1",
-            "Dashboard",
-            scripts={TE: "Ippudu home screen chudandi."},
-            procedure=[ProcedureStep(action="Ask them to open the home screen.")],
-        ),
-        _stage("s2", "Close"),
-    )
-    text = next(p.text for p in ask.reviewed_parts(script, None) if p.key == "stages.s1")
-    assert "Ippudu home screen chudandi." in text and "open the home screen" in text
-    paths = campaign_script._repair_paths("stages.s1", script)
-    assert f"stages.0.scripts.{TE}" in paths and "stages.0.procedure.0.action" in paths
 
 
 # --- 4. varied lines ------------------------------------------------------------------------

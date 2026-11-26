@@ -7,19 +7,14 @@ every business. The model legs are replaced at the workers' seams (`write_openin
 
 from __future__ import annotations
 
-import time
 import uuid
 from dataclasses import replace
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from apps.api.agents import script_proposals
 from apps.workers import opening_line
-from apps.workers import script_proposal as proposal_worker
 from apps.workers.script_assist import ScriptBrief, UnusableAnswerError
-from calevate_shared.call_script import CallScript
 from calevate_shared.opening_notices import NONE_SAID
 from calevate_shared.spoken_guard import (
     INTRODUCED_NAMES_RULE,
@@ -126,79 +121,3 @@ async def _agent() -> tuple[uuid.UUID, uuid.UUID]:
         created_by=None,
     )
     return uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
-
-
-def _request(base: CallScript, words: str) -> script_proposals.ScriptProposal:
-    return script_proposals.ScriptProposal(
-        id=uuid.uuid4(),
-        mode="change",
-        status="drafting",
-        request=words,
-        answers={},
-        base_script=base,
-        requested_by=None,
-        requested_at=datetime.now(UTC),
-    )
-
-
-async def test_pips_draft_repairs_the_opening_it_wrote(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id, agent_id = await _agent()
-    asked: list[dict[str, Any]] = []
-    fixed = "నమస్కారం, మీ ఖాతాలో బాకీ చూడాలా?"
-
-    async def write(brief: ScriptBrief, **kwargs: Any) -> SimpleNamespace:
-        asked.append(kwargs)
-        return _answer(fixed)
-
-    monkeypatch.setattr(proposal_worker, "write_opening", write)
-    # Greets, but hands no turn over: no question.
-    drafted = CallScript(opening_line="నమస్కారం, మీ ఖాతా చూస్తాను.")
-    finished = await proposal_worker.finish_written(
-        tenant_id,
-        agent_id,
-        _request(CallScript(), "Rewrite my opening line for farmers checking their balance."),
-        drafted,
-        time.monotonic(),
-    )
-    assert finished.script.opening_line == fixed
-    assert any("does not end on a question" in p for p in asked[0]["problems"])
-    assert len(finished.opening_spends) == 1, "the repair is handed back to be charged"
-
-
-async def test_pips_draft_repairs_the_placed_opening_it_wrote(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id, agent_id = await _agent()
-    base = CallScript(opening_line="మీ ఖాతా గురించి అడగాలా?")
-    asked: list[dict[str, Any]] = []
-
-    async def write(brief: ScriptBrief, **kwargs: Any) -> SimpleNamespace:
-        asked.append(kwargs)
-        return _answer(PLACED_REPAIRED)
-
-    monkeypatch.setattr(proposal_worker, "write_opening", write)
-    finished = await proposal_worker.finish_written(
-        tenant_id,
-        agent_id,
-        _request(base, "Add an opening for the calls it makes about crop loans."),
-        CallScript(opening_line=base.opening_line, outbound_opening_line=PLACED_SLIPPED),
-        time.monotonic(),
-    )
-    assert finished.script.outbound_opening_line == PLACED_REPAIRED
-    assert [kw["placed"] for kw in asked] == [True], "the answering line it kept is not judged"
-
-
-def test_a_suggestion_that_drops_an_opening_keeps_the_owners() -> None:
-    """ "Fix them first" on Put it live once replaced the owner's opening with nothing: the
-    model left it blank and a blank line is never judged."""
-    base = CallScript(
-        opening_line="Hello, this is the shop.", outbound_opening_line="Hello {{lead_name}}."
-    )
-    dropped = CallScript(opening_line="  ", outbound_opening_line="")
-    kept = proposal_worker.openings_kept(dropped, base)
-    assert kept.opening_line == "Hello, this is the shop."
-    assert kept.outbound_opening_line == "Hello {{lead_name}}."
-    rewritten = CallScript(opening_line="Hi there.")
-    assert proposal_worker.openings_kept(rewritten, base).opening_line == "Hi there."

@@ -21,9 +21,6 @@ product wording.
 
 from __future__ import annotations
 
-import json
-
-from apps.api.agents import script_proposals
 from apps.api.agents.call_rules import opening_redone_line_problems
 from apps.api.agents.script_lint import (
     CapabilityManifest,
@@ -45,10 +42,6 @@ from apps.api.agents.script_structure import (
     time_taken,
     without_empty_titles,
 )
-from apps.workers import campaign_script
-from apps.workers import campaign_script_ask as ask
-from apps.workers.script_assist import _script_from_model_json
-from apps.workers.script_proposal import text_at
 from calevate_shared.call_script import (
     CALL_BACK,
     END_OF_CALL,
@@ -57,7 +50,6 @@ from calevate_shared.call_script import (
     ConversationStage,
     ExampleLine,
     Pronunciation,
-    ScenarioQa,
     ScriptPolicies,
     SpeakingStyle,
     StageBranch,
@@ -123,31 +115,6 @@ def test_one_outcome_per_step() -> None:
     except ValueError:
         return
     raise AssertionError("two outcomes for one step were accepted")
-
-
-def test_the_writer_reads_outcomes_policies_and_mode_from_its_draft() -> None:
-    """FAILS IF: a drafted step outcome is dropped, put on the wrong step once the stages are
-    renumbered, or the drafted policies and "say" mode are ignored."""
-    raw = {
-        "stages": [
-            {"name": "Close", "instruction": "Thank them.", "sounds_like": "Thanks.", "step": 9},
-            {"name": "Purpose", "instruction": "Say why.", "sounds_like": "We call.", "step": 4},
-            {"name": "Web", "mode": "say", "instruction": "acme.example", "step": 5},
-        ],
-        "step_outcomes": [
-            {"step": 4, "outcome": "They know why we call"},
-            {"step": 9, "outcome": "Closed"},
-        ],
-        "policies": {"share_prices": False, "take_bookings": False, "offer_call_backs": True},
-    }
-    script = _script_from_model_json(raw)
-    assert [s.name for s in script.stages] == ["Purpose", "Web", "Close"]
-    assert [(o.step, o.outcome) for o in script.step_outcomes] == [
-        (1, "They know why we call"),
-        (3, "Closed"),
-    ]
-    assert script.policies == ScriptPolicies(share_prices=False, take_bookings=False)
-    assert script.stages[1].mode == "say"
 
 
 # --- 1. re-greeting in a step's line in the call language ---------------------------------
@@ -367,120 +334,4 @@ def test_settled_mends_the_rytu_khata_shape_and_leaves_no_flow_finding_it_can_me
 # --- the review: coverage, dead ends, grounding --------------------------------------------
 
 
-def test_the_review_reads_step_outcomes_ways_out_answers_and_the_example() -> None:
-    """FAILS IF: the review cannot see which step covers which task, where a step goes, a
-    step's answers, or the example call."""
-    script = _script(
-        _stage(
-            "s1",
-            "Purpose",
-            step=1,
-            branches=[StageBranch(when="Already installed", target=END_OF_CALL)],
-            qa=[ScenarioQa(question="Is my data safe?", answer="Yes, very safe.")],
-        ),
-        step_outcomes=[StepOutcome(step=1, outcome="They know why we call")],
-        example_exchange=[ExampleLine(speaker="agent", text="Hello.")],
-    )
-    parts = {part.key: part.text for part in ask.reviewed_parts(script, None)}
-    assert parts["step_outcomes"] == "Step 1 (Purpose): They know why we call"
-    assert "when Already installed -> end" in parts["stages.s1"]
-    assert "Is my data safe? -> Yes, very safe." in parts["stages.s1"]
-    assert parts["example_exchange"] == "agent: Hello."
-
-
-def test_missing_tasks_and_dead_ends_are_kept_and_routed_to_what_a_repair_may_rewrite() -> None:
-    """FAILS IF: a second missing task is dropped, a missing task is accepted on a step, or a
-    dead end's repair may not rewrite where the step goes."""
-    raw = {
-        "notes": [{"part": "stages.s1", "why": "From the main task."}],
-        "claims": [],
-        "problems": [
-            {"part": "step_outcomes", "kind": "missing_task", "detail": "record sales"},
-            {"part": "step_outcomes", "kind": "missing_task", "detail": "dashboard summary"},
-            {"part": "stages.s1", "kind": "missing_task", "detail": "not here"},
-            {"part": "stages.s1", "kind": "dead_end", "detail": "already installed ends"},
-        ],
-    }
-    review = ask.parsed_review(raw, ["stages.s1", "step_outcomes"])
-    assert review is not None
-    outcomes = review.problems("step_outcomes")
-    assert (
-        len(outcomes) == 2 and "record sales" in outcomes[0] and "dashboard summary" in outcomes[1]
-    )
-    assert review.weak_kinds["stages.s1"] == frozenset({"dead_end"})
-    script = _script(
-        _stage(
-            "s1",
-            "Purpose",
-            sounds_like="About the app.",
-            branches=[StageBranch(when="Done", target=END_OF_CALL)],
-        ),
-        step_outcomes=[StepOutcome(step=1, outcome="x")],
-    )
-    found = campaign_script.review_findings(review, script)
-    assert "stages.0.branches" in {n.finding.partition(":")[0] for n in found.noted}
-    assert [left.part for left, _ in found.warned] == ["step_outcomes", "step_outcomes"]
-
-
-def test_a_promise_in_a_quick_fact_is_a_claim_the_repair_may_rewrite() -> None:
-    """FAILS IF: an unsourced quick-fact answer can only be warned about, never repaired."""
-    script = _script(
-        _stage("s1", "Purpose"),
-        faqs=[{"question": "Forgot password?", "answer": "Our team will message you a new one."}],  # type: ignore[list-item]
-    )
-    raw = {
-        "notes": [{"part": "faqs", "why": "Callers ask."}],
-        "claims": [
-            {
-                "part": "faqs",
-                "claim": "team sends a password",
-                "evidence": "",
-                "about_person": False,
-                "asked": False,
-            }
-        ],
-        "problems": [],
-    }
-    review = ask.parsed_review(raw, ["faqs"], sources="MAIN TASK: help them use the app")
-    assert review is not None and "faqs" in review.unsourced
-    found = campaign_script.review_findings(review, script)
-    assert [n.finding.partition(":")[0] for n in found.noted] == ["faqs.0.answer"]
-    assert "promise of what the business or its team will do" in ask.REVIEW_INSTRUCTION
-
-
 # --- a repair may rewrite where a step goes -------------------------------------------------
-
-
-def test_a_fix_of_a_steps_ways_out_takes_them_and_its_otherwise_together() -> None:
-    """FAILS IF: a dead end's repair cannot change where the step goes, or changes another
-    step's ways out."""
-    base = _script(
-        _stage("s1", "Purpose", branches=[StageBranch(when="Done", target=END_OF_CALL)]),
-        _stage("s2", "Install", branches=[StageBranch(when="Busy", target=CALL_BACK)]),
-        _stage("s3", "Close"),
-    )
-    written = base.model_copy(
-        update={
-            "stages": [
-                base.stages[0].model_copy(
-                    update={"branches": [StageBranch(when="Done", target="s3")], "otherwise": "s2"}
-                ),
-                base.stages[1].model_copy(update={"branches": []}),
-                base.stages[2],
-            ]
-        }
-    )
-    kept = script_proposals.kept_to_paths(written, base, ["stages.0.branches"])
-    assert kept.stages[0].branches == [StageBranch(when="Done", target="s3")]
-    assert kept.stages[0].otherwise == "s2"
-    assert kept.stages[1].branches == base.stages[1].branches
-    assert json.loads(text_at(kept, "stages.0.branches") or "[]")[0]["target"] == "s3"
-
-
-def test_the_writers_rules_carry_the_founders_rules() -> None:
-    """FAILS IF: the ask stops telling the writer to give each task a step outcome, to go on
-    from the opening without greeting again, or to ground every answer."""
-    assert ask.OUTCOMES_RULE in ask.CAMPAIGN_ASK and ask.OUTCOMES_RULE in ask.LINE_ASK
-    assert "never greets" in ask.OUTCOMES_RULE
-    assert "reassures" in ask.GROUNDING_RULE
-    assert "step_outcomes" in ask.FLOW_ASK

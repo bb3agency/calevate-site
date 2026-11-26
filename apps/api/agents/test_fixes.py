@@ -172,6 +172,19 @@ def _why(edits: list[ScriptEdit]) -> dict[str, str]:
     return out
 
 
+def fixed_steps(base: CallScript, edits: list[dict[str, Any]]) -> tuple[CallScript, dict[str, str]]:
+    """The edits laid on `base`, and for each step they changed or added, what the improver
+    asked of it (its new instruction): the brief the step writer writes that step from
+    (`script_writer.write_script`, `steps`), so a practice-test fix gets the same examples
+    and checks as every other step Pip writes."""
+    kept = [ScriptEdit.of(e) for e in writable_edits(edits)]
+    script, _applied, _rejected = apply_edits(base, kept)
+    before = {stage.id: stage for stage in base.stages}
+    return script, {
+        stage.id: stage.instruction for stage in script.stages if before.get(stage.id) != stage
+    }
+
+
 async def write_holder_draft(
     session: AsyncSession,
     *,
@@ -180,9 +193,14 @@ async def write_holder_draft(
     titles: list[str],
     disclosure: str | None,
     requested_by: UUID | None,
+    written: CallScript | None = None,
+    written_from: CallScript | None = None,
+    left_out: list[dict[str, Any]] | None = None,
 ) -> UUID | None:
     """Write the edits onto the holder's current script as its Pip draft, ready for review,
-    in the caller's transaction; the draft's id, or None when no edit still fits. Refused
+    in the caller's transaction; the draft's id, or None when no edit still fits.
+    `written`: the edits' steps as the step writer wrote them from `written_from`, used
+    while the holder's script is still that one; `left_out`: that writer's warnings. Refused
     (`mistake_fix_draft_open`, 409) while a draft from Pip is being written or waits there:
     a fix never replaces a draft the owner has not seen."""
     current = await read_holder(session, holder, lock=True)
@@ -201,6 +219,9 @@ async def write_holder_draft(
     script, applied, _rejected = apply_edits(base, kept)
     if not applied:
         return None
+    fresh = written is not None and written_from == base
+    if fresh and written is not None:
+        script = written
     proposal_id = uuid7()
     now = datetime.now(UTC).isoformat()
     record: dict[str, Any] = {
@@ -213,7 +234,7 @@ async def write_holder_draft(
         "fix_label": _fixes_label(titles),
         "why": _why([e for e in kept if e.id in applied]),
         "disclosure": disclosure,
-        "left_out": [],
+        "left_out": (left_out or []) if fresh else [],
         "from_tests": True,
     }
     await session.execute(
@@ -235,6 +256,7 @@ __all__ = [
     "ScriptFixes",
     "choose_holder",
     "fix_holders",
+    "fixed_steps",
     "holder_base",
     "writable_edits",
     "write_holder_draft",

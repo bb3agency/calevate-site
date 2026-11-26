@@ -67,6 +67,9 @@ _REASONS: Final[dict[Author, str]] = {
 REWRITE_RULES: Final = "2026-11-25"
 #: What the version a rewrite saves says, as a `pip_draft`: Pip wrote the script.
 REWRITE_REASON: Final = "Pip rewrote its script under the script rules of 25 Nov 2026."
+#: What the version the first run saves says: nobody kept it, Pip wrote it as the account
+#: was set up (`workers/campaign_script._save_if_asked`).
+FIRST_RUN_REASON: Final = "Pip wrote this script as your account was set up."
 #: The versions an owner's action made: their save, a version they put back, a script they
 #: copied in. Any of them after Pip's last whole script means the script is the owner's.
 _OWNER_ACTIONS: Final = ("owner", "restored", "copied")

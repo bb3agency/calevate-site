@@ -21,7 +21,7 @@ from apps.api.agents.test_conversations import AgentBrief
 from apps.api.core import provider_health
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
-from apps.workers import agent_test_ai, chat, extraction, script_assist
+from apps.workers import agent_test_ai, chat, script_assist
 from apps.workers import business_copy as copy_worker
 from apps.workers.extraction import TenantModelLeg
 from apps.workers.script_assist import ScriptBrief, UnusableAnswerError
@@ -144,72 +144,6 @@ def test_the_writers_get_the_guidance_from_one_accessor() -> None:
 # --- the script writer ----------------------------------------------------------------------
 
 
-def test_an_instruction_in_telugu_is_sent_back_naming_the_field() -> None:
-    """FAILS IF: Pip's draft can put the role, the goal, the reason for calling or how it
-    addresses callers in Telugu (the founder's screenshot)."""
-    with pytest.raises(UnusableAnswerError) as refused:
-        script_assist.drafted_script(
-            _draft(
-                identity=ROLE_TE, goal=GOAL_TE, outbound_purpose=PURPOSE_TE, address_form=ADDRESS_TE
-            ),
-            language=TE,
-        )
-    said = refused.value.problems
-    for field in ("identity", "goal", "outbound_purpose", "style.address_form"):
-        assert f"{field}: write this instruction in plain English" in said
-    assert "opening_line" not in said
-
-
-def test_spoken_lines_in_telugu_are_the_call_language() -> None:
-    """FAILS IF: the English rule reaches the lines the agent says."""
-    script = script_assist.drafted_script(_draft(), language=TE)
-    assert script.opening_line == OPENING
-    assert script.stages[0].sounds_like == SOUNDS
-    assert script.identity.startswith("Answers calls")
-
-
-def test_a_spoken_textbook_word_is_named_with_what_people_say() -> None:
-    """FAILS IF: a spoken line the model wrote can carry a word on the founder's list."""
-    with pytest.raises(UnusableAnswerError) as refused:
-        script_assist.drafted_script(
-            _draft(
-                opening_line="నమస్తే అండి, మిర్చి మరియు కారం ఉన్నాయి.",
-                sample_phrases=["మీ వివరాలు చెప్పండి"],
-            ),
-            language=TE,
-        )
-    said = refused.value.problems
-    assert "opening_line: uses textbook words callers do not say: “మరియు”" in said
-    # A word the list gives a spoken form for is swapped, not sent back.
-    assert "వివరాలు" not in said
-    swapped = script_assist.drafted_script(_draft(sample_phrases=["మీ వివరాలు చెప్పండి"]), language=TE)
-    assert swapped.style.sample_phrases == ["మీ details చెప్పండి"]
-
-
-def test_a_spoken_line_naming_a_provider_is_sent_back_and_a_payment_name_is_not() -> None:
-    """FAILS IF: a line callers hear may name a technology company the model chose (D-679),
-    or "Google Pay" / "GPay", which is how callers pay, is refused as one."""
-    with pytest.raises(UnusableAnswerError) as refused:
-        script_assist.drafted_script(
-            _draft(sample_phrases=["మా Gemini assistant చెప్తుంది అండి"]), language=TE
-        )
-    assert "style.sample_phrases.0: names a technology company" in refused.value.problems
-    # A payment name is not a provider's; its English letters are a separate rule (D-861).
-    paying = script_assist._script_from_model_json(
-        _draft(sample_phrases=["Google Pay లేదా GPay చేయొచ్చు అండి", "G Pay ఉంది అండి"])
-    )
-    assert not any(
-        "technology company" in problem for problem in script_assist.language_problems(paying, TE)
-    )
-    owner = script_assist.drafted_script(
-        _draft(sample_phrases=["Gemini Travels నుంచి అండి"]),
-        language=TE,
-        allowed="We are Gemini Travels",
-        names=("Gemini Travels",),
-    )
-    assert owner.style.sample_phrases == ["Gemini Travels నుంచి అండి"]
-
-
 def test_a_say_step_is_spoken_and_a_guide_step_is_an_instruction() -> None:
     """FAILS IF: a step the agent says word for word is held to English, or a guide step's
     instruction may be Telugu."""
@@ -225,43 +159,6 @@ def test_a_say_step_is_spoken_and_a_guide_step_is_an_instruction() -> None:
         "stages.0.instruction: write this instruction in plain English; only the lines the "
         "agent says are in the call language"
     ]
-
-
-def test_an_edit_judges_only_what_the_model_changed() -> None:
-    """FAILS IF: an edit is refused for Telugu the OWNER typed into their own role, or a
-    textbook word the owner asked for in their change."""
-    current = CallScript(schema_version=2, identity=ROLE_TE, opening_line=OPENING)
-    edited = script_assist.edited_script(
-        {"goal": "Take the order.", "opening_line": "నమస్తే అండి, మరియు చెప్పండి?"},
-        current,
-        language=TE,
-        allowed="Add మరియు to the opening",
-    )
-    assert edited is not None and edited.identity == ROLE_TE
-    with pytest.raises(UnusableAnswerError) as refused:
-        script_assist.edited_script({"goal": GOAL_TE}, current, language=TE)
-    assert refused.value.problems.startswith("goal: write this instruction in plain English")
-
-
-def test_a_conversion_keeps_the_owners_own_sentences_in_their_language() -> None:
-    """FAILS IF: converting a hand-written Telugu prompt is refused for the owner's own words."""
-    owner = "మీరు Raghava Organics ప్రతినిధి. మిర్చి మరియు కారం అమ్ముతాం."
-    script = script_assist.drafted_script(
-        _draft(identity="మీరు Raghava Organics ప్రతినిధి.", opening_line="మిర్చి మరియు కారం."),
-        language=TE,
-        allowed=owner,
-        instructions=False,
-    )
-    assert script.identity.startswith("మీరు")
-    assert script.opening_line == "మిర్చి మరియు కారం."
-    # The model's own textbook word is still fixed: swapped for the list's spoken form.
-    fixed = script_assist.drafted_script(
-        _draft(opening_line="మీ వివరాలు చెప్పండి"),
-        language=TE,
-        allowed=owner,
-        instructions=False,
-    )
-    assert fixed.opening_line == "మీ details చెప్పండి"
 
 
 # --- the repair, end to end on the real ladder ---------------------------------------------
@@ -303,33 +200,6 @@ def _answers(
 
     monkeypatch.setattr(chat, "complete", _complete)
     return asked
-
-
-async def test_a_telugu_role_is_repaired_once_on_the_same_leg(
-    gemini: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """FAILS IF: Pip's draft with a Telugu role or goal reaches the owner, or the model is not
-    told which field to fix."""
-    asked = _answers(monkeypatch, [_draft(identity=ROLE_TE, goal=GOAL_TE), _draft()], _draft())
-    draft = await script_assist.draft_script(
-        ScriptBrief(language=TE, business_type="retail"), tenant_leg=GOOGLE_LEG
-    )
-    assert draft.script.identity.startswith("Answers calls")
-    assert len(asked) == 2
-    assert "identity: write this instruction in plain English" in asked[1]
-    assert "goal: write this instruction in plain English" in asked[1]
-
-
-async def test_a_repair_that_is_still_telugu_is_refused_honestly(
-    gemini: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """FAILS IF: an answer that still breaks the rule after the repair is shown to the owner,
-    or the refusal says no assistant answered."""
-    bad = _draft(identity=ROLE_TE)
-    _answers(monkeypatch, [bad, bad], bad)
-    with pytest.raises(extraction.SpentRefusalError) as refused:
-        await script_assist.draft_script(ScriptBrief(language=TE), tenant_leg=GOOGLE_LEG)
-    assert refused.value.code == script_assist.ANSWER_UNUSABLE_CODE
 
 
 # --- the improver ---------------------------------------------------------------------------
@@ -515,27 +385,3 @@ def test_writers_follow_the_language_pack_only_once_it_is_approved(
     assert spoken_guard.generation_guidance("te-IN", side="caller") == caller_guidance(
         "te-IN", None
     )
-
-
-def test_a_draft_still_breaking_a_rule_after_its_repairs_is_kept_with_warnings() -> None:
-    """FAILS IF: one line still breaking a rule leaves the owner with no script at all."""
-    trace = script_assist.AskTrace()
-    raw = _draft(opening_line="నమస్తే అండి, మిర్చి మరియు కారం ఉన్నాయి.")
-    script = script_assist.drafted_with_warnings(raw, trace=trace, language=TE)
-    assert script.stages and script.opening_line == raw["opening_line"]
-    assert [(p.part, p.unfixed) for p in trace.left_out] == [("opening_line", True)]
-    assert "మరియు" in trace.left_out[0].rule
-
-
-async def test_the_last_try_keeps_a_draft_that_still_broke_a_rule(
-    gemini: None, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """FAILS IF: the job's last try still leaves the owner with no script."""
-    bad = _draft(identity=ROLE_TE)
-    _answers(monkeypatch, [bad, bad], bad)
-    trace = script_assist.AskTrace()
-    drafted = await script_assist.draft_script(
-        ScriptBrief(language=TE), tenant_leg=GOOGLE_LEG, trace=trace, keep_with_warnings=True
-    )
-    assert drafted.script.stages
-    assert any(p.part == "identity" and p.unfixed for p in trace.left_out)

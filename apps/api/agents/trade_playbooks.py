@@ -60,6 +60,14 @@ class PlayStep:
 #: title and keep the platform's words on it.
 NEXT_STEP_TITLE: Final = "Agree the next step"
 
+#: The calling playbook's first two steps, which a placed call's opening line already does
+#: (`call_rules.PLACED_OPENING_RULE`: who is calling, why, and whether now suits). The
+#: script plan leaves them out of a placed call (`script_plan.plan_from_playbook`); the
+#: ready-made starters still carry them.
+GOOD_TIME_TITLE: Final = "Check it is a good time"
+WHY_CALLED_TITLE: Final = "Say why you called"
+OPENING_STEP_TITLES: Final = frozenset({GOOD_TIME_TITLE, WHY_CALLED_TITLE})
+
 
 @dataclass(frozen=True, slots=True)
 class Playbook:
@@ -225,7 +233,7 @@ def _answer_calls(basics: TradeBasics, fit: BusinessFit = UNKNOWN) -> tuple[Play
 def _call_leads(basics: TradeBasics, fit: BusinessFit = UNKNOWN) -> tuple[PlayStep, ...]:
     return (
         PlayStep(
-            title="Check it is a good time",
+            title=GOOD_TIME_TITLE,
             instruction=(
                 "If they cannot talk now, ask when suits them, thank "
                 "them and end the call. Never push."
@@ -233,7 +241,7 @@ def _call_leads(basics: TradeBasics, fit: BusinessFit = UNKNOWN) -> tuple[PlaySt
             exit_when="They can talk now.",
         ),
         PlayStep(
-            title="Say why you called",
+            title=WHY_CALLED_TITLE,
             instruction=(
                 "Make sure it is the person you meant to call (their name, if you have it, is "
                 "under ENDING), then say in one line why you called, as START OF THE CALL "
@@ -438,9 +446,12 @@ def playbook_guidance(
 
 
 __all__ = [
+    "GOOD_TIME_TITLE",
     "JOB_SHAPES",
     "NEXT_STEP_TITLE",
+    "OPENING_STEP_TITLES",
     "VALUE_STEP_TITLE",
+    "WHY_CALLED_TITLE",
     "PlayStep",
     "Playbook",
     "TradeBasics",

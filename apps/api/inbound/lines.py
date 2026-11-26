@@ -76,6 +76,8 @@ class Line:
     actions_off: tuple[str, ...]
     sources: tuple[UUID, ...]
     numbers: tuple[LineNumber, ...]
+    #: The languages its calls are in: the agent's main one first, then its others.
+    call_languages: tuple[str, ...]
     created_at: datetime
 
     @property
@@ -87,7 +89,7 @@ class Line:
 _LINES_SQL: Final = """
 SELECT l.id, l.name, l.agent_id, a.name AS agent_name, l.main_task, l.script,
        l.script_proposal, l.version, l.published_at, l.engine_agent_ref, l.actions_off,
-       l.created_at
+       l.created_at, a.language_primary, a.languages_extra
 FROM inbound_lines l JOIN agents a ON a.id = l.agent_id
 WHERE l.archived_at IS NULL {where}
 ORDER BY l.created_at, l.id
@@ -146,6 +148,9 @@ async def _lines(session: AsyncSession, line_id: UUID | None = None) -> list[Lin
             actions_off=tuple(row.actions_off or ()),
             sources=tuple(sources[row.id]),
             numbers=tuple(numbers[row.id]),
+            call_languages=tuple(
+                dict.fromkeys([str(row.language_primary), *(row.languages_extra or ())])
+            ),
             created_at=row.created_at,
         )
         for row in rows
@@ -431,6 +436,7 @@ async def request_proposal(
     requested_by: UUID | None,
     auto_save: bool = False,
     ask: dict[str, str] | None = None,
+    focus: dict[str, str] | None = None,
 ) -> ScriptProposal:
     """Ask Pip for the line's script. Needs a main task; replaces a ready draft; refused
     while one is still being written, so a second click does not spend twice.
@@ -439,8 +445,16 @@ async def request_proposal(
     review, while the line has none (the first run's line, Phase 3b).
 
     `ask` (`{"tone": ..., "instruction": ...}`, either may be absent) is how the owner wants
-    this draft written, stored as a campaign's is (`campaigns.workspace.request_proposal`)."""
+    this draft written, stored as a campaign's is (`campaigns.workspace.request_proposal`).
+    `focus` (`{"part", "language", "want"?}`) asks for one part, as a campaign's does; it
+    needs a script to change."""
     row = await _lock(session, line_id)
+    if focus is not None and row.script is None:
+        raise _invalid(
+            "line_script_required",
+            "Generate the script first",
+            "Pip rewrites one part of a script that is already there.",
+        )
     if not (row.main_task or "").strip():
         raise _invalid(
             "main_task_required",
@@ -465,6 +479,8 @@ async def request_proposal(
     }
     if ask:
         record["ask"] = ask
+    if focus is not None:
+        record["focus"] = focus
     if auto_save:
         record["auto_save"] = True
     await session.execute(

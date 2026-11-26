@@ -19,7 +19,6 @@ from apps.api.agents.mistake_lints import mistake_findings
 from apps.api.agents.script_lint import CapabilityManifest, LintContext
 from apps.api.agents.turn_checks import reaction_lead
 from apps.workers import script_assist
-from apps.workers.script_assist import UnusableAnswerError
 from calevate_shared.call_script import CallScript, ConversationStage
 from calevate_shared.call_words import say, table
 from calevate_shared.spoken_guard import has_indic_letters, honorific_count
@@ -162,18 +161,3 @@ def test_a_full_write_judges_lines_copied_from_the_current_script() -> None:
     assert not any(p.startswith("stages.2.sounds_like: opens with") for p in written)
     edited = script_assist.language_problems(current, TE, before=current)
     assert not any("opens with the reaction" in p for p in edited)
-
-
-def test_a_full_draft_is_refused_for_a_copied_reaction_line() -> None:
-    raw = {
-        "identity": "Helps farmers set up the app.",
-        "goal": "Help them set up the app.",
-        "opening_line": OPENING,
-        "stages": [
-            {"name": "Phone", "instruction": "Ask which phone they use.", "sounds_like": REACTED},
-            {"name": "Close", "instruction": "Thank them and end the call.", "sounds_like": PLAIN},
-        ],
-    }
-    with pytest.raises(UnusableAnswerError) as refused:
-        script_assist.drafted_script(raw, language=TE)
-    assert "stages.0.sounds_like: opens with the reaction" in refused.value.problems

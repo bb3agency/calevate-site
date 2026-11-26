@@ -12,7 +12,7 @@ from uuid import UUID
 import pytest
 from apps.api.db.session import tenant_session
 from apps.api.inbound import lines
-from apps.workers import campaign_script
+from apps.workers import script_context
 from sqlalchemy import text
 from tests.campaign_sources_audit_test import _campaign, _source
 
@@ -31,7 +31,7 @@ async def _with_knowledge() -> tuple[UUID, UUID]:
 async def test_a_campaign_with_no_sources_picked_is_written_from_all_knowledge() -> None:
     tenant_id, campaign_id = await _with_knowledge()
 
-    inputs, _ = await campaign_script.campaign_inputs(tenant_id, campaign_id)
+    inputs = await script_context.holder_context(tenant_id, "campaign", campaign_id)
 
     assert ("About the app", ABOUT) in inputs.words
 
@@ -51,7 +51,7 @@ async def test_a_line_with_no_sources_picked_is_written_from_all_knowledge() -> 
             text("DELETE FROM inbound_line_sources WHERE inbound_line_id = :l"), {"l": line_id}
         )
 
-    inputs = await campaign_script.line_inputs(tenant_id, line_id)
+    inputs = await script_context.holder_context(tenant_id, "line", line_id)
 
     assert ("About the app", ABOUT) in inputs.words
 

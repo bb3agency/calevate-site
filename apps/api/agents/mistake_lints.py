@@ -4,7 +4,7 @@
 those kinds, the lines of a script (an Inbound line's or a campaign's) that make the in-call
 model do it, so the healer can rewrite exactly those lines. Each finding is a `script_lint`
 finding ("<path>: <problem>"), so `mistake_fixes.request_holder_fix(paths=...)`,
-`fix_change`, `finding_key` and `kept_to_paths` take it as they take any other.
+`finding_key` and the writer's `lines` mode take it as they take any other.
 
 Each check runs the in-call detector for its kind (`turn_checks`) on the script's lines,
 so a script check and a real call can never disagree about what the mistake is, and every

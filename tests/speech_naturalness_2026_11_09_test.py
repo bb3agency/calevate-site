@@ -10,14 +10,7 @@ from __future__ import annotations
 from apps.api.engine.thinnest import ENGINE_DEFAULT_CALL_RULES_CHARS
 from apps.api.ops.config_catalog import FIELD_META
 from apps.workers.agent_test_ai import IMPROVE_INSTRUCTION
-from apps.workers.opening_line import opening_request
-from apps.workers.script_assist import (
-    _SYSTEM_INSTRUCTION,
-    CONVERT_INSTRUCTION,
-    EDIT_INSTRUCTION,
-    ScriptBrief,
-    language_problems,
-)
+from apps.workers.script_assist import language_problems
 from calevate_shared.call_script import CallScript, ConversationStage, ExampleLine, SpeakingStyle
 from calevate_shared.engine import CALL_INSTRUCTIONS, VOICE_STYLE_GUIDANCE
 from calevate_shared.spoken_guard import (
@@ -58,22 +51,8 @@ def test_every_languages_writer_guide_ends_with_the_rules() -> None:
     assert generation_guidance("te-IN", side="caller").count(SPOKEN_LINE_RULES) == 0
 
 
-def test_the_script_and_opening_writers_read_the_rules_once() -> None:
-    brief = ScriptBrief(business_name="Sri Estates", agent_name="Anjali", language="te-IN")
-    for request in (brief.user_message(), opening_request(brief)):
-        assert request.count(SPOKEN_LINE_RULES) == 1
-    # The instructions defer to the guide rather than keep a second copy of its marks.
-    for instruction in (_SYSTEM_INSTRUCTION, CONVERT_INSTRUCTION, EDIT_INSTRUCTION):
-        assert WRITTEN_FORM_RULE not in instruction
-        assert "ellipses" not in instruction
-
-
 def test_the_fix_writer_which_has_no_guide_carries_the_rules() -> None:
     assert SPOKEN_LINE_RULES in IMPROVE_INSTRUCTION
-
-
-def test_the_edit_writer_writes_english_words_as_the_guide_shows() -> None:
-    assert "the English words people use written as the spoken-style guide" in EDIT_INSTRUCTION
 
 
 # --- R7: every spoken line in the language's own letters ----------------------------------

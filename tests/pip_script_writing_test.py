@@ -11,9 +11,7 @@ is told the rules (`call_rules.OPENING_LINE_RULE`, `SCRIPT_FLOW_RULE`); the lint
 from __future__ import annotations
 
 from apps.api.agents.call_rules import (
-    OPENING_LINE_RULE,
     SCRIPT_FLOW_RULE,
-    writer_rules,
 )
 from apps.api.agents.script_lint import (
     NAME_FIELD,
@@ -28,8 +26,7 @@ from apps.api.agents.script_lint import (
     stacked_actions,
     unasked_details,
 )
-from apps.workers.agent_test_ai import IMPROVE_INSTRUCTION
-from apps.workers.script_assist import _SYSTEM_INSTRUCTION, EDIT_INSTRUCTION, language_problems
+from apps.workers.script_assist import language_problems
 from calevate_shared.call_script import CallScript, ConversationStage, ProcedureStep
 from calevate_shared.spoken_guard import latin_words
 
@@ -51,18 +48,6 @@ def _stage(sid: str, name: str, instruction: str, **extra: object) -> Conversati
 
 def test_the_name_field_is_the_one_the_dial_fills() -> None:
     assert NAME_FIELD == "{{lead_name}}"
-
-
-def test_every_writer_reads_the_placed_call_opening_and_the_step_rules() -> None:
-    assert NAME_FIELD in OPENING_LINE_RULE
-    assert "whether they can talk now" in OPENING_LINE_RULE
-    assert "the business's own questions wait until they say yes" in OPENING_LINE_RULE
-    # The answering opening is unchanged in substance: a greeting and one question.
-    assert "greets, names the business and asks one short question" in OPENING_LINE_RULE
-    assert SCRIPT_FLOW_RULE in writer_rules()
-    for writer in (_SYSTEM_INSTRUCTION, EDIT_INSTRUCTION, IMPROVE_INSTRUCTION):
-        assert SCRIPT_FLOW_RULE in writer
-        assert OPENING_LINE_RULE in writer
 
 
 def test_the_step_rules_name_each_failure_of_the_4_nov_calls() -> None:

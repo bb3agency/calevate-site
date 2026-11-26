@@ -6,7 +6,7 @@ written before a check existed, or by hand, keeps its fault on every call: a ste
 "is now a good time?" again after the opening, lines that all open with one reaction or end
 with one tag, a repeat in brackets, a textbook word. This module names those faults
 (`heal_findings`) and queues the repair pass (`workers/script_heal.repair_holder_script`),
-which has Pip rewrite exactly the faulted lines (`script_proposals.kept_to_paths`) and saves
+which has Pip rewrite exactly the faulted lines (`script_writer.write_script`, `lines`) and saves
 the script by compare-and-set, as the owner's Save would, and puts it on the calls.
 
 THREE TRIGGERS. The owner's save of the script (`queue_after_save`, debounced so a burst of
@@ -170,6 +170,15 @@ def mistake_kinds(script: CallScript | None, lint: LintContext) -> set[str]:
         for kind in SCRIPT_FIXABLE_KINDS
         if any(_repairable(script, f) for f in mistake_findings(script, lint, kind))
     }
+
+
+def kind_findings(script: CallScript | None, lint: LintContext, kind: str) -> list[str]:
+    """The findings of one call mistake's own check that a repair may clear, judged exactly
+    as `heal_findings` judges them, so the fix's re-check (`workers/mistake_fix`) and the
+    repair it asks for never disagree about whether a line is still faulted."""
+    if script is None or script.raw_override or not script.stages:
+        return []
+    return [f for f in mistake_findings(script, lint, kind) if _repairable(script, f)]
 
 
 def holder_kind(kind: str) -> HolderKind:

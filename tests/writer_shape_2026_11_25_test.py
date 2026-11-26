@@ -11,8 +11,6 @@ call. Every fixture here is an English stand-in with that shape, for a neutral b
 
 from __future__ import annotations
 
-import time
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -32,14 +30,10 @@ from apps.api.agents.script_shape import (
     main_task_items,
     named_way_problems,
     piled_problems,
-    structure_problems,
     trailing_problems,
     uncovered_items,
 )
 from apps.api.agents.script_structure import collected, settled, without_judged_asks
-from apps.workers import campaign_script
-from apps.workers import campaign_script_ask as ask
-from apps.workers.script_assist import ScriptBrief, _script_from_model_json
 from calevate_shared.call_script import (
     CALL_BACK,
     END_OF_CALL,
@@ -255,20 +249,6 @@ def test_a_name_that_chooses_between_scenarios_stays() -> None:
     assert echo_branches(script) == []
 
 
-def test_the_writer_never_drafts_an_echo_way_out() -> None:
-    """FAILS IF: a drafted `next` to the step after it becomes a way out named by that step."""
-    raw = {
-        "stages": [
-            {"name": "Login", "instruction": "Ask them to log in.", "next": [2]},
-            {"name": "Add Shops", "instruction": "Ask them to add shops.", "next": [3]},
-            {"name": "Finalise the call", "instruction": "Thank them and close.", "next": [0]},
-        ]
-    }
-    script = _script_from_model_json(raw)
-    assert echo_branches(script) == []
-    assert [b.target for b in script.stages[0].branches] == []
-
-
 def test_the_repair_of_a_live_script_drops_echo_ways_and_judged_asks_by_code() -> None:
     mended = script_heal.wired_ways_out(_evidence(), LintContext())
     assert echo_branches(mended) == []
@@ -375,111 +355,6 @@ def test_the_repairs_hear_the_line_findings() -> None:
 
 
 # --- 6. the writer's rules, the review and the restructure pass --------------------------
-
-
-def test_the_asks_carry_the_rules() -> None:
-    assert ask.SHAPE_RULE in ask.CAMPAIGN_ASK and ask.SHAPE_RULE in ask.LINE_ASK
-    assert ask.PURPOSE_RULE in ask.CAMPAIGN_ASK and ask.PURPOSE_RULE not in ask.LINE_ASK
-    assert ask.LINE_FIRST_RULE in ask.LINE_ASK
-    assert "never asked" in ask.DETAILS_RULE
-    assert "way out of the step where it arises" in ask.REFINE_TAIL
-
-
-def test_the_change_names_the_main_tasks_items() -> None:
-    change = ask.campaign_change(MAIN_TASK, "", "", edit=False)
-    assert ask.ITEMS_HEAD in change and "6. Then enter sales" in change
-
-
-def test_the_review_judges_the_purpose_and_its_findings_reach_the_lines() -> None:
-    """FAILS IF: a first step that starts work without saying why the call is made is not a
-    finding the repair rewrites, in any call language."""
-    script = _evidence()
-    keys = ["stages.s1"]
-    review = ask.parsed_review(
-        {
-            "notes": [{"part": "stages.s1", "why": "Checks the app."}],
-            "claims": [],
-            "problems": [
-                {"part": "stages.s1", "kind": "no_purpose", "detail": "starts with the icon"}
-            ],
-        },
-        keys,
-    )
-    assert review is not None
-    found = campaign_script.review_findings(review, script)
-    assert any(
-        n.finding.startswith("stages.0.sounds_like: starts the call's work without saying why")
-        for n in found.noted
-    )
-    assert "no_purpose" in ask.REVIEW_INSTRUCTION and "purpose_repeated" in ask.WEAK_PROBLEMS
-    request = ask.review_request([], "MAIN TASK:\nx", OPENING)
-    assert request.endswith(f"THE OPENING LINE THE CALL STARTS WITH: {OPENING}")
-
-
-def _inputs(base: CallScript | None = None) -> Any:
-    return campaign_script._Inputs(
-        agent_id=__import__("uuid").uuid4(),
-        main_task=MAIN_TASK,
-        base=base,
-        notes="",
-        words=[],
-        context=ScriptBrief(),
-        tenant_leg=None,
-        quota_exhausted=False,
-        details=job_details(STORED, CORE).placed(),
-    )
-
-
-async def test_a_script_built_wrong_gets_one_whole_script_pass_naming_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: details piled in a step, a case after the close or a dropped task reach the
-    owner without one whole-script pass asked to fix them."""
-    calls: list[dict[str, Any]] = []
-    fixed = CallScript(schema_version=2, stages=[_stage("h", "Finalise the call")])
-
-    async def write(_brief: Any, **kwargs: Any) -> Any:
-        calls.append(kwargs)
-        return SimpleNamespace(script=fixed)
-
-    monkeypatch.setattr(campaign_script, "draft_script", write)
-    found = campaign_script.built_wrong(_inputs(), _evidence())
-    assert any("comes after the close" in p for p in found)
-    assert any("no step covers it" in p for p in found)
-    script, spent = await campaign_script._restructured(
-        _inputs(), ScriptBrief(), _evidence(), time.monotonic(), ask=ask.CAMPAIGN_ASK,
-        documents="", owners="",
-    )  # fmt: skip
-    assert script is fixed and len(spent) == 1
-    change = calls[0]["change"]
-    assert ask.RESTRUCTURE_TAIL in change and "comes after the close" in change
-    assert calls[0]["edit_of"] == _evidence()
-
-
-async def test_a_well_built_script_spends_no_restructure_pass(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def write(_brief: Any, **_kwargs: Any) -> Any:
-        raise AssertionError("no pass is needed")
-
-    monkeypatch.setattr(campaign_script, "draft_script", write)
-    clean = CallScript(schema_version=2, stages=[_stage("h", "Finalise the call")])
-    inputs = _inputs()
-    inputs = campaign_script.replace(inputs, main_task="Tell them about the new menu.")
-    script, spent = await campaign_script._restructured(
-        inputs, ScriptBrief(), clean, time.monotonic(), ask=ask.CAMPAIGN_ASK, documents="",
-        owners="",
-    )  # fmt: skip
-    assert script is clean and spent == []
-
-
-def test_what_is_still_built_wrong_is_a_warning_the_owner_reads() -> None:
-    left = campaign_script.built_wrong_left(_inputs(), _evidence())
-    assert any(item.part == "stages.s-not-registered" for item in left)
-    assert all(item.unfixed for item in left)
-    # The owner's own script, already built so, is theirs: no warning for what they had.
-    assert campaign_script.built_wrong_left(_inputs(base=_evidence()), _evidence()) == []
-    assert structure_problems(_evidence().model_copy(update={"raw_override": "x"})) == []
 
 
 def test_a_jump_whose_condition_is_only_the_steps_name_is_a_finding() -> None:

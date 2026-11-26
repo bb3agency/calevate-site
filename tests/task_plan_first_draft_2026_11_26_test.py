@@ -16,27 +16,14 @@ The model is never called: the writer and the reading are replaced.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
-from uuid import UUID
 
-import pytest
 from apps.api.agents.owner_plan import numbered_items, owner_plan
-from apps.api.campaigns import workspace
-from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session
-from apps.workers import campaign_script
-from apps.workers import script_proposal as proposal_worker
 from apps.workers.campaign_script_ask import (
-    PLAN_HEAD,
-    TASK_STEPS_INSTRUCTION,
-    Review,
     task_steps_note,
     task_steps_text,
 )
-from calevate_shared.call_script import CallScript, ConversationStage
 from scripts import eval_script_writer as ev
-from tests.campaign_script_writer_2026_11_15_test import LINT, _answer, _campaign
 
 RYTU = ev.load_cases(["rytu_khata_install"])[0]
 
@@ -107,133 +94,3 @@ def test_the_answer_becomes_a_plan_with_one_step_per_item_and_its_ways_out() -> 
     assert odd is not None and len(owner_plan(odd).steps) == 6  # type: ignore[union-attr]
     assert task_steps_text({"steps": []}) is None
     assert task_steps_text({"steps": [{"name": "A", "does": "", "outcome": "x"}]}) is None
-
-
-async def _first_draft(
-    monkeypatch: pytest.MonkeyPatch,
-    *,
-    main_task: str,
-    reading: dict[str, Any] | None,
-    script: CallScript | None = None,
-    drafted: CallScript | None = None,
-) -> tuple[workspace.CampaignProposal, list[dict[str, Any]], list[str]]:
-    """Run the campaign job on a campaign with `main_task` (and `script`, for an edit), the
-    writer answering `drafted` and the main task's reading answering `reading`; the proposal,
-    the writer's calls and the instruction of every other pass asked."""
-    monkeypatch.setattr(get_settings(), "script_mistake_repair_passes", 0)
-    tenant_id, campaign_id = await _campaign(script)
-    async with tenant_session(tenant_id) as session:
-        await workspace.save_main_task(session, campaign_id, main_task)
-        requested = await workspace.request_proposal(
-            session, tenant_id=tenant_id, campaign_id=campaign_id, requested_by=None
-        )
-    calls: list[dict[str, Any]] = []
-    passes: list[str] = []
-    answer = drafted or CallScript(
-        schema_version=2,
-        stages=[ConversationStage(id="s1", name="Talk", instruction="Talk to them.")],
-    )
-
-    async def write(brief: Any, **kwargs: Any) -> Any:
-        calls.append({"brief": brief, **kwargs})
-        return _answer(answer)
-
-    async def asked(request: str, instruction: str, *, parse: Any, **_kw: Any) -> Any:
-        passes.append(instruction)
-        value = parse(reading) if instruction == TASK_STEPS_INSTRUCTION else Review()
-        return SimpleNamespace(
-            value=value,
-            capability=SimpleNamespace(disclosure=None),
-            usage=None,
-            model="gemini-test",
-            earlier=(),
-        )
-
-    async def lint_context(*_args: Any, **_kwargs: Any) -> Any:
-        return LINT
-
-    async def openings(_t: UUID, _a: UUID, _p: Any, drafted: CallScript, **_kw: Any) -> Any:
-        return drafted, []
-
-    async def quiet(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(campaign_script, "draft_script", write)
-    monkeypatch.setattr(campaign_script, "ask_json", asked)
-    monkeypatch.setattr(proposal_worker, "draft_script", write)
-    monkeypatch.setattr(proposal_worker, "lint_context_for", lint_context)
-    monkeypatch.setattr(proposal_worker, "_opening_repaired", openings)
-    monkeypatch.setattr(campaign_script.crm_assist, "meter_assist", quiet)
-    monkeypatch.setattr(campaign_script.crm_assist, "meter_earlier", quiet)
-    monkeypatch.setattr(campaign_script.crm_assist, "meter_refusal", quiet)
-    payload = {
-        "tenant_id": str(tenant_id),
-        "campaign_id": str(campaign_id),
-        "proposal_id": str(requested.id),
-    }
-    assert await campaign_script.draft_campaign_script({}, payload) == "ready"
-    async with tenant_session(tenant_id) as session:
-        space = await workspace.read_workspace(session, campaign_id)
-        assert space.main_task == main_task
-    assert space.proposal is not None
-    return space.proposal, calls, passes
-
-
-@pytest.mark.rls
-async def test_a_numbered_main_task_is_read_as_steps_and_the_first_draft_held_to_them(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: a first draft from a plain numbered main task is not given the plan read
-    from it, a draft that departs from it is not named, or the owner is not shown how Pip read
-    their main task."""
-    proposal, calls, passes = await _first_draft(
-        monkeypatch, main_task=RYTU.main_task, reading={"steps": SIX}
-    )
-    assert passes.count(TASK_STEPS_INSTRUCTION) == 1
-    plan = owner_plan(task_steps_text({"steps": SIX}))
-    assert all(call["brief"].owner_plan == plan for call in calls)
-    assert PLAN_HEAD in calls[0]["brief"].description
-    assert "THE MAIN TASK'S ITEMS" not in calls[0]["brief"].description
-    # The one-step draft departs from the six steps, and is told so.
-    assert any('"Install the app" is missing' in part.rule for part in proposal.left_out)
-    assert proposal.why["step_outcomes"].startswith("Pip read your main task as these steps:")
-
-
-@pytest.mark.rls
-@pytest.mark.parametrize(
-    "reading",
-    [{"steps": SIX[:5]}, {"steps": [*SIX, SIX[0]]}, {"nothing": True}],
-    ids=["fewer", "more", "unreadable"],
-)
-async def test_a_reading_that_does_not_keep_the_count_leaves_the_draft_as_it_was(
-    monkeypatch: pytest.MonkeyPatch, reading: dict[str, Any]
-) -> None:
-    proposal, calls, _ = await _first_draft(monkeypatch, main_task=RYTU.main_task, reading=reading)
-    assert calls[0]["brief"].owner_plan is None
-    assert "THE MAIN TASK'S ITEMS" in calls[0]["brief"].description
-    assert "step_outcomes" not in proposal.why
-
-
-@pytest.mark.rls
-async def test_no_reading_for_a_main_task_with_its_own_plan_or_for_an_edit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: a main task that already lays out the steps, or an edit of an existing
-    script with no plan in the request, spends a pass reading the main task."""
-    own = (
-        "1. Welcome: say why we call. Outcome: They agreed to talk.\n"
-        "2. Close: thank them and end the call. Outcome: The call is finished."
-    )
-    _, calls, passes = await _first_draft(monkeypatch, main_task=own, reading={"steps": SIX})
-    assert TASK_STEPS_INSTRUCTION not in passes
-    assert calls[0]["brief"].owner_plan == owner_plan(own)
-
-    script = CallScript(
-        schema_version=2,
-        stages=[ConversationStage(id="s1", name="Talk", instruction="Talk to them.")],
-    )
-    _, calls, passes = await _first_draft(
-        monkeypatch, main_task=RYTU.main_task, reading={"steps": SIX}, script=script
-    )
-    assert TASK_STEPS_INSTRUCTION not in passes
-    assert calls[0]["edit_of"] == script and calls[0]["brief"].owner_plan is None

@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 import pytest
-from apps.api.agents.call_rules import OPENING_LINE_RULE, writer_rules
+from apps.api.agents.call_rules import OPENING_LINE_RULE
 from apps.api.agents.script_lint import (
     NAME_FIELD,
     CapabilityManifest,
@@ -30,12 +30,6 @@ from apps.api.agents.script_lint import (
 )
 from apps.api.engine.thinnest import BASE_URL, ThinnestEngine
 from apps.workers.opening_line import PLACED_TASK
-from apps.workers.script_assist import (
-    EDIT_INSTRUCTION,
-    UnusableAnswerError,
-    drafted_script,
-    edited_script,
-)
 from calevate_shared.call_script import (
     CallScript,
     ConversationStage,
@@ -112,18 +106,6 @@ def test_explaining_usage_after_install_is_not_an_experience_question() -> None:
         "First, add a crop.",
     )
     assert order_problems(_script(CHECK, INSTALL, explain, CLOSE)) == []
-
-
-def test_the_writer_is_told_the_order_and_line_rules() -> None:
-    rules = writer_rules()
-    for words in (
-        "nothing is asked before what it depends on has happened",
-        "sounds_like does what that stage's instruction says",
-        "Each thing is explained in one stage only",
-        "never kept with a placeholder instruction",
-    ):
-        assert words in rules
-    assert rules in EDIT_INSTRUCTION
 
 
 # --- 3. the same explanation twice ------------------------------------------------------------
@@ -251,31 +233,6 @@ def _answer(*stages: ConversationStage) -> dict[str, object]:
     return {"stages": [s.model_dump(mode="json") for s in stages]}
 
 
-def test_deleting_two_steps_leaves_them_out_and_the_ways_to_them_go() -> None:
-    stages = [s for s in OWNERS.stages if s.id not in {"s3", "s5"}]
-    edited = edited_script(_answer(*stages), OWNERS, lint=LintContext())
-    assert edited is not None
-    assert [s.id for s in edited.stages] == ["s2", "s4", "s8"]
-    check, install, _ = edited.stages
-    # As the Script tab's own delete: a way to a deleted step goes, `otherwise` falls to next.
-    assert check.otherwise == "" and install.otherwise == "" and install.branches == []
-
-
-def test_a_rename_and_a_move_are_kept_as_asked() -> None:
-    renamed = OWNERS.stages[3].model_copy(update={"name": "How it is going"})
-    order = [OWNERS.stages[0], OWNERS.stages[2], OWNERS.stages[1], renamed, OWNERS.stages[4]]
-    edited = edited_script(_answer(*order), OWNERS)
-    assert edited is not None
-    assert [s.id for s in edited.stages] == ["s2", "s4", "s3", "s5", "s8"]
-    assert edited.stages[3].name == "How it is going"
-
-
-def test_a_change_that_deletes_nothing_keeps_every_step() -> None:
-    changed = OWNERS.stages[0].model_copy(update={"sounds_like": "Is the app on your phone yet?"})
-    edited = edited_script(_answer(changed, *OWNERS.stages[1:]), OWNERS, lint=LintContext())
-    assert edited is not None and [s.id for s in edited.stages] == [s.id for s in OWNERS.stages]
-
-
 BLANKED = [
     *OWNERS.stages[:2],
     *(
@@ -283,63 +240,6 @@ BLANKED = [
         for s in OWNERS.stages[2:]
     ),
 ]
-
-
-def test_steps_blanked_with_a_placeholder_go_back_for_the_repair() -> None:
-    with pytest.raises(UnusableAnswerError) as refused:
-        edited_script(_answer(*BLANKED), OWNERS, lint=LintContext())
-    said = str(refused.value)
-    assert 'stages.2.instruction: says only "Not used."' in said
-    assert "stages.4.instruction" in said and "this is the close" in said
-
-
-def test_after_the_repair_blanked_steps_are_removed_and_the_close_is_the_owners() -> None:
-    edited = edited_script(_answer(*BLANKED), OWNERS, lint=LintContext(), lenient=True)
-    assert edited is not None
-    assert [s.id for s in edited.stages] == ["s2", "s3", "s8"]
-    assert edited.stages[-1] == CLOSE
-    assert edited.stages[1].otherwise == ""
-
-
-def test_the_close_taken_out_goes_back_for_the_repair() -> None:
-    with pytest.raises(UnusableAnswerError, match="the close"):
-        edited_script(_answer(*OWNERS.stages[:-1]), OWNERS, lint=LintContext())
-
-
-def test_a_kept_step_with_its_line_emptied_goes_back() -> None:
-    emptied = OWNERS.stages[0].model_copy(update={"sounds_like": ""})
-    with pytest.raises(UnusableAnswerError, match=r"stages\.0\.sounds_like: is empty"):
-        edited_script(_answer(emptied, *OWNERS.stages[1:]), OWNERS, lint=LintContext())
-
-
-def test_an_order_problem_the_owner_already_had_is_not_the_models() -> None:
-    # OWNERS asks usage before install; a change elsewhere is not refused for it.
-    assert order_problems(OWNERS)
-    changed = OWNERS.stages[-1].model_copy(update={"sounds_like": "Thank you, goodbye."})
-    assert (
-        edited_script(_answer(*OWNERS.stages[:-1], changed), OWNERS, lint=LintContext()) is not None
-    )
-
-
-def test_a_new_draft_leaves_out_a_step_written_as_a_placeholder() -> None:
-    raw = {
-        "opening_line": "Hello, can we talk now?",
-        "stages": [
-            {
-                "name": "Greet",
-                "instruction": "Greet them.",
-                "sounds_like": "Hello there, all good?",
-            },
-            {"name": "Ask", "instruction": "N/A", "sounds_like": ""},
-            {
-                "name": "Close",
-                "instruction": "Thank them and say goodbye.",
-                "sounds_like": "Thanks, bye.",
-            },
-        ],
-    }
-    script = drafted_script(raw, language="en-IN")
-    assert [s.name for s in script.stages] == ["Greet", "Close"]
 
 
 # --- the readiness card reads the same checks ------------------------------------------------

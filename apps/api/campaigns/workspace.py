@@ -5,7 +5,7 @@ agents deliver").
 The campaign holds what its calls say; the agent it is given is the voice. Pip writes the
 script from the main task and the sources the campaign picked from What your agents know
 (founder, 16 Nov 2026: one place to add things; `kb/picks.py`), through
-`workers/campaign_script.py` and the one script writer `workers/script_assist.draft_script`;
+`workers/campaign_script.py` and the one script writer `workers/script_writer.write_script`;
 the owner reviews it with the same
 review the Script page uses, and Start puts it live on the campaign's own engine agent, in its
 agent's voice (`campaigns/engine_agent.put_campaign_live`, D-1003): the agent's own script and

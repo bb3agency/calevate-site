@@ -7,9 +7,6 @@ from __future__ import annotations
 
 import re
 
-from apps.api.agents.call_rules import SCRIPT_FLOW_RULE
-from apps.workers import campaign_script_ask as ask
-from apps.workers.script_assist import _SYSTEM_INSTRUCTION
 from calevate_shared.call_script import (
     PROCEDURE_LEAD,
     CallScript,
@@ -132,19 +129,3 @@ def test_the_english_example_opens_with_its_point_not_a_reaction_and_comma() -> 
 
 
 # --- writer rules that mirror an in-call rule ---------------------------------------------
-
-
-def test_a_written_check_asks_what_they_see() -> None:
-    """In call: "To check, ask what they see". On 23 Nov a check closed with "everything is
-    right, isn't it?"."""
-    guiding = next(kind for kind in ask.CALL_KINDS if kind.name == "guiding")
-    assert "asking what they see" in guiding.steps
-    assert "check it is done by asking what they see" in SCRIPT_FLOW_RULE
-
-
-def test_no_writer_rule_asks_for_a_reaction_formal_words_or_a_greeting_step() -> None:
-    assert "thanks them for each answer" not in ask.CONCISE_RULE
-    assert all("formal" not in tone for tone in ask.TONES.values())
-    assert "the greeting" not in ask.FLOW_ASK
-    assert "fillers lightly" not in _SYSTEM_INSTRUCTION
-    assert "at most once a call each and never to open a line" in _SYSTEM_INSTRUCTION

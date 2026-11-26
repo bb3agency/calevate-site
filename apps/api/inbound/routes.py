@@ -36,21 +36,24 @@ from apps.api.campaigns.workspace import MAIN_TASK_MAX
 from apps.api.campaigns.workspace_routes import (
     GIVE_TIME_DESCRIPTION,
     TEST_CALLS_SHOWN,
+    CampaignProposalIn,
     CampaignProposalOut,
     CampaignTestCallIn,
     CampaignTestCallItem,
     CampaignTestCallOut,
+    ExampleLimitsOut,
     HolderDiagnosisOut,
     HolderGiveTimeIn,
     HolderGiveTimeOut,
     JobNotesIn,
     JobNotesOut,
-    ScriptAskIn,
     TestNumbersOut,
     asked_summary,
+    example_limits_out,
     holder_diagnosis,
     holder_give_time_out,
     job_notes_out,
+    part_focus,
     remember_test_number,
     saved_test_numbers,
 )
@@ -107,6 +110,10 @@ class InboundLineOut(_Out):
     #: The sources from What your agents know this line is written from.
     source_ids: list[UUID]
     numbers: list[LineNumberOut]
+    #: The languages its calls are in, main first: a step's examples are written in each.
+    call_languages: list[str]
+    #: How much a step's examples hold, for the script editor.
+    example_limits: ExampleLimitsOut
     created_at: datetime
 
 
@@ -129,6 +136,8 @@ def _out(line: lines.Line) -> InboundLineOut:
         actions_off=list(line.actions_off),
         source_ids=list(line.sources),
         numbers=[LineNumberOut(id=n.id, e164=n.e164) for n in line.numbers],
+        call_languages=list(line.call_languages),
+        example_limits=example_limits_out(),
         created_at=line.created_at,
     )
 
@@ -624,9 +633,11 @@ async def request_proposal(
     session: Session,
     request: Request,
     principal: Writer,
-    payload: ScriptAskIn | None = None,
+    payload: CampaignProposalIn | None = None,
 ) -> CampaignProposalOut:
     tenant_id = _tenant(principal)
+    # A one-part ask (`part`, `language`, `want`) as a campaign's (`part_focus`).
+    focus = part_focus(payload)
     ask = payload.ask() if payload is not None else {}
     # Writing it spends the account's dashboard AI allowance, as a campaign's script does.
     assert_view_as_may(principal, "billing.ai_assist")
@@ -637,6 +648,7 @@ async def request_proposal(
         line_id=line_id,
         requested_by=principal.user_id,
         ask=ask or None,
+        focus=focus,
     )
     await write_audit(
         session,
@@ -646,7 +658,7 @@ async def request_proposal(
         object_type="inbound_line",
         object_id=str(line_id),
         ip=client_request_ip(request),
-        summary={"proposal_id": str(proposal.id), **asked_summary(ask)},
+        summary={"proposal_id": str(proposal.id), **(focus or {}), **asked_summary(ask)},
     )
     out = proposal_out(proposal)
     assert out is not None

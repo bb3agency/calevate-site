@@ -36,7 +36,6 @@ from apps.workers.retired_line_strip import (
     JOB_NAME,
     strip_retired_example_lines,
 )
-from apps.workers.script_assist import UnusableAnswerError, drafted_script
 from calevate_shared.call_script import CallScript
 from calevate_shared.engine import (
     CALL_REASON_RULE,
@@ -138,14 +137,6 @@ def _draft_raw(line: str) -> dict[str, Any]:
             {"name": "Say why you called", "instruction": "Say why you call.", "sounds_like": line}
         ]
     }
-
-
-def test_the_writer_is_sent_back_a_retired_line_but_keeps_the_owners() -> None:
-    with pytest.raises(UnusableAnswerError, match="ready-made line written for every business"):
-        drafted_script(_draft_raw(FOUNDERS_LINE), language="te-IN")
-    # The owner's own words, which the script was written from, are theirs to keep.
-    kept = drafted_script(_draft_raw(FOUNDERS_LINE), language="te-IN", allowed=FOUNDERS_LINE)
-    assert kept.stages[0].sounds_like == FOUNDERS_LINE
 
 
 async def _account() -> uuid.UUID:

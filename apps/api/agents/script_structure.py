@@ -5,7 +5,7 @@ what the business meant, so the model's repair rounds are spent on wording rathe
 bookkeeping (the Rytu Khata campaign script of 23 Nov 2026 had broken step numbers, a step
 nothing led to, a title said with no name, a call-back time asked and lost, a business name
 spelled two ways with one pronunciation, and prices and bookings allowed on a free app-install
-call). `settled` is run on every script Pip writes (`workers/script_proposal.finish_written`);
+call). `settled` is run on every script Pip writes (`workers/script_writer.write_script`);
 in an edit, only the steps Pip wrote or changed are touched, the owner's own as they are.
 """
 

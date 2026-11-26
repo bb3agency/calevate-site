@@ -20,7 +20,6 @@ from apps.api.agents.script_lint import (
     unwired_way_out_problems,
 )
 from apps.api.agents.script_structure import settled, ways_out_wired
-from apps.workers import campaign_script_ask, script_assist
 from apps.workers import script_heal as heal_job
 from calevate_shared.call_script import (
     CALL_BACK,
@@ -144,11 +143,6 @@ def test_the_writer_turns_a_way_out_in_words_into_a_branch() -> None:
     # In an edit, the owner's untouched step keeps its shape.
     edited = settled(draft, LintContext(), base=draft)
     assert edited.stages[0].branches == []
-
-
-def test_the_writers_are_told_a_way_out_is_never_only_words() -> None:
-    assert "never only words in its instruction" in campaign_script_ask.OUTCOMES_RULE
-    assert "has that as a way out too" in script_assist.WAYS_OUT_RULE
 
 
 # --- the repair of an existing script ------------------------------------------------------

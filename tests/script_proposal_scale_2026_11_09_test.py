@@ -22,7 +22,6 @@ from typing import Any
 import httpx
 import pytest
 from apps.api.agents import script_proposals
-from apps.api.core.errors import ProblemError
 from apps.api.core.queue import WORKER_JOB_TIMEOUT_S
 from apps.api.core.settings import get_settings
 from apps.workers import chat
@@ -30,18 +29,10 @@ from apps.workers import script_proposal as worker
 from apps.workers.extraction import (
     ASSIST_LADDER_LEGS,
     ASSIST_TIMEOUT_S,
-    PROVIDER_UNAVAILABLE_REASON,
 )
 from apps.workers.script_assist import (
-    ANSWER_UNUSABLE_CODE,
-    TARGETED_REPAIR_NOTE,
-    AskTrace,
     LeftOut,
     ScriptBrief,
-    UnusableAnswerError,
-    draft_script,
-    merged_repair,
-    salvaged_edit,
 )
 from calevate_shared.call_script import CallScript, ConversationStage
 
@@ -168,113 +159,6 @@ def model_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "azure_openai_api_key", "k", raising=False)
     monkeypatch.setattr(settings, "azure_openai_deployment", "dep", raising=False)
     monkeypatch.setattr(settings, "sarvam_api_key", "sk-test", raising=False)
-
-
-async def _edit(model: Model, trace: AskTrace) -> Any:
-    return await draft_script(BRIEF, edit_of=CURRENT, change=CHANGE, trace=trace)
-
-
-async def test_each_repair_asks_only_for_the_broken_steps_and_keeps_the_rest(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: a repair asks for the whole script again, a partial repair answer replaces
-    the step list (dropping every step it did not repeat), or one step still broken after the
-    repairs throws away the nine good ones."""
-    fixed_3 = _stage(3, _warm(3)).model_dump(mode="json")
-    fixed_7 = _stage(7, _warm(7)).model_dump(mode="json")
-    model = Model(
-        _answer(broken={3, 7, 9}),
-        {"stages": [fixed_3, fixed_7, _rewritten(9, broken={9})]},
-        {"stages": [_rewritten(9, broken={9})]},
-    )
-    monkeypatch.setattr(chat, "complete", model)
-    trace = AskTrace()
-    draft = await _edit(model, trace)
-
-    assert len(model.asked) == 3
-    first_note, second_note = model.note(2), model.note(3)
-    for note in (first_note, second_note):
-        assert note.startswith(TARGETED_REPAIR_NOTE.split("{problems}")[0])
-        assert "Return the whole JSON again" not in note
-    # Each step is named by its id, and the second round names only what is still broken.
-    assert all(f'(id "s{i}")' in first_note for i in (3, 7, 9))
-    assert '(id "s9")' in second_note and '(id "s3")' not in second_note
-
-    script = draft.script
-    assert [s.id for s in script.stages] == [s.id for s in CURRENT.stages]
-    assert script.goal == "Help buyers place and track their seed orders."
-    by_id = {s.id: s for s in script.stages}
-    assert by_id["s3"].sounds_like == _warm(3)
-    assert by_id["s5"].sounds_like == _warm(5)
-    assert by_id["s9"] == CURRENT.stages[8]
-    assert [p.part for p in draft.left_out] == ["stages.s9"]
-    assert draft.left_out[0].name == "Step 9" and not draft.left_out[0].added
-    assert trace.repairs == 2
-    # Every round is one metered request: all three asks' tokens.
-    assert draft.usage is not None and draft.usage.output_tokens == 9_000
-
-
-async def test_a_repair_cut_off_still_keeps_what_the_first_answer_got_right(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: a repair that never came back (cut off at its token ceiling) discards the
-    first answer, so the owner reads "could not make that change cleanly" for one bad line."""
-    model = Model(_answer(broken={4}), "cut")
-    monkeypatch.setattr(chat, "complete", model)
-    trace = AskTrace()
-    draft = await _edit(model, trace)
-    assert draft.script.goal == "Help buyers place and track their seed orders."
-    assert draft.script.stages[3] == CURRENT.stages[3]
-    assert draft.script.stages[0].sounds_like == _warm(1)
-    assert [p.part for p in draft.left_out] == ["stages.s4"]
-    assert trace.truncated
-
-
-async def test_nothing_left_names_each_part_and_why(monkeypatch: pytest.MonkeyPatch) -> None:
-    """FAILS IF: an edit with nothing usable left says only "try describing the change another
-    way" when we know which part broke which rule."""
-    only = CURRENT.model_dump(mode="json", exclude={"raw_override"})
-    only["stages"][1] = _rewritten(2, broken={2})
-    model = Model(only)
-    monkeypatch.setattr(chat, "complete", model)
-    trace = AskTrace()
-    with pytest.raises(ProblemError) as refused:
-        await draft_script(BRIEF, edit_of=CURRENT, change="Make step 2 warmer.", trace=trace)
-    assert refused.value.code == ANSWER_UNUSABLE_CODE
-    assert [p.part for p in trace.unwritten] == ["stages.s2"]
-    note = worker.refusal_note(refused.value, trace)
-    assert note.startswith("Pip could not write a clean version of Step “Step 2”:")
-    assert "Names a technology company" in note
-    # The vendor the model named is ours to know, never the client's to read (D-679).
-    assert "Google" not in note
-    assert "another way" not in note
-
-
-def test_a_first_answer_cut_off_says_the_change_was_too_big() -> None:
-    """FAILS IF: a change too long to write in one answer reads as "no assistant answered"."""
-    trace = AskTrace(truncated=True)
-    refusal = ProblemError.business_rule(PROVIDER_UNAVAILABLE_REASON, "No assistant answered.")
-    assert worker.refusal_note(refusal, trace) == script_proposals.TOO_BIG_NOTE
-
-
-def test_a_step_that_fails_validation_is_put_back_and_the_rest_kept() -> None:
-    """FAILS IF: one step the script's own validation refuses (here a mode that does not
-    exist) refuses the whole lenient read."""
-    body = _answer(broken=set())
-    body["stages"][5]["mode"] = "sing"
-    with pytest.raises(UnusableAnswerError):
-        salvaged_edit(body, CURRENT)
-    script, left_out = salvaged_edit(body, CURRENT, lenient=True)
-    assert script.stages[5] == CURRENT.stages[5]
-    assert script.goal == "Help buyers place and track their seed orders."
-    assert [p.part for p in left_out] == ["stages.s6"]
-
-
-def test_a_repair_restores_a_dropped_close_but_never_duplicates_a_renamed_step() -> None:
-    previous = {"stages": [{"id": "a"}, {"id": "b"}]}
-    repaired = {"stages": [{"id": "b", "name": "B2"}, {"id": "close"}, {"id": "b-copy"}]}
-    merged = merged_repair(previous, repaired, known_ids=frozenset({"a", "b", "close"}))
-    assert merged["stages"] == [{"id": "a"}, {"id": "b", "name": "B2"}, {"id": "close"}]
 
 
 def test_the_owner_never_reads_a_vendor_name_in_a_left_out_reason() -> None:

@@ -19,7 +19,6 @@ from pathlib import Path
 
 import pytest
 from apps.api.copilot.prompt import CLOSING_RULES, SYSTEM_PROMPT
-from apps.workers.script_assist import _SYSTEM_INSTRUCTION
 from calevate_shared.call_script import CODE_MIX_SENTENCES
 from calevate_shared.engine import AgentConfig, ModelConfig, engine_prompt_layers
 from calevate_shared.languages import built_language_tags
@@ -129,16 +128,6 @@ def _found(text: str) -> set[str]:
     return {m.group(0).lower() for m in _TRADE.finditer(_ALLOWED.sub(" ", text))}
 
 
-def _checked() -> str:
-    texts = [_SYSTEM_INSTRUCTION, SYSTEM_PROMPT, CLOSING_RULES, *CODE_MIX_SENTENCES.values()]
-    texts += [
-        _platform_layers(tag, direction)
-        for tag in built_language_tags()
-        for direction in ("inbound", "outbound")
-    ]
-    return "\n".join(texts)
-
-
 @pytest.mark.parametrize("direction", ["inbound", "outbound"])
 @pytest.mark.parametrize("language", built_language_tags())
 def test_the_platform_layers_of_a_call_prompt_name_no_trade(language: str, direction: str) -> None:
@@ -147,10 +136,6 @@ def test_the_platform_layers_of_a_call_prompt_name_no_trade(language: str, direc
     platform = _platform_layers(language, direction)
     assert platform
     assert _found(platform) == set()
-
-
-def test_the_script_writers_instruction_names_no_trade() -> None:
-    assert _found(_SYSTEM_INSTRUCTION) == set()
 
 
 def test_pips_system_prompt_names_no_trade() -> None:
@@ -186,9 +171,3 @@ def test_the_guard_catches_a_trade_word() -> None:
         "delivery",
     }
     assert _found("Book the patient in order of arrival") == {"patient"}
-
-
-def test_every_allowed_phrase_is_still_needed() -> None:
-    """The list only shrinks: a phrase no checked prompt holds any more is removed."""
-    checked = _checked().lower()
-    assert [phrase for phrase in ALLOWED if phrase not in checked] == []

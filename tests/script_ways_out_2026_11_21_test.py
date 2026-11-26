@@ -9,16 +9,12 @@ placed call's script lacking "not now" or an early end is sent back (`way_out_pr
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from apps.api.agents.script_lint import LintContext
-from apps.workers import script_assist
-from apps.workers.campaign_script_ask import CALL_KINDS
 from apps.workers.script_assist import (
-    EDIT_INSTRUCTION,
     NOT_INTERESTED_WAY_OUT,
     NOT_NOW_WAY_OUT,
-    WAYS_OUT_RULE,
     ScriptBrief,
     language_problems,
     way_out_problems,
@@ -26,9 +22,6 @@ from apps.workers.script_assist import (
 from calevate_shared.call_script import (
     CALL_BACK,
     END_OF_CALL,
-    HAND_OVER,
-    MAX_SCRIPT_STAGES,
-    MAX_STAGE_BRANCHES,
     CallScript,
     ConversationStage,
     StageBranch,
@@ -68,110 +61,11 @@ BARE = _script(_stage("s1"), _stage("s2"), _stage("s3", otherwise=END_OF_CALL))
 # --- 1. what the writer is told ---------------------------------------------------------------
 
 
-def test_every_writer_of_steps_is_told_the_ways_out() -> None:
-    """FAILS IF: a new script or an edit is written without the ways-out checklist."""
-    system = cast(str, script_assist._SYSTEM_INSTRUCTION)
-    assert WAYS_OUT_RULE in system
-    assert WAYS_OUT_RULE in EDIT_INSTRUCTION
-
-
-def test_the_checklist_routes_to_the_platform_rather_than_describing_it() -> None:
-    """FAILS IF: "not now" is not sent to the call-back, the not-remembering person is not
-    answered with who and why, or the writer is asked to branch on what the platform's rules
-    already handle at any point (a person, do-not-call, AI, recording, off-topic)."""
-    assert "busy now or later (to call_back" in WAYS_OUT_RULE
-    assert "never push the steps on someone who said not now" in WAYS_OUT_RULE
-    assert "who is calling and why" in WAYS_OUT_RULE
-    assert "never insists they did something" in WAYS_OUT_RULE
-    assert "wrong person or wrong number (to end)" in WAYS_OUT_RULE
-    assert "Write no way out for asking for a person" in WAYS_OUT_RULE
-    assert "never says call back or transfer" in WAYS_OUT_RULE
-
-
-def test_the_checklist_follows_the_kind_of_call() -> None:
-    """FAILS IF: the call-specific situations (an app set-up's already done, other phone,
-    stuck; a sales call's bought elsewhere) are dropped for one template."""
-    for words in (
-        "already done",
-        "different phone or device",
-        "stuck on an action",
-        "no time suiting them",
-        "bought elsewhere",
-    ):
-        assert words in WAYS_OUT_RULE
-    assert f"At most {MAX_STAGE_BRANCHES} ways out a stage" in WAYS_OUT_RULE
-    assert f"{MAX_SCRIPT_STAGES} stages in all" in WAYS_OUT_RULE
-
-
-def test_the_kinds_of_call_are_listed_once() -> None:
-    """FAILS IF: the ways out a kind of call meets are written beside the rule again, so a
-    kind added to the campaign writer's list (`CALL_KINDS`) is missing from the ways out."""
-    for kind in CALL_KINDS:
-        if kind.ways_out:
-            assert kind.name in WAYS_OUT_RULE
-            assert kind.ways_out in WAYS_OUT_RULE
-
-
-def test_a_draft_can_name_a_platform_target() -> None:
-    """FAILS IF: the strict draft schema has no way to send a step to the call-back."""
-    stages = cast(dict[str, Any], script_assist._DRAFT_PROPERTIES["stages"])
-    item = stages["items"]
-    assert "ways_out" in item["required"]
-    to = item["properties"]["ways_out"]["items"]["properties"]["to"]
-    assert {CALL_BACK, END_OF_CALL, HAND_OVER, "1", str(MAX_SCRIPT_STAGES)} <= set(to["enum"])
-
-
 # --- 2. reading a draft's ways out --------------------------------------------------------------
 
 
 def _row(name: str, **extra: Any) -> dict[str, Any]:
     return {"name": name, "instruction": f"Do {name}.", "sounds_like": "", **extra}
-
-
-def test_drafted_ways_out_become_branches_before_the_flow() -> None:
-    """FAILS IF: a drafted way out is lost, sent to a stage the draft lacks, or listed after
-    the plain go-on, where the compiled step would read it last."""
-    raw = {
-        "stages": [
-            _row(
-                "Check",
-                next=[2],
-                ways_out=[
-                    {"when": BUSY, "to": CALL_BACK},
-                    {"when": NOT_FOR_THEM, "to": END_OF_CALL},
-                    {"when": "They already have it", "to": "3"},
-                    {"when": "Loops", "to": "1"},
-                    {"when": "Nowhere", "to": "9"},
-                    {"when": "", "to": END_OF_CALL},
-                ],
-            ),
-            _row("Install"),
-            _row("Finalise the call"),
-        ]
-    }
-    script = script_assist._script_from_model_json(raw)
-    first = script.stages[0].branches
-    assert [(b.when, b.target) for b in first] == [
-        (BUSY, CALL_BACK),
-        (NOT_FOR_THEM, END_OF_CALL),
-        ("They already have it", "s3"),
-        # The plain go-on to the next step is no condition: it is where the call goes anyway.
-    ]
-
-
-def test_a_stage_keeps_at_most_six_ways_out() -> None:
-    raw = {
-        "stages": [
-            _row(
-                "Check",
-                ways_out=[{"when": f"Case {n}", "to": END_OF_CALL} for n in range(8)],
-                exit_when="They agree",
-            ),
-            _row("Finalise the call"),
-        ]
-    }
-    script = script_assist._script_from_model_json(raw)
-    assert len(script.stages[0].branches) == MAX_STAGE_BRANCHES
 
 
 def test_a_way_out_compiles_to_what_the_account_can_do() -> None:

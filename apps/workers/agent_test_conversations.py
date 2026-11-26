@@ -36,12 +36,13 @@ from typing import Any, Final, cast
 from uuid import UUID
 
 import httpx
+from calevate_shared.call_script import CallScript
 from calevate_shared.engine import VoiceEngine
 from calevate_shared.languages import find_language
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import test_fixes, trial_results
+from apps.api.agents import script_proposals, test_fixes, trial_results
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.mistake_fixes import DRAFT_OPEN_CODE, Holder, read_holder
 from apps.api.agents.paid_test_calls import agent_test_ref
@@ -119,6 +120,14 @@ from apps.workers.agent_test_ai import (
 )
 from apps.workers.extraction import TenantModelLeg
 from apps.workers.script_assist import JsonAnswer
+from apps.workers.script_context import HolderKind, holder_context
+from apps.workers.script_writer import (
+    WriteRefusedError,
+    WriteRequest,
+    WriteResult,
+    meter,
+    write_script,
+)
 
 log = get_logger(__name__)
 
@@ -949,12 +958,15 @@ async def improve_run(
         else []
     )
     titles = [str(r.get("title") or "") for r in failures]
+    written = await _written_fixes(tenant_id, choice, base, edits)
     # Charged in the transaction that stores the answer: committed alone, a job stopped
     # before the store re-runs, finds no stored `input_hash` and is charged again.
     async with tenant_session(tenant_id) as session:
         outcome, draft_id = await _draft_on_holder(
-            session, choice, edits, titles, answer.capability.disclosure, requested_by
+            session, choice, edits, titles, answer.capability.disclosure, requested_by, written
         )
+        if written is not None:
+            await meter(session, tenant_id, written[1].spends)
         if outcome != "drafted":
             edits = []
         if outcome == "draft_open":
@@ -981,6 +993,36 @@ async def improve_run(
     return stop, record
 
 
+async def _written_fixes(
+    tenant_id: UUID,
+    choice: test_fixes.Choice,
+    base: CallScript,
+    edits: list[dict[str, Any]],
+) -> tuple[CallScript, WriteResult] | None:
+    """The steps the improver changed or added, written by the one writer (`write_script`,
+    `steps`) from what it asked of each, with the holder's own context: the same small
+    request, examples and checks as every step Pip writes. None when no step changed or the
+    writer could not write one; the round's own edits then stand as they are."""
+    if choice.holder is None or not edits:
+        return None
+    script, notes = test_fixes.fixed_steps(base, edits)
+    if not notes:
+        return None
+    holder = choice.holder.holder
+    kind: HolderKind = "campaign" if holder.kind == "campaign" else "line"
+    context = await holder_context(tenant_id, kind, holder.id, asked=False)
+    try:
+        result = await write_script(
+            WriteRequest("steps", context, base=script, step_ids=tuple(notes), notes=notes)
+        )
+    except WriteRefusedError as refused:
+        async with tenant_session(tenant_id) as session:
+            await meter(session, tenant_id, refused.spends)
+        log.info("agent_tests_fix_unwritten", extra={"reason": refused.refused.code})
+        return None
+    return base, result
+
+
 async def _draft_on_holder(
     session: AsyncSession,
     choice: test_fixes.Choice,
@@ -988,6 +1030,7 @@ async def _draft_on_holder(
     titles: list[str],
     disclosure: str | None,
     requested_by: UUID | None,
+    written: tuple[CallScript, WriteResult] | None = None,
 ) -> tuple[test_fixes.ScriptFixes, UUID | None]:
     """Write the round's script fixes as the holder's Pip draft, and how that went."""
     if choice.holder is None:
@@ -1002,6 +1045,13 @@ async def _draft_on_holder(
             titles=titles,
             disclosure=disclosure,
             requested_by=requested_by,
+            written=written[1].script if written is not None else None,
+            written_from=written[0] if written is not None else None,
+            left_out=(
+                script_proposals.left_out_record(written[1].left_out)
+                if written is not None
+                else None
+            ),
         )
     except ProblemError as refused:
         if refused.code != DRAFT_OPEN_CODE:

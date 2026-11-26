@@ -34,8 +34,10 @@ from apps.api.healer.incidents import Incident
 from apps.api.inbound import lines
 from apps.api.main import app
 from apps.workers import healer as healer_jobs
-from apps.workers import mistake_fix
+from apps.workers import mistake_fix, script_writer, step_writer
 from apps.workers import script_heal as heal_job
+from apps.workers.extraction import AssistCapability
+from apps.workers.script_assist import JsonAnswer
 from calevate_shared.call_script import CallScript, ConversationStage
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine, text
@@ -172,17 +174,6 @@ async def _draft_of(tenant_id: UUID, table: str, holder_id: UUID) -> dict[str, A
             )
         ).scalar_one()
     return found  # type: ignore[no-any-return]
-
-
-def _answer(script: CallScript) -> Any:
-    return SimpleNamespace(
-        script=script,
-        capability=SimpleNamespace(disclosure=None),
-        usage=None,
-        model="gemini-2.5-flash-lite",
-        earlier=(),
-        left_out=(),
-    )
 
 
 @pytest.fixture(autouse=True)
@@ -429,11 +420,26 @@ def _heal_writer(
     """Pip's writer in the repair pass replaced, and the meter counted."""
     seen: dict[str, Any] = {"changes": [], "metered": [], "refused": []}
 
-    async def write(_brief: Any, **kwargs: Any) -> Any:
-        seen["changes"].append(kwargs["change"])
+    async def ask(description: str, _instruction: str, **kwargs: Any) -> Any:
+        # One step's request (`step_writer`): the faulted step's words, every field written;
+        # the one writer takes only the field the finding names.
+        seen["changes"].append(description)
         if isinstance(written, Exception):
             raise written
-        return _answer(written)
+        stage = written.stages[0]
+        listed = next(line for line in description.splitlines() if line.startswith("Call lang"))
+        turns = {"turns": ["One.", "Two.", "Three."], "confused": "", "stuck": "", "busy": ""}
+        raw = {
+            "instruction": stage.instruction,
+            "procedure": [],
+            "examples": {tag.strip(): turns for tag in listed.split(":", 1)[1].split(",")},
+            "qa": [],
+        }
+        return JsonAnswer(
+            value=kwargs["parse"](raw),
+            capability=AssistCapability(available=True),
+            model="gemini-2.5-flash-lite",
+        )
 
     async def meter(_session: Any, *, tenant_id: UUID, **_kwargs: Any) -> None:
         seen["metered"].append(tenant_id)
@@ -444,10 +450,10 @@ def _heal_writer(
     async def nothing(*_args: Any, **_kwargs: Any) -> None:
         return None
 
-    monkeypatch.setattr(heal_job, "draft_script", write)
-    monkeypatch.setattr(heal_job.crm_assist, "meter_earlier", nothing)
-    monkeypatch.setattr(heal_job.crm_assist, "meter_assist", meter)
-    monkeypatch.setattr(heal_job.crm_assist, "meter_refusal", refusal)
+    monkeypatch.setattr(step_writer, "ask_json", ask)
+    monkeypatch.setattr(script_writer.crm_assist, "meter_earlier", nothing)
+    monkeypatch.setattr(script_writer.crm_assist, "meter_assist", meter)
+    monkeypatch.setattr(script_writer.crm_assist, "meter_refusal", refusal)
     return seen
 
 

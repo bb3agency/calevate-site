@@ -55,13 +55,11 @@ letters, so the register check reads them as it would the real line's. CI scores
 set against `baseline.json`; a count that moved either way fails until the baseline is
 rewritten, as `coverage_baseline.json` is held (that file is never touched here).
 
-`--live` runs the writer as a campaign's or line's first script is written
-(`workers/campaign_script._write`): the draft from the trade's plan, the one refining edit
-with the same ask, then code's mends (`script_structure.settled`). The passes that need the
-account in the database are not run (the review's repair, the call-mistake repair rounds and
-the opening repair of `script_proposal.finish_written`), so a live score measures the writer
-before those rounds. It spends on our key, so it refuses without `--spend` and prints the
-tokens used; nothing is metered to an account.
+`--live` runs the one writer as a campaign's or line's first script is written
+(`workers/script_writer.write_script`, `whole`): the plan by code, each step by its own
+request, checked and rewritten alone, the opening by the opening writer. The context is built
+from the case (`case_context`), not read from an account. It spends on our key, so it refuses
+without `--spend` and prints the tokens used; nothing is metered to an account.
 """
 
 from __future__ import annotations
@@ -1281,101 +1279,72 @@ class Spend:
             self.models.add(model)
 
 
-async def write_live(case: Case, spend: Spend) -> CallScript:
-    """`case`'s first script as `campaign_script._write` writes one: the draft from the
-    trade's plan with the holder's words as the description, the one refining edit with the
-    same ask, then `script_structure.settled`. On our Gemini leg, no account."""
-    from apps.api.agents.assist_leg import google_assist_leg
-    from apps.api.agents.script_structure import settled
-    from apps.api.core.settings import get_settings
-    from apps.api.first_run.models import KNOWLEDGE_DOCUMENT_CHARS
-    from apps.workers.campaign_script_ask import (
-        CAMPAIGN_ASK,
-        LINE_ASK,
-        campaign_change,
-        owners_words,
-        situation_block,
-    )
-    from apps.workers.first_run import documents_block
-    from apps.workers.script_assist import ScriptBrief, draft_script
-    from apps.workers.script_proposal import PROPOSAL_MAX_TOKENS, PROPOSAL_REQUEST_TIMEOUT_S
+def case_context(case: Case) -> Any:
+    """`case` as the one writer's context (`workers/script_context.ScriptContext`), as the
+    loader reads a holder: its brief, main task, request, sources, settings and details."""
+    from uuid import uuid4
 
-    ask = CAMPAIGN_ASK if case.places_calls() else LINE_ASK
-    documents = documents_block(list(case.knowledge), budget=KNOWLEDGE_DOCUMENT_CHARS)
-    situation = situation_block(
-        agent_name=case.agent_name,
-        holder_name=case.title,
-        purpose=case.purpose,
-        goal=case.goal,
-        consent_source=case.consent_source,
-        inbound=not case.places_calls(),
+    from apps.api.agents.script_builder import JobDetails
+    from apps.workers.campaign_script_ask import situation_block
+    from apps.workers.script_assist import ScriptBrief
+    from apps.workers.script_context import ScriptContext
+    from calevate_shared.call_script import CollectField
+
+    asked = tuple(
+        CollectField(label=n.label, reason=n.reason)
+        for n in case.noted
+        if not whole_call_detail("", n.label)
     )
-    # As `_Inputs.plan` reads it for a script written whole.
-    plan = owner_plan(case.instruction) or owner_plan(case.main_task)
-    change = campaign_change(
-        case.main_task,
-        "",
-        documents,
-        edit=False,
-        ask=ask,
-        situation=situation,
+    return ScriptContext(
+        tenant_id=uuid4(),
+        kind="campaign" if case.places_calls() else "line",
+        holder_id=uuid4(),
+        agent_id=uuid4(),
+        brief=ScriptBrief(
+            description=case.description,
+            business_name=case.business_name,
+            agent_name=case.agent_name,
+            business_type=case.business_type,
+            direction="outbound" if case.places_calls() else case.direction,
+            language=case.language,
+            collect=case.collect(),
+            knowledge_titles=tuple(title for title, _t in case.knowledge),
+            capabilities=case.capabilities,
+            facts=tuple(text for _t, text in case.knowledge),
+        ),
+        main_task=case.main_task,
+        saved=None,
+        asked_from=None,
+        words=tuple(case.knowledge),
+        situation=situation_block(
+            agent_name=case.agent_name,
+            holder_name=case.title,
+            purpose=case.purpose,
+            goal=case.goal,
+            consent_source=case.consent_source,
+            inbound=not case.places_calls(),
+        ),
+        details=JobDetails(
+            asked=asked,
+            judged=tuple(n.label for n in case.noted if n.is_judged()),
+        ),
         instruction=case.instruction,
-        plan=plan,
+        extra_languages=tuple(tag for tag in case.languages if tag != case.language),
     )
-    owners = owners_words(case.main_task, "", case.instruction)
-    brief = ScriptBrief(
-        description=case.description,
-        business_name=case.business_name,
-        agent_name=case.agent_name,
-        business_type=case.business_type,
-        direction="outbound" if case.places_calls() else case.direction,
-        language=case.language,
-        collect=case.collect(),
-        knowledge_titles=tuple(title for title, _t in case.knowledge),
-        capabilities=case.capabilities,
-        facts=tuple(text for _t, text in case.knowledge),
-        grounding=change,
-        placed_calls=case.places_calls(),
-        owner_plan=plan,
-    )
-    leg = google_assist_leg()
-    rounds = get_settings().campaign_script_repair_rounds
-    # The first draft reads the holder's words as the owner's description; the refining
-    # edit reads the business's own, as `_write` and `_refined` do.
-    draft = await draft_script(
-        replace(brief, description=change),
-        tenant_leg=leg,
-        timeout_s=PROPOSAL_REQUEST_TIMEOUT_S,
-        max_tokens=PROPOSAL_MAX_TOKENS,
-        repair_rounds=rounds,
-        standby_after_answer=False,
-        owners_words=owners,
-    )
-    spend.add(draft.usage, draft.model)
-    refine = campaign_change(
-        case.main_task,
-        "",
-        documents,
-        edit=True,
-        refine=True,
-        ask=ask,
-        situation=situation,
-        instruction=case.instruction,
-        plan=plan,
-    )
-    refined = await draft_script(
-        brief,
-        tenant_leg=leg,
-        edit_of=draft.script,
-        change=refine,
-        timeout_s=PROPOSAL_REQUEST_TIMEOUT_S,
-        max_tokens=PROPOSAL_MAX_TOKENS,
-        repair_rounds=rounds,
-        standby_after_answer=False,
-        owners_words=owners,
-    )
-    spend.add(refined.usage, refined.model)
-    return settled(refined.script, case.lint_context())
+
+
+async def write_live(case: Case, spend: Spend) -> CallScript:
+    """`case`'s first script as the holder writer writes one: `write_script` in `whole` mode,
+    the plan by code and each step by its own request. On our Gemini leg, no account."""
+    from apps.api.agents.assist_leg import google_assist_leg
+    from apps.workers.script_writer import WriteRequest, write_script
+
+    context = replace(case_context(case), tenant_leg=google_assist_leg())
+    result = await write_script(WriteRequest("whole", context))
+    for spent in result.spends:
+        if not isinstance(spent, Exception):
+            spend.add(spent.usage, spent.model)
+    return result.script
 
 
 def recorded_json(rec: Recorded) -> dict[str, Any]:

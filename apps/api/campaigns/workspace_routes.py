@@ -27,6 +27,7 @@ from apps.api.agents import give_callers_time, script_proposals
 from apps.api.agents.extraction_routes import MAX_EXTRACTION_FIELDS
 from apps.api.agents.languages import LANGUAGE_LABELS, client_language_tags
 from apps.api.agents.mistake_fixes import Holder
+from apps.api.agents.script_plan import EXAMPLE_LIMITS
 from apps.api.agents.service import (
     CAMPAIGN_HOLDING_STATUSES,
     refuse_campaign_opening_over_limit,
@@ -682,6 +683,27 @@ class CampaignProposalIn(ScriptAskIn):
     #: The part's name as the script editor shows it ("Quick facts", "Opening line when it calls").
     part: str | None = Field(default=None, min_length=1, max_length=80)
     language: str | None = Field(default=None, min_length=2, max_length=16)
+    #: What of the part Pip writes: "examples" writes only a step's example turns, the rest
+    #: of the step kept word for word (`workers/script_writer`, `steps` mode).
+    want: Literal["examples"] | None = None
+
+
+def part_focus(payload: CampaignProposalIn | None) -> dict[str, str] | None:
+    """The draft record's `focus` for a one-part ask, or None for the whole script. A
+    campaign's and an inbound line's part asks share this contract."""
+    if payload is None or not (payload.part or payload.language):
+        return None
+    if not (payload.part and payload.language) or payload.language not in LANGUAGE_LABELS:
+        raise ProblemError(
+            kind="validation",
+            code="script_part_request_invalid",
+            title="Choose a part and a language",
+            detail="Name the part to rewrite and one of the offered languages.",
+        )
+    focus = {"part": payload.part, "language": payload.language}
+    if payload.want is not None:
+        focus["want"] = payload.want
+    return focus
 
 
 @router.post(
@@ -700,16 +722,7 @@ async def request_proposal(
 ) -> CampaignProposalOut:
     assert principal.tenant_id is not None
     await workspace.read_workspace(session, campaign_id)
-    focus: dict[str, str] | None = None
-    if payload is not None and (payload.part or payload.language):
-        if not (payload.part and payload.language) or payload.language not in LANGUAGE_LABELS:
-            raise ProblemError(
-                kind="validation",
-                code="script_part_request_invalid",
-                title="Choose a part and a language",
-                detail="Name the part to rewrite and one of the offered languages.",
-            )
-        focus = {"part": payload.part, "language": payload.language}
+    focus = part_focus(payload)
     ask = payload.ask() if payload is not None else {}
     # Writing the script spends the account's dashboard AI allowance, as the agent Script
     # page's Pip does: refused at the ceiling or under view-as, before anything is queued.
@@ -1446,6 +1459,24 @@ class CampaignSettingsValues(BaseModel):
     languages_extra: list[str] | None = None
 
 
+class ExampleLimitsOut(_Out):
+    """How much a step's examples hold (`script_plan.EXAMPLE_LIMITS`), for the editor: at
+    least `turns_min` ordinary turns per language are written, at most `turns_max` kept,
+    each line at most `line_max` characters."""
+
+    turns_min: int
+    turns_max: int
+    line_max: int
+
+
+def example_limits_out() -> ExampleLimitsOut:
+    return ExampleLimitsOut(
+        turns_min=EXAMPLE_LIMITS.turns_min,
+        turns_max=EXAMPLE_LIMITS.turns_max,
+        line_max=EXAMPLE_LIMITS.line_max,
+    )
+
+
 class CampaignSettingsOut(_Out):
     agent_id: UUID
     agent_name: str
@@ -1458,6 +1489,8 @@ class CampaignSettingsOut(_Out):
     applied_now: bool
     #: The languages this account may choose, in picker order.
     offered_languages: list[str]
+    #: How much a step's examples hold, for the script editor.
+    example_limits: ExampleLimitsOut
 
 
 async def _settings_out(session: AsyncSession, campaign_id: UUID) -> CampaignSettingsOut:
@@ -1487,6 +1520,7 @@ async def _settings_out(session: AsyncSession, campaign_id: UUID) -> CampaignSet
         overrides=CampaignSettingsValues(**campaign_settings_rules.language_overrides(raw[0])),
         applied_now=bool(raw[1]),
         offered_languages=list(client_language_tags()),
+        example_limits=example_limits_out(),
     )
 
 

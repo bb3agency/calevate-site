@@ -6,7 +6,7 @@ agent has no script of its own (D-997, D-1000), so a call on neither has no scri
 and the fix says so (`no_job`). The fix is Pip's repair of that line's or campaign's script
 (`agents/script_heal`), saved and put on its calls as the owner's Save is. The finding is a
 deterministic script check (`mistake_lints`) and the change may touch only the lines the
-checks named (`script_proposals.kept_to_paths`), so this is still not the agent editing
+checks named (`script_writer.write_script`, `lines` mode), so this is still not the agent editing
 itself from its own reading of its calls (D-949, the arXiv papers `call_mistakes` cites).
 
 Before D-1005 the healer put a fix into the agent's own script itself, watched the next

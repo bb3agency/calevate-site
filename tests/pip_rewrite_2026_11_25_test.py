@@ -188,11 +188,6 @@ async def test_a_failed_rewrite_leaves_no_failure_on_the_owners_page() -> None:
     assert line.proposal is None
 
 
-def test_a_rewrite_is_written_whole_not_as_an_edit() -> None:
-    assert campaign_script._rewrite({"rewrite": script_history.REWRITE_RULES})
-    assert not campaign_script._rewrite({"tone": "warm"})
-
-
 async def test_a_rewrite_still_carrying_warnings_is_dropped_and_the_script_kept() -> None:
     """FAILS IF: a rewrite nobody reviews is saved with the writer's warnings thrown away
     (founder, 26 Nov 2026: only a clean rewrite replaces a script unasked)."""

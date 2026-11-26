@@ -15,9 +15,7 @@ from dataclasses import dataclass
 
 import pytest
 from apps.api.agents.call_rules import (
-    CALL_RULES,
     OPENING_LINE_MAX_CHARS,
-    OPENING_LINE_RULE,
     said_line_problem,
 )
 from apps.api.agents.script_edits import ScriptEdit, language_problem
@@ -30,12 +28,7 @@ from apps.api.agents.turn_checks import (
 )
 from apps.api.db.session import tenant_session
 from apps.api.teach import pinned
-from apps.workers.agent_test_ai import GENERATE_INSTRUCTION, IMPROVE_INSTRUCTION, JUDGE_INSTRUCTION
-from apps.workers.script_assist import (
-    _SYSTEM_INSTRUCTION,
-    EDIT_INSTRUCTION,
-    language_problems,
-)
+from apps.workers.script_assist import language_problems
 from calevate_shared.call_script import CallScript, ExampleLine, compile_call_script
 from calevate_shared.engine import AgentConfig, compose_engine_prompt, engine_prompt_layers
 from calevate_shared.spoken_style import PackChoice
@@ -244,20 +237,6 @@ def test_our_block_is_byte_identical_and_holds_no_per_call_value_before_this_cal
 
 
 # --- 4. one rule list for the writers and the judge ------------------------------------------
-
-
-def test_every_writer_and_the_judge_read_the_same_rules() -> None:
-    cfg, _ = _cfg()
-    prompt = compose_engine_prompt(cfg)
-    for rule in CALL_RULES:
-        assert rule.judge in JUDGE_INSTRUCTION, rule.key
-        for writer in (_SYSTEM_INSTRUCTION, EDIT_INSTRUCTION, IMPROVE_INSTRUCTION):
-            assert rule.writer in writer, rule.key
-        if rule.expect:
-            assert rule.expect in GENERATE_INSTRUCTION, rule.key
-        assert rule.prompt_marker in prompt, rule.key
-    for writer in (_SYSTEM_INSTRUCTION, EDIT_INSTRUCTION, IMPROVE_INSTRUCTION):
-        assert OPENING_LINE_RULE in writer
 
 
 def test_a_line_with_an_honorific_in_every_sentence_is_sent_back() -> None:

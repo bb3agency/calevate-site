@@ -2,7 +2,8 @@
 inbound line (D-1036).
 
 Queued by `campaigns/step_outcomes.queue_after_save` and by the hourly sweep below. One answer
-on the account's dashboard AI ladder (`script_assist.ask_json`), written from each step's own
+on the account's dashboard AI ladder, asked through the one writer
+(`script_writer.write_script`, `outcomes` mode), written from each step's own
 name, instruction, lines and procedure, the holder's main task and aims, what is known about
 the business (`lead_fields_draft.business_context`) and the sources the holder is written from
 (`company_training_draft.knowledge_words`, read as onboarding reads documents:
@@ -62,8 +63,7 @@ from calevate_shared.call_script import (
 from sqlalchemy import text
 
 from apps.api.agents import agent_pass
-from apps.api.agents.assist_leg import account_assist_leg
-from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
+from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.campaigns import script_history
 from apps.api.campaigns.step_outcomes import (
     DEBOUNCE_S,
@@ -86,7 +86,7 @@ from apps.api.db.session import admin_session, tenant_session
 from apps.api.first_run.models import KNOWLEDGE_DOCUMENT_CHARS
 from apps.api.tenancy.business_copy import provider_words
 from apps.workers.campaign_script_ask import quoted_in
-from apps.workers.company_training_draft import figures_in, knowledge_words
+from apps.workers.company_training_draft import figures_in
 from apps.workers.extraction import SpentRefusalError
 from apps.workers.first_run import documents_block
 from apps.workers.fleet_walk import WalkBudget, resumed_walk
@@ -97,9 +97,9 @@ from apps.workers.script_assist import (
     ANSWER_UNUSABLE_CODE,
     JsonAnswer,
     UnusableAnswerError,
-    ask_json,
 )
-from apps.workers.script_proposal import PROPOSAL_REQUEST_TIMEOUT_S
+from apps.workers.script_context import holder_context
+from apps.workers.script_writer import OutcomesAsk, WriteRequest, write_script
 
 log = get_logger(__name__)
 
@@ -664,11 +664,9 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
     if not allowed:
         await _finish(tenant_id, kind, holder_id, "skipped")
         return "skipped"
-    async with tenant_session(tenant_id) as session:
-        words = await knowledge_words(session, only=holder.source_ids or None)
-        tenant_leg = await account_assist_leg(session)
-        quota = await read_ai_quota(session, tenant_id=tenant_id)
-    if quota.at_ceiling or quota.platform_paused:
+    context = await holder_context(tenant_id, kind, holder_id, asked=False)
+    words = list(context.words)
+    if context.quota_exhausted:
         # Skipped, not failed, and the read not remembered: a refusal for the allowance would
         # record this script as asked about, and the sweep would never write its outcomes
         # once the allowance renews (`script_heal._run` waits the same way).
@@ -690,18 +688,24 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
 
     feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
     try:
-        answer: JsonAnswer[Written] = await ask_json(
-            request.text,
-            ASK,
-            parse=parse,
-            salvage=salvage,
-            azure_format=_FORMAT,
-            tenant_leg=tenant_leg,
-            quota_exhausted=quota.at_ceiling or quota.platform_paused,
-            max_tokens=MAX_TOKENS,
-            temperature=0.2,
-            timeout_s=PROPOSAL_REQUEST_TIMEOUT_S,
+        # Through the one writer (`script_writer.write_script`, `outcomes`): this pass keeps its
+        # own request and code checks, and shares the ladder, budget and meter shape.
+        written = await write_script(
+            WriteRequest(
+                "outcomes",
+                context,
+                base=holder.script,
+                outcomes=OutcomesAsk(
+                    request=request.text,
+                    instruction=ASK,
+                    parse=parse,
+                    salvage=salvage,
+                    azure_format=_FORMAT,
+                    max_tokens=MAX_TOKENS,
+                ),
+            )
         )
+        answer: JsonAnswer[Written] = written.value
     except ProblemError as refused:
         async with tenant_session(tenant_id) as session:
             await crm_assist.meter_refusal(

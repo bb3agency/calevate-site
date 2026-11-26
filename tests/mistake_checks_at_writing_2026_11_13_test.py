@@ -11,24 +11,17 @@ to its own ids. The model is never called: the writer is replaced, as the D-985 
 
 from __future__ import annotations
 
-import time
 import uuid
 from dataclasses import replace
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
-import pytest
-from apps.api.agents import script_proposals
 from apps.api.agents.mistake_lints import fixable_findings, script_mistakes
 from apps.api.agents.script_lint import LintContext, script_problems
-from apps.api.core.settings import get_settings
 from apps.api.healer import notices
 from apps.api.ops.config_catalog import FIELD_META
-from apps.workers import script_proposal as worker
 from calevate_shared.call_script import CallScript, ConversationStage
-from calevate_shared.opening_notices import OpeningNotices
 from tests.conftest import create_org_with_receptionist
 
 LINT = LintContext(promo=False)
@@ -102,110 +95,6 @@ def _answer(script: CallScript) -> Any:
         earlier=(),
         left_out=(),
     )
-
-
-async def _write(
-    monkeypatch: pytest.MonkeyPatch, base: CallScript, answers: list[CallScript]
-) -> tuple[worker.Finished, list[str]]:
-    """`answers[0]` is what Pip drafted; each repair the checks ask for answers the next."""
-    tenant_id, agent_id = await _org("draft")
-    changes: list[str] = []
-
-    async def write(_brief: Any, **kwargs: Any) -> Any:
-        changes.append(kwargs["change"])
-        return _answer(answers[min(len(changes), len(answers) - 1)])
-
-    async def lint_context(*_args: Any, **_kwargs: Any) -> LintContext:
-        return LINT
-
-    async def openings(_t: UUID, _a: UUID, _p: Any, script: CallScript) -> Any:
-        return script, []
-
-    monkeypatch.setattr(worker, "draft_script", write)
-    monkeypatch.setattr(worker, "lint_context_for", lint_context)
-    monkeypatch.setattr(worker, "_opening_repaired", openings)
-    request = script_proposals.ScriptProposal(
-        id=uuid.uuid4(),
-        mode="change",
-        status="drafting",
-        request="Add a step that asks where they live and when they can visit.",
-        answers={},
-        base_script=base,
-        requested_by=None,
-        requested_at=datetime.now(UTC),
-    )
-    finished = await worker.finish_written(
-        tenant_id, agent_id, request, answers[0], time.monotonic()
-    )
-    return finished, changes
-
-
-@pytest.mark.rls
-async def test_a_draft_packing_three_questions_is_repaired_before_it_is_offered(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: Pip's draft reaches the owner with a step line that makes the agent ask three
-    questions in one turn, or the repair round is not handed back to be metered (hard rule
-    7)."""
-    monkeypatch.setattr(get_settings(), "script_mistake_repair_passes", 2)
-    base = _script()
-    drafted = _script(THREE_QUESTIONS)
-    # The repair also tries to rewrite the opening and its notice record: neither is a path
-    # the check named, so neither is taken.
-    repaired = _script(ONE_QUESTION, opening="Hello! Asha here from a new opening.").model_copy(
-        update={"opening_notices": OpeningNotices(line="Hello! Asha here.", ai="Asha")}
-    )
-    finished, changes = await _write(monkeypatch, base, [drafted, repaired])
-    assert finished.script.stages[0].sounds_like == ONE_QUESTION
-    assert script_mistakes(finished.script, LINT) == []
-    assert (finished.script.opening_line, finished.script.opening_notices) == (
-        drafted.opening_line,
-        drafted.opening_notices,
-    )
-    assert len(changes) == 1 and len(finished.repairs) == 1
-    # The repair names only the line the check found, at its real place.
-    assert "stages.0.sounds_like" in changes[0] and "opening_line" not in changes[0]
-    assert finished.left_out == []
-
-
-@pytest.mark.rls
-async def test_what_the_capped_repairs_leave_is_told_to_the_owner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: a line still found after the console's repair rounds is offered without a
-    word, or more rounds are spent than the console allows."""
-    monkeypatch.setattr(get_settings(), "script_mistake_repair_passes", 1)
-    still = "What is your name? Which area is it? When do you visit?"
-    finished, changes = await _write(
-        monkeypatch, _script(), [_script(THREE_QUESTIONS), _script(still)]
-    )
-    assert len(changes) == 1 and len(finished.repairs) == 1
-    [left] = finished.left_out
-    assert left.unfixed and left.part == "stages.s0"
-    assert left.rule.startswith("Still to fix:")
-
-
-@pytest.mark.rls
-async def test_no_round_is_spent_when_the_console_allows_none(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(get_settings(), "script_mistake_repair_passes", 0)
-    finished, changes = await _write(monkeypatch, _script(), [_script(THREE_QUESTIONS)])
-    assert changes == []
-    assert [part.unfixed for part in finished.left_out] == [True]
-
-
-@pytest.mark.rls
-async def test_an_owners_own_finding_in_an_edit_is_not_pips_to_rewrite(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: an edit asked for one thing spends the allowance rewriting a line the owner
-    already had."""
-    monkeypatch.setattr(get_settings(), "script_mistake_repair_passes", 2)
-    base = _script(THIRD_PERSON)
-    finished, changes = await _write(monkeypatch, base, [_script(THIRD_PERSON, ONE_QUESTION)])
-    assert changes == []
-    assert finished.left_out == []
 
 
 def test_the_repair_rounds_are_on_the_console() -> None:

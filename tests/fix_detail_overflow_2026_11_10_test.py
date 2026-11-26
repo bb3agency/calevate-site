@@ -10,7 +10,6 @@ the ten-minute stale note."""
 
 from __future__ import annotations
 
-from apps.api.agents import script_proposals
 from calevate_shared.call_script import STAGE_DETAIL_MAX, CallScript, ConversationStage
 
 LINE = "Signing up takes two minutes on the app, and the first season is free for every farmer."
@@ -38,27 +37,3 @@ WRITTEN = _script(LONG.strip(), "")
 def test_the_fixture_is_the_overflow() -> None:
     assert len(LONG.strip()) + len(LINE) > STAGE_DETAIL_MAX - 20
     assert len(LONG.strip()) <= STAGE_DETAIL_MAX
-
-
-def test_a_longer_instruction_beside_the_kept_line_is_not_a_crash() -> None:
-    """FAILS IF: `kept_to_paths` raises a validation error for a step whose instruction and
-    "sounds like" line no longer fit together."""
-    kept = script_proposals.kept_to_paths(WRITTEN, BASE, ["stages.0.instruction"])
-    stage = kept.stages[0]
-    # The written step fits as a whole, so its pair is taken together.
-    assert stage.instruction == LONG.strip()
-    assert stage.sounds_like == ""
-    ConversationStage.model_validate(stage.model_dump(mode="json"))
-
-
-def test_a_pair_that_cannot_fit_keeps_the_owners_step() -> None:
-    """FAILS IF: a step that cannot hold the named line even with the written step's own
-    pair (the owner's step is spoken word for word, so its detail is wrapped in "Say:") is
-    built anyway, a crash, instead of left as the owner wrote it."""
-    base = BASE.model_copy(
-        update={"stages": [BASE.stages[0].model_copy(update={"mode": "say"}), BASE.stages[1]]}
-    )
-    longest = (LONG.strip() + " Ask for the village name and the crop they grow.")[:598]
-    written = _script(longest, "")
-    kept = script_proposals.kept_to_paths(written, base, ["stages.0.instruction"])
-    assert kept.stages[0] == base.stages[0]

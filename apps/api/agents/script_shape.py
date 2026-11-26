@@ -9,11 +9,11 @@ those shapes for any business and any call language:
 
 * STRUCTURE (`structure_problems`), which only a rewrite of the whole script can mend: more
   than one detail asked in one step, a step after the close or reached only from it, and a
-  numbered task of the main task that no step covers. The writer gets one whole-script pass
-  naming them (`workers/campaign_script._restructured`); what is left is a warning the owner
-  reads.
+  numbered task of the main task that no step covers. The plan is built by code so these
+  should not arise; the one writer's checks (`script_writer.checked`) name any that do, and
+  what is left is a warning the owner reads.
 * LINES (`line_problems`), which the targeted repair rewrites like any call-mistake finding
-  (`workers/script_proposal._Fix`, `agents/script_heal.heal_findings`): a line that gives
+  (`script_writer.checked`, `agents/script_heal.heal_findings`): a line that gives
   several things to do at once, and a line in which the agent says it will note or record
   something in a step that notes nothing, which is the caller's own action or an empty
   promise. Read in English words only; a line in another language is judged by the review

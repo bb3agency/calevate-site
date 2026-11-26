@@ -17,12 +17,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from apps.api.agents import script_lint
-from apps.workers import script_assist
 from apps.workers.script_assist import UnusableAnswerError
 from calevate_shared.call_script import CallScript, ConversationStage, StageBranch, StepOutcome
 from scripts import eval_script_writer as ev
@@ -262,31 +260,6 @@ def test_the_judge_is_reported_apart_and_never_in_the_score() -> None:
     assert "UNCALIBRATED" in text and "## The research scorecard's deterministic checks" in text
     assert ev.summary([r]) == ev.report_json([r], judged)["summary"]
     assert not any(k.startswith("judge") for k in r.counts())
-
-
-async def test_live_writes_as_the_campaign_writer_does(monkeypatch: pytest.MonkeyPatch) -> None:
-    case = CASES["rytu_khata_install"]
-    written = ev.load_recorded(CASES["school_admission"]).script
-    calls: list[dict[str, Any]] = []
-
-    async def fake_draft(brief: script_assist.ScriptBrief, **kwargs: Any) -> Any:
-        calls.append({"brief": brief, **kwargs})
-        usage = SimpleNamespace(prompt_tokens=100, output_tokens=50)
-        return SimpleNamespace(script=written, usage=usage, model="gemini-test")
-
-    monkeypatch.setattr(script_assist, "draft_script", fake_draft)
-    monkeypatch.setattr("apps.api.agents.assist_leg.google_assist_leg", lambda: "leg")
-    spend = ev.Spend()
-    script = await ev.write_live(case, spend)
-    first, refine = calls
-    assert "MAIN TASK:" in first["brief"].description and first["brief"].placed_calls
-    assert first["brief"].language == "te-IN" and first["tenant_leg"] == "leg"
-    # A judgement its label gives away never reaches the writer, as job_details keeps it.
-    assert not any("Installation status" in c for c in first["brief"].collect)
-    assert refine["edit_of"] == written and refine["brief"].description == case.description
-    assert first["standby_after_answer"] is False
-    assert spend.tokens == 300 and spend.models == {"gemini-test"}
-    assert isinstance(script, CallScript)
 
 
 def test_live_and_judge_refuse_to_spend_unasked() -> None:

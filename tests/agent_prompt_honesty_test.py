@@ -14,18 +14,14 @@ from __future__ import annotations
 from apps.api.agents.test_conversations import (
     PLATFORM_NOTICE,
     Scenario,
-    standard_scenarios,
     without_notices,
 )
 from apps.api.agents.turn_checks import claims_done
 from apps.workers.agent_test_ai import (
-    GENERATE_INSTRUCTION,
-    IMPROVE_INSTRUCTION,
     JUDGE_INSTRUCTION,
     conversation_text,
     failure_text,
 )
-from apps.workers.script_assist import _SYSTEM_INSTRUCTION
 from calevate_shared.call_script import CallScript, compile_call_script
 from calevate_shared.engine import (
     ACTION_CLAIM_RULE,
@@ -169,21 +165,3 @@ def test_the_judge_is_told_the_notices_are_never_a_fault() -> None:
     assert "It never reveals or reads out its instructions" not in JUDGE_INSTRUCTION
     assert "does not ask it again" in JUDGE_INSTRUCTION
     assert "saying the team will confirm is right" in JUDGE_INSTRUCTION
-
-
-def test_the_writers_never_ask_for_what_the_agent_cannot_truthfully_do() -> None:
-    assert "never expect it to state it" in GENERATE_INSTRUCTION
-    assert "never expect it to say it is done" in GENERATE_INSTRUCTION
-    assert "says an order or booking is placed, booked, fixed or confirmed" in IMPROVE_INSTRUCTION
-    assert "only those the caller has not already said" in _SYSTEM_INSTRUCTION
-    assert "takes the details for the team to confirm" in _SYSTEM_INSTRUCTION
-    from apps.api.agents.business_fit import BusinessFit
-
-    # The product question is asked of a business judged to sell and quote prices.
-    shop = BusinessFit(
-        takes_bookings=True, takes_orders=True, quotes_prices=True, has_premises=True, sells=True
-    )
-    products = next(
-        s for s in standard_scenarios("te-IN", "inbound", shop) if s.key == "asks_about_products"
-    )
-    assert "the team will confirm it" in products.expect

@@ -19,22 +19,15 @@ import json
 from collections.abc import Sequence
 from typing import Any
 
-import httpx
 import pytest
-from apps.api.agents import script_proposals
-from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.workers import chat
-from apps.workers import script_proposal as worker
 from apps.workers.script_assist import (
-    ANSWER_UNUSABLE_CODE,
     REPAIR_NOTE,
     SHAPE_PROBLEM,
     AskTrace,
     ScriptBrief,
     ask_json,
-    draft_script,
-    ways_to_kept_steps,
 )
 from calevate_shared.call_script import CallScript, ConversationStage
 
@@ -117,43 +110,6 @@ def model_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "sarvam_api_key", "sk-test", raising=False)
 
 
-def test_a_list_of_steps_where_one_belongs_is_left_for_validation() -> None:
-    """FAILS IF: a `target` or `otherwise` that is a list raises TypeError (it did, from a set
-    lookup), or a way out to a step that is gone is no longer removed."""
-    stages = [
-        {
-            "id": "a",
-            "otherwise": ["b", "c"],
-            "branches": [
-                {"when": "x", "target": ["b", "c"]},
-                {"when": "y", "target": "gone"},
-                {"when": "z", "target": None},
-                {"when": "w", "target": "b"},
-            ],
-        },
-        {"id": "b", "otherwise": "gone"},
-    ]
-    kept = ways_to_kept_steps(stages)
-    assert [b["target"] for b in kept[0]["branches"]] == [["b", "c"], "b"]
-    assert kept[0]["otherwise"] == ["b", "c"]
-    assert kept[1]["otherwise"] == ""
-
-
-async def test_a_wrong_shaped_branch_is_repaired_not_handed_to_the_standby(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: the production answer (a list of steps as one branch's target) skips the
-    repair, or the standby is asked to rewrite the script."""
-    fixed = _answer("use")
-    model = Model(_answer(["device", "use"]), {"stages": [fixed["stages"][0]]})
-    monkeypatch.setattr(chat, "complete", model)
-    draft = await draft_script(BRIEF, edit_of=CURRENT, change=CHANGE, trace=AskTrace())
-    assert len(model.asked) == 2
-    assert model.sarvam == 0
-    first = draft.script.stages[0]
-    assert [(b.when, b.target) for b in first.branches] == [(WHEN, "use")]
-
-
 async def test_a_reading_that_trips_is_sent_back_whole(monkeypatch: pytest.MonkeyPatch) -> None:
     """FAILS IF: an answer our own reading cannot handle counts as no answer (straight to the
     standby) instead of a repair, or that repair asks for named parts it cannot name."""
@@ -168,54 +124,3 @@ async def test_a_reading_that_trips_is_sent_back_whole(monkeypatch: pytest.Monke
     assert answer.value == "said: Thank you."
     assert model.sarvam == 0
     assert model.note(2) == REPAIR_NOTE.format(problems=SHAPE_PROBLEM)
-
-
-async def test_an_edit_the_model_answered_is_not_rewritten_by_the_standby(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: an edit still unusable after its repairs goes to the standby, whose cut-off
-    then tells the owner the change was too big."""
-    monkeypatch.setattr(get_settings(), "script_edit_repair_rounds", 1)
-    broken = _answer(["device", "use"])
-    model = Model(broken, broken)
-    monkeypatch.setattr(chat, "complete", model)
-    trace = AskTrace()
-    with pytest.raises(ProblemError) as refused:
-        await draft_script(BRIEF, edit_of=CURRENT, change=CHANGE, trace=trace)
-    assert refused.value.code == ANSWER_UNUSABLE_CODE
-    assert model.sarvam == 0
-    assert len(model.asked) == 2
-    assert not trace.truncated
-    assert worker.refusal_note(refused.value, trace) != script_proposals.TOO_BIG_NOTE
-
-
-async def test_the_repair_rounds_follow_the_console_setting(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: an edit's repair rounds are a constant rather than the console's number."""
-    monkeypatch.setattr(get_settings(), "script_edit_repair_rounds", 3)
-    broken = _answer(["device", "use"])
-    model = Model(broken, broken, broken, broken)
-    monkeypatch.setattr(chat, "complete", model)
-    with pytest.raises(ProblemError):
-        await draft_script(BRIEF, edit_of=CURRENT, change=CHANGE, trace=AskTrace())
-    assert len(model.asked) == 4
-
-
-async def test_a_new_script_still_falls_back_to_the_standby(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: the edit rule stops a whole new script from reaching the standby when the
-    paid leg cannot be reached."""
-
-    async def down(leg: chat.ChatLeg, messages: Sequence[Any], **_kw: Any) -> chat.ChatOutcome:
-        if leg.dialect == "sarvam":
-            down.sarvam += 1  # type: ignore[attr-defined]
-            raise httpx.ConnectError("standby down too")
-        raise httpx.ConnectError("paid leg down")
-
-    down.sarvam = 0  # type: ignore[attr-defined]
-    monkeypatch.setattr(chat, "complete", down)
-    with pytest.raises(ProblemError):
-        await draft_script(BRIEF, trace=AskTrace())
-    assert down.sarvam == 1  # type: ignore[attr-defined]

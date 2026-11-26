@@ -20,7 +20,6 @@ from apps.api.agents.test_conversations import Turn
 from apps.api.agents.turn_checks import conversation_problems, turn_problems
 from apps.api.core.errors import ProblemError
 from apps.api.engine.thinnest import BASE_URL, ThinnestEngine
-from apps.workers.script_assist import drafted_script, language_problems
 from calevate_shared.call_script import (
     OUTBOUND_OPENING_HEADER,
     CallScript,
@@ -229,18 +228,6 @@ def test_a_placed_opening_over_the_dial_ceiling_is_refused_before_it_is_saved() 
             placed=True,
         )
     assert refused.value.code == "engine_greeting_too_long"
-
-
-def test_the_script_writer_keeps_an_outbound_opening_only_for_a_both_agent() -> None:
-    raw = {"opening_line": "", "outbound_opening_line": OWN_PLACED}
-    names = ("Rytu Khata", "Sindhu")
-    both = drafted_script(raw, language="te-IN", direction="both", names=names)
-    assert both.outbound_opening_line == OWN_PLACED
-    one = drafted_script(raw, language="te-IN", direction="inbound", names=names)
-    assert not one.outbound_opening_line
-    # And held to the opening's length rule.
-    long_line = CallScript(schema_version=2, outbound_opening_line="ఇ " * 200)
-    assert any(p.startswith("outbound_opening_line") for p in language_problems(long_line, "te-IN"))
 
 
 def test_a_twelve_word_run_without_a_mark_fails_the_breath_check() -> None:

@@ -9,9 +9,8 @@ the practice check compares the script's own line with the reply, in any languag
 
 from __future__ import annotations
 
-from apps.api.agents.call_rules import CALL_RULES, SCRIPT_FLOW_RULE, writer_rules
-from apps.api.agents.script_lint import LintContext, order_problems, presumed_lines, script_problems
-from apps.api.agents.script_proposals import kept_to_paths
+from apps.api.agents.call_rules import CALL_RULES
+from apps.api.agents.script_lint import order_problems, presumed_lines
 from apps.api.agents.test_conversations import RuleContext, Turn, hard_check, probe_scenario
 from apps.api.agents.turn_checks import (
     JOB_KINDS,
@@ -20,9 +19,7 @@ from apps.api.agents.turn_checks import (
     said_presumed_line,
 )
 from apps.workers.opening_line import OPENING_WRITER_INSTRUCTION, PLACED_TASK
-from apps.workers.script_assist import _SYSTEM_INSTRUCTION, EDIT_INSTRUCTION
 from calevate_shared.call_script import (
-    END_OF_CALL,
     CallScript,
     ConversationStage,
     StageBranch,
@@ -117,36 +114,7 @@ def test_the_line_of_a_found_step_is_what_the_practice_check_looks_for() -> None
     assert presumed_lines(_script(CHECK, USAGE, CLOSE)) == (USED_LINE,)
 
 
-def test_the_readiness_card_shows_it_and_the_fix_may_rewire_the_ways_out() -> None:
-    script = _script(CHECK, USAGE, CLOSE)
-    problems = script_problems(script, LintContext())
-    assert any(p.startswith("stages.1.instruction: takes as given") for p in problems)
-    # "Fix them first" sends the found path; the writer's ways out are kept for it, as for
-    # every order problem, so the fix can gate the step.
-    gated = _script(
-        CHECK.model_copy(
-            update={
-                "branches": [StageBranch(when="they say they use the app", target="s2")],
-                "otherwise": "s3",
-            }
-        ),
-        USAGE.model_copy(update={"otherwise": "s3"}),
-        CLOSE.model_copy(update={"otherwise": END_OF_CALL}),
-    )
-    kept = kept_to_paths(gated, script, ["stages.1.instruction"])
-    assert kept.stages[0].branches == gated.stages[0].branches
-    assert order_problems(kept) == []
-
-
 # --- the writers ------------------------------------------------------------------------------
-
-
-def test_every_script_writer_is_told_to_ask_and_branch_rather_than_presume() -> None:
-    assert "Nothing about the caller is taken as given" in SCRIPT_FLOW_RULE
-    assert "branches on the answer" in SCRIPT_FLOW_RULE
-    assert "registering is not using it" in SCRIPT_FLOW_RULE
-    for instruction in (_SYSTEM_INSTRUCTION, EDIT_INSTRUCTION):
-        assert writer_rules() in instruction
 
 
 def test_the_opening_writers_never_say_the_person_has_or_uses_something() -> None:

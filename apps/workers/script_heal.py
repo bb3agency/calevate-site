@@ -3,12 +3,13 @@ sweep that reaches every script no save has.
 
 `repair_holder_script` is one pass over one campaign's or inbound line's script: the script
 checks (`script_heal.heal_findings`) run on the saved script; with nothing found it asks no
-model and records the script as checked. Otherwise Pip's writer is asked for an edit naming
-those findings (`script_proposals.fix_change`), the answer is kept to the faulted lines
-(`kept_to_paths`), checked again and repaired at most `script_mistake_repair_passes` rounds
-more (`script_proposal._fixed_further`, the same targeted repair every Pip draft goes
-through), then saved by compare-and-set on the script it read, with what was spent metered in
-the same transaction, and put on the calls as the owner's Save is (`campaigns/notes_live.
+model and records the script as checked. Otherwise the one writer repairs the faulted lines
+(`workers/script_writer.write_script` in `lines` mode, with the holder's whole context from
+`workers/script_context`): each faulted step written again by its own request told the
+findings, only the fields at their paths taken, held to the same `heal_findings` and
+written again alone while it still fails. It is then saved by compare-and-set on the script
+it read, with what was spent metered in the same transaction, and put on the calls as the
+owner's Save is (`campaigns/notes_live.
 queue_put_live`). The repair is kept as a `pip_repair` version (`campaigns/script_history`),
 so "put back" still reaches the owner's own script and the Versions list can undo it.
 
@@ -27,7 +28,7 @@ from __future__ import annotations
 import json
 import time
 from collections import defaultdict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
@@ -36,10 +37,7 @@ from calevate_shared.call_script import CallScript
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import agent_pass, script_builder, script_proposals
-from apps.api.agents.assist_leg import account_assist_leg
-from apps.api.agents.capability_manifest import lint_context_for
-from apps.api.agents.mistake_fixes import fix_paths
+from apps.api.agents import agent_pass, script_builder
 from apps.api.agents.script_heal import (
     CHECKS_VERSION,
     DEBOUNCE_S,
@@ -52,7 +50,7 @@ from apps.api.agents.script_heal import (
     table_of,
     wired_ways_out,
 )
-from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
+from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.campaigns import script_history
 from apps.api.campaigns.notes_live import queue_put_live
 from apps.api.campaigns.workspace import read_script_proposal
@@ -62,17 +60,10 @@ from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue, job_id_for
-from apps.api.core.settings import get_settings
-from apps.api.crm import assist as crm_assist
 from apps.api.db.session import admin_session, tenant_session
 from apps.workers.fleet_walk import WalkBudget, resumed_walk
-from apps.workers.script_assist import ScriptDraft, draft_script
-from apps.workers.script_proposal import (
-    PROPOSAL_MAX_TOKENS,
-    PROPOSAL_REQUEST_TIMEOUT_S,
-    _Fix,
-    _fixed_further,
-)
+from apps.workers.script_context import ScriptContext, holder_context
+from apps.workers.script_writer import WriteRefusedError, WriteRequest, meter, write_script
 
 log = get_logger(__name__)
 
@@ -251,14 +242,10 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
     if previous == holder.digest:
         await _finish(tenant_id, kind, holder_id, "done")
         return "unchanged"
-    async with tenant_session(tenant_id) as session:
-        lint = await lint_context_for(session, tenant_id=tenant_id, agent_id=holder.agent_id)
-        details = await (
-            script_builder.campaign_details if kind == "campaign" else script_builder.line_details
-        )(session, holder_id)
-    lint = replace(
-        lint, promo=False, language=holder.language or lint.language, judged=details.judged
-    )
+    # The one context every writing path reads (`workers/script_context`): the holder's own
+    # language, direction, details, sources and plan, so a repair is judged as it was written.
+    context = await holder_context(tenant_id, kind, holder_id, asked=False)
+    lint = context.lint()
     # Structure first, by code: a way out stated only in words becomes a branch (no model, so
     # no gate), then the model is asked only about the lines.
     wired = wired_ways_out(holder.script, lint)
@@ -280,7 +267,7 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
     if not findings:
         await _finish(tenant_id, kind, holder_id, "done", checked=holder.digest)
         return "clean"
-    return await _repair(tenant_id, holder, lint, findings, wired)
+    return await _repair(tenant_id, holder, context, findings, wired)
 
 
 async def _rewrite_wanted(tenant_id: UUID, kind: HolderKind, holder_id: UUID) -> bool:
@@ -344,85 +331,45 @@ async def _ask_rewrite(tenant_id: UUID, kind: HolderKind, holder_id: UUID) -> bo
 
 
 async def _repair(
-    tenant_id: UUID, holder: _Holder, lint: Any, findings: list[str], base: CallScript
+    tenant_id: UUID,
+    holder: _Holder,
+    context: ScriptContext,
+    findings: list[str],
+    base: CallScript,
 ) -> str:
-    """`base` is the script as read with its structure already mended; the save compares
-    with the script as read."""
+    """The faulted lines rewritten by the one writer (`script_writer.write_script`, `lines`):
+    each step a finding is on written again by its own request told the findings, and only
+    the fields at their paths taken; held to `heal_findings`. `base` is the script as read
+    with its structure already mended; the save compares with the script as read."""
     assert holder.script is not None
-    started = time.monotonic()
-    paths = fix_paths(findings)
-    fix = _Fix(
-        lint,
-        findings,
-        frozenset(script_proposals.finding_key(p, base) for p in findings),
+    lint = context.lint()
+    request = WriteRequest(
+        "lines",
+        context,
+        time.monotonic(),
+        base=base,
+        problems=tuple(findings),
         check=lambda script: heal_findings(script, lint),
     )
-    async with tenant_session(tenant_id) as session:
-        context = await script_proposals.brief_for(
-            session, tenant_id, holder.agent_id, language=holder.language
-        )
-        tenant_leg = await account_assist_leg(session)
-        quota = await read_ai_quota(session, tenant_id=tenant_id)
     try:
-        draft = await draft_script(
-            context,
-            tenant_leg=tenant_leg,
-            quota_exhausted=quota.at_ceiling or quota.platform_paused,
-            edit_of=base,
-            change=script_proposals.fix_change(findings, base),
-            timeout_s=PROPOSAL_REQUEST_TIMEOUT_S,
-            max_tokens=PROPOSAL_MAX_TOKENS,
+        result = await write_script(request)
+    except WriteRefusedError as refused:
+        log.info(
+            "script_heal_refused",
+            extra={"holder_id": str(holder.id), "reason": refused.refused.code},
         )
-    except ProblemError as refused:
-        log.info("script_heal_refused", extra={"holder_id": str(holder.id), "reason": refused.code})
-        await _meter_and_finish(tenant_id, holder, [refused], state="failed")
+        await _meter_and_finish(tenant_id, holder, refused.spends, state="failed")
         return "refused"
-    spends: list[ScriptDraft | ProblemError] = [draft]
-    repaired = base
-    try:
-        kept = script_proposals.kept_to_paths(draft.script, base, paths)
-        further = await _fixed_further(
-            tenant_id,
-            holder.agent_id,
-            fix,
-            kept,
-            started,
-            passes=get_settings().script_mistake_repair_passes,
-            language=holder.language,
-        )
-        repaired = further.script
-        spends += further.spends
-    except Exception:
-        # The first answer is paid for and must reach the meter (hard rule 7).
-        log.exception("script_heal_check_crashed", extra={"holder_id": str(holder.id)})
+    repaired = result.script
     if repaired == holder.script:
         # Nothing the model wrote cleared a fault, and code mended nothing either. Recorded
         # as checked so the sweep does not pay for the same answer every hour; a call showing
         # the mistake asks again.
-        await _meter_and_finish(tenant_id, holder, spends, state="done", checked=holder.digest)
+        await _meter_and_finish(
+            tenant_id, holder, result.spends, state="done", checked=holder.digest
+        )
         return "unchanged_by_model"
-    return await _save(tenant_id, holder, lint, repaired, spends)
-
-
-async def _meter(session: AsyncSession, tenant_id: UUID, spends: list[Any]) -> None:
-    feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
-    for spent in spends:
-        if isinstance(spent, ProblemError):
-            await crm_assist.meter_refusal(
-                session, tenant_id=tenant_id, refusal=spent, feature=feature
-            )
-            continue
-        await crm_assist.meter_earlier(
-            session, tenant_id=tenant_id, earlier=spent.earlier, feature=feature
-        )
-        await crm_assist.meter_assist(
-            session,
-            tenant_id=tenant_id,
-            ref=new_assist_ref(),
-            result=spent,
-            model=spent.model,
-            feature=feature,
-        )
+    return await _save(tenant_id, holder, lint, repaired, result.spends)
 
 
 async def _meter_and_finish(
@@ -434,7 +381,7 @@ async def _meter_and_finish(
     checked: str | None = None,
 ) -> None:
     async with tenant_session(tenant_id) as session:
-        await _meter(session, tenant_id, spends)
+        await meter(session, tenant_id, spends)
         if checked is not None:
             await session.execute(
                 text(f"UPDATE {table_of(holder.kind)} SET script_heal_inputs = :d WHERE id = :h"),
@@ -498,7 +445,7 @@ async def _save(
     cleared = mistake_kinds(holder.script, lint) - mistake_kinds(script, lint)
     fixed = dict.fromkeys(sorted(cleared), now)
     async with tenant_session(tenant_id) as session:
-        await _meter(session, tenant_id, spends)
+        await meter(session, tenant_id, spends)
         try:
             await script_builder.refuse_job_if_too_long(
                 session, kind=holder.kind, tenant_id=tenant_id, job_id=holder.id, script=script
