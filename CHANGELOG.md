@@ -3,6 +3,23 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.79 — 26-Nov-2026
+
+- A scenario no longer keeps an extra way out that only names the step it already goes to
+  (the "Not registered" card showed "App on the home screen" beside "Yes").
+- The opening card on the flow shows two lines of a Telugu or Hindi opening, so "Edit in the
+  script" no longer sits on top of the text.
+
+## 0.5.78 — 26-Nov-2026
+
+- Build fix for 0.5.77 (a sorted export list); nothing changes on screen.
+
+## 0.5.77 — 26-Nov-2026
+
+- After a call, a judgement about the caller (how comfortable or interested they were) is
+  kept only when something the caller said shows it. The agent describing a feature is no
+  longer noted as the caller's interest in it.
+
 ## 0.5.76 — 26-Nov-2026
 
 - Every script is checked by one set of rules wherever it is written or saved. A line that

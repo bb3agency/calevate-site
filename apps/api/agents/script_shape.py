@@ -73,7 +73,10 @@ def echo_branches(script: CallScript) -> list[tuple[int, int]]:
     of the step it goes to, when that step is where the call goes anyway and it is the only
     scenario of its step. Such a way out tells the in-call model to move on when "Add Farms"
     holds, which is no condition, and draws a second arrow beside the default one. A name
-    that chooses between scenarios of the next step is a real choice and stays."""
+    that chooses between scenarios of the next step is a real choice and stays, unless it
+    comes from a scenario of that same step, or another way out of the step already goes
+    there under a real condition ("Not registered": "Yes" -> s2 beside "App on the home
+    screen" -> s2, 26 Nov 2026)."""
     steps = stage_steps(script.stages)
     by_id = {stage.id: i for i, stage in enumerate(script.stages)}
     found: list[tuple[int, int]] = []
@@ -83,12 +86,18 @@ def echo_branches(script: CallScript) -> list[tuple[int, int]]:
             target = by_id.get(branch.target)
             if target is None or branch.target != default:
                 continue
-            alone = steps.count(steps[target]) == 1
             named = (
                 " ".join(branch.when.split()).casefold()
                 == " ".join(script.stages[target].name.split()).casefold()
             )
-            if alone and named:
+            if not named:
+                continue
+            alone = steps.count(steps[target]) == 1
+            sibling = steps[i] == steps[target]
+            covered = any(
+                k != j and other.target == branch.target for k, other in enumerate(stage.branches)
+            )
+            if alone or sibling or covered:
                 found.append((i, j))
     return found
 

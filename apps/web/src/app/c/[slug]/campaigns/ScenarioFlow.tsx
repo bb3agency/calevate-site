@@ -1165,11 +1165,14 @@ function OpeningNode({
           {opening.placed ? "Opening when it calls" : "Opening"}
         </span>
       </span>
-      <span className="mt-1 line-clamp-3 text-meta text-ink">
+      {/* Two lines, not three: Telugu and Devanagari lines stand taller than Latin ones, and
+          three of them ran under the link in the fixed-height box. The whole line is one
+          click away. */}
+      <span className="mt-1 line-clamp-2 min-h-0 text-meta text-ink">
         {opening.line ? `“${opening.line}”` : "No opening line yet."}
       </span>
       {onEdit && (
-        <span className="mt-auto text-[11px] font-medium text-brand-strong">
+        <span className="mt-auto shrink-0 pt-1 text-[11px] font-medium text-brand-strong">
           Edit in the script
         </span>
       )}
