@@ -229,7 +229,7 @@ export function usePublishInboundLine(session: Session, lineId: string) {
 
 /** How the owner wants Pip to write the draft: a tone and what to change. Empty for a draft
  * as Pip sees fit. */
-export type LineScriptAsk = Schemas["ScriptAskIn"];
+export type LineScriptAsk = Schemas["CampaignProposalIn"];
 
 export function useRequestLineScript(session: Session, lineId: string) {
   return useLineMutation(session, lineId, (asked?: LineScriptAsk) =>

@@ -26,7 +26,7 @@ def _stage(sid: str, actions: int) -> ConversationStage:
 
 def test_trimming_takes_the_longest_list_first_and_stops_at_the_cut() -> None:
     script = CallScript(schema_version=2, stages=[_stage("a", 6), _stage("b", 2)])
-    out = trimmed_procedures(script, 60)
+    out = trimmed_procedures(script, 40)  # one action is 49 characters with its wait
     assert out is not None
     assert [len(s.procedure) for s in out.stages] == [5, 2]
     assert out.stages[0].instruction == "Guide them through it."

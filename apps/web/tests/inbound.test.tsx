@@ -80,6 +80,8 @@ function line(over: Partial<InboundLine> = {}): InboundLine {
   return {
     id: LINE_ID,
     name: "Calls to your number",
+    call_languages: ["te-IN"],
+    example_limits: { turns_min: 3, turns_max: 5, line_max: 200 },
     agent_id: AGENT_ID,
     agent_name: "Reception",
     main_task: "",

@@ -219,6 +219,7 @@ export function settingsFixture(over: Partial<CampaignSettings> = {}): CampaignS
     applied_now: false,
     defaults: { language_primary: "te-IN", languages_extra: [] },
     offered_languages: ["te-IN", "hi-IN", "en-IN"],
+    example_limits: { turns_min: 3, turns_max: 5, line_max: 200 },
     overrides: {},
     ...over,
   };

@@ -2201,6 +2201,8 @@ const HEALER_PROPOSALS = {
 const INBOUND_LINE: InboundLine = {
   id: "line-1",
   name: "Calls to your number",
+  call_languages: ["te-IN"],
+  example_limits: { turns_min: 3, turns_max: 5, line_max: 200 },
   agent_id: AGENT.id,
   agent_name: AGENT.name,
   main_task: "Answer questions about our services and book a visit.",

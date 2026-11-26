@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.86 — 27-Nov-2026
+
+- Build fix: the answering line's Pip request uses the renamed request type, and test
+  fixtures carry the new example limits; nothing changes on screen.
+
 ## 0.5.85 — 27-Nov-2026
 
 - A script Pip writes is trimmed to fit the calling system before you see it: the longest
