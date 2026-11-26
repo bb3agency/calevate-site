@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.83 — 26-Nov-2026
+
+- Pip writes a script one step at a time from a plan the code builds from your own steps.
+  Your step text is kept as you wrote it, the opening keeps its language and script, a
+  "now a good time?" already in the opening is not asked again, and no step gains a call
+  back you did not ask for.
+- Pip can write each step's example turns, and an answering line can have one part
+  rewritten on its own.
+
 ## 0.5.82 — 26-Nov-2026
 
 - Test fix: the hot-lead alert test puts its call on an answering line, since alerts follow
