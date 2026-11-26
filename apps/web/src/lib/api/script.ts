@@ -104,6 +104,21 @@ export interface ConversationStage {
   }[];
   /** How the owner wants the line said, heard and noted (language "" = every language). */
   coaching?: { language: string; note: string }[];
+  /** Example turns by language tag, which replace `sounds_like` (script rebuild §3.2).
+   *  Mirrors `ConversationStage.examples`. */
+  examples?: Record<string, StepExamples>;
+}
+
+/** One step's examples in one language: the ways it is said, and the hard moments. */
+export interface StepExamples {
+  /** 3 to 5 different turns, each one action. */
+  turns: string[];
+  /** What it says when the caller asks "after what?". */
+  confused: string;
+  /** What it says when the caller cannot do the action. */
+  stuck: string;
+  /** What it says when now is not a good time; the first step only. */
+  busy: string;
 }
 
 /** Mirrors `Objection`. */
