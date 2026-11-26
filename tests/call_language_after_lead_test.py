@@ -26,7 +26,14 @@ from tests.live_updates_test import captured as captured
 from tests.pipeline_audit_test import _completed_call, _outbox_rows, _run_pipeline, _scalar
 from tests.pipeline_audit_test import _stub_storage as _stub_storage
 from tests.post_call_truth_test import _with_engine_summary
-from tests.postcall_crm_events_test import BROWSING, READY, give_agent_outcomes, reads_as, subscribe
+from tests.postcall_crm_events_test import (
+    BROWSING,
+    READY,
+    give_agent_outcomes,
+    on_a_line,
+    reads_as,
+    subscribe,
+)
 
 TELUGU_SUMMARY = "కాలర్ పచ్చి మిర్చి కావాలి అన్నారు. రేపు కాల్ చేయమన్నారు."
 ENGLISH = "The caller wants green chilli. They asked to be called back tomorrow."
@@ -115,6 +122,7 @@ async def test_the_outcome_and_the_hot_lead_need_no_translation(
     _with_engine_summary(monkeypatch, TELUGU_SUMMARY)
     _forbid_pass_inside_pipeline(monkeypatch)
     tenant_id, execution_id, call_id = await _completed_call("hot_untranslated")
+    await on_a_line(tenant_id, call_id)
     await give_agent_outcomes(tenant_id, [READY, BROWSING])
     reads_as(monkeypatch, "ready_to_buy")
 
