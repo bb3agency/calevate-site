@@ -139,6 +139,12 @@ def test_asking_again_after_junk_is_not_moving_on() -> None:
 def test_two_actions_in_one_turn() -> None:
     assert sc.action_count("Open Chrome and type the address. Tell me when it opens.") == 2
     assert sc.action_count("Press the install button. Tell me when it is done.") == 1
+    # The scorecard's check reads caller-action verbs, so a reaction and one Telugu step is
+    # one thing to do (the call of 26 Nov 2026's own words).
+    one = sc.Turn("సరే.", "చాలా మంచిది అండి. ఇప్పుడు క్రోమ్ బ్రౌజర్ ఓపెన్ చేయండి.")
+    two = sc.Turn("సరే.", "ఇప్పుడు ఆ రైతుఖాతా ఐకాన్ మీద నొక్కి యాప్ ఓపెన్ చేయండి.")
+    assert sc.several_actions([one]) is None
+    assert sc.several_actions([one, two]) == 1
 
 
 def test_the_same_reaction_twice_in_a_row() -> None:

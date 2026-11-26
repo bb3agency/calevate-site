@@ -299,10 +299,13 @@ OPENING_LINE_RULE: Final = (
 #:   they should see, then their confirmation (speakshark.com/blog/english-it-support-
 #:   customer-calls, read 5 Nov 2026); voice-agent guides say "One field at a time" and
 #:   "Ask only one question at a time" (docs.vapi.ai/prompting-guide, read 5 Nov 2026).
-#: - An action's line ends on an invitation to say when it is done, never "is it done?":
-#:   on the Telugu campaign call of 24 Nov 2026 (12:15) six steps asked it in the same turn,
-#:   before the person could act (`mistake_lints._asked_done_too_soon` finds such a line).
-#:   Worded for each action, so the small steps do not all end with one tag.
+#: - An action's line ends on the action, never "is it done?" (the Telugu campaign call of
+#:   24 Nov 2026, 12:15, asked it in the same turn six times, before the person could act;
+#:   `mistake_lints._asked_done_too_soon`) and never "tell me once it is done" either: the
+#:   rule asked for that invitation until the Rytu Khata call of 26 Nov 2026 ended reply
+#:   after reply with it, which the founder heard as no human talking
+#:   (`script_lint.asks_when_done`). A procedure stage's line is its first action alone, so
+#:   the line cannot carry the next step after "once it opens" (`script_lint.stacked_line`).
 #: - Numbers given out a few digits at a time: the caller asked twice to slow down.
 #: - No spoken note-keeping: the founder wants the note kept, not announced.
 #: - Steps in the order their answers become possible, and only questions the caller can
@@ -352,21 +355,21 @@ SCRIPT_FLOW_RULE: Final = (
     "Having something, installing it or registering is not using it. The opening_line "
     "already greets, says who is calling and, on a call the agent places, why and whether "
     "now is a good time, so no stage does any of that again: the first stage starts from "
-    "their yes, and its sounds_like neither greets nor asks again whether they can talk. "
+    "their yes, and its sounds_like neither greets nor asks again whether they can talk or "
+    "whether to go ahead with what the opening offered; it goes straight to the reason or "
+    "the first action. "
     "Then the stages follow the purpose: ask, never state, what the call needs to know "
     "about the person's situation; the steps one at a time; check it is done by asking what "
     "they see; the last "
-    "stage closes on the one next step. No two stages' sounds_like open with the same "
-    "words, and no spoken line opens "
-    "with a reaction (OK, good, very good, understood, happy) before its point; each opens "
-    "with its own point, the answer, the step or the question; nor do the lines of one "
-    "language, or a stage's small steps, all end with the same tag. A "
-    "stage that walks the caller through doing something puts each action in its "
-    "procedure, one action an item, and the agent waits for the caller to say it is done "
-    "before the next; never several actions in one instruction followed by asking whether "
-    "they understood. A line that gives an action ends on it and an invitation to say when "
-    "it is done, worded for that action, and never asks in the same line whether it is done "
-    "or shows: they need time to do it first. Each stage's sounds_like does what that "
+    "stage closes on the one next step. No two stages' sounds_like open or end with the "
+    "same words, and none opens with a reaction (OK, good, very good, understood, "
+    "happy) before its point; each opens with its own point, the answer, the step or the "
+    "question. A stage that walks the caller through doing something puts each action in "
+    "its procedure, one action an item. The agent says one action, then stops: the caller "
+    "says when it is done, so no line asks them to tell you when it is done or whether they "
+    "understood, nor whether it is done before they have had time to do it. A stage with a "
+    "procedure has a sounds_like that gives its first action only, in a few words, with no "
+    "reaction before it and no question after it. Each stage's sounds_like does what that "
     "stage's instruction says: a "
     "stage that explains or answers says the answer from the knowledge and passes to the "
     "team only what the knowledge does not hold. Each thing is explained in one stage only; "

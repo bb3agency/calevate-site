@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Any, Final, Literal
 
 from apps.api.agents.call_mistakes import LESSONS, needs_lookup, step_mistakes
-from apps.api.agents.script_lint import tells_caller_to_act
+from apps.api.agents.script_lint import stacked_line, tells_caller_to_act
 from apps.api.agents.test_conversations import Turn, speech_problems
 from apps.api.agents.turn_checks import (
     _CALLER_NOT,  # the negatives `caller_says_done` reads
@@ -306,13 +306,23 @@ def _actions(reply: str) -> list[str]:
     return out
 
 
+def _short_question(said: str) -> bool:
+    return (
+        len(said.split()) <= UNCLEAR_MAX_WORDS
+        and asks_question(said)
+        and not caller_says_done(said)
+    )
+
+
 def moved_on_unclear(turns: Sequence[Turn]) -> int | None:
-    """The reply (0-based) that gave a new action on an unclear caller line, else None."""
+    """The reply (0-based) that gave a new action on an unclear caller line, else None. A short
+    question that does not say done counts as unclear too: "ఏమయ్యాక చెప్పాలి" (after what
+    should I tell?) on the 26 Nov 2026 call was the caller lost, not the step done."""
     asked: set[str] = set()
     for n, turn in enumerate(turns):
         if not turn.reply.strip():
             continue
-        if n and unclear(turn.said):
+        if n and (unclear(turn.said) or _short_question(turn.said)):
             new = [content_words(a) for a in _actions(turn.reply)]
             fresh = [words for words in new if words]
             if fresh and asked:
@@ -331,8 +341,10 @@ def action_count(reply: str) -> int:
 
 
 def several_actions(turns: Sequence[Turn]) -> int | None:
-    """The first reply (0-based) giving the caller more than one thing to do."""
-    return _first_reply(turns, lambda t: action_count(t.reply) > 1)
+    """The first reply (0-based) giving the caller more than one thing to do, read by the
+    product's own rule (`script_lint.stacked_line`: the caller-action verbs of each language
+    in `call_words.json`), so a reaction and one Telugu instruction is one action, not two."""
+    return _first_reply(turns, lambda t: stacked_line(t.reply))
 
 
 def same_opener_twice(turns: Sequence[Turn]) -> int | None:
