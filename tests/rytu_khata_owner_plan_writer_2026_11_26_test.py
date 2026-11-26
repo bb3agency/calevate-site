@@ -17,7 +17,7 @@ from apps.workers import script_writer, step_writer
 from apps.workers.script_writer import WriteRequest, write_script
 from calevate_shared.call_script import CALL_BACK, CollectField
 from tests.script_writer_rebuild_2026_11_26_test import LANG, FakeModel, _context, _good
-from tests.script_writer_rebuild_2026_11_26_test import fake as fake  # noqa: F401  (fixture)
+from tests.script_writer_rebuild_2026_11_26_test import fake as fake
 
 PLAN = (Path(__file__).parent / "fixtures" / "owner_plans" / "rytu_khata_2026_11_25.txt").read_text(
     encoding="utf-8"
@@ -115,7 +115,6 @@ async def test_the_written_script_keeps_the_owners_words_and_invents_nothing(
 @pytest.mark.parametrize("line", ["Message us any time", "Send us a WhatsApp", "Email us"])
 def test_a_close_naming_another_channel_than_its_step_is_found(line: str) -> None:
     from calevate_shared.call_script import StepExamples
-
     from tests.script_writer_rebuild_2026_11_26_test import _script
 
     script = _script()

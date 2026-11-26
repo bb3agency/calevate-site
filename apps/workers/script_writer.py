@@ -238,7 +238,9 @@ def _channel_problems(script: CallScript) -> list[str]:
     us with any doubt"."""
     found: list[str] = []
     for i, path, text in _example_lines(script):
-        named = {c for c, pattern in _CHANNELS.items() if pattern.search(script.stages[i].instruction)}
+        named = {
+            c for c, pattern in _CHANNELS.items() if pattern.search(script.stages[i].instruction)
+        }
         said = {c for c, pattern in _CHANNELS.items() if pattern.search(text)}
         if named and said - named:
             found.append(
