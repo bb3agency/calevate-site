@@ -111,7 +111,11 @@ def downgrade() -> None:
     op.drop_column("campaigns", "whatsapp_follow_up_inputs")
     op.drop_column("campaigns", "whatsapp_follow_up_state")
     op.drop_index("uq_follow_ups_campaign_whatsapp", table_name="follow_ups")
+    # FORCEd RLS would make this UPDATE match nothing for the owner (no `app.tenant_id`), and
+    # the narrower check below would then fail on the rows left; bracket as `d3b71c9a5e08`.
+    op.execute("ALTER TABLE follow_ups NO FORCE ROW LEVEL SECURITY")
     op.execute("UPDATE follow_ups SET starter = NULL WHERE starter = 'campaign_whatsapp'")
+    op.execute("ALTER TABLE follow_ups FORCE ROW LEVEL SECURITY")
     _starter_check(_OLD_STARTERS)
     op.drop_constraint(
         op.f("fk_follow_ups_campaign_id_campaigns"), "follow_ups", type_="foreignkey"

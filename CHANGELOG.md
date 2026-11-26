@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.87 — 27-Nov-2026
+
+- Rolling back the WhatsApp follow-up migration now clears its rows before tightening the
+  check, instead of failing; nothing changes on screen.
+
 ## 0.5.86 — 27-Nov-2026
 
 - Build fix: the answering line's Pip request uses the renamed request type, and test

@@ -15,8 +15,8 @@ from uuid import UUID
 
 import pytest
 from apps.api.copilot import write_tools
+from apps.api.copilot.actions import WriteRefusedError
 from apps.api.copilot.write_tools_test import _audit, _principal, _user_of
-from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from apps.api.main import app
 from apps.api.teach import test_cases
@@ -211,9 +211,10 @@ async def test_a_neighbours_call_is_not_found_and_their_prepared_tests_are_invis
     tenant_b, _slug_b, token_b = await _make_tenant()
     call_a = await _call(tenant_a)
     await _run(tenant_a, token_a, _args(call_a))
-    with pytest.raises(ProblemError) as missing:
+    # Pip is told the id names nothing in this account, so it can look again; the call is
+    # never shown to the neighbour either way.
+    with pytest.raises(WriteRefusedError, match="names nothing in this account"):
         await _run(tenant_b, token_b, _args(call_a))
-    assert missing.value.status == 404
     async with tenant_session(tenant_b) as session:
         seen = (
             await session.execute(
