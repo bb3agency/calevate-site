@@ -470,3 +470,15 @@ def test_the_step_answer_schema_names_every_call_language() -> None:
     props = schema["json_schema"]["schema"]["properties"]  # type: ignore[index]
     assert set(props["examples"]["properties"]) == {LANG, "hi-IN"}
     json.dumps(schema)
+
+
+def test_a_long_instruction_is_cut_to_fit_the_step_detail_with_its_examples_pointer() -> None:
+    from calevate_shared.call_script import STAGE_DETAIL_MAX
+
+    words = step_writer.StepWords(
+        instruction=("Guide them gently through the whole thing. " * 20)[:STAGE_DETAIL_MAX],
+        examples={LANG: StepExamples(turns=["Open it.", "Tap it.", "Find it."])},
+    )
+    stage = script_writer.stage_with(_script().stages[1], words)
+    assert stage.examples[LANG].turns
+    assert len(stage.instruction) < STAGE_DETAIL_MAX

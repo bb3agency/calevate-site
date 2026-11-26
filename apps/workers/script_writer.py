@@ -379,7 +379,22 @@ def stage_with(
         # An answer with no examples never wipes the lines a step already had.
         for name in ("examples", "sounds_like", "scripts"):
             update.pop(name, None)
-    return ConversationStage.model_validate({**stage.model_dump(), **update})
+    return _fitted({**stage.model_dump(), **update})
+
+
+def _fitted(data: dict[str, Any]) -> ConversationStage:
+    """The stage, its instruction cut at a word boundary when it and the pointers the
+    compiler adds (`call_script.examples_pointer`, the scenario pointer) would not fit the
+    engine's step detail (`STAGE_DETAIL_MAX`, ThinnestAI's 600 characters)."""
+    instruction = str(data["instruction"])
+    while True:
+        try:
+            return ConversationStage.model_validate({**data, "instruction": instruction})
+        except ValueError:
+            words = instruction.split()
+            if len(words) <= 3:
+                raise
+            instruction = " ".join(words[: max(3, len(words) - 8)]).rstrip(",;:") + "."
 
 
 def laid(

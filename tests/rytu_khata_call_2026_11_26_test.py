@@ -38,8 +38,7 @@ from apps.api.agents.turn_checks import (
     opener,
     turn_problems,
 )
-from apps.workers.campaign_script_ask import PURPOSE_RULE
-from apps.workers.script_assist import _SYSTEM_INSTRUCTION, CONVERT_INSTRUCTION
+from apps.workers.step_writer import OPENING_NOTE, STEP_INSTRUCTION
 from calevate_shared.call_script import CallScript, ConversationStage, ProcedureStep
 
 #: The turn that gave two steps and then asked to be told.
@@ -248,11 +247,10 @@ def test_the_writers_are_told_one_action_then_stop() -> None:
     assert "none opens with a reaction" in SCRIPT_FLOW_RULE
     assert "whether to go ahead with what the opening offered" in SCRIPT_FLOW_RULE
     assert SCRIPT_FLOW_RULE in writer_rules()
-    assert "says only the first action and asks nothing" in _SYSTEM_INSTRUCTION
-    assert "never a question the agent asks" in _SYSTEM_INSTRUCTION
-    assert "none a bare reaction" in _SYSTEM_INSTRUCTION
-    assert "never a question the agent asks" in CONVERT_INSTRUCTION
-    assert "their yes to the opening is the go-ahead" in PURPOSE_RULE
+    # The step writer, which writes every step's words (`workers/step_writer`).
+    assert "first action only and asks nothing" in STEP_INSTRUCTION
+    assert "never a question the agent asks" in STEP_INSTRUCTION
+    assert "their yes to the opening is the go-ahead" in OPENING_NOTE
 
 
 # --- a confused caller is asking, not done --------------------------------------------------------

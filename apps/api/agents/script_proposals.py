@@ -103,16 +103,6 @@ def owner_rule(rule: str) -> str:
     return f"{said[:1].upper()}{said[1:]}." if said else "It broke one of the call rules."
 
 
-def unwritten_note(parts: Sequence[LeftOut]) -> str:
-    """The failure note when the parts Pip could not write are known: which, and why."""
-    shown = [f"{part_label(p)}: {owner_rule(p.rule).rstrip('.')}" for p in parts[:3]]
-    more = f" and {len(parts) - 3} more" if len(parts) > 3 else ""
-    return (
-        f"Pip could not write a clean version of {'; '.join(shown)}{more}. Edit those parts "
-        "yourself, or ask Pip to change one of them at a time."
-    )
-
-
 def left_out_record(parts: Sequence[LeftOut]) -> list[dict[str, Any]]:
     return [
         {
@@ -388,5 +378,4 @@ __all__ = [
     "part_paths",
     "script_diff",
     "script_lines",
-    "unwritten_note",
 ]
