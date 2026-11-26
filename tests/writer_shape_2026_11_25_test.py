@@ -254,6 +254,27 @@ def test_a_name_that_chooses_between_scenarios_stays() -> None:
     assert echo_branches(script) == []
 
 
+def test_a_scenario_naming_its_sibling_beside_a_real_way_there_is_an_echo() -> None:
+    """FAILS IF: the 26 Nov 2026 "Not registered" scenario keeps "App on the home screen" ->
+    s2 beside "Yes" -> s2, which drew a chip naming the step it jumps to."""
+    script = CallScript(
+        schema_version=2,
+        stages=[
+            _stage("s1", "Introduction", step=1, branches=[_way("Never registered", "s3")]),
+            _stage("s2", "App on the home screen", step=2),
+            _stage(
+                "s3",
+                "Not registered",
+                step=2,
+                otherwise="s2",
+                branches=[_way("Yes", "s2"), _way("No", "end"), _way("App on the home screen", "s2")],
+            ),
+            _stage("s4", "Login", step=3),
+        ],
+    )
+    assert echo_branches(script) == [(2, 2)]
+
+
 def test_the_writer_never_drafts_an_echo_way_out() -> None:
     """FAILS IF: a drafted `next` to the step after it becomes a way out named by that step."""
     raw = {

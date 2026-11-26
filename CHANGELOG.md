@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.79 — 26-Nov-2026
+
+- A scenario no longer keeps an extra way out that only names the step it already goes to
+  (the "Not registered" card showed "App on the home screen" beside "Yes").
+- The opening card on the flow shows two lines of a Telugu or Hindi opening, so "Edit in the
+  script" no longer sits on top of the text.
+
 ## 0.5.78 — 26-Nov-2026
 
 - Build fix for 0.5.77 (a sorted export list); nothing changes on screen.
