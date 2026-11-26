@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 from uuid import UUID
 
-from calevate_shared.call_script import MAX_SCRIPT_STAGES, CallScript
+from calevate_shared.call_script import MAX_SCRIPT_STAGES, CallScript, ConversationStage
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -394,6 +394,57 @@ def write_request(context: ScriptContext, started: float) -> WriteRequest:
     return WriteRequest("whole", context, started, base=base)
 
 
+#: Rounds of trim-then-measure before the script is left over the box with a warning.
+_FIT_ROUNDS: Final = 6
+
+
+def _procedure_chars(stage: ConversationStage) -> int:
+    return sum(len(p.action) + len(p.wait_for) + 12 for p in stage.procedure)
+
+
+def trimmed_procedures(script: CallScript, cut: int) -> CallScript | None:
+    """`script` with about `cut` characters of step-by-step actions taken off, always from
+    the step whose list is longest, last action first; None when no list is left to trim.
+
+    Why the lists and not the examples or the owner's words: a step's instruction already
+    holds the owner's own text with every action in it (`script_plan.owners_text`), so a
+    shorter list loses no action the agent is told, while the examples are what the in-call
+    model copies, and the instruction is the owner's."""
+    stages = list(script.stages)
+    taken = 0
+    while taken < cut:
+        index = max(range(len(stages)), key=lambda i: _procedure_chars(stages[i]), default=-1)
+        if index < 0 or not stages[index].procedure:
+            break
+        stage = stages[index]
+        last = stage.procedure[-1]
+        taken += len(last.action) + len(last.wait_for) + 12
+        stages[index] = stage.model_copy(update={"procedure": stage.procedure[:-1]})
+    if taken == 0:
+        return None
+    return CallScript.model_validate(script.model_copy(update={"stages": stages}).model_dump())
+
+
+async def fitted_to_box(
+    context: ScriptContext, script: CallScript
+) -> tuple[CallScript, PromptSize | None]:
+    """The written script trimmed until the engine's box holds it, with its last measure.
+
+    Measured by the save's own measure (`measured`, `script_builder.job_size`), so a draft
+    this passes is one Keep and Put it live accept. A script the lists cannot bring inside
+    comes back as it is, and its measure becomes the "too long" warning."""
+    size = await measured(context, script)
+    for _ in range(_FIT_ROUNDS):
+        if size is None or size.fits:
+            break
+        shorter = trimmed_procedures(script, size.over + size.over // 10 + 50)
+        if shorter is None:
+            break
+        script = shorter
+        size = await measured(context, script)
+    return script, size
+
+
 def too_long_left(size: PromptSize | None) -> list[LeftOut]:
     """The warning for a script that would not fit the engine's box."""
     if size is None or size.fits:
@@ -468,9 +519,10 @@ async def _write(holder: _Holder, kind: HolderKind, started: float) -> str:
             await meter(session, tenant_id, result.spends)
         log.info("holder_script_cancelled", extra={**log_ids, "spends": len(result.spends)})
         return "cancelled"
+    result.script, size = await fitted_to_box(context, result.script)
     left_out = [
         *result.left_out,
-        *too_long_left(await measured(context, result.script)),
+        *too_long_left(size),
         *over_plan_left(context),
     ]
     why = {"step_outcomes": task_steps_note(result.task_plan)} if result.task_plan else {}

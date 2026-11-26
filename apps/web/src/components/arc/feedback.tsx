@@ -61,12 +61,22 @@ const FALLBACK_ERROR_TITLE = "That did not go through";
 export const SUCCESS_HOLD_MS = 2000;
 
 /** The toast fields a failure produces: the server's own words and its machine code. */
+/**
+ * A toast's one line for a refusal whose server detail is written for an operator: the
+ * owner reads a toast at a glance, and the measured parts stay on the script screen.
+ */
+const SHORT_DESCRIPTIONS: Record<string, string> = {
+  engine_prompt_too_long: "Press Try again for a shorter one from Pip, or shorten the longest steps.",
+};
+
 export function problemToast(error: unknown, fallbackTitle: string) {
   if (error instanceof ApiProblem) {
     const ref = error.traceId ? ` · ref ${error.traceId}` : "";
     return {
       title: error.title && error.title !== error.message ? error.title : fallbackTitle,
-      description: error.remediation ? `${error.message} ${error.remediation}` : error.message,
+      description:
+        SHORT_DESCRIPTIONS[error.code] ??
+        (error.remediation ? `${error.message} ${error.remediation}` : error.message),
       code: error.code !== "unknown" ? `${error.code}${ref}` : error.traceId ? `ref ${error.traceId}` : undefined,
     };
   }

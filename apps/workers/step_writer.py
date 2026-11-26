@@ -317,6 +317,15 @@ def parsed_step(
             return spoken_swapped(_text(value, STEP_EXAMPLE_MAX), tag, allowed=allowed)
 
         turns = [t for t in (said(v) for v in block.get("turns") or []) if t]
+        lines = [*turns, *(said(block.get(k)) for k in ("confused", "stuck", "busy"))]
+        # A turn in an Indian-language call with none of that language's letters is an
+        # English line (26 Nov 2026: "Yes, please feel free to reach out to us…" as the
+        # Telugu close). English words inside a Telugu line stay: the reviewed spoken style
+        # keeps some ("details", "thanks").
+        if not tag.casefold().startswith("en") and any(
+            line and not has_indic_letters(line) for line in lines
+        ):
+            problems.append(f"examples.{tag}: write every line in {tag}'s own script, not English")
         wanted = 1 if close else MIN_TURNS
         if len(turns) < wanted:
             problems.append(

@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.85 — 27-Nov-2026
+
+- A script Pip writes is trimmed to fit the calling system before you see it: the longest
+  step-by-step lists lose their last actions first (your own step text keeps every action).
+- A line in English in a Telugu or Hindi call is sent back for Pip to write again in the
+  call's language.
+- "Too long for the calling system" now says in one line what to do.
+
 ## 0.5.84 — 26-Nov-2026
 
 - Build fixes for the 0.5.83 script writer; nothing changes on screen.
