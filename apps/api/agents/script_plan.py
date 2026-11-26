@@ -50,7 +50,9 @@ from calevate_shared.spoken_guard import has_indic_letters
 
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit
 from apps.api.agents.owner_plan import (
+    _CLOSING_LABEL,
     _END_POINT_NAME,
+    _NUMBER_MARK,
     OwnerPlan,
     PlannedStep,
     last_resort,
@@ -200,7 +202,10 @@ def plan_from_owner(
     number_of = {step.key: n for n, step in enumerate(numbered, 1)}
     built: list[PlanStep] = []
     for step in numbered:
-        built.append(_owners_step(step, keys[step.key], number_of[step.key], target))
+        owned = _owners_step(step, keys[step.key], number_of[step.key], target)
+        if placed and not built:
+            owned = replace(owned, intent=without_permission_ask(owned.intent) or owned.intent)
+        built.append(owned)
     for side in (step for step in kept if step.number is None):
         home = plan.side_home(side)
         anchor = next((s for s in numbered if s.number == home), None)
@@ -216,7 +221,7 @@ def plan_from_owner(
             PlanStep(
                 key=keys[side.key],
                 name=side.name[:STAGE_TITLE_MAX],
-                intent=side.instruction or side.name,
+                intent=owners_text(side, target),
                 number=number_of[anchor.key],
                 ways_out=ways,
                 side=True,
@@ -237,6 +242,52 @@ def _ways(step: PlannedStep, target: Callable[[str], str]) -> tuple[WayOut, ...]
     return tuple(ways[:MAX_STAGE_BRANCHES])
 
 
+#: A clause of the first step that asks for permission to talk, which a placed call's
+#: opening already asks (`call_rules.PLACED_OPENING_RULE`).
+_PERMISSION_CLAUSE: Final = re.compile(
+    r"(?:,?\s*(?:and\s+|then\s+)*)?(?:ask|check)(?:\s+them)?\s+(?:if|whether)\s+(?:now\s+is|"
+    r"it\s+is|this\s+is)\s+a\s+good\s+time(?:\s+to\s+talk)?|"
+    r"(?:,?\s*(?:and\s+|then\s+)*)?ask\s+(?:if|whether)\s+(?:they\s+)?can\s+talk(?:\s+now)?",
+    re.IGNORECASE,
+)
+
+
+def without_permission_ask(text: str) -> str:
+    """`text` without its clause asking whether now is a good time, everything else kept word
+    for word: on a placed call the opening asks it, and a first step that asks again was asked
+    three times on the call of 26 Nov 2026, while dropping the whole step lost who is calling
+    and why (production, 26 Nov 2026, 23:20 IST)."""
+    out = _PERMISSION_CLAUSE.sub("", text)
+    out = re.sub(r"\s+([.,;])", r"\1", out)
+    return " ".join(out.split()).replace(",.", ".").strip(" ,")
+
+
+def owner_notes(text: str) -> str:
+    """What an owner's request says around its numbered steps (a tone, "Rules: ..."), for every
+    step's request: the steps themselves reach each step as its own plan entry."""
+    first = _NUMBER_MARK.search(text)
+    if first is None:
+        return text
+    head = text[: first.start()]
+    closing = _CLOSING_LABEL.search(text, first.start())
+    tail = text[closing.start() :] if closing is not None else ""
+    head = re.sub(r"\bsteps?,?\s+in\s+this\s+order\s*:?\s*$", "", head.strip(), flags=re.I)
+    return " ".join(f"{head} {tail}".split())
+
+
+def owners_text(step: PlannedStep, target: Callable[[str], str]) -> str:
+    """The owner's own words for a step, verbatim: its instruction, then each case they named
+    that goes nowhere a way out can ("- Android: open Chrome ..."), which is guidance for the
+    step rather than a branch. The written step keeps these words as its instruction
+    (`script_writer`), so a model can never paraphrase the owner's detail away (Rytu Khata,
+    26 Nov 2026: the Android and iPhone paths and "one field at a time" were lost)."""
+    said = [step.instruction or step.name]
+    said += [
+        f"{branch.when}: {branch.said}" for branch in step.branches if not target(branch.goes_to)
+    ]
+    return " ".join(part.strip() for part in said if part.strip())
+
+
 def _owners_step(
     step: PlannedStep, key: str, number: int, target: Callable[[str], str]
 ) -> PlanStep:
@@ -244,7 +295,7 @@ def _owners_step(
     return PlanStep(
         key=key,
         name=step.name[:STAGE_TITLE_MAX],
-        intent=step.instruction or step.name,
+        intent=owners_text(step, target),
         number=number,
         outcome="" if has_indic_letters(outcome) else outcome,
         ways_out=_ways(step, target),

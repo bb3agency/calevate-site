@@ -87,6 +87,8 @@ STEP_INSTRUCTION: Final = (
     "only from the facts given.\n"
     "Every turn starts with its own point: the action, the answer or the question. The "
     "agent waits for the person to answer; a turn never asks them to say when they are done. "
+    "Never tell the person anything about them, their number or what the business offers "
+    "that the step, the facts or the sources do not say. "
     "Use only facts, figures and names the step is given, every screen, button and feature "
     "by the exact name the facts give. No brackets, symbols, lists or emoji. Return ONLY JSON."
 )
@@ -98,9 +100,14 @@ OPENING_NOTE: Final = (
 )
 CLOSE_NOTE: Final = (
     "This is the last step: one short turn that says the one next thing, thanks them and "
-    "says goodbye. confused and stuck stay empty."
+    "says goodbye, naming only the way to reach the business this step names. confused and "
+    "stuck stay empty."
 )
 SIDE_NOTE: Final = "Only some callers reach this step, through a way out: write it for them alone."
+OWNERS_NOTE: Final = (
+    "The owner wrote what this step does; their words are its instruction, kept word for "
+    "word. Write the actions and turns that carry out every case and detail they name."
+)
 
 
 def _object(properties: dict[str, object]) -> dict[str, object]:
@@ -257,6 +264,8 @@ def step_request(ask: StepAsk) -> str:
         lines.append(f"This is the first step. {OPENING_NOTE}")
     if close:
         lines.append(CLOSE_NOTE)
+    if step.owners and plan.source == "owner":
+        lines.append(OWNERS_NOTE)
     if step.side:
         lines.append(SIDE_NOTE)
     if ask.current.strip():

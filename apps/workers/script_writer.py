@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
@@ -40,7 +41,7 @@ from calevate_shared.call_script import (
     ConversationStage,
     ScriptPolicies,
 )
-from calevate_shared.spoken_guard import english_problem
+from calevate_shared.spoken_guard import english_problem, has_indic_letters
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_checks, script_proposals
@@ -53,6 +54,7 @@ from apps.api.agents.script_plan import (
     PlanStep,
     ScriptPlan,
     outline_problems,
+    owner_notes,
     plan_from_owner,
     plan_from_playbook,
     plan_from_script,
@@ -220,6 +222,32 @@ def _example_lines(script: CallScript) -> list[tuple[int, str, str]]:
     return out
 
 
+#: How a person may reach the business, as an English line names it. A line in a call
+#: language's own letters is not read here: its words belong in the registry's
+#: `call_words.json` (`agents/script_checks`).
+_CHANNELS: Final[dict[str, re.Pattern[str]]] = {
+    "call": re.compile(r"\bcall(?:ing)?\b|\bphone\b|\bring\b", re.I),
+    "message": re.compile(r"\bmessages?\b|\bwhats\s?app\b|\bsms\b|\btext(?:s|ing)?\b", re.I),
+    "email": re.compile(r"\be-?mails?\b", re.I),
+}
+
+
+def _channel_problems(script: CallScript) -> list[str]:
+    """An example turn that tells the person to reach the business by a way its step does not
+    name: the Rytu Khata close of 26 Nov 2026 said "message us" where the owner wrote "call
+    us with any doubt"."""
+    found: list[str] = []
+    for i, path, text in _example_lines(script):
+        named = {c for c, pattern in _CHANNELS.items() if pattern.search(script.stages[i].instruction)}
+        said = {c for c, pattern in _CHANNELS.items() if pattern.search(text)}
+        if named and said - named:
+            found.append(
+                f"{path}: names a way to reach the business ({', '.join(sorted(said - named))}) "
+                f"the step does not; say only {', '.join(sorted(named))}."
+            )
+    return found
+
+
 def example_problems(script: CallScript, context: ScriptContext) -> list[str]:
     """What the check registry does not read on the example turns: a provider's name (D-679)
     and a retired stock line, and a guide step with no example turns in a call language."""
@@ -230,6 +258,7 @@ def example_problems(script: CallScript, context: ScriptContext) -> list[str]:
         for p in (provider_problem(path, text, allowed=owners), retired_line_problem(path, text))
         if p
     ]
+    found += _channel_problems(script)
     for i, stage in enumerate(script.stages):
         if stage.mode != "guide":
             continue
@@ -563,7 +592,10 @@ def _ask(
             ),
             ensure_ascii=False,
         )
-    instruction = " ".join(p for p in (context.instruction, note) if p.strip())
+    # A request that lays out the steps reaches each step as its plan entry; only what the
+    # owner said around the steps (tone, "Rules: ...") is the owner's ask for every step.
+    asked = owner_notes(context.instruction) if context.replans else context.instruction
+    instruction = " ".join(p for p in (asked, note) if p.strip())
     return StepAsk(
         brief=context.written_brief(),
         plan=plan,
@@ -577,6 +609,18 @@ def _ask(
         current=current,
         problems=tuple(problems),
     )
+
+
+def owners_words_kept(plan: ScriptPlan, key: str, words: StepWords) -> StepWords:
+    """`words` with the instruction of a step the owner laid out kept as the owner wrote it
+    (`script_plan.owners_text`): the model writes the actions and the example turns around
+    it and never rewords it. A model asked to keep the owner's detail paraphrased it away
+    (Rytu Khata, 26 Nov 2026: "open the website and add the app" for the owner's Android and
+    iPhone paths). Cut to the step detail's room by `stage_with`."""
+    step = plan.step(key)
+    if plan.source != "owner" or step is None or not step.owners or not step.intent.strip():
+        return words
+    return replace(words, instruction=" ".join(step.intent.split()))
 
 
 async def _written(
@@ -626,7 +670,7 @@ async def _written(
             log.info("script_step_refused", extra={"reason": result.code})
             out.refused = out.refused or result
             continue
-        out.words[key] = result.value
+        out.words[key] = owners_words_kept(plan, key, result.value)
     return out
 
 
@@ -757,8 +801,28 @@ async def _opening(
             spends.append(refused)
             continue
         spends.append(answer)
+        if not keeps_language(line, answer.value.line, brief.language):
+            log.info("script_opening_kept", extra={"field": name, "reason": "language"})
+            continue
         script = with_opening(script, answer.value, placed=placed)
     return script, spends
+
+
+#: Four or more English-letter words in a row: a sentence in English, not a product name.
+_ENGLISH_RUN: Final = re.compile(r"(?:\b[A-Za-z][A-Za-z']*\b[\s,.?!]+){3,}\b[A-Za-z][A-Za-z']*\b")
+
+
+def keeps_language(old: str, new: str, language: str) -> bool:
+    """Whether an opening rewritten for a call in `language` stays in it: in an Indian
+    language it keeps the language's own letters where the old line had them, and holds no
+    English sentence (production, 26 Nov 2026: a Telugu opening came back as romanised
+    Telugu with "We are calling to help you install and start using the app.")."""
+    if language.split("-")[0].lower() == "en":
+        return True
+    plain = re.sub(r"\{\{[^}]*\}\}", " ", new)
+    if _ENGLISH_RUN.search(plain):
+        return False
+    return not (has_indic_letters(old) and not has_indic_letters(new))
 
 
 # --- the modes ---------------------------------------------------------------------------
