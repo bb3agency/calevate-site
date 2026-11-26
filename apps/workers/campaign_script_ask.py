@@ -297,7 +297,8 @@ PURPOSE_RULE: Final = (
     "short sentence why the call is made, from the main task (what they did with the business "
     "and what the call will help them do, and how long it takes when the sources say), unless "
     "the opening line already says it, then asks one question about where the person is with "
-    "the task. It never asks again whether now suits them."
+    "the task. It never asks again whether now suits them or whether to go ahead: their yes "
+    "to the opening is the go-ahead."
 )
 
 #: On a line the caller called, so the first step answers them rather than explaining itself.
@@ -826,7 +827,7 @@ WEAK_PROBLEMS: Final[dict[str, str]] = {
     "several_asks": "asks for several things or gives several actions in one line: {detail}; "
     "ask one thing or give one action, then wait",
     "wrong_actor": "has the agent say it does what the person does themselves: {detail}; ask "
-    "the person to do it and to say when it is done",
+    "the person to do it, then stop",
     "broken_line": "is hard to follow when heard: {detail}; say it as one short, complete "
     "sentence people say",
 }

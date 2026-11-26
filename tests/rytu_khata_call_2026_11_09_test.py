@@ -61,7 +61,7 @@ def test_a_step_starting_after_the_opening_passes() -> None:
 
 
 def test_the_in_call_rule_beats_a_step_that_says_to_introduce() -> None:
-    assert "A step says to greet, say who you are or ask if now suits? That is done" in (
+    assert "A step says to greet, say who you are, ask if now suits or offer help? Done" in (
         OPENING_CONTINUES_RULE
     )
     cfg = AgentConfig(
@@ -80,7 +80,7 @@ def test_the_in_call_rule_beats_a_step_that_says_to_introduce() -> None:
 
 def test_the_writers_keep_the_opening_out_of_the_steps() -> None:
     assert "no stage does any of that again" in SCRIPT_FLOW_RULE
-    assert "open with the same words" in SCRIPT_FLOW_RULE
+    assert "open or end with the same words" in SCRIPT_FLOW_RULE
 
 
 def test_a_dropped_introduction_carries_the_name_and_a_title_only_before_a_break() -> None:

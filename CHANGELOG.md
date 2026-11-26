@@ -3,6 +3,21 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.74 — 26-Nov-2026
+
+- Pip no longer writes lines asking the caller to say when a step is done, lines with two
+  actions, lines that open with a reaction, or a first step that asks again for permission
+  the opening already got. These are now caught in Telugu, Hindi and English before you see
+  a script, and noted on real calls. A confused "after what?" is read as a question, never as
+  "done".
+
+## 0.5.73 — 26-Nov-2026
+
+- During calls the agent gives one action a turn and stops, never asks the caller to say when
+  it is done, moves on only on their own "done", and repeats a step shorter when asked
+  "what?". Its prompt no longer lists reaction words to open with, a step's example line is
+  tone only, and slow-reply and listening words are in the call's own language.
+
 ## 0.5.72 — 26-Nov-2026
 
 - When Pip rewrites one of its own scripts under new rules, it now replaces the script only

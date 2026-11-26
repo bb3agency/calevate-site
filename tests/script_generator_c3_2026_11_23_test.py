@@ -313,7 +313,7 @@ def test_a_language_line_or_small_step_opening_with_a_reaction_is_sent_back() ->
 
 
 def test_the_writer_is_told_to_vary_how_lines_end() -> None:
-    assert "end with the same tag" in SCRIPT_FLOW_RULE
+    assert "open or end with the same words" in SCRIPT_FLOW_RULE
 
 
 def test_a_branch_to_the_call_back_is_kept_by_the_mend() -> None:

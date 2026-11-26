@@ -87,8 +87,8 @@ NAME_CHECK_KEY: Final = "outbound_name_check"
 MAX_TEXT: Final = 600
 MAX_SHORT: Final = 120
 MAX_TURNS: Final = 10
-#: Tags and fillers quoted in the prompt; the rest guide the writers only. Four since D-778,
-#: whose in-call examples show the commonest tags, so the platform layers stay within cap.
+#: Fillers quoted by the register evals' filler variant (`scripts/register_eval`); the in-call
+#: prompt quotes none (`register_guidance`), and the writers read them all.
 PROMPT_FILLERS: Final = 4
 #: Keys are short ids a URL can carry: letters, digits, `-` and `_`, or a swap's formal word.
 _ID: Final = re.compile(r"^[a-z0-9_][a-z0-9_-]{0,47}$")
@@ -699,20 +699,24 @@ def native_reviewed(tag: str | None) -> bool:
 #: although the list named it (Telugu campaign call of 24 Nov 2026); the platform rules
 #: already void a script line that breaks them.
 SWAPS_LEAD: Final = "Never the left, even scripted:"
-#: Leads the fillers. The limit sits AT the list because "a reaction only if it fits, often
-#: none" in HOW TO SPEAK, read far from a list introduced as "lightly", did not hold: the
-#: first filler opened nine of twelve replies on the same call. A list of sample phrases is
-#: itself what makes a voice model repeat them ("Sample phrases (vary, don't always reuse)",
-#: OpenAI Realtime prompting guide, cdn.openai.com/API/docs/realtime-prompting-guide.pdf;
-#: Retell's agent handbook "limits filler acknowledgments", docs.retellai.com/build/
-#: agent-handbook; both read 24 Nov 2026), so the cap is said with the words it caps.
+#: Leads a filler list in the register evals' variants (`scripts/register_eval`). Never in
+#: the in-call prompt: see `register_guidance`.
 FILLERS_LEAD: Final = "Fillers, once a call each:"
 
 
 def register_guidance(tag: str | None) -> str | None:
-    """The register line, then the prompt's do/don't list as concrete pairs, then the tags
-    and fillers. Concrete pairs because an open in-call model (GPT-OSS 120B, founder decision
-    10 Oct 2026) follows a word it can copy far better than an abstract rule about register."""
+    """The register line, then the prompt's do/don't list as concrete pairs. Concrete pairs
+    because an open in-call model (GPT-OSS 120B, founder decision 10 Oct 2026) follows a word
+    it can copy far better than an abstract rule about register.
+
+    The fillers are not quoted. A word named in a prompt comes back more often (D-894), and a
+    capped list did not stop it: the first filler opened nine of twelve replies on the Telugu
+    call of 24 Nov 2026 under "once a call each", and on the Varsha call of 26 Nov 2026 every
+    reply opened with one of the listed reactions. A list of sample phrases is what makes a
+    voice model repeat them ("Sample phrases (vary, don't always reuse)", OpenAI Realtime
+    prompting guide, cdn.openai.com/API/docs/realtime-prompting-guide.pdf, read 24 Nov 2026).
+    The filler said while a reply is slow is the engine's to say (`thinking_lines`), not the
+    model's, so nothing of it belongs here either."""
     style = style_for(tag)
     if style is None:
         return None
@@ -720,9 +724,6 @@ def register_guidance(tag: str | None) -> str | None:
     if style.prompt_swaps:
         swaps = "; ".join(_swap(formal, spoken) for formal, spoken in style.prompt_swaps)
         parts.append(f"{SWAPS_LEAD} {swaps}.")
-    if style.fillers:
-        said = ", ".join(f.text for f in style.fillers[:PROMPT_FILLERS])
-        parts.append(f"{FILLERS_LEAD} {said}.")
     return " ".join(parts)
 
 
@@ -885,6 +886,20 @@ def thinking_lines(tags: Sequence[str]) -> tuple[str, ...]:
             if filler.thinking and filler.text not in lines:
                 lines.append(filler.text)
     return tuple(lines)
+
+
+#: How a filler's `use` marks it as a word that shows the agent is listening. The `use` text is
+#: what the founder reviews on Ops > Spoken style, so the mark is his; a dedicated flag in
+#: `spoken_style.json` would be the cleaner form and is his data change to make.
+LISTENING_USE: Final = "showing you are listening"
+
+
+def listening_lines(tag: str) -> tuple[str, ...]:
+    """The language's fillers whose `use` says they show the agent is listening: the words the
+    engine may say while a caller pauses mid-explanation (`voice.acknowledgementWords`)."""
+    style = style_for(tag)
+    fillers = style.fillers if style is not None else ()
+    return tuple(f.text for f in fillers if LISTENING_USE in f.use.lower())
 
 
 def trial_call_opening(
@@ -1050,6 +1065,7 @@ __all__ = [
     "DEFAULT_EXAMPLES",
     "ENTRY_KINDS",
     "FILLERS_LEAD",
+    "LISTENING_USE",
     "NAME_CHECK_KEY",
     "OPENING_KEYS",
     "PACK_APPROVED",
@@ -1087,6 +1103,7 @@ __all__ = [
     "install_published",
     "language_pack",
     "languages",
+    "listening_lines",
     "merged_entries",
     "name_check_in",
     "native_reviewed",

@@ -50,9 +50,9 @@ def test_the_list_is_compiled_under_the_section_name_in_order() -> None:
     section = body[body.index(f"\n{PROCEDURE_HEADER} ") + 1 :]
     assert section.splitlines()[1:5] == [
         "Install the app:",
-        "1. Ask them to open Chrome on their phone. Wait for: they say it is open",
+        "1. Ask them to open Chrome on their phone. Done when: they say it is open",
         "2. Ask them to type rytukhata.app in the address bar.",
-        "3. Ask them to tap Add to Home screen. Wait for: the icon is on the screen",
+        "3. Ask them to tap Add to Home screen. Done when: the icon is on the screen",
     ]
     # After the outline, so the outline still reads first.
     assert body.index(CONVERSATION_HEADER) < body.index(f"\n{PROCEDURE_HEADER} ")

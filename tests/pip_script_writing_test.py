@@ -68,8 +68,8 @@ def test_every_writer_reads_the_placed_call_opening_and_the_step_rules() -> None
 def test_the_step_rules_name_each_failure_of_the_4_nov_calls() -> None:
     rule = SCRIPT_FLOW_RULE
     assert "Every detail to collect is asked in a stage" in rule
-    assert "one action an item" in rule and "waits for the caller to say it is done" in rule
-    assert "asking whether they understood" in rule
+    assert "one action an item" in rule and "The agent says one action, then stops" in rule
+    assert "whether they understood" in rule
     assert "a few digits at a time" in rule
     assert "nothing about keeping a note" in rule
 

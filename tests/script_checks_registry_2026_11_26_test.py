@@ -64,6 +64,7 @@ CALL_26_NOV = _script(
         [
             "ఇప్పుడు మాట్లాడటానికి సమయం ఉందా?",
             "సరే అండి. యాప్ ఓపెన్ చేయండి, అయ్యాక నాకు చెప్తారా?",
+            "చాలా సంతోషం అండి. లాగిన్ అవ్వండి.",
         ],
     ),
 )
@@ -143,20 +144,44 @@ def test_the_26_nov_lines_are_caught_when_written() -> None:
     found = _ids(CALL_26_NOV)
     # #5: permission asked again after the opening asked it; blocks Put it live.
     assert found["opening_redone_line"] == [f"stages.1.examples.{TE}.turns.0"]
-    # #1: lines opening with a stock reaction.
-    assert set(found["reacted_line"]) >= {
+    # #1: lines opening with a rotating stock reaction, "చాలా సంతోషం అండి" included.
+    assert set(found["reacted_line"]) == {
+        f"stages.0.examples.{TE}.turns.0",
+        f"stages.0.examples.{TE}.turns.1",
+        f"stages.1.examples.{TE}.turns.1",
+        f"stages.1.examples.{TE}.turns.2",
+    }
+    # #2: every line asking to be told once it is done, "... అయ్యాక నాకు చెప్తారా?".
+    assert set(found["asks_when_done"]) == {
         f"stages.0.examples.{TE}.turns.0",
         f"stages.0.examples.{TE}.turns.1",
         f"stages.1.examples.{TE}.turns.1",
     }
-    # #2: three lines ending "... అయ్యాక నాకు చెప్తారా?".
-    assert len(found["same_ending"]) == 2
+    # #3: two things to do in one Telugu turn, read by its verbs.
+    assert f"stages.0.examples.{TE}.turns.0" in found["several_actions"]
     assert script_checks.blocking(script_checks.run(CALL_26_NOV, LINT))
+
+
+def test_a_confused_caller_is_read_as_asking_in_both_scripts() -> None:
+    """#4 is the in-call prompt's ("OK" after one: the next), not a script line: what the
+    script can carry is checked through the same detectors the after-call review runs, which
+    read "after what should I say?" as a question and never as the caller saying it is done,
+    in Telugu letters and in English letters."""
+    for said in ("ఏమయ్యాక చెప్పాలి", "Emayyaaka cheppaali"):
+        assert turn_checks.asks_question(said), said
+        assert not turn_checks.caller_says_done(said), said
 
 
 def test_one_action_lines_pass() -> None:
     found = _ids(ONE_ACTION)
-    for check in ("opening_redone_line", "reacted_line", "same_ending", "brackets"):
+    for check in (
+        "opening_redone_line",
+        "reacted_line",
+        "same_ending",
+        "brackets",
+        "asks_when_done",
+        "several_actions",
+    ):
         assert check not in found, found
     assert not script_checks.blocking(script_checks.run(ONE_ACTION, LINT))
 

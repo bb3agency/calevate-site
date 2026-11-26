@@ -1,21 +1,21 @@
 {
   "holder": "fixture:rytu",
-  "total": 1030,
+  "total": 970,
   "personas": {
-    "cooperative": 70,
-    "silent": 60,
-    "garbled": 20,
+    "cooperative": 60,
+    "silent": 55,
+    "garbled": 15,
     "not_now": 100,
     "not_interested": 95,
     "wrong_person": 95,
-    "forgot_registering": 70,
-    "iphone": 65,
-    "business_question": 50,
-    "stuck": 30,
-    "asks_repeat": 40,
-    "english_letters": 75,
-    "impatient": 75,
-    "asks_ai": 85,
+    "forgot_registering": 65,
+    "iphone": 60,
+    "business_question": 45,
+    "stuck": 25,
+    "asks_repeat": 35,
+    "english_letters": 70,
+    "impatient": 70,
+    "asks_ai": 80,
     "remove_me": 100
   }
 }

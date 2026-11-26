@@ -578,7 +578,9 @@ class Settings(BaseSettings):
     #: Under `ear` only, whether the agent says a short "haan ji" when a caller pauses
     #: mid-explanation (`voice.acknowledgements`, vendor default on; thinnest-findings
     #: snapshots/2026-10-29/pages/api-reference/agents/update-agent.md:1745-1751). Off by the
-    #: founder's decision of 25 Nov 2026: off, the agent waits silently. When on they are
+    #: founder's decision of 25 Nov 2026: off, the agent waits silently. On, the words are the
+    #: agent's languages' listening words (`thinnest.acknowledgement_words`).
+    #: When on they are
     #: spoken on our Cartesia key and counted in `usage.ttsCharacters` (VENDOR-STATED,
     #: ThinnestAI's email of 21 Oct 2026, `docs/vendor/thinnest-replies-2026-10-12.md` §25.0).
     #: Saving it republishes every live agent.

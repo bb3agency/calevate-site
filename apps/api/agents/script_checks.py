@@ -49,6 +49,7 @@ from apps.api.agents.script_lint import (
     OPENING_FIELDS,
     LintContext,
     agent_lines,
+    asks_when_done_problems,
     bracket_problems,
     caller_paths,
     empty_title_problems,
@@ -68,6 +69,7 @@ from apps.api.agents.script_lint import (
     same_opener_problems,
     spoken_fields,
     stacked_instruction_problem,
+    stacked_line_problems,
     step_number_problems,
     step_outcome_problems,
     unasked_problems,
@@ -243,11 +245,19 @@ def _opening_shape(script: CallScript, ctx: CheckContext) -> list[str]:
     ]
 
 
-def _stacked_instruction(script: CallScript, _ctx: CheckContext) -> list[str]:
+def _several_actions(script: CallScript, _ctx: CheckContext) -> list[str]:
+    """More than one thing to do in one turn: in a step's English instruction, whose fix is
+    the step-by-step list, and in any line the agent says, in any language
+    (`script_lint.stacked_line`)."""
     return [
-        problem
-        for i, stage in enumerate(script.stages)
-        if (problem := stacked_instruction_problem(f"stages.{i}.instruction", stage.instruction))
+        *(
+            problem
+            for i, stage in enumerate(script.stages)
+            if (
+                problem := stacked_instruction_problem(f"stages.{i}.instruction", stage.instruction)
+            )
+        ),
+        *stacked_line_problems(script),
     ]
 
 
@@ -360,6 +370,30 @@ CHECKS: Final[tuple[Check, ...]] = (
         "structure (last words)",
         _lint(same_ending_problems),
         mistake="same_closing",
+        flow=True,
+    ),
+    Check(
+        "asks_when_done",
+        frozenset({"sounds_like", "scripts", "examples", "procedure", "style"}),
+        ANY_LANGUAGE,
+        BOTH_LETTERS,
+        "warn",
+        _ONE_ACTION,
+        "script_lint._ASKS_WHEN_DONE",
+        _lint(asks_when_done_problems),
+        mistake="asks_when_done",
+        flow=True,
+    ),
+    Check(
+        "several_actions",
+        frozenset({"instruction", "sounds_like", "scripts", "examples", "procedure", "style"}),
+        ANY_LANGUAGE,
+        BOTH_LETTERS,
+        "warn",
+        _ONE_ACTION,
+        "script_lint._CALLER_ACTION, _AFTER_CLAUSE",
+        _several_actions,
+        mistake="several_actions",
         flow=True,
     ),
     Check(
@@ -584,26 +618,6 @@ CHECKS: Final[tuple[Check, ...]] = (
         mistake="asked_done_too_soon",
     ),
     Check(
-        "stacked_instruction",
-        frozenset({"instruction"}),
-        ENGLISH,
-        LATIN,
-        "warn",
-        "Put each action in the step's step-by-step list.",
-        "code (English action verbs)",
-        _stacked_instruction,
-    ),
-    Check(
-        "several_actions",
-        STEP_LINES,
-        ENGLISH,
-        LATIN,
-        "warn",
-        _ONE_ACTION,
-        "code (English action verbs)",
-        _lint(script_shape.several_action_problems),
-    ),
-    Check(
         "caller_action_claimed",
         STEP_LINES,
         ENGLISH,
@@ -785,7 +799,8 @@ SCRIPT_PROBLEM_CHECKS: Final[tuple[str, ...]] = (
     "opening_shape",
     "other_persona",
     "latin_words",
-    "stacked_instruction",
+    "several_actions",
+    "asks_when_done",
     "placeholder_step",
     "order",
     "repeated_line",

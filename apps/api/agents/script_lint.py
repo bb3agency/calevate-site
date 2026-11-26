@@ -377,9 +377,25 @@ def placed_opening_problem(where: str, text: str) -> str | None:
 _NUMBERED_ITEM: Final = re.compile(r"(?:^|\s)(?:\d{1,2}[.)]|step \d{1,2}\b)", re.IGNORECASE)
 #: What a caller does on their own phone. Counted rather than "then": the agent's own sequence
 #: ("read back the time, then close") is one turn of its own and is right as it is.
-_CALLER_ACTION: Final = re.compile(
+_EN_CALLER_ACTION: Final = (
     r"\b(?:open|tap|press|click|type|select|choose|scroll|swipe|install|download|enter|"
-    r"go to|log in|sign in)\b",
+    r"go to|log in|sign in)\b"
+)
+_CALLER_ACTION: Final = re.compile(_EN_CALLER_ACTION, re.IGNORECASE)
+#: The same actions in any language a spoken line is written in: the Indian-language verbs
+#: are the founder's (`call_words.json`), matched inside a word, since both scripts join
+#: endings to the verb ("నొక్కండి", "నొక్కితే").
+_SPOKEN_ACTION: Final = _LivePattern(
+    lambda: _extend(_EN_CALLER_ACTION, "script_lint._CALLER_ACTION"), re.IGNORECASE
+)
+#: "Once it opens", "after that": said before an action, it hands over the next step before
+#: the person has done the one it waits on.
+_AFTER_CLAUSE: Final = _LivePattern(
+    lambda: _extend(
+        r"\b(?:once|after)\s+(?:it|that|this|you|the)\b|"
+        r"\bwhen (?:it|that|this) (?:opens|shows|appears|loads|comes)\b",
+        "script_lint._AFTER_CLAUSE",
+    ),
     re.IGNORECASE,
 )
 _STAGE_INSTRUCTION: Final = re.compile(r"^stages\.\d+\.instruction$")
@@ -389,6 +405,57 @@ def stacked_actions(text: str) -> bool:
     """Whether one instruction gives the caller several things to do on their phone at once:
     a numbered list, or two or more of those actions."""
     return len(_NUMBERED_ITEM.findall(text)) >= 2 or len(_CALLER_ACTION.findall(text)) >= 2
+
+
+def stacked_line(text: str) -> bool:
+    """Whether a line the agent says gives the person more than one thing to do in one turn,
+    in any language: two actions, or one said after "once it opens" (the step before it, not
+    yet done). The 26 Nov 2026 call said "once it opens, press Add to Home screen, the icon
+    comes on your home screen; tell me when it does" as one turn. Phone-support practice is
+    one action, then the person's word that it is done (speakshark.com/blog/english-it-
+    support-customer-calls, read 5 Nov 2026, cited at `call_rules.SCRIPT_FLOW_RULE`).
+    Not for instructions, where "once they say it is open, have them tap" is how a step
+    waits (`stacked_actions`). A closing request to be told ("tell me once it is open") is
+    `asks_when_done`'s and is not read for actions."""
+    tail = asks_when_done(text)
+    if tail is not None and tail in text:
+        # Only the request itself is cut: a Telugu line often joins the actions and the
+        # request in one sentence ("ఓపెన్ చేసి సెర్చ్ చేయండి, అయ్యాక నాకు చెప్తారా?", 26 Nov 2026).
+        asked = _ASKS_WHEN_DONE.search(tail)
+        text = text[: text.rfind(tail) + (asked.start() if asked else 0)]
+    if stacked_actions(text):
+        return True
+    actions = list(_SPOKEN_ACTION.finditer(text))
+    if len(actions) >= 2:
+        return True
+    after = _AFTER_CLAUSE.search(text)
+    return bool(actions) and after is not None and after.start() < actions[0].start()
+
+
+#: Asking the person to say when a step is done ("tell me once it opens", "అది ఓపెన్ అయ్యాక
+#: నాకు చెప్పండి"). English here; the Indian-language forms are the founder's.
+_ASKS_WHEN_DONE: Final = _LivePattern(
+    lambda: _extend(
+        r"\b(?:let me know|tell me|say)\s+(?:when|once|after|as soon as|whether)\s+"
+        r"(?:it|that|this|the|you)\b[^?]*?\b(?:done|finished|ready|open|opens|opened|there|"
+        r"in|installed|logged|signed|shows?|showing|appears?|loads?|comes?|see|works?|added|"
+        r"saved)\b|\blet me know\W*$",
+        "script_lint._ASKS_WHEN_DONE",
+    ),
+    re.IGNORECASE,
+)
+
+
+def asks_when_done(text: str) -> str | None:
+    """The last sentence of `text` when it asks the person to say once a step is done, else
+    None. The person says so on their own, as anyone does when helped on the phone; a line
+    that asks it makes the agent end every turn with the same request, which the founder
+    heard on the 26 Nov 2026 call ("no human talks like this"). The script checks and the
+    call review (`turn_checks`) read it by this one rule."""
+    parts = [part.strip() for part in _SENTENCE.findall(" ".join(text.split())) if part.strip()]
+    if not parts:
+        return None
+    return parts[-1] if _ASKS_WHEN_DONE.search(parts[-1]) else None
 
 
 #: Words that may come before an English instruction's verb ("Now tap ...", "OK, please open").
@@ -1087,16 +1154,21 @@ def opening_redone_problems(script: CallScript) -> list[str]:
     ]
 
 
-#: The words before a line's first mark that count as how it opens: a short reaction.
+#: The words before a line's first mark that count as how it opens: a short reaction. Three,
+#: so "చాలా మంచిది అండి" (very good + the polite tag) is one, as it was on the 26 Nov 2026 call.
 _OPENER_MAX_WORDS: Final = 3
-_FIRST_MARK: Final = re.compile(r"[,.!?;:\N{DEVANAGARI DANDA}]")
+#: The full-width comma and question mark are escapes (RUF001).
+_FIRST_MARK: Final = re.compile("[,.!?;:\\u0964\\uff0c\\uff1f]")
 
 
-def _line_opener(text: str) -> str | None:
+def line_opener(text: str) -> str | None:
+    """The short lead before a line's first mark ("సరే అండి" of "సరే అండి, ఏ ఏరియా?"), lower
+    case, or None when the line has no mark or leads with more than a few words. The script
+    checks and the call review (`turn_checks.opener`) read openers by this one rule."""
     head = _FIRST_MARK.split(" ".join(text.split()), maxsplit=1)
     if len(head) < 2:
         return None
-    words = [w.casefold() for w in head[0].split()]
+    words = [word for token in head[0].split() if (word := token.strip(_TOKEN_EDGE).casefold())]
     return " ".join(words) if 0 < len(words) <= _OPENER_MAX_WORDS else None
 
 
@@ -1112,7 +1184,7 @@ def same_opener_problems(script: CallScript) -> list[str]:
     for group in _line_groups(script, procedure=False):
         seen: dict[str, int] = {}
         for i, path, line in group:
-            said = _line_opener(line)
+            said = line_opener(line)
             if said is None:
                 continue
             if said in seen:
@@ -1160,49 +1232,68 @@ def _line_groups(script: CallScript, *, procedure: bool) -> list[list[tuple[int,
     return groups
 
 
-#: The words at a line's end that count as its closing tag ("... tell me when it is done").
-_ENDING_WORDS: Final = 3
+#: The words at a line's end that count as its closing tag ("... నాకు చెప్తారా?", "tell me").
+#: Two, because the tag the 26 Nov 2026 call ended every reply with was two words long and
+#: the word before it changed with the step.
+_ENDING_WORDS: Final = 2
 #: A line shorter than this has no tag apart from its point.
 _ENDING_MIN_LINE_WORDS: Final = 5
-#: Lines of one group ending alike before the tag is the habit: three, and half the group.
-_ENDING_REPEATS: Final = 3
+#: Step lines of one language ending alike: two is already the habit, since the agent copies
+#: both into every reply.
+_ENDING_REPEATS: Final = 2
+#: A step's small steps are English instructions that may fairly end alike ("... the
+#: button"); three of them, and half the list, before their ending is a tag.
+_SMALL_STEP_ENDING_WORDS: Final = 3
+_SMALL_STEP_ENDING_REPEATS: Final = 3
 
 
-def line_ending(text: str) -> str | None:
-    """The last `_ENDING_WORDS` words of `text`, lower case, or None for a line too short to
-    have a closing tag apart from its point. The script checks and the call review
-    (`turn_checks`) read endings by this one rule."""
-    words = [
+def line_ending(text: str, words: int = _ENDING_WORDS) -> str | None:
+    """The last `words` words of `text`, lower case, or None for a line too short to have a
+    closing tag apart from its point. The script checks and the call review (`turn_checks`)
+    read endings by this one rule."""
+    said = [
         word
         for token in re.sub(r"\{\{[^}]*\}\}", " ", text).split()
         if (word := token.strip(_TOKEN_EDGE).casefold())
     ]
-    if len(words) < _ENDING_MIN_LINE_WORDS:
+    if len(said) < _ENDING_MIN_LINE_WORDS:
         return None
-    return " ".join(words[-_ENDING_WORDS:])
+    return " ".join(said[-words:])
 
 
 def same_ending_problems(script: CallScript) -> list[str]:
-    """Lines that all end with the same tag, in one language or across a step's small steps:
-    on the Rytu Khata call of 23 Nov 2026 (23:19) nearly every reply ended "tell me" in
-    Telugu, copied from lines written that way. The agent waits after each small step anyway
-    (`call_script.PROCEDURE_LEAD`), so the tag says nothing; a model told to vary repeats
-    less, but copies a line it is given ("Sample phrases (vary, don't always reuse)",
-    cdn.openai.com/API/docs/realtime-prompting-guide.pdf, read 23 Nov 2026). Read by words,
-    so it works in any language; every line after the first with the tag is named."""
+    """Lines that end with the same tag, in one language or across a step's small steps:
+    on the Rytu Khata calls of 23 Nov 2026 (23:19) and 26 Nov 2026 nearly every reply ended
+    "tell me" in Telugu, copied from lines written that way. The agent waits after each
+    action anyway (`call_script.PROCEDURE_LEAD`), so the tag says nothing; a model told to
+    vary repeats less, but copies a line it is given ("Sample phrases (vary, don't always
+    reuse)", cdn.openai.com/API/docs/realtime-prompting-guide.pdf, read 23 Nov 2026). Read by
+    words, so it works in any language; every line after the first with the tag is named."""
+    groups = _line_groups(script, procedure=True)
     problems: list[str] = []
-    for group in _line_groups(script, procedure=True):
+    for n, group in enumerate(groups):
+        small_steps = n == len(groups) - 1
+        size = _SMALL_STEP_ENDING_WORDS if small_steps else _ENDING_WORDS
         endings: dict[str, list[str]] = {}
+        seen: set[str] = set()
         for _i, path, text in group:
-            ending = line_ending(text)
+            # A line said again word for word is `repeated_line_problems`' finding, not a tag.
+            flat = " ".join(text.casefold().split())
+            if flat in seen:
+                continue
+            seen.add(flat)
+            ending = line_ending(text, size)
             if ending is not None:
                 endings.setdefault(ending, []).append(path)
         for paths in endings.values():
-            if len(paths) >= _ENDING_REPEATS and 2 * len(paths) >= len(group):
+            if small_steps and (
+                len(paths) < _SMALL_STEP_ENDING_REPEATS or 2 * len(paths) < len(group)
+            ):
+                continue
+            if len(paths) >= _ENDING_REPEATS:
                 problems += [
-                    f"{path}: ends with the same words as several other lines; the "
-                    "agent copies them into every reply. End it where its point ends, or "
-                    "vary the ending."
+                    f"{path}: ends with the same words as another step's line; the agent "
+                    "copies them into every reply. End it where its point ends."
                     for path in paths[1:]
                 ]
     return problems
@@ -1228,6 +1319,47 @@ def example_lines(script: CallScript) -> list[tuple[str, str]]:
                 if (text := getattr(said, part)).strip()
             ]
     return out
+
+
+def _guiding_lines(script: CallScript) -> list[tuple[str, str]]:
+    """(path, text) of the lines that walk the person through something: each step's line
+    and its line in each call language, each small step, and the sample phrases. The
+    openings are not among them."""
+    return [
+        *(line for i in range(len(script.stages)) if (line := step_line(script, i))[1].strip()),
+        *scenario_lines(script),
+        *(
+            (f"stages.{i}.procedure.{j}.action", step.action)
+            for i, stage in enumerate(script.stages)
+            for j, step in enumerate(stage.procedure)
+            if step.action.strip()
+        ),
+        *(
+            (f"style.sample_phrases.{i}", phrase)
+            for i, phrase in enumerate(script.style.sample_phrases)
+            if phrase.strip()
+        ),
+    ]
+
+
+def asks_when_done_problems(script: CallScript) -> list[str]:
+    """A line that ends by asking the person to say when a step is done (`asks_when_done`)."""
+    return [
+        f'{path}: ends by asking them to say when it is done ("{tail}"); they say so on their '
+        "own. End the line on the action itself, with no question after it."
+        for path, text in _guiding_lines(script)
+        if (tail := asks_when_done(text)) is not None
+    ]
+
+
+def stacked_line_problems(script: CallScript) -> list[str]:
+    """A line that gives more than one thing to do in one turn (`stacked_line`)."""
+    return [
+        f"{path}: gives more than one thing to do in one turn; say only the next action, in a "
+        "few words, and stop, so they do it before the next one."
+        for path, text in _guiding_lines(script)
+        if stacked_line(text)
+    ]
 
 
 def scenario_lines(script: CallScript) -> list[tuple[str, str]]:
@@ -1577,6 +1709,8 @@ def flow_problems(script: CallScript) -> list[str]:
         *opening_redone_problems(script),
         *same_opener_problems(script),
         *same_ending_problems(script),
+        *asks_when_done_problems(script),
+        *stacked_line_problems(script),
         *unreachable_problems(script),
         *step_outcome_problems(script),
         *empty_title_problems(script),
@@ -1599,9 +1733,9 @@ def multi_question_line_problems(script: CallScript) -> list[str]:
 
 
 def multi_action_line_problems(script: CallScript) -> list[str]:
-    from apps.api.agents.script_shape import several_action_problems
-
-    return several_action_problems(script)
+    """A line giving more than one thing to do in one turn, by the one check the registry
+    runs for it (`stacked_line_problems`), under the name the writer eval reads."""
+    return stacked_line_problems(script)
 
 
 def agent_claims_caller_action_problems(script: CallScript) -> list[str]:
@@ -1667,6 +1801,8 @@ __all__ = [
     "asks_a_time",
     "asks_caller_to_act",
     "asks_count",
+    "asks_when_done",
+    "asks_when_done_problems",
     "bracket_problems",
     "caller_paths",
     "closes_the_call",
@@ -1679,6 +1815,7 @@ __all__ = [
     "judged_field_asked_problems",
     "known_value_asked_problems",
     "line_ending",
+    "line_opener",
     "listed_asks",
     "multi_action_line_problems",
     "multi_question_line_problems",
@@ -1704,6 +1841,8 @@ __all__ = [
     "spoken_fields",
     "spoken_line_problems",
     "stacked_actions",
+    "stacked_line",
+    "stacked_line_problems",
     "stated_ways_out",
     "step_line",
     "step_number_problems",

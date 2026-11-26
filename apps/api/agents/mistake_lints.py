@@ -336,12 +336,11 @@ def asked_done_too_soon_problems(script: CallScript, _context: LintContext) -> l
     """A line that gives an action and asks in the same line whether it is done
     (`turn_checks.asks_done_too_soon`): every line the agent says or copies, each call
     language's step lines and the small steps' actions included, the openings left out. The
-    repair rewrites it as the action and an invitation to say when it is done."""
+    repair rewrites it as the action alone: the person says when it is done."""
     lines = _agent_lines(script, procedure=True)
     return [
         f"{path}: gives an action and asks in the same line whether it is done, before they "
-        "can do it; end on the action and an invitation to say when it is done, worded for "
-        "this step, with no question."
+        "can do it; end the line on the action itself, with no question after it."
         for path, text in lines
         if text.strip() and turn_checks.asks_done_too_soon(_heard(text))
     ]

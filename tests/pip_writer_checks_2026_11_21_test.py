@@ -67,7 +67,7 @@ def _script(*lines: str, opening: str = OPENING) -> CallScript:
 
 
 def test_the_writer_is_told_what_it_is_sent_back_for() -> None:
-    assert "no spoken line opens with a reaction" in SCRIPT_FLOW_RULE
+    assert "none opens with a reaction" in SCRIPT_FLOW_RULE
     assert "neither greets nor asks again whether they can talk" in SCRIPT_FLOW_RULE
 
 

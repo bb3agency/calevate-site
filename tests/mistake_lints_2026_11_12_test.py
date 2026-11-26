@@ -216,9 +216,21 @@ _CASES: list[tuple[str, CallScript, str, CallScript]] = [
         "asked_done_too_soon",
         _script(_stage("s1", "Now tap the three-dot menu at the top right. Did it open?")),
         "stages.0.sounds_like",
+        _script(_stage("s1", "Now tap the three-dot menu at the top right.")),
+    ),
+    (
+        "asks_when_done",
         _script(
             _stage("s1", "Now tap the three-dot menu at the top right. Tell me when it opens.")
         ),
+        "stages.0.sounds_like",
+        _script(_stage("s1", "Now tap the three-dot menu at the top right.")),
+    ),
+    (
+        "several_actions",
+        _script(_stage("s1", "Once it opens, tap Add to Home screen.")),
+        "stages.0.sounds_like",
+        _script(_stage("s1", "Now tap Add to Home screen.")),
     ),
     (
         "brackets",

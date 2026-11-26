@@ -15,11 +15,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from apps.api.agents import script_lint
+from apps.api.agents import script_checks, script_lint
 from apps.api.agents.script_builder import job_details
 from apps.api.agents.script_heal import heal_findings
 from apps.api.agents.script_lint import LintContext, asks_count, script_problems
-from apps.api.agents.script_shape import closing_index, line_problems, trailing_problems
+from apps.api.agents.script_shape import closing_index, trailing_problems
 from calevate_shared.call_script import END_OF_CALL, CallScript, ConversationStage
 from calevate_shared.lead_fields import core_fields
 from scripts import eval_script_writer as ev
@@ -73,10 +73,11 @@ def test_a_judged_detail_asked_in_the_instruction_and_line_is_found() -> None:
 
 
 def test_the_repair_hears_a_judged_ask() -> None:
-    """FAILS IF: the targeted repair (`line_problems`, `heal_findings`) is not told about a
+    """FAILS IF: the targeted repair (`script_checks.repairs`, `heal_findings`) is not told about a
     line that asks a judged detail, so it never rewrites it."""
     script = _one(INSTRUCTION, LISTED)
-    assert "stages.0.scripts.en-IN" in _paths(line_problems(script, JUDGED))
+    repaired = script_checks.repairs(script, LintContext(judged=JUDGED))
+    assert "stages.0.scripts.en-IN" in _paths(repaired)
     assert "stages.0.instruction" in _paths(heal_findings(script, LintContext(judged=JUDGED)))
 
 
