@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import give_callers_time, script_proposals
+from apps.api.agents import give_callers_time, script_gate, script_proposals
 from apps.api.agents.extraction_routes import MAX_EXTRACTION_FIELDS
 from apps.api.agents.languages import LANGUAGE_LABELS, client_language_tags
 from apps.api.agents.mistake_fixes import Holder
@@ -180,6 +180,19 @@ async def read_workspace(campaign_id: UUID, session: Session, _: Reader) -> Work
     return await _workspace_out(session, campaign_id)
 
 
+@router.get(
+    "/{campaign_id}/script/checks",
+    response_model=script_gate.ScriptChecksOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="What the script checks find in the campaign's saved script, and whether it can start",
+)
+async def read_script_checks(
+    campaign_id: UUID, session: Session, _: Reader
+) -> script_gate.ScriptChecksOut:
+    await workspace.read_workspace(session, campaign_id)
+    return await script_gate.holder_checks(session, "campaign", campaign_id)
+
+
 class MainTaskIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     main_task: str = Field(max_length=workspace.MAIN_TASK_MAX)
@@ -245,7 +258,7 @@ async def _restore(
             summary={"version_id": str(brought.id), "owner_made": brought.owner_made},
         )
     if await workspace.holds_engine_agent(session, campaign_id):
-        await _put_live_after_save(principal.tenant_id, campaign_id)
+        await _put_live_after_save(principal.tenant_id, campaign_id, script=True)
     return await _workspace_out(session, campaign_id)
 
 
@@ -333,16 +346,31 @@ async def rewrite_step_outcomes(
     return await _workspace_out(session, campaign_id)
 
 
-async def _put_live_after_save(tenant_id: UUID, campaign_id: UUID) -> None:
+async def _put_script_live(tenant_id: UUID, campaign_id: UUID) -> str | None:
+    """A saved script onto the campaign's calls, refused while a `block` script check faults
+    it (`script_gate.refuse_if_blocked`); the script stays saved."""
+    async with tenant_session(tenant_id) as own:
+        await script_gate.refuse_if_blocked(own, "campaign", campaign_id)
+    return await put_campaign_live(
+        tenant_id=tenant_id, campaign_id=campaign_id, require_holding=True
+    )
+
+
+async def _put_live_after_save(tenant_id: UUID, campaign_id: UUID, *, script: bool = False) -> None:
     """Put a committed edit on the campaign's engine agent. A refusal says the edit is kept,
     so the owner saves again rather than typing it again (`inbound/routes`' same step); an
-    engine that is not answering queues it instead."""
+    engine that is not answering queues it instead. `script`: the edit put a script in
+    place, which goes on calls only past the script checks (`_put_script_live`)."""
     await notes_live.put_live_or_queue(
         tenant_id,
         "campaign",
         campaign_id,
-        publish=lambda: put_campaign_live(
-            tenant_id=tenant_id, campaign_id=campaign_id, require_holding=True
+        publish=lambda: (
+            _put_script_live(tenant_id, campaign_id)
+            if script
+            else put_campaign_live(
+                tenant_id=tenant_id, campaign_id=campaign_id, require_holding=True
+            )
         ),
     )
 
@@ -412,7 +440,7 @@ async def _save_then_put_live(
             summary={"from_draft": proposal_id is not None},
         )
     if await workspace.holds_engine_agent(session, campaign_id):
-        await _put_live_after_save(principal.tenant_id, campaign_id)
+        await _put_live_after_save(principal.tenant_id, campaign_id, script=True)
     return await _workspace_out(session, campaign_id)
 
 

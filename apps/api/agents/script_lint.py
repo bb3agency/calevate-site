@@ -54,7 +54,7 @@ from calevate_shared.call_script import (
 from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
 from calevate_shared.engine import NAME_VARIABLE
-from calevate_shared.spoken_guard import empty_title, has_indic_letters, latin_word_problem
+from calevate_shared.spoken_guard import empty_title, has_indic_letters
 
 from apps.api.compliance.call_purpose import Finding, first_finding
 
@@ -566,46 +566,15 @@ def caller_paths(script: CallScript) -> frozenset[str]:
 
 
 def script_problems(script: CallScript, context: LintContext) -> list[str]:
-    """Every lint finding on a whole script, spoken lines first. A raw (hand-written) script
-    has no fields to walk and is checked as one instruction text."""
-    if script.raw_override:
-        return instruction_problems("script", script.raw_override, context)
-    callers = caller_paths(script)
-    # Each step's line in each language and each of its answers too (`agent_lines`): the
-    # in-call model copies them, so a promise or a figure in one is said on the call.
-    found = [
-        problem
-        for path, text in agent_lines(script)
-        for problem in spoken_line_problems(path, text, context)
-    ]
-    # Here and not in `spoken_line_problems`, whose writers check it already
-    # (`script_assist.language_problems`): an owner's line written before D-861 (23 Oct 2026),
-    # or by hand, is shown on the card too. The in-call model copies a step's line, English
-    # letters included (founder's Rytu Khata call of 9 Nov 2026: "Android" and "iPhone").
-    # Only a line in the call's own letters that mixes English letters in: a line wholly in
-    # English is a different choice, the language the owner wrote it in.
-    names = (context.business_name, context.agent_name)
-    found += [
-        problem
-        for path, text in spoken_fields(script)
-        if text.strip()
-        and path not in callers
-        and has_indic_letters(text)
-        and (problem := latin_word_problem(path, text, context.language, names=names))
-    ]
-    found += [
-        problem
-        for path, text in instruction_fields(script)
-        if text.strip()
-        for problem in instruction_problems(path, text, context)
-    ]
-    found += flow_problems(script)
-    found += step_number_problems(script)
-    found += untaken_time_problems(script)
-    found += unwired_way_out_problems(script, context.manifest)
-    found += pronunciation_problems(script, context)
-    found += unasked_problems(script, context.collect, context.call_back)
-    return found
+    """The writer-score lints on a whole script (`scripts/eval_script_writer`), run through
+    the check registry (`script_checks.SCRIPT_PROBLEM_CHECKS`), so the eval and every
+    production path read one definition of each check. A raw (hand-written) script has no
+    fields to walk and is checked as one instruction text."""
+    from apps.api.agents import script_checks
+
+    return script_checks.texts(
+        script_checks.run(script, context, ids=script_checks.SCRIPT_PROBLEM_CHECKS)
+    )
 
 
 _PLACES: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
@@ -634,31 +603,54 @@ def plain(problem: str) -> str:
     return f"{where.split('.')[0].replace('_', ' ').capitalize()}: {rest}"
 
 
-def spoken_line_problems(where: str, text: str, context: LintContext) -> list[str]:
-    """What the lint finds in one line the agent says."""
-    problems: list[str] = []
+def promo_problem(where: str, text: str, context: LintContext, *, spoken: bool) -> str | None:
+    """A promotional or urgency word in a line the agent says (`spoken`) or an instruction it
+    follows, by the D-943 list, or None."""
     promo = _promo(text, context)
-    if promo:
-        effect = (
-            "which makes the call promotional"
-            if promo.severity == "strong"
-            else "which can read as promotional"
-        )
-        problems.append(
-            f'{where}: says "{promo.phrase}", {effect}; say only facts the caller asked '
-            "about, with no offer, discount or urgency."
-        )
-    if context.manifest is not None:
-        promise = unbacked_promise(text, context.manifest)
-        if promise:
-            problems.append(f"{where}: promises {promise}; take the details for the team.")
+    if not promo:
+        return None
+    if not spoken:
+        return f'{where}: tells the agent to use "{promo.phrase}"; no offers or urgency.'
+    effect = (
+        "which makes the call promotional"
+        if promo.severity == "strong"
+        else "which can read as promotional"
+    )
+    return (
+        f'{where}: says "{promo.phrase}", {effect}; say only facts the caller asked '
+        "about, with no offer, discount or urgency."
+    )
+
+
+def promise_problem(where: str, text: str, context: LintContext, *, spoken: bool) -> str | None:
+    """A promise the capability manifest cannot keep (`unbacked_promise`), or None. No
+    manifest, nothing to judge it against."""
+    if context.manifest is None:
+        return None
+    promise = unbacked_promise(text, context.manifest)
+    if not promise:
+        return None
+    if spoken:
+        return f"{where}: promises {promise}; take the details for the team."
+    return f"{where}: has the agent promise {promise}."
+
+
+def figure_problem(where: str, text: str, context: LintContext) -> str | None:
     figure = unknown_figure(text, context.facts)
-    if figure:
-        problems.append(
-            f'{where}: says "{figure}", a figure no fact of the owner gives; leave it out.'
-        )
-    if (asked := asks_count(text)) > 1:
-        problems.append(f"{where}: asks {asked} questions; ask one and wait.")
+    if not figure:
+        return None
+    return f'{where}: says "{figure}", a figure no fact of the owner gives; leave it out.'
+
+
+def questions_problem(where: str, text: str) -> str | None:
+    asked = asks_count(text)
+    return f"{where}: asks {asked} questions; ask one and wait." if asked > 1 else None
+
+
+def opening_shape_problems(where: str, text: str, context: LintContext) -> list[str]:
+    """An opening on a placed call without the person's name or a question, and one that does
+    not read when the name is unknown. [] for a line that is not an opening."""
+    problems: list[str] = []
     if placed_call_opening(where, context):
         opening = placed_opening_problem(where, text)
         if opening:
@@ -667,34 +659,58 @@ def spoken_line_problems(where: str, text: str, context: LintContext) -> list[st
         nameless = name_segment_problem(where, text, placed=not answered_opening(where, context))
         if nameless:
             problems.append(nameless)
-    if context.agent_name.strip():
-        other = other_persona(
-            text, agent_name=context.agent_name, business_name=context.business_name
-        )
-        if other:
-            problems.append(
-                f'{where}: calls the agent "{other}"; its name is {context.agent_name.strip()}.'
-            )
     return problems
+
+
+def persona_problem(where: str, text: str, context: LintContext) -> str | None:
+    if not context.agent_name.strip():
+        return None
+    other = other_persona(text, agent_name=context.agent_name, business_name=context.business_name)
+    if not other:
+        return None
+    return f'{where}: calls the agent "{other}"; its name is {context.agent_name.strip()}.'
+
+
+def stacked_instruction_problem(where: str, text: str) -> str | None:
+    """A step's instruction that gives the caller several actions at once."""
+    if not (_STAGE_INSTRUCTION.match(where) and stacked_actions(text)):
+        return None
+    return (
+        f"{where}: gives several actions in one go; put each in the step's step-by-step "
+        "list, so the agent gives one and stops; the caller says when it is done."
+    )
+
+
+def spoken_line_problems(where: str, text: str, context: LintContext) -> list[str]:
+    """What the lint finds in one line the agent says: the writer's refusal of a line it
+    wrote (`script_assist.language_problems`), made of the same rules the check registry
+    runs one by one (`script_checks`)."""
+    return [
+        problem
+        for problem in (
+            promo_problem(where, text, context, spoken=True),
+            promise_problem(where, text, context, spoken=True),
+            figure_problem(where, text, context),
+            questions_problem(where, text),
+            *opening_shape_problems(where, text, context),
+            persona_problem(where, text, context),
+        )
+        if problem
+    ]
 
 
 def instruction_problems(where: str, text: str, context: LintContext) -> list[str]:
     """What the lint finds in an instruction the agent follows but never says: a promise
-    outside the manifest, or a promotional or urgency term."""
-    problems: list[str] = []
-    promo = _promo(text, context)
-    if promo:
-        problems.append(f'{where}: tells the agent to use "{promo.phrase}"; no offers or urgency.')
-    if context.manifest is not None:
-        promise = unbacked_promise(text, context.manifest)
-        if promise:
-            problems.append(f"{where}: has the agent promise {promise}.")
-    if _STAGE_INSTRUCTION.match(where) and stacked_actions(text):
-        problems.append(
-            f"{where}: gives several actions in one go; put each in the step's step-by-step "
-            "list, so the agent says one and waits until it is done."
+    outside the manifest, a promotional or urgency term, several actions in one step."""
+    return [
+        problem
+        for problem in (
+            promo_problem(where, text, context, spoken=False),
+            promise_problem(where, text, context, spoken=False),
+            stacked_instruction_problem(where, text),
         )
-    return problems
+        if problem
+    ]
 
 
 #: A merge field that holds a person's name (`{{lead_name}}`, a list's `{{name}}` column), the
@@ -965,6 +981,12 @@ def step_line(script: CallScript, index: int) -> tuple[str, str]:
     stage = script.stages[index]
     if says_instruction(stage):
         return f"stages.{index}.instruction", stage.instruction
+    if not stage.sounds_like.strip():
+        # A step written with examples (DESIGN §3.2) has no "sounds like" line; its first
+        # example turn is what the step sounds like to the checks that read one line a step.
+        for tag, said in stage.examples.items():
+            if said.turns:
+                return f"stages.{index}.examples.{tag}.turns.0", said.turns[0]
     return f"stages.{index}.sounds_like", stage.sounds_like
 
 
@@ -1121,6 +1143,11 @@ def _line_groups(script: CallScript, *, procedure: bool) -> list[list[tuple[int,
         for tag, text in stage.scripts.items():
             if text.strip():
                 by_language.setdefault(tag, []).append((i, f"stages.{i}.scripts.{tag}", text))
+    # Examples are a group of their own per language: a step's several turns are written to
+    # differ from each other and from every other step's, which is what the model copies.
+    for path, text in example_lines(script):
+        tag = line_language(path)
+        by_language.setdefault(f"examples:{tag}", []).append((int(path.split(".")[1]), path, text))
     groups += by_language.values()
     if procedure:
         groups.append(
@@ -1181,15 +1208,52 @@ def same_ending_problems(script: CallScript) -> list[str]:
     return problems
 
 
+#: The parts of a step's examples in one language (`StepExamples`), in the order shown.
+EXAMPLE_PARTS: Final = ("turns", "confused", "stuck", "busy")
+
+
+def example_lines(script: CallScript) -> list[tuple[str, str]]:
+    """(path, text) of each example turn of each step in each language
+    (`ConversationStage.examples`): `stages.N.examples.<tag>.turns.M`, `.confused`, `.stuck`
+    and `.busy`. The in-call model copies examples more closely than any rule (DESIGN §2.3),
+    so every check that reads a line the agent says reads these."""
+    out: list[tuple[str, str]] = []
+    for i, stage in enumerate(script.stages):
+        for tag, said in stage.examples.items():
+            at = f"stages.{i}.examples.{tag}"
+            out += [(f"{at}.turns.{m}", turn) for m, turn in enumerate(said.turns) if turn.strip()]
+            out += [
+                (f"{at}.{part}", text)
+                for part in EXAMPLE_PARTS[1:]
+                if (text := getattr(said, part)).strip()
+            ]
+    return out
+
+
 def scenario_lines(script: CallScript) -> list[tuple[str, str]]:
-    """(path, text) of each step's own line in each language (`ConversationStage.scripts`),
-    which the in-call model uses as what to say at that step."""
+    """(path, text) of each step's own line in each language (`ConversationStage.scripts`)
+    and each of its example turns (`example_lines`), which the in-call model uses as what to
+    say at that step."""
     return [
-        (f"stages.{i}.scripts.{tag}", text)
-        for i, stage in enumerate(script.stages)
-        for tag, text in stage.scripts.items()
-        if text.strip()
+        *(
+            (f"stages.{i}.scripts.{tag}", text)
+            for i, stage in enumerate(script.stages)
+            for tag, text in stage.scripts.items()
+            if text.strip()
+        ),
+        *example_lines(script),
     ]
+
+
+#: `stages.N.scripts.<tag>` or `stages.N.examples.<tag>.…`: the language tag a line is in.
+_TAGGED_PATH: Final = re.compile(r"^stages\.\d+\.(?:scripts|examples)\.([A-Za-z]{2,3}-[A-Za-z]{2})")
+
+
+def line_language(path: str, default: str = "") -> str:
+    """The language a line at `path` is in: its tag for a step's line or example in a named
+    language, else `default` (the call's language)."""
+    found = _TAGGED_PATH.match(path)
+    return found.group(1) if found else default
 
 
 def answer_lines(script: CallScript) -> list[tuple[str, str]]:

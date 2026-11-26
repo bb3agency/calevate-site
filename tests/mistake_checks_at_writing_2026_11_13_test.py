@@ -21,7 +21,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.agents import script_proposals
-from apps.api.agents.mistake_lints import fixable_findings, script_mistakes
+from apps.api.agents.script_checks import fixable_findings, script_mistakes
 from apps.api.agents.script_lint import LintContext, script_problems
 from apps.api.core.settings import get_settings
 from apps.api.healer import notices

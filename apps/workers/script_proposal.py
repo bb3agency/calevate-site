@@ -20,17 +20,15 @@ from uuid import UUID
 
 from calevate_shared.call_script import CallScript
 
-from apps.api.agents import mistake_fixes, script_proposals
+from apps.api.agents import mistake_fixes, script_checks, script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.capability_manifest import lint_context_for
-from apps.api.agents.mistake_lints import mistake_findings, script_mistakes
+from apps.api.agents.script_checks import mistake_findings
 from apps.api.agents.script_lint import (
     LintContext,
-    empty_title_problems,
     unasked_details,
     unasked_problems,
 )
-from apps.api.agents.script_shape import line_problems
 from apps.api.agents.script_structure import settled
 from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.core.errors import ProblemError
@@ -257,15 +255,10 @@ class _Fix:
         elif self.mistake_kind is not None:
             found = mistake_findings(script, self.lint, self.mistake_kind)
         else:
-            # A title left with no name in a line `script_structure.settled` could not mend
-            # (one of the owner's own steps in an edit is not Pip's to mend).
-            # A line giving several actions, or noting what the caller does, is a line repair.
-            found = [
-                *script_mistakes(script, self.lint),
-                *empty_title_problems(script),
-                *line_problems(script, self.lint.judged),
-                *unasked_problems(script, self.lint.collect, self.lint.call_back),
-            ]
+            # Every registered check on the lines a repair can reach, as the heal pass reads
+            # them (`script_checks.repairs`), so a script the writer hands over clean is one
+            # the healer finds clean.
+            found = script_checks.writer_findings(script, self.lint)
         return [*found, *(n.finding for n in self.noted if n.stands(script))]
 
     def targeted(self, script: CallScript) -> list[str]:
@@ -408,7 +401,7 @@ async def _mistakes_checked(
     the lines they find rewritten by the same targeted repair a fix uses, at most
     `script_mistake_repair_passes` rounds. Only what Pip wrote is judged: in an edit a
     finding the owner's script already had is theirs, and a fix may change only the lines
-    it was asked for. Never the openings or their notices (`mistake_lints.fixable_findings`).
+    it was asked for. Never the openings or their notices (`script_checks.repairable`).
     `noted`, the review's findings on lines Pip wrote, join the same rounds. `details`, what
     the job's calls ask: each needs a step that asks it, whoever wrote the steps, since a
     detail the job notes and no step asks is never noted (founder, 23 Nov 2026).

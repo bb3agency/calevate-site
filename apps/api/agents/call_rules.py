@@ -301,7 +301,7 @@ OPENING_LINE_RULE: Final = (
 #:   "Ask only one question at a time" (docs.vapi.ai/prompting-guide, read 5 Nov 2026).
 #: - An action's line ends on an invitation to say when it is done, never "is it done?":
 #:   on the Telugu campaign call of 24 Nov 2026 (12:15) six steps asked it in the same turn,
-#:   before the person could act (`mistake_lints._asked_done_too_soon` finds such a line).
+#:   before the person could act (`mistake_lints.asked_done_too_soon_problems` finds such a line).
 #:   Worded for each action, so the small steps do not all end with one tag.
 #: - Numbers given out a few digits at a time: the caller asked twice to slow down.
 #: - No spoken note-keeping: the founder wants the note kept, not announced.
@@ -433,7 +433,9 @@ def opening_redone_line_problems(script: CallScript) -> list[str]:
     # (23 Nov 2026) while its English example did not.
     lines = [step_line(script, i) for i in range(len(script.stages))] + scenario_lines(script)
     for path, line in lines:
-        if not line.strip():
+        # A busy caller's example answers "not now" with a later time, which is about when
+        # to talk by design.
+        if not line.strip() or path.endswith(".busy"):
             continue
         if opened_again(line) or asked_opening_again(line, questions):
             found.append(

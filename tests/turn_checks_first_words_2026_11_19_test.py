@@ -16,7 +16,7 @@ from apps.api.agents.engine_limits import (
     greeting_budget,
     refuse_over_engine_limits,
 )
-from apps.api.agents.mistake_lints import mistake_findings
+from apps.api.agents.script_checks import mistake_findings
 from apps.api.agents.script_lint import LintContext
 from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from calevate_shared import call_words

@@ -37,7 +37,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import (
@@ -485,6 +485,10 @@ async def _fail(
             await _store(session, holder, update)
 
 
+#: A holder by its kind and id, as `script_builder.job_size` measures it.
+_Job = tuple[Literal["campaign", "line"], UUID]
+
+
 @dataclass(frozen=True)
 class _Inputs:
     """What a holder's script is written from, read in one tenant session."""
@@ -500,6 +504,8 @@ class _Inputs:
     #: The owner's choices for this draft (D-1004): a tone from `TONES`, and what they typed.
     tone: str | None = None
     instruction: str = ""
+    #: The holder the script is for, which its length is measured on; None: unmeasured.
+    job: _Job | None = None
     #: The characters the script may take in the engine's box, or None when unmeasured.
     budget: int | None = None
     #: The holder's own settings (`campaign_script_ask.situation_block`), or "".
@@ -552,23 +558,29 @@ def _rewrite(raw: Any) -> bool:
     return isinstance(raw, dict) and bool(raw.get("rewrite"))
 
 
-async def _size(tenant_id: UUID, agent_id: UUID, script: CallScript) -> PromptSize | None:
-    """The engine instructions `script` would make on the agent, measured as a save measures
-    them (`script_builder.refuse_if_too_long`), in a session of its own so a failure here
-    never touches the draft's. None when it cannot be measured: the save still refuses."""
+async def _size(tenant_id: UUID, job: _Job | None, script: CallScript) -> PromptSize | None:
+    """The engine instructions `script` would make on the holder's own engine agent, by the
+    measure the save refuses on (`script_builder.job_size`), in a session of its own so a
+    failure here never touches the draft's. None when it cannot be measured: the save still
+    refuses."""
     from apps.api.agents import script_builder
 
+    if job is None:
+        return None
+    kind, job_id = job
     try:
         async with tenant_session(tenant_id) as session:
-            return (await script_builder.compiled_preview(session, agent_id, script)).size
+            return await script_builder.job_size(
+                session, kind=kind, tenant_id=tenant_id, job_id=job_id, script=script
+            )
     except Exception:
-        log.exception("holder_script_unmeasured", extra={"agent_id": str(agent_id)})
+        log.exception("holder_script_unmeasured", extra={"holder_id": str(job_id)})
         return None
 
 
-async def _budget(tenant_id: UUID, agent_id: UUID, base: CallScript | None) -> int | None:
+async def _budget(tenant_id: UUID, job: _Job, base: CallScript | None) -> int | None:
     """What the script may take: the box less what is composed around the script."""
-    size = await _size(tenant_id, agent_id, base or CallScript(schema_version=2))
+    size = await _size(tenant_id, job, base or CallScript(schema_version=2))
     if size is None:
         return None
     script_chars = next((p.chars for p in size.layers if p.key == "client_script"), 0)
@@ -652,7 +664,8 @@ async def campaign_inputs(tenant_id: UUID, campaign_id: UUID) -> tuple[_Inputs, 
         quota_exhausted=quota.at_ceiling or quota.platform_paused,
         tone=tone,
         instruction=instruction,
-        budget=await _budget(tenant_id, space.agent_id, base),
+        job=("campaign", campaign_id),
+        budget=await _budget(tenant_id, ("campaign", campaign_id), base),
         situation=situation_block(
             agent_name=context.agent_name,
             holder_name=str(name or ""),
@@ -729,7 +742,8 @@ async def line_inputs(tenant_id: UUID, line_id: UUID) -> _Inputs:
         quota_exhausted=quota.at_ceiling or quota.platform_paused,
         tone=tone,
         instruction=instruction,
-        budget=await _budget(tenant_id, line.agent_id, base),
+        job=("line", line_id),
+        budget=await _budget(tenant_id, ("line", line_id), base),
         situation=situation_block(
             agent_name=context.agent_name, holder_name=line.name, inbound=True
         ),
@@ -925,7 +939,7 @@ async def _shortened(
     """`script`, shortened once when it would not fit the engine's box, and what that cost.
     A draft that does not fit would be refused when the owner keeps it, after they reviewed
     every part of it."""
-    size = await _size(tenant_id, inputs.agent_id, script)
+    size = await _size(tenant_id, inputs.job, script)
     timeout_s = _late_timeout(started)
     if size is None or size.fits or timeout_s is None:
         return script, []
@@ -1327,7 +1341,7 @@ async def _write(
     left_out = [
         *trace.left_out,
         *finished.left_out,
-        *too_long_left(await _size(tenant_id, inputs.agent_id, finished.script)),
+        *too_long_left(await _size(tenant_id, inputs.job, finished.script)),
         *built_wrong_left(inputs, finished.script),
         *still_warned(found, finished.script),
     ]

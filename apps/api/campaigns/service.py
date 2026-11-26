@@ -1423,6 +1423,19 @@ async def launch_blockers(
         )
     if not facts.disclosure or not str(facts.disclosure).strip():
         blockers.append(LaunchBlocker("disclosure_missing", "The agent has no disclosure line."))
+    # A line of the campaign's own script that would go wrong on every call (a `block`
+    # script check, `agents/script_gate`): the same refusal Put it live makes on an edit.
+    # Imported here: `agents.script_gate` reaches `campaigns.workspace` through the checks.
+    from apps.api.agents import script_gate
+
+    faulted = await script_gate.blocking_findings(session, "campaign", campaign_id)
+    if faulted:
+        blockers.append(
+            LaunchBlocker(
+                script_gate.SCRIPT_NEEDS_FIX,
+                f"Some lines would go wrong on every call: {script_gate.refusal_reason(faulted)}",
+            )
+        )
     # AND WHETHER THE ENGINE IS STILL RUNNING THE RULE THAT MAKES IT ANSWER HONESTLY
     # (D-562, D-564). `check_dispatch` refuses every dial on this verdict, and this gate
     # did not ask it — so a campaign against a proven-non-compliant agent LAUNCHED, went

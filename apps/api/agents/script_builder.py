@@ -605,6 +605,36 @@ async def refuse_if_too_long(session: AsyncSession, agent_id: UUID, script: Call
 _NOTHING_TO_MEASURE: Final = frozenset({"line_has_no_script", "agent_has_no_script"})
 
 
+async def job_size(
+    session: AsyncSession,
+    *,
+    kind: Literal["campaign", "line"],
+    tenant_id: UUID,
+    job_id: UUID,
+    script: CallScript | None = None,
+) -> prompt_size.PromptSize | None:
+    """The engine instructions a campaign's or line's script makes, measured on the job's
+    own engine agent as Start or put-live builds it (`service.campaign_config`,
+    `service.line_config`). The ONE length measure of a job's script: the save's refusal
+    (`refuse_job_if_too_long`) and the writer's shortening and warning
+    (`workers/campaign_script._size`) both read it, so a draft the writer says fits is one
+    the save keeps. None when the job has nothing to measure."""
+    from apps.api.agents.service import campaign_config, line_config
+
+    try:
+        if kind == "campaign":
+            config = await campaign_config(
+                session, tenant_id=tenant_id, campaign_id=job_id, script=script
+            )
+        else:
+            config = await line_config(session, tenant_id=tenant_id, line_id=job_id, script=script)
+    except ProblemError as exc:
+        if exc.code in _NOTHING_TO_MEASURE:
+            return None
+        raise
+    return prompt_size.measure_config(config, get_engine())
+
+
 async def refuse_job_if_too_long(
     session: AsyncSession,
     *,
@@ -623,21 +653,8 @@ async def refuse_job_if_too_long(
 
     `for_notes` words the refusal for a notes save, whose fix is fewer details as much as a
     shorter script."""
-    from apps.api.agents.service import campaign_config, line_config
-
-    try:
-        if kind == "campaign":
-            config = await campaign_config(
-                session, tenant_id=tenant_id, campaign_id=job_id, script=script
-            )
-        else:
-            config = await line_config(session, tenant_id=tenant_id, line_id=job_id, script=script)
-    except ProblemError as exc:
-        if exc.code in _NOTHING_TO_MEASURE:
-            return
-        raise
-    size = prompt_size.measure_config(config, get_engine())
-    if size.fits:
+    size = await job_size(session, kind=kind, tenant_id=tenant_id, job_id=job_id, script=script)
+    if size is None or size.fits:
         return
     if for_notes:
         raise PromptTooLongError(

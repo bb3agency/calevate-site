@@ -55693,6 +55693,83 @@
         "title": "ScriptAskIn",
         "type": "object"
       },
+      "ScriptCheckOut": {
+        "additionalProperties": false,
+        "properties": {
+          "check": {
+            "title": "Check",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "line": {
+            "title": "Line",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "block",
+              "warn"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "stage_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage Id"
+          }
+        },
+        "required": [
+          "check",
+          "path",
+          "stage_id",
+          "message",
+          "detail",
+          "line",
+          "severity"
+        ],
+        "title": "ScriptCheckOut",
+        "type": "object"
+      },
+      "ScriptChecksOut": {
+        "additionalProperties": false,
+        "properties": {
+          "blocks_live": {
+            "title": "Blocks Live",
+            "type": "boolean"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ScriptCheckOut"
+            },
+            "title": "Findings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "findings",
+          "blocks_live"
+        ],
+        "title": "ScriptChecksOut",
+        "type": "object"
+      },
       "ScriptContextOut": {
         "additionalProperties": false,
         "description": "What the builder shows beside the script and does not edit there.",
@@ -94299,6 +94376,46 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/script/checks": {
+      "get": {
+        "operationId": "read_script_checks_v1_campaigns__campaign_id__script_checks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptChecksOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What the script checks find in the campaign's saved script, and whether it can start",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/campaigns/{campaign_id}/script/proposal": {
       "post": {
         "operationId": "request_proposal_v1_campaigns__campaign_id__script_proposal_post",
@@ -102278,6 +102395,46 @@
           "inbound"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/script/checks": {
+      "get": {
+        "operationId": "read_script_checks_v1_inbound_lines__line_id__script_checks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptChecksOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What the script checks find in the line's saved script, and whether it can go live",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/inbound-lines/{line_id}/script/restore-before-pip": {

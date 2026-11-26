@@ -97,7 +97,7 @@ async def _run(
 
     measured = list(sizes or [])
 
-    async def size(_t: UUID, _a: UUID, _script: CallScript) -> PromptSize | None:
+    async def size(_t: UUID, _job: Any, _script: CallScript) -> PromptSize | None:
         return measured.pop(0) if measured else None
 
     async def lint_context(*_args: Any, **_kwargs: Any) -> LintContext:

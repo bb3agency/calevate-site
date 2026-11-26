@@ -17,8 +17,8 @@ from typing import Any
 
 import pytest
 from apps.api.agents import script_heal, script_lint
-from apps.api.agents.mistake_lints import mistake_findings
 from apps.api.agents.script_builder import job_details
+from apps.api.agents.script_checks import mistake_findings
 from apps.api.agents.script_lint import (
     CapabilityManifest,
     LintContext,
