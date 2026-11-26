@@ -3,6 +3,10 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.80 — 26-Nov-2026
+
+- Build fix for 0.5.79 (a test line over the length limit); nothing changes on screen.
+
 ## 0.5.79 — 26-Nov-2026
 
 - A scenario no longer keeps an extra way out that only names the step it already goes to
