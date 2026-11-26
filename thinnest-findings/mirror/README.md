@@ -151,3 +151,14 @@ A full re-fetch on 29 Oct 2026 (`generated_at` 18:27:51 UTC in its `MANIFEST.jso
 - **Workflows** (`agent/workflows.md`, What's New 28 and 29 Oct): multi-day call and message sequences started by our system, a webhook, a schedule or a date a contact holds; contacts keep imported details that agent calls read.
 - **Phone numbers by region:** Search Available Phone Numbers and List Available Cities answer for the workspace's region (United States states as well as Indian cities, `llms.txt`).
 - What D-940 did with each is `docs/THINNEST-INTEGRATION.md` "Live docs of 29 Oct 2026".
+
+## Snapshot of 26 Nov 2026 (`snapshots/2026-11-26/`)
+
+A full re-fetch on 26 Nov 2026 (UTC run 11:33–11:37, `started_at` and `generated_at` in its `MANIFEST.json`): 296 of 296 pages in `llms.txt`, 0 failures, every page HTTP 200 `text/markdown`, with its own `llms.txt`, `llms-full.txt`, `MANIFEST.json` and `https://app.thinnest.ai/openapi.json` as `openapi.json`. The example account id of the form `AC` + 32 hex is masked at the same byte length in `pages/api-reference/phone-numbers/save-carrier-account.md` (lines 480 and 584) and in `openapi.json`; the manifest hashes are of the masked files, with `sha256_as_fetched` for the unmasked ones. Against `2026-11-12/`: 1 page added, 0 removed, 10 changed; the page-by-page diff is `snapshots/2026-11-26/CHANGES.md`. Cite this snapshot for anything current.
+
+- **Unchanged:** `openapi.json` (masked, same hash as 12 Nov) and every `api-reference/*`, `agent/*` and `guides/*` page. No agent field, endpoint, webhook, error code or API price changed.
+- **Studio on every plan.** Any Studio voice can be put on an agent on every plan, the free trial included; only cloning needs Pro or above (`channels/voice.md:269-270`, `whats-new/index.md:19-20`).
+- **One Studio catalogue.** Every Studio voice speaks all 63 Studio languages in every market. The non-India fifteen-language catalogue and its same-gender "second set" are gone (`channels/voice.md:278-293`). An agent whose Studio voice from before 14 Nov is no longer listed answers in a same-gender Studio voice until a new one is chosen. Clones were moved over (`channels/voice.md:289-291`).
+- **No Studio samples.** Studio voices have no preview; use Test a call (`channels/voice.md:236-237`, `:287-288`).
+- **Clone languages** are only those Studio speaks on a call. Assamese, Konkani, Maithili, Nepali, Odia, Sindhi, Sinhala and Cantonese are no longer offered (`channels/voice-clone.md:91-94`).
+- **Not used by us:** the Instagram channel (`channels/instagram.md`), CSV upload inside a WhatsApp broadcast (`whatsapp/broadcasts.md:126-152`), and white-label favicon, CSS, branded `/docs` and per-client prices.
