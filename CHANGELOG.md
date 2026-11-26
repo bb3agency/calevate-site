@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.74 — 26-Nov-2026
+
+- Pip no longer writes lines asking the caller to say when a step is done, lines with two
+  actions, lines that open with a reaction, or a first step that asks again for permission
+  the opening already got. These are now caught in Telugu, Hindi and English before you see
+  a script, and noted on real calls. A confused "after what?" is read as a question, never as
+  "done".
+
 ## 0.5.73 — 26-Nov-2026
 
 - During calls the agent gives one action a turn and stops, never asks the caller to say when
