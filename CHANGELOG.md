@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.71 — 26-Nov-2026
+
+- A call greets the person by the newest name you gave them: a test call to a number that
+  is one of your leads uses that lead's name (not your own), re-adding a number with a name
+  updates it, and renaming a lead updates its campaign lists.
+- A captured phone number is kept as a proper +91 number even when said with other words or
+  stored as a plain number, so real mobiles are no longer flagged as not Indian.
+
 ## 0.5.70 — 26-Nov-2026
 
 - A test call that meets the outage while getting the agent ready now counts toward pausing
