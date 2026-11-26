@@ -977,6 +977,31 @@ def platform_filler_lines(languages: Sequence[str]) -> tuple[str, ...]:
     return tuple(lines)
 
 
+def filler_lines_for(own: Sequence[str], languages: Sequence[str]) -> tuple[str, ...]:
+    """The lines the engine is given: the client's own, then ours for each of the agent's
+    languages none of theirs is written in, within `FILLER_LINES_MAX`; ours alone when they
+    have none.
+
+    The engine says only the lines written in the caller's script (`voice.thinkingLines`,
+    thinnest-findings/mirror/snapshots/2026-11-26/pages/api-reference/agents/create-agent.md:
+    1473-1489; channels/voice.md:512-516), so a client's English "One moment" on a Telugu
+    agent gave a Telugu call no line of ours; what the engine says then is not documented
+    (only `[]` is: its built-in fillers). A Latin spelling of ours is not added: the engine
+    converts Indian-language words typed in Roman letters to that language's script when
+    saved (same lines), so it would arrive as the line we already send. Ours take the place
+    of the client's last lines when the cap is full, so every language keeps one."""
+    if not own:
+        return platform_filler_lines(languages)
+    missing = [
+        line
+        for tag in languages
+        if not any(spoken_lines.in_own_script(said, tag) for said in own)
+        for line in thinking_lines((tag,))[:1]
+    ]
+    kept = list(own[: max(FILLER_LINES_MAX - len(missing), 0)])
+    return tuple(dict.fromkeys([*kept, *missing]))[:FILLER_LINES_MAX]
+
+
 #: The founder's "are you still on the line?" per language (`spoken_lines.json`, `on_the_line`).
 ON_THE_LINE: Final[dict[str, str]] = spoken_lines.lines("on_the_line")
 
@@ -1027,7 +1052,7 @@ def _call_settings_fields(agent: AgentRow, *, languages: Sequence[str]) -> dict[
         "nudge_count": v.nudge_count,
         "nudge_phrase": v.nudge_phrase or platform_nudge_phrase(languages) or None,
         "end_after_silence_seconds": v.end_after_silence_seconds,
-        "filler_lines": v.filler_lines or platform_filler_lines(languages),
+        "filler_lines": filler_lines_for(v.filler_lines or (), languages),
         "ambience": None if v.ambience == "off" else v.ambience,
         "ambience_volume_pct": v.ambience_volume_pct,
         # None while the console has no wait: the field is then never sent (D-901).

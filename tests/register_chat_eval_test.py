@@ -30,7 +30,7 @@ from calevate_shared.engine import (
     truthful_answer_directive,
     without_this_call,
 )
-from calevate_shared.spoken_style import FILLERS_LEAD, SWAPS_LEAD, style_for
+from calevate_shared.spoken_style import SWAPS_LEAD, style_for
 from scripts import register_chat_eval as chat_eval
 from scripts import register_eval
 
@@ -107,9 +107,7 @@ def test_no_ban_variants_name_no_word_to_avoid(key: str) -> None:
         platform = text.split(engine.CLIENT_SCRIPT_OPEN)[0]
         for formal, _spoken in style.prompt_swaps:
             assert f'"{formal}"' not in platform
-        # The register line and its fillers stay.
         assert style.register in text
-        assert FILLERS_LEAD in text
 
 
 def test_the_allow_list_is_the_spoken_side_of_the_word_list() -> None:

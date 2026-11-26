@@ -410,10 +410,11 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         'Agents say "haan ji" while callers explain',
-        "Only when turns end by ear. Spoken in the agent's voice and billed as voice "
-        "characters on Studio.",
+        "Only when turns end by ear. The words are each language's listening words from "
+        "Spoken style. Spoken in the agent's voice and billed as voice characters on Studio.",
         _THINNEST,
-        details="Off by default: the agent waits silently while the caller pauses.",
+        details="Off by default: the agent waits silently while the caller pauses. An agent "
+        "whose language has no listening word in Spoken style waits silently too.",
     ),
     "thinnest_early_answers": _m(
         "voice-engine",

@@ -1033,18 +1033,26 @@ PROCEDURE_HEADER: Final = "[STEP BY STEP]"
 #: exit condition, and asking when it does not, is how the voice guides write a state's exit
 #: ("Exit when: ...", developers.openai.com/api/docs/guides/realtime-models-prompting; "Collect,
 #: confirm, move on", docs.vapi.ai/prompting-guide; both read 23 Nov 2026).
-#: A step's Wait for is what the agent listens for, never a question it adds to the step: on
-#: the Telugu campaign call of 24 Nov 2026 (12:15) six steps were said as "do X. Is X done?" in
-#: one turn, so the person had no time to do X. The step's turn ends on an invitation to say
-#: when it is done (HOW TO SPEAK's "Steps?" bullet, which carries the guides cited there).
-#: A reply that does not show it is answered by asking what they see, never by the step's line
-#: again or "is it done?": on the founder's test call of 25 Nov 2026 (01:37) a garbled reply
-#: got the whole step line back word for word, and a side question was followed by "have you
-#: installed it?".
+#: A step's "Done when" is what the agent listens for, never a question it adds to the step:
+#: on the Telugu campaign call of 24 Nov 2026 (12:15) six steps were said as "do X. Is X
+#: done?" in one turn, so the person had no time to do X.
+#: The turn ends on the action itself, not on an invitation to say when it is done: on the
+#: Varsha call of 26 Nov 2026 (16:03) every step ended "tell me when done", so the person was
+#: asked before they could act, and their "after what should I tell you?" was taken as an
+#: answer and the next step given. A "what do I do?" gets the same step again, shorter, never
+#: the next one.
 PROCEDURE_LEAD: Final = (
-    "Say one, invite them to say when done, wait. Next only once their words meet its Wait "
-    "for or say done; else ask what they see, never assume. Stuck? Help."
+    'One action a turn, then stop; never ask them to say when done. Only their "done" moves you '
+    "on; asked what to do, the same step, shorter. Stuck? Help."
 )
+#: Introduces a step's `wait_for` in the list. A criterion the agent listens for, phrased so
+#: it does not read as a line to say: "Wait for:" invited "wait until you have done it, then
+#: tell me" as the end of the step's turn.
+DONE_WHEN_LEAD: Final = "Done when:"
+#: Leads the script's example call. Not "copy the style": the model copies an example's turns
+#: whole, and an example written before the step rules (a reaction to open each turn, "tell me
+#: when" to end it) brought those back; the rules win over it.
+EXAMPLE_LEAD: Final = "The style only, never its facts, lines or how turns open or end."
 ADHERENCE_SENTENCES: Final[dict[str, str]] = {
     "flexible": "Sections in order as a guide. Follow the caller if they jump ahead; do not "
     "repeat a section that is done.",
@@ -1085,13 +1093,25 @@ def says_instruction(stage: ConversationStage) -> bool:
     return stage.mode == "say" and stage.step is None and not stage.scripts
 
 
+#: How a section's sounds-like line is introduced. With a step-by-step list the line is the
+#: owner's summary of every action in it, and quoted as "It sounds like" it was said whole as
+#: one turn (Varsha call of 26 Nov 2026: several actions bundled, a step line repeated word for
+#: word), so there it is offered for its tone only and the list says what each turn holds.
+#: Quoting only its first action was rejected: the line is free text in the call's language,
+#: with no reliable place to cut it. Not dropped, so the owner's line still sets the register.
+#: No longer than "It sounds like:", so no stored section passes the 600-character cap.
+SOUNDS_LIKE_LEAD: Final = "It sounds like:"
+SOUNDS_LIKE_TONE_LEAD: Final = "Its tone only:"
+
+
 def _stage_detail(stage: ConversationStage) -> str:
     text = " ".join(stage.instruction.split())
     detail = f"Say: {_quote(text)}" if says_instruction(stage) else text
     if says_scenario_line(stage):
         detail += f" {SAY_EXACT_STEP}"
     if stage.sounds_like.strip():
-        detail += f" It sounds like: {_quote(stage.sounds_like)}"
+        lead = SOUNDS_LIKE_TONE_LEAD if stage.procedure else SOUNDS_LIKE_LEAD
+        detail += f" {lead} {_quote(stage.sounds_like)}"
     if stage.procedure:
         detail += f" {procedure_pointer(stage.name)}"
     if stage.scripts or stage.qa:
@@ -1363,8 +1383,8 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
     # from it is written here.
     if style.code_mix != "natural":
         style_lines.append(CODE_MIX_SENTENCES[style.code_mix])
-    # Capped as the register caps its fillers (`spoken_style.FILLERS_LEAD`): "not every turn"
-    # let a phrase open every other reply against HOW TO SPEAK's "never ... twice a call".
+    # Capped once a call each: "not every turn" let a phrase open every other reply against
+    # HOW TO SPEAK's "never ... twice a call".
     if style.sample_phrases:
         phrases = " / ".join(_quote(p) for p in style.sample_phrases)
         style_lines.append(f"Phrases you can use, once a call each: {phrases}")
@@ -1442,7 +1462,7 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
     example = [line for line in script.example_exchange if line.text.strip()]
     if example:
         add(
-            f"{EXAMPLE_HEADER} Copy the style, never the facts or the Caller lines.",
+            f"{EXAMPLE_HEADER} {EXAMPLE_LEAD}",
             "\n".join(
                 f"{'Caller' if line.speaker == 'caller' else 'You'}: {line.text.strip()}"
                 for line in example
@@ -1459,7 +1479,7 @@ def _procedures(stages: Sequence[ConversationStage]) -> str:
         for i, step in enumerate(stage.procedure, 1):
             line = f"{i}. {step.action}"
             if step.wait_for:
-                line += f" Wait for: {step.wait_for}"
+                line += f" {DONE_WHEN_LEAD} {step.wait_for}"
             lines.append(line)
         blocks.append("\n".join(lines))
     return "\n".join(blocks)
@@ -1652,8 +1672,10 @@ __all__ = [
     "CODE_MIX_SENTENCES",
     "COLLECT_HEADER",
     "DEFAULT_FAQ_FALLBACK",
+    "DONE_WHEN_LEAD",
     "END_OF_CALL",
     "EXAMPLE_HEADER",
+    "EXAMPLE_LEAD",
     "GUARDRAILS_BLOCK",
     "HAND_OVER",
     "KNOWN_FACTS_HEADER",
@@ -1680,6 +1702,8 @@ __all__ = [
     "SAY_EXACT_LINES",
     "SAY_EXACT_STEP",
     "SCRIPT_SCHEMA_VERSION",
+    "SOUNDS_LIKE_LEAD",
+    "SOUNDS_LIKE_TONE_LEAD",
     "SPECIAL_TARGETS",
     "STAGE_DETAIL_MAX",
     "STAGE_TITLE_MAX",

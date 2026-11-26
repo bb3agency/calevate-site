@@ -91,19 +91,19 @@ def test_a_short_word_after_an_action_is_not_taken_as_done() -> None:
     lead's "only once what they say meets its Wait for, or says done"."""
     assert '"OK" after one' not in VOICE_STYLE_GUIDANCE
     assert "never guess, pick for them or count it done" in VOICE_STYLE_GUIDANCE
-    assert "Next only once their words meet its Wait for or say done" in PROCEDURE_LEAD
+    assert 'Only their "done" moves you on;' in PROCEDURE_LEAD
 
 
 def test_a_reply_that_does_not_show_it_is_answered_by_asking_what_they_see() -> None:
     """01:37 call: a garbled reply got the step line back word for word, and a side question
     was followed by "have you installed it?"."""
-    assert "else ask what they see, never assume" in PROCEDURE_LEAD
+    assert "To check, ask what they see." in VOICE_STYLE_GUIDANCE
 
 
-def test_the_invitation_at_each_step_is_said_in_new_words_and_once() -> None:
-    """Every step ended on the same "tell me when it's done", against "no two replies start
-    or end alike"; the screen bullet said the invitation a second time without it."""
-    assert "inviting them in new words to say when done" in VOICE_STYLE_GUIDANCE
+def test_no_step_ends_on_an_invitation_to_say_when_done() -> None:
+    """Every step ended on the same "tell me when it's done" (25 Nov, and again on the Varsha
+    call of 26 Nov 2026); a step's turn now ends on the action, in neither bullet."""
+    assert 'never "say when done"' in VOICE_STYLE_GUIDANCE
     assert "invite" not in screen_steps_bullet("te-IN")
 
 
