@@ -261,7 +261,11 @@ def test_a_scenario_naming_its_sibling_beside_a_real_way_there_is_an_echo() -> N
                 "Not registered",
                 step=2,
                 otherwise="s2",
-                branches=[_way("Yes", "s2"), _way("No", "end"), _way("App on the home screen", "s2")],
+                branches=[
+                    _way("Yes", "s2"),
+                    _way("No", "end"),
+                    _way("App on the home screen", "s2"),
+                ],
             ),
             _stage("s4", "Login", step=3),
         ],

@@ -3,6 +3,20 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.82 — 26-Nov-2026
+
+- Test fix: the hot-lead alert test puts its call on an answering line, since alerts follow
+  the call's campaign or line; nothing changes on screen.
+
+## 0.5.81 — 26-Nov-2026
+
+- Test registries catch up with the engine-outage work and the opening practice check;
+  nothing changes on screen.
+
+## 0.5.80 — 26-Nov-2026
+
+- Build fix for 0.5.79 (a test line over the length limit); nothing changes on screen.
+
 ## 0.5.79 — 26-Nov-2026
 
 - A scenario no longer keeps an extra way out that only names the step it already goes to

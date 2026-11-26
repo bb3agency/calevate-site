@@ -582,7 +582,9 @@ def test_admin_service_is_the_only_place_an_invitation_row_is_born() -> None:
     minting = [
         path
         for path in Path("apps/api").rglob("*.py")
-        if "INSERT INTO invitations" in path.read_text(encoding="utf-8")
+        # A test seeding a row is not a second rulebook; only shipped code is.
+        if not path.name.endswith("_test.py")
+        and "INSERT INTO invitations" in path.read_text(encoding="utf-8")
     ]
     assert [p.as_posix() for p in minting] == ["apps/api/admin/service.py"], minting
     assert "INSERT INTO invitations" not in Path(members.__file__).read_text(encoding="utf-8")

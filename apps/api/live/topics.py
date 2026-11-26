@@ -282,6 +282,9 @@ QUIET_TABLES: Final[dict[str, str]] = {
     "audit_log": "the tamper-evident ledger; read on demand, and every write would echo",
     "first_run_recordings": "a brief clip kept only until it is text; its one screen polls it",
     "first_runs": "one owner's first-run state; the first-run screen polls it while a job runs",
+    "platform_engine_state": (
+        "the platform-wide dial hold, no tenant's row; the phone-service banner polls it"
+    ),
     "team_alerts": "the log of alerts sent to a business's own team; no screen lists it",
     "follow_up_versions": (
         "a Follow-up's frozen steps, written only with the `follow_ups` row that announces it"
