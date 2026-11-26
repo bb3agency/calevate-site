@@ -44,12 +44,12 @@
       "lint.mistake.said_again": 0,
       "lint.mistake.same_closing": 0,
       "lint.mistake.same_opening": 0,
-      "lint.mistake.several_actions": 0,
+      "lint.mistake.several_actions": 2,
       "lint.mistake.stalled": 0,
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 4
+      "lint.heal_findings": 6
     },
     "clinic_reminder": {
       "check.judged_field_asked": 0,
@@ -95,9 +95,9 @@
       "lint.mistake.several_actions": 0,
       "lint.mistake.stalled": 0,
       "lint.mistake.third_person": 0,
-      "lint.mistake.too_long": 0,
+      "lint.mistake.too_long": 1,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 3
+      "lint.heal_findings": 4
     },
     "ecommerce_cod": {
       "check.judged_field_asked": 0,
@@ -147,7 +147,7 @@
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 2
+      "lint.heal_findings": 3
     },
     "fee_reminder": {
       "check.judged_field_asked": 1,
@@ -296,7 +296,7 @@
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 2
+      "lint.heal_findings": 3
     },
     "real_estate_followup": {
       "check.judged_field_asked": 1,
@@ -395,9 +395,9 @@
       "lint.mistake.several_actions": 2,
       "lint.mistake.stalled": 0,
       "lint.mistake.third_person": 0,
-      "lint.mistake.too_long": 0,
+      "lint.mistake.too_long": 1,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 16
+      "lint.heal_findings": 15
     },
     "rytu_khata_owner_steps": {
       "check.judged_field_asked": 0,
@@ -444,7 +444,7 @@
       "lint.mistake.said_again": 0,
       "lint.mistake.same_closing": 0,
       "lint.mistake.same_opening": 3,
-      "lint.mistake.several_actions": 3,
+      "lint.mistake.several_actions": 6,
       "lint.mistake.stalled": 0,
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
@@ -497,7 +497,7 @@
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 4
+      "lint.heal_findings": 5
     },
     "service_booking": {
       "check.multi_question_line": 0,
@@ -545,7 +545,7 @@
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 3
+      "lint.heal_findings": 4
     },
     "solar_lead": {
       "check.judged_field_asked": 0,
@@ -594,7 +594,7 @@
       "lint.mistake.third_person": 0,
       "lint.mistake.too_long": 0,
       "lint.mistake.wrong_language": 0,
-      "lint.heal_findings": 3
+      "lint.heal_findings": 6
     }
   }
 }

@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { ActionFeedback } from "@/components/arc/feedback";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
+import { ScriptFixActions } from "@/components/scriptChecks/ScriptNeedsFix";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import {
   NoticeBox,
@@ -113,6 +114,8 @@ export function LaunchGate({
         <button type="button" className={SECONDARY_BUTTON_SM} disabled={!canWrite} title={refusal} onClick={onAddPeople}>
           Add people
         </button>
+      ) : inPage === "fix-script" ? (
+        <ScriptFixActions holder={{ kind: "campaign", id: campaignId }} canWrite={canWrite} refusal={refusal} />
       ) : inPage === "rewrite" ? (
         <AskAssistant
           label={`Ask ${ASSISTANT_NAME} to rewrite it`}

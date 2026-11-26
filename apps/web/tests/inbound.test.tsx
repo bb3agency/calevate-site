@@ -147,6 +147,7 @@ const lineRoutes = (current: InboundLine, extra: Routes = {}): Routes => ({
   [`/v1/inbound-lines/${LINE_ID}/give-callers-time`]: GIVE_TIME_ON,
   [`/v1/inbound-lines/${LINE_ID}/test-numbers`]: { numbers: [] },
   [`/v1/inbound-lines/${LINE_ID}/script/versions`]: scriptVersionsFixture(),
+  [`/v1/inbound-lines/${LINE_ID}/script/checks`]: { findings: [], blocks_live: false },
   [`/v1/inbound-lines/${LINE_ID}/notes`]: { agent_id: "agent-1", agent_name: "Front desk", fields: [], core_fields: [], digest: "empty", applied_now: false },
   [`/v1/inbound-lines/${LINE_ID}/team-alert`]: jobTeamAlert("line", LINE_ID),
   "/v1/agents": AGENTS,

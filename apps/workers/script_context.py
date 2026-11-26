@@ -195,25 +195,32 @@ def _asked(raw: Any) -> tuple[str | None, str, bool]:
     )
 
 
-async def _size(tenant_id: UUID, agent_id: UUID, script: CallScript) -> PromptSize | None:
-    """The engine instructions `script` would make on the agent, measured as a save measures
-    them; None when it cannot be measured (the save still refuses)."""
+async def _size(
+    tenant_id: UUID, kind: HolderKind, holder_id: UUID, script: CallScript
+) -> PromptSize | None:
+    """The engine instructions `script` would make on the holder's own engine agent, by the
+    one length measure the save refuses on (`script_builder.job_size`); None when it cannot
+    be measured (the save still refuses)."""
     from apps.api.agents import script_builder
 
     try:
         async with tenant_session(tenant_id) as session:
-            return (await script_builder.compiled_preview(session, agent_id, script)).size
+            return await script_builder.job_size(
+                session, kind=kind, tenant_id=tenant_id, job_id=holder_id, script=script
+            )
     except Exception:
-        log.exception("holder_script_unmeasured", extra={"agent_id": str(agent_id)})
+        log.exception("holder_script_unmeasured", extra={"holder_id": str(holder_id)})
         return None
 
 
 async def measured(context: ScriptContext, script: CallScript) -> PromptSize | None:
-    return await _size(context.tenant_id, context.agent_id, script)
+    return await _size(context.tenant_id, context.kind, context.holder_id, script)
 
 
-async def _budget(tenant_id: UUID, agent_id: UUID, base: CallScript | None) -> int | None:
-    size = await _size(tenant_id, agent_id, base or CallScript(schema_version=2))
+async def _budget(
+    tenant_id: UUID, kind: HolderKind, holder_id: UUID, base: CallScript | None
+) -> int | None:
+    size = await _size(tenant_id, kind, holder_id, base or CallScript(schema_version=2))
     if size is None:
         return None
     script_chars = next((p.chars for p in size.layers if p.key == "client_script"), 0)
@@ -314,7 +321,7 @@ async def _campaign_context(tenant_id: UUID, campaign_id: UUID, *, asked: bool) 
         tenant_leg=tenant_leg,
         quota_exhausted=quota.at_ceiling or quota.platform_paused,
         spoken_elsewhere=lint.spoken_elsewhere,
-        budget=await _budget(tenant_id, space.agent_id, asked_from),
+        budget=await _budget(tenant_id, "campaign", campaign_id, asked_from),
     )
 
 
@@ -377,7 +384,7 @@ async def _line_context(tenant_id: UUID, line_id: UUID, *, asked: bool) -> Scrip
         tenant_leg=tenant_leg,
         quota_exhausted=quota.at_ceiling or quota.platform_paused,
         spoken_elsewhere=lint.spoken_elsewhere,
-        budget=await _budget(tenant_id, line.agent_id, asked_from),
+        budget=await _budget(tenant_id, "line", line_id, asked_from),
     )
 
 

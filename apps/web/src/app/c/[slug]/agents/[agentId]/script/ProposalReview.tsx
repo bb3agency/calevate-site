@@ -35,7 +35,10 @@ import type { CallScript } from "@/lib/api/script";
 import { keepInView } from "@/lib/keepInView";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
+import { placed } from "../../../campaigns/scenarioModel";
 import { PartEditor, SectionFields, partShows, sectionShows, unshownIssues } from "./ProposalEditors";
+import { ExamplesReadout, WarningLines } from "./StepExamplesEditor";
+import { exampleLanguages, partWarnings, stageWarnings, type LineWarning } from "./stepExamples";
 import {
   applyTraced,
   changedSegments,
@@ -247,8 +250,15 @@ export function ProposalReview({
   editing = false,
   generatePart,
   notes,
+  languages = [],
+  warnings = [],
   children,
 }: {
+  /** The call's languages, main first, each with its name: a step's examples are per language. */
+  languages?: { tag: string; name: string }[];
+  /** The checks' warnings on single lines of the draft (`stages.<id>.examples…`), shown on
+   *  the line each is about. */
+  warnings?: readonly LineWarning[];
   /** While editing: Pip rewrites one part in a chosen language (a campaign's script). */
   generatePart?: GeneratePartProps;
   /** Pip's reason for each part it wrote, by `whyKey`, shown behind "Why?" on its row. */
@@ -494,6 +504,7 @@ export function ProposalReview({
                     settled={isSettled}
                     issues={shownIssues}
                     language={language}
+                    warnings={warnings}
                     onChange={(next) => editRow(change, next)}
                   />
                 ) : (
@@ -505,6 +516,9 @@ export function ProposalReview({
                     issues={shownIssues}
                     limits={limits}
                     language={language}
+                    languages={languages}
+                    warnings={warnings}
+                    generate={generatePart && editing ? generatePart : undefined}
                     onChange={(id, patch) => editSection(change, id, patch)}
                   />
                 )}
@@ -722,6 +736,7 @@ function PartBody({
   settled,
   issues,
   language,
+  warnings,
   onChange,
 }: {
   change: Extract<Change, { kind: "part" }>;
@@ -730,11 +745,19 @@ function PartBody({
   settled: boolean;
   issues: Issue[];
   language: string;
+  warnings: readonly LineWarning[];
   onChange: (next: CallScript) => void;
 }) {
   const id = domId(change);
   const suggested = partText(edited, change.part);
-  if (settled && !open) return <Settled text={suggested} issues={issues} />;
+  const flagged = <WarningLines warnings={partWarnings(warnings, change.part)} idBase={`${id}-warn`} />;
+  if (settled && !open)
+    return (
+      <>
+        <Settled text={suggested} issues={issues} />
+        {flagged}
+      </>
+    );
   return (
     <div className="mt-1.5 space-y-1.5">
       {change.before && !settled && <Quote tone="before" text={change.before} against={suggested || undefined} />}
@@ -742,10 +765,12 @@ function PartBody({
         <Editing id={id} final={settled}>
           <PartEditor part={change.part} script={edited} idBase={id} issues={issues} language={language} onChange={onChange} />
           <RowErrors issues={unshownIssues(issues, partShows)} />
+          {flagged}
         </Editing>
       ) : (
         <>
           <Quote tone="after" text={suggested || "(left empty)"} against={change.before || undefined} />
+          {flagged}
           <RowErrors issues={issues} />
         </>
       )}
@@ -772,6 +797,9 @@ function SectionBody({
   issues,
   limits,
   language,
+  languages,
+  warnings,
+  generate,
   onChange,
 }: {
   change: Exclude<Change, { kind: "part" } | { kind: "order" }>;
@@ -781,6 +809,9 @@ function SectionBody({
   issues: Issue[];
   limits: Limits;
   language: string;
+  languages: { tag: string; name: string }[];
+  warnings: readonly LineWarning[];
+  generate?: GeneratePartProps;
   onChange: (id: string, patch: Partial<Section>) => void;
 }) {
   if (change.kind === "section-removed") {
@@ -798,7 +829,31 @@ function SectionBody({
       ? [renamed && `Name: ${change.before.name}`, sectionReadable(change.before)].filter(Boolean).join("\n")
       : "";
   const suggested = [renamed && `Name: ${after.name}`, sectionReadable(after)].filter(Boolean).join("\n");
-  if (settled && !open) return <Settled text={suggested} issues={issues} />;
+  const first = placed(sectionsOf(edited)).find((p) => p.section.id === after.id)?.step === 1;
+  // The examples Pip wrote, in each language, for reading without opening the row.
+  const named = new Map(languages.map((l) => [l.tag, l.name]));
+  const readout = (
+    <ExamplesReadout
+      stageId={after.id}
+      examples={after.examples}
+      languages={exampleLanguages(after.examples, languages.map((l) => l.tag)).map((tag) => ({
+        tag,
+        name: named.get(tag) ?? tag,
+      }))}
+      first={first}
+      warnings={warnings}
+    />
+  );
+  // The checks' findings on the step outside its examples, which sit on their own lines.
+  const flagged = <WarningLines warnings={stageWarnings(warnings, after.id, null)} idBase={`${id}-warn`} />;
+  if (settled && !open)
+    return (
+      <>
+        <Settled text={suggested} issues={issues} />
+        {flagged}
+        <div className="mt-1.5">{readout}</div>
+      </>
+    );
   return (
     <div className="mt-1.5 space-y-1.5">
       {before && !settled && <Quote tone="before" text={before} against={suggested || undefined} />}
@@ -810,13 +865,20 @@ function SectionBody({
             issues={issues}
             limits={limits}
             language={language}
+            languages={languages}
+            first={first}
+            warnings={warnings}
+            generate={generate}
             onChange={(patch) => onChange(after.id, patch)}
           />
           <RowErrors issues={unshownIssues(issues, sectionShows)} />
+          {flagged}
         </Editing>
       ) : (
         <>
           <Quote tone="after" text={suggested || "(left empty)"} against={before || undefined} />
+          {flagged}
+          {readout}
           <RowErrors issues={issues} />
         </>
       )}

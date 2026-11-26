@@ -13,12 +13,8 @@ from uuid import UUID
 import pytest
 from apps.api.agents.script_lint import LintContext
 from apps.api.campaigns import workspace
-from apps.api.core.settings import get_settings
-from apps.api.crm import assist as crm_assist
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
-from apps.workers import campaign_script
-from apps.workers import script_proposal as proposal_worker
 from calevate_shared.call_script import CallScript, ConversationStage
 from sqlalchemy import text
 from tests.conftest import create_org_with_receptionist
@@ -124,19 +120,3 @@ def _answer(script: CallScript, disclosure: str | None = None) -> Any:
         earlier=(),
         left_out=(),
     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

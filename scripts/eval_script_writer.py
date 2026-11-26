@@ -29,7 +29,7 @@ THREE LAYERS, REPORTED APART, deterministic first, as the research's scorecard o
 
 1. The repo's own lints, every one: `script_lint.script_problems`, each one-argument
    `script_lint.*_problems` found by name (so a lint added later is scored without an edit
-   here), each `mistake_lints` kind and `script_heal.heal_findings`. They are the product's
+   here), each `script_checks` mistake kind and `script_heal.heal_findings`. They are the product's
    checks; this file never re-implements one. A `<check>_problems` named after a structural
    check is scored as that check, not here, so one problem has one count.
 2. Structural checks (`CHECKS`), each a deterministic reading of the script against the
@@ -76,7 +76,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from apps.api.agents import mistake_lints, script_lint, turn_checks
+from apps.api.agents import script_checks, script_lint, turn_checks
 from apps.api.agents.owner_plan import owner_plan, plan_problems
 from apps.api.agents.script_heal import heal_findings
 from apps.api.agents.script_lint import CapabilityManifest, LintContext
@@ -737,8 +737,8 @@ def lints(rec: Recorded, case: Case) -> dict[str, list[str]]:
     for name, fn in one_argument_lints().items():
         if name.removesuffix("_problems") not in CHECKS:
             found[name] = list(fn(script))
-    for kind in sorted(mistake_lints.SCRIPT_FIXABLE_KINDS):
-        found[f"mistake.{kind}"] = mistake_lints.mistake_findings(script, context, kind)
+    for kind in sorted(script_checks.SCRIPT_FIXABLE_KINDS):
+        found[f"mistake.{kind}"] = script_checks.mistake_findings(script, context, kind)
     found["heal_findings"] = heal_findings(script, context)
     return found
 

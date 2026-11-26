@@ -3327,6 +3327,7 @@ const CLIENT_SCREENS: Screen[] = [
       },
       [`/v1/inbound-lines/${INBOUND_LINE.id}/test-numbers`]: { numbers: ["+919876543210"] },
       [`/v1/inbound-lines/${INBOUND_LINE.id}/script/versions`]: scriptVersionsFixture(),
+      [`/v1/inbound-lines/${INBOUND_LINE.id}/script/checks`]: { findings: [], blocks_live: false },
       [`/v1/inbound-lines/${INBOUND_LINE.id}/team-alert`]: jobTeamAlert("line", INBOUND_LINE.id),
       [`/v1/inbound-lines/${INBOUND_LINE.id}/notes`]: {
         agent_id: INBOUND_LINE.agent_id,

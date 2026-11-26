@@ -107,18 +107,17 @@ _STEP_NAME = re.compile(r'THIS STEP: "([^"]+)"')
 
 
 def _good(name: str, first: bool = False) -> dict[str, Any]:
+    tag = name.casefold()[::-1]
     return {
         "instruction": f"Guide the person through {name}.",
         "procedure": [{"action": f"Have them start {name}", "wait_for": "They say it opened"}],
         "examples": {
             LANG: {
-                "turns": [
-                    f"Please start {name} on your phone now.",
-                    f"Start {name} from the home screen.",
-                    f"Next, start {name}.",
-                ],
-                "confused": f"Start {name}, the first thing on the screen.",
-                "stuck": f"Look for the word {name}.",
+                # Placeholder words made from the step's name, the name said once: no two
+                # steps' lines open, end or read alike, and none gives two actions.
+                "turns": [f"{tag} {name}", f"{tag}a {name}", f"{tag}b {name}"],
+                "confused": f"{tag}c {name}",
+                "stuck": f"{tag}d {name}",
                 "busy": "When would suit you better?" if first else "",
             }
         },

@@ -107,12 +107,13 @@ describe("a suggestion reworded before it is kept (D-831)", () => {
     expect(screen.getByText("Edited by you")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Review Price objection" }));
-    fireEvent.change(screen.getByLabelText("Example line"), { target: { value: "Rate ekkuva ani anipistunda andi?" } });
+    // The old example line is read-only now (its examples replace it), so the step's text is edited.
+    fireEvent.change(screen.getByLabelText("What it does here"), { target: { value: "Ask what they need first." } });
 
     fireEvent.click(screen.getByRole("button", { name: "Add all 2 to my draft" }));
     const kept = onApply.mock.calls[0][0] as CallScript;
     expect(kept.goal).toBe("Take the order and the delivery area, then confirm it.");
-    expect(kept.stages[0]).toMatchObject({ id: "price", sounds_like: "Rate ekkuva ani anipistunda andi?" });
+    expect(kept.stages[0]).toMatchObject({ id: "price", instruction: "Ask what they need first." });
   });
 
   it("holds the draft and shows the builder's own message on the row until it is fixed", () => {

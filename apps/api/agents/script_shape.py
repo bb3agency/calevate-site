@@ -9,15 +9,14 @@ those shapes for any business and any call language:
 
 * STRUCTURE (`structure_problems`), which only a rewrite of the whole script can mend: more
   than one detail asked in one step, a step after the close or reached only from it, and a
-  numbered task of the main task that no step covers. The plan is built by code so these
-  should not arise; the one writer's checks (`script_writer.checked`) name any that do, and
-  what is left is a warning the owner reads.
-* LINES (`line_problems`), which the targeted repair rewrites like any call-mistake finding
-  (`script_writer.checked`, `agents/script_heal.heal_findings`): a line that gives
-  several things to do at once, and a line in which the agent says it will note or record
-  something in a step that notes nothing, which is the caller's own action or an empty
-  promise. Read in English words only; a line in another language is judged by the review
-  pass (`campaign_script_ask.REVIEW_INSTRUCTION`), which reads every language.
+  numbered task of the main task that no step covers. The writer gets one whole-script pass
+  naming them (`workers/campaign_script._restructured`); what is left is a warning the owner
+  reads.
+* LINES, registered in `script_checks` and repaired like any other finding: a line in which
+  the agent says it will note or record something in a step that notes nothing
+  (`caller_action_claimed_problems`), and an instruction or line that asks a detail judged
+  after the call (`judged_ask_problems`). Read in English words only. Several things to do
+  in one line is `script_lint.stacked_line_problems`, which reads every language.
 * ECHO WAYS OUT (`echo_branches`), which code removes (`script_structure.without_echo_ways`):
   a way out whose condition is only its target's name, going where the call goes anyway.
 """
@@ -39,7 +38,6 @@ from apps.api.agents.script_lint import (
     closes_the_call,
     collected_label,
     next_steps,
-    stacked_actions,
 )
 
 #: The name Pip gives the close (`campaign_script_ask.CLOSING_STEP`), read only for a script
@@ -304,17 +302,6 @@ def _english_lines(script: CallScript) -> list[tuple[str, str]]:
     ]
 
 
-def several_action_problems(script: CallScript) -> list[str]:
-    """A line that gives the person several things to do at once (`script_lint.
-    stacked_actions`): one caller action per step (research §C "Step design")."""
-    return [
-        f"{path}: gives several things to do in one line; give one action and stop; they "
-        "say when it is done, and the next action follows."
-        for path, text in _english_lines(script)
-        if stacked_actions(text)
-    ]
-
-
 def caller_action_claimed_problems(script: CallScript) -> list[str]:
     """A line in which the agent says it will note or record something in a step that notes
     nothing: what the person enters in the app is theirs to do (research §C "Step design")."""
@@ -419,16 +406,6 @@ def judged_ask_problems(script: CallScript, judged: Sequence[str]) -> list[str]:
     return found
 
 
-def line_problems(script: CallScript, judged: Sequence[str] = ()) -> list[str]:
-    """The lines a targeted repair rewrites (see the module), with each instruction or line
-    that asks a detail of `judged`. English words only."""
-    return [
-        *several_action_problems(script),
-        *caller_action_claimed_problems(script),
-        *judged_ask_problems(script, judged),
-    ]
-
-
 __all__ = [
     "CLOSING_NAME",
     "caller_action_claimed_problems",
@@ -437,11 +414,9 @@ __all__ = [
     "echo_branches",
     "echo_problems",
     "judged_ask_problems",
-    "line_problems",
     "main_task_items",
     "named_way_problems",
     "piled_problems",
-    "several_action_problems",
     "structure_problems",
     "trailing_problems",
     "uncovered_items",

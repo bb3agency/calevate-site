@@ -301,7 +301,7 @@ OPENING_LINE_RULE: Final = (
 #:   "Ask only one question at a time" (docs.vapi.ai/prompting-guide, read 5 Nov 2026).
 #: - An action's line ends on the action, never "is it done?" (the Telugu campaign call of
 #:   24 Nov 2026, 12:15, asked it in the same turn six times, before the person could act;
-#:   `mistake_lints._asked_done_too_soon`) and never "tell me once it is done" either: the
+#:   `mistake_lints.asked_done_too_soon_problems`) and never "tell me once it is done": the
 #:   rule asked for that invitation until the Rytu Khata call of 26 Nov 2026 ended reply
 #:   after reply with it, which the founder heard as no human talking
 #:   (`script_lint.asks_when_done`). A procedure stage's line is its first action alone, so
@@ -436,7 +436,9 @@ def opening_redone_line_problems(script: CallScript) -> list[str]:
     # (23 Nov 2026) while its English example did not.
     lines = [step_line(script, i) for i in range(len(script.stages))] + scenario_lines(script)
     for path, line in lines:
-        if not line.strip():
+        # A busy caller's example answers "not now" with a later time, which is about when
+        # to talk by design.
+        if not line.strip() or path.endswith(".busy"):
             continue
         if opened_again(line) or asked_opening_again(line, questions):
             found.append(

@@ -14,7 +14,7 @@ import pytest
 from apps.api.agents import script_heal
 from apps.api.agents.call_mistakes import LESSONS, mistakes_in
 from apps.api.agents.call_rules import SCRIPT_FLOW_RULE, writer_rules
-from apps.api.agents.mistake_lints import mistake_findings, script_mistakes
+from apps.api.agents.script_checks import mistake_findings, script_mistakes
 from apps.api.agents.script_lint import LintContext
 from apps.api.agents.turn_checks import SOUND_KINDS, asks_done_too_soon, turn_problems
 from apps.api.core.settings import get_settings

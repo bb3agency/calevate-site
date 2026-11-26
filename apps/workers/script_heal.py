@@ -46,6 +46,7 @@ from apps.api.agents.script_heal import (
     SLOTS,
     HolderKind,
     heal_findings,
+    holder_lint_context,
     mistake_kinds,
     table_of,
     wired_ways_out,
@@ -242,10 +243,11 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
     if previous == holder.digest:
         await _finish(tenant_id, kind, holder_id, "done")
         return "unchanged"
-    # The one context every writing path reads (`workers/script_context`): the holder's own
-    # language, direction, details, sources and plan, so a repair is judged as it was written.
+    # Checked as the healer's VERIFY checks (`script_heal.holder_lint_context`); written from
+    # the one writing context (`workers/script_context`): language, details, sources, plan.
+    async with tenant_session(tenant_id) as session:
+        lint = await holder_lint_context(session, kind, holder_id, holder.agent_id)
     context = await holder_context(tenant_id, kind, holder_id, asked=False)
-    lint = context.lint()
     # Structure first, by code: a way out stated only in words becomes a branch (no model, so
     # no gate), then the model is asked only about the lines.
     wired = wired_ways_out(holder.script, lint)
@@ -267,7 +269,7 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
     if not findings:
         await _finish(tenant_id, kind, holder_id, "done", checked=holder.digest)
         return "clean"
-    return await _repair(tenant_id, holder, context, findings, wired)
+    return await _repair(tenant_id, holder, context, lint, findings, wired)
 
 
 async def _rewrite_wanted(tenant_id: UUID, kind: HolderKind, holder_id: UUID) -> bool:
@@ -334,6 +336,7 @@ async def _repair(
     tenant_id: UUID,
     holder: _Holder,
     context: ScriptContext,
+    lint: Any,
     findings: list[str],
     base: CallScript,
 ) -> str:
@@ -342,7 +345,6 @@ async def _repair(
     the fields at their paths taken; held to `heal_findings`. `base` is the script as read
     with its structure already mended; the save compares with the script as read."""
     assert holder.script is not None
-    lint = context.lint()
     request = WriteRequest(
         "lines",
         context,

@@ -17,7 +17,7 @@ from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
-from apps.api.agents.mistake_lints import fixable_findings, script_mistakes
+from apps.api.agents.script_checks import fixable_findings, script_mistakes
 from apps.api.agents.script_lint import LintContext, script_problems
 from apps.api.healer import notices
 from apps.api.ops.config_catalog import FIELD_META

@@ -12,8 +12,9 @@ ACT      The newest call showing the kind names the line or campaign it was spok
          `call_mistake_fix_max_waits` looks) while that line or campaign has a Pip draft
          being written or waiting for review, its script is hand-written, or the client's AI
          allowance is used up; it never writes over any of them. The mistake's script check
-         (`mistake_lints.mistake_findings`) names the lines; none (or only the protected
-         opening and notice parts) hands the kind to our team as a platform rule. Otherwise
+         (`script_heal.kind_findings`, read as the heal pass reads it) names the lines; none
+         (or only the protected opening and notice parts) hands the kind to our team as a
+         platform rule. Otherwise
          the repair pass is asked for on the holder (`agents/script_heal.queue_now`), which
          has Pip rewrite exactly the faulted lines, saves the script itself and meters it to
          the client's AI allowance (founder, 24 Nov 2026: what Pip can fix is fixed
@@ -37,13 +38,14 @@ from __future__ import annotations
 from typing import Final
 from uuid import UUID
 
+from calevate_shared.call_script import CallScript
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import mistake_fixes, script_heal
 from apps.api.agents.call_mistakes import WINDOW_DAYS
 from apps.api.agents.mistake_fixes import Holder, HolderScript, MistakeFix, holder_table
-from apps.api.agents.mistake_lints import mistake_findings
+from apps.api.agents.script_checks import mistake_findings
 from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.copilot.consent import account_content_may_reach_models
 from apps.api.core.alerting import alert
@@ -54,7 +56,6 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.healer import incidents, ledger
 from apps.api.healer.incidents import Incident
 from apps.api.healer.playbooks import in_shadow
-from apps.workers.script_context import holder_context
 
 log = get_logger(__name__)
 
@@ -246,19 +247,6 @@ async def _target(fix: MistakeFix) -> tuple[HolderScript | None, str]:
     return found, ""
 
 
-async def _faulted_paths(fix: MistakeFix, target: HolderScript) -> list[str]:
-    """The lines of the holder's script the mistake's own check still names, judged with the
-    holder's own context (`workers/script_context`) and the repair's own filter
-    (`script_heal.kind_findings`): the same context and filter the repair is held to, so a
-    repair that cleared its lines is never re-checked against another language or details."""
-    context = await holder_context(
-        fix.tenant_id, script_heal.holder_kind(target.holder.kind), target.holder.id, asked=False
-    )
-    return mistake_fixes.fix_paths(
-        script_heal.kind_findings(target.script, context.lint(), fix.kind)
-    )
-
-
 def _blocker(target: HolderScript) -> str | None:
     """What the fix must not write over, or None."""
     if target.proposal is not None and target.proposal.status in ("drafting", "ready"):
@@ -297,6 +285,25 @@ async def _act(incident: Incident, fix: MistakeFix) -> None:
     await _request_repair(incident, fix, target)
 
 
+async def _faulted(
+    session: AsyncSession, fix: MistakeFix, target: HolderScript
+) -> tuple[list[str], list[str]]:
+    """(every finding of the fix's kind, those the heal pass may repair) on the holder's
+    script, read as the heal pass reads it: the same context (`holder_lint_context`), its
+    stated ways out wired first, and the heal pass's own filter (`script_heal.kind_findings`).
+    A fix VERIFY reads as faulted is one the repair it asks for can clear."""
+    assert target.script is not None
+    holder = target.holder
+    lint = await script_heal.holder_lint_context(
+        session, script_heal.holder_kind(holder.kind), holder.id, fix.agent_id
+    )
+    script: CallScript = script_heal.wired_ways_out(target.script, lint)
+    return (
+        mistake_findings(script, lint, fix.kind),
+        script_heal.kind_findings(script, lint, fix.kind),
+    )
+
+
 async def _request_repair(incident: Incident, fix: MistakeFix, target: HolderScript) -> None:
     """Ask for the repair of the holder's lines the mistake's own check names, or settle why
     not: no line causes it (our team's), Pip off or the allowance used up (wait)."""
@@ -306,16 +313,11 @@ async def _request_repair(incident: Incident, fix: MistakeFix, target: HolderScr
     if blocker is not None:
         await _wait(incident, fix, why=blocker)
         return
-    # Judged as the repair judges (`_faulted_paths`): the holder's context, the repair's filter.
-    context = await holder_context(
-        tenant_id, script_heal.holder_kind(target.holder.kind), target.holder.id, asked=False
-    )
-    lint = context.lint()
     async with tenant_session(tenant_id) as session:
+        findings, repairable = await _faulted(session, fix, target)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
         pip_on = await account_content_may_reach_models(session, tenant_id=tenant_id)
-    findings = mistake_findings(target.script, lint, fix.kind) if target.script.stages else []
-    paths = mistake_fixes.fix_paths(script_heal.kind_findings(target.script, lint, fix.kind))
+    paths = mistake_fixes.fix_paths(repairable)
     if not paths:
         await _needs_person(
             incident,
@@ -398,7 +400,9 @@ async def _check_repair(incident: Incident, fix: MistakeFix) -> None:
     if target is None or target.script is None:
         await _settle_moot(incident, fix)
         return
-    left = await _faulted_paths(fix, target)
+    async with tenant_session(fix.tenant_id) as session:
+        _found, repairable = await _faulted(session, fix, target)
+    left = mistake_fixes.fix_paths(repairable)
     if not left:
         await _repaired(incident, fix)
         return
@@ -609,7 +613,9 @@ async def _shadow(incident: Incident, fix: MistakeFix) -> None:
     target, why = await _target(fix)
     paths: list[str] = []
     if target is not None and target.script is not None:
-        paths = await _faulted_paths(fix, target)
+        async with tenant_session(fix.tenant_id) as session:
+            _found, repairable = await _faulted(session, fix, target)
+        paths = mistake_fixes.fix_paths(repairable)
     async with tenant_session(fix.tenant_id) as session:
         await session.execute(
             text(

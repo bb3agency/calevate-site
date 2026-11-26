@@ -390,8 +390,8 @@ def done_signal(said: str) -> bool:
 def script_findings(script: CallScript, *, language: str) -> list[str]:
     """What the script itself shows before any call: a way out whose condition is a step's
     title (the branch then fires on the step's name, not on anything the caller says), and the
-    lines the in-call mistake checks trace to it (`mistake_lints.script_mistakes`)."""
-    from apps.api.agents.mistake_lints import script_mistakes
+    lines the in-call mistake checks trace to it (`script_checks.script_mistakes`)."""
+    from apps.api.agents.script_checks import script_mistakes
     from apps.api.agents.script_lint import LintContext
 
     titles = {stage.name.strip().casefold() for stage in script.stages}

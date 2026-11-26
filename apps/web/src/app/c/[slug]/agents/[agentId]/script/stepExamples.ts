@@ -1,0 +1,230 @@
+import type { StepExamples } from "@/lib/api/script";
+
+/**
+ * A STEP'S EXAMPLES (script rebuild §2.3, §3.2): per call language, 3 to 5 ways the agent
+ * says the step, and one line for each hard moment. They replace the single `sounds_like`
+ * line, which a step written before them still carries and the editor shows read-only.
+ *
+ * Pure functions, like `scriptModel`: a value in, a value out.
+ */
+
+/** The slots the editor keeps (§3.2: "3 to 5 normal turns"). The server takes 0 to 5 and drops
+ * blank ones, so a slot left empty is not a problem, and three are kept to show the variety. */
+export const TURNS_MIN = 3;
+export const TURNS_MAX = 5;
+/** Letters in one example line (`call_script.StepExamples`, the old `sounds_like` limit). */
+export const EXAMPLE_LINE_MAX = 200;
+
+export type Moment = "confused" | "stuck" | "busy";
+
+/** The moments a step shows: "busy" belongs to the first step only (§2.3). */
+export function momentsFor(first: boolean): Moment[] {
+  return first ? ["confused", "stuck", "busy"] : ["confused", "stuck"];
+}
+
+export const MOMENT_LABEL: Record<Moment, string> = {
+  confused: "If they're confused",
+  stuck: "If they're stuck",
+  busy: "If they're busy",
+};
+
+/** Says which moment it is, in place of a sample line (the line is in the call's language). */
+export const MOMENT_PLACEHOLDER: Record<Moment, string> = {
+  confused: "When they ask “after what?”",
+  stuck: "When they can't do it",
+  busy: "When now is not a good time",
+};
+
+/** A language's examples with every field present, as the editor holds them. */
+export type Examples = Required<StepExamples>;
+
+export const EMPTY_EXAMPLES: Examples = { turns: [], confused: "", stuck: "", busy: "" };
+
+/** A language's examples with every field present, or null when it has none. */
+export function examplesIn(all: Record<string, StepExamples> | undefined, tag: string): Examples | null {
+  const held = all?.[tag];
+  if (!held) return null;
+  return {
+    turns: [...(held.turns ?? [])],
+    confused: held.confused ?? "",
+    stuck: held.stuck ?? "",
+    busy: held.busy ?? "",
+  };
+}
+
+/** Nothing written in it: an entry the owner opened and left blank. */
+export function isBlank(examples: Examples): boolean {
+  return examples.turns.every((t) => !t.trim()) && !examples.confused.trim() && !examples.stuck.trim() && !examples.busy.trim();
+}
+
+/** Has the step any examples written, in any language. */
+export function hasExamples(all: Record<string, StepExamples> | undefined): boolean {
+  return exampleLanguages(all).length > 0;
+}
+
+/** The languages a step has examples in, in the order given first, then any others. */
+export function exampleLanguages(all: Record<string, StepExamples> | undefined, order: readonly string[] = []): string[] {
+  const written = Object.keys(all ?? {}).filter((tag) => !isBlank(examplesIn(all, tag) ?? EMPTY_EXAMPLES));
+  return [...new Set([...order.filter((t) => written.includes(t)), ...written])];
+}
+
+/**
+ * Fresh examples to write by hand: three empty turns, the first holding the step's old
+ * example line when there is one (§3.2: "an old sounds_like is migrated into the first
+ * example").
+ */
+export function startExamples(legacy = ""): Examples {
+  const first = legacy.trim();
+  return { ...EMPTY_EXAMPLES, turns: [first, "", ""] };
+}
+
+export function withExamples(
+  all: Record<string, StepExamples> | undefined,
+  tag: string,
+  next: StepExamples,
+): Record<string, StepExamples> {
+  return { ...(all ?? {}), [tag]: next };
+}
+
+export function addTurn(examples: Examples): Examples {
+  if (examples.turns.length >= TURNS_MAX) return examples;
+  return { ...examples, turns: [...examples.turns, ""] };
+}
+
+export function removeTurn(examples: Examples, at: number): Examples {
+  if (examples.turns.length <= TURNS_MIN || at < 0 || at >= examples.turns.length) return examples;
+  return { ...examples, turns: examples.turns.filter((_, i) => i !== at) };
+}
+
+export function setTurn(examples: Examples, at: number, text: string): Examples {
+  return { ...examples, turns: examples.turns.map((t, i) => (i === at ? text : t)) };
+}
+
+// --- the problems the builder holds a save for ------------------------------------------
+
+/** The issue field for a language's whole list, one turn, or one moment. */
+export const exampleField = {
+  list: (tag: string) => `examples-${tag}`,
+  turn: (tag: string, i: number) => `examples-${tag}-turn-${i}`,
+  moment: (tag: string, m: Moment) => `examples-${tag}-${m}`,
+};
+
+export function isExampleField(field: string): boolean {
+  return field.startsWith("examples-");
+}
+
+const length = (text: string) => [...text].length;
+
+/** What the server would refuse in one step's examples, by field: a line over the limit, or
+ * more turns than it takes. Blank lines are not problems; the server drops them. */
+export function exampleProblems(
+  all: Record<string, StepExamples> | undefined,
+  max = EXAMPLE_LINE_MAX,
+): { field: string; message: string }[] {
+  const out: { field: string; message: string }[] = [];
+  for (const tag of Object.keys(all ?? {})) {
+    const ex = examplesIn(all, tag);
+    if (!ex) continue;
+    if (ex.turns.filter((t) => t.trim()).length > TURNS_MAX) {
+      out.push({ field: exampleField.list(tag), message: `At most ${TURNS_MAX} ways.` });
+    }
+    ex.turns.forEach((turn, i) => {
+      if (length(turn) > max) out.push({ field: exampleField.turn(tag, i), message: `Keep it under ${max} letters.` });
+    });
+    for (const m of ["confused", "stuck", "busy"] as const) {
+      if (length(ex[m]) > max) out.push({ field: exampleField.moment(tag, m), message: `Keep it under ${max} letters.` });
+    }
+  }
+  return out;
+}
+
+// --- warnings from the checks, on the line they belong to -------------------------------
+
+/**
+ * A check's warning about one line. `path` names the line the way the server's left-out
+ * parts do (`stages.<id>` for a step), extended to the line:
+ * `stages.<id>.examples.<lang>.turns.<i>` or `stages.<id>.examples.<lang>.<moment>`.
+ * `text`, when sent, is the line the warning was about: an edit that changes it settles it.
+ */
+export interface LineWarning {
+  path: string;
+  message: string;
+  detail?: string | null;
+  text?: string | null;
+  /** `block` stops Put it live and Start; `warn` (the default) never stops anything. */
+  severity?: "block" | "warn";
+}
+
+/** Where on a step a warning sits: a turn, a moment, or the language's examples as a whole. */
+export type WarningSlot = { turn: number } | { moment: Moment } | null;
+
+const EXAMPLES_PATH = /^stages\.([^.]+)\.examples\.([^.]+)(?:\.(turns)\.(\d+)|\.(confused|stuck|busy))?$/;
+
+/** A path that belongs to a line of a step's examples. */
+export function isExamplePath(path: string): boolean {
+  return EXAMPLES_PATH.test(path);
+}
+
+const said = (text: string) => text.replace(/\s+/g, " ").trim();
+
+/** The warnings on one slot of one step's examples in one language, still about its text. */
+export function warningsAt(
+  warnings: readonly LineWarning[],
+  stageId: string,
+  tag: string,
+  slot: WarningSlot,
+  current: string | null = null,
+): LineWarning[] {
+  return warnings.filter((w) => {
+    const m = EXAMPLES_PATH.exec(w.path);
+    if (!m || m[1] !== stageId || m[2] !== tag) return false;
+    const turn = m[3] ? Number(m[4]) : null;
+    const moment = (m[5] as Moment | undefined) ?? null;
+    const matches =
+      slot === null
+        ? turn === null && moment === null
+        : "turn" in slot
+          ? turn === slot.turn
+          : moment === slot.moment;
+    if (!matches) return false;
+    return w.text == null || current === null || said(w.text) === said(current);
+  });
+}
+
+/**
+ * The warnings on one field of a step outside its examples: `field` is the path after the
+ * step (`instruction`, `scripts.te-IN`), or null for every such warning not placed on a field
+ * listed in `placed`.
+ */
+export function stageWarnings(
+  warnings: readonly LineWarning[],
+  stageId: string,
+  field: string | null,
+  current: string | null = null,
+  placed: readonly string[] = [],
+): LineWarning[] {
+  const prefix = `stages.${stageId}`;
+  return warnings.filter((w) => {
+    if (w.path !== prefix && !w.path.startsWith(`${prefix}.`)) return false;
+    if (isExamplePath(w.path)) return false;
+    const rest = w.path === prefix ? "" : w.path.slice(prefix.length + 1);
+    const on = (f: string) => rest === f || rest.startsWith(`${f}.`);
+    if (field === null) return !placed.some(on);
+    if (!on(field)) return false;
+    return w.text == null || current === null || said(w.text) === said(current);
+  });
+}
+
+/** The warnings on a part of the script outside the steps (`opening_line`, `faqs.2.answer`). */
+export function partWarnings(warnings: readonly LineWarning[], part: string): LineWarning[] {
+  return warnings.filter((w) => w.path === part || w.path.startsWith(`${part}.`));
+}
+
+/** What Pip is asked when the owner presses "Let Pip write examples" on a step. */
+export function examplesAsk(first: boolean): string {
+  const moments = first ? "confused, stuck or busy" : "confused or stuck";
+  return (
+    `Write this step's examples: ${TURNS_MIN} to ${TURNS_MAX} different ways the agent says it, ` +
+    `each one action, and one line each for when the caller is ${moments}. Keep the step as it is.`
+  );
+}

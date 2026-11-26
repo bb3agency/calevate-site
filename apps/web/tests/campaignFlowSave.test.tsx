@@ -51,6 +51,7 @@ const routes = (put: unknown): Routes => ({
   [`${base}/workspace`]: workspaceFixture({ script: SCRIPT }),
   [`${base}/settings`]: settingsFixture(),
   [`${base}/script/versions`]: scriptVersionsFixture(),
+  [`${base}/script/checks`]: { findings: [], blocks_live: false },
   "/v1/kb/notes": { notes: [] },
   "/v1/kb/uploads": [],
   "/v1/agents": [],

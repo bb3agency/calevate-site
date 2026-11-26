@@ -15,8 +15,8 @@ from typing import Any
 
 import pytest
 from apps.api.agents import script_heal, script_lint
-from apps.api.agents.mistake_lints import mistake_findings
 from apps.api.agents.script_builder import job_details
+from apps.api.agents.script_checks import mistake_findings, run, texts
 from apps.api.agents.script_lint import (
     CapabilityManifest,
     LintContext,
@@ -26,7 +26,6 @@ from apps.api.agents.script_lint import (
 from apps.api.agents.script_shape import (
     coverage_problems,
     echo_branches,
-    line_problems,
     main_task_items,
     named_way_problems,
     piled_problems,
@@ -333,7 +332,7 @@ def test_device_scenarios_of_one_step_cover_the_install() -> None:
 
 
 def test_the_agent_noting_what_the_caller_enters_is_a_finding() -> None:
-    found = line_problems(_evidence())
+    found = texts(run(_evidence(), ids=["caller_action_claimed"]))
     assert any(f.startswith("stages.2.sounds_like: says the agent will note") for f in found)
 
 
@@ -342,9 +341,9 @@ def test_several_actions_in_one_line_is_a_finding() -> None:
         schema_version=2,
         stages=[_stage("a", "Install", sounds_like="Open the site and tap install.")],
     )
-    assert line_problems(script) == [
-        "stages.0.sounds_like: gives several things to do in one line; give one action and stop; "
-        "they say when it is done, and the next action follows."
+    assert texts(run(script, ids=["several_actions"])) == [
+        "stages.0.sounds_like: gives more than one thing to do in one turn; say only the next "
+        "action, in a few words, and stop, so they do it before the next one."
     ]
 
 

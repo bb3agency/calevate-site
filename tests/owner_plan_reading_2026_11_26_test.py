@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from apps.api.agents.mistake_lints import _moved_on_unconfirmed
+from apps.api.agents.mistake_lints import moved_on_unconfirmed_problems
 from apps.api.agents.owner_plan import PlannedStep, owner_plan
 from calevate_shared.call_script import CallScript, ConversationStage, StepOutcome
 
@@ -50,6 +50,6 @@ def test_a_step_with_an_otherwise_is_not_pushed_to_add_a_call_back() -> None:
     guided = CallScript(
         schema_version=2, stages=[stage("s1", "s2"), stage("s2")], step_outcomes=outcome
     )
-    assert _moved_on_unconfirmed(guided, None) == []  # type: ignore[arg-type]
+    assert moved_on_unconfirmed_problems(guided, None) == []  # type: ignore[arg-type]
     loose = CallScript(schema_version=2, stages=[stage("s1"), stage("s2")], step_outcomes=outcome)
-    assert _moved_on_unconfirmed(loose, None)  # type: ignore[arg-type]
+    assert moved_on_unconfirmed_problems(loose, None)  # type: ignore[arg-type]

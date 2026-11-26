@@ -40,19 +40,14 @@ from calevate_shared.call_script import (
     ConversationStage,
     ScriptPolicies,
 )
-from calevate_shared.spoken_guard import latin_word_problem, textbook_problem
+from calevate_shared.spoken_guard import english_problem
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import script_proposals
-from apps.api.agents.call_rules import said_line_problem
-from apps.api.agents.mistake_lints import script_mistakes
-from apps.api.agents.owner_plan import OwnerPlan, numbered_items, owner_plan, plan_problems
+from apps.api.agents import script_checks, script_proposals
+from apps.api.agents.owner_plan import OwnerPlan, numbered_items, owner_plan
 from apps.api.agents.retired_lines import retired_line_problem
 from apps.api.agents.script_lint import (
-    empty_title_problems,
-    spoken_line_problems,
-    stacked_actions,
-    unasked_problems,
+    instruction_fields,
 )
 from apps.api.agents.script_plan import (
     PlanStep,
@@ -64,9 +59,8 @@ from apps.api.agents.script_plan import (
     skeleton,
     with_base_ids,
 )
-from apps.api.agents.script_shape import line_problems, structure_problems
+from apps.api.agents.script_shape import structure_problems
 from apps.api.agents.script_structure import policies_for_job, settled
-from apps.api.agents.turn_checks import asked_opening_again, asks_done_too_soon, opened_again
 from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -88,7 +82,7 @@ from apps.workers.script_assist import (
     JsonAnswer,
     LeftOut,
     ask_json,
-    language_problems,
+    way_out_problems,
 )
 from apps.workers.script_context import ScriptContext
 from apps.workers.step_writer import (
@@ -227,43 +221,15 @@ def _example_lines(script: CallScript) -> list[tuple[int, str, str]]:
 
 
 def example_problems(script: CallScript, context: ScriptContext) -> list[str]:
-    """The checks on each example turn: the said-line rules (no reaction first, no "noted"),
-    textbook and provider words, English letters where the language takes none, a retired
-    line, the spoken-line lint, several actions in one turn, a turn that asks whether it is
-    done, and on the first step a turn that greets or asks again whether now suits."""
-    lint = context.lint()
-    brief = context.brief
-    names = (brief.business_name, brief.agent_name)
+    """What the check registry does not read on the example turns: a provider's name (D-679)
+    and a retired stock line, and a guide step with no example turns in a call language."""
     owners = context.owners_words
-    last = len(script.stages) - 1
-    openings = [s for s in (script.opening_line, script.outbound_opening_line) if s.strip()]
-    found: list[str] = []
-    for i, path, text in _example_lines(script):
-        tag = path.split(".")[3]
-        close = i == last
-        found += [
-            p
-            for p in (
-                said_line_problem(path, text, close=close),
-                textbook_problem(path, text, tag, allowed=owners),
-                provider_problem(path, text, allowed=owners),
-                latin_word_problem(path, text, tag, names=names),
-                retired_line_problem(path, text),
-            )
-            if p
-        ]
-        found += spoken_line_problems(path, text, lint)
-        if stacked_actions(text):
-            found.append(f"{path}: gives several actions at once; give one action and stop.")
-        if asks_done_too_soon(text):
-            found.append(
-                f"{path}: asks whether it is done before they can do it; give the action and stop."
-            )
-        if i == 0 and openings and (opened_again(text) or asked_opening_again(text, openings)):
-            found.append(
-                f"{path}: greets again or asks again whether now is a good time; the opening "
-                "did that. Start from their answer."
-            )
+    found = [
+        p
+        for _i, path, text in _example_lines(script)
+        for p in (provider_problem(path, text, allowed=owners), retired_line_problem(path, text))
+        if p
+    ]
     for i, stage in enumerate(script.stages):
         if stage.mode != "guide":
             continue
@@ -280,38 +246,21 @@ def example_problems(script: CallScript, context: ScriptContext) -> list[str]:
 def checked(
     script: CallScript, context: ScriptContext, *, before: CallScript | None = None
 ) -> list[str]:
-    """Every check a written script is held to, as "<path>: <rule>" findings: the language
-    and call rules, the shape and ways out, the owner's plan, the call-mistake checks, the
-    line checks, details no step asks, and the example turns. With `before` (a change), a
-    finding the script already had is the owner's, not the writer's.
-
-    THE seam for the check registry (`agents/script_checks.run`): every path calls this and
-    nothing else, so the swap is one line."""
-    brief = context.written_brief()
-    lint = context.lint()
+    """What a written script's steps are rewritten for, as "<path>: <rule>" findings: the one
+    check registry's repairable findings (`script_checks.writer_findings`, with the holder's
+    lint context and the owner's plan), an instruction written in a call language's letters,
+    the ways out every placed call needs, and the example turns' own (`example_problems`).
+    With `before` (a change), a finding the script already had is the owner's, not the
+    writer's. What no step rewrite can mend is warned by `_off_step_warnings`."""
+    registry = script_checks.CheckContext(lint=context.lint(), plan=context.owner_plan)
     found = [
-        *plan_problems(script, context.owner_plan, before),
-        *language_problems(
-            script,
-            context.language,
-            before=before,
-            allowed=context.owners_words,
-            names=(brief.business_name, brief.agent_name),
-            introduced=brief.introduced,
-            lint=lint,
-            woven=brief.woven,
-            direction=brief.direction,
+        *script_checks.writer_findings(script, registry),
+        *(
+            problem
+            for path, text in instruction_fields(script)
+            if (problem := english_problem(path, text))
         ),
-        *script_mistakes(script, lint),
-        *empty_title_problems(script),
-        *line_problems(script, lint.judged),
-        *unasked_problems(script, lint.collect, lint.call_back),
-        # The main task's items are not read where the owner laid out the steps.
-        *structure_problems(
-            script,
-            main_task="" if context.owner_plan is not None else context.main_task,
-            call_back=lint.call_back,
-        ),
+        *(way_out_problems(script) if context.placed else ()),
         *example_problems(script, context),
     ]
     found = list(dict.fromkeys(found))
@@ -888,8 +837,17 @@ def _settled(context: ScriptContext, script: CallScript, *, base: CallScript | N
 
 def _off_step_warnings(context: ScriptContext, script: CallScript) -> list[LeftOut]:
     """Findings on no step (the goal, a quick fact, the script as a whole) as warnings."""
-    found = checked(script, context)
-    return _warnings([p for p in found if not by_step([p], script)], script)
+    registry = script_checks.CheckContext(lint=context.lint(), plan=context.owner_plan)
+    found = [
+        *script_checks.texts(script_checks.run(script, registry)),
+        *structure_problems(
+            script,
+            # The main task's items are not read where the owner laid out the steps.
+            main_task="" if context.owner_plan is not None else context.main_task,
+            call_back=registry.lint.call_back,
+        ),
+    ]
+    return _warnings([p for p in dict.fromkeys(found) if not by_step([p], script)], script)
 
 
 def _nothing_written() -> ProblemError:

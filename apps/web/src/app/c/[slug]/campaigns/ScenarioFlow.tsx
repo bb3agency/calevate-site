@@ -58,6 +58,8 @@ import { STEP_OUTCOME_MAX, type CallScript } from "@/lib/api/script";
 import { lookup } from "@/lib/lookup";
 
 import { HearLine, type FlowAgent } from "./LineCoach";
+import { StepExamplesEditor, WarningLines, type ExamplesAsk } from "../agents/[agentId]/script/StepExamplesEditor";
+import { stageWarnings, type LineWarning } from "../agents/[agentId]/script/stepExamples";
 
 import { languageName } from "./ScriptLanguages";
 import {
@@ -319,7 +321,13 @@ export function ScenarioFlow({
   agent,
   hear,
   onEditOpening,
+  writeExamples,
+  warnings = [],
 }: {
+  /** "Let Pip write examples" for one scenario in one language; absent where Pip cannot. */
+  writeExamples?: (item: Placed, language: string) => ExamplesAsk;
+  /** The checks' warnings on single lines, placed under the line each is about. */
+  warnings?: readonly LineWarning[];
   /** The canvas's own Undo, offered by the toast after a link is removed. */
   onUndo?: () => void;
   /** Opens the script where the opening line is edited; absent when this person cannot. */
@@ -435,6 +443,8 @@ export function ScenarioFlow({
       agent={agent}
       hear={hear}
       wide={wide}
+      writeExamples={writeExamples}
+      warnings={warnings}
       onChange={onChange}
       onDelete={() => remove(chosen.section.id)}
     />
@@ -1415,9 +1425,13 @@ function ScenarioEditor({
   agent,
   hear,
   wide,
+  writeExamples,
+  warnings,
   onChange,
   onDelete,
 }: {
+  writeExamples?: (item: Placed, language: string) => ExamplesAsk;
+  warnings: readonly LineWarning[];
   agent: FlowAgent | null;
   hear: WriteAccess;
   /** Under the picture at full width: three columns. */
@@ -1505,6 +1519,10 @@ function ScenarioEditor({
           );
         }}
       />
+      <WarningLines
+        warnings={stageWarnings(warnings, id, `scripts.${tag}`, scripts[tag] ?? null)}
+        idBase={`sc-${tag}-${id}-warn`}
+      />
       <HearLine
         agent={agent}
         access={hear}
@@ -1556,6 +1574,11 @@ function ScenarioEditor({
 
   return (
     <div className="space-y-5 p-4">
+      {/* The checks' findings on this scenario that belong to no one box below. */}
+      <WarningLines
+        warnings={stageWarnings(warnings, id, null, null, ["instruction", `scripts.${shownTag}`])}
+        idBase={`sc-${id}-warn`}
+      />
       <div className="flex flex-wrap items-center gap-3">
         <span className="rounded-full bg-series-2 px-2 py-0.5 text-meta font-semibold tabular-nums text-white">
           Scenario {item.label}
@@ -1633,6 +1656,10 @@ function ScenarioEditor({
                   {issue("instruction")}
                 </p>
               )}
+              <WarningLines
+                warnings={stageWarnings(warnings, id, "instruction", s.instruction)}
+                idBase={`sc-desc-${id}-warn`}
+              />
             </div>
           </div>
 
@@ -1657,6 +1684,27 @@ function ScenarioEditor({
               </div>
             ) : null}
             {scriptBox(shownTag)}
+            {/* The ways the agent says it, in the language the switch above shows (script
+                rebuild §2.3). The old line is in the script box above while that box has no
+                line of its own, so it is not repeated here then. */}
+            <div className="mt-4 border-t border-line pt-4">
+              <StepExamplesEditor
+                idBase={`sc-${id}`}
+                stageId={id}
+                examples={s.examples}
+                tag={shownTag}
+                languageLabel={languageName(shownTag)}
+                first={item.step === 1}
+                legacy={s.sounds_like}
+                showLegacy={!(shownTag === main && legacy)}
+                readOnly={readOnly}
+                issues={issues}
+                warnings={warnings}
+                maxLength={limits.soundsLikeMax}
+                pip={writeExamples?.(item, shownTag)}
+                onChange={(examples) => patch({ examples })}
+              />
+            </div>
           </div>
 
           <ToggleSwitch

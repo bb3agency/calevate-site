@@ -14,20 +14,24 @@
  */
 
 import { Plus, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { TEXT_ACTION } from "@/components/console/section";
 
+import { SegmentedControl } from "@/components/interior/segmented-control";
 import { FIELD, FIELD_HINT, FIELD_LABEL, QUIET_ICON_BUTTON } from "@/components/ui";
 import type { CallScript, CodeMix, ExampleLine, SpeakingStyle } from "@/lib/api/script";
 
 import type { PartKey } from "./scriptDiff";
 import type { Issue, Limits, Section } from "./scriptModel";
+import { examplesAsk, exampleLanguages, type LineWarning } from "./stepExamples";
+import { StepExamplesEditor } from "./StepExamplesEditor";
 
 /** The issue fields an editor shows beside a control; any other issue is shown for the row. */
 export function unshownIssues(issues: Issue[], shown: (field: string) => boolean): Issue[] {
   return issues.filter((issue) => !shown(issue.field));
 }
 
-const SECTION_FIELDS = /^(name|instruction|sounds_like|branch-\d+)$/;
+const SECTION_FIELDS = /^(name|instruction|sounds_like|branch-\d+|examples-.+)$/;
 const PART_FIELDS = /^(business_line|outbound_purpose|objection-\d+|fact-\d+|example-\d+|pronunciation-\d+)$/;
 
 export function sectionShows(field: string): boolean {
@@ -378,6 +382,10 @@ export function SectionFields({
   issues,
   limits,
   language,
+  languages = [],
+  first = false,
+  warnings = [],
+  generate,
   onChange,
 }: {
   section: Section;
@@ -385,11 +393,24 @@ export function SectionFields({
   issues: Issue[];
   limits: Limits;
   language: string;
+  /** The call's languages, main first, each with its name: the examples are per language. */
+  languages?: { tag: string; name: string }[];
+  /** The call's first step, which has "If they're busy" too. */
+  first?: boolean;
+  warnings?: readonly LineWarning[];
+  /** Pip rewrites one part in one language (`GeneratePartProps`), for "Let Pip write examples". */
+  generate?: { onGenerate: (part: string, language: string, instruction?: string) => void; reason?: string };
   onChange: (patch: Partial<Section>) => void;
 }) {
   const on = (field: string) => issues.filter((i) => i.field === field);
   const id = (field: string) => `${idBase}-${field}`;
   const say = section.mode === "say";
+  // Every language the call speaks, then any Pip wrote examples in that it no longer does.
+  const named = new Map(languages.map((l) => [l.tag, l.name]));
+  const tags = [...new Set([...languages.map((l) => l.tag), ...exampleLanguages(section.examples)])];
+  const [picked, setPicked] = useState(exampleLanguages(section.examples, tags)[0] ?? tags[0] ?? "");
+  const tag = tags.includes(picked) ? picked : (tags[0] ?? "");
+  const nameOf = (t: string) => named.get(t) ?? t;
   return (
     <div className="space-y-3">
       <Text id={id("name")} label="Step name" maxLength={limits.nameMax} value={section.name} issues={on("name")}
@@ -397,9 +418,51 @@ export function SectionFields({
       <Text id={id("instruction")} label={say ? "The exact words to say" : "What it does here"}
         hint={say ? `In ${language}, as callers should hear it.` : "In plain English. One or two sentences is plenty."}
         long value={section.instruction} issues={on("instruction")} onChange={(v) => onChange({ instruction: v })} />
-      <Text id={id("sounds_like")} label="Example line" hint={`How this step sounds on the phone, in ${language}.`}
-        maxLength={limits.soundsLikeMax} value={section.sounds_like} issues={on("sounds_like")}
-        onChange={(v) => onChange({ sounds_like: v })} />
+      {tag ? (
+        <div className="space-y-2">
+          {tags.length > 1 && (
+            <SegmentedControl
+              label="Examples language"
+              value={tag}
+              onValueChange={setPicked}
+              options={tags.map((t) => ({
+                value: t,
+                label: nameOf(t),
+                dot: exampleLanguages(section.examples).includes(t) ? undefined : "bg-ink-faint",
+              }))}
+            />
+          )}
+          <StepExamplesEditor
+            idBase={idBase}
+            stageId={section.id}
+            examples={section.examples}
+            tag={tag}
+            languageLabel={nameOf(tag)}
+            first={first}
+            legacy={section.sounds_like}
+            issues={issues}
+            warnings={warnings}
+            maxLength={limits.soundsLikeMax}
+            pip={
+              generate
+                ? {
+                    run: () => generate.onGenerate(section.name, tag, examplesAsk(first)),
+                    wait: generate.reason ?? null,
+                  }
+                : undefined
+            }
+            onChange={(examples) => onChange({ examples })}
+          />
+        </div>
+      ) : (
+        // No call language known and no examples: the old line, read-only.
+        section.sounds_like.trim() !== "" && (
+          <div className="border-l-2 border-line pl-3">
+            <p className="text-meta text-ink-muted">Old example line</p>
+            <p className="text-meta text-ink [overflow-wrap:anywhere]">{section.sounds_like.trim()}</p>
+          </div>
+        )
+      )}
       {section.branches.map((branch, j) => (
         <Text key={j} id={id(`branch-${j}`)} label={`Way out ${j + 1}: when`} hint="In plain English." maxLength={300}
           value={branch.when} issues={on(`branch-${j}`)}

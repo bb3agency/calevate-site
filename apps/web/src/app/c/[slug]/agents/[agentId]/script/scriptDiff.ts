@@ -1,6 +1,7 @@
 import type { CallScript } from "@/lib/api/script";
 
 import { sectionsOf, type Section } from "./scriptModel";
+import { exampleLanguages, examplesIn } from "./stepExamples";
 
 /**
  * AN AI PROPOSAL AS A LIST OF CHANGES THE OWNER KEEPS OR DISCARDS ONE BY ONE.
@@ -170,7 +171,20 @@ function sectionText(section: Section, targets: Map<string, string>): string {
     section.otherwise ? target(section.otherwise) : "",
     section.collect,
     section.procedure.map((p) => [spoken(p.action), spoken(p.wait_for)]),
+    exampleText(section),
   ]);
+}
+
+/** A step's examples as a caller hears them: blank lines (which the server drops) and
+ * spacing do not count, so only a changed way of saying it lists the step as changed. */
+function exampleText(section: Section): string[][] {
+  return exampleLanguages(section.examples)
+    .sort()
+    .map((tag) => {
+      const ex = examplesIn(section.examples, tag);
+      if (!ex) return [tag];
+      return [tag, ...ex.turns.map(spoken).filter(Boolean), spoken(ex.confused), spoken(ex.stuck), spoken(ex.busy)];
+    });
 }
 
 function matchSections(before: Section[], after: Section[]): Map<string, Section> {

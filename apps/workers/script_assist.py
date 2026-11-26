@@ -50,11 +50,10 @@ from calevate_shared.spoken_guard import (
     textbook_problem,
 )
 
+from apps.api.agents import script_checks
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit
 from apps.api.agents.call_rules import (
-    opening_redone_line_problems,
     placed_opening_problems,
-    reacted_line_problems,
     said_line_problem,
 )
 from apps.api.agents.languages import platform_default_language
@@ -64,7 +63,6 @@ from apps.api.agents.script_lint import (
     CapabilityManifest,
     LintContext,
     caller_paths,
-    flow_problems,
     instruction_fields,
     instruction_problems,
     spoken_fields,
@@ -235,11 +233,7 @@ def shape_problems(script: CallScript, before: CallScript | None = None) -> list
     fix."""
 
     def shape(of: CallScript) -> list[str]:
-        return [
-            *flow_problems(of),
-            *opening_redone_line_problems(of),
-            *reacted_line_problems(of),
-        ]
+        return script_checks.texts(script_checks.run(of, ids=script_checks.SHAPE_CHECKS))
 
     owned = set(shape(before)) if before is not None else set()
     problems = [problem for problem in shape(script) if problem not in owned]

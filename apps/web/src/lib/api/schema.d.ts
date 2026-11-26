@@ -7967,6 +7967,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/script/checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the script checks find in the campaign's saved script, and whether it can start */
+        get: operations["read_script_checks_v1_campaigns__campaign_id__script_checks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/script/proposal": {
         parameters: {
             query?: never;
@@ -11160,6 +11177,23 @@ export interface paths {
         put?: never;
         /** Keep Pip's written draft as the line's script and put it live, as Save does */
         post: operations["keep_script_draft_live_v1_inbound_lines__line_id__script_draft__line_proposal_id__keep_live_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script/checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the script checks find in the line's saved script, and whether it can go live */
+        get: operations["read_script_checks_v1_inbound_lines__line_id__script_checks_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -20509,6 +20543,8 @@ export interface components {
             part?: string | null;
             /** Tone */
             tone?: ("warm" | "respectful" | "brief") | null;
+            /** Want */
+            want?: "examples" | null;
         };
         /** CampaignProposalOut */
         CampaignProposalOut: {
@@ -20678,6 +20714,7 @@ export interface components {
             /** Applied Now */
             applied_now: boolean;
             defaults: components["schemas"]["CampaignSettingsValues"];
+            example_limits: components["schemas"]["ExampleLimitsOut"];
             /** Offered Languages */
             offered_languages: string[];
             overrides: components["schemas"]["CampaignSettingsValues"];
@@ -25720,6 +25757,20 @@ export interface components {
             /** Transcript Turns Erased */
             transcript_turns_erased: number;
         };
+        /**
+         * ExampleLimitsOut
+         * @description How much a step's examples hold (`script_plan.EXAMPLE_LIMITS`), for the editor: at
+         *     least `turns_min` ordinary turns per language are written, at most `turns_max` kept,
+         *     each line at most `line_max` characters.
+         */
+        ExampleLimitsOut: {
+            /** Line Max */
+            line_max: number;
+            /** Turns Max */
+            turns_max: number;
+            /** Turns Min */
+            turns_min: number;
+        };
         /** ExampleLine */
         ExampleLine: {
             /**
@@ -27935,11 +27986,14 @@ export interface components {
             agent_id: string;
             /** Agent Name */
             agent_name: string;
+            /** Call Languages */
+            call_languages: string[];
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            example_limits: components["schemas"]["ExampleLimitsOut"];
             /**
              * Id
              * Format: uuid
@@ -35645,16 +35699,32 @@ export interface components {
             /** Suggested */
             suggested: boolean;
         };
-        /**
-         * ScriptAskIn
-         * @description How the owner wants Pip to write a campaign's or line's script draft (D-1004): a tone
-         *     and what they want changed. Empty for a draft as Pip sees fit.
-         */
-        ScriptAskIn: {
-            /** Instruction */
-            instruction?: string | null;
-            /** Tone */
-            tone?: ("warm" | "respectful" | "brief") | null;
+        /** ScriptCheckOut */
+        ScriptCheckOut: {
+            /** Check */
+            check: string;
+            /** Detail */
+            detail: string;
+            /** Line */
+            line: string;
+            /** Message */
+            message: string;
+            /** Path */
+            path: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "block" | "warn";
+            /** Stage Id */
+            stage_id: string | null;
+        };
+        /** ScriptChecksOut */
+        ScriptChecksOut: {
+            /** Blocks Live */
+            blocks_live: boolean;
+            /** Findings */
+            findings: components["schemas"]["ScriptCheckOut"][];
         };
         /**
          * ScriptContextOut
@@ -56389,6 +56459,37 @@ export interface operations {
             };
         };
     };
+    read_script_checks_v1_campaigns__campaign_id__script_checks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptChecksOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     request_proposal_v1_campaigns__campaign_id__script_proposal_post: {
         parameters: {
             query?: never;
@@ -62228,7 +62329,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["ScriptAskIn"] | null;
+                "application/json": components["schemas"]["CampaignProposalIn"] | null;
             };
         };
         responses: {
@@ -62464,6 +62565,37 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_script_checks_v1_inbound_lines__line_id__script_checks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptChecksOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

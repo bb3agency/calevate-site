@@ -14464,6 +14464,18 @@
               }
             ],
             "title": "Tone"
+          },
+          "want": {
+            "anyOf": [
+              {
+                "const": "examples",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Want"
           }
         },
         "title": "CampaignProposalIn",
@@ -14942,6 +14954,9 @@
           "defaults": {
             "$ref": "#/components/schemas/CampaignSettingsValues"
           },
+          "example_limits": {
+            "$ref": "#/components/schemas/ExampleLimitsOut"
+          },
           "offered_languages": {
             "items": {
               "type": "string"
@@ -14959,7 +14974,8 @@
           "defaults",
           "overrides",
           "applied_now",
-          "offered_languages"
+          "offered_languages",
+          "example_limits"
         ],
         "title": "CampaignSettingsOut",
         "type": "object"
@@ -28112,6 +28128,31 @@
         "title": "ErasureScopeOut",
         "type": "object"
       },
+      "ExampleLimitsOut": {
+        "additionalProperties": false,
+        "description": "How much a step's examples hold (`script_plan.EXAMPLE_LIMITS`), for the editor: at\nleast `turns_min` ordinary turns per language are written, at most `turns_max` kept,\neach line at most `line_max` characters.",
+        "properties": {
+          "line_max": {
+            "title": "Line Max",
+            "type": "integer"
+          },
+          "turns_max": {
+            "title": "Turns Max",
+            "type": "integer"
+          },
+          "turns_min": {
+            "title": "Turns Min",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "turns_min",
+          "turns_max",
+          "line_max"
+        ],
+        "title": "ExampleLimitsOut",
+        "type": "object"
+      },
       "ExampleLine": {
         "additionalProperties": false,
         "properties": {
@@ -34619,10 +34660,20 @@
             "title": "Agent Name",
             "type": "string"
           },
+          "call_languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Call Languages",
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "example_limits": {
+            "$ref": "#/components/schemas/ExampleLimitsOut"
           },
           "id": {
             "format": "uuid",
@@ -34707,6 +34758,8 @@
           "actions_off",
           "source_ids",
           "numbers",
+          "call_languages",
+          "example_limits",
           "created_at"
         ],
         "title": "InboundLineOut",
@@ -55657,40 +55710,81 @@
         "title": "ScreenGuide",
         "type": "object"
       },
-      "ScriptAskIn": {
+      "ScriptCheckOut": {
         "additionalProperties": false,
-        "description": "How the owner wants Pip to write a campaign's or line's script draft (D-1004): a tone\nand what they want changed. Empty for a draft as Pip sees fit.",
         "properties": {
-          "instruction": {
-            "anyOf": [
-              {
-                "maxLength": 4000,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Instruction"
+          "check": {
+            "title": "Check",
+            "type": "string"
           },
-          "tone": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "line": {
+            "title": "Line",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "block",
+              "warn"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "stage_id": {
             "anyOf": [
               {
-                "enum": [
-                  "warm",
-                  "respectful",
-                  "brief"
-                ],
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Tone"
+            "title": "Stage Id"
           }
         },
-        "title": "ScriptAskIn",
+        "required": [
+          "check",
+          "path",
+          "stage_id",
+          "message",
+          "detail",
+          "line",
+          "severity"
+        ],
+        "title": "ScriptCheckOut",
+        "type": "object"
+      },
+      "ScriptChecksOut": {
+        "additionalProperties": false,
+        "properties": {
+          "blocks_live": {
+            "title": "Blocks Live",
+            "type": "boolean"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ScriptCheckOut"
+            },
+            "title": "Findings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "findings",
+          "blocks_live"
+        ],
+        "title": "ScriptChecksOut",
         "type": "object"
       },
       "ScriptContextOut": {
@@ -94299,6 +94393,46 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/script/checks": {
+      "get": {
+        "operationId": "read_script_checks_v1_campaigns__campaign_id__script_checks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptChecksOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What the script checks find in the campaign's saved script, and whether it can start",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/campaigns/{campaign_id}/script/proposal": {
       "post": {
         "operationId": "request_proposal_v1_campaigns__campaign_id__script_proposal_post",
@@ -101910,7 +102044,7 @@
               "schema": {
                 "anyOf": [
                   {
-                    "$ref": "#/components/schemas/ScriptAskIn"
+                    "$ref": "#/components/schemas/CampaignProposalIn"
                   },
                   {
                     "type": "null"
@@ -102278,6 +102412,46 @@
           "inbound"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/script/checks": {
+      "get": {
+        "operationId": "read_script_checks_v1_inbound_lines__line_id__script_checks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptChecksOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What the script checks find in the line's saved script, and whether it can go live",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/inbound-lines/{line_id}/script/restore-before-pip": {

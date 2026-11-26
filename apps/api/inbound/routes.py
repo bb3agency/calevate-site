@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import give_callers_time
+from apps.api.agents import give_callers_time, script_gate
 from apps.api.agents import service as agents_service
 from apps.api.agents.mistake_fixes import Holder
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
@@ -152,16 +152,31 @@ async def _read(tenant_id: UUID, line_id: UUID) -> InboundLineOut:
         return _out(await lines.read_line(session, line_id))
 
 
-async def _put_live_after_save(tenant_id: UUID, line_id: UUID) -> None:
+async def _put_live(tenant_id: UUID, line_id: UUID) -> str:
+    """The owner's Put it live, and the one a script Save, Keep or restore makes: refused
+    while a `block` script check faults the saved script (`script_gate.refuse_if_blocked`),
+    which stays saved."""
+    async with tenant_session(tenant_id) as session:
+        await script_gate.refuse_if_blocked(session, "line", line_id)
+    return await put_line_live(tenant_id=tenant_id, line_id=line_id)
+
+
+async def _put_live_after_save(tenant_id: UUID, line_id: UUID, *, script: bool = False) -> None:
     """Put the line live after an edit committed. A refusal says the edit is kept, so the
     owner presses Put it live rather than typing it again; an engine that is not answering
-    queues the put-live, so the owner has nothing to press."""
+    queues the put-live, so the owner has nothing to press. `script`: the edit put a script
+    in place, which goes on calls only past the script checks (`_put_live`); any other edit
+    republishes the script the line already answers with."""
     await notes_live.put_live_or_queue(
         tenant_id,
         "line",
         line_id,
         retry="put_live",
-        publish=lambda: put_line_live(tenant_id=tenant_id, line_id=line_id),
+        publish=lambda: (
+            _put_live(tenant_id, line_id)
+            if script
+            else put_line_live(tenant_id=tenant_id, line_id=line_id)
+        ),
     )
 
 
@@ -434,8 +449,21 @@ async def _save_then_put_live(
             ip=client_request_ip(request),
             summary={"version": version, "from_draft": proposal_id is not None},
         )
-    await _put_live_after_save(tenant_id, line_id)
+    await _put_live_after_save(tenant_id, line_id, script=True)
     return await _read(tenant_id, line_id)
+
+
+@router.get(
+    "/{line_id}/script/checks",
+    response_model=script_gate.ScriptChecksOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="What the script checks find in the line's saved script, and whether it can go live",
+)
+async def read_script_checks(
+    line_id: UUID, session: Session, _: Reader
+) -> script_gate.ScriptChecksOut:
+    await lines.read_line(session, line_id)
+    return await script_gate.holder_checks(session, "line", line_id)
 
 
 @router.get(
@@ -479,7 +507,7 @@ async def _restore(
             ip=client_request_ip(request),
             summary={"version_id": str(brought.id), "owner_made": brought.owner_made},
         )
-    await _put_live_after_save(tenant_id, line_id)
+    await _put_live_after_save(tenant_id, line_id, script=True)
     return await _read(tenant_id, line_id)
 
 
@@ -607,7 +635,7 @@ async def cancel_script_draft(
 async def publish(line_id: UUID, principal: Writer) -> InboundLineOut:
     tenant_id = _tenant(principal)
     try:
-        await put_line_live(tenant_id=tenant_id, line_id=line_id)
+        await _put_live(tenant_id, line_id)
     except ProblemError as exc:
         # The script is already saved; with the engine not answering, pressing again would
         # only time out again, so it is queued and goes live by itself.

@@ -15,7 +15,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ActionButton, problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
@@ -72,7 +72,15 @@ import { useScriptVersions } from "@/lib/api/scriptVersions";
 import { useClientRealm } from "@/lib/api/session";
 import { endingLabel } from "@/lib/callReview";
 
-import { LeftOutNotice } from "../agents/[agentId]/script/PipProposal";
+import { LeftOutNotice, lineWarningsOf } from "../agents/[agentId]/script/PipProposal";
+import { ChecksUnread, ScriptNeedsFix } from "@/components/scriptChecks/ScriptNeedsFix";
+import {
+  SHOW_FINDING_EVENT,
+  findingWarnings,
+  isScriptNeedsFix,
+  scrollToFirstFinding,
+  useScriptChecks,
+} from "@/lib/api/scriptChecks";
 import { TestCallForm } from "../campaigns/CampaignBoosters";
 import { ScriptSummary } from "../campaigns/CampaignWorkspace";
 import { JobNotes, lineNotesTakeEffect } from "../campaigns/CampaignNotes";
@@ -180,6 +188,9 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
       <RestrictionNote reason={write.reason} />
       {/* No free calling setup: what holds each one, as links (the toast cannot). */}
       <SlotsFullProblem slug={slug} error={publish.error} />
+      {isScriptNeedsFix(publish.error) && (
+        <ScriptNeedsFix holder={{ kind: "line", id: data.id }} canWrite={write.allowed} refusal={refusal} />
+      )}
 
       <FoldGroup className="space-y-8">
         <VoiceSection {...props} />
@@ -384,6 +395,22 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
   const script = line.script;
   const hasTask = line.main_task.trim() !== "";
   const drafting = proposal?.status === "drafting";
+  // The saved script's checks, each on its line in Edit script (`script_gate`).
+  const checks = useScriptChecks(session, { kind: "line", id: line.id }, script);
+  const warnings = useMemo(
+    () => (checks.isSuccess ? findingWarnings(checks.data.findings) : []),
+    [checks.isSuccess, checks.data],
+  );
+  // "Show me" from a refusal: open Edit script, where each flagged line is marked.
+  useEffect(() => {
+    const show = () => {
+      if (!script) return;
+      setEditing(true);
+      scrollToFirstFinding();
+    };
+    window.addEventListener(SHOW_FINDING_EVENT, show);
+    return () => window.removeEventListener(SHOW_FINDING_EVENT, show);
+  }, [script]);
   const failed = proposal?.status === "failed";
 
   const closeEditor = () => {
@@ -417,6 +444,7 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
           base={proposal.base_script ?? EMPTY_SCRIPT}
           proposal={proposal.script}
           notes={proposal.why}
+          warnings={lineWarningsOf(proposal.left_out)}
           pending={save.isPending ? "apply" : clear.isPending ? "discard" : null}
           onApply={(next) => keep(next, proposal.id)}
           onDiscard={() => stopFeedback.run(proposal.id)}
@@ -453,6 +481,8 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
         <div className="mb-3">
           {isSlotsFull(save.error) ? (
             <SlotsFullProblem slug={session.orgSlug} error={save.error} />
+          ) : isScriptNeedsFix(save.error) ? (
+            <ScriptNeedsFix holder={{ kind: "line", id: line.id }} canWrite={canWrite} refusal={refusal} />
           ) : (
             <ProblemNotice error={save.error} />
           )}
@@ -503,8 +533,10 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
 
       {!proposal && editing && (
         <div className="rounded-card border border-line bg-surface p-4">
+          {checks.isError && <ChecksUnread onRetry={() => void checks.refetch()} />}
           <ProposalReview
             editing
+            warnings={warnings}
             current={EMPTY_SCRIPT}
             proposal={script ?? EMPTY_SCRIPT}
             pending={save.isPending ? "apply" : null}

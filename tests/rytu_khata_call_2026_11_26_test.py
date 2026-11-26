@@ -22,7 +22,7 @@ from apps.api.agents.call_rules import (
     said_line_problem,
     writer_rules,
 )
-from apps.api.agents.mistake_lints import SCRIPT_FIXABLE_KINDS, mistake_findings
+from apps.api.agents.script_checks import SCRIPT_FIXABLE_KINDS, mistake_findings
 from apps.api.agents.script_lint import (
     LintContext,
     asks_when_done,
