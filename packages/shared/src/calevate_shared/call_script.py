@@ -726,14 +726,58 @@ class ProcedureStep(BaseModel):
         return " ".join(value.split())
 
 
+#: A step's example turns in one language (DESIGN §3.2, script rebuild 26 Nov 2026). Three to
+#: five because one example is copied word for word and several varied ones are what the
+#: prompting guides ask for ("3-5", Anthropic's "Use examples effectively"; "at least three",
+#: Vapi; docs/evidence/script-rebuild-2026-11-26/03-external-research.md §5). A turn is one
+#: spoken reply, so it shares the old `sounds_like` line's limit.
+MAX_STEP_EXAMPLE_TURNS: Final = 5
+STEP_EXAMPLE_MAX: Final = SOUNDS_LIKE_MAX
+
+
+class StepExamples(BaseModel):
+    """How one step sounds in one language, shown to the in-call model as examples.
+
+    `turns` are ordinary agent turns for the step: each one action, with no reaction at the
+    start and no request to say when it is done. `confused` answers "what? after what?" with
+    the same step again, shorter; `stuck` gives one smaller action when they cannot do it;
+    `busy` (first step only) offers a later time. Every field may be blank while a draft is
+    being written; the compiler leaves blank ones out."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    turns: list[str] = Field(default_factory=list, max_length=MAX_STEP_EXAMPLE_TURNS)
+    confused: str = Field(default="", max_length=STEP_EXAMPLE_MAX)
+    stuck: str = Field(default="", max_length=STEP_EXAMPLE_MAX)
+    busy: str = Field(default="", max_length=STEP_EXAMPLE_MAX)
+
+    @field_validator("turns")
+    @classmethod
+    def _turns_are_short_lines(cls, value: list[str]) -> list[str]:
+        out = [" ".join(turn.split()) for turn in value if turn.strip()]
+        for turn in out:
+            if len(turn) > STEP_EXAMPLE_MAX:
+                raise ValueError(f"an example turn holds at most {STEP_EXAMPLE_MAX} characters")
+        return out
+
+    @field_validator("confused", "stuck", "busy")
+    @classmethod
+    def _one_line(cls, value: str) -> str:
+        return " ".join(value.split())
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.turns or self.confused or self.stuck or self.busy)
+
+
 class ConversationStage(BaseModel):
     """One section of the call, a node of the script's section graph.
 
     The list order is the call order. `mode` "say" asks for a line to be said as written
     (best effort: only the opening line is guaranteed verbatim): a scenario's script line
     (`says_scenario_line`), or the instruction of a section drawn before scenarios
-    (`says_instruction`). `sounds_like` is an optional line in the call's language showing
-    how it sounds. `branches` are the ways out
+    (`says_instruction`). `examples` show how the step sounds, per language; `sounds_like`
+    is the single line scripts held before examples existed. `branches` are the ways out
     on a condition, `otherwise` where to go when none holds (empty: the next section), and
     `collect` what must be in hand first. `position` is the canvas layout and is never
     compiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.
@@ -766,6 +810,23 @@ class ConversationStage(BaseModel):
     #: Delivery notes a scenario once held (17 Nov 2026), kept as stored and never compiled:
     #: the Call flow only plays a line in the agent's voice (founder, 18 Nov 2026).
     coaching: list[ScenarioCoaching] = Field(default_factory=list, max_length=MAX_SCENARIO_QA)
+    #: How the step sounds, by language tag (`StepExamples`). It supersedes `sounds_like`,
+    #: which is kept so a script saved before examples existed loads and compiles; the
+    #: compiler reads `sounds_like` only for a stage with no examples (`has_examples`).
+    examples: dict[str, StepExamples] = Field(default_factory=dict)
+
+    @field_validator("examples")
+    @classmethod
+    def _examples_by_language(cls, value: dict[str, StepExamples]) -> dict[str, StepExamples]:
+        known = {lang.bcp47 for lang in built_languages()}
+        for tag in value:
+            if tag not in known:
+                raise ValueError(f"{tag!r} is not a language an agent speaks")
+        return {tag: said for tag, said in value.items() if not said.is_empty}
+
+    @property
+    def has_examples(self) -> bool:
+        return bool(self.examples)
 
     @field_validator("scripts")
     @classmethod
@@ -1529,6 +1590,12 @@ def script_text(script: CallScript) -> str:
         *(o.outcome for o in script.step_outcomes),
         *(f"{p.action} {p.wait_for}" for st in script.stages for p in st.procedure),
         *(text for st in script.stages for text in st.scripts.values()),
+        *(
+            line
+            for st in script.stages
+            for said in st.examples.values()
+            for line in (*said.turns, said.confused, said.stuck, said.busy)
+        ),
         *(f"{qa.question} {qa.answer}" for st in script.stages for qa in st.qa),
         *(
             f"{t.question} {t.answer}"
@@ -1660,6 +1727,7 @@ __all__ = [
     "KNOWN_FACTS_LEAD",
     "MAX_PROCEDURE_STEPS",
     "MAX_SCRIPT_STAGES",
+    "MAX_STEP_EXAMPLE_TURNS",
     "NOTICES_HEADER",
     "NOTICE_RECORDS",
     "NO_CALL_BACKS_POLICY",
@@ -1684,6 +1752,7 @@ __all__ = [
     "STAGE_DETAIL_MAX",
     "STAGE_TITLE_MAX",
     "STANDARD_VARIABLES",
+    "STEP_EXAMPLE_MAX",
     "STEP_OUTCOME_MAX",
     "STYLE_HEADER",
     "V1_FAQ_HEADER",
@@ -1708,6 +1777,7 @@ __all__ = [
     "ScriptVariable",
     "SpeakingStyle",
     "StageBranch",
+    "StepExamples",
     "StepOutcome",
     "business_line_of",
     "call_backs_withheld",
