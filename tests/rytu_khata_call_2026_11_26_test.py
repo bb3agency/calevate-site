@@ -23,7 +23,6 @@ from apps.api.agents.call_rules import (
     writer_rules,
 )
 from apps.api.agents.mistake_lints import SCRIPT_FIXABLE_KINDS, mistake_findings
-from apps.api.agents.test_conversations import Turn
 from apps.api.agents.script_lint import (
     LintContext,
     asks_when_done,
@@ -31,16 +30,16 @@ from apps.api.agents.script_lint import (
     script_problems,
     stacked_line,
 )
+from apps.api.agents.test_conversations import Turn
 from apps.api.agents.turn_checks import (
     SOUND_KINDS,
     STOCK_OPENER_REPLIES,
-
     conversation_problems,
     opener,
     turn_problems,
 )
 from apps.workers.campaign_script_ask import PURPOSE_RULE
-from apps.workers.script_assist import CONVERT_INSTRUCTION, _SYSTEM_INSTRUCTION
+from apps.workers.script_assist import _SYSTEM_INSTRUCTION, CONVERT_INSTRUCTION
 from calevate_shared.call_script import CallScript, ConversationStage, ProcedureStep
 
 #: The turn that gave two steps and then asked to be told.
@@ -181,16 +180,12 @@ def test_the_first_step_offering_again_what_the_opening_offered_is_found() -> No
         _stage("start", "Can I help you set up the Rytu Khata app now?"),
         _stage("expense", "Shall we add your first expense in the app?"),
     )
-    assert _paths(opening_redone_line_problems(script), "asks again") == [
-        "stages.0.sounds_like"
-    ]
+    assert _paths(opening_redone_line_problems(script), "asks again") == ["stages.0.sounds_like"]
     telugu = _script(
         _stage("start", "మీ ఫోన్లో యాప్ సెటప్ చేయమంటారా?"),
         opening="మీ ఫోన్లో యాప్ సెటప్ చేద్దామా?",
     )
-    assert _paths(opening_redone_line_problems(telugu), "asks again") == [
-        "stages.0.sounds_like"
-    ]
+    assert _paths(opening_redone_line_problems(telugu), "asks again") == ["stages.0.sounds_like"]
 
 
 def test_each_new_kind_traces_to_the_script_line() -> None:

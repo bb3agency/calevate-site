@@ -220,7 +220,9 @@ _CASES: list[tuple[str, CallScript, str, CallScript]] = [
     ),
     (
         "asks_when_done",
-        _script(_stage("s1", "Now tap the three-dot menu at the top right. Tell me when it opens.")),
+        _script(
+            _stage("s1", "Now tap the three-dot menu at the top right. Tell me when it opens.")
+        ),
         "stages.0.sounds_like",
         _script(_stage("s1", "Now tap the three-dot menu at the top right.")),
     ),

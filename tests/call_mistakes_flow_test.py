@@ -143,13 +143,15 @@ async def test_a_real_call_is_checked_and_the_owner_sees_what_went_wrong(
         detail = (await http.get(f"/v1/calls/{call_id}", headers=headers)).json()
         listed = await http.get(f"/v1/agents/{agent_id}/call-mistakes", headers=headers)
         missing = await http.get(f"/v1/agents/{uuid7()}/call-mistakes", headers=headers)
-    assert [m["kind"] for m in detail["mistakes"]] == [
+    # Sorted: "said_again" and "same_opening" both first appear on turn 9.
+    assert sorted(m["kind"] for m in detail["mistakes"]) == [
+        "asked_again",
         "false_history",
         "said_again",
-        "asked_again",
         "same_opening",
     ]
-    assert detail["mistakes"][1]["label"] == call_mistakes.LESSONS["said_again"].label
+    labels = {m["kind"]: m["label"] for m in detail["mistakes"]}
+    assert labels["said_again"] == call_mistakes.LESSONS["said_again"].label
     # On no line or campaign, so no script was repaired: our team has each one.
     assert {m["fix"] for m in detail["mistakes"]} == {"told"}
     assert listed.status_code == 200, listed.text

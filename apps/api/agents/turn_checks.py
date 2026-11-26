@@ -1466,7 +1466,7 @@ def _offers_again(question: str, opening_question: str) -> bool:
         return {w for w in _content(_OFFERS_TO_GO_ON.sub(" ", text)) if len(w) >= _OFFER_TOPIC_MIN}
 
     def same(a: str, b: str) -> bool:
-        return a == b or min(len(a), len(b)) >= _OFFER_STEM and a[:_OFFER_STEM] == b[:_OFFER_STEM]
+        return a == b or (min(len(a), len(b)) >= _OFFER_STEM and a[:_OFFER_STEM] == b[:_OFFER_STEM])
 
     mine, theirs = topic(question), topic(opening_question)
     shared = sum(1 for b in theirs if any(same(a, b) for a in mine))
@@ -1621,7 +1621,9 @@ def caller_says_done(said: str) -> bool:
     """Does this caller line report something they did themselves? A question or a negative
     never does, one with no "?" included ("ఏమయ్యాక చెప్పాలి", after what?). English is read by
     its "?" only, so the caller's "Did it." stays a done."""
-    return bool(_CALLER_DONE.search(said)) and not _asks_by_word(said) and not _CALLER_NOT.search(said)
+    return (
+        bool(_CALLER_DONE.search(said)) and not _asks_by_word(said) and not _CALLER_NOT.search(said)
+    )
 
 
 def claims_done(text: str, *, caller_said: str = "") -> bool:
