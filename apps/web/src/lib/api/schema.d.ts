@@ -22466,8 +22466,8 @@ export interface components {
          *     The list order is the call order. `mode` "say" asks for a line to be said as written
          *     (best effort: only the opening line is guaranteed verbatim): a scenario's script line
          *     (`says_scenario_line`), or the instruction of a section drawn before scenarios
-         *     (`says_instruction`). `sounds_like` is an optional line in the call's language showing
-         *     how it sounds. `branches` are the ways out
+         *     (`says_instruction`). `examples` show how the step sounds, per language; `sounds_like`
+         *     is the single line scripts held before examples existed. `branches` are the ways out
          *     on a condition, `otherwise` where to go when none holds (empty: the next section), and
          *     `collect` what must be in hand first. `position` is the canvas layout and is never
          *     compiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.
@@ -22481,6 +22481,10 @@ export interface components {
             coaching?: components["schemas"]["ScenarioCoaching"][];
             /** Collect */
             collect?: string[];
+            /** Examples */
+            examples?: {
+                [key: string]: components["schemas"]["StepExamples"];
+            };
             /** Id */
             id: string;
             /** Instruction */
@@ -36929,6 +36933,35 @@ export interface components {
             /** Values */
             values?: components["schemas"]["TemplateValue"][] | null;
             wait?: components["schemas"]["WaitEditIn"] | null;
+        };
+        /**
+         * StepExamples
+         * @description How one step sounds in one language, shown to the in-call model as examples.
+         *
+         *     `turns` are ordinary agent turns for the step: each one action, with no reaction at the
+         *     start and no request to say when it is done. `confused` answers "what? after what?" with
+         *     the same step again, shorter; `stuck` gives one smaller action when they cannot do it;
+         *     `busy` (first step only) offers a later time. Every field may be blank while a draft is
+         *     being written; the compiler leaves blank ones out.
+         */
+        StepExamples: {
+            /**
+             * Busy
+             * @default
+             */
+            busy: string;
+            /**
+             * Confused
+             * @default
+             */
+            confused: string;
+            /**
+             * Stuck
+             * @default
+             */
+            stuck: string;
+            /** Turns */
+            turns?: string[];
         };
         /**
          * StepOutcome

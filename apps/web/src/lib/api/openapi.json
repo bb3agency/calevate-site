@@ -19751,7 +19751,7 @@
       },
       "ConversationStage": {
         "additionalProperties": false,
-        "description": "One section of the call, a node of the script's section graph.\n\nThe list order is the call order. `mode` \"say\" asks for a line to be said as written\n(best effort: only the opening line is guaranteed verbatim): a scenario's script line\n(`says_scenario_line`), or the instruction of a section drawn before scenarios\n(`says_instruction`). `sounds_like` is an optional line in the call's language showing\nhow it sounds. `branches` are the ways out\non a condition, `otherwise` where to go when none holds (empty: the next section), and\n`collect` what must be in hand first. `position` is the canvas layout and is never\ncompiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.\n`procedure` is an ordered list of small steps compiled into the instructions text under\nthe section's name (D-908); the step detail only points at it.",
+        "description": "One section of the call, a node of the script's section graph.\n\nThe list order is the call order. `mode` \"say\" asks for a line to be said as written\n(best effort: only the opening line is guaranteed verbatim): a scenario's script line\n(`says_scenario_line`), or the instruction of a section drawn before scenarios\n(`says_instruction`). `examples` show how the step sounds, per language; `sounds_like`\nis the single line scripts held before examples existed. `branches` are the ways out\non a condition, `otherwise` where to go when none holds (empty: the next section), and\n`collect` what must be in hand first. `position` is the canvas layout and is never\ncompiled. Instruction and sounds-like share ThinnestAI's 600-character step detail.\n`procedure` is an ordered list of small steps compiled into the instructions text under\nthe section's name (D-908); the step detail only points at it.",
         "properties": {
           "branches": {
             "items": {
@@ -19776,6 +19776,13 @@
             "maxItems": 10,
             "title": "Collect",
             "type": "array"
+          },
+          "examples": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/StepExamples"
+            },
+            "title": "Examples",
+            "type": "object"
           },
           "id": {
             "maxLength": 40,
@@ -58955,6 +58962,40 @@
           "step_id"
         ],
         "title": "StepEditIn",
+        "type": "object"
+      },
+      "StepExamples": {
+        "additionalProperties": false,
+        "description": "How one step sounds in one language, shown to the in-call model as examples.\n\n`turns` are ordinary agent turns for the step: each one action, with no reaction at the\nstart and no request to say when it is done. `confused` answers \"what? after what?\" with\nthe same step again, shorter; `stuck` gives one smaller action when they cannot do it;\n`busy` (first step only) offers a later time. Every field may be blank while a draft is\nbeing written; the compiler leaves blank ones out.",
+        "properties": {
+          "busy": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Busy",
+            "type": "string"
+          },
+          "confused": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Confused",
+            "type": "string"
+          },
+          "stuck": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Stuck",
+            "type": "string"
+          },
+          "turns": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Turns",
+            "type": "array"
+          }
+        },
+        "title": "StepExamples",
         "type": "object"
       },
       "StepOutcome": {
