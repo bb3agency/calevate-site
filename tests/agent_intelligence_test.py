@@ -203,31 +203,6 @@ def test_the_prompt_opens_on_who_the_agent_is_and_its_job() -> None:
     assert "You are an AI assistant on a phone call." in compose_engine_prompt(_cfg(body))
 
 
-def test_the_founder_approved_examples_follow_the_primary_language_register() -> None:
-    """D-778: the primary language's approved exchanges, framed as how a turn sounds and
-    never as words to copy; an extra language's are left out for the size budget."""
-    body = compile_call_script(V2)
-    for tag, agent_says in (
-        ("te-IN", "అలాగే అండి, రేపు. పొద్దున వీలవుతుందా, సాయంత్రమా?"),
-        ("hi-IN", "अच्छा जी, कल। सुबह ठीक रहेगा, या शाम को?"),
-        ("en-IN", "Morning or evening tomorrow?"),
-    ):
-        prompt = compose_engine_prompt(_cfg(body).model_copy(update={"language_primary": tag}))
-        line = prompt_example_line(tag)
-        assert line is not None and line in prompt
-        assert line.startswith("How a turn sounds, never words to copy: caller ")
-        assert f'you "{agent_says}"' in line
-        register = prompt.index("--- SPOKEN REGISTER ---")
-        assert register < prompt.index(line) < prompt.index(CLIENT_SCRIPT_CLOSE)
-    extras = compose_engine_prompt(
-        _cfg(body).model_copy(update={"languages_extra": ["hi-IN", "en-IN"]})
-    )
-    te, hi, en = (prompt_example_line(tag) or "" for tag in ("te-IN", "hi-IN", "en-IN"))
-    assert te and hi and en
-    assert te in extras and hi not in extras and en not in extras
-    assert carries_truthful_answer_floor(extras) and carries_confidentiality_rule(extras)
-
-
 def test_a_draft_example_never_reaches_a_prompt() -> None:
     draft = {"review": "needs_native_review", "exchanges": [[["caller", "a"], ["agent", "b"]]]}
     assert _prompt_examples("te-IN", {"prompt_examples": draft}) == ()
@@ -547,7 +522,7 @@ def test_the_sections_become_native_steps_and_leave_the_instructions() -> None:
         ("Otherwise", "Go to 'Price'"),
     )
     assert steps[0].collect == ("product",)
-    assert steps[0].detail == 'Ask what they want to buy. It sounds like: "ఏం కావాలి అండి?"'
+    assert steps[0].detail == 'Ask what they want to buy. Its tone, not words to say: "ఏం కావాలి అండి?"'
     assert steps[1].detail == 'Say: "Prices are in our list."'
     assert steps[1].branches == (("Otherwise", "End the call politely"),)
     # With the account able to, the same branches offer what they name.

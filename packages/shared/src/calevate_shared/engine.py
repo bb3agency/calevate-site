@@ -36,12 +36,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from calevate_shared import spoken_lines
 from calevate_shared.call_script import (
     COLLECT_HEADER,
+    STEP_EXAMPLES_LEAD,
     NativeStep,
     mark_variables,
     opening_line_of,
     outbound_opening_of,
     pronunciations_of,
     said_notices_of,
+    without_opening_sections,
 )
 from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.events import (
@@ -73,7 +75,6 @@ from calevate_shared.spoken_style import (
     pack_facts_rule,
     pack_lines,
     placed_call_opening,
-    prompt_example_line,
     register_guidance,
     shipped_pack_choice,
     spelled_address,
@@ -3129,6 +3130,25 @@ DEFAULT_PRIMARY_LANGUAGE: Final = "te-IN"
 _NEUTRAL_AMOUNTS: Final = "- Amounts in words as people say them, never ₹ or digits."
 _DEFAULT_AMOUNTS: Final = amounts_rule(DEFAULT_PRIMARY_LANGUAGE) or _NEUTRAL_AMOUNTS
 
+#: The HOW TO SPEAK bullets both forms carry (`VOICE_STYLE_GUIDANCE`, `EXAMPLE_LED_GUIDANCE`).
+_PUNCTUATION_BULLET: Final = (
+    '- Sentences of ten words or fewer, full stops between; "?" on every question. '
+    "No markdown, "
+    "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
+    "time now.\n"
+)
+_NUMBER_BULLETS: Final = (
+    f"{_WRITTEN_FORM_BULLET}"
+    f"{_DEFAULT_AMOUNTS}"
+    ' A time or amount they said goes back in their words ("six" stays "six").\n'
+    '- Under ten digits of a mobile? Ask for the rest ("six more digits?"); never read back, '
+    "confirm, act or end on part of one.\n"
+    "- Read back what you heard and wait for a yes; an amount that could be a range or a "
+    "decimal as which one.\n"
+    "- Any number or code, first time too: digit by digit, a mobile five, a comma, five; offer "
+    "to repeat.\n"
+)
+
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
     "- Open with the point in one short sentence with no comma; one or two short sentences, "
@@ -3145,19 +3165,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     "answer? Explain or offer choices.\n"
     "- Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter, in new "
     "words.\n"
-    '- Sentences of ten words or fewer, full stops between; "?" on every question. '
-    "No markdown, "
-    "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
-    "time now.\n"
-    f"{_WRITTEN_FORM_BULLET}"
-    f"{_DEFAULT_AMOUNTS}"
-    ' A time or amount they said goes back in their words ("six" stays "six").\n'
-    '- Under ten digits of a mobile? Ask for the rest ("six more digits?"); never read back, '
-    "confirm, act or end on part of one.\n"
-    "- Read back what you heard and wait for a yes; an amount that could be a range or a "
-    "decimal as which one.\n"
-    "- Any number or code, first time too: digit by digit, a mobile five, a comma, five; offer "
-    "to repeat.\n"
+    f"{_PUNCTUATION_BULLET}"
+    f"{_NUMBER_BULLETS}"
     f"{_REGISTER_BULLET}"
     '- Unclear, off the point, or a bare "OK" to a question? Ask what they meant, reworded; '
     "never guess, pick for them or count it done. Asked to repeat? Say it shorter. "
@@ -3167,6 +3176,26 @@ VOICE_STYLE_GUIDANCE: Final = (
     '"Anything else?" once, when the task is done; "that is all"? Close.\n'
     "- Close: what happens next in one line, no recap, then one goodbye, nothing more. End "
     "only then or when asked, never while they talk."
+)
+
+#: HOW TO SPEAK for a script whose steps carry example turns (`call_script.is_example_led`,
+#: DESIGN §2.7 and §3.5 of docs/evidence/script-rebuild-2026-11-26). Turn shape (open with the
+#: point, no reaction opener, the busy and confused moments, the close) is what each step's
+#: examples show, and a rule beside a copyable line loses to the line (03-external-research.md
+#: §5: Wei et al. 2023, Agarwal et al. 2024). What stays is what an example cannot carry:
+#: numbers, amounts and read-back, the language switch, the written form, and the step rule
+#: the examples show but cannot enforce (one action; only their own words move on; "after
+#: what?" gets the same step, shorter). A script with no examples keeps every bullet.
+EXAMPLE_LED_GUIDANCE: Final = (
+    "--- HOW TO SPEAK ---\n"
+    "- One action or one question a turn, last, then wait. Only their own words that it is "
+    'done, or what they see, move you on; never ask "done?". Unclear, off the point or a bare '
+    '"OK"? Ask what they see, never count it done. "What?" or "after what?"? The same step '
+    "again, shorter. Asked something? Answer just that, then go back to the step.\n"
+    f"{_PUNCTUATION_BULLET}"
+    f"{_NUMBER_BULLETS}"
+    f"{_REGISTER_BULLET}"
+    "- End only after one goodbye or when asked, never while they talk."
 )
 #: With a language pack (D-830) the pack says how the language is spoken and LANGUAGES which
 #: language to answer in, so this bullet keeps only what neither says.
@@ -3219,7 +3248,8 @@ def screen_steps_bullet(language: str | None) -> str:
 
 
 def _how_to_speak(pack: PackChoice | None, cfg: AgentConfig | None = None) -> str:
-    guidance = VOICE_STYLE_GUIDANCE
+    example_led = cfg is not None and STEP_EXAMPLES_LEAD in (cfg.system_prompt or "")
+    guidance = EXAMPLE_LED_GUIDANCE if example_led else VOICE_STYLE_GUIDANCE
     if cfg is not None:
         own_amounts = amounts_rule(cfg.language_primary) or _NEUTRAL_AMOUNTS
         guidance = guidance.replace(_DEFAULT_AMOUNTS, own_amounts)
@@ -3329,13 +3359,12 @@ def _pack_section(cfg: AgentConfig, pack: PackChoice) -> str:
 def _register_section(cfg: AgentConfig, pack: PackChoice | None = None) -> str:
     """The spoken register for each language this agent speaks (`spoken_style.json`).
 
-    English guidance about each register, then, for the primary language only, the
-    founder-approved example exchanges (D-778) as how a turn sounds, never words to copy.
-    Few-shot examples anchor a register better than rules do (Google prompt design
-    strategies, S8 in `docs/evidence/prompting-practices-2026-10.md`); the primary only,
-    because the platform layers may not grow past their 14 Oct 2026 size and the primary is
-    the language most calls are in. A client's own example call stays in its script
-    (`CallScript.example_exchange`), where it can be edited.
+    English guidance about each register and its word list, and no example turns: the
+    founder-approved exchanges (D-778) are booking turns that open on a reaction, and the
+    model copied their shape into every call, guided steps included (02-in-call-compilation.md
+    §3.3, 26 Nov 2026). How a turn sounds is now each step's own examples, written for that
+    step (`call_script.StepExamples`); `spoken_style.prompt_example_line` is unchanged and
+    serves the writer and the evals.
 
     With a language pack (`_pack_section`) the packs replace all of this.
     """
@@ -3346,10 +3375,6 @@ def _register_section(cfg: AgentConfig, pack: PackChoice | None = None) -> str:
         guidance = register_guidance(tag)
         if guidance:
             lines.append(f"{_language_name(tag)}: {guidance}")
-        # Straight after the primary's own line, so it reads as that language's.
-        example = prompt_example_line(tag) if tag == cfg.language_primary else None
-        if example:
-            lines.append(example)
     if not lines:
         return ""
     return "--- SPOKEN REGISTER ---\n" + "\n".join(lines)
@@ -3595,8 +3620,11 @@ def fenced_script(script: str) -> str:
     script: the read-back asks whether the engine holds THIS text, so a transform applied on
     the way out and not on the way back (`mark_caller_name`) refused every script that greets
     a caller by name and title.
+
+    The opening sections are left out: START OF THE CALL quotes the first words as already
+    said, and a second copy here read as a greeting still to say (`without_opening_sections`).
     """
-    return neutralise_markers(mark_caller_name(script.strip()))
+    return neutralise_markers(mark_caller_name(without_opening_sections(script.strip())))
 
 
 #: Days after today that `today_value` names with their weekday (D-945). A model counting
@@ -4956,14 +4984,15 @@ OPENING_CONTINUES_RULE: Final = (
 #: instructions stay under CONFIDENTIALITY.
 #: What they have or use is a claim about the person too (founder's Rytu Khata call of 9 Nov
 #: 2026): a step's sounds-like line said "you already use the app, right? what for?" and the
-#: agent said it to a caller who had only registered. The model copies a step's line, so the
-#: rule names that line as an example. "said so on this call" rather than "they said so"
+#: agent said it to a caller who had only registered. The model copies a step's lines, so the
+#: rule says its examples are not facts about the person.
+#: "said so on this call" rather than "they said so"
 #: (D-979, founder, 10 Nov 2026): the same number's earlier calls are in the model's history
 #: (ThinnestAI email of 28 Oct 2026, VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md`
 #: §39 item 7), so "they said so" was met by a call days ago.
 CALL_REASON_RULE: Final = (
     " Never say they enquired, showed interest, have or use something unless they said so on "
-    'this call or THIS CALL says so; a step\'s "sounds like" is only an example. Asked what '
+    "this call or THIS CALL says so; a step's examples are not facts about them. Asked what "
     "we hold? Say THIS CALL's name, details."
 )
 

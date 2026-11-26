@@ -204,6 +204,7 @@ def platform_prompt_revision() -> str:
         ConversationStage,
         ProcedureStep,
         ScenarioQa,
+        StepExamples,
         StepOutcome,
         compile_call_script,
         native_steps,
@@ -252,6 +253,20 @@ def platform_prompt_revision() -> str:
         step_outcomes=[StepOutcome(step=1, outcome="O")],
     )
     parts.append(compile_call_script(guided))
+    # The same step with examples: an example-led script compiles its own step lead and
+    # pointers, and gets the trimmed HOW TO SPEAK (`engine.EXAMPLE_LED_GUIDANCE`), composed
+    # below from this body.
+    example_led = guided.model_copy(
+        update={
+            "stages": [
+                guided.stages[0].model_copy(
+                    update={"examples": {primary: StepExamples(turns=["T"], confused="C")}}
+                )
+            ]
+        }
+    )
+    example_body = compile_call_script(example_led)
+    parts += [example_body, render_steps(native_steps(example_led))]
     # Every direction, with and without a business name, so a change to any wording of the
     # role sentence moves it too.
     references: tuple[tuple[bool, bool, Literal["inbound", "outbound", "both"], str], ...] = (
@@ -286,6 +301,7 @@ def platform_prompt_revision() -> str:
             caller_has_screen=callbacks,
         )
         parts.append(compose_engine_prompt(cfg))
+        parts.append(compose_engine_prompt(cfg.model_copy(update={"system_prompt": example_body})))
     # Each offered language as the only one: the primary's register examples and full pack
     # are composed for the primary alone, so with only the first language as primary a
     # change to another language's would not move the revision.

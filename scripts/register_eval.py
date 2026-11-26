@@ -351,10 +351,13 @@ def register_layer(cfg: AgentConfig, features: frozenset[str], fixture: Fixture)
             lines.append(f"{language.english_name if language else tag}: {guidance}")
         if tag != cfg.language_primary:
             continue
+        # The shipped prompt quotes no example exchanges (`engine._register_section`); the
+        # `examples` arm puts the approved ones and the drafts back to measure them.
+        if "examples" not in features:
+            continue
         style = style_for(tag)
         exchanges = list(style.prompt_examples) if style is not None else []
-        if "examples" in features:
-            exchanges += candidate_prompt_examples(tag)
+        exchanges += candidate_prompt_examples(tag)
         if exchanges:
             lines.append(example_sentence(exchanges))
     if not lines:

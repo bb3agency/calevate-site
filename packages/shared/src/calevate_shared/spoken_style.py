@@ -87,8 +87,8 @@ NAME_CHECK_KEY: Final = "outbound_name_check"
 MAX_TEXT: Final = 600
 MAX_SHORT: Final = 120
 MAX_TURNS: Final = 10
-#: Tags and fillers quoted in the prompt; the rest guide the writers only. Four since D-778,
-#: whose in-call examples show the commonest tags, so the platform layers stay within cap.
+#: Fillers the register evals quote in their filler arms (`scripts/register_eval.py`); the
+#: call prompt quotes none (`register_guidance`).
 PROMPT_FILLERS: Final = 4
 #: Keys are short ids a URL can carry: letters, digits, `-` and `_`, or a swap's formal word.
 _ID: Final = re.compile(r"^[a-z0-9_][a-z0-9_-]{0,47}$")
@@ -706,13 +706,22 @@ SWAPS_LEAD: Final = "Never the left, even scripted:"
 #: OpenAI Realtime prompting guide, cdn.openai.com/API/docs/realtime-prompting-guide.pdf;
 #: Retell's agent handbook "limits filler acknowledgments", docs.retellai.com/build/
 #: agent-handbook; both read 24 Nov 2026), so the cap is said with the words it caps.
+#: The call prompt no longer quotes the fillers (`register_guidance`); the register evals
+#: still compose this sentence for their filler arms.
 FILLERS_LEAD: Final = "Fillers, once a call each:"
 
 
 def register_guidance(tag: str | None) -> str | None:
-    """The register line, then the prompt's do/don't list as concrete pairs, then the tags
-    and fillers. Concrete pairs because an open in-call model (GPT-OSS 120B, founder decision
-    10 Oct 2026) follows a word it can copy far better than an abstract rule about register."""
+    """The register line, then the prompt's do/don't list as concrete pairs. Concrete pairs
+    because an open in-call model (GPT-OSS 120B, founder decision 10 Oct 2026) follows a word
+    it can copy far better than an abstract rule about register.
+
+    The fillers are not quoted. Even capped "once a call each", the list was a set of
+    openers to copy: on the Rytu Khata call of 26 Nov 2026 the replies opened on a rotating
+    reaction, the list's first filler among them (docs/evidence/script-rebuild-2026-11-26/
+    04-checks-and-evals.md §2 #1). The
+    engine says its own thinking line (`thinking_lines`), and each step's examples show how a
+    turn opens."""
     style = style_for(tag)
     if style is None:
         return None
@@ -720,9 +729,6 @@ def register_guidance(tag: str | None) -> str | None:
     if style.prompt_swaps:
         swaps = "; ".join(_swap(formal, spoken) for formal, spoken in style.prompt_swaps)
         parts.append(f"{SWAPS_LEAD} {swaps}.")
-    if style.fillers:
-        said = ", ".join(f.text for f in style.fillers[:PROMPT_FILLERS])
-        parts.append(f"{FILLERS_LEAD} {said}.")
     return " ".join(parts)
 
 

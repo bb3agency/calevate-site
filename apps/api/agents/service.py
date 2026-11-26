@@ -1036,6 +1036,12 @@ def _call_settings_fields(agent: AgentRow, *, languages: Sequence[str]) -> dict[
     }
 
 
+def _call_languages(agent: AgentRow) -> tuple[str, ...]:
+    """The languages `agent`'s calls are in, main first: a script's step examples in any
+    other language are left out of its compile (`compile_call_script(languages=...)`)."""
+    return (str(agent["language_primary"]), *(agent["languages_extra"] or ()))
+
+
 def _to_config(
     tenant_id: UUID,
     agent: AgentRow,
@@ -4408,7 +4414,11 @@ async def line_config(
     engine = get_engine()
     if script is None:
         script = CallScript.model_validate(line.script)
-    body = compile_call_script(script, collect=await line_collect_fields(session, line_id))
+    body = compile_call_script(
+        script,
+        collect=await line_collect_fields(session, line_id),
+        languages=_call_languages(agent),
+    )
     handoff, _duty = await handoff_module.spec_for(session, dict(agent))
     off = set(line.actions_off or ())
     tools = await actions_service.declare(session, agent_id=agent_id, direction="inbound")
@@ -4900,7 +4910,7 @@ async def campaign_agent_row(
         script = CallScript.model_validate(own)
     if script is not None:
         collect = await campaign_collect_fields(session, campaign_id)
-        body = compile_call_script(script, collect=collect)
+        body = compile_call_script(script, collect=collect, languages=_call_languages(agent))
         row = _line_agent_row(agent, script, body)
     held = cast(
         AgentRow,
