@@ -15,7 +15,7 @@ from apps.api.agents.call_rules import (
     opening_redone_line_problems,
     said_line_problem,
 )
-from apps.api.agents.mistake_lints import mistake_findings
+from apps.api.agents.script_checks import mistake_findings
 from apps.api.agents.script_lint import CapabilityManifest, LintContext
 from apps.api.agents.turn_checks import reaction_lead
 from apps.workers import script_assist

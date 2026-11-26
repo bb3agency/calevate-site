@@ -8353,6 +8353,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/script/checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the script checks find in the campaign's saved script, and whether it can start */
+        get: operations["read_script_checks_v1_campaigns__campaign_id__script_checks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/company-training": {
         parameters: {
             query?: never;
@@ -11177,6 +11194,23 @@ export interface paths {
         put?: never;
         /** Put back the owner's own last version of the line's script, before Pip's changes */
         post: operations["restore_script_before_pip_v1_inbound_lines__line_id__script_restore_before_pip_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/script/checks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the script checks find in the line's saved script, and whether it can go live */
+        get: operations["read_script_checks_v1_inbound_lines__line_id__script_checks_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -35680,6 +35714,33 @@ export interface components {
             /** Register Needs Review */
             register_needs_review: boolean;
         };
+        /** ScriptCheckOut */
+        ScriptCheckOut: {
+            /** Check */
+            check: string;
+            /** Detail */
+            detail: string;
+            /** Line */
+            line: string;
+            /** Message */
+            message: string;
+            /** Path */
+            path: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "block" | "warn";
+            /** Stage Id */
+            stage_id: string | null;
+        };
+        /** ScriptChecksOut */
+        ScriptChecksOut: {
+            /** Blocks Live */
+            blocks_live: boolean;
+            /** Findings */
+            findings: components["schemas"]["ScriptCheckOut"][];
+        };
         /**
          * ScriptEditOut
          * @description One suggested edit, kept or left with its own tick box (D-823).
@@ -57231,6 +57292,37 @@ export interface operations {
             };
         };
     };
+    read_script_checks_v1_campaigns__campaign_id__script_checks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptChecksOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_company_training_v1_company_training_get: {
         parameters: {
             query?: never;
@@ -62515,6 +62607,37 @@ export interface operations {
                 };
                 content: {
                     "application/problem+json": components["schemas"]["EngineAgentAllowanceFull"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_script_checks_v1_inbound_lines__line_id__script_checks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptChecksOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

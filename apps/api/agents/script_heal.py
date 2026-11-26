@@ -32,22 +32,18 @@ or runs is coalesced and a change made mid-pass is never lost.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript
-from calevate_shared.spoken_guard import textbook_problem
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import agent_pass
+from apps.api.agents import agent_pass, script_checks
 from apps.api.agents.agent_pass import dead_sql
-from apps.api.agents.call_rules import opening_redone_line_problems, reacted_line_problems
-from apps.api.agents.mistake_fixes import fix_paths
-from apps.api.agents.mistake_lints import SCRIPT_FIXABLE_KINDS, mistake_findings, script_mistakes
-from apps.api.agents.script_lint import LintContext, agent_lines, flow_problems
-from apps.api.agents.script_shape import line_problems
+from apps.api.agents.script_lint import LintContext
 from apps.api.agents.script_structure import (
     ways_out_wired,
     without_echo_ways,
@@ -55,6 +51,7 @@ from apps.api.agents.script_structure import (
 )
 from apps.api.campaigns.script_history import REWRITE_RULES
 from apps.api.copilot.consent import account_content_may_reach_models
+from apps.api.core.errors import ProblemError
 
 #: The ARQ name of the pass (`workers/script_heal`).
 JOB: Final = "repair_holder_script"
@@ -63,7 +60,7 @@ JOB: Final = "repair_holder_script"
 DEBOUNCE_S: Final = 30
 #: Joined to the script before it is hashed into `script_heal_inputs`: a new or changed check
 #: changes it, so every script is checked once more by the next sweep.
-CHECKS_VERSION: Final = "heal-5"
+CHECKS_VERSION: Final = "heal-6"
 #: The key in `script_heal_fixed` that records a whole-script rewrite asked for under the
 #: current rules (`workers/script_heal._ask_rewrite`), so it is asked once per holder.
 REWRITE_KEY: Final = f"pip_rewrite:{REWRITE_RULES}"
@@ -89,65 +86,56 @@ def table_of(kind: HolderKind) -> str:
     return "campaigns" if kind == "campaign" else "inbound_lines"
 
 
-def _node(script: CallScript, path: str) -> Any:
-    node: Any = script.model_dump(mode="json")
-    for part in path.split("."):
-        if isinstance(node, list) and part.isdigit() and int(part) < len(node):
-            node = node[int(part)]
-        elif isinstance(node, dict) and part in node:
-            node = node[part]
-        else:
-            return None
-    return node
-
-
-def _repairable(script: CallScript, finding: str) -> bool:
-    """Whether a repair may rewrite the place `finding` names: one line, never an opening or
-    its notices, never a step outcome."""
-    path = finding.partition(": ")[0]
-    return (
-        not path.startswith("step_outcomes")
-        and bool(fix_paths([finding]))
-        and isinstance(_node(script, path), str)
-    )
-
-
-def _textbook(script: CallScript, language: str) -> list[str]:
-    if not language:
-        return []
-    lines = [
-        *agent_lines(script),
-        *(
-            (f"stages.{i}.procedure.{j}.action", step.action)
-            for i, stage in enumerate(script.stages)
-            for j, step in enumerate(stage.procedure)
-        ),
-    ]
-    return [
-        problem
-        for path, line in lines
-        if line.strip() and (problem := textbook_problem(path, line, language))
-    ]
-
-
 def heal_findings(script: CallScript | None, lint: LintContext) -> list[str]:
-    """Every fault a repair may clear in `script`, each once, as script check findings
-    ("<path>: <problem>"): the call's shape (`flow_problems`, brackets included), a step's
-    line that redoes the opening or opens with a reaction, every call-mistake check, textbook
-    words in the call language, and a line giving several actions or noting what the caller
-    does (`script_shape.line_problems`). [] for no script or a hand-written one, which has no
-    lines to point at."""
+    """Every fault a repair may clear in `script`, as "<path>: <problem>": every registered
+    check, on the lines a repair may change (`script_checks.repairs`, which the writer's
+    repair rounds read too). [] for no script or a hand-written one, which has no lines to
+    point at."""
     if script is None or script.raw_override or not script.stages:
         return []
-    found = [
-        *flow_problems(script),
-        *opening_redone_line_problems(script),
-        *reacted_line_problems(script),
-        *script_mistakes(script, lint),
-        *_textbook(script, lint.language),
-        *line_problems(script, lint.judged),
-    ]
-    return list(dict.fromkeys(f for f in found if _repairable(script, f)))
+    return script_checks.repairs(script, lint)
+
+
+def kind_findings(script: CallScript | None, lint: LintContext, kind: str) -> list[str]:
+    """The faults of call mistake `kind` a repair may clear: the heal pass's own findings
+    (`heal_findings`) of that kind's checks, so the healer's VERIFY (`workers/mistake_fix`)
+    reads a script clean exactly when the repair pass does."""
+    ids = script_checks.MISTAKE_CHECKS.get(kind)
+    if script is None or script.raw_override or not script.stages or not ids:
+        return []
+    return script_checks.repairs(script, lint, ids=ids)
+
+
+async def holder_lint_context(
+    session: AsyncSession, kind: HolderKind, holder_id: UUID, agent_id: UUID
+) -> LintContext:
+    """What a holder's saved script is checked against, by every path that checks one (the
+    heal pass, the healer's VERIFY, Save, Keep and Put it live): the agent's context
+    (`lint_context_for`) in the holder's own call language, with its job's judged details;
+    promo off, as the put-live dialog shows the promotional wording on its own (D-943)."""
+    from apps.api.agents import script_builder
+    from apps.api.agents.capability_manifest import lint_context_for
+
+    tenant = await _tenant_of(session, kind, holder_id)
+    if tenant is None:
+        raise ProblemError.not_found("Campaign" if kind == "campaign" else "Inbound line")
+    lint = await lint_context_for(session, tenant_id=tenant, agent_id=agent_id)
+    details = await (
+        script_builder.campaign_details if kind == "campaign" else script_builder.line_details
+    )(session, holder_id)
+    language = (
+        (
+            await session.execute(
+                text("SELECT settings_overrides->>'language_primary' FROM campaigns WHERE id = :h"),
+                {"h": holder_id},
+            )
+        ).scalar()
+        if kind == "campaign"
+        else None
+    )
+    return replace(
+        lint, promo=False, language=str(language or lint.language), judged=details.judged
+    )
 
 
 def wired_ways_out(script: CallScript, lint: LintContext) -> CallScript:
@@ -163,13 +151,7 @@ def wired_ways_out(script: CallScript, lint: LintContext) -> CallScript:
 
 def mistake_kinds(script: CallScript | None, lint: LintContext) -> set[str]:
     """The call mistake kinds whose script check faults a line a repair may change."""
-    if script is None:
-        return set()
-    return {
-        kind
-        for kind in SCRIPT_FIXABLE_KINDS
-        if any(_repairable(script, f) for f in mistake_findings(script, lint, kind))
-    }
+    return {k for k in script_checks.SCRIPT_FIXABLE_KINDS if kind_findings(script, lint, k)}
 
 
 def holder_kind(kind: str) -> HolderKind:
@@ -285,7 +267,7 @@ async def call_fix_states(
             call_started_at is None or datetime.fromisoformat(str(at)) >= call_started_at
         ):
             out[mistake] = "repaired"
-        elif working and mistake in SCRIPT_FIXABLE_KINDS:
+        elif working and mistake in script_checks.SCRIPT_FIXABLE_KINDS:
             out[mistake] = "repairing"
     return out
 

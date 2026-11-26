@@ -95,12 +95,11 @@ from calevate_shared.spoken_guard import (
 )
 from pydantic import ValidationError
 
+from apps.api.agents import script_checks
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit
 from apps.api.agents.call_rules import (
     OPENING_LINE_RULE,
-    opening_redone_line_problems,
     placed_opening_problems,
-    reacted_line_problems,
     said_line_problem,
     writer_rules,
 )
@@ -111,7 +110,6 @@ from apps.api.agents.script_lint import (
     CapabilityManifest,
     LintContext,
     caller_paths,
-    flow_problems,
     instruction_fields,
     instruction_problems,
     placeholder_instruction,
@@ -557,11 +555,7 @@ def shape_problems(script: CallScript, before: CallScript | None = None) -> list
     fix."""
 
     def shape(of: CallScript) -> list[str]:
-        return [
-            *flow_problems(of),
-            *opening_redone_line_problems(of),
-            *reacted_line_problems(of),
-        ]
+        return script_checks.texts(script_checks.run(of, ids=script_checks.SHAPE_CHECKS))
 
     owned = set(shape(before)) if before is not None else set()
     problems = [problem for problem in shape(script) if problem not in owned]
@@ -570,7 +564,10 @@ def shape_problems(script: CallScript, before: CallScript | None = None) -> list
         f"stages.{i}.sounds_like: is empty; write one short line in the call language "
         "showing how this step sounds."
         for i, stage in enumerate(script.stages)
-        if stage.mode == "guide" and not stage.sounds_like.strip() and was.get(stage.id) != stage
+        if stage.mode == "guide"
+        and not stage.sounds_like.strip()
+        and not stage.has_examples
+        and was.get(stage.id) != stage
     ]
     if before is not None and before.stages:
         ids = {stage.id for stage in script.stages}

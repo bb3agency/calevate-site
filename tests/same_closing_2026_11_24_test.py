@@ -4,7 +4,7 @@ call of 23 Nov 2026: nearly every reply ended "tell me"), by the script check's 
 from __future__ import annotations
 
 from apps.api.agents.call_mistakes import LESSONS
-from apps.api.agents.mistake_lints import SCRIPT_FIXABLE_KINDS
+from apps.api.agents.script_checks import SCRIPT_FIXABLE_KINDS
 from apps.api.agents.script_lint import line_ending
 from apps.api.agents.test_conversations import Turn
 from apps.api.agents.turn_checks import JOB_KINDS, SOUND_KINDS, conversation_problems

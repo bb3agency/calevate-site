@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from apps.api.agents.call_mistakes import LESSONS
-from apps.api.agents.mistake_lints import SCRIPT_FIXABLE_KINDS, mistake_findings
+from apps.api.agents.script_checks import SCRIPT_FIXABLE_KINDS, mistake_findings
 from apps.api.agents.script_lint import LintContext, script_problems
 from apps.api.agents.script_proposals import finding_key
 from apps.api.agents.turn_checks import IN_CALL_KINDS

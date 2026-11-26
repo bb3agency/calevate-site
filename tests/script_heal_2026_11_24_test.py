@@ -19,7 +19,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.agents import call_mistakes, script_heal
-from apps.api.agents.mistake_lints import mistake_findings
+from apps.api.agents.script_checks import mistake_findings
 from apps.api.agents.script_lint import LintContext, bracket_problems, flow_problems
 from apps.api.campaigns import workspace
 from apps.api.core.settings import get_settings

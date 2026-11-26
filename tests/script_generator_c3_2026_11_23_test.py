@@ -20,8 +20,8 @@ from apps.api.agents.call_rules import (
     reacted_line_problems,
     restated_clause,
 )
-from apps.api.agents.mistake_lints import mistake_findings
 from apps.api.agents.script_builder import job_details
+from apps.api.agents.script_checks import mistake_findings
 from apps.api.agents.script_lint import (
     LintContext,
     same_ending_problems,

@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import time
 from collections import defaultdict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
@@ -38,7 +38,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import agent_pass, script_builder, script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
-from apps.api.agents.capability_manifest import lint_context_for
 from apps.api.agents.mistake_fixes import fix_paths
 from apps.api.agents.script_heal import (
     CHECKS_VERSION,
@@ -48,6 +47,7 @@ from apps.api.agents.script_heal import (
     SLOTS,
     HolderKind,
     heal_findings,
+    holder_lint_context,
     mistake_kinds,
     table_of,
     wired_ways_out,
@@ -252,13 +252,7 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
         await _finish(tenant_id, kind, holder_id, "done")
         return "unchanged"
     async with tenant_session(tenant_id) as session:
-        lint = await lint_context_for(session, tenant_id=tenant_id, agent_id=holder.agent_id)
-        details = await (
-            script_builder.campaign_details if kind == "campaign" else script_builder.line_details
-        )(session, holder_id)
-    lint = replace(
-        lint, promo=False, language=holder.language or lint.language, judged=details.judged
-    )
+        lint = await holder_lint_context(session, kind, holder_id, holder.agent_id)
     # Structure first, by code: a way out stated only in words becomes a branch (no model, so
     # no gate), then the model is asked only about the lines.
     wired = wired_ways_out(holder.script, lint)

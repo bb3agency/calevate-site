@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apps.api.agents.mistake_lints import script_mistakes
+from apps.api.agents.script_checks import script_mistakes
 from apps.api.agents.script_lint import LintContext
 from apps.workers import campaign_script_ask as ask
 from apps.workers.first_run import documents_block

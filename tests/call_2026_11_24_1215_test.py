@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from apps.api.agents import service as agents_service
 from apps.api.agents.call_mistakes import LESSONS, mistakes_in
-from apps.api.agents.mistake_lints import mistake_findings
+from apps.api.agents.script_checks import mistake_findings
 from apps.api.agents.script_lint import LintContext
 from apps.api.agents.turn_checks import turn_problems
 from apps.api.db.session import tenant_session

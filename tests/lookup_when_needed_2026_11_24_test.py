@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from apps.api.agents import turn_checks
 from apps.api.agents.call_mistakes import LESSONS, lookup_figures, lookup_mistakes, needs_lookup
-from apps.api.agents.mistake_lints import SCRIPT_FIXABLE_KINDS
+from apps.api.agents.script_checks import SCRIPT_FIXABLE_KINDS
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
