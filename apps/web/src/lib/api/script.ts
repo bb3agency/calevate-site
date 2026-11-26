@@ -104,7 +104,14 @@ export interface ConversationStage {
   }[];
   /** How the owner wants the line said, heard and noted (language "" = every language). */
   coaching?: { language: string; note: string }[];
+  /** Example turns by language tag, which replace `sounds_like` (script rebuild §3.2).
+   *  Mirrors `ConversationStage.examples`. */
+  examples?: Record<string, StepExamples>;
 }
+
+/** One step's examples in one language: up to 5 ways it is said, and the hard moments.
+ *  The generated shape (`turns` may be absent on a request; the editor fills it). */
+export type StepExamples = components["schemas"]["StepExamples"];
 
 /** Mirrors `Objection`. */
 export interface Objection {

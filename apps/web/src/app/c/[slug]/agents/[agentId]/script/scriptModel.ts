@@ -1,6 +1,8 @@
 import type { CallScript, ConversationStage, ScriptContext } from "@/lib/api/script";
 import { lookup } from "@/lib/lookup";
 
+import { exampleProblems } from "./stepExamples";
+
 /**
  * THE ONE MODEL behind the flow canvas and the numbered list.
  *
@@ -66,8 +68,8 @@ export function limitsFrom(context: ScriptContext | null): Limits {
 }
 
 /** A stage with every optional field filled, so views never branch on `undefined`. */
-export type Section = Required<Omit<ConversationStage, "position" | "otherwise_via" | "step" | "scripts" | "qa" | "coaching">> &
-  Pick<ConversationStage, "step" | "scripts" | "qa" | "coaching"> & {
+export type Section = Required<Omit<ConversationStage, "position" | "otherwise_via" | "step" | "scripts" | "qa" | "coaching" | "examples">> &
+  Pick<ConversationStage, "step" | "scripts" | "qa" | "coaching" | "examples"> & {
   position: { x: number; y: number } | null;
   /** The bend of the arrow to `otherwise` (or the next step), dragged on the canvas. */
   otherwise_via?: { x: number; y: number } | null;
@@ -93,6 +95,7 @@ export function asSection(stage: ConversationStage): Section {
     scripts: stage.scripts ?? {},
     qa: stage.qa ?? [],
     coaching: stage.coaching ?? [],
+    ...(stage.examples ? { examples: stage.examples } : {}),
   };
 }
 
@@ -495,6 +498,7 @@ export function validate(script: CallScript, limits: Limits = DEFAULT_LIMITS): I
     if (chars(s.sounds_like) > limits.soundsLikeMax) {
       add(s.id, "sounds_like", `Keep this line under ${limits.soundsLikeMax} letters.`);
     }
+    for (const p of exampleProblems(s.examples, limits.soundsLikeMax)) add(s.id, p.field, p.message);
     if (s.branches.length > limits.maxBranches) {
       add(s.id, "branches", `At most ${limits.maxBranches} ways out of one step.`);
     }

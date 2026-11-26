@@ -210,9 +210,13 @@ describe("undo after an unlink", () => {
           onRestore={async () => {}}
         />
       </ToastProvider>,
-      // Neither answer changes what the flow draws: the script's limits default, and
-      // hearing a line is not under test.
-      { "/v1/agents/agent-1/script": noReply(), "/v1/me": noReply() },
+      // None of these answers changes what the flow draws: the script's limits default,
+      // hearing a line is not under test, and the checks find nothing.
+      {
+        "/v1/agents/agent-1/script": noReply(),
+        "/v1/me": noReply(),
+        "/v1/campaigns/campaign-1/script/checks": { findings: [], blocks_live: false },
+      },
     );
     const chipsOf = () =>
       Array.from(document.querySelectorAll<HTMLElement>("[data-next-chip]")).map((c) => c.dataset.nextChip);

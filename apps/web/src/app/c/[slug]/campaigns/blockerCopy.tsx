@@ -185,6 +185,12 @@ export const BLOCKER_COPY: Record<string, BlockerNote> = {
     whyFromServer: true,
     owner: "client",
   },
+  // Script rebuild §3.4: a block-level script check holds Start; the lines are shown where
+  // they are edited, and the row offers Pip's fix and "Show me".
+  script_needs_fix: {
+    text: "A line in the script needs fixing before calls can start.",
+    owner: "client",
+  },
   // D-943: an offer in a service call makes the whole call promotional.
   script_promotional: {
     text: "The agent's script talks about offers.",
@@ -313,9 +319,12 @@ export function blockerDestination(
  * A rule fixed on the campaign's own page rather than another screen: the checklist row
  * gets a button that opens or jumps to the control that clears it.
  */
-export function blockerInPage(rule: string): "add-people" | "list-source" | "rewrite" | undefined {
+export function blockerInPage(
+  rule: string,
+): "add-people" | "list-source" | "rewrite" | "fix-script" | undefined {
   if (rule === "no_contacts" || rule === "all_contacts_dnc") return "add-people";
   if (rule === "script_promotional") return "rewrite";
+  if (rule === "script_needs_fix") return "fix-script";
   if ((PROVENANCE_RULES as readonly string[]).includes(rule)) return "list-source";
   return undefined;
 }

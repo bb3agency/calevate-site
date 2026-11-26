@@ -52,6 +52,7 @@ const routes = (workspace: Routes[string]): Routes => ({
   [`${base}/workspace`]: workspace,
   [`${base}/settings`]: settingsFixture(),
   [`${base}/script/versions`]: scriptVersionsFixture(),
+  [`${base}/script/checks`]: { findings: [], blocks_live: false },
   "/v1/kb/notes": { notes: [] },
   "/v1/kb/uploads": [],
   "/v1/agents": [],
