@@ -4,7 +4,6 @@ of 23 Nov 2026: with no name on the list, "నమస్కారం {{lead_name}
 
 from __future__ import annotations
 
-
 import pytest
 from apps.api.agents.live_apply import platform_prompt_revision
 from calevate_shared import engine
@@ -72,4 +71,3 @@ def test_a_change_to_the_mark_or_an_opening_rule_republishes_every_live_agent(
     before = platform_prompt_revision()
     monkeypatch.setattr(engine, name, getattr(engine, name) + " x")
     assert platform_prompt_revision() != before
-

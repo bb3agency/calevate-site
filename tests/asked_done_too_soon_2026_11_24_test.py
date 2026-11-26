@@ -241,9 +241,11 @@ async def test_the_repair_pass_rewrites_the_line_into_an_invitation(
 # --- the in-call rule and the writer -------------------------------------------------------
 
 
-def test_every_agent_is_told_to_invite_rather_than_ask_if_done() -> None:
-    assert 'inviting them in new words to say when done; never "done?"' in VOICE_STYLE_GUIDANCE
-    assert "invite them to say when done, wait." in PROCEDURE_LEAD
+def test_every_agent_is_told_never_to_ask_if_done() -> None:
+    """The invitation this test once pinned went too (Varsha call of 26 Nov 2026): a step's turn
+    ends on the action."""
+    assert 'never "say when done", never "done?"' in VOICE_STYLE_GUIDANCE
+    assert "One action a turn, then stop;" in PROCEDURE_LEAD
     cfg = AgentConfig(
         tenant_id="t",
         agent_id="a",

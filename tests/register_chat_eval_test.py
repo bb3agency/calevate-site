@@ -107,7 +107,6 @@ def test_no_ban_variants_name_no_word_to_avoid(key: str) -> None:
         platform = text.split(engine.CLIENT_SCRIPT_OPEN)[0]
         for formal, _spoken in style.prompt_swaps:
             assert f'"{formal}"' not in platform
-        # The register line stays.
         assert style.register in text
 
 

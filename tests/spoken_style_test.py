@@ -111,6 +111,8 @@ def test_the_prompt_carries_only_the_short_list() -> None:
     # A swap that is not in the prompt list stays out of the prompt.
     left_out = next(f for f, _ in style.word_swaps if (f, _) not in style.prompt_swaps)
     assert f'"{left_out}"' not in guidance
+    # The fillers are not quoted: a word named in the prompt comes back more often (D-894).
+    assert "అవునా" not in guidance
     assert len(guidance) < 1_500
 
 

@@ -3088,9 +3088,9 @@ _REGISTER_BULLET: Final = (
 #:   result is asked for openly ("ask what they see"); the step-by-step and step-outcome leads
 #:   in `call_script` say the same for a script's own steps.
 #: From the founder's Telugu campaign call of 24 Nov 2026: one filler from the register's list
-#: opened nine of twelve replies. "Often none" and "never to open" were already here; the
-#: register line introduced its fillers as "lightly", so the cap is now said at that list
-#: (`spoken_style.FILLERS_LEAD`), and here a reaction is never said twice a call.
+#: opened nine of twelve replies. "Often none" and "never to open" were already here, and
+#: here a reaction is never said twice a call; the register's list is no longer quoted at all
+#: (`spoken_style.register_guidance`).
 #: The same call (12:15): after each action the agent asked in the same turn whether it was
 #: done ("log in. Have you logged in?"), before the person could do it. A step's turn now ends
 #: on an invitation to say when it is done, never "done?". A turn that ends on a question also
@@ -3116,6 +3116,13 @@ _REGISTER_BULLET: Final = (
 #: or answered with the whole line again, so an unclear reply is never counted done; "a
 #: question" for "your question" and the search-or-wait sentence joined to the bullet above
 #: pay for it, and the section is three characters shorter than before.
+#: The Varsha call of 26 Nov 2026 (16:03): every step ended on the same "tell me when it is
+#: done", so the person was asked before they could act, and their "after what should I tell
+#: you?" was taken as done and the next step given. A step's turn now ends on the action, and
+#: a "what?" gets the same step again, shorter; only their word that it is done moves on. The
+#: same call opened every reply with a stock reaction from the register's filler list, which
+#: is no longer quoted in the prompt (`spoken_style.register_guidance`); "no two replies start
+#: or end alike" already says the rest and is unchanged.
 _WRITTEN_FORM_BULLET: Final = f"- {WRITTEN_FORM_RULE}\n"
 #: The language `VOICE_STYLE_GUIDANCE`'s amounts bullet is written for, and the default of
 #: an `AgentConfig` built without one (every app path passes the agent's own). Not what a
@@ -3148,6 +3155,17 @@ _NUMBER_BULLETS: Final = (
     "- Any number or code, first time too: digit by digit, a mobile five, a comma, five; offer "
     "to repeat.\n"
 )
+_UNCLEAR_BULLET: Final = (
+    '- Unclear, off the point, or a bare "OK" to a question? Ask what they meant, reworded; '
+    "never guess, pick for them or count it done. Asked to repeat, or "
+    '"what?" to a step? Say it shorter. '
+    "Never narrate a search or a wait.\n"
+)
+_STEPS_BULLET: Final = (
+    '- Steps? One action a turn, then stop; never "say when done", never '
+    '"done?" or "understood?". To check, ask what they see. Only their "done" moves you on. '
+    '"Anything else?" once, when the task is done; "that is all"? Close.\n'
+)
 
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
@@ -3168,12 +3186,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     f"{_PUNCTUATION_BULLET}"
     f"{_NUMBER_BULLETS}"
     f"{_REGISTER_BULLET}"
-    '- Unclear, off the point, or a bare "OK" to a question? Ask what they meant, reworded; '
-    "never guess, pick for them or count it done. Asked to repeat? Say it shorter. "
-    "Never narrate a search or a wait.\n"
-    "- Steps? One a turn, inviting them in new words to say when done; never "
-    '"done?" or "understood?". To check, ask what they see. '
-    '"Anything else?" once, when the task is done; "that is all"? Close.\n'
+    f"{_UNCLEAR_BULLET}"
+    f"{_STEPS_BULLET}"
     "- Close: what happens next in one line, no recap, then one goodbye, nothing more. End "
     "only then or when asked, never while they talk."
 )
@@ -3188,13 +3202,13 @@ VOICE_STYLE_GUIDANCE: Final = (
 #: what?" gets the same step, shorter). A script with no examples keeps every bullet.
 EXAMPLE_LED_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
-    "- One action or one question a turn, last, then wait. Only their own words that it is "
-    'done, or what they see, move you on; never ask "done?". Unclear, off the point or a bare '
-    '"OK"? Ask what they see, never count it done. "What?" or "after what?"? The same step '
-    "again, shorter. Asked something? Answer just that, then go back to the step.\n"
+    "- One action or one question a turn, last. Asked something? Answer just that, then go "
+    "back to the step.\n"
     f"{_PUNCTUATION_BULLET}"
     f"{_NUMBER_BULLETS}"
     f"{_REGISTER_BULLET}"
+    f"{_UNCLEAR_BULLET}"
+    f"{_STEPS_BULLET}"
     "- End only after one goodbye or when asked, never while they talk."
 )
 #: With a language pack (D-830) the pack says how the language is spoken and LANGUAGES which
@@ -4962,13 +4976,17 @@ START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 #: said "greet the lead by name, identify yourself, ask if they can talk now", and after the
 #: opening had done all three the model greeted and introduced itself again. The step is what
 #: the model follows at that moment, so the rule names the step, not only the turn.
+#: "Your first step" and "offer help" (Varsha call of 26 Nov 2026): after a yes to an opening
+#: that asked whether now suits and offered to help set the app up, turns 4 and 8 asked and
+#: offered again, one of them a step's line word for word. Paid for by "Done:" for "That is
+#: done:", so the section did not grow.
 OPENING_CONTINUES_RULE: Final = (
     " Never greet again in any turn, say hello back, repeat it or its names, or re-ask if now "
     "suits, even after answering. Asked who or why, or the business "
     "name said back? Both in one line, once, wait. A hello or yes, in any language, is a yes: "
-    "go on with why you call or your first question. A no, busy or later? Ask when suits them, "
+    "go on with why you call or your first step. A no, busy or later? Ask when suits them, "
     "or close politely. Forgot us? Who and why, go on. Later hello? You're here, go on. "
-    "A step says to greet, say who you are or ask if now suits? That is done: do the rest."
+    "A step says to greet, say who you are, ask if now suits or offer help? Done: do the rest."
 )
 
 
@@ -4985,14 +5003,14 @@ OPENING_CONTINUES_RULE: Final = (
 #: What they have or use is a claim about the person too (founder's Rytu Khata call of 9 Nov
 #: 2026): a step's sounds-like line said "you already use the app, right? what for?" and the
 #: agent said it to a caller who had only registered. The model copies a step's lines, so the
-#: rule says its examples are not facts about the person.
+#: rule says a step's lines (its examples, or a legacy "sounds like") are only examples.
 #: "said so on this call" rather than "they said so"
 #: (D-979, founder, 10 Nov 2026): the same number's earlier calls are in the model's history
 #: (ThinnestAI email of 28 Oct 2026, VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md`
 #: §39 item 7), so "they said so" was met by a call days ago.
 CALL_REASON_RULE: Final = (
     " Never say they enquired, showed interest, have or use something unless they said so on "
-    "this call or THIS CALL says so; a step's examples are not facts about them. Asked what "
+    "this call or THIS CALL says so; a step's lines are only examples. Asked what "
     "we hold? Say THIS CALL's name, details."
 )
 

@@ -1,6 +1,6 @@
 """The founder's Telugu campaign call of 24 Nov 2026, 12:15: the in-call prompt and the review.
 
-A button and a site were said twice, in the call's
+One filler opened nine of twelve replies; a button and a site were said twice, in the call's
 letters and again in English in brackets; a word the register's list names was said; and the
 knowledge was never searched although the person said a menu option was missing. The
 Telugu below is the call's own transcript, quoted only as what the checks must detect.
@@ -20,12 +20,13 @@ from apps.api.db.session import tenant_session
 from calevate_shared.call_script import CallScript, ConversationStage
 from calevate_shared.engine import (
     STUCK_SEARCH,
+    VOICE_STYLE_GUIDANCE,
     AgentConfig,
     compose_engine_prompt,
     engine_prompt_layers,
     screen_steps_bullet,
 )
-from calevate_shared.spoken_style import SWAPS_LEAD, register_guidance, style_for
+from calevate_shared.spoken_style import FILLERS_LEAD, SWAPS_LEAD, register_guidance, style_for
 from tests.notes_per_job_test import _campaign
 from tests.thinnest_publish_limits_test import _agent_with_script, _selected, _thinnest
 
@@ -69,6 +70,25 @@ def _cfg(**kw: object) -> AgentConfig:
         "call_is_recorded": True,
     }
     return AgentConfig.model_validate({**base, **kw})
+
+
+def _filler() -> str:
+    style = style_for("te-IN")
+    assert style is not None and style.fillers
+    return style.fillers[0].text
+
+
+# --- 1. a filler at most once a call, said at the list ---------------------------------
+
+
+def test_no_filler_list_is_quoted_to_be_capped() -> None:
+    """The cap at the list did not hold (Varsha call of 26 Nov 2026); the list went (D-894)."""
+    guidance = register_guidance("te-IN")
+    assert guidance is not None
+    assert FILLERS_LEAD not in guidance and f" {_filler()}," not in guidance
+    assert "lightly" not in guidance
+    # HOW TO SPEAK says it of any reaction, not only the listed ones.
+    assert "never to open or twice a call" in VOICE_STYLE_GUIDANCE
 
 
 # --- 2. a name said once, never with a bracketed repeat -------------------------------
@@ -129,7 +149,7 @@ def test_the_word_list_says_a_script_line_is_no_exception() -> None:
     assert f'{SWAPS_LEAD} "' in guidance and f'"{formal}" →' in guidance
 
 
-async def test_a_te_in_campaigns_engine_agent_carries_the_word_list() -> None:
+async def test_a_te_in_campaigns_engine_agent_carries_the_word_list_and_no_fillers() -> None:
     tenant_id, agent_id = await _agent_with_script("Greet, then help.")
     campaign_id = await _campaign(uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id)))
     style = style_for("te-IN")
@@ -148,6 +168,7 @@ async def test_a_te_in_campaigns_engine_agent_carries_the_word_list() -> None:
     register = prompt.split("--- SPOKEN REGISTER ---", 1)[1]
     for formal, _spoken in style.prompt_swaps:
         assert f'"{formal}" →' in register
+    assert FILLERS_LEAD not in register
 
 
 # --- 7. the knowledge is searched when a step does not work -----------------------------

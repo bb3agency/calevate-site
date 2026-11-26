@@ -1115,32 +1115,23 @@ PROCEDURE_HEADER: Final = "[STEP BY STEP]"
 #: exit condition, and asking when it does not, is how the voice guides write a state's exit
 #: ("Exit when: ...", developers.openai.com/api/docs/guides/realtime-models-prompting; "Collect,
 #: confirm, move on", docs.vapi.ai/prompting-guide; both read 23 Nov 2026).
-#: A step's Wait for is what the agent listens for, never a question it adds to the step: on
-#: the Telugu campaign call of 24 Nov 2026 (12:15) six steps were said as "do X. Is X done?" in
-#: one turn, so the person had no time to do X. The step's turn ends on an invitation to say
-#: when it is done (HOW TO SPEAK's "Steps?" bullet, which carries the guides cited there).
-#: A reply that does not show it is answered by asking what they see, never by the step's line
-#: again or "is it done?": on the founder's test call of 25 Nov 2026 (01:37) a garbled reply
-#: got the whole step line back word for word, and a side question was followed by "have you
-#: installed it?".
+#: A step's "Done when" is what the agent listens for, never a question it adds to the step:
+#: on the Telugu campaign call of 24 Nov 2026 (12:15) six steps were said as "do X. Is X
+#: done?" in one turn, so the person had no time to do X.
+#: The turn ends on the action itself, not on an invitation to say when it is done: on the
+#: Varsha call of 26 Nov 2026 (16:03) every step ended "tell me when done", so the person was
+#: asked before they could act, and their "after what should I tell you?" was taken as an
+#: answer and the next step given. A "what do I do?" gets the same step again, shorter, never
+#: the next one.
 PROCEDURE_LEAD: Final = (
-    "Say one, invite them to say when done, wait. Next only once their words meet its Wait "
-    "for or say done; else ask what they see, never assume. Stuck? Help."
+    'One action a turn, then stop; never ask them to say when done. Only their "done" moves you '
+    "on; asked what to do, the same step, shorter. Stuck? Help."
 )
-
-#: An example-led script (any stage with `examples`, DESIGN §3.5) compiles each step under
-#: `PROCEDURE_HEADER` as its intent, its actions with the evidence each is done, and its
-#: example turns, and this lead replaces `PROCEDURE_LEAD`. The examples carry the turn shape
-#: the old lead described in words ("invite them to say when done", which the 26 Nov 2026
-#: Rytu Khata call said at the end of every turn), so the lead keeps only what an example
-#: cannot enforce: one action, and moving on only on the person's own words.
-STEPS_LEAD: Final = (
-    "One action a turn, then wait. Go on only once their own words say it is done or meet its "
-    "Done when; else ask what they see."
-)
-#: Above each step's examples. Several varied turns, marked as examples and told to vary,
-#: because a model copies one sample closely (OpenAI Realtime "vary, don't always reuse";
-#: Anthropic "relevant and diverse"; docs/evidence/script-rebuild-2026-11-26/
+#: Above each step's examples, in an example-led script (any stage with `examples`, DESIGN
+#: §3.5), whose steps compile under `PROCEDURE_HEADER` as their intent, their actions with
+#: what shows each is done, and their example turns. Several varied turns, marked as examples
+#: and told to vary, because a model copies one sample closely (OpenAI Realtime "vary, don't
+#: always reuse"; Anthropic "relevant and diverse"; docs/evidence/script-rebuild-2026-11-26/
 #: 03-external-research.md §5).
 STEP_EXAMPLES_LEAD: Final = "Examples (vary your words; never repeat a turn):"
 #: How each kind of example turn is labelled after the language's name.
@@ -1154,10 +1145,14 @@ _MOMENT_LABELS: Final = (
 #: as before.
 EXAMPLES_POINTER: Final = "Its examples are under {name} in {header}."
 ACTIONS_POINTER: Final = "Its actions and examples are under {name} in {header}."
-#: The legacy `sounds_like` line, for a stage with no examples: its first sentence only, as
-#: tone. The whole line was quoted as "It sounds like", and the model copied it as a turn,
-#: reaction opener and bundled actions included (02-in-call-compilation.md §3.1).
-TONE_LEAD: Final = "Its tone, not words to say:"
+#: Introduces a step's `wait_for` in the list. A criterion the agent listens for, phrased so
+#: it does not read as a line to say: "Wait for:" invited "wait until you have done it, then
+#: tell me" as the end of the step's turn.
+DONE_WHEN_LEAD: Final = "Done when:"
+#: Leads the script's example call. Not "copy the style": the model copies an example's turns
+#: whole, and an example written before the step rules (a reaction to open each turn, "tell me
+#: when" to end it) brought those back; the rules win over it.
+EXAMPLE_LEAD: Final = "The style only, never its facts, lines or how turns open or end."
 ADHERENCE_SENTENCES: Final[dict[str, str]] = {
     "flexible": "Sections in order as a guide. Follow the caller if they jump ahead; do not "
     "repeat a section that is done.",
@@ -1198,17 +1193,29 @@ def says_instruction(stage: ConversationStage) -> bool:
     return stage.mode == "say" and stage.step is None and not stage.scripts
 
 
+#: How a section's sounds-like line is introduced. With a step-by-step list the line is the
+#: owner's summary of every action in it, and quoted as "It sounds like" it was said whole as
+#: one turn (Varsha call of 26 Nov 2026: several actions bundled, a step line repeated word for
+#: word), so there it is offered for its tone only and the list says what each turn holds.
+#: Quoting only its first action was rejected: the line is free text in the call's language,
+#: with no reliable place to cut it. Not dropped, so the owner's line still sets the register.
+#: No longer than "It sounds like:", so no stored section passes the 600-character cap.
+SOUNDS_LIKE_LEAD: Final = "It sounds like:"
+SOUNDS_LIKE_TONE_LEAD: Final = "Its tone only:"
+
+
 def _stage_detail(stage: ConversationStage) -> str:
     text = " ".join(stage.instruction.split())
     detail = f"Say: {_quote(text)}" if says_instruction(stage) else text
     if says_scenario_line(stage):
         detail += f" {SAY_EXACT_STEP}"
     if stage.has_examples:
+        # The examples supersede the stage's one legacy line, which is not quoted at all.
         detail += f" {examples_pointer(stage.name, actions=bool(stage.procedure))}"
     else:
-        tone = first_sentence(stage.sounds_like)
-        if tone:
-            detail += f" {TONE_LEAD} {_quote(tone)}"
+        if stage.sounds_like.strip():
+            lead = SOUNDS_LIKE_TONE_LEAD if stage.procedure else SOUNDS_LIKE_LEAD
+            detail += f" {lead} {_quote(stage.sounds_like)}"
         if stage.procedure:
             detail += f" {procedure_pointer(stage.name)}"
     if stage.scripts or stage.qa:
@@ -1264,15 +1271,6 @@ def examples_pointer(name: str, *, actions: bool = False) -> str:
     return pointer.format(name=_quote(name), header=PROCEDURE_HEADER)
 
 
-_SENTENCE_END: Final = re.compile(r"(?<=[.?!।])\s")
-
-
-def first_sentence(text: str) -> str:
-    """`text`'s first sentence, on one line, or "" for a blank one."""
-    line = " ".join(text.split())
-    return _SENTENCE_END.split(line, maxsplit=1)[0] if line else ""
-
-
 #: Added to an engine step that collects more than one detail. A step's `collect` list reads
 #: to the model as a checklist for one turn, and a production call (D-739) asked which
 #: product and how much in one breath; the instructions say the same, but the step is what
@@ -1282,7 +1280,8 @@ ONE_DETAIL_PER_TURN: Final = "Ask for one of these details per turn."
 
 def _action_line(i: int, step: ProcedureStep) -> str:
     action = step.action.rstrip(".")
-    return f"{i}. {action}." + (f" Done when: {step.wait_for.rstrip('.')}." if step.wait_for else "")
+    done = f" {DONE_WHEN_LEAD} {step.wait_for.rstrip('.')}." if step.wait_for else ""
+    return f"{i}. {action}.{done}"
 
 
 def _with_actions(stage: ConversationStage, detail: str) -> str:
@@ -1518,8 +1517,8 @@ def _compile_v2(
     # from it is written here.
     if style.code_mix != "natural":
         style_lines.append(CODE_MIX_SENTENCES[style.code_mix])
-    # Capped as the register caps its fillers (`spoken_style.FILLERS_LEAD`): "not every turn"
-    # let a phrase open every other reply against HOW TO SPEAK's "never ... twice a call".
+    # Capped once a call each: "not every turn" let a phrase open every other reply against
+    # HOW TO SPEAK's "never ... twice a call".
     if style.sample_phrases:
         phrases = " / ".join(_quote(p) for p in style.sample_phrases)
         style_lines.append(f"Phrases you can use, once a call each: {phrases}")
@@ -1543,7 +1542,10 @@ def _compile_v2(
 
     example_led = is_example_led(script)
     if example_led:
-        add(f"{PROCEDURE_HEADER} {STEPS_LEAD}", _step_blocks(stages, languages, script_seed(script)))
+        add(
+            f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}",
+            _step_blocks(stages, languages, script_seed(script)),
+        )
     elif with_steps := [s for s in stages if s.procedure]:
         add(f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}", _procedures(with_steps))
 
@@ -1601,7 +1603,7 @@ def _compile_v2(
     example = [line for line in script.example_exchange if line.text.strip()]
     if example and not example_led:
         add(
-            f"{EXAMPLE_HEADER} {EXAMPLE_CALL_LEAD}",
+            f"{EXAMPLE_HEADER} {EXAMPLE_LEAD}",
             "\n".join(
                 f"{'Caller' if line.speaker == 'caller' else 'You'}: {line.text.strip()}"
                 for line in example
@@ -1610,16 +1612,9 @@ def _compile_v2(
     return "\n\n".join(per_call_sections_last(sections))
 
 
-#: Above a script's whole example call, on a script with no step examples. It was "Copy the
-#: style", and the call's agent turns, written before the one-action rules, opened on a
-#: reaction and asked to be told when a step was done; the model copied both
-#: (02-in-call-compilation.md §3.4).
-EXAMPLE_CALL_LEAD: Final = "How a call may go: vary your words, never the facts or Caller lines."
-
-
 def is_example_led(script: CallScript) -> bool:
     """Does any stage carry examples? Such a script compiles its steps with them
-    (`STEPS_LEAD`), and the platform's speaking rules leave to them what they show."""
+    (`_step_blocks`), and the platform's speaking rules leave to them what they show."""
     return any(stage.has_examples for stage in script.stages)
 
 
@@ -1656,9 +1651,7 @@ def _example_lines(
     return lines
 
 
-def _step_blocks(
-    stages: Sequence[ConversationStage], languages: Sequence[str], seed: str
-) -> str:
+def _step_blocks(stages: Sequence[ConversationStage], languages: Sequence[str], seed: str) -> str:
     """Each stage with actions or examples: its name and intent, its actions with what shows
     each is done, then its example turns."""
     blocks: list[str] = []
@@ -1682,7 +1675,7 @@ def _procedures(stages: Sequence[ConversationStage]) -> str:
         for i, step in enumerate(stage.procedure, 1):
             line = f"{i}. {step.action}"
             if step.wait_for:
-                line += f" Wait for: {step.wait_for}"
+                line += f" {DONE_WHEN_LEAD} {step.wait_for}"
             lines.append(line)
         blocks.append("\n".join(lines))
     return "\n".join(blocks)
@@ -1887,10 +1880,11 @@ __all__ = [
     "CODE_MIX_SENTENCES",
     "COLLECT_HEADER",
     "DEFAULT_FAQ_FALLBACK",
+    "DONE_WHEN_LEAD",
     "END_OF_CALL",
     "EXAMPLES_POINTER",
-    "EXAMPLE_CALL_LEAD",
     "EXAMPLE_HEADER",
+    "EXAMPLE_LEAD",
     "GUARDRAILS_BLOCK",
     "HAND_OVER",
     "KNOWN_FACTS_HEADER",
@@ -1918,16 +1912,16 @@ __all__ = [
     "SAY_EXACT_LINES",
     "SAY_EXACT_STEP",
     "SCRIPT_SCHEMA_VERSION",
+    "SOUNDS_LIKE_LEAD",
+    "SOUNDS_LIKE_TONE_LEAD",
     "SPECIAL_TARGETS",
     "STAGE_DETAIL_MAX",
     "STAGE_TITLE_MAX",
     "STANDARD_VARIABLES",
-    "STEPS_LEAD",
     "STEP_EXAMPLES_LEAD",
     "STEP_EXAMPLE_MAX",
     "STEP_OUTCOME_MAX",
     "STYLE_HEADER",
-    "TONE_LEAD",
     "V1_FAQ_HEADER",
     "V1_ONLY_FIELDS",
     "CallScript",
@@ -1958,7 +1952,6 @@ __all__ = [
     "examples_pointer",
     "extract_variable_names",
     "fill_spoken_line",
-    "first_sentence",
     "is_example_led",
     "mark_variables",
     "native_steps",

@@ -87,12 +87,15 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: 24 Nov 2026 (12:15): a step's turn invites the person to say when it is done.
 #: 25 Nov 2026 (01:37): the invitation in new words, an unclear reply never counted done, no
 #: "OK after one" clause; a per-call value in the quoted first words is quoted as a mark.
-#: 26 Nov 2026 (script rebuild, DESIGN §3.5): the register quotes no fillers and no example
-#: exchanges, the [OPENING] line is not repeated inside the client fence, and a step's
-#: examples are not facts about the person.
+#: 26 Nov 2026 (Varsha, 16:03): a step's turn ends on the action, never "say when done";
+#: "what?" after a step gets it again, shorter; no filler list in the register line; a yes
+#: to the opening goes on to the first step, and a step that offers help is done.
+#: 26 Nov 2026 (script rebuild, DESIGN §3.5): the register quotes no example exchanges, the
+#: [OPENING] line is not repeated inside the client fence, and a step's lines are only
+#: examples.
 PINNED = (
-    "d488fd0fb1e56692909891baccfff534a7844d3277d8541fab3df315a3e2d21d",
-    "2b0bbd31f507b5b4779fba0623346547db4a0c55c696a3386462b66007bb0d6c",
+    "ba777ea4824853656bbb7836f9c715cd8b3e50f275042be0c1115b9637480275",
+    "00168f4c7fc613355b7f56fff5e286fe3eed299c8ffd1674a5a06aa68cf1b16b",
 )
 
 

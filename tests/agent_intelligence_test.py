@@ -522,7 +522,7 @@ def test_the_sections_become_native_steps_and_leave_the_instructions() -> None:
         ("Otherwise", "Go to 'Price'"),
     )
     assert steps[0].collect == ("product",)
-    assert steps[0].detail == 'Ask what they want to buy. Its tone, not words to say: "ఏం కావాలి అండి?"'
+    assert steps[0].detail == 'Ask what they want to buy. It sounds like: "ఏం కావాలి అండి?"'
     assert steps[1].detail == 'Say: "Prices are in our list."'
     assert steps[1].branches == (("Otherwise", "End the call politely"),)
     # With the account able to, the same branches offer what they name.

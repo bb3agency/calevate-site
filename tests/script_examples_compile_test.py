@@ -12,15 +12,14 @@ from __future__ import annotations
 import pytest
 from apps.api.engine.thinnest import INSTRUCTIONS_MAX_CHARS
 from calevate_shared.call_script import (
-    EXAMPLE_CALL_LEAD,
     EXAMPLE_HEADER,
+    EXAMPLE_LEAD,
     OPENING_HEADER,
     PROCEDURE_HEADER,
     PROCEDURE_LEAD,
+    SOUNDS_LIKE_TONE_LEAD,
     STAGE_DETAIL_MAX,
     STEP_EXAMPLES_LEAD,
-    STEPS_LEAD,
-    TONE_LEAD,
     CallScript,
     CollectField,
     ConversationStage,
@@ -31,7 +30,6 @@ from calevate_shared.call_script import (
     StepOutcome,
     compile_call_script,
     examples_pointer,
-    first_sentence,
     is_example_led,
     native_steps,
     procedure_pointer,
@@ -135,8 +133,7 @@ def _block(body: str) -> str:
 def test_each_step_carries_intent_actions_and_tagged_examples() -> None:
     body = compile_call_script(_script())
     block = _block(body)
-    assert block.startswith(f"{PROCEDURE_HEADER} {STEPS_LEAD}")
-    assert PROCEDURE_LEAD not in body
+    assert block.startswith(f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}")
     assert "Install: Help them put the app on their home screen." in block
     assert "1. Ask them to open Chrome on their phone. Done when: the browser is open." in block
     assert block.count(STEP_EXAMPLES_LEAD) == 2
@@ -220,29 +217,28 @@ def _legacy() -> CallScript:
     return _script(stages=[stage])
 
 
-def test_a_legacy_line_is_quoted_as_tone_only_its_first_sentence() -> None:
+def test_a_script_without_examples_compiles_its_legacy_line_and_list() -> None:
     script = _legacy()
     assert not is_example_led(script)
     detail = native_steps(script)[0].detail
-    assert "It sounds like" not in detail
-    assert f'{TONE_LEAD} "<TE: OK, open Chrome."' in detail
-    assert "Tell me when it is open" not in detail
+    assert f"{SOUNDS_LIKE_TONE_LEAD} {_quote_of(script.stages[0].sounds_like)}" in detail
     assert detail.endswith(procedure_pointer("Install"))
     body = compile_call_script(script)
     assert f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}" in body
+    assert f"{EXAMPLE_HEADER} {EXAMPLE_LEAD}" in body
     assert STEP_EXAMPLES_LEAD not in body
 
 
-def test_a_legacy_example_call_is_no_longer_framed_as_a_style_to_copy() -> None:
-    body = compile_call_script(_legacy())
-    assert f"{EXAMPLE_HEADER} {EXAMPLE_CALL_LEAD}" in body
-    assert "Copy the style" not in body
+def test_examples_supersede_the_legacy_line() -> None:
+    stage = _legacy().stages[0].model_copy(update={"examples": {TE: _examples("Install")}})
+    script = CallScript.model_validate(_script(stages=[stage]).model_dump())
+    detail = native_steps(script)[0].detail
+    assert script.stages[0].sounds_like and "Tell me when it is open" not in detail
+    assert "Tell me when it is open" not in compile_call_script(script)
 
 
-def test_first_sentence() -> None:
-    assert first_sentence("  One.  Two? ") == "One."
-    assert first_sentence("No stop at all") == "No stop at all"
-    assert first_sentence("") == ""
+def _quote_of(text: str) -> str:
+    return '"' + " ".join(text.split()) + '"'
 
 
 # --- the composed prompt --------------------------------------------------------------------
@@ -268,7 +264,7 @@ def test_how_to_speak_is_trimmed_only_for_an_example_led_script() -> None:
     led = dict(engine_prompt_layers(_cfg(compile_call_script(_script()))))
     old = dict(engine_prompt_layers(_cfg(compile_call_script(_legacy()))))
     assert led["how_to_speak"].startswith(EXAMPLE_LED_GUIDANCE.split("\n", 2)[0])
-    assert "after what?" in led["how_to_speak"]
+    assert '"what?" to a step? Say it shorter.' in led["how_to_speak"]
     assert "Read back what you heard" in led["how_to_speak"]
     assert "digit by digit" in led["how_to_speak"]
     assert "Keep the language you greeted in" in led["how_to_speak"]
@@ -383,7 +379,7 @@ def test_the_example_led_rules_move_the_platform_revision(monkeypatch: pytest.Mo
     before = platform_prompt_revision()
     for module, name in (
         (engine, "EXAMPLE_LED_GUIDANCE"),
-        (call_script, "STEPS_LEAD"),
+        (call_script, "STEP_EXAMPLES_LEAD"),
         (call_script, "EXAMPLES_POINTER"),
     ):
         with monkeypatch.context() as patch:
