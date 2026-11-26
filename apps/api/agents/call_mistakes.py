@@ -138,9 +138,20 @@ LESSONS: Final[dict[str, Lesson]] = {
     # turn, six times. Read off the reply alone, as in a practice run.
     "asked_done_too_soon": Lesson(
         "Asked if a step was done before the caller could do it",
-        "Give the step, ask them to say when it is done, and wait.",
-        'HOW TO SPEAK: "Steps? One a turn, inviting them to say when done; never \\"done?\\""; '
-        "call_script.PROCEDURE_LEAD",
+        "Give the step and stop; they say when it is done.",
+        'HOW TO SPEAK: the "Steps?" bullet; call_script.PROCEDURE_LEAD',
+    ),
+    # The Rytu Khata call of 26 Nov 2026: reply after reply ended "... once it opens, tell
+    # me", and one turn gave the next action after "once it opens". Read off the reply alone.
+    "asks_when_done": Lesson(
+        "Kept asking the caller to say when each step was done",
+        "Give the step and stop; people say when it is done without being asked.",
+        'HOW TO SPEAK: the "Steps?" bullet; call_script.PROCEDURE_LEAD',
+    ),
+    "several_actions": Lesson(
+        "Gave several things to do in one turn",
+        "Give one thing to do, wait until they say it is done, then give the next.",
+        'HOW TO SPEAK: the "Steps?" bullet; call_script.PROCEDURE_LEAD',
     ),
     "same_closing": Lesson(
         "Ended reply after reply with the same words",

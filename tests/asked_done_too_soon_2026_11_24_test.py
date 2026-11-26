@@ -78,8 +78,8 @@ TE_CLEAN = {
     ),
 }
 
-#: Turn 8 as the founder quoted it ("open Chrome. Tell me once it opens") is already the shape
-#: the fix asks for: it invites them to say when, and asks nothing.
+#: Turn 8 as the founder quoted it ("open Chrome. Tell me once it opens") asks nothing, so it is
+#: not this kind; it asks to be told, which is `asks_when_done` (26 Nov 2026).
 INVITES = (
     "Now open the Chrome browser on your phone. Tell me once it is open.",
     "Now tap the three-dot menu at the top right. Take your time, tell me when it opens.",
@@ -185,7 +185,7 @@ def test_the_script_line_a_step_list_action_and_a_telugu_line_are_traced() -> No
         "stages.0.procedure.0.action",
     ]
     finding = mistake_findings(script, LintContext(), KIND)[0]
-    assert "invitation to say when it is done" in finding
+    assert "end the line on the action itself" in finding
 
 
 def test_the_opening_is_never_named() -> None:
@@ -207,8 +207,7 @@ def test_the_healer_repairs_it_and_the_repaired_line_is_clean() -> None:
     repaired = _script(
         _stage(
             "s1",
-            "Now enter your registered mobile number and password and log in. "
-            "Take your time, tell me once you are in.",
+            "Now enter your registered mobile number.",
         ),
         _stage("close", "Thank you, goodbye."),
     )
@@ -216,11 +215,11 @@ def test_the_healer_repairs_it_and_the_repaired_line_is_clean() -> None:
     assert not any("whether it is done" in f for f in script_mistakes(repaired, LintContext()))
 
 
-async def test_the_repair_pass_rewrites_the_line_into_an_invitation(
+async def test_the_repair_pass_rewrites_the_line_into_the_action_alone(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(get_settings(), "script_mistake_repair_passes", 0)
-    invited = "Now tap the three-dot menu at the top right. Tell me when it opens."
+    invited = "Now tap the three-dot menu at the top right."
     faulted = _script(_stage("menu", EN_TURNS[12]), _stage("close", "Thank you, goodbye."))
     fixed = _script(_stage("menu", invited), _stage("close", "Thank you, goodbye."))
     tenant_id, agent_id = await _account("done")
@@ -232,7 +231,7 @@ async def test_the_repair_pass_rewrites_the_line_into_an_invitation(
 
     assert outcome == "repaired"
     assert "stages.0.sounds_like" in seen["changes"][0]
-    assert "invitation to say when it is done" in seen["changes"][0]
+    assert "end the line on the action itself" in seen["changes"][0]
     row = await _row(tenant_id, "inbound_lines", line_id)
     assert CallScript.model_validate(row.script).stages[0].sounds_like == invited
     assert KIND in row.script_heal_fixed
@@ -258,5 +257,5 @@ def test_every_agent_is_told_to_invite_rather_than_ask_if_done() -> None:
 
 
 def test_the_script_writer_is_told_the_same() -> None:
-    assert "never asks in the same line whether it is done" in SCRIPT_FLOW_RULE
+    assert "nor whether it is done before they have had time to do it" in SCRIPT_FLOW_RULE
     assert SCRIPT_FLOW_RULE in writer_rules()

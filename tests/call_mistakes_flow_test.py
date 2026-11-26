@@ -129,12 +129,13 @@ async def test_a_real_call_is_checked_and_the_owner_sees_what_went_wrong(
             )
         ).all()
     # Nothing was on file for the number, so turn 3's "you enquired before" is invented.
-    assert [tuple(r) for r in rows] == [
+    # Sorted: two kinds first appear on turn 9, and ORDER BY turn_idx leaves ties unordered.
+    assert sorted(tuple(r) for r in rows) == [
+        ("asked_again", 11),
         ("false_history", 3),
         ("said_again", 9),
-        ("asked_again", 11),
-        # The third reply opening with the same word (a real-call lesson since 9 Nov 2026).
-        ("same_opening", 13),
+        # Three replies in a row opening with a reaction (real-call lessons of 9 and 26 Nov).
+        ("same_opening", 9),
     ]
 
     headers = await _org_headers(tenant_id)

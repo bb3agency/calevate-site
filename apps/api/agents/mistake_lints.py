@@ -42,6 +42,7 @@ from apps.api.agents.script_lint import (
     OPENING_FIELDS,
     LintContext,
     agent_lines,
+    asks_when_done_problems,
     bracket_problems,
     caller_paths,
     flow_problems,
@@ -52,6 +53,7 @@ from apps.api.agents.script_lint import (
     same_ending_problems,
     same_opener_problems,
     spoken_fields,
+    stacked_line_problems,
     step_line,
 )
 
@@ -340,7 +342,7 @@ def _asked_done_too_soon(script: CallScript, _context: LintContext) -> list[str]
     """A line that gives an action and asks in the same line whether it is done
     (`turn_checks.asks_done_too_soon`): every line the agent says or copies, each call
     language's step lines and the small steps' actions included, the openings left out. The
-    repair rewrites it as the action and an invitation to say when it is done."""
+    repair rewrites it as the action alone: the person says when it is done."""
     lines = [
         *((p, t) for p, t in agent_lines(script) if p not in OPENING_FIELDS),
         *(
@@ -351,8 +353,7 @@ def _asked_done_too_soon(script: CallScript, _context: LintContext) -> list[str]
     ]
     return [
         f"{path}: gives an action and asks in the same line whether it is done, before they "
-        "can do it; end on the action and an invitation to say when it is done, worded for "
-        "this step, with no question."
+        "can do it; end the line on the action itself, with no question after it."
         for path, text in lines
         if text.strip() and turn_checks.asks_done_too_soon(_heard(text))
     ]
@@ -426,6 +427,8 @@ _CHECKS: Final[dict[str, _Check]] = {
     "moved_on_unconfirmed": _moved_on_unconfirmed,
     "formal_words": _formal_words,
     "asked_done_too_soon": _asked_done_too_soon,
+    "asks_when_done": _delegate(asks_when_done_problems),
+    "several_actions": _delegate(stacked_line_problems),
 }
 
 #: The mistake kinds a script check can trace to the agent's own script.

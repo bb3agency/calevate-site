@@ -42,7 +42,7 @@ def _script(second_line: str = SAID_BEFORE, collect: list[str] | None = None) ->
 
 
 FLAGGED = _script()
-FIXED_LINE = "Signing up takes two minutes: open the link we send and enter your village."
+FIXED_LINE = "Signing up takes two minutes: open the link we send you."
 
 
 def test_the_founders_two_warnings_are_both_found() -> None:
