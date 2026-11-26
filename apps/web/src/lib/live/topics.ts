@@ -154,6 +154,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "campaign-whatsapp",
     // The saved versions of a campaign's script, written with the campaign row (D-1039).
     "script-versions",
+    // The checks on a campaign's or line's saved script, read again whenever it is saved.
+    "script-checks",
     // "Give callers time" is a campaign's or line's own call setting, read with its script.
     "holder-give-time",
     // A mistake's repair state on the Improve tab is the campaign's script-heal pass.
@@ -246,6 +248,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "line-notes",
     // The saved versions of a line's script, written with the line row (D-1039).
     "script-versions",
+    "script-checks",
     "holder-give-time",
     // An agent's jobs: its inbound lines and its campaigns (D-1000).
     "agent-jobs",

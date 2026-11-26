@@ -51,6 +51,7 @@ const routes = (extra: Routes = {}): Routes => ({
   [`${base}/workspace`]: workspaceFixture({ source_ids: [SOURCE_ID] }),
   [`${base}/settings`]: settingsFixture(),
   [`${base}/script/versions`]: scriptVersionsFixture(),
+  [`${base}/script/checks`]: { findings: [], blocks_live: false },
   "/v1/kb/notes": { notes: [] },
   "/v1/kb/uploads": [],
   // The call flow's voice bar lists the account's agents.

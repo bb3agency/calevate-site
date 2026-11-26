@@ -80,9 +80,11 @@ const RULE_SOURCES = [
   "apps/api/legal",
 ];
 
-/** Every shape `compliance` names a rule with. See the header on why this over-matches. */
+/** Every shape `compliance` names a rule with. See the header on why this over-matches.
+ * `SCRIPT_NEEDS_FIX` (`agents/script_gate.py`) is a named constant without the `_RULE` suffix,
+ * passed to `LaunchBlocker` by name. */
 const RULE_PATTERN =
-  /(?:LaunchBlocker\(|DispatchDecision\(|return \(|\.append\(\(|rule=|_RULE(?::\s*Final(?:\[str\])?)?\s*=)\s*"([a-z0-9_]+)"/g;
+  /(?:LaunchBlocker\(|DispatchDecision\(|return \(|\.append\(\(|rule=|(?:_RULE|SCRIPT_NEEDS_FIX)(?::\s*Final(?:\[str\])?)?\s*=)\s*"([a-z0-9_]+)"/g;
 
 function pythonFiles(directory: string): string[] {
   const found: string[] = [];

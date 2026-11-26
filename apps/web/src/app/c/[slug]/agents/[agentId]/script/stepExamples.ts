@@ -151,6 +151,8 @@ export interface LineWarning {
   message: string;
   detail?: string | null;
   text?: string | null;
+  /** `block` stops Put it live and Start; `warn` (the default) never stops anything. */
+  severity?: "block" | "warn";
 }
 
 /** Where on a step a warning sits: a turn, a moment, or the language's examples as a whole. */
@@ -187,6 +189,35 @@ export function warningsAt(
     if (!matches) return false;
     return w.text == null || current === null || said(w.text) === said(current);
   });
+}
+
+/**
+ * The warnings on one field of a step outside its examples: `field` is the path after the
+ * step (`instruction`, `scripts.te-IN`), or null for every such warning not placed on a field
+ * listed in `placed`.
+ */
+export function stageWarnings(
+  warnings: readonly LineWarning[],
+  stageId: string,
+  field: string | null,
+  current: string | null = null,
+  placed: readonly string[] = [],
+): LineWarning[] {
+  const prefix = `stages.${stageId}`;
+  return warnings.filter((w) => {
+    if (w.path !== prefix && !w.path.startsWith(`${prefix}.`)) return false;
+    if (isExamplePath(w.path)) return false;
+    const rest = w.path === prefix ? "" : w.path.slice(prefix.length + 1);
+    const on = (f: string) => rest === f || rest.startsWith(`${f}.`);
+    if (field === null) return !placed.some(on);
+    if (!on(field)) return false;
+    return w.text == null || current === null || said(w.text) === said(current);
+  });
+}
+
+/** The warnings on a part of the script outside the steps (`opening_line`, `faqs.2.answer`). */
+export function partWarnings(warnings: readonly LineWarning[], part: string): LineWarning[] {
+  return warnings.filter((w) => w.path === part || w.path.startsWith(`${part}.`));
 }
 
 /** What Pip is asked when the owner presses "Let Pip write examples" on a step. */

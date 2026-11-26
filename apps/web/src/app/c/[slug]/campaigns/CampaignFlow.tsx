@@ -34,6 +34,13 @@ import { useFocusTrap } from "@/lib/focusTrap";
 import { keepInView } from "@/lib/keepInView";
 import type { CallScript } from "@/lib/api/script";
 import { useScript } from "@/lib/api/script";
+import { ChecksUnread } from "@/components/scriptChecks/ScriptNeedsFix";
+import {
+  SHOW_FINDING_EVENT,
+  findingWarnings,
+  scrollToFirstFinding,
+  useScriptChecks,
+} from "@/lib/api/scriptChecks";
 import type { ScriptRestore, ScriptVersions as ScriptVersionsData } from "@/lib/api/scriptVersions";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
@@ -209,6 +216,25 @@ export function CampaignFlow({
     }
   };
 
+  // The saved script's checks, each on its line (`script_gate`); an edit that changes the
+  // line settles its warning until the next save reads the checks again.
+  const checks = useScriptChecks(session, { kind: "campaign", id: campaignId }, script);
+  const warnings = useMemo(
+    () => (checks.isSuccess ? findingWarnings(checks.data.findings) : []),
+    [checks.isSuccess, checks.data],
+  );
+  // "Show me" from the launch checklist or a refusal: open the flow on the first flagged step.
+  useEffect(() => {
+    const show = (event: Event) => {
+      const stageId = (event as CustomEvent<{ stageId: string | null }>).detail?.stageId ?? null;
+      setFoldedState(false);
+      if (stageId) setSelected(stageId);
+      scrollToFirstFinding();
+    };
+    window.addEventListener(SHOW_FINDING_EVENT, show);
+    return () => window.removeEventListener(SHOW_FINDING_EVENT, show);
+  }, []);
+
   const sections = sectionsOf(draft);
   const issues = useMemo(() => validate(draft, limits), [draft, limits]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(script);
@@ -307,6 +333,8 @@ export function CampaignFlow({
 
   // The steps and the chosen scenario's editor; on a phone the steps stack.
   const body = () => (
+    <>
+    {checks.isError && <ChecksUnread onRetry={() => void checks.refetch()} />}
     <ScenarioFlow
       agent={flowAgent}
       hear={hear}
@@ -322,6 +350,7 @@ export function CampaignFlow({
       onChange={commit}
       onUndo={undo}
       writeExamples={writeExamples}
+      warnings={warnings}
       onEditOpening={
         onEditOpening &&
         (() => {
@@ -330,6 +359,7 @@ export function CampaignFlow({
         })
       }
     />
+    </>
   );
 
   const saveBar = (always: boolean) =>

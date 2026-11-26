@@ -43,6 +43,8 @@ import { useScriptVersions } from "@/lib/api/scriptVersions";
 import { useClientRealm } from "@/lib/api/session";
 
 import { LeftOutNotice, lineWarningsOf } from "../agents/[agentId]/script/PipProposal";
+import { ScriptNeedsFix } from "@/components/scriptChecks/ScriptNeedsFix";
+import { isScriptNeedsFix } from "@/lib/api/scriptChecks";
 
 import { AddSourceForm, SOURCES_HINT, SOURCES_INFO } from "./AddSource";
 import { PipGenerateBand } from "./PipGenerateBand";
@@ -446,7 +448,11 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
 
       {save.error != null && (
         <div className="mb-3">
-          <ProblemNotice error={save.error} />
+          {isScriptNeedsFix(save.error) ? (
+            <ScriptNeedsFix holder={{ kind: "campaign", id: campaignId }} canWrite={canWrite} refusal={refusal} />
+          ) : (
+            <ProblemNotice error={save.error} />
+          )}
         </div>
       )}
 

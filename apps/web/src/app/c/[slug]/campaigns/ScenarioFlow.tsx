@@ -58,8 +58,8 @@ import { STEP_OUTCOME_MAX, type CallScript } from "@/lib/api/script";
 import { lookup } from "@/lib/lookup";
 
 import { HearLine, type FlowAgent } from "./LineCoach";
-import { StepExamplesEditor, type ExamplesAsk } from "../agents/[agentId]/script/StepExamplesEditor";
-import type { LineWarning } from "../agents/[agentId]/script/stepExamples";
+import { StepExamplesEditor, WarningLines, type ExamplesAsk } from "../agents/[agentId]/script/StepExamplesEditor";
+import { stageWarnings, type LineWarning } from "../agents/[agentId]/script/stepExamples";
 
 import { languageName } from "./ScriptLanguages";
 import {
@@ -1519,6 +1519,10 @@ function ScenarioEditor({
           );
         }}
       />
+      <WarningLines
+        warnings={stageWarnings(warnings, id, `scripts.${tag}`, scripts[tag] ?? null)}
+        idBase={`sc-${tag}-${id}-warn`}
+      />
       <HearLine
         agent={agent}
         access={hear}
@@ -1570,6 +1574,11 @@ function ScenarioEditor({
 
   return (
     <div className="space-y-5 p-4">
+      {/* The checks' findings on this scenario that belong to no one box below. */}
+      <WarningLines
+        warnings={stageWarnings(warnings, id, null, null, ["instruction", `scripts.${shownTag}`])}
+        idBase={`sc-${id}-warn`}
+      />
       <div className="flex flex-wrap items-center gap-3">
         <span className="rounded-full bg-series-2 px-2 py-0.5 text-meta font-semibold tabular-nums text-white">
           Scenario {item.label}
@@ -1647,6 +1656,10 @@ function ScenarioEditor({
                   {issue("instruction")}
                 </p>
               )}
+              <WarningLines
+                warnings={stageWarnings(warnings, id, "instruction", s.instruction)}
+                idBase={`sc-desc-${id}-warn`}
+              />
             </div>
           </div>
 

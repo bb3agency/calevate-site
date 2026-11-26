@@ -313,7 +313,7 @@ function ExampleInput({
 export function WarningLines({ warnings, idBase }: { warnings: readonly LineWarning[]; idBase: string }) {
   if (warnings.length === 0) return null;
   return (
-    <ul className="mt-1 space-y-1" data-testid="line-warnings">
+    <ul className="mt-1 space-y-1" data-testid="line-warnings" data-script-finding="">
       {warnings.map((w, i) => (
         <WarningLine key={`${w.path}-${i}`} id={`${idBase}-${i}`} warning={w} />
       ))}
@@ -325,7 +325,7 @@ function WarningLine({ id, warning }: { id: string; warning: LineWarning }) {
   const [open, setOpen] = useState(false);
   const detail = warning.detail?.trim();
   return (
-    <li className="flex items-start gap-1.5 text-meta text-warn">
+    <li className={`flex items-start gap-1.5 text-meta ${warning.severity === "block" ? "text-danger" : "text-warn"}`}>
       <TriangleAlert aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
       <div className="min-w-0">
         <span id={id}>{warning.message}</span>

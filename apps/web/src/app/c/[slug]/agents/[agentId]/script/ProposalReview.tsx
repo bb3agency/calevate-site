@@ -37,8 +37,8 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { placed } from "../../../campaigns/scenarioModel";
 import { PartEditor, SectionFields, partShows, sectionShows, unshownIssues } from "./ProposalEditors";
-import { ExamplesReadout } from "./StepExamplesEditor";
-import { exampleLanguages, type LineWarning } from "./stepExamples";
+import { ExamplesReadout, WarningLines } from "./StepExamplesEditor";
+import { exampleLanguages, partWarnings, stageWarnings, type LineWarning } from "./stepExamples";
 import {
   applyTraced,
   changedSegments,
@@ -504,6 +504,7 @@ export function ProposalReview({
                     settled={isSettled}
                     issues={shownIssues}
                     language={language}
+                    warnings={warnings}
                     onChange={(next) => editRow(change, next)}
                   />
                 ) : (
@@ -735,6 +736,7 @@ function PartBody({
   settled,
   issues,
   language,
+  warnings,
   onChange,
 }: {
   change: Extract<Change, { kind: "part" }>;
@@ -743,11 +745,19 @@ function PartBody({
   settled: boolean;
   issues: Issue[];
   language: string;
+  warnings: readonly LineWarning[];
   onChange: (next: CallScript) => void;
 }) {
   const id = domId(change);
   const suggested = partText(edited, change.part);
-  if (settled && !open) return <Settled text={suggested} issues={issues} />;
+  const flagged = <WarningLines warnings={partWarnings(warnings, change.part)} idBase={`${id}-warn`} />;
+  if (settled && !open)
+    return (
+      <>
+        <Settled text={suggested} issues={issues} />
+        {flagged}
+      </>
+    );
   return (
     <div className="mt-1.5 space-y-1.5">
       {change.before && !settled && <Quote tone="before" text={change.before} against={suggested || undefined} />}
@@ -755,10 +765,12 @@ function PartBody({
         <Editing id={id} final={settled}>
           <PartEditor part={change.part} script={edited} idBase={id} issues={issues} language={language} onChange={onChange} />
           <RowErrors issues={unshownIssues(issues, partShows)} />
+          {flagged}
         </Editing>
       ) : (
         <>
           <Quote tone="after" text={suggested || "(left empty)"} against={change.before || undefined} />
+          {flagged}
           <RowErrors issues={issues} />
         </>
       )}
@@ -832,10 +844,13 @@ function SectionBody({
       warnings={warnings}
     />
   );
+  // The checks' findings on the step outside its examples, which sit on their own lines.
+  const flagged = <WarningLines warnings={stageWarnings(warnings, after.id, null)} idBase={`${id}-warn`} />;
   if (settled && !open)
     return (
       <>
         <Settled text={suggested} issues={issues} />
+        {flagged}
         <div className="mt-1.5">{readout}</div>
       </>
     );
@@ -857,10 +872,12 @@ function SectionBody({
             onChange={(patch) => onChange(after.id, patch)}
           />
           <RowErrors issues={unshownIssues(issues, sectionShows)} />
+          {flagged}
         </Editing>
       ) : (
         <>
           <Quote tone="after" text={suggested || "(left empty)"} against={before || undefined} />
+          {flagged}
           {readout}
           <RowErrors issues={issues} />
         </>
