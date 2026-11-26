@@ -3,6 +3,10 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.78 — 26-Nov-2026
+
+- Build fix for 0.5.77 (a sorted export list); nothing changes on screen.
+
 ## 0.5.77 — 26-Nov-2026
 
 - After a call, a judgement about the caller (how comfortable or interested they were) is
