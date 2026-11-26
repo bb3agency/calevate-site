@@ -3,7 +3,9 @@
 import { useState } from "react";
 
 import { ScenarioFlow } from "@/app/c/[slug]/campaigns/ScenarioFlow";
-import { CALL_BACK, DEFAULT_LIMITS, END, HAND_OVER } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
+import { ProposalReview } from "@/app/c/[slug]/agents/[agentId]/script/ProposalReview";
+import { CALL_BACK, DEFAULT_LIMITS, END, HAND_OVER, validate } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
+import type { LineWarning } from "@/app/c/[slug]/agents/[agentId]/script/stepExamples";
 import { DESKTOP, useMedia } from "@/app/c/[slug]/agents/[agentId]/script/useMedia";
 import { EMPTY_SCRIPT, type CallScript, type ConversationStage } from "@/lib/api/script";
 
@@ -39,6 +41,19 @@ const ONBOARDING: CallScript = {
       name: "Introduction",
       step: 1,
       instruction: "Say why we are calling: to help them start using the app.",
+      // Kit lines are English placeholders for the call's language.
+      examples: {
+        "te-IN": {
+          turns: [
+            "We are calling to help you start the farm app today.",
+            "This call is to get you going on the farm app.",
+            "I can help you set up the farm app now. Please open it.",
+          ],
+          confused: "The farm app on your phone. I will help you open it.",
+          stuck: "Look for the green leaf icon on your phone.",
+          busy: "No problem. When should I call back?",
+        },
+      },
       branches: [
         { when: "Busy right now", target: CALL_BACK },
         { when: "Not interested", target: END },
@@ -49,6 +64,7 @@ const ONBOARDING: CallScript = {
       name: "App on home screen",
       step: 2,
       instruction: "Ask them to find the app icon on the home screen and open it.",
+      sounds_like: "Please find the farm app on your home screen and open it.",
       branches: [{ when: "Not registered yet", target: "unreg" }],
     }),
     stage({
@@ -115,6 +131,47 @@ const ONBOARDING: CallScript = {
   ],
 };
 
+const WARNINGS: LineWarning[] = [
+  {
+    path: "stages.intro.examples.te-IN.turns.2",
+    message: "Asks for two things at once.",
+    detail: "Give one action and stop. The caller does one thing at a time.",
+  },
+];
+
+/** The same flow with Pip's examples written on step 2, as a draft to review. */
+const WITH_EXAMPLES: CallScript = {
+  ...ONBOARDING,
+  stages: ONBOARDING.stages.map((s) =>
+    s.id === "home"
+      ? {
+          ...s,
+          examples: {
+            "te-IN": {
+              turns: [
+                "Please find the farm app on your home screen.",
+                "Look at your home screen for the farm app.",
+                "Find the farm app icon on your phone's home screen.",
+                "Tell me when you see it, and open it.",
+              ],
+              confused: "The farm app, on the first screen of your phone.",
+              stuck: "Swipe left once and look for the green leaf.",
+              busy: "",
+            },
+          },
+        }
+      : s,
+  ),
+};
+
+const WARNINGS_HOME: LineWarning[] = [
+  {
+    path: "stages.home.examples.te-IN.turns.3",
+    message: "Asks them to say when it's done.",
+    detail: "Give one action and stop; their own words show it is done.",
+  },
+];
+
 /** The campaign's call flow, editable here with nothing saved, so it can be looked at. */
 export function CallFlowSection() {
   const [script, setScript] = useState<CallScript>(ONBOARDING);
@@ -132,7 +189,7 @@ export function CallFlowSection() {
           hear={{ allowed: false, reason: null, unknown: false }}
           script={script}
           limits={DEFAULT_LIMITS}
-          issues={[]}
+          issues={validate(script, DEFAULT_LIMITS)}
           languages={["te-IN"]}
           selected={selected}
           readOnly={false}
@@ -140,6 +197,18 @@ export function CallFlowSection() {
           onSelect={setSelected}
           onChange={setScript}
           onEditOpening={() => {}}
+          warnings={WARNINGS}
+          writeExamples={() => ({ run: () => {}, wait: null })}
+        />
+      </KitDemo>
+      <KitDemo label="ProposalReview · Pip's examples on a step, with a warning on its line" wide>
+        <ProposalReview
+          current={ONBOARDING}
+          proposal={WITH_EXAMPLES}
+          languages={[{ tag: "te-IN", name: "Telugu" }]}
+          warnings={WARNINGS_HOME}
+          onApply={() => {}}
+          onDiscard={() => {}}
         />
       </KitDemo>
     </KitSection>

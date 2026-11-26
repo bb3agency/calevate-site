@@ -72,7 +72,7 @@ import { useScriptVersions } from "@/lib/api/scriptVersions";
 import { useClientRealm } from "@/lib/api/session";
 import { endingLabel } from "@/lib/callReview";
 
-import { LeftOutNotice } from "../agents/[agentId]/script/PipProposal";
+import { LeftOutNotice, lineWarningsOf } from "../agents/[agentId]/script/PipProposal";
 import { TestCallForm } from "../campaigns/CampaignBoosters";
 import { ScriptSummary } from "../campaigns/CampaignWorkspace";
 import { JobNotes, lineNotesTakeEffect } from "../campaigns/CampaignNotes";
@@ -417,6 +417,7 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
           base={proposal.base_script ?? EMPTY_SCRIPT}
           proposal={proposal.script}
           notes={proposal.why}
+          warnings={lineWarningsOf(proposal.left_out)}
           pending={save.isPending ? "apply" : clear.isPending ? "discard" : null}
           onApply={(next) => keep(next, proposal.id)}
           onDiscard={() => stopFeedback.run(proposal.id)}

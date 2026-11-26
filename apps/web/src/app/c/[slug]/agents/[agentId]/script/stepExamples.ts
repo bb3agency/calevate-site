@@ -1,4 +1,4 @@
-import type { CallScript, StepExamples } from "@/lib/api/script";
+import type { StepExamples } from "@/lib/api/script";
 
 /**
  * A STEP'S EXAMPLES (script rebuild §2.3, §3.2): per call language, 3 to 5 ways the agent
@@ -8,11 +8,11 @@ import type { CallScript, StepExamples } from "@/lib/api/script";
  * Pure functions, like `scriptModel`: a value in, a value out.
  */
 
-/** The fewest and most turns a language's examples hold (§3.2: "3 to 5 normal turns"). */
+/** The slots the editor keeps (§3.2: "3 to 5 normal turns"). The server takes 0 to 5 and drops
+ * blank ones, so a slot left empty is not a problem, and three are kept to show the variety. */
 export const TURNS_MIN = 3;
 export const TURNS_MAX = 5;
-/** Letters in one example line. The server's figure belongs in `ScriptContext.limits`; until
- * it is sent, the old example line's limit (`sounds_like_max`) is the one used. */
+/** Letters in one example line (`call_script.StepExamples`, the old `sounds_like` limit). */
 export const EXAMPLE_LINE_MAX = 200;
 
 export type Moment = "confused" | "stuck" | "busy";
@@ -35,10 +35,13 @@ export const MOMENT_PLACEHOLDER: Record<Moment, string> = {
   busy: "When now is not a good time",
 };
 
-export const EMPTY_EXAMPLES: StepExamples = { turns: [], confused: "", stuck: "", busy: "" };
+/** A language's examples with every field present, as the editor holds them. */
+export type Examples = Required<StepExamples>;
+
+export const EMPTY_EXAMPLES: Examples = { turns: [], confused: "", stuck: "", busy: "" };
 
 /** A language's examples with every field present, or null when it has none. */
-export function examplesIn(all: Record<string, StepExamples> | undefined, tag: string): StepExamples | null {
+export function examplesIn(all: Record<string, StepExamples> | undefined, tag: string): Examples | null {
   const held = all?.[tag];
   if (!held) return null;
   return {
@@ -50,7 +53,7 @@ export function examplesIn(all: Record<string, StepExamples> | undefined, tag: s
 }
 
 /** Nothing written in it: an entry the owner opened and left blank. */
-export function isBlank(examples: StepExamples): boolean {
+export function isBlank(examples: Examples): boolean {
   return examples.turns.every((t) => !t.trim()) && !examples.confused.trim() && !examples.stuck.trim() && !examples.busy.trim();
 }
 
@@ -70,7 +73,7 @@ export function exampleLanguages(all: Record<string, StepExamples> | undefined, 
  * example line when there is one (§3.2: "an old sounds_like is migrated into the first
  * example").
  */
-export function startExamples(legacy = ""): StepExamples {
+export function startExamples(legacy = ""): Examples {
   const first = legacy.trim();
   return { ...EMPTY_EXAMPLES, turns: [first, "", ""] };
 }
@@ -83,17 +86,17 @@ export function withExamples(
   return { ...(all ?? {}), [tag]: next };
 }
 
-export function addTurn(examples: StepExamples): StepExamples {
+export function addTurn(examples: Examples): Examples {
   if (examples.turns.length >= TURNS_MAX) return examples;
   return { ...examples, turns: [...examples.turns, ""] };
 }
 
-export function removeTurn(examples: StepExamples, at: number): StepExamples {
+export function removeTurn(examples: Examples, at: number): Examples {
   if (examples.turns.length <= TURNS_MIN || at < 0 || at >= examples.turns.length) return examples;
   return { ...examples, turns: examples.turns.filter((_, i) => i !== at) };
 }
 
-export function setTurn(examples: StepExamples, at: number, text: string): StepExamples {
+export function setTurn(examples: Examples, at: number, text: string): Examples {
   return { ...examples, turns: examples.turns.map((t, i) => (i === at ? text : t)) };
 }
 
@@ -112,10 +115,8 @@ export function isExampleField(field: string): boolean {
 
 const length = (text: string) => [...text].length;
 
-/**
- * What the server would refuse in one step's examples, by field. A language left blank is
- * no examples rather than a problem: it is dropped on save (`pruneExamples`).
- */
+/** What the server would refuse in one step's examples, by field: a line over the limit, or
+ * more turns than it takes. Blank lines are not problems; the server drops them. */
 export function exampleProblems(
   all: Record<string, StepExamples> | undefined,
   max = EXAMPLE_LINE_MAX,
@@ -123,33 +124,18 @@ export function exampleProblems(
   const out: { field: string; message: string }[] = [];
   for (const tag of Object.keys(all ?? {})) {
     const ex = examplesIn(all, tag);
-    if (!ex || isBlank(ex)) continue;
-    if (ex.turns.length < TURNS_MIN) out.push({ field: exampleField.list(tag), message: `Give at least ${TURNS_MIN} ways.` });
-    if (ex.turns.length > TURNS_MAX) out.push({ field: exampleField.list(tag), message: `At most ${TURNS_MAX} ways.` });
+    if (!ex) continue;
+    if (ex.turns.filter((t) => t.trim()).length > TURNS_MAX) {
+      out.push({ field: exampleField.list(tag), message: `At most ${TURNS_MAX} ways.` });
+    }
     ex.turns.forEach((turn, i) => {
-      if (!turn.trim()) out.push({ field: exampleField.turn(tag, i), message: "Write this one, or remove it." });
-      else if (length(turn) > max) out.push({ field: exampleField.turn(tag, i), message: `Keep it under ${max} letters.` });
+      if (length(turn) > max) out.push({ field: exampleField.turn(tag, i), message: `Keep it under ${max} letters.` });
     });
     for (const m of ["confused", "stuck", "busy"] as const) {
       if (length(ex[m]) > max) out.push({ field: exampleField.moment(tag, m), message: `Keep it under ${max} letters.` });
     }
   }
   return out;
-}
-
-/** The script with every language the owner left blank taken out, so none is saved empty. */
-export function pruneExamples(script: CallScript): CallScript {
-  if (!(script.stages ?? []).some((s) => s.examples)) return script;
-  return {
-    ...script,
-    stages: script.stages.map((s) => {
-      if (!s.examples) return s;
-      const kept = Object.fromEntries(
-        Object.entries(s.examples).filter(([tag]) => !isBlank(examplesIn(s.examples, tag) ?? EMPTY_EXAMPLES)),
-      );
-      return { ...s, examples: kept };
-    }),
-  };
 }
 
 // --- warnings from the checks, on the line they belong to -------------------------------

@@ -47,7 +47,8 @@ import { DESKTOP, useMedia } from "../agents/[agentId]/script/useMedia";
 import { ScenarioFlow } from "./ScenarioFlow";
 import { ScriptVersions } from "./ScriptVersions";
 import { ChooseAgentPrompt, useFlowAgent } from "./FlowAgentBar";
-import { addScenario, placed, withPipOutcomes } from "./scenarioModel";
+import { addScenario, placed, withPipOutcomes, type Placed } from "./scenarioModel";
+import { examplesAsk } from "../agents/[agentId]/script/stepExamples";
 
 const FOLD_KEY = "calevate:fold:call-flow";
 /** How many changes Undo can step back through. */
@@ -78,7 +79,11 @@ export function CampaignFlow({
   outcomesByOwner = false,
   rewriteOutcomes,
   onRewriteOutcomes,
+  onWriteExamples,
 }: {
+  /** Pip writes one scenario's examples (its name as the part, a language, what to write);
+   *  the draft comes back for review like any part Pip rewrites. Absent while it cannot. */
+  onWriteExamples?: (part: string, language: string, instruction: string) => void;
   /** Opens the script where the opening line is edited; absent when this person cannot. */
   onEditOpening?: () => void;
   /** Pip is writing the outcome of each step that has none (D-1036). */
@@ -208,6 +213,14 @@ export function CampaignFlow({
   const issues = useMemo(() => validate(draft, limits), [draft, limits]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(script);
   const readOnly = !canWrite;
+  // Pip writes from the saved script, so a scenario changed here is saved first.
+  const writeExamples = onWriteExamples
+    ? (item: Placed, language: string) => ({
+        run: () => onWriteExamples(item.section.name, language, examplesAsk(item.step === 1)),
+        wait: readOnly ? (refusal ?? null) : dirty ? "Save your changes first." : null,
+        pending: mapping,
+      })
+    : undefined;
 
   const addStep = () => {
     const steps = Math.max(0, ...placed(sections).map((p) => p.step));
@@ -308,6 +321,7 @@ export function CampaignFlow({
       onSelect={setSelected}
       onChange={commit}
       onUndo={undo}
+      writeExamples={writeExamples}
       onEditOpening={
         onEditOpening &&
         (() => {

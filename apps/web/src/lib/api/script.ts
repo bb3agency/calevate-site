@@ -109,17 +109,9 @@ export interface ConversationStage {
   examples?: Record<string, StepExamples>;
 }
 
-/** One step's examples in one language: the ways it is said, and the hard moments. */
-export interface StepExamples {
-  /** 3 to 5 different turns, each one action. */
-  turns: string[];
-  /** What it says when the caller asks "after what?". */
-  confused: string;
-  /** What it says when the caller cannot do the action. */
-  stuck: string;
-  /** What it says when now is not a good time; the first step only. */
-  busy: string;
-}
+/** One step's examples in one language: up to 5 ways it is said, and the hard moments.
+ *  The generated shape (`turns` may be absent on a request; the editor fills it). */
+export type StepExamples = components["schemas"]["StepExamples"];
 
 /** Mirrors `Objection`. */
 export interface Objection {

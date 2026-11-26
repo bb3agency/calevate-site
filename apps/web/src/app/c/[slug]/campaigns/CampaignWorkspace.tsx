@@ -42,7 +42,7 @@ import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 import { useScriptVersions } from "@/lib/api/scriptVersions";
 import { useClientRealm } from "@/lib/api/session";
 
-import { LeftOutNotice } from "../agents/[agentId]/script/PipProposal";
+import { LeftOutNotice, lineWarningsOf } from "../agents/[agentId]/script/PipProposal";
 
 import { AddSourceForm, SOURCES_HINT, SOURCES_INFO } from "./AddSource";
 import { PipGenerateBand } from "./PipGenerateBand";
@@ -340,6 +340,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
       ),
     ),
   ];
+  const reviewLanguages = flowLanguages.map((tag) => ({ tag, name: languageName(tag) }));
   const generatePart = settings
     ? {
         languages: settings.offered_languages.map((tag) => ({ tag, name: languageName(tag) })),
@@ -402,6 +403,8 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
           base={proposal.base_script ?? EMPTY_SCRIPT}
           proposal={proposal.script}
           notes={proposal.why}
+          languages={reviewLanguages}
+          warnings={lineWarningsOf(proposal.left_out)}
           pending={save.isPending ? "apply" : clear.isPending ? "discard" : null}
           onApply={(next) => void keep(next)}
           onDiscard={() => stopFeedback.run(proposal.id)}
@@ -496,6 +499,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
           <ProposalReview
             editing
             generatePart={generatePart}
+            languages={reviewLanguages}
             current={EMPTY_SCRIPT}
             proposal={script ?? EMPTY_SCRIPT}
             pending={save.isPending ? "apply" : null}
@@ -545,6 +549,9 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                 onRewriteOutcomes={() => rewrite.mutateAsync()}
                 onMapScenarios={
                   main ? () => askFeedback.run({ part: FLOW_PART, language: main }) : undefined
+                }
+                onWriteExamples={(part, language, instruction) =>
+                  askFeedback.run({ part, language, instruction, ...(asking.tone ? { tone: asking.tone } : {}) })
                 }
               />
             </>

@@ -10,13 +10,17 @@ import { NoticeBox } from "@/components/ui";
 import type { components } from "@/lib/api/schema";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
+import { isExamplePath, type LineWarning } from "./stepExamples";
+
 type LeftOutPart = components["schemas"]["CampaignLeftOutOut"];
 
 /**
  * The parts Pip left as the owner had them because its words for them broke a call rule:
  * the rest of the draft is still offered, and these are named rather than dropped.
  */
-export function LeftOutNotice({ parts }: { parts: LeftOutPart[] }) {
+export function LeftOutNotice({ parts: all }: { parts: LeftOutPart[] }) {
+  // A warning on one line of a step's examples is shown on that line (`lineWarningsOf`).
+  const parts = all.filter((part) => !(part.unfixed && isExamplePath(part.part)));
   // A warning Pip's repairs could not clear is in the draft itself, not a part kept as the
   // owner had it, so it is named apart (D-989).
   const unfixed = parts.filter((part) => part.unfixed);
@@ -38,6 +42,13 @@ export function LeftOutNotice({ parts }: { parts: LeftOutPart[] }) {
       )}
     </>
   );
+}
+
+/** The warnings Pip could not clear that name one line of a step's examples, for that line. */
+export function lineWarningsOf(parts: readonly LeftOutPart[]): LineWarning[] {
+  return parts
+    .filter((part) => part.unfixed && isExamplePath(part.part))
+    .map((part) => ({ path: part.part, message: part.rule }));
 }
 
 function PartList({ parts }: { parts: LeftOutPart[] }) {
