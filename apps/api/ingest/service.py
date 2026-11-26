@@ -45,6 +45,7 @@ from calevate_shared.calling_window import (
     next_window_opening,
     within_window,
 )
+from calevate_shared.indian_mobile import INDIA_E164_PREFIX, MOBILE_LEADING_DIGITS
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -120,7 +121,7 @@ FOLLOW_UP_TURN_RULE = "follow_up_turn"
 HELD_FOR_RELEASE_RULE = "held_for_release"
 
 # E.164-ish: our market is India, but a webhook may carry 10 digits with no prefix.
-_INDIA_PREFIX = "+91"
+_INDIA_PREFIX = INDIA_E164_PREFIX
 # E.164 proper: a leading +, a non-zero country digit, 8-15 digits in total.
 _E164 = re.compile(r"^\+[1-9][0-9]{7,14}$")
 # The field names we read a number and a name out of when a source has no mapping
@@ -188,7 +189,7 @@ def normalize_phone(raw: str) -> str | None:
     # the other.
     digits = "".join(str(unicodedata.decimal(c)) for c in text if c.isdecimal())
 
-    if len(digits) == 13 and digits.startswith("910") and digits[3] in "6789":
+    if len(digits) == 13 and digits.startswith("910") and digits[3] in MOBILE_LEADING_DIGITS:
         # `+91 (0) 98765 43210`: the country code AND the trunk prefix, a common way an
         # Indian business card prints a mobile. Kept whole it is `+9109876543210`, which
         # passes the E.164 shape, rings nobody, and as a do-not-call entry never matches
@@ -197,9 +198,9 @@ def normalize_phone(raw: str) -> str | None:
     elif text.startswith("+"):
         # The sender named a country; we take their word for it but not their typos.
         candidate = "+" + digits if 10 <= len(digits) <= 15 else None
-    elif len(digits) == 10 and digits[0] in "6789":
+    elif len(digits) == 10 and digits[0] in MOBILE_LEADING_DIGITS:
         candidate = _INDIA_PREFIX + digits
-    elif len(digits) == 11 and digits[0] == "0" and digits[1] in "6789":
+    elif len(digits) == 11 and digits[0] == "0" and digits[1] in MOBILE_LEADING_DIGITS:
         # `0` + a ten-digit mobile is the STANDARD INDIAN NATIONAL-DIALLING form and one
         # of the two ways an Indian actually writes their number down — the trunk prefix
         # you dial from a landline, printed on business cards and typed into web forms.

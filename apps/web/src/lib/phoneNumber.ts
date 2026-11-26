@@ -12,6 +12,14 @@
 
 const E164 = /^\+[1-9]\d{7,14}$/;
 const INDIA = "+91";
+/** The first digit of every Indian mobile (`calevate_shared.indian_mobile`). */
+const MOBILE_LEADING_DIGITS = "6789";
+
+/** `+91` and ten digits opening 6-9: an Indian mobile in the form the server stores. */
+export function isIndianMobile(e164: string): boolean {
+  const national = e164.startsWith(INDIA) ? e164.slice(INDIA.length) : "";
+  return /^\d{10}$/.test(national) && MOBILE_LEADING_DIGITS.includes(national[0]);
+}
 const DECIMAL = /^\p{Nd}$/u;
 
 function isDecimal(codePoint: number): boolean {
@@ -48,14 +56,14 @@ export function normalizePhone(raw: string): string | null {
   if (plusCount > 1 || (plusCount === 1 && !text.startsWith("+"))) return null;
   const digits = asciiDigits(text);
   let candidate: string | null = null;
-  if (digits.length === 13 && digits.startsWith("910") && "6789".includes(digits[3])) {
+  if (digits.length === 13 && digits.startsWith("910") && MOBILE_LEADING_DIGITS.includes(digits[3])) {
     // `+91 (0) 98765 43210`: the country code and the trunk prefix, as business cards print it.
     candidate = INDIA + digits.slice(3);
   } else if (text.startsWith("+")) {
     candidate = digits.length >= 10 && digits.length <= 15 ? `+${digits}` : null;
-  } else if (digits.length === 10 && "6789".includes(digits[0])) {
+  } else if (digits.length === 10 && MOBILE_LEADING_DIGITS.includes(digits[0])) {
     candidate = INDIA + digits;
-  } else if (digits.length === 11 && digits[0] === "0" && "6789".includes(digits[1])) {
+  } else if (digits.length === 11 && digits[0] === "0" && MOBILE_LEADING_DIGITS.includes(digits[1])) {
     // The trunk prefix an Indian writes before a mobile; it is not part of the number.
     candidate = INDIA + digits.slice(1);
   } else if (digits.length === 12 && digits.startsWith("91")) {

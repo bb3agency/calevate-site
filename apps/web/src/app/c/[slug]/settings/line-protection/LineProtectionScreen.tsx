@@ -23,7 +23,6 @@ import {
   formatIST,
 } from "@/components/ui";
 import {
-  INDIA_MOBILE,
   normaliseIndianMobile,
   useDecideProposal,
   useFallbackPhone,
@@ -34,6 +33,7 @@ import {
   type HealerProposal,
   type LineIncident,
 } from "@/lib/api/healer";
+import { isIndianMobile } from "@/lib/phoneNumber";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { StatusPill } from "@/components/console/statusPill";
@@ -72,7 +72,7 @@ function BackupPhone({ session, allowed }: { session: Realm["session"]; allowed:
   const [draft, setDraft] = useState<string | null>(null);
   const value = draft ?? phone.data?.phone_e164 ?? "";
   const normalised = normaliseIndianMobile(value);
-  const invalid = value.trim() !== "" && !INDIA_MOBILE.test(normalised);
+  const invalid = value.trim() !== "" && !isIndianMobile(normalised);
 
   return (
     <Section title="Backup phone">
