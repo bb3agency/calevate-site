@@ -3,6 +3,10 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.84 — 26-Nov-2026
+
+- Build fixes for the 0.5.83 script writer; nothing changes on screen.
+
 ## 0.5.83 — 26-Nov-2026
 
 - Pip writes a script one step at a time from a plan the code builds from your own steps.
