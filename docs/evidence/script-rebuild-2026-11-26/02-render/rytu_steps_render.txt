@@ -1,0 +1,28 @@
+--- STEPS (sent as the voice platform's own step list) ---
+1. Introduction: Go on from their answer to the opening. Ask whether they registered on the Rytu Khata website. It sounds like: "<TE: OK-andi, did you register on the Rytu Khata website?>" Go on only when: The person says whether they registered on the website.
+   When They are busy now: Offer a call back.
+   When They say they never registered: Go to 'Not registered'.
+   When Not interested: End the call politely.
+   When Otherwise: Go to 'App on home screen'.
+2. App on home screen: Help them put the app on the home screen of their phone. It sounds like: "<TE: OK-andi, please open the browser on your phone and tell me when it is open.>" Then go through its steps under "App on home screen" in [STEP BY STEP], one at a time. Go on only when: The person says the Rytu Khata icon is on their home screen.
+   When They use an iPhone: Go to 'App on home screen'.
+   When Still stuck after every way: Offer a call back.
+   When Otherwise: Go to 'Login'.
+3. Login: Help them log in with their mobile number. It sounds like: "<TE: Now open the app and enter your mobile number, tell me when you see the OTP screen.>" Then go through its steps under "Login" in [STEP BY STEP], one at a time. Go on only when: The person says they are logged in.
+   When No OTP arrives: Offer a call back.
+   When Otherwise: Go to 'Language'.
+4. Not registered: They have not registered. Help them register on the website first. Its script and answers are under "Not registered" in [SCENARIO SCRIPTS]. Go on only when: The person says they are logged in.
+   When Otherwise: Go to 'Login'.
+5. Language: Help them set the app language to Telugu. It sounds like: "<TE: OK-andi, tap the menu at the top and choose Telugu, tell me when it shows Telugu.>" Then go through its steps under "Language" in [STEP BY STEP], one at a time. Go on only when: The person says the app shows Telugu.
+   When Otherwise: Go to 'My Farms'.
+6. My Farms: Help them add their first farm in My Farms. It sounds like: "<TE: Very good-andi! Now tap My Farms and then Add Farm, tell me when the form opens.>" Then go through its steps under "My Farms" in [STEP BY STEP], one at a time. Ask for one of these details per turn. Go on only when: The person says their first farm is listed in My Farms.
+   When Otherwise: Go to 'First expense'.
+   Have in hand: Number of farms, Main crop.
+7. First expense: Help them enter one expense for that farm. It sounds like: "<TE: Super-andi. Now tap Expenses and Add, and enter one cost, like seeds.>" Then go through its steps under "First expense" in [STEP BY STEP], one at a time. Go on only when: The person says one expense is saved.
+   When Otherwise: Go to 'First sale'.
+8. First sale: Help them enter one crop sale. It sounds like: "<TE: OK-andi, now tap Sales and Add, and enter one sale.>" Then go through its steps under "First sale" in [STEP BY STEP], one at a time. Go on only when: The person says one sale is saved.
+   When Otherwise: Go to 'Dashboard'.
+9. Dashboard: Ask them to open the Dashboard and say what they see; explain it adds up expenses and sales. It sounds like: "<TE: Now tap Dashboard-andi; what do you see there?>" Go on only when: The person says what the dashboard shows.
+   When Otherwise: Go to 'Close'.
+10. Close: Thank them and close. Say its line exactly as written, word for word. Its script and answers are under "Close" in [SCENARIO SCRIPTS]. Go on only when: The person has been thanked.
+   When Otherwise: End the call politely.
