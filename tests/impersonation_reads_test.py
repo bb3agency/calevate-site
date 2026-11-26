@@ -47,6 +47,11 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "client, superadmin-only like /v1/ops/reply-times; a client sees only its own "
         "through GET /v1/analytics/reply-speed"
     ),
+    "/v1/ops/engine-health": (
+        "the operator's view of the platform-wide dial hold and the engine's failure run: a "
+        "platform record, never a client view; the client's own is GET /v1/phone-service, "
+        "which is org:read"
+    ),
     "/v1/ops/engine-model-bands": (
         "whether each of the voice platform's models costs extra (D-750): a platform "
         "record an operator keeps, never a client view"

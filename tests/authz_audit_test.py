@@ -343,6 +343,10 @@ READS_SHAPED_AS_POSTS: dict[str, str] = {
         "runs the D-943 promo check (`compliance/call_purpose.lint`) over wording a person "
         "is writing and writes nothing; a POST because the text travels in the body"
     ),
+    "/v1/campaigns/{campaign_id}/opening-practice": (
+        "runs the practice checks over a second opening beside the script's own and stores "
+        "nothing; a POST because the opening being tried travels in the body"
+    ),
     "/v1/compliance/subject-export": (
         "a DPDP §11 access request: it reads one data principal's record, and the "
         "identifier that selects it is the personal data itself"

@@ -18,13 +18,13 @@ VENDOR_HTTP = REPO_ROOT / "apps" / "api" / "engine" / "vendor_http.py"
 def test_the_argument_answers_the_case_that_is_actually_uncovered() -> None:
     """SLOWNESS, not 429. `REQUEST_TIMEOUT_S` bounds one call and never the aggregate, so
     a vendor answering every request in nine seconds trips no ladder while holding every
-    caller — that is the shape a breaker would be for, and the decision not to build one
-    is only honest if it is the shape the argument addresses."""
+    caller. Failures hold the dials (`engine/outage.py`); slowness holds nothing, and that
+    decision is only honest if the argument names the bounds that cover it."""
     text = VENDOR_HTTP.read_text(encoding="utf-8")
-    breaker_at = text.lower().index("circuit breaker")
+    breaker_at = text.index("SLOWNESS DOES NOT")
     throttle_at = text.index("THROTTLE_STATUS = 429")
     argument = text[breaker_at:throttle_at]
-    assert "SLOWNESS" in argument
+    assert "SLOW but answering trips nothing" in argument
     # The two bounds the decision rests on. If either stops being the reason, the decision
     # has to be re-made rather than re-worded — so they are named here, not paraphrased.
     assert "_tick_lease" in argument
