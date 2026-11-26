@@ -218,6 +218,20 @@ def whole_call_detail(key: str, label: str = "") -> bool:
     return bool(_WHOLE_CALL_DETAIL.search(f"{key.replace('_', ' ')} {label}"))
 
 
+#: The whole-call details about the CALL, not the person: where it got to and how it ended.
+#: The agent's own line can show one ("Your expense is recorded"). A judgement of the person
+#: (comfort, interest, awareness) is also never asked, yet it still has to rest on what the
+#: caller said: an agent pitching expense tracking is not the caller's interest in it.
+_CALL_LEVEL_DETAIL: Final = re.compile(
+    r"\b(?:status|outcome|outcomes|progress|result|results|disposition|goal|goals)\b", re.I
+)
+
+
+def call_level_detail(key: str, label: str = "") -> bool:
+    """Whether a whole-call detail is about the call itself, so any line of it may ground it."""
+    return bool(_CALL_LEVEL_DETAIL.search(f"{key.replace('_', ' ')} {label}"))
+
+
 # --- Key moments, asked for in the same request as the fields ---------------------------
 #
 # Founder decision, 11 Oct 2026: moments come out of the extraction call that already reads
@@ -1555,8 +1569,9 @@ def grounded(
     speakers: dict[int, str],
 ) -> tuple[dict[str, Any], list[str]]:
     """`(kept, dropped keys)`: each value kept only where the model named a real transcript
-    line it rests on. A detail about the caller needs one of the caller's own lines; a detail
-    read from the whole call (`whole_call_detail`) needs any line of the call.
+    line it rests on. A detail about the caller, a judgement of them included, needs one of
+    the caller's own lines; a detail about the call itself (`call_level_detail`) needs any
+    line of the call.
 
     The prompt has said "absent means null" since the first extraction and the model still
     noted details nobody spoke of (call review of 25 Nov 2026, a comfort level and a usage
@@ -1572,7 +1587,7 @@ def grounded(
             for n in (cited if isinstance(cited, list) else [])
             if isinstance(n, int) and not isinstance(n, bool) and n in speakers
         ]
-        whole = field is not None and whole_call_detail(field.key, field.label)
+        whole = field is not None and call_level_detail(field.key, field.label)
         if any(whole or speakers[n] == "caller" for n in lines):
             kept[key] = value
         else:
@@ -1822,6 +1837,7 @@ __all__ = [
     "spell_business_name",
     "validate_extraction",
     "whole_call_detail",
+    "call_level_detail",
     "withheld_moment_kinds",
     "without_feelings",
 ]

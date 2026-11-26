@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.77 — 26-Nov-2026
+
+- After a call, a judgement about the caller (how comfortable or interested they were) is
+  kept only when something the caller said shows it. The agent describing a feature is no
+  longer noted as the caller's interest in it.
+
 ## 0.5.76 — 26-Nov-2026
 
 - Every script is checked by one set of rules wherever it is written or saved. A line that
