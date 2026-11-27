@@ -42,6 +42,7 @@ describe("drag to link", () => {
     await renderClientPage(
       <ScenarioFlow
         agent={null}
+        direction="outbound"
         hear={hear}
         script={SCRIPT}
         limits={DEFAULT_LIMITS}
@@ -75,6 +76,7 @@ describe("drag to link", () => {
     await renderClientPage(
       <ScenarioFlow
         agent={null}
+        direction="outbound"
         hear={hear}
         script={SCRIPT}
         limits={DEFAULT_LIMITS}
@@ -108,6 +110,7 @@ describe("drag to link", () => {
     await renderClientPage(
       <ScenarioFlow
         agent={null}
+        direction="outbound"
         hear={hear}
         script={linked}
         limits={DEFAULT_LIMITS}
@@ -137,6 +140,7 @@ describe("script boxes by language", () => {
     renderClientPage(
       <ScenarioFlow
         agent={null}
+        direction="outbound"
         hear={{ allowed: true, reason: null, unknown: false }}
         script={{ ...SCRIPT, stages: [stage({ id: "a", name: "First", step: 1, scripts }), SCRIPT.stages[1] as ConversationStage] }}
         limits={DEFAULT_LIMITS}
@@ -188,6 +192,7 @@ describe("script boxes by language", () => {
     await renderClientPage(
       <ScenarioFlow
         agent={null}
+        direction="outbound"
         hear={{ allowed: true, reason: null, unknown: false }}
         script={SCRIPT}
         limits={DEFAULT_LIMITS}

@@ -196,7 +196,7 @@ export function CallFlowSection() {
           wide={desktop}
           onSelect={setSelected}
           onChange={setScript}
-          onEditOpening={() => {}}
+          direction="outbound"
           warnings={WARNINGS}
           writeExamples={() => ({ run: () => {}, wait: null })}
         />

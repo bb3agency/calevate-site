@@ -63,6 +63,7 @@ const view = (
     <ToastProvider>
       <ScenarioFlow
         agent={null}
+        direction="outbound"
         hear={{ allowed: true, reason: null, unknown: false }}
         script={opts.script ?? LINKED}
         limits={DEFAULT_LIMITS}

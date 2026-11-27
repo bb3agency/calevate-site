@@ -49,6 +49,7 @@ const view = (opts: { wide?: boolean; readOnly?: boolean; script?: CallScript } 
     <ToastProvider>
       <ScenarioFlow
         agent={null}
+        direction="outbound"
         hear={{ allowed: true, reason: null, unknown: false }}
         script={opts.script ?? RYTU}
         limits={DEFAULT_LIMITS}
@@ -155,6 +156,7 @@ describe("a jump to a later step on the canvas", () => {
       <ToastProvider>
         <ScenarioFlow
           agent={null}
+          direction="outbound"
           hear={{ allowed: true, reason: null, unknown: false }}
           script={script}
           limits={DEFAULT_LIMITS}

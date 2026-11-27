@@ -560,7 +560,8 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
         <div>
           {script ? (
             <>
-              <ScriptSummary script={script} />
+              {/* A line may be answered by a "both" agent, whose placed-call line is real (D-920). */}
+              <ScriptSummary script={script} direction="both" />
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button
                   ref={editButton}

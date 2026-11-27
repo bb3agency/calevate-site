@@ -2,12 +2,16 @@ import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ScenarioFlow } from "@/app/c/[slug]/campaigns/ScenarioFlow";
+import { OPENING_KEY } from "@/app/c/[slug]/campaigns/flowLayout";
 import { DEFAULT_LIMITS } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
-import { EMPTY_SCRIPT, type CallScript, type ConversationStage } from "@/lib/api/script";
+import type { GeneratePartProps } from "@/app/c/[slug]/agents/[agentId]/script/GeneratePart";
+import type { AgentDirection } from "@/lib/api/agents";
+import { EMPTY_SCRIPT, OPENING_LINE_MAX, type CallScript, type ConversationStage } from "@/lib/api/script";
 
 import { renderClientPage } from "./harness";
 
-/** The call flow starts at the campaign's opening line, the way every call does. */
+/** The call flow starts at the campaign's opening line, the way every call does, and that box
+ *  opens an editor for the opening line alone. */
 
 const stage = (over: Partial<ConversationStage>): ConversationStage => ({
   id: "a",
@@ -28,6 +32,7 @@ const stage = (over: Partial<ConversationStage>): ConversationStage => ({
 });
 
 const OPENING = "Hello, this is the farm desk. Is now a good time to talk?";
+const PLACED = "Calling about your farm. Can we talk now?";
 const SCRIPT: CallScript = {
   ...EMPTY_SCRIPT,
   schema_version: 2,
@@ -35,29 +40,55 @@ const SCRIPT: CallScript = {
   stages: [stage({ id: "a", name: "Install app", step: 1 }), stage({ id: "b", name: "Setup farms", step: 2 })],
 };
 
-const view = (script: CallScript, wide: boolean, onEditOpening?: () => void) =>
+const view = ({
+  script = SCRIPT,
+  wide = true,
+  selected = null,
+  readOnly = false,
+  direction = "outbound",
+  onSelect = () => {},
+  onChange = () => {},
+  rewriteOpening,
+}: {
+  script?: CallScript;
+  wide?: boolean;
+  selected?: string | null;
+  readOnly?: boolean;
+  direction?: AgentDirection;
+  onSelect?: (id: string | null) => void;
+  onChange?: (next: CallScript) => void;
+  rewriteOpening?: GeneratePartProps & { held?: string };
+} = {}) =>
   renderClientPage(
     <ScenarioFlow
       agent={null}
       hear={{ allowed: true, reason: null, unknown: false }}
+      direction={direction}
       script={script}
       limits={DEFAULT_LIMITS}
       issues={[]}
       languages={["te-IN"]}
-      selected={null}
-      readOnly={false}
+      selected={selected}
+      readOnly={readOnly}
       wide={wide}
-      onSelect={() => {}}
-      onChange={() => {}}
-      onEditOpening={onEditOpening}
+      onSelect={onSelect}
+      onChange={onChange}
+      rewriteOpening={rewriteOpening}
     />,
     {},
   );
 
+const ask = (over: Partial<GeneratePartProps & { held?: string }> = {}) => ({
+  languages: [{ tag: "te-IN", name: "Telugu" }],
+  initial: "te-IN",
+  onGenerate: vi.fn(),
+  ...over,
+});
+
 describe("the opening in the call flow", () => {
-  it("shows the stored opening first and links it to step 1", async () => {
-    const edit = vi.fn();
-    const { container } = await view(SCRIPT, true, edit);
+  it("shows the stored opening first, links it to step 1, and is chosen like a scenario", async () => {
+    const onSelect = vi.fn();
+    const { container } = await view({ onSelect });
     const node = await screen.findByRole("button", { name: /^Opening: Hello, this is the farm desk/ });
     expect(node.textContent).toContain(`“${OPENING}”`);
     expect(container.querySelector('path[data-link="@opening-a"]')).not.toBeNull();
@@ -65,27 +96,98 @@ describe("the opening in the call flow", () => {
     expect(screen.getByText("Not now")).toBeTruthy();
     expect(screen.getByText("Offer a call back")).toBeTruthy();
     fireEvent.click(node);
-    expect(edit).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith(OPENING_KEY);
   });
 
   it("closes the call on not now where call backs are not offered", async () => {
-    await view({ ...SCRIPT, policies: { ...SCRIPT.policies, offer_call_backs: false } }, true);
+    await view({ script: { ...SCRIPT, policies: { ...SCRIPT.policies, offer_call_backs: false } } });
     expect(await screen.findByText("End the call")).toBeTruthy();
-    // Without a way to edit it, the opening is not a button.
-    expect(screen.queryByRole("button", { name: /^Opening:/ })).toBeNull();
   });
 
-  it("reads a placed call's own opening when the agent has one", async () => {
-    await view({ ...SCRIPT, outbound_opening_line: "Calling about your farm. Can we talk now?" }, true, () => {});
+  it("reads a both agent's placed-call opening when it has one", async () => {
+    await view({ script: { ...SCRIPT, outbound_opening_line: PLACED }, direction: "both" });
     expect(await screen.findByText("Opening when it calls")).toBeTruthy();
-    expect(screen.getByText("“Calling about your farm. Can we talk now?”")).toBeTruthy();
+    expect(screen.getByText(`“${PLACED}”`)).toBeTruthy();
+  });
+
+  it("reads the opening a campaign's calls speak, never a stray placed-call line", async () => {
+    const onChange = vi.fn();
+    await view({ script: { ...SCRIPT, outbound_opening_line: PLACED }, selected: OPENING_KEY, onChange });
+    expect(await screen.findByRole("button", { name: /^Opening: Hello, this is the farm desk/ })).toBeTruthy();
+    expect(screen.queryByText(`“${PLACED}”`)).toBeNull();
+    const box = screen.getByRole("textbox", { name: "Opening line" }) as HTMLTextAreaElement;
+    expect(box.value).toBe(OPENING);
+    fireEvent.change(box, { target: { value: "Hello again." } });
+    const next = onChange.mock.calls[0][0] as CallScript;
+    expect(next.opening_line).toBe("Hello again.");
+    expect(next.outbound_opening_line).toBe(PLACED);
   });
 
   it("leads the stacked steps on a phone", async () => {
-    await view(SCRIPT, false, () => {});
+    await view({ wide: false });
     const opening = await screen.findByRole("region", { name: "Opening" });
     expect(opening.textContent).toContain(OPENING);
     expect(opening.textContent).toContain("Next: 1.1");
     expect(opening.textContent).toContain("Not now: Offer a call back");
+  });
+});
+
+describe("the opening's own editor", () => {
+  it("holds the opening line alone, edited in the canvas's working script", async () => {
+    const onChange = vi.fn();
+    await view({ selected: OPENING_KEY, onChange });
+    const panel = await screen.findByRole("complementary", { name: "Edit the opening" });
+    const box = screen.getByRole("textbox", { name: "Opening line" }) as HTMLTextAreaElement;
+    expect(panel.contains(box)).toBe(true);
+    expect(box.value).toBe(OPENING);
+    expect(box.maxLength).toBe(OPENING_LINE_MAX);
+    expect(panel.textContent).toContain(`${OPENING.length}/${OPENING_LINE_MAX}`);
+    // Nothing else of the script: no scenario fields.
+    expect(screen.queryByRole("textbox", { name: "Scenario name" })).toBeNull();
+    fireEvent.change(box, { target: { value: "Namaste." } });
+    expect(onChange).toHaveBeenCalledWith({ ...SCRIPT, opening_line: "Namaste." });
+  });
+
+  it("edits a both agent's placed-call line in its own box", async () => {
+    const onChange = vi.fn();
+    const script = { ...SCRIPT, outbound_opening_line: PLACED };
+    await view({ script, direction: "both", selected: OPENING_KEY, onChange });
+    const box = (await screen.findByRole("textbox", { name: "Opening line when it calls" })) as HTMLTextAreaElement;
+    expect(box.value).toBe(PLACED);
+    fireEvent.change(box, { target: { value: "Calling again." } });
+    expect(onChange).toHaveBeenCalledWith({ ...script, outbound_opening_line: "Calling again." });
+  });
+
+  it("asks Pip to change the opening alone, by its part name", async () => {
+    const rewrite = ask();
+    await view({ selected: OPENING_KEY, rewriteOpening: rewrite });
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Pip to change Opening line" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "What should Pip change in Opening line?" }), {
+      target: { value: "make it warmer" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Rewrite" }));
+    expect(rewrite.onGenerate).toHaveBeenCalledWith("Opening line", "te-IN", "make it warmer");
+  });
+
+  it("waits for unsaved changes before Pip rewrites it", async () => {
+    await view({ selected: OPENING_KEY, rewriteOpening: ask({ held: "Save your changes first." }) });
+    const button = (await screen.findByRole("button", { name: "Ask Pip to change Opening line" })) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe("Save your changes first.");
+  });
+
+  it("is read-only for someone who cannot change the script", async () => {
+    await view({ selected: OPENING_KEY, readOnly: true, rewriteOpening: ask() });
+    const box = (await screen.findByRole("textbox", { name: "Opening line" })) as HTMLTextAreaElement;
+    expect(box.readOnly).toBe(true);
+    expect(screen.queryByRole("button", { name: /Ask Pip to change/ })).toBeNull();
+  });
+
+  it("opens under the opening on a phone", async () => {
+    await view({ wide: false, selected: OPENING_KEY });
+    const opening = await screen.findByRole("region", { name: "Opening" });
+    const box = screen.getByRole("textbox", { name: "Opening line" });
+    expect(opening.contains(box)).toBe(true);
+    expect(screen.getByRole("button", { expanded: true }).textContent).toContain(OPENING);
   });
 });
