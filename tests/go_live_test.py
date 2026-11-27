@@ -788,6 +788,7 @@ async def test_a_paid_account_with_no_number_and_no_shared_line_is_asked_to_get_
         panel = await read_trial_panel(session, tenant_id=tenant_id)
     assert (panel.shared_line, panel.needs_number, panel.can_call) == (False, True, False)
     assert panel.blocked_reason == trial_panel_module.NEEDS_NUMBER_REASON
+    assert panel.blocked_rule == trial_panel_module.NEEDS_NUMBER_RULE
 
 
 # --- money taken back ---------------------------------------------------------------------

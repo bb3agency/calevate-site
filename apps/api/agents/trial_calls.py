@@ -83,7 +83,13 @@ TRIAL_CALL_ROUTE: Final = "/v1/trial/calls"
 TRIAL_CALL_ENGINES: Final = frozenset({"thinnest"})
 
 NOT_READY_RULE: Final = "trial_calling_not_ready"
-NOT_READY_REASON: Final = "Test calls are not available yet. Please try again later."
+#: Said when the shared test number is not set (`trial_calling_ready`). It names the cause and
+#: what the owner can do now, because "try again later" gave them neither and nothing they
+#: retry changes it: only an operator setting the number does (runbooks/trial-calling.md).
+NOT_READY_REASON: Final = (
+    "Phone test calls are not switched on yet: the line they ring from is not set up on our "
+    "side. Until it is, type to your agent on its Training tab to try it."
+)
 
 
 _Held = TypeVar("_Held")

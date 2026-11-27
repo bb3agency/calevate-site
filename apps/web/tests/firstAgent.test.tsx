@@ -848,6 +848,57 @@ describe("meet your agent", () => {
     expect(await screen.findByText("You have used today's test calls.")).toBeTruthy();
   });
 
+  const NO_LINE =
+    "Phone test calls are not switched on yet: the line they ring from is not set up on our side. Until it is, type to your agent on its Training tab to try it.";
+
+  it("says there is no test line yet, and offers typing to the agent instead of a retry (28 Nov 2026)", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [agent({ published: true })],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+        "/v1/trial": { ...TRIAL, can_call: false, blocked_reason: NO_LINE, blocked_rule: "trial_calling_not_ready" },
+        "/v1/legal/readiness": { ...READINESS, documents: [], outstanding_documents: 0 },
+        "/v1/compliance/outbound-pledge": { ...PLEDGE, is_current: true },
+      }),
+    );
+    expect(await screen.findByText("No test line yet")).toBeTruthy();
+    expect(screen.getByText(NO_LINE)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Type to it instead" }).getAttribute("href")).toContain(
+      `/agents/${AGENT_ID}?section=training`,
+    );
+    expect(screen.queryByRole("button", { name: /Call me now/ })).toBeNull();
+    expect(screen.queryByText(/try again later/i)).toBeNull();
+  });
+
+  it("gives a refusal at the press for a missing test line the same way on, never Try again", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [agent({ published: true })],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+        "/v1/trial": TRIAL,
+        "/v1/legal/readiness": { ...READINESS, documents: [], outstanding_documents: 0 },
+        "/v1/compliance/outbound-pledge": { ...PLEDGE, is_current: true },
+        [`POST /v1/inbound-lines/${LINE_ID}/test-call`]: {
+          status: "blocked",
+          blocked_reason: NO_LINE,
+          blocked_rule: "trial_calling_not_ready",
+          call_id: null,
+        },
+      }),
+    );
+    const call = await screen.findByRole("button", { name: /Call me now/ });
+    fireEvent.change(screen.getByRole("textbox", { name: "Your mobile number" }), { target: { value: "98765 43210" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /This number is my own/ }));
+    fireEvent.click(call);
+    expect(await screen.findByText("No test line yet")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Type to it instead" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Try again|Call me again/ })).toBeNull();
+  });
+
   it("reads the brief on the stage while the questions are written, with a way to go on at once", async () => {
     const reading = run({
       jobs: ["answer_calls"],

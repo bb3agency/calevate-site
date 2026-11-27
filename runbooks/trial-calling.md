@@ -27,6 +27,60 @@ the daily cap (`trial_daily_call_cap`, default 10), the per-call limit
 list, calling hours 9:00-21:00 IST, consent, the agent's AI disclosure and truthful answers,
 and the big red switch.
 
+## Switch phone test calls on: the checklist
+
+What the owner sees while this is not done: step 4 of Meet your agent ("Hear it"), the
+dashboard's test-call box and a campaign's or line's Test call box all say "Phone test calls
+are not switched on yet: the line they ring from is not set up on our side", with **Type to it
+instead** (the agent's Training tab). Rule `trial_calling_not_ready`, from
+`agents/trial_calls.trial_calling_ready()`: false while `trial_caller_number` is empty.
+
+Production read 18 Nov 2026 (decision D-1020): `platform_settings.trial_caller_number` is null.
+The number used before had been given to a client (founder, 4 Nov 2026), so it can no longer be the shared
+one (a recorded number is refused, `engine_number_is_platform_line`).
+
+1. **Have a number in OUR developer workspace that no client has recorded.** Ops console →
+   Platform configuration → Calling limits and pacing → Free trials → **Shared trial number**.
+   The picker lists exactly those numbers, read live from the voice platform. If it is empty,
+   a number must be bought in ThinnestAI's console in the **developer** workspace (not a
+   client's customer workspace: a trial account has none until its first payment, D-697, and
+   the shared line is ours, not a client resource, so D-693's "never the developer workspace
+   for a client resource" does not apply to it). It must be one our key can lend: a brought
+   number needs its carrier keys saved. Buying is a founder decision with a monthly cost;
+   this runbook does not buy one.
+2. **Pick it**, type a reason, **Save change**. Re-checked against the same list on save.
+3. **Set up its line**: the panel **When someone rings this number back** → **Set it up now**
+   (`POST /v1/ops/trial-number/line`, step-up). Pass = the panel shows the line ready.
+4. **Smoke test** as in step 4 of the section below. Pass = your phone rings, the call ends at
+   **Longest trial test call**, and the client's Calls shows it.
+5. **Ring the number back** from your own phone. Pass = the "only places test calls" message,
+   and no agent answers.
+6. Optional, founder's call: **Longest trial test call** (`trial_call_max_seconds`, live, no
+   deploy). The code default is 180 s (D-904: "trials keep 180 s"). A guided walk-through of a
+   real business ran 4-5 minutes (founder, 28 Nov 2026), so 300 s lets one finish. A longer
+   limit holds the one shared line longer for every trial account (each call holds it up to
+   the limit plus 3 minutes) and spends a 15-minute trial in three calls instead of five.
+
+Paying accounts with a number of their own do not need any of this (D-1020): their tests ring
+from their own number. They meet the shared line only when their workspace has no free agent
+slot for the test, or before they have a number.
+
+### Talking to the agent in the browser
+
+Not built. ThinnestAI's only documented browser call is the call button inside its website
+chat widget: an agent with `voice.surfaces` including `web` and `answersCalls` on, embedded by
+`<script src="https://thinnest.ai/widget.js" data-key="pk_…">` (`thinnest-findings/mirror/
+snapshots/2026-11-26/pages/channels/website.md:9-23`, `channels/voice.md:1343-1368`,
+`api-reference/agents/update-agent.md:1372-1394`; the key is the agent's `webKey`, `get-agent.md:766-771`). The key
+"authorises nothing" and is public by design (`website.md:27-29`), and there is no API that
+starts a web call for one person (`openapi.json` lists no such path). So a web call would
+reach the agent without our dial gate, the trial's minutes and daily cap, the own-number tick
+or any per-call limit, from anyone who copies the key; it would run in ThinnestAI's iframe on
+their origin (`website.md:10`), and `call.completed` carries no `reference` or `metadata` for
+it (`api-reference/webhooks.md:354`), so it could not be tied to the owner who started it.
+What would change this is a vendor feature: a server-minted, single-use web-call session for
+one agent with `maxCallSeconds` and our `reference`. It is a question for ThinnestAI, not code.
+
 ## Set up the shared trial number (gate T-22)
 
 The founder bought the number in ThinnestAI, in OUR developer workspace (9 Oct 2026). Never
@@ -72,8 +126,9 @@ write the number itself into a ticket, a commit or a log; the console shows it t
 
 ## A client says…
 
-- **"Test calls are not available yet."** The shared number is not set, or the engine is not
-  ThinnestAI. Do step 3.
+- **"Phone test calls are not switched on yet: the line they ring from is not set up on our
+  side."** (Before 28 Nov 2026: "Test calls are not available yet. Please try again later.")
+  The shared number is not set, or the engine is not ThinnestAI. Run the checklist above.
 - **"Another test call is in progress. Try again in a minute."** One test call runs at a time
   across ALL trial accounts, because they share one number. The line frees when that call
   ends, or at the latest the per-call limit plus three minutes after it was placed. Nothing to

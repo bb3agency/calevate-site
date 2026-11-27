@@ -65930,6 +65930,17 @@
             ],
             "title": "Blocked Reason"
           },
+          "blocked_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Rule"
+          },
           "calls_today": {
             "default": 0,
             "title": "Calls Today",
