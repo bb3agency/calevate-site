@@ -84,6 +84,7 @@ import { lookup } from "@/lib/lookup";
 import { describeViewDays, endsToday, fromViewDays, toViewDays } from "@/lib/viewDays";
 
 import { CallAgain } from "./CallAgain";
+import { RetentionLine } from "./RetentionLine";
 import { callColumns, liveOf, outcomeRowClass } from "./callColumns";
 import { CallsPhoneList } from "./CallsPhoneList";
 import { sourcePath } from "./callSource";
@@ -805,6 +806,7 @@ export function CallsScreen({ slug }: { slug: string }) {
           />
         )}
       </div>
+      <RetentionLine />
       {followUp.dialogs}
     </div>
   );

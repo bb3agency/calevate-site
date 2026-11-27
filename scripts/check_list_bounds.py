@@ -410,6 +410,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "GET /v1/inbound-lines/{line_id}/calls": BoundedByConstruction(
         by="read with `LIMIT inbound/routes.CALLS_SHOWN` (fifty); the call logs hold the rest."
     ),
+    "GET /v1/inbound-lines/today": BoundedByConstruction(
+        by="one entry per open line, which `inbound/lines.MAX_LINES` (fifty) caps."
+    ),
+    "GET /v1/inbound-lines/{line_id}/callers": BoundedByConstruction(
+        by="read with `LIMIT inbound/today.OWED_SHOWN` (fifty); the call logs hold the rest."
+    ),
     "GET /v1/inbound-lines/{line_id}/test-calls": BoundedByConstruction(
         by="read with `LIMIT inbound/routes.TEST_CALLS_SHOWN` (twenty); older ones stay in the "
         "call logs."

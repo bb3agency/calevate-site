@@ -3,7 +3,8 @@
 /**
  * `/c/{slug}/inbound/{id}`: ONE INBOUND LINE (D-997). The business and its work are the
  * centre; the agent is only the voice. The page follows the campaign page: a header with the
- * name (renamed in place) and the line's state, then coloured fold sections in the order an
+ * name (renamed in place) and the line's state, today's calls with the one button for whoever is
+ * still waiting (`LineToday`), then coloured fold sections in the order an
  * owner sets a line up: Voice, Main task, Sources, Script, Actions, Outside hours, Numbers,
  * Test call, Calls taken, Improve, Archive.
  *
@@ -69,6 +70,7 @@ import {
   useUpdateInboundLine,
   type InboundLine,
 } from "@/lib/api/inboundLines";
+import { todayOf, useInboundToday } from "@/lib/api/inboundToday";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 import { useScriptVersions } from "@/lib/api/scriptVersions";
 import { useClientRealm } from "@/lib/api/session";
@@ -97,6 +99,7 @@ import { PipFailed, PipWriting, retryable } from "../campaigns/PipScriptStatus";
 import { ScriptVersions, restoredToast } from "../campaigns/ScriptVersions";
 import { SourcePicker, useChosenCount } from "../campaigns/SourcePicker";
 
+import { CallBackButton, MissedCallBackSwitch, TodayCounts } from "./LineToday";
 import { LineStatusPill, lineState } from "./lineStatus";
 import { MAIN_TASK_MAX_CHARS } from "@/lib/textLimits";
 
@@ -205,6 +208,7 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
           ) : undefined
         }
       />
+      <LineTodayBar slug={slug} lineId={data.id} />
       <RestrictionNote reason={write.reason} />
       {/* No free calling setup: what holds each one, as links (the toast cannot). */}
       <SlotsFullProblem slug={slug} error={publish.error} />
@@ -226,7 +230,7 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
         />
         <JobAlerts kind="line" jobId={data.id} />
         <ActionsSection {...props} slug={slug} />
-        <OutsideHoursSection slug={slug} />
+        <OutsideHoursSection slug={slug} lineId={data.id} />
         <NumbersSection
           {...props}
           putLive={() => publishFeedback.run(undefined)}
@@ -677,13 +681,26 @@ function ActionsSection({ line, canWrite, refusal, slug }: Props & { slug: strin
   );
 }
 
-function OutsideHoursSection({ slug }: { slug: string }) {
+/** Today's calls and the one button for whoever is still waiting, above the set-up folds. */
+function LineTodayBar({ slug, lineId }: { slug: string; lineId: string }) {
+  const { session } = useClientRealm();
+  const today = useInboundToday(session);
+  const counts = todayOf(today.data, lineId);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+      <TodayCounts slug={slug} lineId={lineId} day={today.data?.day} today={counts} failed={today.isError} />
+      <CallBackButton slug={slug} lineId={lineId} waiting={counts?.waiting ?? 0} />
+    </div>
+  );
+}
+
+function OutsideHoursSection({ slug, lineId }: { slug: string; lineId: string }) {
   const { session, href } = useClientRealm();
   const profile = useBusinessProfile(session);
   const hours = profile.data?.hours ?? [];
   const byDay = new Map(hours.map((day) => [day.day, day]));
   return (
-    <FoldSection id="line-hours" title="Outside hours" tone="settings" hint="Your opening hours, set once for the business.">
+    <FoldSection id="line-hours" title="Outside hours" tone="settings" hint="Your opening hours, and calling back missed callers.">
       {profile.isLoading ? (
         <Skeleton rows={1} label="Loading your opening hours" />
       ) : !profile.data ? (
@@ -715,6 +732,9 @@ function OutsideHoursSection({ slug }: { slug: string }) {
           </Link>
         </div>
       )}
+      <div className="mt-5 border-t border-line pt-4">
+        <MissedCallBackSwitch slug={slug} lineId={lineId} />
+      </div>
     </FoldSection>
   );
 }

@@ -6743,6 +6743,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls/kept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How long this account keeps call recordings and transcripts */
+        get: operations["get_call_retention_v1_calls_kept_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls/live": {
         parameters: {
             query?: never;
@@ -10811,6 +10828,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/inbound-lines/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Each line's calls today (IST): answered, owed a call back, missed */
+        get: operations["lines_today_v1_inbound_lines_today_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/inbound-lines/{line_id}": {
         parameters: {
             query?: never;
@@ -10857,6 +10891,23 @@ export interface paths {
         put?: never;
         /** Archive a line that answers no number */
         post: operations["archive_line_v1_inbound_lines__line_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/callers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The people this line still owes a call: missed, hung up, or asked for one */
+        get: operations["line_callers_v1_inbound_lines__line_id__callers_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -11012,6 +11063,24 @@ export interface paths {
         put?: never;
         /** Turn down one suggested change; it is not offered again */
         post: operations["dismiss_line_lead_suggestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/missed-call-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether this line's missed callers are called back, read from the live Follow-ups */
+        get: operations["read_missed_call_back_v1_inbound_lines__line_id__missed_call_back_get"];
+        /** Switch this line's missed-caller call-back on or off (its own Follow-up) */
+        put: operations["set_missed_call_back_v1_inbound_lines__line_id__missed_call_back_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -19051,6 +19120,8 @@ export interface components {
             calls: "inbound" | "outbound" | "both";
             /** Campaign Ids */
             campaign_ids?: string[] | null;
+            /** Inbound Line Ids */
+            inbound_line_ids?: string[] | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -20425,6 +20496,17 @@ export interface components {
             state: string | null;
             /** Undeclared Clis */
             undeclared_clis: string[];
+        };
+        /**
+         * CallsKeptOut
+         * @description How long this account keeps what its calls leave behind, from its own retention
+         *     settings (`crm/call_retention`); null when the account has no period for it.
+         */
+        CallsKeptOut: {
+            /** Recording Days */
+            recording_days: number | null;
+            /** Transcript Days */
+            transcript_days: number | null;
         };
         /** CampaignAnswerIn */
         CampaignAnswerIn: {
@@ -28042,6 +28124,16 @@ export interface components {
             /** Lines */
             lines: components["schemas"]["InboundLineOut"][];
         };
+        /** InboundTodayOut */
+        InboundTodayOut: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Lines */
+            lines: components["schemas"]["LineTodayOut"][];
+        };
         /**
          * IncidentKindOut
          * @description A problem the healer can open an incident for, in plain words (`healer/wording`).
@@ -30148,6 +30240,25 @@ export interface components {
              */
             tenant_id: string;
         };
+        /** LineCallBackIn */
+        LineCallBackIn: {
+            /** On */
+            on: boolean;
+        };
+        /** LineCallBackOut */
+        LineCallBackOut: {
+            /** Covered By */
+            covered_by: string | null;
+            /** Covered By Name */
+            covered_by_name: string | null;
+            /** Follow Up Id */
+            follow_up_id: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "on" | "off" | "covered" | "cannot";
+        };
         /** LineCallOut */
         LineCallOut: {
             /** Duration S */
@@ -30163,6 +30274,16 @@ export interface components {
             started_at: string | null;
             /** Status */
             status: string;
+        };
+        /** LineCallersOut */
+        LineCallersOut: {
+            /** Callers */
+            callers: components["schemas"]["OwedCallerOut"][];
+            /**
+             * Since
+             * Format: date
+             */
+            since: string;
         };
         /** LineCallsOut */
         LineCallsOut: {
@@ -30277,6 +30398,22 @@ export interface components {
              * @enum {string}
              */
             status: "untested" | "testing" | "working" | "not_working";
+        };
+        /** LineTodayOut */
+        LineTodayOut: {
+            /** Answered */
+            answered: number;
+            /** Call Back */
+            call_back: number;
+            /**
+             * Line Id
+             * Format: uuid
+             */
+            line_id: string;
+            /** Missed */
+            missed: number;
+            /** Waiting */
+            waiting: number;
         };
         /** LinkIn */
         LinkIn: {
@@ -32118,6 +32255,34 @@ export interface components {
         OverviewIn: {
             /** Overview */
             overview: string;
+        };
+        /** OwedCallerOut */
+        OwedCallerOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** Call Back At */
+            call_back_at: string | null;
+            /**
+             * Call Id
+             * Format: uuid
+             */
+            call_id: string;
+            /** Calling */
+            calling: boolean;
+            /** Name */
+            name: string | null;
+            /** Phone E164 */
+            phone_e164: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "not_answered" | "hung_up_early" | "asked";
+            /** Tries */
+            tries: number;
         };
         /** OwnModelEnableIn */
         OwnModelEnableIn: {
@@ -54244,6 +54409,35 @@ export interface operations {
             };
         };
     };
+    get_call_retention_v1_calls_kept_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallsKeptOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_live_calls_v1_calls_live_get: {
         parameters: {
             query: {
@@ -61853,6 +62047,35 @@ export interface operations {
             };
         };
     };
+    lines_today_v1_inbound_lines_today_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboundTodayOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_line_v1_inbound_lines__line_id__get: {
         parameters: {
             query?: never;
@@ -61971,6 +62194,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    line_callers_v1_inbound_lines__line_id__callers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineCallersOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -62259,6 +62513,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadSuggestionAnsweredOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_missed_call_back_v1_inbound_lines__line_id__missed_call_back_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineCallBackOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_missed_call_back_v1_inbound_lines__line_id__missed_call_back_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LineCallBackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LineCallBackOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

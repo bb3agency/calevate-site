@@ -327,6 +327,14 @@ async def problems_of(
                 {"id": campaign_id},
             ):
                 problems.append(Problem(None, "campaign_unknown", "A campaign was not found."))
+    if isinstance(trigger, d.CallEndedTrigger) and trigger.inbound_line_ids:
+        for line_id in trigger.inbound_line_ids:
+            if not await _exists(
+                session,
+                "SELECT 1 FROM inbound_lines WHERE id = :id AND archived_at IS NULL",
+                {"id": line_id},
+            ):
+                problems.append(Problem(None, "line_unknown", "An inbound line was not found."))
     for step in steps:
         if isinstance(step, d.CallStep):
             problems.extend(await _call_problems(session, step))

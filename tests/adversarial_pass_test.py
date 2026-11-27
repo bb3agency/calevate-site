@@ -916,6 +916,9 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/inbound-lines/{line_id}/numbers", {"number_id": str(uuid.uuid4())}, {}),
     ("POST", "/v1/inbound-lines/{line_id}/archive", {}, {}),
     ("GET", "/v1/inbound-lines/{line_id}/calls", {}, {}),
+    ("GET", "/v1/inbound-lines/{line_id}/callers", {}, {}),
+    ("GET", "/v1/inbound-lines/{line_id}/missed-call-back", {}, {}),
+    ("PUT", "/v1/inbound-lines/{line_id}/missed-call-back", {"on": True}, {}),
     (
         "POST",
         "/v1/inbound-lines/{line_id}/test-call",

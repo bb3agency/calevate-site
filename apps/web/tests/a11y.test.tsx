@@ -111,6 +111,7 @@ import CampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/page";
 import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
 import NewCampaignPage from "@/app/c/[slug]/campaigns/new/page";
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
+import LineCallersPage from "@/app/c/[slug]/inbound/[lineId]/callers/page";
 import InboundLinePage from "@/app/c/[slug]/inbound/[lineId]/page";
 import InboundPage from "@/app/c/[slug]/inbound/page";
 import type { InboundLine } from "@/lib/api/inboundLines";
@@ -3315,6 +3316,11 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/inbound-lines": { lines: [INBOUND_LINE, { ...INBOUND_LINE, id: "line-2", name: "Evening line", live: false, script: null, numbers: [] }] },
+      // W4.1: the live line's day, with someone waiting, so the counts and the button draw.
+      "/v1/inbound-lines/today": {
+        day: "2026-11-28",
+        lines: [{ line_id: INBOUND_LINE.id, answered: 14, call_back: 3, missed: 2, waiting: 4 }],
+      },
     },
   },
   {
@@ -3381,6 +3387,24 @@ const CLIENT_SCREENS: Screen[] = [
       },
       "/v1/business-profile": businessProfileFixture(),
       "/v1/campaigns/numbers": [],
+    },
+  },
+  {
+    // W4.1: someone missed twice, someone who asked with a call-back booked, one being rung.
+    file: "c/[slug]/inbound/[lineId]/callers/page.tsx",
+    realm: "client",
+    element: () => <LineCallersPage params={Promise.resolve({ slug: "acme", lineId: INBOUND_LINE.id })} />,
+    routes: {
+      "/v1/me": ME,
+      [`/v1/inbound-lines/${INBOUND_LINE.id}`]: INBOUND_LINE,
+      [`/v1/inbound-lines/${INBOUND_LINE.id}/callers`]: {
+        since: "2026-11-22",
+        callers: [
+          { call_id: "call-1", at: "2026-11-28T04:30:00Z", reason: "not_answered", tries: 2, name: null, phone_e164: "+919876543210", call_back_at: null, calling: false },
+          { call_id: "call-2", at: "2026-11-28T03:30:00Z", reason: "asked", tries: 1, name: "Priya", phone_e164: "+919812345678", call_back_at: "2026-11-28T09:30:00Z", calling: false },
+          { call_id: "call-3", at: "2026-11-27T10:00:00Z", reason: "hung_up_early", tries: 1, name: null, phone_e164: "+919800000003", call_back_at: null, calling: true },
+        ],
+      },
     },
   },
   {

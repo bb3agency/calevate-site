@@ -110,7 +110,7 @@ refusal that will never clear, e.g. `kyc_missing` is NOT one: it retries; `dnc` 
 | kind | fields | starts when |
 | - | - | - |
 | `new_lead` | `source_ids: [uuid] \| null` (null = any source) | `ingest_lead` stores a lead |
-| `call_ended` | `agent_ids: [uuid] \| null`, `campaign_ids: [uuid] \| null` (only calls these campaigns placed), `calls: "inbound" \| "outbound" \| "both"`, `outcomes: ["missed", "answered", ...] \| null` | the post-call pipeline finishes a call (test calls never) |
+| `call_ended` | `agent_ids: [uuid] \| null`, `campaign_ids: [uuid] \| null` (only calls these campaigns placed), `inbound_line_ids: [uuid] \| null` (only calls these inbound lines took), `calls: "inbound" \| "outbound" \| "both"`, `outcomes: ["missed", "answered", ...] \| null` | the post-call pipeline finishes a call (test calls never) |
 | `manual` | — | the client (or Pip, through an approved plan) starts picked leads, a leads lens or a campaign's contacts |
 | `lead_date` | `field` (a lead detail holding `YYYY-MM-DD`), `offset_days` (either side, up to `follow_up_max_days`), `at` (`HH:MM` IST) | the date falls due; once per lead per date |
 
@@ -222,6 +222,15 @@ are a wait (`campaign_whatsapp_follow_up_wait_minutes`) and the message; `again:
 is saved as a draft and only the card's On switch, refused until WhatsApp approves the
 message, publishes it. HTTP: `GET|POST /v1/campaigns/{id}/whatsapp-follow-up`, `POST
 /v1/campaigns/{id}/whatsapp-follow-up/switch {on}`.
+
+An inbound line's "Call back missed callers" switch (W4.2) is a `missed_call_callback`
+Follow-up narrowed to the line (`inbound_line_ids: [the line]`), made, published, turned off
+and on again by `follow_ups/starters.set_line_call_back` and found by its trigger, one per
+line. Its caller is the line's agent when it places calls, else the account's oldest calling
+agent. A line made from release 0.5.99 starts with it on when such an agent exists; lines made
+before were left as they were. A live Follow-up that already covers the line (inbound, missed,
+no campaign or `only_if` narrowing) reads as `covered`, and the line's switch leaves it alone.
+HTTP: `GET|PUT /v1/inbound-lines/{id}/missed-call-back {on}`.
 
 ## The migration of the new-lead plan
 

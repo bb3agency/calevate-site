@@ -32,6 +32,8 @@ MAX_STEPS: Final = 30
 MAX_SOURCES: Final = 50
 MAX_AGENTS: Final = 50
 MAX_CAMPAIGNS: Final = 50
+#: `inbound.lines.MAX_LINES`, the most open lines an account keeps.
+MAX_INBOUND_LINES: Final = 50
 MAX_OUTCOMES: Final = 30
 MAX_VALUES: Final = 10
 MAX_WHY_CHARS: Final = 120
@@ -88,6 +90,11 @@ class CallEndedTrigger(_Strict):
     agent_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=MAX_AGENTS)
     #: Only calls these campaigns placed (`calls.campaign_id`). Null: any call.
     campaign_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=MAX_CAMPAIGNS)
+    #: Only calls these inbound lines took (`calls.inbound_line_id`), so a line's own "call
+    #: back missed callers" switch reaches its callers and no other line's. Null: any call.
+    inbound_line_ids: list[UUID] | None = Field(
+        default=None, min_length=1, max_length=MAX_INBOUND_LINES
+    )
     calls: Literal["inbound", "outbound", "both"] = "both"
     #: The call's outcome (`missed`, `answered`, ...) or one of the agent's business
     #: outcomes. Null: any outcome.
@@ -547,6 +554,9 @@ def starts_when(trigger: AnyTrigger) -> str:
         if trigger.campaign_ids is not None:
             which_campaign = "campaign" if len(trigger.campaign_ids) == 1 else "campaigns"
             return f"A call of the chosen {which_campaign} ends"
+        if trigger.inbound_line_ids is not None:
+            which_line = "line" if len(trigger.inbound_line_ids) == 1 else "lines"
+            return f"A call to the chosen inbound {which_line} ends"
         which = {"inbound": "An incoming call", "outbound": "A call we made", "both": "A call"}
         return f"{which[trigger.calls]} ends"
     if isinstance(trigger, LeadDateTrigger):
