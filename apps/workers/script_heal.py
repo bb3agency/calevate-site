@@ -253,7 +253,8 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
     wired = wired_ways_out(holder.script, lint)
     findings = heal_findings(wired, lint)
     rewrite = await _rewrite_wanted(tenant_id, kind, holder_id)
-    if not findings and not rewrite:
+    unopened = _unopened(wired)
+    if not findings and not rewrite and not unopened:
         if wired != holder.script:
             return await _save(tenant_id, holder, lint, wired, [])
         await _finish(tenant_id, kind, holder_id, "done", checked=holder.digest)
@@ -266,6 +267,8 @@ async def _run(tenant_id: UUID, kind: HolderKind, holder_id: UUID, previous: str
         return "skipped"
     if rewrite and await _ask_rewrite(tenant_id, kind, holder_id):
         return "rewriting"
+    if unopened:
+        return await _open(tenant_id, holder, context, lint, wired)
     if not findings:
         await _finish(tenant_id, kind, holder_id, "done", checked=holder.digest)
         return "clean"
@@ -330,6 +333,31 @@ async def _ask_rewrite(tenant_id: UUID, kind: HolderKind, holder_id: UUID) -> bo
         )
     log.info("script_rewrite_asked", extra={"kind": kind, "holder_id": str(holder_id)})
     return True
+
+
+def _unopened(script: CallScript) -> bool:
+    """A script with steps and no opening at all: its calls would open with nothing, since a
+    campaign call speaks only its opening line. No finding names it (the checks read lines,
+    and there is none), so the pass writes it here, whoever's script it is."""
+    return bool(script.stages) and not (
+        script.opening_line.strip() or script.outbound_opening_line.strip()
+    )
+
+
+async def _open(
+    tenant_id: UUID, holder: _Holder, context: ScriptContext, lint: Any, base: CallScript
+) -> str:
+    """The missing opening written by the one opening writer (`script_writer`'s `opening`
+    mode, `opening_line.write_opening` and its checks) and saved like a repair. One the
+    writer could not write is recorded as checked, so the sweep does not pay for the same
+    refusal every hour; the owner's page still shows the opening is missing."""
+    result = await write_script(WriteRequest("opening", context, time.monotonic(), base=base))
+    if _unopened(result.script):
+        await _meter_and_finish(
+            tenant_id, holder, result.spends, state="failed", checked=holder.digest
+        )
+        return "opening_unwritten"
+    return await _save(tenant_id, holder, lint, result.script, result.spends)
 
 
 async def _repair(

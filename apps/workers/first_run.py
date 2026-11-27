@@ -64,10 +64,12 @@ from apps.api.first_run.questions import (
     PROFILE_TOPICS,
     PROMPT_MAX,
     QUESTION_KINDS,
+    Given,
     Question,
     QuestionWords,
     closed_topics,
     fallback_questions,
+    given_in,
     question_words,
     written_questions,
 )
@@ -129,19 +131,33 @@ _JOB_CONTEXT: Final[dict[str, str]] = {
 
 QUESTIONS_INSTRUCTION: Final = (
     f"The owner of {BUSINESS_FRAME} has described the phone agent they want. Write "
-    f"{MIN_WRITTEN} to {MAX_WRITTEN} short follow-up questions that would help the agent "
-    "serve THIS business and that the description does NOT already answer, most useful "
-    "first. Plain English only: no links, no markdown, no emoji, no other script. Each "
+    f"{MIN_WRITTEN} to {MAX_WRITTEN} short follow-up questions, each read from THIS "
+    "description and the agent's job, asking what the agent will need on its calls that "
+    "the description and the facts already given do NOT say, most useful first. When the "
+    "job is not said, read it from the description. An agent that calls people (a list, "
+    "people who signed up or enquired) needs to know what those people pay, if anything, "
+    "when it may call them, and what it must never say or promise; an agent that answers "
+    "calls needs what its callers ask about. Ask about an address, a place or the areas "
+    "served only when people come to the business or it goes to them: a business people "
+    "use from anywhere (an app, a website, a phone or online service) has none. Never ask "
+    "what the description already says. "
+    "For when the agent may call: kind single_choice, maps_to null, options time ranges "
+    'within 9am to 9pm such as "9am to 6pm". For what it must never say or promise: kind '
+    'choices, maps_to null, each option a short rule starting with "Never" that fits what '
+    "this business does. "
+    "Plain English only: no links, no markdown, no emoji, no other script. Each "
     f"question: prompt (at most {PROMPT_MAX} characters), hint (one helpful sentence, at "
     f"most {HINT_MAX} characters), kind, options and maps_to. kind is one of: choices (tick "
     "all that apply), single_choice (pick one), text, address, services (a list of what "
-    f"they offer with prices), hours (opening hours). choices and single_choice need "
+    "they offer with prices), hours (when the business is open or answers, never when the "
+    "agent calls). choices and single_choice need "
     f"{MIN_OPTIONS} to {MAX_OPTIONS} options of at most {OPTION_MAX} characters; every other "
     "kind has options []. maps_to names the business profile section the answer belongs "
     "in, or null: trade (choices or single_choice about what kinds of thing they offer), "
     "location (address), offer (services), hours (hours), booking (text about how a "
     "booking is made), facts (text: one more fact callers must know that no other section "
-    "holds, such as the areas served, who qualifies or the documents to bring; facts may be "
+    "holds, such as what the people called pay, who qualifies or the documents to bring; "
+    "facts may be "
     "used for more than one question). address, services and hours must use their section. "
     "Never use a section listed as already known. Return ONLY JSON: "
     '{"questions": [{"prompt": "...", "hint": "...", "kind": "...", "options": [...], '
@@ -349,7 +365,9 @@ async def _owner_documents(tenant_id: UUID, run_id: UUID) -> tuple[str, dict[str
 # --------------------------------------------------------------------------- ask
 
 
-def _questions_parser(profile: Profile, words: QuestionWords | None = None) -> Any:
+def _questions_parser(
+    profile: Profile, words: QuestionWords | None = None, given: Given | None = None
+) -> Any:
     """The model's questions through the gate; None (no answer) when none survive, so the
     next leg of the ladder gets its chance and the fixed questions come last."""
 
@@ -357,7 +375,7 @@ def _questions_parser(profile: Profile, words: QuestionWords | None = None) -> A
         written = raw.get("questions")
         if not isinstance(written, list):
             return None
-        return written_questions(written, profile, words) or None
+        return written_questions(written, profile, words, given) or None
 
     return parse
 
@@ -428,14 +446,16 @@ async def write_first_run_questions(ctx: dict[str, Any], payload: dict[str, Any]
     known = ", ".join(sorted(closed_topics(profile, words))) or "none"
     jobs = "; ".join(_JOB_CONTEXT[job] for job in row.jobs or [] if job in _JOB_CONTEXT)
     documents, _ = await owner_documents(tenant_id, run_id)
+    given = given_in(row.brief or "")
     try:
         answer: JsonAnswer[list[Question]] = await ask_json(
             f"The owner's description:\n{(row.brief or '').strip() or 'none given'}\n\n"
             + (f"{documents}\n\n" if documents else "")
             + f"What the agent does: {jobs or 'not said'}"
-            f"\nBusiness profile sections already known: {known}",
+            f"\nBusiness profile sections already known: {known}"
+            + (f"\nAlready given, so never asked: {given.said()}" if given.said() else ""),
             QUESTIONS_INSTRUCTION,
-            parse=_questions_parser(profile, words),
+            parse=_questions_parser(profile, words, given),
             azure_format=QUESTIONS_FORMAT,
             tenant_leg=tenant_leg,
             quota_exhausted=braked,
@@ -459,6 +479,7 @@ async def write_first_run_questions(ctx: dict[str, Any], payload: dict[str, Any]
             brief_hash=None if digest is None else str(digest),
             questions=questions,
             disclosure=disclosure,
+            ask_one_thing=not given.facts,
         )
         await _meter(session, tenant_id, spent)
     return "ready" if stored else "not_pending"

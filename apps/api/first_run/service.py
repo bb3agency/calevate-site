@@ -50,6 +50,7 @@ from apps.api.first_run.questions import (
     CHOICE_KINDS,
     Question,
     fallback_questions,
+    given_in,
     question_words,
     stored_questions,
     with_one_thing,
@@ -378,6 +379,7 @@ async def save_brief(session: AsyncSession, *, tenant_id: UUID, brief: str) -> R
             questions=fixed,
             disclosure=None,
             writing=False,
+            ask_one_thing=not given_in(cleaned).facts,
         )
     return await read_state(session, tenant_id=tenant_id)
 
@@ -405,12 +407,16 @@ async def store_questions(
     questions: Sequence[Question],
     disclosure: str | None,
     writing: bool = True,
+    ask_one_thing: bool = True,
 ) -> bool:
     """Write the questions for the brief they were written for. False when the owner has since
     changed the brief, so the job that wrote them for the old one writes nothing. Answers
     given to the previous questions are cleared: they name questions no longer asked (what
-    they put into the business profile stays there)."""
+    they put into the business profile stays there). `ask_one_thing`: the one thing every
+    caller should know (D-945) is asked only while the brief states no fact of its own; one
+    that does already answered it, and its facts are pinned (`work._pin_owner_statements`)."""
     guard = "AND questions_status = 'writing' AND questions_brief_hash = :hash" if writing else ""
+    asked = with_one_thing(questions) if ask_one_thing else list(questions)
     stored = (
         await session.execute(
             text(
@@ -423,7 +429,7 @@ async def store_questions(
             {
                 "id": run_id,
                 "hash": brief_hash,
-                "questions": json.dumps([q.stored() for q in with_one_thing(questions)]),
+                "questions": json.dumps([q.stored() for q in asked]),
                 "disclosure": disclosure,
             },
         )

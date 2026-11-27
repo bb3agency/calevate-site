@@ -37,18 +37,26 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import (
+    MAX_SCRIPT_STAGES,
     CallScript,
     ConversationStage,
     ScriptPolicies,
     is_example_led,
 )
 from calevate_shared.opening_notices import OpeningNotices
-from calevate_shared.spoken_guard import ENGLISH_RUN, english_problem, has_indic_letters
+from calevate_shared.spoken_guard import (
+    ENGLISH_RUN,
+    OWN_SCRIPT_RULE,
+    english_problem,
+    has_indic_letters,
+    own_script_problem,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_checks, script_proposals
 from apps.api.agents.call_rules import PLACED_FIRST_STAGE_RULE
 from apps.api.agents.owner_plan import OwnerPlan, numbered_items, opening_folded, owner_plan
+from apps.api.agents.owner_words import owner_tasks
 from apps.api.agents.retired_lines import retired_line_problem
 from apps.api.agents.script_lint import instruction_fields, offers_call_back
 from apps.api.agents.script_plan import (
@@ -84,6 +92,8 @@ from apps.workers.script_assist import (
     ANSWER_UNUSABLE_CODE,
     JsonAnswer,
     LeftOut,
+    ScriptBrief,
+    UnusableAnswerError,
     ask_json,
     way_out_problems,
 )
@@ -520,15 +530,119 @@ OUTLINE_INSTRUCTION: Final = (
     "the person says; `ways_out` only where the person may say something that sends the call "
     'elsewhere: `when` in a few words and `to` another step\'s name, "end" or "call_back" '
     "(a call back only for someone who still cannot after being guided step by step). A call "
-    "back, an end or a transfer is never a step of its own. The last step closes the call on "
-    "the one next thing. Return ONLY JSON."
+    "back, an end or a transfer is never a step of its own. Each separate thing the call asks "
+    "the person to do is its own step, in the order the call gives them, and no step does two "
+    "of them; `tasks` lists the number of the owner's task a step does, at most one, or [] "
+    "for a step that does none. The last step closes the call on the one next thing: it "
+    "never asks them to confirm that everything is done and never says that it is, since "
+    "only what they said on the call shows that. Return ONLY JSON."
+)
+
+#: The outline's answer: the task-steps shape, each step also naming the owner's task it
+#: does, so code can hold the outline to one step per task in the owner's order.
+OUTLINE_FORMAT: Final[dict[str, object]] = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "call_outline",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "does": {"type": "string"},
+                            "outcome": {"type": "string"},
+                            "ways_out": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "when": {"type": "string"},
+                                        "to": {"type": "string"},
+                                    },
+                                    "required": ["when", "to"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                            "tasks": {"type": "array", "items": {"type": "integer"}},
+                        },
+                        "required": ["name", "does", "outcome", "ways_out", "tasks"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["steps"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+#: A close that has the agent declare or ask that the whole job is done: the 27 Nov 2026
+#: founder call heard "all done" with steps left, and the 28 Nov first run planned "Confirm
+#: all steps are done" as its last step.
+_ALL_DONE: Final = re.compile(
+    r"\b(?:all|every|each)\b[^.]{0,40}\b(?:steps?|tasks?|entries|things)\b[^.]{0,40}"
+    r"\b(?:done|completed?|finished|saved)\b"
+    r"|\bconfirm\b[^.]{0,30}\b(?:all|everything)\b"
+    r"|\beverything\b[^.]{0,20}\b(?:is|was|has been)\s+(?:done|completed?|finished|set)\b",
+    re.IGNORECASE,
 )
 
 
-def outline_request(context: ScriptContext, base: CallScript | None, hint: ScriptPlan) -> str:
+def outline_task_problems(raw: dict[str, Any], tasks: Sequence[str]) -> list[str]:
+    """What an outline answer gets wrong of the owner's tasks (`owner_words.owner_tasks`):
+    a step doing two, a task with no step, one in two steps or out of order; and a close
+    that declares or asks that everything is done. Sent back as the repair's problems."""
+    steps = raw.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return []
+    problems: list[str] = []
+    placed: list[int] = []
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        done = [n for n in step.get("tasks") or [] if isinstance(n, int) and 1 <= n <= len(tasks)]
+        if len(done) > 1:
+            listed = " and ".join(f'{n} ("{tasks[n - 1]}")' for n in done)
+            problems.append(f"steps.{index}: does tasks {listed}; give each its own step")
+        placed += done
+    for number, task in enumerate(tasks, 1):
+        count = placed.count(number)
+        if count == 0:
+            problems.append(f'task {number} ("{task}") has no step; add one in its place')
+        elif count > 1:
+            problems.append(f'task {number} ("{task}") is in {count} steps; keep it in one')
+    if placed != sorted(placed):
+        problems.append("the steps do the owner's tasks out of their order; keep the order")
+    last = steps[-1]
+    if isinstance(last, dict) and _ALL_DONE.search(
+        f"{last.get('name', '')} {last.get('does', '')}"
+    ):
+        problems.append(
+            f"steps.{len(steps) - 1}: has them confirm, or says, that everything is done; "
+            "close by thanking them and saying the one next thing"
+        )
+    return problems
+
+
+def outline_request(
+    context: ScriptContext,
+    base: CallScript | None,
+    hint: ScriptPlan,
+    tasks: Sequence[str] = (),
+) -> str:
     lines = [f"What the call is for:\n{context.main_task.strip()}"]
     if context.placed:
         lines.append(f"{PLACED_FIRST_STAGE_RULE}.")
+    if tasks:
+        lines.append(
+            "The owner's tasks for the person, in their order (each its own step):\n"
+            + "\n".join(f"{n}. {task}" for n, task in enumerate(tasks, 1))
+        )
     if context.instruction.strip():
         lines.append(f"The owner asks: {' '.join(context.instruction.split())}")
     if base is not None and base.stages:
@@ -553,14 +667,17 @@ async def _read_plan(
     started: float,
     *,
     expect: int | None,
+    tasks: Sequence[str] | None = None,
 ) -> tuple[OwnerPlan | None, Spent | None]:
     """A plan the model laid out in the task-steps shape, read like an owner's own; None
-    when the answer does not hold one (`expect`: the steps it must keep, one per item)."""
+    when the answer does not hold one (`expect`: the steps it must keep, one per item).
+    `tasks`: an outline, held to the owner's tasks and a close that claims nothing
+    (`outline_task_problems`), repaired once and otherwise taken as it came."""
     timeout_s = request_timeout(started)
     if timeout_s is None:
         return None, None
     try:
-        answer = await _ask_steps(context, request, instruction, timeout_s)
+        answer = await _ask_steps(context, request, instruction, timeout_s, tasks=tasks)
     except ProblemError as refused:
         log.info("script_plan_refused", extra={"reason": refused.code})
         return None, refused
@@ -576,14 +693,41 @@ async def _read_plan(
 
 
 async def _ask_steps(
-    context: ScriptContext, request: str, instruction: str, timeout_s: float
+    context: ScriptContext,
+    request: str,
+    instruction: str,
+    timeout_s: float,
+    *,
+    tasks: Sequence[str] | None = None,
 ) -> JsonAnswer[str]:
+    if tasks is None:
+        return await ask_json(
+            request,
+            instruction,
+            parse=task_steps_text,
+            azure_format=TASK_STEPS_FORMAT,
+            tenant_leg=context.tenant_leg,
+            quota_exhausted=context.quota_exhausted,
+            max_tokens=TASK_STEPS_MAX_TOKENS,
+            temperature=0.2,
+            timeout_s=timeout_s,
+        )
+    owners = tuple(tasks)
 
+    def parse(raw: dict[str, Any]) -> str | None:
+        problems = outline_task_problems(raw, owners)
+        if problems:
+            raise UnusableAnswerError("; ".join(problems))
+        return task_steps_text(raw)
+
+    # The salvage takes an outline the repair could not fix as it came: a bundled step is
+    # still a better plan for this business than the trade's playbook it would fall back to.
     return await ask_json(
         request,
         instruction,
-        parse=task_steps_text,
-        azure_format=TASK_STEPS_FORMAT,
+        parse=parse,
+        salvage=task_steps_text,
+        azure_format=OUTLINE_FORMAT,
         tenant_leg=context.tenant_leg,
         quota_exhausted=context.quota_exhausted,
         max_tokens=TASK_STEPS_MAX_TOKENS,
@@ -622,12 +766,18 @@ async def plan_for(
         brief.business_type, placed=placed, plans=dict(brief.step_plans), fit=brief.fit
     )
     if context.main_task.strip() or context.instruction.strip():
+        tasks = owner_tasks(context.main_task)
+        # Past the step limit (with a first and a last step around them) they cannot each
+        # have a step; the outline then plans them as it judges.
+        if len(tasks) > MAX_SCRIPT_STAGES - 2:
+            tasks = []
         read, spent = await _read_plan(
             context,
-            outline_request(context, base, playbook),
+            outline_request(context, base, playbook, tasks),
             OUTLINE_INSTRUCTION,
             started,
             expect=None,
+            tasks=tasks,
         )
         spends += [spent] if spent is not None else []
         if read is not None:
@@ -880,13 +1030,55 @@ async def _opening(
         )
         if line and not problems and not force:
             continue
+        written, spent = await _opening_written(
+            context,
+            brief,
+            name,
+            line,
+            asked=("" if force else line, problems),
+            placed=placed,
+            dialled=dialled,
+            started=started,
+        )
+        spends += spent
+        if written is not None:
+            script = with_opening(script, written, placed=placed)
+    return script, spends
+
+
+#: Ladders the opening writer may run for an opening that would otherwise stay EMPTY. A
+#: campaign call speaks only its opening line, so an empty one is a call that opens with
+#: nothing (28 Nov 2026 first run: "No opening line yet"); a line already there is kept
+#: instead, so it gets one.
+EMPTY_OPENING_ATTEMPTS: Final = 2
+
+
+async def _opening_written(
+    context: ScriptContext,
+    brief: ScriptBrief,
+    name: str,
+    line: str,
+    *,
+    asked: tuple[str, Sequence[str]],
+    placed: bool,
+    dialled: bool,
+    started: float,
+) -> tuple[WrittenOpening | None, list[Spent]]:
+    """The opening `write_opening` writes for field `name`, or None to keep `line`. Where
+    `line` is empty a refusal, or an answer that leaves the call's language, is asked once
+    more while there is time: the second time with the refused line and its problem, so
+    the repair is told what was wrong rather than sampled again."""
+    names = (brief.business_name, brief.agent_name)
+    ask_line, ask_problems = asked
+    spends: list[Spent] = []
+    for _attempt in range(1 if line else EMPTY_OPENING_ATTEMPTS):
         if request_timeout(started) is None:
             break
         try:
             answer = await write_opening(
                 brief,
-                line="" if force else line,
-                problems=problems,
+                line=ask_line,
+                problems=ask_problems,
                 tenant_leg=context.tenant_leg,
                 quota_exhausted=context.quota_exhausted,
                 placed=placed,
@@ -897,21 +1089,33 @@ async def _opening(
             spends.append(refused)
             continue
         spends.append(answer)
-        if not keeps_language(line, answer.value.line, brief.language):
-            log.info("script_opening_kept", extra={"field": name, "reason": "language"})
-            continue
-        script = with_opening(script, answer.value, placed=placed)
-    return script, spends
+        if keeps_language(line, answer.value.line, brief.language, names=names):
+            return answer.value, spends
+        log.info("script_opening_kept", extra={"field": name, "reason": "language"})
+        ask_line = answer.value.line
+        ask_problems = [
+            own_script_problem(name, ask_line, brief.language, names=names)
+            or f"{name}: write it {OWN_SCRIPT_RULE}"
+        ]
+    return None, spends
 
 
-def keeps_language(old: str, new: str, language: str) -> bool:
+def keeps_language(old: str, new: str, language: str, *, names: Sequence[str] = ()) -> bool:
     """Whether an opening rewritten for a call in `language` stays in it: in an Indian
     language it keeps the language's own letters where the old line had them, and holds no
     English sentence (production, 26 Nov 2026: a Telugu opening came back as romanised
-    Telugu with "We are calling to help you install and start using the app.")."""
+    Telugu with "We are calling to help you install and start using the app.").
+
+    `names` (the business's and the agent's) are taken out first, as `own_script_problem`
+    takes them out: a placed call's opening must say both, and "Anjali, Rytu Khata app" is
+    four English-letter words in a row that are no English sentence. Without this the line
+    the writer's own check passed was thrown away here and the opening stayed empty."""
     if language.split("-")[0].lower() == "en":
         return True
     plain = re.sub(r"\{\{[^}]*\}\}", " ", new)
+    for each in names:
+        if each.strip():
+            plain = plain.replace(each.strip(), " ")
     if ENGLISH_RUN.search(plain):
         return False
     return not (has_indic_letters(old) and not has_indic_letters(new))
