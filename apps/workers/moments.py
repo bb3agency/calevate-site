@@ -45,6 +45,7 @@ from calevate_shared.extraction import (
     MomentKind,
     whole_call_detail,
 )
+from calevate_shared.languages import LANGUAGES
 
 #: What produced a marker. Selects the wording and the trust a reader places in it.
 MomentSource = Literal["derived", "model"]
@@ -222,6 +223,60 @@ def said_on(value: Any, text: str) -> bool:
         return bool(wanted & content_words(text))
     needle = _normalize(value).strip(" .,?!")
     return bool(needle) and needle in _normalize(text)
+
+
+def _language_names() -> dict[str, tuple[str, ...]]:
+    """Each language's names, casefolded: English ("Telugu", "English" for "English
+    (India)") and its own ("తెలుగు")."""
+    out: dict[str, tuple[str, ...]] = {}
+    for lang in LANGUAGES.values():
+        english = lang.english_name.casefold()
+        out[lang.id] = tuple(
+            dict.fromkeys((english, english.split("(")[0].strip(), lang.endonym.casefold()))
+        )
+    return out
+
+
+_LANGUAGE_NAMES: Final = _language_names()
+
+
+def _names_in(name: str, text: str) -> bool:
+    """Whether casefolded `text` holds `name` as the start of a word: an Indian language joins
+    its endings on ("Telugulo", "తెలుగులో")."""
+    if name.isascii():
+        return re.search(rf"(?<![a-z]){re.escape(name)}", text) is not None
+    return name in text
+
+
+def languages_named(value: Any) -> frozenset[str]:
+    """The languages a captured value is ("Telugu", "Telugu and English"): every word of it
+    that says anything is a language's name. A sentence that mentions one ("talks in Telugu
+    about the app") is not a language value, so it is empty."""
+    if not isinstance(value, str):
+        return frozenset()
+    words = content_words(value)
+    found = {lang for lang, names in _LANGUAGE_NAMES.items() for word in words if word in names}
+    known = {n for lang in found for n in _LANGUAGE_NAMES[lang]}
+    return frozenset(found) if words and words <= known else frozenset()
+
+
+def needs_its_line(value: Any) -> bool:
+    """Whether a suggested marker for `value` may sit only on a caller line that says it: a
+    quote of the call's words (`quotes_the_call`), or a language, which the model reads from
+    how the whole call was spoken and so pinned on "Hello." (28 Nov 2026). Any other reading
+    ("Expense tracking" from a Telugu line) may share no word with its line and still be
+    right."""
+    return quotes_the_call(value) or bool(languages_named(value))
+
+
+def stated_on(value: Any, text: str) -> bool:
+    """Whether a line says `value`: a language by any of its names, in any script, else
+    `said_on`."""
+    langs = languages_named(value)
+    if langs:
+        said = text.casefold()
+        return any(_names_in(n, said) for lang in langs for n in _LANGUAGE_NAMES[lang])
+    return said_on(value, text)
 
 
 def _affirms(value: Any) -> bool:
@@ -461,8 +516,9 @@ def _checked_field_turn(
       tie) when the line the model chose is the agent's or shares none and another shares
       some; with no line sharing any (a value written in other words) the model's line
       stands, and `field_backed` still drops it from an agent line;
-    - a value quoting the call's words (`quotes_the_call`) that no caller line says is
-      dropped: the marker would pin a sentence nobody said on that turn;
+    - a value that needs its own line (`needs_its_line`: a quote of the call's words, or a
+      language) moves to the latest caller line that says it (`stated_on`), and is dropped
+      when none does: the marker would pin on that turn what nobody said there;
     - a "yes" on a line that refuses or negates is dropped: that line said the opposite,
       and which later line settled it is not something a word match can tell.
     """
@@ -472,8 +528,12 @@ def _checked_field_turn(
             better = supporting_turn(value, caller_lines)
             if better is not None:
                 return better
-        if quotes_the_call(value) and not (turn.speaker == "caller" and said_on(value, turn.text)):
-            return None
+        if needs_its_line(value) and not (turn.speaker == "caller" and stated_on(value, turn.text)):
+            # A language named in its own script shares no word with its English name.
+            return next(
+                (t for t in reversed(caller_lines) if stated_on(value, t.text)),
+                None,
+            )
         return turn
     if _affirms(value) and denies is not None and turn.speaker == "caller" and denies(turn.text):
         return None
@@ -504,11 +564,11 @@ def field_backed(
     stored marker with no `turn_idx` (written before it existed) is not turn-checked.
 
     With `values` (the reading) and `turn_texts` (each turn's RAW words, which a redacted
-    name would no longer match), a suggested marker whose value quotes the call
-    (`quotes_the_call`) is kept only on a turn that says it (`said_on`); a derived one was
-    found verbatim already. A
-    "Extra Details captured" marker sat on a caller line whose words were not the details'
-    at all (27 Nov 2026). Either missing skips this check.
+    name would no longer match), a suggested marker whose value needs its own line
+    (`needs_its_line`: a quote of the call, or a language) is kept only on a turn that says it
+    (`stated_on`); a derived one was found verbatim already. "Extra Details captured" sat on
+    a caller line whose words were not the details' (27 Nov 2026), and "Language captured" on
+    "Hello." (28 Nov 2026). Either missing skips this check.
 
     Applied where markers are written AND where they are read, so rows stored before this
     rule stop showing without a backfill. Anything that is not a list is returned as it is,
@@ -534,7 +594,7 @@ def field_backed(
                 and isinstance(turn_idx, int)
             ):
                 value = values.get(str(item.get("field")))
-                if quotes_the_call(value) and not said_on(value, turn_texts.get(turn_idx, "")):
+                if needs_its_line(value) and not stated_on(value, turn_texts.get(turn_idx, "")):
                     continue
         kept.append(item)
     return kept
@@ -589,11 +649,14 @@ __all__ = [
     "content_words",
     "derive_moments",
     "field_backed",
+    "languages_named",
     "merge_moments",
     "model_moments",
     "moment",
+    "needs_its_line",
     "prompt_line_turns",
     "quotes_the_call",
     "said_on",
+    "stated_on",
     "supporting_turn",
 ]

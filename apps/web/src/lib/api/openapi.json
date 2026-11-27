@@ -11686,7 +11686,7 @@
       },
       "CallProgressStepOut": {
         "additionalProperties": false,
-        "description": "One step of the call's script and whether its outcome was reached (`crm/\nstep_progress`): the step's scenario names and, when reached, the caller line that shows\nit. Never the words.",
+        "description": "One step of the call's script and whether its outcome was reached (`crm/\nstep_progress`): the step's scenario names and, when reached, the caller line that shows\nit. Never the words. `not_needed`: a side step the call did not go into.",
         "properties": {
           "name": {
             "title": "Name",
@@ -11696,7 +11696,8 @@
             "enum": [
               "reached",
               "not_reached",
-              "unclear"
+              "unclear",
+              "not_needed"
             ],
             "title": "State",
             "type": "string"

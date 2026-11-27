@@ -236,11 +236,11 @@ class CallMistakeOut(Strict):
 class CallProgressStepOut(Strict):
     """One step of the call's script and whether its outcome was reached (`crm/
     step_progress`): the step's scenario names and, when reached, the caller line that shows
-    it. Never the words."""
+    it. Never the words. `not_needed`: a side step the call did not go into."""
 
     step: int
     name: str
-    state: Literal["reached", "not_reached", "unclear"]
+    state: Literal["reached", "not_reached", "unclear", "not_needed"]
     turn_idx: int | None
 
 

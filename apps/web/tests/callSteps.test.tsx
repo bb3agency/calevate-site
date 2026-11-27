@@ -12,6 +12,7 @@ const STEPS: CallStep[] = [
   { step: 1, name: "Remembers the app", state: "reached", turn_idx: 1 },
   { step: 2, name: "Installs it, Already has it", state: "not_reached", turn_idx: null },
   { step: 3, name: "Logs in", state: "unclear", turn_idx: null },
+  { step: 4, name: "Never signed up", state: "not_needed", turn_idx: null },
 ];
 
 describe("Where the call got to", () => {
@@ -23,10 +24,13 @@ describe("Where the call got to", () => {
       expect.stringContaining("Remembers the app"),
       expect.stringContaining("Installs it, Already has it"),
       expect.stringContaining("Logs in"),
+      expect.stringContaining("Never signed up"),
     ]);
     expect(within(rows[0] as HTMLElement).getByText("Done")).toBeTruthy();
     expect(within(rows[1] as HTMLElement).getByText("Not done")).toBeTruthy();
     expect(within(rows[2] as HTMLElement).getByText("Not clear")).toBeTruthy();
+    // A side step the call never went into is neither done nor left undone.
+    expect(within(rows[3] as HTMLElement).getByText("Not needed")).toBeTruthy();
   });
 
   it("jumps to the person's line that shows a done step, and only to a line on screen", () => {

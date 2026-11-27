@@ -15,6 +15,8 @@ export const STEP_STATE: Record<CallStep["state"], { word: string; tone: NoticeT
   reached: { word: "Done", tone: "ok" },
   not_reached: { word: "Not done", tone: "warn" },
   unclear: { word: "Not clear", tone: "neutral" },
+  // A side step the call never went into: nothing was left undone.
+  not_needed: { word: "Not needed", tone: "neutral" },
 };
 
 /**
