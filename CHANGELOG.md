@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.89 — 27-Nov-2026
+
+- When Pip writes a script again that it still owns, it also writes the parts outside the
+  steps again (role, goal, why you are calling, how it ends the call, push-back lines), and
+  drops its old example call. An old ending such as "message us on WhatsApp" no longer
+  outlives the new steps. Parts you edited yourself are kept.
+- A campaign only ever says its opening line, so Pip no longer keeps or writes against the
+  unused "when it calls" opening.
+
 ## 0.5.88 — 27-Nov-2026
 
 - When Pip writes a script again, an opening Pip wrote earlier is checked and rewritten

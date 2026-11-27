@@ -8,6 +8,7 @@ import pytest
 from apps.workers.campaign_script import trimmed_procedures
 from apps.workers.step_writer import UnusableAnswerError, parsed_step
 from calevate_shared.call_script import CallScript, ConversationStage
+from tests.script_writer_rebuild_2026_11_26_test import fake as fake
 
 
 def _stage(sid: str, actions: int) -> ConversationStage:
@@ -109,3 +110,57 @@ async def test_a_broken_opening_carried_from_pips_own_script_is_rewritten(
     context = replace(context, brief=replace(context.brief, language="te-IN"), pip_owned=pip_owned)
     script, _spent = await script_writer._opening(context, base, base, time.monotonic())
     assert (script.opening_line == _TELUGU) is rewritten
+
+
+# --- what a regeneration carries over (26 Nov 2026: a WhatsApp ending, a stale example call
+# and a never-spoken placed-call opening outlived every regeneration) ------------------------
+
+
+def _stale() -> CallScript:
+    from calevate_shared.call_script import ExampleLine
+    from tests.script_writer_rebuild_2026_11_26_test import _script
+
+    return _script().model_copy(
+        update={
+            "identity": "Old role.",
+            "ending": "Ask them to message us on WhatsApp.",
+            "outbound_opening_line": "Never said on this campaign?",
+            "example_exchange": [ExampleLine(speaker="agent", text="Old example.")],
+        }
+    )
+
+
+@pytest.mark.parametrize("pip_owned", [True, False])
+async def test_a_regeneration_of_pips_own_script_writes_the_frame_again(
+    fake: object, pip_owned: bool
+) -> None:
+    """FAILS IF: the ending of a script Pip still owns is carried over unchanged; an owner's
+    edited ending stays theirs."""
+    from dataclasses import replace
+
+    from apps.workers.script_writer import WriteRequest, write_script
+    from tests.script_writer_rebuild_2026_11_26_test import _context
+
+    context = replace(_context(), pip_owned=pip_owned)
+    result = await write_script(WriteRequest("whole", context, base=_stale()))
+    script = result.script
+    assert script.outbound_opening_line == ""  # an outbound campaign never speaks it
+    if pip_owned:
+        assert script.ending == "Thank them and say goodbye."
+        assert script.example_exchange == []
+    else:
+        assert script.ending == "Ask them to message us on WhatsApp."
+        assert script.example_exchange
+
+
+def test_the_steps_are_written_against_the_opening_the_call_speaks() -> None:
+    from dataclasses import replace
+
+    from apps.workers.script_writer import spoken_opening
+    from tests.script_writer_rebuild_2026_11_26_test import _context
+
+    script = _stale()
+    assert spoken_opening(_context(), script) == script.opening_line
+    both = _context()
+    both = replace(both, brief=replace(both.brief, direction="both"))
+    assert spoken_opening(both, script) == "Never said on this campaign?"

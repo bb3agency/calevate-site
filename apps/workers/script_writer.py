@@ -41,6 +41,7 @@ from calevate_shared.call_script import (
     ConversationStage,
     ScriptPolicies,
 )
+from calevate_shared.opening_notices import OpeningNotices
 from calevate_shared.spoken_guard import english_problem, has_indic_letters
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -603,7 +604,7 @@ def _ask(
         plan=plan,
         step=step,
         languages=context.languages,
-        opening=script.outbound_opening_line or script.opening_line,
+        opening=spoken_opening(context, script),
         main_task=context.main_task,
         sources=context.grounding,
         instruction=instruction,
@@ -720,17 +721,31 @@ async def _rounds(
 _OPENINGS: Final = (("opening_line", False), ("outbound_opening_line", True))
 
 
-def openings_kept(script: CallScript, base: CallScript | None) -> CallScript:
+def openings_kept(
+    script: CallScript, base: CallScript | None, *, fields: Sequence[str] | None = None
+) -> CallScript:
     """`script` with any opening line it lacks put back from `base`: a blank opening is
-    never a fix, the agent would open the call with nothing."""
+    never a fix, the agent would open the call with nothing. `fields`: only these openings
+    (the ones the holder speaks, `_opening_fields`); None is both."""
     if base is None:
         return script
+    names = [name for name, _placed in _OPENINGS if fields is None or name in fields]
     restored = {
         name: kept
-        for name, _placed in _OPENINGS
+        for name in names
         if not str(getattr(script, name)).strip() and (kept := str(getattr(base, name)).strip())
     }
     return script.model_copy(update=restored) if restored else script
+
+
+def spoken_opening(context: ScriptContext, script: CallScript) -> str:
+    """The first words the holder's calls actually open with: a "both" agent's placed-call
+    line on a campaign, else `opening_line`. An agent of one direction never speaks
+    `outbound_opening_line` (`engine.compose_placed_call_first_words`), so a stale one must
+    not reach the steps' context."""
+    if context.brief.direction == "both" and context.placed:
+        return script.outbound_opening_line or script.opening_line
+    return script.opening_line
 
 
 def with_opening(script: CallScript, written: WrittenOpening, *, placed: bool) -> CallScript:
@@ -760,7 +775,7 @@ async def _opening(
 ) -> tuple[CallScript, list[Spent]]:
     """Each opening line written where it is empty (or `force`), and repaired where Pip's
     breaks the opening rule; a line the owner had or wrote word for word is theirs."""
-    script = openings_kept(script, base)
+    script = openings_kept(script, base, fields=[name for name, _ in _opening_fields(context)])
     brief = replace(context.written_brief(), description=context.main_task)
     dialled_all = brief.direction == "outbound"
     spends: list[Spent] = []
@@ -849,10 +864,24 @@ def _warnings(problems: Sequence[str], script: CallScript) -> list[LeftOut]:
     return list({(p.part, p.rule): p for p in script_proposals.fix_left(problems, script)}.values())
 
 
+def _unspoken_cleared(context: ScriptContext, script: CallScript) -> CallScript:
+    """A whole rewrite's starting point without what the call no longer says: the placed-call
+    opening of an agent that never speaks it, and, while the script is still Pip's own, its
+    old example call, which the steps' own examples replace (26 Nov 2026: a stale example
+    and a WhatsApp ending outlived every regeneration; the frame is written again for the
+    same reason)."""
+    update: dict[str, Any] = {}
+    if context.brief.direction != "both":
+        update |= {"outbound_opening_line": "", "outbound_opening_notices": OpeningNotices()}
+    if context.pip_owned:
+        update["example_exchange"] = []
+    return script.model_copy(update=update) if update else script
+
+
 async def _whole(request: WriteRequest) -> WriteResult:
     context, base, started = request.context, request.base, request.started
     plan, spends, read = await plan_for(context, base, started, outline=request.outline)
-    script = skeleton(plan, base)
+    script = _unspoken_cleared(context, skeleton(plan, base))
     script, opened = await _opening(context, script, base, started)
     spends += opened
     keys = list(plan.keys)
@@ -868,7 +897,7 @@ async def _whole(request: WriteRequest) -> WriteResult:
                 timeout_s=request_timeout(started) or MIN_REQUEST_S,
             )
         )
-        if base is None or not (base.identity or base.goal)
+        if base is None or context.pip_owned or not (base.identity or base.goal)
         else None
     )
     first = await _written(context, plan, script, keys, started)
