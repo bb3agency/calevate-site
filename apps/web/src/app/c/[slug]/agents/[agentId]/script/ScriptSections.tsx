@@ -476,14 +476,6 @@ export function StyleSection({
           ))}
         </div>
       </fieldset>
-      <TextBox
-        id="sample-phrases"
-        label="Phrases it can use"
-        hint="One per line, in your callers' language."
-        rows={3}
-        value={style.sample_phrases.join("\n")}
-        onChange={(v) => patch({ sample_phrases: v.split("\n") })}
-      />
       <div>
         <span className={FIELD_LABEL}>Names and how to say them</span>
         <span className={FIELD_HINT}>

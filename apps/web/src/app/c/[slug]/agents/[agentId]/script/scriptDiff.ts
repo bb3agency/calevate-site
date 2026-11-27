@@ -83,7 +83,6 @@ export function partText(script: CallScript, key: PartKey): string {
         s.tone && `Tone: ${s.tone}`,
         s.address_form && `Calls them: ${s.address_form}`,
         `English words: ${s.code_mix}`,
-        ...s.sample_phrases.map((p) => `"${p}"`),
         ...s.pronunciations.map((p) => `${p.word} → ${p.say_as}`),
       ]
         .filter(Boolean)

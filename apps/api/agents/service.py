@@ -3944,7 +3944,7 @@ def _steps_for(
         call_backs=bool(agent.get("callbacks_offered", True)) and not call_backs_withheld(body),
         hand_over=handoff is not None,
     )
-    steps = native_steps(script, can=can)
+    steps = native_steps(script, can=can, languages=_call_languages(agent))
     return (steps, without_outline(body)) if steps else ((), body)
 
 

@@ -3,6 +3,24 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.93 — 27-Nov-2026
+
+- What the agent reads on a call is shorter and says each thing once: a step's instruction,
+  actions and goal live only in that step; one closing (the closing step), not a second
+  "ending" beside it; the business line once.
+- A Telugu or Hindi call no longer carries English example lines; three examples per step,
+  marked as how it sounds, not words to copy. Rules that contradicted the examples are
+  reworded.
+- Pip writes three example lines per step, keeps each step's lines to that step, never has
+  the "stuck" line offer a call back, and clears old parts the call no longer reads.
+- New checks before a script goes live: an ending that names a different way to reach you
+  than the closing step, two steps with the same instruction, and spoken lines in the wrong
+  letters or with an English sentence.
+- The script screen shows its length against a target.
+- After "too long" on Keep, the button no longer turns into "Try again": "Ask Pip for a
+  shorter one" and Discard are shown instead.
+- "Phrases it can use" is gone from Edit script; it no longer reaches calls.
+
 ## 0.5.92 — 27-Nov-2026
 
 - "This script is too long" now says to discard the draft and ask Pip again. It used to say

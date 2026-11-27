@@ -593,13 +593,12 @@ export function scriptAsText(script: CallScript): string {
     out.push(`The call\n${lines.join("\n")}`);
   }
   const style = script.style;
-  if (style && (style.tone || style.address_form || style.sample_phrases.length)) {
+  if (style && (style.tone || style.address_form)) {
     out.push(
       [
         "How you talk",
         style.tone && `Tone: ${style.tone}`,
         style.address_form && `Address callers as: ${style.address_form}`,
-        ...style.sample_phrases.map((p) => `- ${p}`),
       ]
         .filter(Boolean)
         .join("\n"),

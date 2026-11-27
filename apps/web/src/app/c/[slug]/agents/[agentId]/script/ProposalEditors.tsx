@@ -312,8 +312,6 @@ function StyleEditor({
           ))}
         </div>
       </fieldset>
-      <Text id={id("phrases")} label="Phrases it can use" hint="One per line, in your callers' language." long
-        value={style.sample_phrases.join("\n")} onChange={(v) => patch({ sample_phrases: v.split("\n") })} />
       {style.pronunciations.map((p, i) => {
         const problems = issues.filter((issue) => issue.field === `pronunciation-${i}`);
         const words = (next: Partial<typeof p>) =>

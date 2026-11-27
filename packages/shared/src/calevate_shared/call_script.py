@@ -1457,16 +1457,37 @@ class NativeStep:
     collect: tuple[str, ...] = ()
 
 
-def native_steps(script: CallScript, *, can: Capabilities | None = None) -> tuple[NativeStep, ...]:
+def shown_in_call(script: CallScript, languages: Sequence[str]) -> CallScript:
+    """`script` with each stage's examples cut to the ones the call shows (`_example_tags`),
+    so a step whose only examples are left out (English turns in a Telugu call) does not
+    point the model at examples that are not there. Empty `languages`: unchanged."""
+    if not languages:
+        return script
+    stages = [
+        stage.model_copy(
+            update={"examples": {t: stage.examples[t] for t in _example_tags(stage, languages)}}
+        )
+        if stage.examples
+        else stage
+        for stage in script.stages
+    ]
+    return script.model_copy(update={"stages": stages})
+
+
+def native_steps(
+    script: CallScript, *, can: Capabilities | None = None, languages: Sequence[str] = ()
+) -> tuple[NativeStep, ...]:
     """The script's sections as engine steps, or () when it has none to send that way.
 
     `can` turns a "hand over" or "call back" branch into what the account can do now. v2
     sections map one to one. A v1 script's steps map as untitled steps. A raw script, or a v1
     script with more steps than an engine step list holds, has none: its outline stays in the
-    instructions text.
+    instructions text. `languages`: the call's, so a step points at examples only when the
+    compiled script shows some (`shown_in_call`); pass what `compile_call_script` was given.
     """
     if script.is_raw:
         return ()
+    script = shown_in_call(script, languages)
     can = can or Capabilities()
     if script.schema_version == SCRIPT_SCHEMA_VERSION:
         names = {stage.id: stage.name.strip() for stage in script.stages}
@@ -1526,6 +1547,7 @@ def _compile_v2(
     where facts are, what to do when the agent cannot help, confidentiality, the truthful
     answers) are composed around this by `engine.compose_engine_prompt` and are not
     repeated here. `languages` limits step examples to the call's; empty, all of them."""
+    script = shown_in_call(script, languages)
     sections: list[str] = []
 
     def add(header: str, body: str) -> None:
