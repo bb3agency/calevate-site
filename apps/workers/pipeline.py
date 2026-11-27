@@ -2172,6 +2172,10 @@ async def _extract_stage(
                 await _stored_model_moments(tenant_id, call_id),
                 captured=extraction.data.keys(),
                 caller_turns={t.idx for t in snapshot.transcript if t.speaker == "caller"},
+                # A reused reading was read from an earlier transcript, whose words a
+                # re-fetched one need not share.
+                values=extraction.data,
+                turn_texts={t.idx: t.text for t in snapshot.transcript},
             )
             if reused
             else model_moments(

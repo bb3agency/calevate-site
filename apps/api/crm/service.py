@@ -702,7 +702,7 @@ async def get_call(
         await session.execute(
             text(
                 f"SELECT idx, speaker, COALESCE({column}, ''), lang, start_ms, text_en, "
-                "start_approximate, char_length(text) "
+                "start_approximate, char_length(text), COALESCE(text, '') "
                 "FROM transcript_turns WHERE call_id = :cid ORDER BY idx"
             ),
             {"cid": call_id},
@@ -872,6 +872,9 @@ async def get_call(
             lines=lines,
             times=times,
             raw=raw,
+            # The raw words, compared and never returned: a redacted name no longer matches.
+            values=extraction_data,
+            turn_texts={t[0]: t[8] for t in turns},
             # The core fields only: a business field's marker already carries the label its
             # spec gave it, where the list may fall back to the key for a field no longer
             # in any version.
@@ -1004,17 +1007,21 @@ async def _call_moments(
             times=line_times(lines, stored_timeline(row[4])),
             raw=False,
             labels=labels,
+            values=row[2] or {},
+            turn_texts={int(t["idx"]): str(t.get("text") or "") for t in row[3] or []},
         )
     return out
 
 
 #: Each call's latest reading (the one the call page shows), when it has markers, with the
-#: call's lines (no text) and its timeline, so the lead page times and filters a marker
-#: exactly as the call page does.
+#: call's lines and its timeline, so the lead page times and filters a marker exactly as the
+#: call page does. A line's raw words are only compared against a quoted value, never
+#: returned.
 _LEAD_CALL_MOMENTS_SQL = (
     "SELECT r.call_id, r.moments, r.data, "
     "(SELECT jsonb_agg(jsonb_build_object('idx', t.idx, 'speaker', t.speaker, "
-    "'start_ms', t.start_ms, 'approximate', t.start_approximate) ORDER BY t.idx) "
+    "'start_ms', t.start_ms, 'approximate', t.start_approximate, 'text', t.text) "
+    "ORDER BY t.idx) "
     "FROM transcript_turns t WHERE t.call_id = r.call_id), c.engine_timeline "
     "FROM (SELECT DISTINCT ON (call_id) call_id, moments, data FROM call_extractions "
     "WHERE call_id = ANY(:ids) ORDER BY call_id, created_at DESC) r "
@@ -1030,15 +1037,20 @@ def _key_moments(
     times: Mapping[int, LineTime],
     raw: bool,
     labels: Mapping[str, str],
+    values: Mapping[str, Any] | None = None,
+    turn_texts: Mapping[int, str] | None = None,
 ) -> list[CallMomentOut]:
     """A call's key moments as the call page and the lead page both show them: a captured
-    marker only where the reading backs it on a caller line, each timed from where its line
-    plays (`turn_times`)."""
+    marker only where the reading backs it on a caller line, and a quoted value only on a
+    line that says it (`field_backed`), each timed from where its line plays
+    (`turn_times`)."""
     return _moments_out(
         field_backed(
             stored,
             captured=captured,
             caller_turns={line.idx for line in lines if line.speaker == "caller"},
+            values=values,
+            turn_texts=turn_texts,
         ),
         raw=raw,
         labels=labels,

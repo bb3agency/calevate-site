@@ -132,14 +132,21 @@ _NULL_PLACEHOLDERS = frozenset(
 #: Below ten it is a party size, an age, a flat number; at ten it is somebody's phone.
 _PHONE_SHAPED_RE = re.compile(r"\d(?:[\s\-().+]*\d){9,}")
 
-#: Words in a field's key/label/description that mean "a phone number belongs here", matched
-#: as whole words. A bare "number" is not one: "number of bedrooms" or "flat number" is not a
-#: phone, so "number" counts only after a word that makes it one ("other number", "contact no").
-_PHONE_FIELD_RE = re.compile(
-    r"\b(?:phone|mobile|cell|cellphone|telephone|whatsapp|contact)\b"
-    r"|\b(?:contact|callback|call back|alternate|alternative|other|another|second|landline)"
-    r" (?:number|no)\b"
+#: The words that name a phone line. Mentioning one does not make a field ask for a number:
+#: "Phone type", "Phone model" and "which phone do you use?" ask about the handset, and a
+#: field read as a phone number had "Android" flagged as not an Indian mobile (27 Nov 2026).
+_PHONE_WORDS: Final = r"(?:phone|mobile|cell|cellphone|telephone|whatsapp|contact)"
+#: Wording that asks for the number itself, anywhere in key, label or reason. A bare "number"
+#: is not it: "number of bedrooms" or "flat number" is not a phone, so "number" counts only
+#: after a word that makes it one ("other number", "contact no", "whatsapp number").
+_PHONE_NUMBER_RE = re.compile(
+    rf"\b(?:{_PHONE_WORDS}|callback|call back|alternate|alternative|other|another|second|"
+    r"landline) (?:number|no|num)\b"
 )
+#: A key or label whose head noun is the phone line itself ("Phone", "Best contact",
+#: "Alternate mobile", "Mobile whatsapp"): the last word names the line, so the line's
+#: number is what it holds. "Phone type" ends on "type" and is not one.
+_PHONE_HEAD_RE = re.compile(rf"\b{_PHONE_WORDS}(?: (?:details|info))?$")
 
 #: The call list shows one line; the headline is cut to this at a word boundary.
 HEADLINE_MAX = 90
@@ -484,10 +491,26 @@ class ValidationOutcome(BaseModel):
 
 
 def is_phone_field(field: ExtractionField) -> bool:
-    """Does this field ASK for a phone number? Read from the schema the client wrote —
-    key, label and the reason that also serves as the model's instruction."""
-    haystack = f"{field.key} {field.label} {field.reason}".lower().replace("_", " ")
-    return _PHONE_FIELD_RE.search(" ".join(haystack.replace("-", " ").split())) is not None
+    """Does this field ASK for a phone number? Read from the schema the client wrote:
+    its type, and the key, label and reason that also serves as the model's instruction.
+
+    There is no phone field type, so the type only rules out: a choice, a yes/no or a date
+    never holds a number. The wording then has to ask for the NUMBER ("contact number",
+    "whatsapp no") or name the line as the field itself ("Phone", "Best contact"); a field
+    that merely mentions a phone ("Phone type", "which phone they use") asks about something
+    else, and reading it as a number misplaced, rewrote and flagged its answer.
+    """
+    if field.type not in ("text", "number"):
+        return False
+    key, label, reason = (_plain_words(part) for part in (field.key, field.label, field.reason))
+    if any(_PHONE_NUMBER_RE.search(part) for part in (key, label, reason)):
+        return True
+    return any(_PHONE_HEAD_RE.search(part) for part in (key, label))
+
+
+def _plain_words(text: str) -> str:
+    """Lower-case words separated by single spaces, with `_`, `-` and punctuation dropped."""
+    return " ".join(re.sub(r"[^\w\s]|_", " ", text.lower()).split())
 
 
 def ascii_digits(raw: str) -> str:
@@ -900,7 +923,8 @@ Also include:
   pleased, frustrated, interested) or that the call ended well, unless the caller said
   so in their own words. A call that stops in the middle of a sentence ended there; say
   no more about how it ended. The summary agrees with your answer above: a detail you
-  left null is not stated in it.
+  left null is not stated in it. When the caller stopped before the end ("I'll do the
+  rest later"), say they stopped and what was left undone.
 - "headline": at most 90 characters, in English: what the caller wanted and how it ended,
   shaped like "Asked <what they asked>; wants <what they want next>".
 - "next_step_why": why something is left to do after this call, decided before next_step.
@@ -1039,7 +1063,9 @@ VALUES, EXACTLY.
 - A status, progress or outcome value names the furthest step the caller CONFIRMED on the
   call, never a later or complete state the call did not reach: a call that ended before
   the last step is not "complete", "fully working" or "done". When unsure, give the lower
-  state.
+  state. The agent saying a step or the whole task is done ("you have finished the
+  setup") is the agent's claim, not evidence: judge it, and the summary, only from what
+  the caller said and did.
 - Numbers are bare numbers, true/false fields are true, false or null, dates are YYYY-MM-DD.
 - Do not include any key that is not listed above, and return only the JSON object.
 {_steps_section(steps)}
