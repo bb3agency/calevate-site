@@ -31,6 +31,7 @@ from apps.api.agents.script_lint import LintContext
 from apps.api.agents.script_plan import EXAMPLE_LIMITS, ExampleLimits
 from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.campaigns import workspace
+from apps.api.campaigns.script_history import pip_owns
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
 from apps.api.first_run.models import KNOWLEDGE_DOCUMENT_CHARS
@@ -71,6 +72,9 @@ class ScriptContext:
     instruction: str = ""
     #: A request to rewrite every line under the current rules (`script_heal._ask_rewrite`).
     rewrite: bool = False
+    #: The saved script is still the one Pip wrote (`script_history.pip_owns`): a line
+    #: carried over from it is Pip's to repair, not the owner's to keep.
+    pip_owned: bool = False
     #: A one-part ask from the Script section (`focus.part`) and its language.
     part: str | None = None
     part_language: str | None = None
@@ -289,6 +293,7 @@ async def _campaign_context(tenant_id: UUID, campaign_id: UUID, *, asked: bool) 
         lint = await lint_context_for(session, tenant_id=tenant_id, agent_id=space.agent_id)
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
+        owned = await pip_owns(session, "campaign", campaign_id)
     tone, instruction, rewrite = _asked(row.ask)
     asked_from = space.proposal.base_script if space.proposal is not None else space.script
     return ScriptContext(
@@ -312,6 +317,7 @@ async def _campaign_context(tenant_id: UUID, campaign_id: UUID, *, asked: bool) 
         tone=tone,
         instruction=instruction,
         rewrite=rewrite,
+        pip_owned=owned,
         part=str(focus.get("part")) if focus is not None and part_language else None,
         want=str(focus.get("want")) if focus is not None and focus.get("want") else None,
         extra_languages=tuple(str(tag) for tag in extra),
@@ -358,6 +364,7 @@ async def _line_context(tenant_id: UUID, line_id: UUID, *, asked: bool) -> Scrip
         lint = await lint_context_for(session, tenant_id=tenant_id, agent_id=line.agent_id)
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
+        owned = await pip_owns(session, "line", line_id)
     tone, instruction, rewrite = _asked(row.ask)
     asked_from = line.proposal.base_script if line.proposal is not None else line.script
     return ScriptContext(
@@ -375,6 +382,7 @@ async def _line_context(tenant_id: UUID, line_id: UUID, *, asked: bool) -> Scrip
         tone=tone,
         instruction=instruction,
         rewrite=rewrite,
+        pip_owned=owned,
         part=str(focus.get("part")) if focus is not None and part_language else None,
         part_language=(
             LANGUAGE_LABELS.get(str(part_language), str(part_language)) if part_language else None

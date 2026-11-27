@@ -428,11 +428,17 @@ def _heal_writer(
             raise written
         stage = written.stages[0]
         listed = next(line for line in description.splitlines() if line.startswith("Call lang"))
-        turns = {"turns": ["One.", "Two.", "Three."], "confused": "", "stuck": "", "busy": ""}
+        # A non-English call's lines are in its own letters, or `parsed_step` refuses them.
+        letters = "".join(chr(0x0C15 + i) for i in range(3))
+
+        def turns(tag: str) -> dict[str, Any]:
+            said = ["One.", "Two.", "Three."] if tag.startswith("en") else [letters] * 3
+            return {"turns": said, "confused": "", "stuck": "", "busy": ""}
+
         raw = {
             "instruction": stage.instruction,
             "procedure": [],
-            "examples": {tag.strip(): turns for tag in listed.split(":", 1)[1].split(",")},
+            "examples": {t.strip(): turns(t.strip()) for t in listed.split(":", 1)[1].split(",")},
             "qa": [],
         }
         return JsonAnswer(

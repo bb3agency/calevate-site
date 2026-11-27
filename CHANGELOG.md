@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.88 — 27-Nov-2026
+
+- When Pip writes a script again, an opening Pip wrote earlier is checked and rewritten
+  if it breaks the rules, instead of being kept as if the owner wrote it. An owner's own
+  opening is still never touched.
+- In a call that is not in English, the opening must be in the language's own letters
+  with no English sentence; single English words callers say may stay.
+
 ## 0.5.87 — 27-Nov-2026
 
 - Rolling back the WhatsApp follow-up migration now clears its rows before tightening the

@@ -78,7 +78,7 @@ from apps.workers.campaign_script_ask import (
     task_steps_text,
 )
 from apps.workers.extraction import ASSIST_LADDER_LEGS
-from apps.workers.opening_line import WrittenOpening, opening_problems, write_opening
+from apps.workers.opening_line import ENGLISH_RUN, WrittenOpening, opening_problems, write_opening
 from apps.workers.script_assist import (
     ANSWER_UNUSABLE_CODE,
     JsonAnswer,
@@ -766,7 +766,11 @@ async def _opening(
     spends: list[Spent] = []
     for name, placed in _opening_fields(context):
         line = str(getattr(script, name)).strip()
-        owners = base is not None and line == str(getattr(base, name)).strip()
+        # A line carried over from a script Pip still owns is Pip's own earlier draft, so it
+        # is checked and repaired like a new one; kept unchecked, a broken opening survived
+        # every regeneration (26 Nov 2026: romanised Telugu with an English sentence).
+        carried = base is not None and line == str(getattr(base, name)).strip()
+        owners = carried and not context.pip_owned
         if line and (owners or line in context.owners_words) and not force:
             continue
         dialled = placed or dialled_all
@@ -810,10 +814,6 @@ async def _opening(
     return script, spends
 
 
-#: Four or more English-letter words in a row: a sentence in English, not a product name.
-_ENGLISH_RUN: Final = re.compile(r"(?:\b[A-Za-z][A-Za-z']*\b[\s,.?!]+){3,}\b[A-Za-z][A-Za-z']*\b")
-
-
 def keeps_language(old: str, new: str, language: str) -> bool:
     """Whether an opening rewritten for a call in `language` stays in it: in an Indian
     language it keeps the language's own letters where the old line had them, and holds no
@@ -822,7 +822,7 @@ def keeps_language(old: str, new: str, language: str) -> bool:
     if language.split("-")[0].lower() == "en":
         return True
     plain = re.sub(r"\{\{[^}]*\}\}", " ", new)
-    if _ENGLISH_RUN.search(plain):
+    if ENGLISH_RUN.search(plain):
         return False
     return not (has_indic_letters(old) and not has_indic_letters(new))
 
