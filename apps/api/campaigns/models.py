@@ -123,6 +123,11 @@ class Campaign(PKMixin, TimestampMixin, Base):
             "best_hours_applied IS NULL OR jsonb_typeof(best_hours_applied) = 'object'",
             name="best_hours_applied_object",
         ),
+        # `compliance/pacing.RECENT_SKIP_MIN_DAYS`..`RECENT_SKIP_MAX_DAYS`.
+        CheckConstraint(
+            "skip_recent_days IS NULL OR skip_recent_days BETWEEN 1 AND 30",
+            name="skip_recent_days_range",
+        ),
         CheckConstraint(
             "opening_test_result IS NULL OR jsonb_typeof(opening_test_result) = 'object'",
             name="opening_test_result_object",
@@ -166,6 +171,9 @@ class Campaign(PKMixin, TimestampMixin, Base):
     #: The owner's "Give callers time" choice for this campaign; NULL lets its script decide
     #: (`agents/give_callers_time.holder_gives_time`).
     give_callers_time: Mapped[bool | None] = mapped_column(Boolean)
+    #: Skip people another campaign or call reached in this many days (D-1046,
+    #: `compliance/pacing`); NULL is off. Read by the dispatcher on every tick.
+    skip_recent_days: Mapped[int | None] = mapped_column(Integer, server_default="7")
     #: The opening test's decision (`campaigns/improve.py`): which opening won, the chance and
     #: counts it was decided on, the opening it replaced. NULL while no test has been decided.
     opening_test_result: Mapped[dict[str, object] | None] = mapped_column(JSONB)

@@ -247,6 +247,15 @@ class Call(PKMixin, TimestampMixin, Base):
             "to_e164",
             postgresql_where=text("to_e164 IS NOT NULL"),
         ),
+        # How often one account rang one person (`compliance/pacing`, D-1046): the dial gate
+        # reads it on every outbound call, newest first, over the last 24 hours or N days.
+        Index(
+            "ix_calls_outbound_to_person",
+            "tenant_id",
+            "to_e164",
+            "created_at",
+            postgresql_where=text("direction = 'outbound' AND to_e164 IS NOT NULL"),
+        ),
         # Calls of the former owned runtime that answered without their knowledge (migration
         # e2a91c7f45b8). PARTIAL over the four failure states; kept with the column.
         Index(

@@ -738,6 +738,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "trial_daily_call_cap": AppliesRule(LIVE),
     "trial_call_max_seconds": AppliesRule(LIVE),
     "trial_studio_minutes": AppliesRule(LIVE),
+    # Read by the dial gate on every outbound call (D-1046).
+    "person_daily_call_cap": AppliesRule(LIVE),
     # Read when a new account's first agent is made; existing agents keep their own.
     "default_agent_name": AppliesRule(LIVE),
     "default_agent_voice_id": AppliesRule(LIVE),

@@ -46,10 +46,12 @@ from typing import Any
 from apps.api.billing.platform_fee import PLATFORM_FEE_RULE
 from apps.api.campaigns.service import CAMPAIGN_STOPPED_RULE, CAMPAIGN_WINDOW_CLOSED_RULE
 from apps.api.compliance import service as gate_module
+from apps.api.compliance.pacing import RECENTLY_CALLED_RULE
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_RULE,
     MAINTENANCE_DRAIN_RULE,
     NO_ASSIGNMENT_RULE,
+    PERSON_CONTACT_PACING_RULE,
     PERSON_LEVEL_REFUSALS,
     TRUTHFUL_ANSWER_DRIFT_RULE,
     dial_refusal_for_agent_status,
@@ -146,6 +148,9 @@ TRANSIENT_REFUSALS: dict[str, str] = {
     "a2p_test_call_own_number_only": "the owner places the test call to their own number",
     CAMPAIGN_STOPPED_RULE: "the client resumes the campaign",
     CAMPAIGN_WINDOW_CLOSED_RULE: "the clock reaches the campaign's own narrowed window",
+    # D-1046: both lift at a known instant, and the contact waits exactly until it.
+    PERSON_CONTACT_PACING_RULE: "the oldest of the person's calls today is 24 hours old",
+    RECENTLY_CALLED_RULE: "the last call that reached the person is older than the skip",
 }
 
 
@@ -194,8 +199,9 @@ def _emitted_rules() -> set[str]:
         refusal = dial_refusal_for_agent_status(status)
         if refusal is not None:
             rules.add(refusal[0])
-    # The dispatcher's own two, which reach `_refuse_contact` from `campaign_dialable_now`.
-    rules |= {CAMPAIGN_STOPPED_RULE, CAMPAIGN_WINDOW_CLOSED_RULE}
+    # The dispatcher's own, which reach `_refuse_contact` from `campaign_dialable_now` and the
+    # campaign's recent-call skip.
+    rules |= {CAMPAIGN_STOPPED_RULE, CAMPAIGN_WINDOW_CLOSED_RULE, RECENTLY_CALLED_RULE}
     return rules
 
 

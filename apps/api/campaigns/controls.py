@@ -79,13 +79,17 @@ _EDITABLE = (
     "retry_policy",
     "purpose",
     "goal",
+    "skip_recent_days",
 )
 _JSON_COLUMNS = frozenset({"calling_hours", "retry_policy"})
 
 #: What may change after a campaign has started (founder, 16 Nov 2026). Who it calls for,
 #: from which number and as which kind of call stay as launched: the compliance gate passed
-#: on those, and the dispatcher re-reads the agent, the hours, the tries and the pace each tick.
-STARTED_EDITABLE = frozenset({"name", "agent_id", "calling_hours", "retry_policy", "concurrency"})
+#: on those, and the dispatcher re-reads the agent, the hours, the tries, the pace and who it
+#: skips each tick.
+STARTED_EDITABLE = frozenset(
+    {"name", "agent_id", "calling_hours", "retry_policy", "concurrency", "skip_recent_days"}
+)
 STARTED_STATUSES = ("scheduled", "running", "paused", "cancelled", "completed")
 #: Started and holding its agent: a new agent must take the script now, not at the next Start.
 LIVE_STATUSES = ("scheduled", "running", "paused")
@@ -200,8 +204,8 @@ async def update_draft(
         if status in STARTED_STATUSES:
             raise ProblemError.business_rule(
                 "campaign_started",
-                "Once it has started, only the agent, the calling hours, the retries and "
-                "calls at once can change.",
+                "Once it has started, only the agent, the calling hours, the retries, "
+                "calls at once and who it skips can change.",
                 remediation="Duplicate it to change anything else.",
             )
         raise _not_a_draft(status, "edited")
@@ -383,8 +387,8 @@ async def duplicate_campaign(
         await session.execute(
             text(
                 "SELECT name, agent_id, classification, number_id, dlt_template_id, "
-                "concurrency, calling_hours, retry_policy, status, purpose, goal "
-                "FROM campaigns WHERE id = :cid"
+                "concurrency, calling_hours, retry_policy, status, purpose, goal, "
+                "skip_recent_days FROM campaigns WHERE id = :cid"
             ),
             {"cid": source_id},
         )
@@ -417,6 +421,12 @@ async def duplicate_campaign(
         retry_policy=retry_policy,
         purpose=row[9],
         goal=row[10],
+    )
+    # The copy skips the people its source skipped; a new campaign's default would quietly
+    # change who it calls.
+    await session.execute(
+        text("UPDATE campaigns SET skip_recent_days = :days WHERE id = :cid"),
+        {"days": row[11], "cid": campaign_id},
     )
     await copy_workspace(session, tenant_id=tenant_id, source_id=source_id, target_id=campaign_id)
     if not with_unreached:

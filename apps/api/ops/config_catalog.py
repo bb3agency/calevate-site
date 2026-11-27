@@ -531,6 +531,17 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
             "confirmed."
         ),
     ),
+    "person_daily_call_cap": _m(
+        "calling-limits",
+        "limits",
+        "Calls to one person per day",
+        "How many calls one account may place to one number in any 24 hours, from every way it "
+        "calls.",
+        details=(
+            "Campaigns, new-lead calls, call-backs, follow-ups and Make a call all count. A test "
+            "call to the owner's own number does not; the trial's daily cap bounds those."
+        ),
+    ),
     "trial_caller_number": _m(
         "calling-limits",
         "trial",
@@ -1892,6 +1903,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "credit_pack_expiry_months": ControlHint(unit="months"),
     "razorpay_reconciliation_days": ControlHint(unit="days"),
     "trial_daily_call_cap": ControlHint(unit="calls a day"),
+    "person_daily_call_cap": ControlHint(unit="calls in 24 hours"),
     "trial_studio_minutes": ControlHint(unit="minutes"),
     "thinnest_agents_per_workspace": ControlHint(unit="agents"),
     "call_mistake_fix_max_attempts": ControlHint(unit="fixes"),

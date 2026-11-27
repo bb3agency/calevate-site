@@ -130,10 +130,12 @@ from apps.api.campaigns.service import (
 # clock pin THIS check too — the campaign window and the per-dial gate must agree
 # on what time it is.
 from apps.api.compliance import service as compliance_service
+from apps.api.compliance.pacing import RECENTLY_CALLED_RULE, recently_called_opens_at
 from apps.api.compliance.platform_dnc import ENGINE_PERSON_REFUSALS
 from apps.api.compliance.service import (
     BIG_RED_SWITCH_RULE,
     CALLING_HOURS_RULE,
+    PERSON_CONTACT_PACING_RULE,
     PERSON_LEVEL_REFUSALS,
     check_dispatch,
 )
@@ -1045,15 +1047,16 @@ async def _dispatch_for_campaign(
         # the campaign's choice and not whichever of the agent's numbers the engine picks.
         # Its purpose and goal ride every dial too, as the call's reason, so the agent knows
         # why it rings and what to aim for.
-        agent_id, number_id, purpose, goal, opening_b = (
+        # `skip_recent_days` too: a change on a running campaign applies from this tick.
+        agent_id, number_id, purpose, goal, opening_b, skip_recent_days = (
             await session.execute(
                 text(
-                    "SELECT agent_id, number_id, purpose, goal, opening_b FROM campaigns "
-                    "WHERE id = :cid"
+                    "SELECT agent_id, number_id, purpose, goal, opening_b, skip_recent_days "
+                    "FROM campaigns WHERE id = :cid"
                 ),
                 {"cid": campaign_id},
             )
-        ).first() or (None, None, None, None, None)
+        ).first() or (None, None, None, None, None, None)
         reason = campaign_call_reason(purpose, goal)
 
         # The voice platform's hold-off on this campaign's own workspace or calling number
@@ -1208,10 +1211,35 @@ async def _dispatch_for_campaign(
             )
             if not decision.allowed:
                 await _refuse_contact(
-                    session, contact_id, rule=decision.rule or "unknown", prior=prior
+                    session,
+                    contact_id,
+                    rule=decision.rule or "unknown",
+                    prior=prior,
+                    wait_s=_seconds_until(decision.opens_at),
                 )
                 blocked += 1
                 continue
+
+            # The campaign's own "skip people reached recently" (D-1046), after the gate so a
+            # person on the do-not-call list is settled as that rather than held for a week.
+            if skip_recent_days is not None:
+                skip_until = await recently_called_opens_at(
+                    session,
+                    tenant_id=tenant_id,
+                    phone_e164=phone,
+                    campaign_id=campaign_id,
+                    days=int(skip_recent_days),
+                )
+                if skip_until is not None:
+                    await _refuse_contact(
+                        session,
+                        contact_id,
+                        rule=RECENTLY_CALLED_RULE,
+                        prior=prior,
+                        wait_s=_seconds_until(skip_until),
+                    )
+                    blocked += 1
+                    continue
 
             try:
                 # THE LINK IS WRITTEN BEFORE THE PHONE CAN RING, in `dispatch_call`'s
@@ -1643,6 +1671,10 @@ _LINE_LIMIT_RULES: Final = frozenset({LINES_BUSY_CODE, CALL_LINES_BUSY_RULE})
 #: engine never received (no connection) or one refused while it is held for not answering
 #: (`engine/outage.py`) waits the same way: the vendor's fault spends nobody's attempt.
 _HOLD_RULES: Final = frozenset({"engine_rate_limited", NUMBER_DAILY_LIMIT_CODE, *ENGINE_DOWN_CODES})
+#: Limits on how often one person is rung (`compliance/pacing`): each lifts at a known
+#: instant, so the contact waits until then, attempt refunded, instead of being re-claimed
+#: and refused every thirty minutes until it does.
+_PACING_RULES: Final = frozenset({PERSON_CONTACT_PACING_RULE, RECENTLY_CALLED_RULE})
 _SETTLE_HOLD_WAIT = (
     "status = 'pending', next_attempt_at = now() + make_interval(secs => :wait), "
     "attempts = attempts - 1"
@@ -1651,6 +1683,13 @@ _SETTLE_HOLD_WAIT = (
 #: with the claim's attempt handed back, because nobody was called. The recall path keeps
 #: the attempt: its dial had already left for the voice platform.
 _SETTLE_PERSON_REFUSED_UNDIALLED = "status = 'dnc_blocked', attempts = attempts - 1"
+
+
+def _seconds_until(at: datetime | None) -> float | None:
+    """Seconds from now until `at` (at least one tick), or None when there is no instant."""
+    if at is None:
+        return None
+    return max((at - datetime.now(UTC)).total_seconds(), 30.0)
 
 
 class PriorTry(NamedTuple):
@@ -1736,7 +1775,7 @@ async def _refuse_contact(
         settle = _SETTLE_PERSON_REFUSED_UNDIALLED
     elif rule in _LINE_LIMIT_RULES:
         settle = _SETTLE_LINE_WAIT
-    elif rule in _HOLD_RULES and wait_s is not None:
+    elif (rule in _HOLD_RULES or rule in _PACING_RULES) and wait_s is not None:
         settle = _SETTLE_HOLD_WAIT
         params["wait"] = wait_s
     else:

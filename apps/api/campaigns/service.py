@@ -81,6 +81,7 @@ from apps.api.campaigns.notes import starting_fields
 from apps.api.compliance import service as compliance_clock
 from apps.api.compliance.autodialer import a2p_dial_blocker
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
+from apps.api.compliance.pacing import recently_called_waiting
 from apps.api.compliance.preference_scrub import national_dnd_blocker, read_current_scrub
 from apps.api.compliance.promo_checks import script_promotional_blocker
 from apps.api.compliance.registration import refuse_promotional_without_registration
@@ -2215,7 +2216,7 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
                 # ringing N strangers could not tell them WHEN it would ring or WHICH
                 # number would appear on the handset. Both are properties of the
                 # irreversible act being confirmed.
-                "  c.calling_hours, p.e164 "
+                "  c.calling_hours, p.e164, c.skip_recent_days "
                 # LEFT: `number_id` is nullable and `ON DELETE SET NULL`, so a campaign
                 # whose number was released still has to render. NULL means "the platform
                 # picks at dial time", which is what the screen must say rather than
@@ -2313,6 +2314,13 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
         # one at dial time" and "we could not read it" are different facts to a client
         # deciding whether to authorise the calls.
         "number_e164": campaign[8],
+        "skip_recent_days": campaign[9],
+        # Only where someone is still to be called: a finished campaign holds nobody.
+        "recently_called_waiting": (
+            await recently_called_waiting(session, campaign_id=campaign_id, days=int(campaign[9]))
+            if campaign[9] is not None and status in ("draft", "scheduled", "running", "paused")
+            else 0
+        ),
     }
 
 
