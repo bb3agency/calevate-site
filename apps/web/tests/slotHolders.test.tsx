@@ -243,8 +243,8 @@ describe("the launch checklist's line for a full workspace", () => {
 
 describe("Start refused for want of a calling setup", () => {
   it("names what holds each setup, as links, not the refusal's sentence alone", () => {
-    const failed = { status: "error" as const, run: vi.fn(), error: refused("start"), reset: vi.fn() };
-    const idle = { status: "idle" as const, run: vi.fn(), error: null, reset: vi.fn() };
+    const failed = { status: "error" as const, run: vi.fn(), error: refused("start"), retryable: false, reset: vi.fn() };
+    const idle = { status: "idle" as const, run: vi.fn(), error: null, retryable: true, reset: vi.fn() };
     render(
       <StartCampaign
         slug="rytu-khata"

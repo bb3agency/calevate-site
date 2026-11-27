@@ -12,7 +12,8 @@
  * - `useActionFeedback(mutation, options)` wraps a TanStack mutation. Call `run(vars)`
  *   instead of `mutate(vars)`; read `status` for the button. It raises the toasts.
  * - `ActionButton` renders `status` as idle → pending (spinner) → success (tick + short
- *   past-tense word) → back to idle, or → error (cross + "Try again") until the next press.
+ *   past-tense word) → back to idle, or → error (cross + "Try again", or its own label when
+ *   `retryable` is false) until the next press.
  *
  * Adapted from the ideas in uiarc's `action-button`, `confirm-morph` and `action-swap`
  * (MIT, see ./LICENSE): one control that morphs through the states of its own action.
@@ -40,6 +41,8 @@ import clsx from "clsx";
 
 import { ApiProblem } from "@/lib/api/client";
 import { SAVED_GOES_LIVE_LATER_DETAIL, isSavedGoesLiveLater } from "@/lib/api/phoneServiceCodes";
+import { PROMPT_TOO_LONG } from "@/lib/api/scriptChecks";
+import { lookup } from "@/lib/lookup";
 import {
   DANGER_BUTTON,
   PRIMARY_BUTTON,
@@ -66,7 +69,7 @@ export const SUCCESS_HOLD_MS = 2000;
  * owner reads a toast at a glance, and the measured parts stay on the script screen.
  */
 const SHORT_DESCRIPTIONS: Record<string, string> = {
-  engine_prompt_too_long: "Discard this draft and ask Pip again for a shorter one, or shorten the longest steps.",
+  [PROMPT_TOO_LONG]: "Shorten the longest steps, or ask Pip for a shorter script.",
 };
 
 export function problemToast(error: unknown, fallbackTitle: string) {
@@ -75,7 +78,7 @@ export function problemToast(error: unknown, fallbackTitle: string) {
     return {
       title: error.title && error.title !== error.message ? error.title : fallbackTitle,
       description:
-        SHORT_DESCRIPTIONS[error.code] ??
+        lookup(SHORT_DESCRIPTIONS, error.code) ??
         (error.remediation ? `${error.message} ${error.remediation}` : error.message),
       code: error.code !== "unknown" ? `${error.code}${ref}` : error.traceId ? `ref ${error.traceId}` : undefined,
     };
@@ -97,9 +100,10 @@ export type ActionFeedbackOptions<TData, TVars> = {
   /**
    * `toast` (default): the failure also goes to the toast stack. `inline`: the screen shows
    * `ProblemNotice` beside the control itself (a form), so a toast would say it twice.
-   * The button shows its error face either way.
+   * The button shows its error face either way. A function decides per failure: a screen
+   * that answers one refusal with its own block (a draft too long to keep) and toasts the rest.
    */
-  errorDisplay?: "toast" | "inline";
+  errorDisplay?: "toast" | "inline" | ((error: unknown) => "toast" | "inline");
   /**
    * A success toast. Leave it out when the button's own tick says enough, which is most of
    * the time; give it when the result lands somewhere the person is not looking (a row
@@ -121,8 +125,26 @@ export type ActionFeedback<TVars> = {
   run: (vars: TVars) => void;
   /** The last failure, for a screen that renders it inline (`errorDisplay: "inline"`). */
   error: unknown;
+  /**
+   * Whether pressing again could cure the last failure (`retryCanCure`). Pass it to
+   * `ActionButton`, so a refusal the server calls final never wears "Try again".
+   */
+  retryable: boolean;
   reset: () => void;
 };
+
+/**
+ * Whether the same action, sent again, could succeed: the server says so on every problem
+ * (`retryable`, true only for a dependency or transient failure); a failure that never
+ * reached the server (no reply, a dropped connection) may well go through next time.
+ */
+export function retryCanCure(error: unknown): boolean {
+  return !(error instanceof ApiProblem) || error.retryable;
+}
+
+function shouldToast(display: ActionFeedbackOptions<unknown, unknown>["errorDisplay"], error: unknown): boolean {
+  return (typeof display === "function" ? display(error) : (display ?? "toast")) === "toast";
+}
 
 /**
  * A short-lived face: `success` for `SUCCESS_HOLD_MS` after `at` changes, then idle.
@@ -151,7 +173,7 @@ function raiseFailure(
     toasts.toast({ id, kind: "success", title: "Saved", description: SAVED_GOES_LIVE_LATER_DETAIL });
     return;
   }
-  const retryable = !(error instanceof ApiProblem) || error.retryable;
+  const retryable = retryCanCure(error);
   toasts.toast({
     id,
     kind: "error",
@@ -242,7 +264,7 @@ export function useActionFeedback<TData, TError, TVars, TContext>(
         (result) => raiseSuccess(toasts, toastId, optionsRef.current, result, vars),
         (failure: unknown) => {
           const current = optionsRef.current;
-          if ((current.errorDisplay ?? "toast") !== "toast") return;
+          if (!shouldToast(current.errorDisplay, failure)) return;
           raiseFailure(toasts, toastId, failure, current.errorTitle ?? FALLBACK_ERROR_TITLE, () => run(vars));
         },
       );
@@ -263,14 +285,14 @@ export function useActionFeedback<TData, TError, TVars, TContext>(
     const current = optionsRef.current;
     if (status === "success") {
       raiseSuccess(toasts, toastId, current, data as TData, variables as TVars);
-    } else if ((current.errorDisplay ?? "toast") === "toast") {
+    } else if (shouldToast(current.errorDisplay, error)) {
       raiseFailure(toasts, toastId, error, current.errorTitle ?? FALLBACK_ERROR_TITLE, () => mutate(variables as TVars));
     }
   }, [status, submittedAt, data, error, variables, mutate, toasts, toastId]);
 
   const shown: FeedbackStatus =
     status === "pending" ? "pending" : status === "error" ? "error" : held ? "success" : "idle";
-  return { status: shown, run, error, reset };
+  return { status: shown, run, error, retryable: shown !== "error" || retryCanCure(error), reset };
 }
 
 /**
@@ -309,7 +331,7 @@ export function useAsyncAction<TVars = void>(
           (failure: unknown) => {
             setStatus("error");
             setError(failure);
-            if ((optionsRef.current.errorDisplay ?? "toast") === "toast") {
+            if (shouldToast(optionsRef.current.errorDisplay, failure)) {
               raiseFailure(toasts, toastId, failure, optionsRef.current.errorTitle ?? FALLBACK_ERROR_TITLE, () => run(vars));
             }
           },
@@ -323,7 +345,7 @@ export function useAsyncAction<TVars = void>(
     setError(null);
   }, []);
   const shown: FeedbackStatus = status === "success" && !held ? "idle" : status;
-  return { status: shown, run, error, reset };
+  return { status: shown, run, error, retryable: shown !== "error" || retryCanCure(error), reset };
 }
 
 const VARIANT = {
@@ -350,6 +372,12 @@ export type ActionButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "c
   successLabel?: ReactNode;
   /** Default "Try again": the failure's words are in the toast or the inline notice. */
   errorLabel?: ReactNode;
+  /**
+   * From `useActionFeedback(...).retryable`. False for a refusal another press cannot cure
+   * (a script too long, a rule broken): the error face then keeps the button's own label and
+   * drops the retry arrow, since "Try again" on it reads as an instruction to press again.
+   */
+  retryable?: boolean;
   variant?: ActionButtonVariant;
   /** Why it cannot be pressed yet, in one short line; null or omitted when it can. */
   waitingFor?: ReactNode;
@@ -418,7 +446,8 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
     status = "idle",
     pendingLabel,
     successLabel = "Done",
-    errorLabel = "Try again",
+    errorLabel,
+    retryable = true,
     variant = "primary",
     className,
     type = "button",
@@ -484,8 +513,8 @@ export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(fun
           {successLabel}
         </Face>
         <Face shown={status === "error"}>
-          <RotateCcw aria-hidden className="h-4 w-4" />
-          {errorLabel}
+          {retryable && <RotateCcw aria-hidden className="h-4 w-4" />}
+          {errorLabel ?? (retryable ? "Try again" : children)}
         </Face>
       </span>
     </button>
