@@ -78,7 +78,7 @@ describe("Pip writing a campaign's script", () => {
     fireEvent.change(await screen.findByLabelText("Tone"), { target: { value: "respectful" } });
     fireEvent.click(screen.getByRole("button", { name: "Add a note for Pip" }));
     fireEvent.change(screen.getByLabelText("Note for Pip"), { target: { value: "Say the price only when asked." } });
-    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Let Pip write it" }));
     await waitFor(() =>
       expect(posted(rendered.calls)).toEqual([{ tone: "respectful", instruction: "Say the price only when asked." }]),
     );
@@ -94,7 +94,7 @@ describe("Pip writing a campaign's script", () => {
     expect(note.length).toBeGreaterThan(800);
     fireEvent.change(box, { target: { value: note } });
     expect(screen.getByText(`${4000 - note.length} characters left`)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    fireEvent.click(screen.getByRole("button", { name: "Let Pip write it" }));
     await waitFor(() => expect(posted(rendered.calls)).toEqual([{ instruction: note }]));
   });
 
@@ -105,7 +105,7 @@ describe("Pip writing a campaign's script", () => {
       "/v1/kb/uploads": down,
       [`POST ${base}/script/proposal`]: ready({ status: "drafting", script: null }),
     });
-    const generate = await screen.findByRole("button", { name: "Generate" });
+    const generate = await screen.findByRole("button", { name: "Let Pip write it" });
     await waitFor(() => expect(rendered.calls.some((c) => c.path === "/v1/kb/notes")).toBe(true));
     expect(generate.hasAttribute("disabled")).toBe(false);
     fireEvent.click(generate);
@@ -114,8 +114,8 @@ describe("Pip writing a campaign's script", () => {
 
   it("says when no sources are picked, with a button to pick them", async () => {
     await render({ [`${base}/workspace`]: workspaceFixture() });
-    expect(await screen.findByText("No sources picked. Pip uses only the main task.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Pick sources" })).toBeTruthy();
+    expect(await screen.findByText("No files or notes picked. Pip uses only what it is for.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Pick files and notes" })).toBeTruthy();
   });
 
   it("points a used-up allowance to the AI allowance page", async () => {
@@ -126,14 +126,14 @@ describe("Pip writing a campaign's script", () => {
         status: 402,
       }),
     });
-    fireEvent.click(await screen.findByRole("button", { name: "Generate" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Let Pip write it" }));
     expect(await screen.findByText("Your AI allowance is used up")).toBeTruthy();
     expect(screen.getByRole("link", { name: "See AI allowance" })).toBeTruthy();
   });
 
   it("shows Pip's reason for a part behind Why?", async () => {
     await render({ [`${base}/workspace`]: workspaceFixture({ source_ids: [SOURCE_ID], proposal: ready() }) });
-    const why = await screen.findByRole("button", { name: "Why Pip wrote Opening line" });
+    const why = await screen.findByRole("button", { name: "Why Pip wrote First thing it says" });
     expect(screen.queryByText(/as your main task asks/)).toBeNull();
     fireEvent.click(why);
     expect(why.getAttribute("aria-expanded")).toBe("true");

@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * THE AGENT THE CALL FLOW SPEAKS IN: the campaign's own, chosen in Set up's "Agent and its
- * settings" (founder, 18 Nov 2026: no agent picker in the flow; prompt to choose one there).
+ * THE AGENT THE CALL STEPS SPEAK IN: the campaign's own, chosen in the Script tab's Agent
+ * section (founder, 18 Nov 2026: no agent picker in the flow; prompt to choose one there).
  */
 
 import type { ReactNode } from "react";
@@ -12,7 +12,7 @@ import { useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
 
 import type { FlowAgent } from "./LineCoach";
-import { agentSectionId } from "./StartCampaign";
+import { agentSectionId, useOpenCampaignSection } from "./campaignSections";
 
 /** The campaign's agent as the flow uses it; null while the list is loading. */
 export function useFlowAgent(agentId: string, missing: ReactNode): FlowAgent | null {
@@ -27,6 +27,7 @@ export function useFlowAgent(agentId: string, missing: ReactNode): FlowAgent | n
 
 /** Shown in the scenario editor while the campaign has no agent. */
 export function ChooseAgentPrompt({ campaignId }: { campaignId: string }) {
+  const openSection = useOpenCampaignSection();
   return (
     <NoticeBox
       tone="warn"
@@ -34,9 +35,7 @@ export function ChooseAgentPrompt({ campaignId }: { campaignId: string }) {
         <button
           type="button"
           className="font-medium text-brand-strong underline"
-          onClick={() =>
-            document.getElementById(agentSectionId(campaignId))?.scrollIntoView({ behavior: "smooth", block: "start" })
-          }
+          onClick={() => openSection(agentSectionId(campaignId))}
         >
           Go to Agent
         </button>

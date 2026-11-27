@@ -93,7 +93,7 @@ describe("the client's quality report", () => {
       "/v1/me": ME,
       "/v1/quality/reports": [report()],
     });
-    await screen.findByText("No defects found across 58 scenarios");
+    await screen.findByText("No defects found across 58 practice calls");
     expect(container.textContent).toContain(
       renderMeasurement(report().everything_captured),
     );
@@ -108,7 +108,7 @@ describe("the client's quality report", () => {
       "/v1/me": ME,
       "/v1/quality/reports": [report({ defects: 3 })],
     });
-    await screen.findByText("3 of 58 scenarios found a defect");
+    await screen.findByText("3 of 58 practice calls found a defect");
     expect(container.textContent).toContain("reissued");
   });
 
@@ -122,10 +122,10 @@ describe("the client's quality report", () => {
       "/v1/me": ME,
       "/v1/quality/reports": [scarce],
     });
-    await screen.findByText(/Too few scenarios/);
+    await screen.findByText(/Too few practice calls/);
     expect(container.textContent).toContain("2 of 3");
     expect(container.textContent).not.toContain("67%");
-    expect(container.textContent).toContain("Too few scenarios");
+    expect(container.textContent).toContain("Too few practice calls");
   });
 
   it("claims no trend from a single month", async () => {
@@ -145,7 +145,7 @@ describe("the client's quality report", () => {
       ],
     });
     // Newest first by default — the server's order, kept.
-    await screen.findByText("No defects found across 58 scenarios");
+    await screen.findByText("No defects found across 58 practice calls");
     // A SegmentedControl since the round-2 redesign (D-655: each month is a complete
     // report and the reader picks one), so the picker is a radiogroup of radios.
     expect(screen.getByRole("radiogroup", { name: "Choose a month" })).toBeTruthy();
@@ -178,7 +178,7 @@ describe("the client's quality report", () => {
           report({ as_of: "2026-08-01", defects: 2 }),
         ],
       });
-      await screen.findByText("No defects found across 58 scenarios");
+      await screen.findByText("No defects found across 58 practice calls");
       expect(
         screen.getByRole("radio", { name: "September 2026" }),
       ).toBeTruthy();

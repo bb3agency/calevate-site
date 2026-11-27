@@ -140,7 +140,7 @@ describe("findings in the scenario editor", () => {
 
   it("shows a finding on a step's description under that description", async () => {
     const r = await renderClientPage(<Flow chosen="open" />, {});
-    const description = screen.getByRole("textbox", { name: "Scenario description" });
+    const description = screen.getByRole("textbox", { name: "What the agent does" });
     expect(within(description.parentElement as HTMLElement).getByText("Uses a textbook word.")).toBeTruthy();
     await expectNoA11yViolations(r.container, "scenario editor with check findings");
   });

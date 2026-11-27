@@ -67,7 +67,7 @@ describe("the live panel of a running campaign", () => {
         { [ON_A_CALL]: contactsFixture({ total: 2, items: [ON_CALL_PERSON] }) },
       ),
     );
-    await openTab("Progress & results");
+    await openTab("Progress");
     await screen.findByText("Lakshmi");
     expect(screen.getByRole("link", { name: "Open the call with Lakshmi" }).getAttribute("href")).toBe(
       "/c/acme/calls/call-77",
@@ -84,7 +84,7 @@ describe("the live panel of a running campaign", () => {
     );
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     await renderClientPage(campaignPage(), table, "acme", client);
-    await openTab("Progress & results");
+    await openTab("Progress");
     await screen.findByText("Lakshmi");
 
     table[ON_A_CALL] = problem(503, { title: "Service unavailable" });
@@ -104,7 +104,7 @@ describe("the live panel of a running campaign", () => {
         "/v1/call-lines": { call_lines: 2, in_progress: 1, on_trial: false },
       }),
     );
-    await openTab("Progress & results");
+    await openTab("Progress");
     fireEvent.click(await screen.findByRole("button", { name: "About Calls at once" }));
     expect((await screen.findAllByText("Set to 5. Your account runs up to 2 calls at once.")).length).toBeGreaterThan(0);
   });
@@ -123,13 +123,13 @@ describe("the live panel of a running campaign", () => {
         }),
       ),
     );
-    await openTab("Progress & results");
+    await openTab("Progress");
     await screen.findByText("Next try");
     expect(container.textContent).toContain("2 waiting to be tried again");
     expect(container.textContent).not.toContain("On a call now");
   });
 
-  it("opens on the set-up with the people in it, and the progress a tab away", async () => {
+  it("opens on its progress, with the people a tab away", async () => {
     await renderClientPage(
       campaignPage(),
       routes(progressFixture({ ...LAUNCHED, total: 1, contacts: { pending: 1 } }), {
@@ -140,13 +140,13 @@ describe("the live panel of a running campaign", () => {
         }),
       }),
     );
+    expect((await screen.findByRole("tab", { name: "Progress" })).getAttribute("aria-selected")).toBe("true");
+    expect(await screen.findByText("Calling hours")).toBeTruthy();
+    await openTab("People");
     const people = await screen.findByRole("table", { name: "People on this campaign" });
     expect(within(people).getByText("Lakshmi")).toBeTruthy();
     expect(within(people).getByRole("columnheader", { name: "Person" })).toBeTruthy();
     expect(within(people).getByRole("columnheader", { name: "Status" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Set up" }).getAttribute("aria-selected")).toBe("true");
-    await openTab("Progress & results");
-    expect(await screen.findByText("Calling hours")).toBeTruthy();
   });
 });
 
@@ -211,6 +211,7 @@ describe("a page of people that loses its rows", () => {
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     await renderClientPage(campaignPage(), table, "acme", client);
+    await openTab("People");
     fireEvent.click(await screen.findByRole("button", { name: "Page 2" }));
     expect(await screen.findByText("The last one")).toBeTruthy();
 

@@ -136,9 +136,10 @@ export async function pickDate(label: string, iso: string): Promise<void> {
   throw new Error(`${iso} never appeared in the ${label} calendar`);
 }
 
-/** Opens one of a campaign's tabs (Set up, Progress & results, Calls & recordings, ...). */
+/** Opens one of a campaign's tabs (Script, People, Checks, Progress, ...), whatever count its label carries. */
 export async function openTab(name: string): Promise<void> {
-  fireEvent.click(await screen.findByRole("tab", { name }));
+  const label = new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}( \\(|$)`);
+  fireEvent.click(await screen.findByRole("tab", { name: label }));
 }
 
 /** A launched campaign's day-by-day read (`CampaignTimeline`): the server's whole year. */
@@ -245,6 +246,8 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [`/v1/campaigns/${id}/results`]: resultsFixture(),
     [`/v1/campaigns/${id}/workspace`]: workspaceFixture({ campaign_id: id }),
     [`/v1/campaigns/${id}/insights`]: insightsFixture(),
+    // The Improve tab's Questions to answer, and its count on the tab: none yet.
+    [`/v1/campaigns/${id}/questions`]: [],
     // The Improve tab's Diagnose readings: no calls yet.
     [`/v1/campaigns/${id}/diagnosis`]: EMPTY_DIAGNOSIS,
     [`/v1/campaigns/${id}/give-callers-time`]: GIVE_TIME_ON,

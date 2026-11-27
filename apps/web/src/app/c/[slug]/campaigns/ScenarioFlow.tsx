@@ -1,14 +1,17 @@
 "use client";
 
 /**
- * THE CALL FLOW IN STEPS AND SCENARIOS (founder, 17 Nov 2026). Each column is a step of the
- * call; each box in it a scenario (2.1, 2.2, …). A scenario's green dot leads to the
- * scenarios it can go on to, drawn as arrows into the left of their boxes. A way out that
+ * THE CALL IN STEPS AND REPLIES (founder, 17 Nov 2026). Each column is a step of the call;
+ * each box in it a scenario (2.1, 2.2, …), which the owner reads as a reply: what the caller
+ * might say there (redesign plan §6: no builder words on screen). A box's links lead to the
+ * boxes it can go on to, drawn as arrows into the left of their boxes. A way out that
  * ends the call (call back, end, hand over) is not an arrow but a chip on its own box,
  * "Busy → Offer a call back" (founder, 25 Nov 2026: a line per end crossed every step and
  * overwhelmed a non-technical owner). A box is chosen with a click (its editor opens beside
- * the picture), and a right click offers what can be done to it. Dragging from the dot onto
- * another box links them; a link is removed where it is drawn or from its chip (`Columns`),
+ * the picture), and a right click or its ••• offers what can be done to it, "Pick where it
+ * goes next" first: it opens the box's "What can happen next" list, so linking never needs a
+ * drag. Dragging from the box's dot onto another box links them too, on a mouse; a link is
+ * removed where it is drawn or from its chip (`Columns`),
  * from its box's menu, or from the "Next" chips when stacked.
  *
  * The call's opening is the first box, left of step 1 and linked into it, because every call
@@ -61,6 +64,7 @@ import { OPENING_LINE_MAX, STEP_OUTCOME_MAX, type CallScript } from "@/lib/api/s
 import { lookup } from "@/lib/lookup";
 
 import { HearLine, type FlowAgent } from "./LineCoach";
+import { POINTER_FINE, useMedia } from "../agents/[agentId]/script/useMedia";
 import { GeneratePart, type GeneratePartProps } from "../agents/[agentId]/script/GeneratePart";
 import { StepExamplesEditor, WarningLines, type ExamplesAsk } from "../agents/[agentId]/script/StepExamplesEditor";
 import { partWarnings, stageWarnings, type LineWarning } from "../agents/[agentId]/script/stepExamples";
@@ -114,12 +118,31 @@ import {
 /** A coloured block of the scenario editor: each kind of content keeps its own colour. */
 const SECTION = "rounded-card border border-line border-l-4 p-3";
 
+/** The editor's "What can happen next" list, which "Pick where it goes next" lands on. */
+export function nextListId(sectionId: string): string {
+  return `sc-next-${sectionId}`;
+}
+
+export const PICK_NEXT = "Pick where it goes next";
+
+/** Choose a reply, then put the focus in its "What can happen next" list once the editor shows. */
+function pickNext(onSelect: (id: string) => void, sectionId: string): void {
+  onSelect(sectionId);
+  window.requestAnimationFrame(() =>
+    window.requestAnimationFrame(() => {
+      const list = document.getElementById(nextListId(sectionId));
+      list?.scrollIntoView?.({ block: "nearest" });
+      list?.querySelector<HTMLInputElement>("input:not([disabled])")?.focus({ preventScroll: true });
+    }),
+  );
+}
+
 const OUTCOME_HINT =
-  "What must be true before the call moves on. The agent reaches it however the call goes; the scenarios are examples.";
+  "What must be true before the call moves on. The agent gets there however the call goes; the replies are only examples.";
 /** An empty outcome is Pip's to write (D-1036), never a box asking the owner to invent it. */
 export const OUTCOME_PLACEHOLDER = "Pip writes this from the step.";
 export const OUTCOME_WRITING = "Pip is writing this";
-const THEN_HINT = "A dashed line is the call moving on to the next step by itself, once the step's outcome is reached.";
+const THEN_HINT = "A dashed line is the call moving on to the next step by itself, once the step is done.";
 
 /**
  * Where a scenario goes when none of its ways out applies, in the canvas's words: "Then
@@ -253,7 +276,7 @@ function StepOutcomeField({
     <div>
       <div className="flex items-center justify-between gap-2">
         <label htmlFor={id} className="block text-meta font-medium text-ink">
-          Outcome of this step
+          Done when…
           <span className="sr-only">, step {step}</span>
         </label>
         {busy && (
@@ -396,7 +419,7 @@ export function ScenarioFlow({
     }
   }, [script, toasts]);
 
-  /** Removes one link: a branch through the same `setNext` the editor's "Next scenarios"
+  /** Removes one link: a branch through the same `setNext` the editor's "What can happen next"
    * ticks go through, or the scenario's Otherwise, after which it goes on to the next step. */
   const unlink = (from: string, to: string, via: LinkVia = "branch") => {
     const source = items.find((p) => p.section.id === from);
@@ -488,14 +511,21 @@ export function ScenarioFlow({
         label: `Edit ${item.label}`,
         run: () => onSelect(item.section.id),
       });
+      // The way to link two replies without dragging (redesign plan §6): dragging from the
+      // box's dot stays as a shortcut on a mouse, never the only way.
       list.push({
-        label: "Add a scenario below",
+        label: PICK_NEXT,
+        icon: <CornerDownRight className="h-3.5 w-3.5" />,
+        run: () => pickNext(onSelect, item.section.id),
+      });
+      list.push({
+        label: "Add another reply below",
         icon: <Plus className="h-3.5 w-3.5" />,
         disabled: full,
         run: () => add(item.step, { after: item.section.id }),
       });
       list.push({
-        label: `Add a scenario in step ${item.step + 1}`,
+        label: `Add a reply in step ${item.step + 1}`,
         icon: <Plus className="h-3.5 w-3.5" />,
         disabled: full,
         run: () => add(item.step + 1),
@@ -528,14 +558,14 @@ export function ScenarioFlow({
           run: () => unlink(item.section.id, otherwise, "otherwise"),
         });
       list.push({
-        label: "Delete scenario",
+        label: "Remove this reply",
         icon: <Trash2 className="h-3.5 w-3.5" />,
         danger: true,
         run: () => remove(item.section.id),
       });
     } else {
       list.push({
-        label: `Add a scenario to step ${m.step}`,
+        label: `Add a reply to step ${m.step}`,
         icon: <Plus className="h-3.5 w-3.5" />,
         disabled: full,
         run: () => add(m.step),
@@ -561,7 +591,7 @@ export function ScenarioFlow({
     items.length === 0 ? (
       <div className="rounded-card border border-dashed border-line px-4 py-8 text-center">
         <p className="text-meta text-ink-muted">
-          No steps yet. Add the first scenario, or let Pip map the scenarios.
+          No steps yet. Add the first reply, or let Pip plan what callers might say.
         </p>
         {!readOnly && (
           <button
@@ -570,7 +600,7 @@ export function ScenarioFlow({
             onClick={() => add(1)}
           >
             <Plus aria-hidden className="h-3.5 w-3.5" />
-            Add a scenario
+            Add a reply
           </button>
         )}
       </div>
@@ -593,10 +623,10 @@ export function ScenarioFlow({
         named={(id) => named(id).full}
         onLink={(from, to) => {
           const source = items.find((p) => p.section.id === from)?.section;
-          if (!source) return "That scenario is gone.";
+          if (!source) return "That reply is gone.";
           if (source.branches.some((b) => b.target === to)) return "It already goes there.";
           if (source.branches.length >= limits.maxBranches)
-            return `A scenario can go to at most ${limits.maxBranches} next scenarios.`;
+            return `A reply can lead to at most ${limits.maxBranches} others.`;
           onChange(
             setNext(script, from, [
               ...source.branches.map((b) => b.target),
@@ -634,18 +664,18 @@ export function ScenarioFlow({
           <div className="min-w-0">
             {items.length > 0 && (
               <p className="mb-2 text-meta text-ink-muted">
-                Outcome of a step: {OUTCOME_HINT} {THEN_HINT}
+                Each step’s “Done when…”: {OUTCOME_HINT} {THEN_HINT}
               </p>
             )}
             {picture}
           </div>
           <aside
-            aria-label={selected === OPENING_KEY ? "Edit the opening" : "Edit the chosen scenario"}
+            aria-label={selected === OPENING_KEY ? "Edit the first thing it says" : "Edit the chosen reply"}
             className="min-w-0 scroll-mt-4 rounded-card border border-series-2/40 bg-surface"
           >
             {editor ?? (
               <p className="px-4 py-6 text-center text-meta text-ink-muted">
-                Choose the opening or a scenario to edit it here. Right-click a box for more.
+                Choose the first thing it says, or a reply, to change it here.
               </p>
             )}
           </aside>
@@ -655,7 +685,7 @@ export function ScenarioFlow({
       )}
       {full && !readOnly && (
         <p className="mt-2 text-meta text-ink-muted">
-          {limits.maxSections} scenarios in all is the most a call can hold.
+          {limits.maxSections} replies in all is the most a call can hold.
           Join two to make room.
         </p>
       )}
@@ -670,7 +700,7 @@ export function ScenarioFlow({
   );
 }
 
-/** The desktop picture: the opening, a column per step, arrows from each green dot onwards. */
+/** The desktop picture: the opening, a column per step, arrows from each box to where it leads. */
 function Columns({
   items,
   steps,
@@ -709,6 +739,7 @@ function Columns({
   writing: boolean;
   opening: FlowOpening | null;
 }) {
+  const fine = useMedia(POINTER_FINE);
   const plane = useRef<HTMLDivElement>(null);
   const [linking, setLinking] = useState<{ from: string; to: Point } | null>(
     null,
@@ -832,7 +863,7 @@ function Columns({
     <div
       className="relative max-h-[78dvh] overflow-auto rounded-card border border-line bg-surface-muted"
       role="region"
-      aria-label="The call flow, step by step"
+      aria-label="The call steps"
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a region that scrolls must take focus, or no key can scroll it
       tabIndex={0}
     >
@@ -842,7 +873,7 @@ function Columns({
             "opening",
             colX(0),
             <>
-              <span className="text-meta font-semibold text-ink">Opening</span>
+              <span className="text-meta font-semibold text-ink">First thing it says</span>
               <p className="mt-1.5 text-meta text-ink-muted">
                 Every call starts here: the first words, then whether now suits.
               </p>
@@ -864,10 +895,10 @@ function Columns({
                     className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-brand-strong hover:bg-brand/10 disabled:opacity-40"
                     disabled={full}
                     onClick={() => onAdd(step)}
-                    aria-label={`Add a scenario to step ${step}`}
+                    aria-label={`Add a reply to step ${step}`}
                   >
                     <Plus aria-hidden className="h-3 w-3" />
-                    Scenario
+                    Reply
                   </button>
                 )}
               </div>
@@ -993,7 +1024,7 @@ function Columns({
               <button
                 type="button"
                 aria-pressed={on}
-                aria-label={`Scenario ${p.label}: ${p.section.name}${wrong ? ", needs finishing" : ""}. ${thenWords(p, steps, named)}.`}
+                aria-label={`Reply ${p.label}: ${p.section.name}${wrong ? ", needs finishing" : ""}. ${thenWords(p, steps, named)}.`}
                 className={`flex h-full w-full flex-col rounded-card border bg-surface p-3 text-left shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
                   on
                     ? "border-brand ring-1 ring-brand"
@@ -1021,7 +1052,7 @@ function Columns({
                 <span className="mt-auto truncate text-[11px] text-ink-faint" data-then={p.section.id}>
                   {[
                     thenShown ? thenWords(p, steps, named) : null,
-                    p.section.mode === "say" ? "Exact words" : null,
+                    p.section.mode === "say" ? "Word for word" : null,
                     scripts
                       ? `Script in ${scripts} ${scripts === 1 ? "language" : "languages"}`
                       : null,
@@ -1066,14 +1097,15 @@ function Columns({
                   <button
                     type="button"
                     className="absolute right-1.5 top-1.5 rounded p-0.5 text-ink-faint hover:bg-ink/[0.06] hover:text-ink"
-                    aria-label={`More for scenario ${p.label}`}
+                    aria-label={`More for reply ${p.label}`}
                     onClick={(e) => onMenu(e, p.section.id, p.step)}
                   >
                     <MoreHorizontal aria-hidden className="h-4 w-4" />
                   </button>
                   <div
                     aria-hidden
-                    title="Drag to a scenario to make it a next scenario"
+                    title={fine ? "Or drag to the reply it leads to" : undefined}
+                    data-link-from={p.section.id}
                     className="absolute -right-2 h-4 w-4 -translate-y-1/2 cursor-crosshair touch-none rounded-full border-2 border-surface bg-brand-strong before:absolute before:-inset-3 before:content-['']"
                     style={{ top: BOX_H / 2 }}
                     onPointerDown={(e: ReactPointerEvent<HTMLDivElement>) => {
@@ -1093,7 +1125,7 @@ function Columns({
                       setLinkNote(
                         target
                           ? onLink(linking.from, target)
-                          : "Let go on a scenario to make it a next scenario.",
+                          : "Let go on the reply it leads to.",
                       );
                     }}
                     onPointerCancel={() => setLinking(null)}
@@ -1194,7 +1226,7 @@ function OpeningNode({
       <button
         type="button"
         aria-pressed={on}
-        aria-label={`Opening: ${opening.line || "no opening line yet"}`}
+        aria-label={`First thing it says: ${opening.line || "not written yet"}`}
         className={`flex h-full w-full flex-col rounded-card border bg-surface p-3 text-left shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
           on ? "border-brand ring-1 ring-brand" : "border-series-1/50 hover:border-series-1"
         }`}
@@ -1203,14 +1235,14 @@ function OpeningNode({
       >
         <span className="flex w-full items-center gap-2">
           <span className="inline-flex h-5 items-center justify-center rounded-full bg-series-1 px-2 text-[11px] font-semibold text-white">
-            {opening.placed ? "Opening when it calls" : "Opening"}
+            {opening.placed ? "First thing it says when it calls" : "First thing it says"}
           </span>
         </span>
         {/* Two lines, not three: Telugu and Devanagari lines stand taller than Latin ones, and
             three of them ran under the link in the fixed-height box. The whole line is one
             click away. */}
         <span className="mt-1 line-clamp-2 min-h-0 text-meta text-ink">
-          {opening.line ? `“${opening.line}”` : "No opening line yet."}
+          {opening.line ? `“${opening.line}”` : "Not written yet."}
         </span>
         {!readOnly && !on && (
           <span aria-hidden className="mt-auto shrink-0 pt-1 text-[11px] font-medium text-brand-strong">
@@ -1264,7 +1296,7 @@ function Stacked({
   const openingOn = selected === OPENING_KEY;
   return (
     <div className="space-y-5">
-      <section aria-label="Opening" className="border-l-4 border-series-1 pl-3">
+      <section aria-label="First thing it says" className="border-l-4 border-series-1 pl-3">
         <div className="rounded-card border border-line bg-surface">
           {/* Chosen like a scenario card: the opening's editor opens under it. */}
           <button
@@ -1274,10 +1306,10 @@ function Stacked({
             onClick={() => onSelect(openingOn ? null : OPENING_KEY)}
           >
             <span className="block text-body font-semibold text-ink">
-              {opening.placed ? "Opening when it calls" : "Opening"}
+              {opening.placed ? "First thing it says when it calls" : "First thing it says"}
             </span>
             <span className="mt-1 block text-meta text-ink">
-              {opening.line ? `“${opening.line}”` : "No opening line yet."}
+              {opening.line ? `“${opening.line}”` : "Not written yet."}
             </span>
           </button>
           <p className="-mt-1 px-3 pb-3 text-[11px] text-ink-faint">
@@ -1307,7 +1339,7 @@ function Stacked({
                 onClick={() => onAdd(step)}
               >
                 <Plus aria-hidden className="h-3.5 w-3.5" />
-                Scenario
+                Reply
               </button>
             )}
           </div>
@@ -1347,7 +1379,7 @@ function Stacked({
                       </span>
                       {p.section.mode === "say" && (
                         <span className="ml-auto shrink-0 text-[11px] text-ink-muted">
-                          Exact words
+                          Word for word
                         </span>
                       )}
                     </span>
@@ -1465,13 +1497,13 @@ function OpeningEditor({
   const id = useId();
   const [key] = useState<OpeningKey>(opening.key);
   const placedCall = key === "outbound_opening_line";
-  const label = placedCall ? "Opening line when it calls" : "Opening line";
+  const label = placedCall ? "First thing it says when it calls" : "First thing it says";
   const value = script[key] ?? "";
   const how = placedCall ? "Who, the business, why it calls." : "As callers should hear it.";
   return (
     <div className="space-y-4 p-4">
       <span className="inline-flex rounded-full bg-series-1 px-2 py-0.5 text-meta font-semibold text-white">
-        {placedCall ? "Opening when it calls" : "Opening"}
+        {placedCall ? "First thing it says when it calls" : "First thing it says"}
       </span>
       <div className={`${SECTION} border-l-series-1 bg-series-1/5`}>
         <label htmlFor={id} className="block text-meta font-medium text-ink">
@@ -1495,7 +1527,9 @@ function OpeningEditor({
         <WarningLines warnings={partWarnings(warnings, key)} idBase={`${id}-warn`} />
         {language && <HearLine agent={agent} access={hear} language={language} line={value} />}
       </div>
-      {rewrite && !readOnly && <GeneratePart {...rewrite} what={label} />}
+      {rewrite && !readOnly && (
+        <GeneratePart {...rewrite} what={label} sendAs={placedCall ? "Opening line when it calls" : "Opening line"} />
+      )}
     </div>
   );
 }
@@ -1669,7 +1703,7 @@ function ScenarioEditor({
       />
       <div className="flex flex-wrap items-center gap-3">
         <span className="rounded-full bg-series-2 px-2 py-0.5 text-meta font-semibold tabular-nums text-white">
-          Scenario {item.label}
+          Reply {item.label}
         </span>
         <div className="min-w-0 flex-1">
           {agent && !agent.id ? agent.missing : null}
@@ -1704,7 +1738,7 @@ function ScenarioEditor({
         <div className="min-w-0 space-y-5">
           <div className={`${SECTION} border-l-series-2 bg-series-2/5`}>
             <label className={label()} htmlFor={`sc-name-${id}`}>
-              Scenario name
+              What the caller might say
             </label>
             <input
               id={`sc-name-${id}`}
@@ -1725,7 +1759,7 @@ function ScenarioEditor({
             <div className="mt-4">
               <p className="flex flex-wrap items-baseline gap-x-2">
                 <label className={label("inline")} htmlFor={`sc-desc-${id}`}>
-                  Scenario description
+                  What the agent does
                 </label>
                 <span className="text-meta text-ink-muted">
                   When this happens and what the agent does, in plain English.
@@ -1796,7 +1830,7 @@ function ScenarioEditor({
           </div>
 
           <ToggleSwitch
-            label="Say this line exactly"
+            label="Say it word for word"
             hint="On: the agent says the script line word for word. Off: it says it in its own words."
             checked={s.mode === "say"}
             disabled={readOnly}
@@ -1962,10 +1996,11 @@ function ScenarioEditor({
 
         {/* Right: where the call goes next. */}
         <fieldset
+          id={nextListId(id)}
           className={`min-w-0 self-start ${SECTION} border-l-series-4 bg-series-4/5`}
         >
           <legend className={`${label()} rounded bg-surface px-1`}>
-            Next scenarios
+            What can happen next
           </legend>
           <p className="text-meta text-ink-muted">
             Where the call can go from here. Up to {limits.maxBranches}.
@@ -2004,7 +2039,7 @@ function ScenarioEditor({
           </div>
           {s.branches.length === 0 && (
             <p className="mt-2 text-meta text-ink-muted">
-              With none chosen, the call goes on to the next scenario in order.
+              With none chosen, the call goes on to the next reply in order.
             </p>
           )}
         </fieldset>
@@ -2018,7 +2053,7 @@ function ScenarioEditor({
             onClick={onDelete}
           >
             <Trash2 aria-hidden className="h-3.5 w-3.5" />
-            Delete scenario {item.label}
+            Remove this reply ({item.label})
           </button>
         </div>
       )}

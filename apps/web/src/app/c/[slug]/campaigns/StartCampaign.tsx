@@ -1,14 +1,19 @@
 "use client";
 
 /**
- * START CAMPAIGN, at the top and the bottom of the set-up and on Progress (founder, 15-16 Nov
- * 2026). A campaign starts and stops any time: Start resumes a stopped (paused) one, and
- * launches a draft or a campaign stopped before Stop became a pause, through the same gate.
+ * START CAMPAIGN, in the page header on every tab and under the checks (redesign plan §3). A
+ * campaign starts and stops any time: Start resumes a stopped (paused) one, and launches a
+ * draft or a campaign stopped before Stop became a pause, through the same gate.
  *
  * Every press asks first (founder, 16 Nov 2026: "ask the user again, if he is sure"). The box
  * says who will be called; when something stands in the way it lists each thing instead,
- * holds the start, and outlines the sections that need fixing. A refusal from the server
- * (its compliance gate runs again on every start, hard rule 5) shows in the same box.
+ * holds the start, and outlines the sections that need fixing, opening the tab of the first.
+ * A refusal from the server (its compliance gate runs again on every start, hard rule 5)
+ * shows in the same box.
+ *
+ * The button stays pressable while something is in the way, rather than disabled: the box it
+ * opens is what lists every blocker and takes the owner to each. The line beside it says
+ * what is left before anyone presses.
  */
 
 import { PhoneOutgoing } from "lucide-react";
@@ -21,44 +26,62 @@ import { ApiProblem } from "@/lib/api/client";
 import type { useCampaignProgress, useLaunchCheck } from "@/lib/api/campaigns";
 
 import { blockerNote } from "./blockerCopy";
-import { peopleSectionId } from "./DraftPeople";
+import { useChecksLeft } from "./LaunchGate";
+import {
+  SCRIPT_SECTION,
+  agentSectionId,
+  complianceCardId,
+  peopleSectionId,
+  useOpenCampaignSection,
+} from "./campaignSections";
 import { reviewHoldsResume } from "./resumeHold";
 import { SlotsFullProblem, isSlotsFull } from "./SlotHolders";
 
-/** The compliance card's element id, so Start can take the owner to what is left. */
-export function complianceCardId(campaignId: string): string {
-  return `compliance-${campaignId}`;
-}
-
-export function agentSectionId(campaignId: string): string {
-  return `agent-${campaignId}`;
-}
-
-/** The set-up section a launch rule is fixed in. */
-function sectionFor(rule: string, campaignId: string): string {
+/** The section a launch rule is fixed in. */
+export function sectionFor(rule: string, campaignId: string): string {
   if (rule === "no_contacts" || rule === "all_contacts_dnc") return peopleSectionId(campaignId);
   if (rule.startsWith("agent_") || rule === "disclosure_missing") return agentSectionId(campaignId);
-  if (rule.startsWith("script_") || rule === "truthful_answer_drift") return "campaign-script";
+  if (rule.startsWith("script_") || rule === "truthful_answer_drift") return SCRIPT_SECTION;
   return complianceCardId(campaignId);
 }
 
-/** Outlines the sections that need attention, scrolls to the first, and clears the outline
- * after a while so the page does not stay shouting once the owner is there. */
-function highlight(ids: string[]): void {
-  const found = [...new Set(ids)].map((id) => document.getElementById(id)).filter((el): el is HTMLElement => el != null);
-  for (const el of found) {
-    el.style.outline = "3px solid var(--danger, #b91c1c)";
-    el.style.outlineOffset = "6px";
-    el.style.borderRadius = "16px";
-    window.setTimeout(() => {
-      el.style.outline = "";
-      el.style.outlineOffset = "";
-    }, 12_000);
-  }
-  found[0]?.scrollIntoView?.({ block: "start", behavior: "smooth" });
-}
-
 type Problem = { rule: string; text: string };
+
+/**
+ * The one line beside Start: the checks left (the same count as the Checks tab and the
+ * card), else the first other thing in the way, each opening the section that fixes it.
+ */
+function LeftLine({
+  problems,
+  check,
+  campaignId,
+}: {
+  problems: readonly Problem[];
+  check: ReturnType<typeof useLaunchCheck>;
+  campaignId: string;
+}) {
+  const openSection = useOpenCampaignSection();
+  const checksLeft = useChecksLeft(check);
+  const left =
+    checksLeft != null && checksLeft > 0
+      ? {
+          text: checksLeft === 1 ? "1 check left. Open Checks" : `${formatCount(checksLeft)} checks left. Open Checks`,
+          section: complianceCardId(campaignId),
+        }
+      : problems[0]
+        ? { text: problems[0].text, section: sectionFor(problems[0].rule, campaignId) }
+        : null;
+  if (!left) return null;
+  return (
+    <button
+      type="button"
+      className="text-meta text-ink-muted underline decoration-line underline-offset-4 hover:text-ink touch:min-h-11"
+      onClick={() => openSection(left.section)}
+    >
+      {left.text}
+    </button>
+  );
+}
 
 export function StartCampaign({
   slug,
@@ -70,6 +93,7 @@ export function StartCampaign({
   resume,
   canWrite,
   refusal,
+  showLeft = false,
 }: {
   slug: string;
   campaignId: string;
@@ -81,7 +105,10 @@ export function StartCampaign({
   resume: ActionFeedback<"pause" | "resume">;
   canWrite: boolean;
   refusal: string | undefined;
+  /** Say beside the button what is left before it can start, as a link to it. */
+  showLeft?: boolean;
 }) {
+  const openSection = useOpenCampaignSection();
   const [asking, setAsking] = useState(false);
   const data = progress.data;
   const resuming = status === "paused";
@@ -98,7 +125,7 @@ export function StartCampaign({
   // test-call screens do, rather than the refusal's sentence alone.
   const slotsFull = isSlotsFull(action.error);
   useEffect(() => {
-    if (refused.length > 0) highlight(refused.map((p) => sectionFor(p.rule, campaignId)));
+    if (refused.length > 0) openSection(refused.map((p) => sectionFor(p.rule, campaignId)), "problem");
     // Once per refusal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [action.error]);
@@ -149,11 +176,16 @@ export function StartCampaign({
   const open = () => {
     action.reset();
     setAsking(true);
-    if (problems.length > 0) highlight(problems.map((p) => sectionFor(p.rule, campaignId)));
+    if (problems.length > 0) openSection(problems.map((p) => sectionFor(p.rule, campaignId)), "problem");
   };
+
+  // What is left, in words beside the button, so no tab has to be opened to learn why it
+  // would not start. Only once the check has answered: a guess would be wrong half the time.
+  const showsLeft = showLeft && !resuming && check.data != null && !check.data.ready;
 
   return (
     <>
+      {showsLeft && <LeftLine problems={problems} check={check} campaignId={campaignId} />}
       <button type="button" className={PRIMARY_BUTTON_SM} title={refusal} disabled={!canWrite} onClick={open}>
         <PhoneOutgoing aria-hidden className="h-3.5 w-3.5" />
         Start campaign

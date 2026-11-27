@@ -100,19 +100,19 @@ export function QualityScreen() {
       ...(shown
         ? [
             { key: "as_of", label: "Report month", value: shown.as_of },
-            { key: "vertical", label: "Scenario set (trade)", value: shown.vertical },
+            { key: "vertical", label: "Practice call set (trade)", value: shown.vertical },
             { key: "model", label: "Model tested", value: shown.model },
-            { key: "scenarios_total", label: "Scenarios replayed", value: String(shown.scenarios_total) },
+            { key: "scenarios_total", label: "Practice calls replayed", value: String(shown.scenarios_total) },
             { key: "defects", label: "Defects found", value: String(shown.defects) },
             { key: "red_team", label: "Deliberate attacks in the run", value: String(shown.red_team) },
             {
               key: "everything_captured",
-              label: "Scenarios where every required detail was captured",
+              label: "Practice calls where every required detail was captured",
               value: `${shown.everything_captured.passed} of ${shown.everything_captured.total} (${shown.everything_captured.basis})`,
             },
             {
               key: "field_left_blank",
-              label: "Scenarios where a required field was left blank",
+              label: "Practice calls where a required field was left blank",
               value: `${shown.field_left_blank.passed} of ${shown.field_left_blank.total} (${shown.field_left_blank.basis})`,
             },
             { key: "trend", label: "Is there enough history to state a trend?", value: shown.trend },

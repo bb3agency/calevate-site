@@ -177,11 +177,11 @@ describe("the campaign screens' default view", () => {
 
   it("shows a blocked draft's checklist in short lines, every blocker at once", async () => {
     const { container } = await renderClientPage(campaignPage(), detail(progressFixture()));
-    await screen.findByText("Mandatory Regulatory Compliance Checks");
+    await screen.findByText("Before it can call");
     await screen.findByText(/checks to answer$/);
     expect(tooLong(visibleLines(container))).toEqual([]);
     // One count on the card, its header's (C12-b: "7 checks to answer" over "0 of 6 done").
-    const card = screen.getByText("Mandatory Regulatory Compliance Checks").closest("section") as HTMLElement;
+    const card = screen.getByText("Before it can call").closest("section") as HTMLElement;
     expect(within(card).queryByText(/ of \d+ done$/)).toBeNull();
   });
 

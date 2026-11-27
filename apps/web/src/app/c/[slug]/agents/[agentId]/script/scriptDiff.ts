@@ -30,20 +30,26 @@ export type PartKey =
   | "example_exchange"
   | "adherence";
 
-export const PARTS: { key: PartKey; label: string }[] = [
+/**
+ * Each part's name on screen (`label`, the owner's words) and the name Pip is asked for it by
+ * (`asks`), when that differs: a one-part rewrite sends the part by name
+ * (`CampaignProposalIn.part`, `agents/script_proposals.part_paths`), and the server and the
+ * writer know the older names, so renaming a label never changes what is sent.
+ */
+export const PARTS: { key: PartKey; label: string; asks?: string }[] = [
   { key: "business_line", label: "Your business in one line" },
   { key: "identity", label: "Its role" },
   { key: "goal", label: "The goal" },
   { key: "outbound_purpose", label: "Why you are calling" },
-  { key: "opening_line", label: "Opening line" },
-  { key: "outbound_opening_line", label: "Opening line when it calls" },
+  { key: "opening_line", label: "First thing it says", asks: "Opening line" },
+  { key: "outbound_opening_line", label: "First thing it says when it calls", asks: "Opening line when it calls" },
   { key: "faqs", label: "Quick facts" },
   { key: "style", label: "How it talks" },
-  { key: "objections", label: "When callers push back" },
+  { key: "objections", label: "If they say no or not now", asks: "When callers push back" },
   { key: "ending", label: "How it ends the call" },
   { key: "step_outcomes", label: "What each step must reach" },
   { key: "example_exchange", label: "Example call" },
-  { key: "adherence", label: "How closely it follows the steps" },
+  { key: "adherence", label: "Stick to the steps", asks: "How closely it follows the steps" },
 ];
 
 export type Change =
@@ -103,7 +109,7 @@ export function partText(script: CallScript, key: PartKey): string {
         .map((o) => `Step ${o.step}: ${o.outcome}`)
         .join("\n");
     case "adherence":
-      return script.adherence === "strict" ? "Follow closely" : "Use as a guide";
+      return script.adherence === "strict" ? "Closely" : "Loosely";
     default:
       return (script[key] ?? "").trim();
   }

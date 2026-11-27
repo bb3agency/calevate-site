@@ -500,7 +500,7 @@ export function validate(script: CallScript, limits: Limits = DEFAULT_LIMITS): I
     }
     for (const p of exampleProblems(s.examples, limits.soundsLikeMax)) add(s.id, p.field, p.message);
     if (s.branches.length > limits.maxBranches) {
-      add(s.id, "branches", `At most ${limits.maxBranches} ways out of one step.`);
+      add(s.id, "branches", `At most ${limits.maxBranches} places to go next from one step.`);
     }
     (s.qa ?? []).forEach((row, j) => {
       if (!row.question.trim() || !row.answer.trim()) add(s.id, `qa-${j}`, "Fill in or remove each question and answer.");
@@ -533,7 +533,7 @@ export function validate(script: CallScript, limits: Limits = DEFAULT_LIMITS): I
     (list ?? []).forEach((row, i) => {
       if (empty(row)) add(null, `${field}-${i}`, message);
     });
-  rows(script.objections, "objection", (o) => !o.objection.trim() || !o.response.trim(), "Fill in both halves of this push-back, or remove it.");
+  rows(script.objections, "objection", (o) => !o.objection.trim() || !o.response.trim(), "Fill in both halves of this reply, or remove it.");
   rows(script.example_exchange, "example", (l) => !l.text.trim(), "Write this line, or remove it.");
   rows(script.style?.pronunciations, "pronunciation", (p) => !p.word.trim() || !p.say_as.trim(), "Fill in the word and how to say it, or remove it.");
   rows(script.faqs, "fact", (f) => !f.question.trim() || !f.answer.trim(), "Fill in the question and the answer, or remove it.");

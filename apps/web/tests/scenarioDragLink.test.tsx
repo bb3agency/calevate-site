@@ -56,8 +56,8 @@ describe("drag to link", () => {
       />,
       {},
     );
-    const target = (await screen.findByRole("button", { name: /Scenario 2\.1: Second/ })).parentElement as HTMLElement;
-    const dot = screen.getAllByTitle("Drag to a scenario to make it a next scenario")[0] as HTMLElement;
+    const target = (await screen.findByRole("button", { name: /Reply 2\.1: Second/ })).parentElement as HTMLElement;
+    const dot = document.querySelectorAll<HTMLElement>("[data-link-from]")[0]!;
     dot.setPointerCapture = () => {};
     const x = Number.parseFloat(target.style.left) + 20;
     const y = Number.parseFloat(target.style.top) + 20;
@@ -90,8 +90,8 @@ describe("drag to link", () => {
       />,
       {},
     );
-    const target = (await screen.findByRole("button", { name: /Scenario 2\.1: Second/ })).parentElement as HTMLElement;
-    const dot = screen.getAllByTitle("Drag to a scenario to make it a next scenario")[0] as HTMLElement;
+    const target = (await screen.findByRole("button", { name: /Reply 2\.1: Second/ })).parentElement as HTMLElement;
+    const dot = document.querySelectorAll<HTMLElement>("[data-link-from]")[0]!;
     dot.setPointerCapture = () => {};
     const x = Number.parseFloat(target.style.left) - 8;
     const y = Number.parseFloat(target.style.top) + 40;
@@ -124,14 +124,51 @@ describe("drag to link", () => {
       />,
       {},
     );
-    const target = (await screen.findByRole("button", { name: /Scenario 2\.1: Second/ })).parentElement as HTMLElement;
-    const dot = screen.getAllByTitle("Drag to a scenario to make it a next scenario")[0] as HTMLElement;
+    const target = (await screen.findByRole("button", { name: /Reply 2\.1: Second/ })).parentElement as HTMLElement;
+    const dot = document.querySelectorAll<HTMLElement>("[data-link-from]")[0]!;
     dot.setPointerCapture = () => {};
     const x = Number.parseFloat(target.style.left) + 20;
     const y = Number.parseFloat(target.style.top) + 20;
     fireEvent.pointerDown(dot, { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(dot, { pointerId: 1, clientX: x, clientY: y });
     expect(await screen.findByText("It already goes there.")).toBeTruthy();
+  });
+});
+
+describe("Pick where it goes next, with no drag", () => {
+  const hear: WriteAccess = { allowed: true, reason: null, unknown: false };
+  const flow = (over: { selected: string | null; onSelect?: (id: string | null) => void; onChange?: () => void }) => (
+    <ScenarioFlow
+      agent={null}
+      direction="outbound"
+      hear={hear}
+      script={SCRIPT}
+      limits={DEFAULT_LIMITS}
+      issues={[]}
+      languages={["te-IN"]}
+      readOnly={false}
+      wide
+      onSelect={over.onSelect ?? (() => {})}
+      onChange={over.onChange ?? (() => {})}
+      selected={over.selected}
+    />
+  );
+
+  it("is offered from the box's own menu and chooses that box", async () => {
+    const onSelect = vi.fn();
+    await renderClientPage(flow({ selected: null, onSelect }), {});
+    fireEvent.click(await screen.findByRole("button", { name: "More for reply 1.1" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pick where it goes next" }));
+    expect(onSelect).toHaveBeenCalledWith("a");
+  });
+
+  it("links two replies by a tick in What can happen next", async () => {
+    const onChange = vi.fn();
+    await renderClientPage(flow({ selected: "a", onChange }), {});
+    const list = await screen.findByRole("group", { name: "What can happen next" });
+    fireEvent.click(within(list).getByRole("checkbox", { name: /2\.1 Second/ }));
+    const next = onChange.mock.calls.at(-1)?.[0] as CallScript | undefined;
+    expect(next?.stages?.find((s) => s.id === "a")?.branches?.map((b) => b.target)).toEqual(["b"]);
   });
 });
 

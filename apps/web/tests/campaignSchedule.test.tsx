@@ -1,7 +1,9 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { campaignPage, detailRoutes, dltRegistrationRoute, pickDate, progressFixture } from "./campaignFixtures";
+import { campaignPage, detailRoutes, dltRegistrationRoute, openTab, pickDate, progressFixture } from "./campaignFixtures";
+
+const CHECKS = "Before it can call";
 import type { Agent } from "@/lib/api/agents";
 import type {
   CampaignProgress,
@@ -144,9 +146,12 @@ async function openCampaign(
     [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: READY,
     ...routes,
   });
-  // The panel's heading, not any text: the header's status pill prints the same word
-  // ("Scheduled") since the round-2 redesign.
-  await screen.findByRole("heading", { name: waitFor });
+  // Starting later and repeating are on the Settings tab. The checks card is on Checks,
+  // mounted while hidden, so it is waited for by its text; any other panel by its heading,
+  // not any text: the header's status pill prints the same word ("Scheduled").
+  await openTab("Settings");
+  if (waitFor === CHECKS) await screen.findByText(CHECKS);
+  else await screen.findByRole("heading", { name: waitFor });
   return rendered;
 }
 
@@ -182,7 +187,7 @@ describe("scheduling from the launch card", () => {
           first_dial_not_before: "2026-08-17T04:30:00+00:00",
         },
       },
-      "Mandatory Regulatory Compliance Checks",
+      "Before it can call",
     );
 
     await pickDate("Start date", FUTURE_DAY);
@@ -210,7 +215,7 @@ describe("scheduling from the launch card", () => {
           launched_at: null,
         }),
       },
-      "Mandatory Regulatory Compliance Checks",
+      "Before it can call",
     );
     fireEvent.click(screen.getByRole("button", { name: "Schedule start" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Choose the day it should start.");
@@ -227,7 +232,7 @@ describe("scheduling from the launch card", () => {
           launched_at: null,
         }),
       },
-      "Mandatory Regulatory Compliance Checks",
+      "Before it can call",
     );
     expect(container.textContent).toContain(
       "We check everything again when it starts.",
@@ -257,7 +262,7 @@ describe("a campaign waiting for its start", () => {
     ).toBeTruthy();
     // And the launch gate's list is still on screen, because it is still the question:
     // the server re-runs exactly this check when the schedule fires.
-    expect(container.textContent).toContain("Mandatory Regulatory Compliance Checks");
+    expect(container.textContent).toContain("Before it can call");
   });
 
   it("says the start was refused rather than letting it expire in silence", async () => {
@@ -320,6 +325,7 @@ describe("a campaign waiting for its start", () => {
         schedule_blocked_rules: [],
       }),
     });
+    await openTab("Settings");
     await screen.findByRole("heading", { name: "Scheduled" });
     expect(rendered.container.textContent).toContain("10:00");
   });
@@ -339,7 +345,7 @@ describe("a campaign waiting for its start", () => {
           detail: "A campaign can only be scheduled to start in the future.",
         }),
       },
-      "Mandatory Regulatory Compliance Checks",
+      "Before it can call",
     );
     await pickDate("Start date", FUTURE_DAY);
     fireEvent.click(screen.getByRole("button", { name: "Schedule start" }));
@@ -386,7 +392,7 @@ describe("arming a schedule while the gate is refusing", () => {
   it("offers both forms with blockers outstanding, and still lists every blocker", async () => {
     const { container } = await openCampaign(
       DRAFT_BLOCKED,
-      "Mandatory Regulatory Compliance Checks",
+      "Before it can call",
     );
 
     // Reachable: the one-time start, live rather than merely rendered — a form a client
@@ -420,7 +426,7 @@ describe("arming a schedule while the gate is refusing", () => {
   it("says what the start will do about the blockers, beside the form", async () => {
     const { container } = await openCampaign(
       DRAFT_BLOCKED,
-      "Mandatory Regulatory Compliance Checks",
+      "Before it can call",
     );
 
     // Beside the form, so a client need not scroll back up to learn that arming it is not
@@ -446,7 +452,7 @@ describe("arming a schedule while the gate is refusing", () => {
           first_dial_not_before: "2026-08-17T04:30:00+00:00",
         },
       },
-      "Mandatory Regulatory Compliance Checks",
+      "Before it can call",
     );
 
     await pickDate("Start date", FUTURE_DAY);
@@ -473,7 +479,7 @@ describe("arming a schedule while the gate is refusing", () => {
           launched_at: null,
         }),
       },
-      "Mandatory Regulatory Compliance Checks",
+      "Before it can call",
     );
 
     await screen.findByText("Everything checks out.");
@@ -498,10 +504,11 @@ describe("arming a schedule while the gate is refusing", () => {
           retryable: true,
         }),
       },
-      "Mandatory Regulatory Compliance Checks",
+      "Before it can call",
     );
 
-    await screen.findByRole("alert");
+    // The refusal is on the Checks card; the Settings tab stays open to show no form.
+    await screen.findByRole("alert", { hidden: true });
     expect(screen.queryByRole("button", { name: "Schedule start" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Set repeat" })).toBeNull();
     expect(container.textContent).not.toMatch(FIRE_TIME_WARNING);

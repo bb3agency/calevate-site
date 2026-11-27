@@ -113,7 +113,7 @@ export function SectionEditor({
 
       <div>
         <label className={FIELD_LABEL} htmlFor={field("instruction")}>
-          {say ? "The exact words to say" : "What it does here"}
+          {say ? "What it says, word for word" : "What it does here"}
         </label>
         <span className={FIELD_HINT}>
           {say ? `In ${language}, as callers should hear it.` : "In plain English. One or two sentences is plenty."}
@@ -178,8 +178,8 @@ export function SectionEditor({
           <fieldset>
             <legend className={`${FIELD_LABEL} flex items-center gap-1`}>
               How should it handle this step?
-              <InfoTip label="exact words" align="start">
-                Only the opening line is always word for word. Exact words stay close to your
+              <InfoTip label="saying it word for word" align="start">
+                Only the first thing it says is always word for word. Word for word stays close to your
                 line, but a word or two may change.
               </InfoTip>
             </legend>
@@ -194,7 +194,7 @@ export function SectionEditor({
               <ModeOption
                 name={field("mode")}
                 checked={say}
-                title="Say these exact words"
+                title="Say it word for word"
                 hint="Write the line it should say."
                 onPick={() => onChange({ mode: "say" })}
               />
@@ -260,7 +260,7 @@ export function SectionEditor({
                         <button
                           type="button"
                           className={QUIET_ICON_BUTTON}
-                          aria-label={`Remove way out ${i + 1}`}
+                          aria-label={`Remove “Then go to…” ${i + 1}`}
                           onClick={() => onChange({ branches: section.branches.filter((_, j) => j !== i) })}
                         >
                           <X aria-hidden className="h-4 w-4" />
@@ -283,11 +283,11 @@ export function SectionEditor({
                 }
               >
                 <Plus aria-hidden className="h-3.5 w-3.5" />
-                Add a way out
+                Then go to…
               </button>
             ) : (
               <p className="text-meta text-ink-muted">
-                {limits.maxBranches} ways out is the most one step can have.
+                {limits.maxBranches} places to go next is the most one step can have.
               </p>
             )}
             <label className="block">
@@ -355,7 +355,7 @@ export function optionsLine(
   context: ScriptContext | null,
 ): string {
   return [
-    section.mode === "say" ? "Exact words" : "Guided",
+    section.mode === "say" ? "Word for word" : "Guided",
     `then ${lowerFirst(thenLabel(sections, index, context))}`,
     section.branches.length > 0
       ? `${section.branches.length} other ${section.branches.length === 1 ? "way" : "ways"} out`

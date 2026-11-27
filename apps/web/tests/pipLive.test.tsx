@@ -547,7 +547,7 @@ describe("the draft view", () => {
     render(
       <ScriptDraftView state={writing} now={T0 + 9_000} reduced keep={idle} discard={idle} cancel={idle} outcome={null} />,
     );
-    expect(screen.getByText("Read your main task and sources")).toBeTruthy();
+    expect(screen.getByText("Read what it is for, and its files and notes")).toBeTruthy();
     expect(screen.getByText("4s")).toBeTruthy();
     expect(screen.getByText("Writing the script")).toBeTruthy();
     expect(screen.getByText("5s")).toBeTruthy();

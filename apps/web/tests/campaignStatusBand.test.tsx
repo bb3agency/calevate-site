@@ -61,9 +61,11 @@ const PERSON = {
 describe("the status band", () => {
   it("is a launch panel for a draft", async () => {
     const { container } = await renderClientPage(campaignPage(), routes(progressFixture({ total: 3 })));
-    await screen.findByRole("heading", { name: "Mandatory Regulatory Compliance Checks" });
+    await openTab("Checks");
+    await screen.findByRole("heading", { name: "Before it can call" });
     expect(screen.getByRole("button", { name: "Call 3 people" })).toBeTruthy();
-    // Other call settings offers a later start; a weekly repeat is no longer set here.
+    // Other call settings, on Settings, offers a later start; a weekly repeat is not set here.
+    await openTab("Settings");
     expect(screen.getByRole("heading", { name: "Start later" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Repeat every week" })).toBeNull();
     expect(container.textContent).not.toContain("Right now");
@@ -81,9 +83,10 @@ describe("the status band", () => {
         }),
       ),
     );
+    await openTab("Settings");
     const scheduled = await screen.findByRole("heading", { name: "Scheduled" });
-    const before = screen.getByRole("heading", { name: "Mandatory Regulatory Compliance Checks" });
-    // The start comes first in the band, the check under it.
+    const before = screen.getByText("Before it can call");
+    // The start is on Settings, the check on the Checks tab after it.
     expect(scheduled.compareDocumentPosition(before) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancel scheduled start" })).toBeTruthy();
     // Its start is already set, so no second start is offered.
@@ -95,9 +98,11 @@ describe("the status band", () => {
       campaignPage(),
       routes(progressFixture({ status: "running", launched_at: "2026-10-14T04:30:00Z", total: 4, contacts: { pending: 4 } })),
     );
-    await openTab("Progress & results");
+    await openTab("Progress");
     await screen.findByRole("heading", { name: "Right now" });
-    expect(container.textContent).not.toContain("Mandatory Regulatory Compliance Checks");
+    // No Checks tab once launched: the answers are kept, read-only, under Settings.
+    expect(screen.queryByRole("tab", { name: /^Checks/ })).toBeNull();
+    expect(container.textContent).not.toContain("checks to answer");
     expect(screen.queryByRole("button", { name: /^Call \d/ })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Start later" })).toBeNull();
   });
@@ -109,7 +114,7 @@ describe("the status band", () => {
         progressFixture({ status: "completed", launched_at: "2026-10-14T04:30:00Z", total: 4, contacts: { completed: 4 } }),
       ),
     );
-    await openTab("Progress & results");
+    await openTab("Progress");
     await screen.findByRole("heading", { name: "Progress" });
     expect(screen.queryByRole("heading", { name: "Right now" })).toBeNull();
     expect(screen.getByText("Finished. Every try has been made.")).toBeTruthy();
@@ -129,6 +134,7 @@ describe("the people before launch", () => {
         [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts/include`]: { changed: 1 },
       }),
     );
+    await openTab("People");
     const table = await screen.findByRole("table", { name: "People on this campaign" });
     expect(within(table).getByText("Lakshmi")).toBeTruthy();
     // The include box replaced the row's take-off menu (0.4.57).

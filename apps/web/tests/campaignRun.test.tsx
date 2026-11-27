@@ -106,7 +106,7 @@ describe("a running campaign's page", () => {
       [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: { ready: true, blockers: [] },
       [ON_A_CALL]: contactsFixture(),
     });
-    await openTab("Progress & results");
+    await openTab("Progress");
     const steps = await screen.findByRole("list", { name: "Where this campaign is" });
     const current = within(steps).getAllByRole("listitem").find((li) => li.getAttribute("aria-current") === "step");
     expect(current?.textContent).toContain("Calling everyone once");

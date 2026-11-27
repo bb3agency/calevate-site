@@ -59,13 +59,13 @@ describe("the campaign screens on a phone", () => {
   it("makes a fold's coloured pill and Collapse all thumb-sized", async () => {
     await renderClientPage(
       <FoldGroup>
-        <FoldSection title="Main task" tone="task">
+        <FoldSection title="What this campaign is for" tone="task">
           <p>Body</p>
         </FoldSection>
       </FoldGroup>,
       { "/v1/me": OWNER_ME },
     );
-    expect((await screen.findByRole("button", { name: "Main task" })).className).toContain("touch:min-h-11");
+    expect((await screen.findByRole("button", { name: "What this campaign is for" })).className).toContain("touch:min-h-11");
     expect(screen.getByRole("button", { name: "Collapse all" }).className).toContain("touch:min-h-11");
   });
 });

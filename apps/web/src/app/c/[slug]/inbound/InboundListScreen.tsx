@@ -32,6 +32,7 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useCreateInboundLine, useInboundLines, type InboundLine } from "@/lib/api/inboundLines";
 import { useClientRealm } from "@/lib/api/session";
 
+import { FROM_LIST } from "../campaigns/jobBack";
 import { LineStatusPill, numbersText } from "./lineStatus";
 
 export function InboundListScreen({ slug }: { slug: string }) {
@@ -80,7 +81,7 @@ export function InboundListScreen({ slug }: { slug: string }) {
       ) : (
         <ul aria-label="Your inbound lines" className="divide-y divide-line border-y border-line">
           {lines.data.map((line) => (
-            <LineRow key={line.id} line={line} href={href(`/c/${slug}/inbound/${line.id}`)} />
+            <LineRow key={line.id} line={line} href={href(`/c/${slug}/inbound/${line.id}?${FROM_LIST}`)} />
           ))}
         </ul>
       )}

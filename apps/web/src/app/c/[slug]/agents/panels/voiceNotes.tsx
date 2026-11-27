@@ -44,7 +44,7 @@ export function AgentVoiceNotes({ agentId, canWrite = true }: { agentId: string;
         How it should sound
       </h3>
       <p className="mt-0.5 text-meta text-ink-muted">
-        What you taught this agent after hearing it, here or in a campaign&apos;s Call flow. Every call it makes follows
+        What you taught this agent after hearing it, here or in a campaign&apos;s call steps. Every call it makes follows
         these, from the next time each campaign, line or the agent is put live.
       </p>
       {notes.isLoading && <Skeleton rows={2} label="Loading what it was taught" />}

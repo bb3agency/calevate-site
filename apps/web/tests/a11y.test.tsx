@@ -3265,7 +3265,9 @@ const CLIENT_SCREENS: Screen[] = [
         total: 1,
       }),
       [`/v1/campaigns/${CAMPAIGN.id}/launch-check`]: { ready: false, blockers: [] },
-      // The Set up tab, which opens first whatever the status.
+      // The Improve tab's questions, counted on the tab of a launched campaign.
+      [`/v1/campaigns/${CAMPAIGN.id}/questions`]: [],
+      // The Script tab, mounted whatever the status.
       [`/v1/campaigns/${CAMPAIGN.id}/workspace`]: workspaceFixture({ campaign_id: CAMPAIGN.id, status: "running" }),
       [`/v1/campaigns/${CAMPAIGN.id}/settings`]: settingsFixture(),
       [`/v1/campaigns/${CAMPAIGN.id}/notes`]: notesFixture(),

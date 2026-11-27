@@ -2,9 +2,9 @@
 
 /**
  * HOW THE OWNER WANTS PIP TO WRITE THE SCRIPT (D-1004): a tone beside Generate, a note
- * behind "Add a note for Pip" (up to 1,000 characters), and a pointer to Sources when none
- * are picked, since Pip then has only the main task to work from and leaves out what it
- * cannot back.
+ * behind "Add a note for Pip" (up to 1,000 characters), and a pointer to the files and notes
+ * when none are picked, since Pip then has only what the campaign is for to work from and
+ * leaves out what it cannot back.
  *
  * The tone and note go with this one request; nothing is saved on the campaign.
  */
@@ -16,6 +16,7 @@ import { FIELD, SECONDARY_BUTTON_SM } from "@/components/ui";
 import { INSTRUCTION_MAX, type ScriptAsk } from "@/lib/api/campaignWorkspace";
 
 import { RoomCounter } from "../agents/panels/openingLineFix";
+import { MATERIALS_SECTION, useOpenCampaignSection } from "./campaignSections";
 
 export type Tone = NonNullable<ScriptAsk["tone"]>;
 
@@ -119,18 +120,21 @@ export function PipNote({
   );
 }
 
-/** No sources picked: Pip writes from the main task alone; one button to pick some. */
+/** No files or notes picked: Pip writes from what the campaign is for alone; one button to pick some. */
 export function NoSourcesHint() {
+  const openSection = useOpenCampaignSection();
   const pick = () => {
-    const section = document.getElementById("campaign-materials");
-    section?.scrollIntoView({ block: "start" });
-    section?.querySelector<HTMLElement>("input, button")?.focus({ preventScroll: true });
+    openSection(MATERIALS_SECTION);
+    document
+      .getElementById(MATERIALS_SECTION)
+      ?.querySelector<HTMLElement>("input, button")
+      ?.focus({ preventScroll: true });
   };
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <p className="text-meta text-ink-muted">No sources picked. Pip uses only the main task.</p>
+      <p className="text-meta text-ink-muted">No files or notes picked. Pip uses only what it is for.</p>
       <button type="button" className={`${TEXT_ACTION} text-meta`} onClick={pick}>
-        Pick sources
+        Pick files and notes
       </button>
     </div>
   );

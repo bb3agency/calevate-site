@@ -59,7 +59,8 @@ import {
 } from "@/lib/api/scriptChecks";
 
 import { AddSourceForm, SOURCES_HINT, SOURCES_INFO } from "./AddSource";
-import { PipGenerateBand } from "./PipGenerateBand";
+import { GENERATE_LABEL, PipGenerateBand } from "./PipGenerateBand";
+import { MAIN_TASK_SECTION, MATERIALS_SECTION, SCRIPT_SECTION } from "./campaignSections";
 import { NoSourcesHint, PipNote, TonePick, type Tone } from "./PipScriptAsk";
 import { PipAskRefused, PipFailed, PipWriting, retryable } from "./PipScriptStatus";
 import { FoldSection } from "./FoldSection";
@@ -90,7 +91,10 @@ export const MAIN_TASK_INFO = "Write it in your own words, as much as you like. 
 export const SCRIPT_HINT = "What the agent says on each call.";
 const SCRIPT_LOCKED = "You can't change this campaign's script.";
 export const SCRIPT_INFO =
-  "Pip writes it from your main task and sources; change anything, any time. Only this campaign's calls say it; your agent's own script stays as it is.";
+  "Pip writes it from what this campaign is for and its files and notes; change anything, any time. Only this campaign's calls say it; your agent's own script stays as it is.";
+/** The first section's name, in the owner's words (redesign plan §6). */
+export const PURPOSE_TITLE = "What this campaign is for";
+export const MATERIALS_TITLE = "Files and notes it can use";
 
 export function CampaignWorkspace({
   campaignId,
@@ -159,7 +163,7 @@ function GenerateScript({
   // A failed draft is replaced by the next request, so Generate is Try again, not a wait.
   const failed = space.proposal?.status === "failed";
   const reason = !hasTask
-    ? "Save the main task first."
+    ? "Save what this campaign is for first."
     : space.proposal?.status === "ready"
       ? "Review Pip's script below first."
       : failed
@@ -191,7 +195,7 @@ function GenerateScript({
         disabled={!canWrite || savingLanguage || !hasTask || (space.proposal != null && !(failed && retryable(space.proposal.reason)))}
         reason={reason}
         refusal={refusal}
-        label={failed ? "Try again" : "Generate"}
+        label={failed ? "Try again" : GENERATE_LABEL}
         inline
       />
       {hasTask && <PipNote value={asking.note} disabled={held} onChange={(note) => onAsking({ ...asking, note })} />}
@@ -221,11 +225,11 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
   const submit = () => save.mutate(text, { onSuccess: () => setEditing(false) });
 
   return (
-    <FoldSection id="campaign-main-task" title="Main task" tone="task" hint={MAIN_TASK_HINT} info={MAIN_TASK_INFO}>
+    <FoldSection id={MAIN_TASK_SECTION} title={PURPOSE_TITLE} tone="task" hint={MAIN_TASK_HINT} info={MAIN_TASK_INFO}>
       {editing ? (
         <>
           <label htmlFor={`${campaignId}-main-task`} className="sr-only">
-            Main task
+            {PURPOSE_TITLE}
           </label>
           <textarea
             id={`${campaignId}-main-task`}
@@ -291,14 +295,14 @@ function Sources({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const save = useSetCampaignSources(session, campaignId);
   const add = useAddCampaignSource(session, campaignId);
-  useActionFeedback(save, { errorDisplay: "inline", successToast: "Sources saved" });
+  useActionFeedback(save, { errorDisplay: "inline", successToast: "Files and notes saved" });
   useActionFeedback(add, { errorDisplay: "inline", successToast: "Added and picked" });
   const count = useChosenCount(space.source_ids);
 
   return (
     <FoldSection
-      id="campaign-materials"
-      title="Sources"
+      id={MATERIALS_SECTION}
+      title={MATERIALS_TITLE}
       tone="materials"
       hint={SOURCES_HINT}
       info={SOURCES_INFO}
@@ -310,7 +314,7 @@ function Sources({ campaignId, space, canWrite, refusal }: Props) {
         <SourcePicker
           key={space.source_ids.join()}
           saved={space.source_ids}
-          legend="Sources for this campaign"
+          legend="Files and notes for this campaign"
           canWrite={canWrite}
           refusal={refusal}
           save={save}
@@ -339,7 +343,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const restoreFeedback = useActionFeedback(restore, { errorDisplay: "inline", successToast: restoredToast });
   const versions = useScriptVersions(session, { kind: "campaign", id: campaignId }, space.script, space.script != null);
   const rewrite = useRewriteStepOutcomes(session, campaignId);
-  const rewriteFeedback = useActionFeedback(rewrite, { errorDisplay: "inline", successToast: "Pip is rewriting the outcomes" });
+  const rewriteFeedback = useActionFeedback(rewrite, { errorDisplay: "inline", successToast: "Pip is rewriting every “Done when…”" });
   const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
   useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved" });
   const ask = useRequestCampaignScript(session, campaignId);
@@ -407,7 +411,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const editButton = useRef<HTMLButtonElement>(null);
   const backToScript = () =>
     window.requestAnimationFrame(() => {
-      const section = document.getElementById("campaign-script");
+      const section = document.getElementById(SCRIPT_SECTION);
       if (section && section.getBoundingClientRect().top < 0) section.scrollIntoView({ block: "start" });
       editButton.current?.focus({ preventScroll: true });
     });
@@ -457,7 +461,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
     proposal != null && (proposal.status === "drafting" || readyReview !== null) && reviewing !== proposal.id;
 
   return (
-    <FoldSection id="campaign-script" title="Script" tone="script" hint={SCRIPT_HINT} info={SCRIPT_INFO} reveal={reveal}>
+    <FoldSection id={SCRIPT_SECTION} title="Script" tone="script" hint={SCRIPT_HINT} info={SCRIPT_INFO} reveal={reveal}>
       {/* Generate sits in the Script section (founder, 15 Nov 2026): one place to get a script and read it. */}
       <div className="mb-4">
         <GenerateScript
@@ -616,7 +620,9 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
             </>
           ) : (
             <p className="text-body text-ink-muted">
-              {hasTask ? "No script yet. Press Generate above." : "Write the main task first. Then Pip can write the script."}
+              {hasTask
+                ? `No script yet. Press ${GENERATE_LABEL} above.`
+                : "Say what this campaign is for first. Then Pip can write the script."}
             </p>
           )}
         </div>
@@ -640,7 +646,7 @@ export function ScriptSummary({ script, direction }: { script: CallScript; direc
       {opening && (
         <>
           <dt className="text-meta font-medium text-ink-muted">
-            {outbound ? "Opening line when it calls" : "Opening line"}
+            {outbound ? "First thing it says when it calls" : "First thing it says"}
           </dt>
           <dd className="text-ink">“{opening}”</dd>
         </>
@@ -665,7 +671,7 @@ export function ScriptSummary({ script, direction }: { script: CallScript; direc
       )}
       <dt className="text-meta font-medium text-ink-muted">Quick facts</dt>
       <dd className="text-ink">{script.faqs.length === 1 ? "1 fact" : `${script.faqs.length} facts`}</dd>
-      <dt className="text-meta font-medium text-ink-muted">When callers push back</dt>
+      <dt className="text-meta font-medium text-ink-muted">If they say no or not now</dt>
       <dd className="text-ink">
         {script.objections.length === 1 ? "1 answer" : `${script.objections.length} answers`}
       </dd>

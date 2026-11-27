@@ -21,7 +21,7 @@ import { usePeRegistration } from "@/lib/api/dltRegistration";
 
 import { ConsentProvenanceAnswer, ConsentProvenanceFields } from "./ConsentProvenance";
 import { FoldSection } from "./FoldSection";
-import { complianceCardId } from "./StartCampaign";
+import { complianceCardId } from "./campaignSections";
 import { LaunchConfirm } from "./LaunchConfirm";
 import { SLOTS_FULL_RULE, SlotHolders, SlotsFullProblem, isSlotsFull } from "./SlotHolders";
 import { CONSENT_SOURCES } from "./choices";
@@ -34,6 +34,46 @@ import {
   blockerInPage,
   rewritePrompt,
 } from "./blockerCopy";
+
+/** The compliance card's name, in the owner's words (redesign plan §6). */
+export const CHECKS_TITLE = "Before it can call";
+
+type Blocker = NonNullable<ReturnType<typeof useLaunchCheck>["data"]>["blockers"][number];
+
+/**
+ * Which blockers the compliance card lists, and the one count of checks left that the card
+ * header, the Checks tab and the Start hint all show (defect C12-b: two counts disagreed).
+ *
+ * Three blockers are not rows (founder, 15 Nov 2026): where the list came from is asked as a
+ * question under the list (it still counts as one check), adding people is the People tab's
+ * job, and putting the agent live is the agent's own. A rule we chase ourselves is a wait,
+ * not a check for the owner, so it is listed but not counted.
+ */
+export function checksOf(
+  blockers: readonly Blocker[],
+  promotionalOpen: boolean | null,
+): { listed: Blocker[]; provenanceRule: string | undefined; todo: number } {
+  const provenanceRule = blockers.find((b) => (PROVENANCE_RULES as readonly string[]).includes(b.rule))?.rule;
+  const listed = blockers.filter(
+    (b) =>
+      b.rule !== "no_contacts" &&
+      b.rule !== "agent_not_live" &&
+      !(PROVENANCE_RULES as readonly string[]).includes(b.rule),
+  );
+  const todo =
+    listed.filter((b) => blockerNote(b.rule, { promotionalOpen })?.owner !== "calevate").length +
+    (provenanceRule ? 1 : 0);
+  return { listed, provenanceRule, todo };
+}
+
+/** The checks still to answer on a campaign not yet launched, or `null` while unknown. */
+export function useChecksLeft(check: ReturnType<typeof useLaunchCheck>): number | null {
+  const { session } = useClientRealm();
+  const registration = usePeRegistration(session).data;
+  const promotionalOpen = registration ? registration.calevate_tm_active === true : null;
+  if (!check.data) return null;
+  return check.data.ready ? 0 : checksOf(check.data.blockers, promotionalOpen).todo;
+}
 
 /**
  * BEFORE YOU LAUNCH: the compliance gate as a checklist, and the launch it guards.
@@ -84,14 +124,9 @@ export function LaunchGate({
   }
 
   const blockers = check.data?.blockers ?? [];
-  const provenanceRule = blockers.find((b) =>
-    (PROVENANCE_RULES as readonly string[]).includes(b.rule),
-  )?.rule;
+  const { listed, provenanceRule, todo } = checksOf(blockers, promotionalOpen);
   const at = (path: string) => href(`/c/${slug}${path}`);
 
-  // Three blockers are not rows here (founder, 15 Nov 2026): where the list came from is asked
-  // as the question itself below, adding people is the Add people section's job, and
-  // publishing the agent is the agent's own. Launch shows only once every check is done.
   const noPeople = blockers.some((b) => b.rule === "no_contacts");
   const agentNotLive = blockers.some((b) => b.rule === "agent_not_live");
   const provenanceBlocker = blockers.find((b) => b.rule === provenanceRule);
@@ -99,12 +134,6 @@ export function LaunchGate({
     provenanceBlocker && provenanceRule !== "consent_provenance_missing"
       ? (blockerNote(provenanceBlocker.rule, { promotionalOpen })?.text ?? provenanceBlocker.reason)
       : undefined;
-  const listed = blockers.filter(
-    (b) =>
-      b.rule !== "no_contacts" &&
-      b.rule !== "agent_not_live" &&
-      !(PROVENANCE_RULES as readonly string[]).includes(b.rule),
-  );
   const items: ChecklistItem[] = listed.map((blocker) => {
     const note = blockerNote(blocker.rule, { promotionalOpen });
     const why = note?.why ?? (note?.whyFromServer ? blocker.reason : undefined);
@@ -142,16 +171,14 @@ export function LaunchGate({
       action,
     };
   });
-  const todo =
-    items.filter((item) => item.state === "todo").length + (provenanceRule ? 1 : 0);
 
   return (
-    // MANDATORY REGULATORY COMPLIANCE CHECKS (founder, 15 Nov 2026): foldable, open by default. Launch stays disabled here
-    // until every check is answered, and the server's compliance gate refuses a launch that
-    // skips one (hard rule 5), whatever this shows.
+    // The compliance checks (founder, 15 Nov 2026): foldable, open by default. Launch stays
+    // disabled here until every check is answered, and the server's compliance gate refuses
+    // a launch that skips one (hard rule 5), whatever this shows.
     <FoldSection
       id={complianceCardId(campaignId)}
-      title="Mandatory Regulatory Compliance Checks"
+      title={CHECKS_TITLE}
       tone="compliance"
       aside={
         check.data?.ready ? (
@@ -239,7 +266,7 @@ function ComplianceRecord({
   return (
     <FoldSection
       id={complianceCardId(campaignId)}
-      title="Mandatory Regulatory Compliance Checks"
+      title={CHECKS_TITLE}
       tone="compliance"
       aside={<span className="font-medium text-brand-strong">All checks done</span>}
     >

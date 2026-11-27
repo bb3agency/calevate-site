@@ -107,7 +107,7 @@ describe("what a client reads is written for a person", () => {
     // across `+`, so that shape has no live sample here.
     const all = seen.join("\n");
     expect(all).toContain("People calling you still get through");
-    expect(all).toContain("Publish your agent first.");
+    expect(all).toContain("Put your agent live first.");
     expect(all).toContain("Still settling");
   });
 

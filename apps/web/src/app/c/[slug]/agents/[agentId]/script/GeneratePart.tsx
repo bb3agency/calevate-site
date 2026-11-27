@@ -17,7 +17,7 @@ export type GeneratePartProps = {
 };
 
 /**
- * "Generate in [language]" beside a part's Edit: Pip rewrites that part only, for review.
+ * "Write it in [language]" beside a part's Edit: Pip rewrites that part only, for review.
  * "Ask Pip to change it" opens one short box for what to change ("make it warmer"), sent
  * with the same rewrite (D-1004).
  */
@@ -27,8 +27,16 @@ export function GeneratePart({
   onGenerate,
   reason,
   what,
+  sendAs,
   held,
-}: GeneratePartProps & { what: string; held?: string }) {
+}: GeneratePartProps & {
+  /** The part's name on screen. */
+  what: string;
+  /** The name Pip is asked for the part by, when it is not the one on screen (`PARTS.asks`). */
+  sendAs?: string;
+  held?: string;
+}) {
+  const part = sendAs ?? what;
   const [language, setLanguage] = useState(initial);
   const [asking, setAsking] = useState(false);
   const [instruction, setInstruction] = useState("");
@@ -48,10 +56,10 @@ export function GeneratePart({
           className={`${TEXT_ACTION} text-meta disabled:opacity-50`}
           disabled={Boolean(waits)}
           title={waits}
-          aria-label={`Generate ${what} in ${languageName}`}
-          onClick={() => onGenerate(what, language)}
+          aria-label={`Write ${what} in ${languageName}`}
+          onClick={() => onGenerate(part, language)}
         >
-          Generate in
+          Write it in
         </button>
         <select
           aria-label={`Language for ${what}`}
@@ -92,7 +100,7 @@ export function GeneratePart({
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && instruction.trim() && !waits) onGenerate(what, language, instruction.trim());
+              if (e.key === "Enter" && instruction.trim() && !waits) onGenerate(part, language, instruction.trim());
               if (e.key === "Escape") setAsking(false);
             }}
           />
@@ -101,7 +109,7 @@ export function GeneratePart({
             className={PRIMARY_BUTTON_SM}
             disabled={Boolean(waits) || !instruction.trim()}
             title={waits}
-            onClick={() => onGenerate(what, language, instruction.trim())}
+            onClick={() => onGenerate(part, language, instruction.trim())}
           >
             Rewrite
           </button>

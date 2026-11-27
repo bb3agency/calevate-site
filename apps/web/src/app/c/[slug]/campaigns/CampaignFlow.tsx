@@ -308,7 +308,7 @@ export function CampaignFlow({
           title={dirty ? "Save or discard your changes first." : refusal}
           onClick={onMapScenarios}
         >
-          {mapping ? "Pip is mapping…" : "Let Pip map the scenarios"}
+          {mapping ? "Pip is planning…" : "Let Pip plan what callers might say"}
         </button>
       )}
       <ScriptVersions
@@ -327,7 +327,7 @@ export function CampaignFlow({
           title={dirty ? "Save or discard your changes first." : undefined}
           onClick={() => setConfirmRewrite(true)}
         >
-          Let Pip rewrite the outcomes
+          Let Pip rewrite every “Done when…”
         </button>
       )}
       <button
@@ -453,7 +453,7 @@ export function CampaignFlow({
               />
               <Workflow aria-hidden className="h-4 w-4 text-series-2" />
               <span>
-                Call flow{" "}
+                Call steps{" "}
                 <span className="text-meta font-normal text-ink-muted">
                   {flowCount(sections)}
                 </span>
@@ -462,9 +462,8 @@ export function CampaignFlow({
           </h3>
           {!folded && (
             <p className="mt-0.5 text-meta text-ink-muted">
-              Each column is a step of the call; each box a way it can go (a
-              scenario). Click a box to edit it, right-click for more, and drag
-              its green dot to a scenario in a later step to link them.
+              Each column is a step of the call; each box is something the caller
+              might say. Choose a box to change it, then pick where it goes next.
             </p>
           )}
         </div>
@@ -492,7 +491,7 @@ export function CampaignFlow({
 
       {confirmRewrite && rewriteOutcomes && onRewriteOutcomes && (
         <ConfirmDialog
-          title="Let Pip rewrite the outcomes?"
+          title="Let Pip rewrite every “Done when…”?"
           confirmLabel="Rewrite them"
           pendingLabel="Asking Pip"
           cancelLabel="Keep them"
@@ -510,20 +509,19 @@ export function CampaignFlow({
           }
         >
           <span className="block">
-            Pip writes every step&apos;s outcome again, ones you typed included.
-            After that, Pip keeps its own outcomes up to date and never touches one
+            Pip writes every step&apos;s “Done when…” again, ones you typed included.
+            After that, Pip keeps its own up to date and never touches one
             you change.
           </span>
         </ConfirmDialog>
       )}
 
       {full && (
-        <FullScreen title="Call flow" onClose={() => setFull(false)}>
+        <FullScreen title="Call steps" onClose={() => setFull(false)}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <p className="text-meta text-ink-muted">
-              Click a box to edit it on the right, right-click for more, and
-              drag its green dot to a scenario in a later step to link them.
-              Save keeps the changes.
+              Choose a box to change it on the right, then pick where it goes
+              next. Save keeps the changes.
             </p>
             {toolbar}
           </div>
@@ -599,5 +597,5 @@ function FullScreen({
 function flowCount(sections: ReturnType<typeof sectionsOf>): string {
   const items = placed(sections);
   const steps = new Set(items.map((p) => p.step)).size;
-  return `${steps} ${steps === 1 ? "step" : "steps"} · ${items.length} ${items.length === 1 ? "scenario" : "scenarios"}`;
+  return `${steps} ${steps === 1 ? "step" : "steps"} · ${items.length} ${items.length === 1 ? "reply" : "replies"}`;
 }

@@ -12,13 +12,11 @@ import { ContactEditor } from "./ContactEditor";
 import { FoldSection } from "./FoldSection";
 import { ContactResults } from "./ContactResults";
 import { useCampaignForm } from "./campaignForm";
+import { peopleSectionId } from "./campaignSections";
 
 const STOPPED = "It is stopped. People saved here are called when you start it again.";
 
-/** The people section's element id, so "Add people" in the launch checklist can go to it. */
-export function peopleSectionId(campaignId: string): string {
-  return `people-${campaignId}`;
-}
+export { peopleSectionId };
 
 /**
  * WHO A DRAFT WILL CALL, in one section (founder, 16 Nov 2026): "Add people", always open,
@@ -33,6 +31,7 @@ export function DraftPeople({
   refusal,
   total,
   stopped = false,
+  live = false,
 }: {
   slug: string;
   campaignId: string;
@@ -43,6 +42,8 @@ export function DraftPeople({
   total: number;
   /** Stopped: people are still saved, and the note says they are not called. */
   stopped?: boolean;
+  /** Running or paused: each person's row follows the calls as they happen. */
+  live?: boolean;
 }) {
   return (
     <FoldSection title="Add people" tone="add" id={peopleSectionId(campaignId)}>
@@ -58,7 +59,7 @@ export function DraftPeople({
               slug={slug}
               campaignId={campaignId}
               maxAttempts={maxAttempts}
-              live={false}
+              live={live}
               canWrite={canWrite}
               refusal={refusal}
             />

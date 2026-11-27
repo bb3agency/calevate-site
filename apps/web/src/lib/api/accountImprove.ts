@@ -59,7 +59,7 @@ export function holderImproveHref(slug: string, holder: Holder): string {
 /** Where a holder's script Versions are, with Put back on each. */
 export function holderVersionsHref(slug: string, holder: Holder): string {
   return holder.kind === "campaign"
-    ? `/c/${slug}/campaigns/${encodeURIComponent(holder.id)}`
+    ? `/c/${slug}/campaigns/${encodeURIComponent(holder.id)}?tab=script`
     : `/c/${slug}/inbound/${encodeURIComponent(holder.id)}#line-script`;
 }
 

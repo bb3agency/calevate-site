@@ -104,7 +104,7 @@ describe("unlinking on the canvas", () => {
 
   it("draws the step-to-step link and puts the end of the call on 1.1 as a chip", async () => {
     const { container } = await view().rendered;
-    await screen.findByRole("button", { name: /Scenario 1\.1/ });
+    await screen.findByRole("button", { name: /Reply 1\.1/ });
     expect(container.querySelector('path[data-link="a-0"]')).not.toBeNull();
     expect(container.querySelector('path[data-link="a-1"]')).toBeNull();
     expect(container.querySelector('[data-unlink="a-1"]')).toBeNull();
@@ -148,7 +148,7 @@ describe("unlinking on the canvas", () => {
 
   it("offers an unlink for each next link in the box's menu", async () => {
     const { onChange } = view();
-    fireEvent.click(await screen.findByRole("button", { name: "More for scenario 1.1" }));
+    fireEvent.click(await screen.findByRole("button", { name: "More for reply 1.1" }));
     const menu = screen.getByRole("menu");
     expect(within(menu).getByRole("menuitem", { name: "Unlink from End the call" })).toBeTruthy();
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Unlink from 2.1 Setup farms" }));
@@ -158,7 +158,7 @@ describe("unlinking on the canvas", () => {
   it("shows no remove control to a person who cannot change the flow", async () => {
     const { rendered } = view({ readOnly: true });
     const { container } = await rendered;
-    await screen.findByRole("button", { name: /Scenario 1\.1/ });
+    await screen.findByRole("button", { name: /Reply 1\.1/ });
     expect(container.querySelector("[data-unlink]")).toBeNull();
     expect(container.querySelector("[data-link-hit]")).toBeNull();
     expect(screen.queryByRole("button", { name: /Remove the link/ })).toBeNull();

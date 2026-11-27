@@ -60,7 +60,7 @@ const routes = (workspace: Routes[string]): Routes => ({
   [`/v1/agents/${FIXTURE_AGENT_ID}/script`]: noReply(),
 });
 
-const outcomeBoxes = () => screen.getAllByRole("textbox", { name: /Outcome of this step/ }) as HTMLTextAreaElement[];
+const outcomeBoxes = () => screen.getAllByRole("textbox", { name: /Done when…/ }) as HTMLTextAreaElement[];
 
 describe("a step's outcome, written by Pip", () => {
   it("never asks the owner to invent an empty one", async () => {
@@ -68,7 +68,7 @@ describe("a step's outcome, written by Pip", () => {
       <CampaignWorkspace campaignId={FIXTURE_CAMPAIGN_ID} canWrite />,
       routes(workspaceFixture({ script: SCRIPT })),
     );
-    await screen.findAllByRole("textbox", { name: /Outcome of this step/ });
+    await screen.findAllByRole("textbox", { name: /Done when…/ });
     for (const box of outcomeBoxes()) expect(box.placeholder).toBe(OUTCOME_PLACEHOLDER);
     expect(screen.queryByText(OUTCOME_WRITING)).toBeNull();
   });
@@ -144,7 +144,7 @@ describe("giving the outcomes back to Pip", () => {
         }),
       },
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Let Pip rewrite the outcomes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Let Pip rewrite every “Done when…”" }));
     await screen.findByRole("dialog");
     expect(calls.some((c) => c.method === "POST")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Rewrite them" }));
@@ -158,7 +158,7 @@ describe("giving the outcomes back to Pip", () => {
       <CampaignWorkspace campaignId={FIXTURE_CAMPAIGN_ID} canWrite />,
       routes(workspaceFixture({ script: setOutcome(SCRIPT, 1, WRITTEN), step_outcomes_by_owner: false })),
     );
-    await screen.findAllByRole("textbox", { name: /Outcome of this step/ });
-    expect(screen.queryByRole("button", { name: "Let Pip rewrite the outcomes" })).toBeNull();
+    await screen.findAllByRole("textbox", { name: /Done when…/ });
+    expect(screen.queryByRole("button", { name: "Let Pip rewrite every “Done when…”" })).toBeNull();
   });
 });
