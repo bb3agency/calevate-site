@@ -197,6 +197,33 @@ def supporting_turn(value: Any, turns: Sequence[Turn]) -> Turn | None:
     return best
 
 
+#: The first code point past the Latin and IPA blocks. A value with a letter at or above it is
+#: written in the call's own script (Telugu, Devanagari, ...), so it is the caller's words
+#: copied out, not an English reading of them.
+_NON_LATIN_FROM: Final = 0x370
+
+
+def quotes_the_call(value: Any) -> bool:
+    """Whether a captured value is a quote of the call's words rather than a reading of them:
+    text holding a letter of a non-Latin script. "Expense tracking" read from a Telugu line
+    shares no word with it and is still right; a Telugu sentence that shares none is a line
+    nobody said on that turn."""
+    return isinstance(value, str) and any(ord(c) >= _NON_LATIN_FROM and c.isalpha() for c in value)
+
+
+def said_on(value: Any, text: str) -> bool:
+    """Whether a quoted value is found in a turn's words: one content word in common, compared
+    casefolded and split so Indic vowel signs stay inside their word (`content_words`), or,
+    for a value of short words only, the whole value inside the turn."""
+    if not isinstance(value, str):
+        return False
+    wanted = content_words(value)
+    if wanted:
+        return bool(wanted & content_words(text))
+    needle = _normalize(value).strip(" .,?!")
+    return bool(needle) and needle in _normalize(text)
+
+
 def _affirms(value: Any) -> bool:
     return value is True or (isinstance(value, str) and _normalize(value) in _YES_WORDS)
 
@@ -434,6 +461,8 @@ def _checked_field_turn(
       tie) when the line the model chose is the agent's or shares none and another shares
       some; with no line sharing any (a value written in other words) the model's line
       stands, and `field_backed` still drops it from an agent line;
+    - a value quoting the call's words (`quotes_the_call`) that no caller line says is
+      dropped: the marker would pin a sentence nobody said on that turn;
     - a "yes" on a line that refuses or negates is dropped: that line said the opposite,
       and which later line settled it is not something a word match can tell.
     """
@@ -443,6 +472,8 @@ def _checked_field_turn(
             better = supporting_turn(value, caller_lines)
             if better is not None:
                 return better
+        if quotes_the_call(value) and not (turn.speaker == "caller" and said_on(value, turn.text)):
+            return None
         return turn
     if _affirms(value) and denies is not None and turn.speaker == "caller" and denies(turn.text):
         return None
@@ -450,7 +481,12 @@ def _checked_field_turn(
 
 
 def field_backed(
-    stored: Any, *, captured: Collection[str], caller_turns: Collection[int] | None
+    stored: Any,
+    *,
+    captured: Collection[str],
+    caller_turns: Collection[int] | None,
+    values: Mapping[str, Any] | None = None,
+    turn_texts: Mapping[int, str] | None = None,
 ) -> Any:
     """`stored` without any `field_captured` marker the reading does not back.
 
@@ -466,6 +502,13 @@ def field_backed(
     2026). Judged by the field key and the stored label, so it needs no field list.
     `caller_turns=None` skips the turn check, for a reader that has no turns loaded; a
     stored marker with no `turn_idx` (written before it existed) is not turn-checked.
+
+    With `values` (the reading) and `turn_texts` (each turn's RAW words, which a redacted
+    name would no longer match), a suggested marker whose value quotes the call
+    (`quotes_the_call`) is kept only on a turn that says it (`said_on`); a derived one was
+    found verbatim already. A
+    "Extra Details captured" marker sat on a caller line whose words were not the details'
+    at all (27 Nov 2026). Either missing skips this check.
 
     Applied where markers are written AND where they are read, so rows stored before this
     rule stop showing without a backfill. Anything that is not a list is returned as it is,
@@ -483,6 +526,16 @@ def field_backed(
             turn_idx = item.get("turn_idx")
             if caller_turns is not None and turn_idx is not None and turn_idx not in caller_turns:
                 continue
+            suggested = item.get("source") == "model"
+            if (
+                suggested
+                and values is not None
+                and turn_texts is not None
+                and isinstance(turn_idx, int)
+            ):
+                value = values.get(str(item.get("field")))
+                if quotes_the_call(value) and not said_on(value, turn_texts.get(turn_idx, "")):
+                    continue
         kept.append(item)
     return kept
 
@@ -540,5 +593,7 @@ __all__ = [
     "model_moments",
     "moment",
     "prompt_line_turns",
+    "quotes_the_call",
+    "said_on",
     "supporting_turn",
 ]

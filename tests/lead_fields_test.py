@@ -143,7 +143,7 @@ def test_a_model_answer_is_cleaned_into_fields_the_editor_accepts() -> None:
         "fields": [
             {"label": "Product", "type": "text", "reason": "what", "required": True},
             {"label": "What they want", "type": "text", "reason": "dup of core"},
-            {"label": "Order number", "type": "text", "reason": "a phone-shaped field"},
+            {"label": "Alternate number", "type": "text", "reason": "another number to call"},
             {"label": "Pack size", "type": "enum", "choices": ["1 kg"], "required": True},
             {"label": "Product", "type": "text", "reason": "duplicate label"},
             {"label": "Organic", "type": "bool", "reason": "asked for organic"},
@@ -158,7 +158,7 @@ def test_a_model_answer_is_cleaned_into_fields_the_editor_accepts() -> None:
     keys = [f.key for f in fields]
     assert keys[:3] == ["product", "pack_size", "organic"]
     assert len(fields) == lead_fields_draft.MAX_DRAFTED_FIELDS
-    assert "summary" not in keys and "order_number" not in keys
+    assert "summary" not in keys and "alternate_number" not in keys
     # An enum with one choice is not a choice; only the first required survives.
     assert fields[1].type == "text" and fields[1].enum_values is None
     assert [f.key for f in fields if f.required] == ["product"]

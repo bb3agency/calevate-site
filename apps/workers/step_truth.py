@@ -19,7 +19,9 @@ Two sources say a step was NOT reached:
 
 What is settled against them: a status, progress or outcome detail, the notes detail, a goal
 detail, the goal verdict, the business outcome, and the summary and headline. A clause that
-says an unreached step happened is taken out of prose (`without_unreached`) rather than the
+says an unreached step happened, or that the whole job was done on a call that stopped short
+(the agent's own "you have finished the setup" repeated as fact, 27 Nov 2026), is taken out
+of prose (`without_unreached`) rather than the
 whole sentence, so what did happen stays said. A clause that only says the step was asked
 for or explained ("asked the caller to record an expense") is true and kept (`_PENDING`).
 """
@@ -162,12 +164,18 @@ class StepFacts:
     @property
     def incomplete(self) -> bool:
         """The call stopped short. From a reading: the step after the furthest reached was
-        not reached. From the words alone: a step went unconfirmed while the script names
-        a later one the call never got to; the last step's question going unanswered is
-        how a finished call often ends, and is not stopping short."""
+        not reached, or a step before the script's last was not reached with the steps
+        between left unclear (a call judged "reached" to step 2, unclear to 8 and not reached
+        at 9 of 10 stopped short as surely as one judged not reached at 3). From the words
+        alone: a step went unconfirmed while the script names a later one the call never got
+        to. The last step's question going unanswered is how a finished call often ends, and
+        is not stopping short."""
         if self.progress is not None:
             after = (self.progress.furthest or 0) + 1
-            return after in self.missed and after not in self.branches
+            last = max((n for n in self.names if n not in self.branches), default=0)
+            return any(
+                step not in self.branches and (step == after or step < last) for step in self.missed
+            )
         return any(
             later > step and later not in self.reached and later not in self.branches
             for step in self.missed
@@ -224,10 +232,14 @@ def prompt_note(facts: StepFacts) -> str | None:
 
 
 def _claims(clause: str, facts: StepFacts) -> bool:
+    """Whether a clause says an unreached step happened, or says the whole job got done on
+    a call that stopped short ("the agent said the setup was complete")."""
     if _PENDING.search(clause):
         return False
     stems = _stems(clause)
-    return any(stems & facts.terms.get(step, frozenset()) for step in facts.missed)
+    if any(stems & facts.terms.get(step, frozenset()) for step in facts.missed):
+        return True
+    return _claims_done(clause, facts)
 
 
 def claims_unreached(text: str, facts: StepFacts) -> bool:
