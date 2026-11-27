@@ -1,0 +1,36 @@
+{
+  "case": "first_run_rytu",
+  "source": "stand-in",
+  "model": "",
+  "recorded_at": "",
+  "notes": "Hand-written stand-in for both model outputs until a --live run replaces it: questions as the question writer is asked to write them (one about areas served, which the gate must drop for an app), and an English script with one step per owner task. Not a model run.",
+  "questions": [
+    {"prompt": "When may the agent call farmers?", "hint": "Pick the hours that suit the people on your list.", "kind": "single_choice", "options": ["9am to 6pm", "10am to 7pm", "6pm to 9pm"], "maps_to": null},
+    {"prompt": "What must the agent never say or promise?", "hint": "Tick every rule that applies.", "kind": "choices", "options": ["Never promise a call-back time", "Never ask for an OTP or bank details", "Never say the app costs money"], "maps_to": null},
+    {"prompt": "Which districts or areas do you serve?", "hint": "List the places your farmers are in.", "kind": "text", "options": [], "maps_to": "facts"}
+  ],
+  "script": {
+    "schema_version": 2,
+    "business_line": "Rytu Khata, an app for farm expenses, sales and profit",
+    "goal": "Help people who registered on the website put the app on their phone and enter a first expense and sale.",
+    "outbound_opening_line": "Hello {{lead_name}} garu, I am Varsha from Rytu Khata. You registered on our website, and I am calling to help you start the app on your phone. Is now a good time?",
+    "stages": [
+      {"id": "install", "name": "App on the home screen", "instruction": "Help them install the app on the home screen from rytukhata.com: Chrome on Android, Safari on iPhone, then Add to Home Screen. One action a turn.", "scripts": {"en-IN": "Please open rytukhata.com in your phone's browser."}, "branches": [{"when": "They do not remember registering", "target": "not_registered"}]},
+      {"id": "log_in", "name": "Log in", "instruction": "Have them open the app and log in with their mobile number.", "scripts": {"en-IN": "Now tap the app icon to open it."}, "branches": []},
+      {"id": "language", "name": "Language", "instruction": "Have them set the app language to Telugu.", "scripts": {"en-IN": "Tap the language option at the top."}, "branches": []},
+      {"id": "farm", "name": "My Farms", "instruction": "Have them open My Farms and add their farm with a name they will remember.", "scripts": {"en-IN": "Tap My Farms at the bottom."}, "branches": []},
+      {"id": "expense", "name": "First expense", "instruction": "Have them record their first expense and save it.", "scripts": {"en-IN": "Tap Expenses at the bottom."}, "branches": []},
+      {"id": "sale", "name": "First sale", "instruction": "Have them record their first sale of a crop and save it.", "scripts": {"en-IN": "Tap Sales at the bottom."}, "branches": []},
+      {"id": "close", "name": "Close", "instruction": "Thank them and say they can call if anything is unclear. If they stopped early, say what is left and offer to call back to finish it.", "scripts": {"en-IN": "Thank you for your time today."}, "branches": [{"when": "They stopped before the last step", "target": "call_back"}]},
+      {"id": "not_registered", "name": "Not registered", "instruction": "Say what Rytu Khata is in one sentence and offer to help them start it. Never claim records show anything.", "scripts": {"en-IN": "Rytu Khata keeps your farm accounts on your phone. Shall we try it together?"}, "branches": [{"when": "They agree", "target": "install"}]}
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "The app icon is on their home screen."},
+      {"step": 2, "outcome": "They see the app's home after logging in."},
+      {"step": 3, "outcome": "The app shows Telugu."},
+      {"step": 4, "outcome": "Their farm is listed in My Farms."},
+      {"step": 5, "outcome": "Their first expense is listed."},
+      {"step": 6, "outcome": "Their first sale is listed."}
+    ]
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "case": "first_run_clinic_inbound",
+  "source": "stand-in",
+  "model": "",
+  "recorded_at": "",
+  "notes": "Hand-written stand-in for both model outputs until a --live run replaces it: two follow-up questions and an English line script with a step per owner task and an urgent side step that gives the ambulance number digit by digit. Not a model run.",
+  "questions": [
+    {"prompt": "Should patients bring anything to their visit?", "hint": "Callers often ask what to carry.", "kind": "text", "options": [], "maps_to": "facts"},
+    {"prompt": "How does a patient book an appointment?", "hint": "Say what the agent should take down.", "kind": "text", "options": [], "maps_to": "booking"}
+  ],
+  "script": {
+    "schema_version": 2,
+    "business_line": "Sunrise Family Clinic, a family doctor's clinic",
+    "goal": "Answer patients' questions and take appointment requests; send emergencies to the ambulance first.",
+    "opening_line": "Hello, this is Asha from Sunrise Family Clinic. How can I help you today?",
+    "stages": [
+      {"id": "question", "name": "Timings and fees", "instruction": "Answer questions about when the clinic is open and what a consultation costs, from the facts. Say amounts in words. If they describe chest pain, trouble breathing or heavy bleeding, go to the urgent step at once.", "scripts": {"en-IN": "We are open Monday to Saturday, nine in the morning to eight at night."}, "branches": [{"when": "They describe chest pain, trouble breathing or heavy bleeding", "target": "urgent"}, {"when": "They want to see the doctor", "target": "book"}]},
+      {"id": "book", "name": "Appointment", "instruction": "Book an appointment request: take their name and the time that suits them, then say the front desk confirms the slot by message.", "scripts": {"en-IN": "May I have your name, please?"}, "branches": []},
+      {"id": "urgent", "name": "Urgent", "instruction": "Tell them to call the ambulance on 108 right now, said digit by digit as one, zero, eight. Never give medical advice.", "scripts": {"en-IN": "Please call the ambulance now on one, zero, eight."}, "branches": []}
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "Their question is answered."},
+      {"step": 2, "outcome": "Their name and preferred time are taken."},
+      {"step": 3, "outcome": "They have the ambulance number."}
+    ]
+  }
+}

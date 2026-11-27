@@ -6,8 +6,9 @@ model calls use (`apps/workers/chat.complete`), with the agent's reply ceiling a
 temperature, as the engine is sent none (`scripts/register_eval`). A tool the agent calls is
 answered with a simulated result: the do-not-call and call-back actions say they were recorded,
 the knowledge search returns the holder's pinned facts. The caller side is the same model told
-to play the persona in the call's language; silence and speech-to-text junk are injected on the
-persona's fixed turns (`personas`).
+to play the persona in the call's language; silence, speech-to-text junk and a bare "Okay." are
+injected on the persona's fixed turns (`personas`), and a persona that stops early is told to
+stop once it has said a fixed number of things were done, so every run stops at the same point.
 
 After the call, the step reading is asked once of the same model with the post-call judge's own
 request and evidence check (`workers/step_progress.request_text`, `checked`), so the reading a
@@ -45,8 +46,8 @@ from calevate_shared.extraction import ExtractionSchemaSpec
 from calevate_shared.languages import find_language
 
 from scripts.call_sim.agent import AgentUnderTest
-from scripts.call_sim.personas import GARBLE, SILENCE, Persona
-from scripts.call_sim.scorecard import Recording, SimTurn
+from scripts.call_sim.personas import BARE_OKAY, GARBLE, SILENCE, Persona
+from scripts.call_sim.scorecard import Recording, SimTurn, done_signal
 
 MAX_CALLER_TURNS: Final = 12
 #: A turn may call tools at most this many rounds before it must speak.
@@ -164,6 +165,12 @@ async def _agent_turn(
     return "", tuple(tools)
 
 
+#: What the caller model is told on the turn a `stops_after` persona stops.
+STOP_NOW: Final = (
+    " Now stop: say in one short line that this is enough for today and you will do the rest later."
+)
+
+
 async def _caller_line(
     persona: Persona,
     agent: AgentUnderTest,
@@ -171,8 +178,11 @@ async def _caller_line(
     ask: Ask,
     spend: Spend,
     model: str,
+    *,
+    stop_now: bool = False,
 ) -> str:
-    messages: list[ChatMessage] = [{"role": "system", "content": caller_brief(persona, agent)}]
+    brief = caller_brief(persona, agent) + (STOP_NOW if stop_now else "")
+    messages: list[ChatMessage] = [{"role": "system", "content": brief}]
     for turn in turns:
         role = "assistant" if turn.speaker == "caller" else "user"
         messages.append({"role": role, "content": turn.text or SILENCE})
@@ -199,13 +209,24 @@ async def simulate(
         turns.append(SimTurn("caller", "Hello."))
     turns.append(SimTurn("agent", agent.first_words))
     history.append({"role": "assistant", "content": agent.first_words})
+    done_lines = 0
+    stopped_turn: int | None = None
     for n in range(1, max_turns + 1):
+        stop_now = (
+            stopped_turn is None
+            and persona.stops_after is not None
+            and done_lines >= persona.stops_after
+        )
         if n in persona.silent_turns:
             said = SILENCE
         elif n in persona.garbled_turns:
             said = GARBLE[persona.garbled_turns.index(n) % len(GARBLE)]
+        elif n in persona.okay_turns and not stop_now:
+            said = BARE_OKAY
         else:
-            said = await _caller_line(persona, agent, turns, caller_ask, spend, caller_model)
+            said = await _caller_line(
+                persona, agent, turns, caller_ask, spend, caller_model, stop_now=stop_now
+            )
         # "Remove my number, bye <END>" is a last line, not silence: dropping its words with
         # the marker scored the remove-me caller as never taken off the list when it had
         # never been asked. The agent answers that last line, then the call ends.
@@ -214,6 +235,10 @@ async def simulate(
         if not said:
             break
         turns.append(SimTurn("caller", said))
+        if stop_now:
+            stopped_turn = len(turns)
+        elif done_signal(said):
+            done_lines += 1
         history.append({"role": "user", "content": said})
         reply, tools = await _agent_turn(agent, history, agent_ask, spend, model)
         turns.append(SimTurn("agent", reply, tools))
@@ -229,6 +254,7 @@ async def simulate(
         prompt_sha=agent.prompt_sha,
         contact_name=agent.contact_name,
         prior_contact=agent.prior_contact,
+        stopped_turn=stopped_turn,
     )
 
 
@@ -280,6 +306,7 @@ def price(spend: Spend, rates: Callable[[str], tuple[Decimal, Decimal]]) -> Deci
 __all__ = [
     "HANG_UP",
     "MAX_CALLER_TURNS",
+    "STOP_NOW",
     "Ask",
     "Spend",
     "caller_brief",

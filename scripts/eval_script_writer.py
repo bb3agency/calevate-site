@@ -6,6 +6,12 @@ it ships rather than judged by the founder's next test call.
     uv run python -m scripts.eval_script_writer --write-report     # under docs/evidence/
     uv run python -m scripts.eval_script_writer --write-baseline   # lock in the counts CI holds
     uv run python -m scripts.eval_script_writer --import-live run.json   # live outputs -> recorded
+    uv run python -m scripts.eval_script_writer --cases first_run_rytu,first_run_clinic_inbound
+
+THE FIRST RUN, END TO END (W3.3): `first_run/<id>/` holds a raw brief, how its owner answers
+and the run's two model outputs; brief -> questions -> answers -> script is scored by
+`score_first_run`, and the command exits 1 unless every case passes. These cases are kept
+out of the script case set and its baseline; `tests/call_sim_test.py` holds them.
 
 On the VPS, where our Gemini key is (one command, from the deployed checkout; the case set is
 copied into the running workers container because the image carries `scripts/` but not
@@ -1364,6 +1370,510 @@ def recorded_json(rec: Recorded) -> dict[str, Any]:
     return out
 
 
+# --- the first run, end to end (W3.3) --------------------------------------------------------
+#
+# "Meet your agent" turns an owner's brief into follow-up questions, answers, a first work and
+# its script. A case under `first_run/<id>/` is that brief verbatim (`brief.txt`), how the owner
+# answers (`case.json`) and the two model outputs, the questions and the script
+# (`recorded.json`, or `--live`). Everything between the two model calls is the product's own
+# code run on the case: the question gate (`first_run/questions.written_questions`), the main
+# task, calling window and pinned facts the first run stores (`first_run/work.main_task_of`,
+# `calling_hours_of`, `owner_statements`). What a reader expects the brief to yield (its tasks,
+# facts, rules, numbers and window) is written in the case by a person, never derived by the
+# code under test.
+
+FIRST_RUN_DIR: Final = "first_run"
+FirstRunJob = Literal["call_leads", "answer_calls"]
+
+
+@dataclass(frozen=True, slots=True)
+class Answer:
+    """How the owner answers a follow-up question: the first answer whose `match` finds the
+    question's prompt is used, ticking each offered option that holds one of `ticks` and
+    typing `text`. A question no answer matches is skipped, as an owner may."""
+
+    match: str
+    ticks: tuple[str, ...] = ()
+    text: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class FirstRunCase:
+    id: str
+    brief: str
+    job: FirstRunJob
+    #: Nobody comes to the business and it goes to nobody (an app): no area or address asked.
+    remote: bool
+    has_premises: bool | None
+    goes_ahead: bool | None
+    tasks: tuple[TaskItem, ...]
+    #: What a reader finds the brief (and the answers) state, each to be pinned word for word.
+    facts: tuple[str, ...]
+    rules: tuple[str, ...]
+    #: Numbers the owner gave that every call must carry (a fee, an urgent number).
+    numbers: tuple[str, ...]
+    calling_window: dict[str, str] | None
+    answers: tuple[Answer, ...]
+    one_thing: str
+    #: The script case's own fields (`case_from`), its main task filled in by the first run.
+    script_case: dict[str, Any]
+
+    def places_calls(self) -> bool:
+        return self.job == "call_leads"
+
+
+def first_run_case_from(directory: Path) -> FirstRunCase:
+    raw = json.loads((directory / "case.json").read_text(encoding="utf-8"))
+    window = raw.get("calling_window")
+    return FirstRunCase(
+        id=str(raw["id"]),
+        brief=(directory / "brief.txt").read_text(encoding="utf-8").strip(),
+        job="answer_calls" if raw["job"] == "answer_calls" else "call_leads",
+        remote=bool(raw.get("remote")),
+        has_premises=raw.get("has_premises"),
+        goes_ahead=raw.get("goes_ahead"),
+        tasks=tuple(
+            TaskItem(str(item["id"]), str(item["text"]), tuple(_strings(g) for g in item["terms"]))
+            for item in raw.get("tasks", [])
+        ),
+        facts=_strings(raw.get("facts")),
+        rules=_strings(raw.get("rules")),
+        numbers=_strings(raw.get("numbers")),
+        calling_window=(
+            {"start": str(window["start"]), "end": str(window["end"])}
+            if isinstance(window, dict)
+            else None
+        ),
+        answers=tuple(
+            Answer(str(a["match"]), _strings(a.get("ticks")), str(a.get("text") or ""))
+            for a in raw.get("answers", [])
+        ),
+        one_thing=str(raw.get("one_thing") or ""),
+        script_case=dict(raw["script_case"]),
+    )
+
+
+def first_run_ids(root: Path = CASES_DIR) -> list[str]:
+    folder = root / FIRST_RUN_DIR
+    if not folder.is_dir():
+        return []
+    return sorted(p.name for p in folder.iterdir() if (p / "case.json").exists())
+
+
+def load_first_run_cases(only: Sequence[str] = (), root: Path = CASES_DIR) -> list[FirstRunCase]:
+    ids = first_run_ids(root)
+    unknown = set(only) - set(ids)
+    if unknown:
+        raise SystemExit(f"no such first-run case: {', '.join(sorted(unknown))}")
+    return [first_run_case_from(root / FIRST_RUN_DIR / i) for i in ids if not only or i in only]
+
+
+@dataclass(frozen=True, slots=True)
+class FirstRunRecorded:
+    """The two model outputs of one first run: the questions as the model wrote them (before
+    the gate) and the script."""
+
+    case_id: str
+    source: Source
+    questions: tuple[dict[str, Any], ...]
+    script: CallScript
+    model: str = ""
+    recorded_at: str = ""
+    notes: str = ""
+
+
+def first_run_recorded_from(raw: dict[str, Any]) -> FirstRunRecorded:
+    return FirstRunRecorded(
+        case_id=str(raw["case"]),
+        source="live" if raw.get("source") == "live" else "stand-in",
+        questions=tuple(q for q in raw.get("questions") or () if isinstance(q, dict)),
+        script=CallScript.model_validate(raw["script"]),
+        model=str(raw.get("model") or ""),
+        recorded_at=str(raw.get("recorded_at") or ""),
+        notes=str(raw.get("notes") or ""),
+    )
+
+
+def first_run_recorded_json(rec: FirstRunRecorded) -> dict[str, Any]:
+    return {
+        "case": rec.case_id,
+        "source": rec.source,
+        "model": rec.model,
+        "recorded_at": rec.recorded_at,
+        "notes": rec.notes,
+        "questions": list(rec.questions),
+        "script": rec.script.model_dump(mode="json", exclude_defaults=True),
+    }
+
+
+def load_first_run_recorded(case: FirstRunCase, root: Path = CASES_DIR) -> FirstRunRecorded:
+    path = root / FIRST_RUN_DIR / case.id / "recorded.json"
+    return first_run_recorded_from(json.loads(path.read_text(encoding="utf-8")))
+
+
+@dataclass(frozen=True, slots=True)
+class FirstRunMade:
+    """What the first run makes of the brief between the two model calls, by its own code."""
+
+    questions: tuple[Any, ...]
+    #: Each answer as `first_runs.answers` stores it.
+    answers: tuple[dict[str, Any], ...]
+    main_task: str
+    calling_hours: dict[str, str] | None
+    #: The pinned facts (question, text) the first run stores before the script is written.
+    pinned: tuple[tuple[str, str], ...]
+
+
+def _answered(question: Any, case: FirstRunCase) -> dict[str, Any] | None:
+    from apps.api.first_run.questions import CHOICE_KINDS, ONE_THING
+
+    stored = {"id": question.id, "prompt": question.prompt, "maps_to": question.maps_to}
+    if question.id == ONE_THING.id:
+        return {**stored, "text": case.one_thing} if case.one_thing else None
+    found = next(
+        (a for a in case.answers if re.search(a.match, question.prompt, re.IGNORECASE)), None
+    )
+    if found is None:
+        return None
+    if question.kind in CHOICE_KINDS:
+        ticked = [
+            option
+            for option in question.options
+            if any(t.casefold() in option.casefold() for t in found.ticks)
+        ]
+        return {**stored, "choices": ticked} if ticked else None
+    return {**stored, "text": found.text} if found.text else None
+
+
+def first_run_made(case: FirstRunCase, raw_questions: Sequence[dict[str, Any]]) -> FirstRunMade:
+    """The questions the gate keeps, the owner's answers to them, and the main task, calling
+    window and pinned facts the first run stores from the brief and those answers."""
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from apps.api.first_run.questions import (
+        QuestionWords,
+        given_in,
+        with_one_thing,
+        written_questions,
+    )
+    from apps.api.first_run.work import calling_hours_of, main_task_of, owner_statements
+    from apps.api.tenancy.business_profile import Profile
+
+    given = given_in(case.brief)
+    words = QuestionWords(has_premises=case.has_premises, goes_ahead=case.goes_ahead)
+    kept = written_questions(list(raw_questions), Profile(tenant_id=uuid4()), words, given)
+    # The run asks the one thing every caller should know when the brief states no fact
+    # (`write_first_run_questions`, `ask_one_thing=not given.facts`).
+    asked = kept if given.facts else with_one_thing(kept)
+    answers = tuple(a for a in (_answered(q, case) for q in asked) if a is not None)
+    row = SimpleNamespace(brief=case.brief, answers=list(answers))
+    return FirstRunMade(
+        questions=tuple(asked),
+        answers=answers,
+        main_task=main_task_of(row, case.job),
+        calling_hours=calling_hours_of(row),
+        pinned=tuple(owner_statements(row)),
+    )
+
+
+def first_run_script_case(case: FirstRunCase, made: FirstRunMade) -> Case:
+    """The script case the first run's work is: the case's own fields, the main task the first
+    run made, and the pinned facts among its knowledge, as every call of the account reads
+    them."""
+    raw = dict(case.script_case)
+    raw.setdefault("id", case.id)
+    raw.setdefault("holder", "campaign" if case.places_calls() else "line")
+    raw.setdefault("direction", "outbound" if case.places_calls() else "inbound")
+    raw["main_task"] = made.main_task
+    raw["knowledge"] = [
+        *raw.get("knowledge", []),
+        *({"title": q or "The owner said", "text": t} for q, t in made.pinned),
+    ]
+    return case_from(raw)
+
+
+def _pinned_text(made: FirstRunMade) -> str:
+    return " ".join(t for _q, t in made.pinned).casefold()
+
+
+def _fr_opening(case: FirstRunCase, script: CallScript, base: Case) -> list[str]:
+    from apps.api.agents.call_rules import placed_opening_problems
+
+    if case.places_calls():
+        line = script.outbound_opening_line or script.opening_line
+        if not line.strip():
+            return ["opening: the campaign has no opening line"]
+        return placed_opening_problems(
+            "opening", line, agent_name=base.agent_name, business_name=base.business_name
+        )
+    return [] if script.opening_line.strip() else ["opening: the line has no greeting"]
+
+
+def _fr_tasks(case: FirstRunCase, rec: Recorded) -> list[str]:
+    """Each owner task in exactly one step, and no step doing two (the founder's "one step
+    per task")."""
+    found: list[str] = []
+    texts = [_stage_text(stage, rec) for stage in rec.script.stages]
+    by_stage: dict[int, list[str]] = {}
+    for task in case.tasks:
+        steps = [n for n, text in enumerate(texts) if covers(text, task)]
+        if not steps:
+            found.append(f"tasks.{task.id}: no step does '{task.text}'")
+        elif len(steps) > 1:
+            found.append(f"tasks.{task.id}: '{task.text}' is in steps {steps}")
+        for n in steps:
+            by_stage.setdefault(n, []).append(task.id)
+    found += [
+        f"stages.{n}: does {len(ids)} owner tasks ({', '.join(ids)})"
+        for n, ids in sorted(by_stage.items())
+        if len(ids) > 1
+    ]
+    return found
+
+
+def _fr_said(made: FirstRunMade, wanted: Sequence[str], kind: str) -> list[str]:
+    pinned = _pinned_text(made)
+    return [f"{kind}: '{w}' is not pinned" for w in wanted if w.casefold() not in pinned]
+
+
+def _fr_numbers(case: FirstRunCase, made: FirstRunMade, script: CallScript) -> list[str]:
+    """Each number the owner gave reaches the call: pinned, or in the script itself."""
+    from calevate_shared.call_script import compile_call_script
+
+    carried = f"{_pinned_text(made)} {compile_call_script(script)}"
+    return [f"numbers: {n} reaches no call" for n in case.numbers if n not in carried]
+
+
+def _fr_window(case: FirstRunCase, made: FirstRunMade) -> list[str]:
+    if not case.places_calls() or made.calling_hours == case.calling_window:
+        return []
+    return [
+        f"calling_window: the campaign calls {made.calling_hours}, the owner said "
+        f"{case.calling_window}"
+    ]
+
+
+def _fr_questions(case: FirstRunCase, made: FirstRunMade) -> list[str]:
+    """A kept question about where the business is or the areas it serves, for a business
+    nobody comes to; or one asking what the brief already says."""
+    from apps.api.first_run.questions import (
+        _ASKS_SERVICE_AREA,  # the gate's own reading of an areas-served question
+        QuestionWords,
+        _asks_given,
+        given_in,
+    )
+
+    given = given_in(case.brief)
+    words = QuestionWords(has_premises=case.has_premises, goes_ahead=case.goes_ahead)
+    found: list[str] = []
+    for q in made.questions:
+        if case.remote and (q.maps_to == "location" or _ASKS_SERVICE_AREA.search(q.prompt)):
+            found.append(f"questions.{q.id}: asks where a business nobody comes to is or serves")
+        if _asks_given(q, given, words):
+            found.append(f"questions.{q.id}: asks what the brief already says")
+    return found
+
+
+#: The first-run checks, in the order the owner meets what they check.
+FIRST_RUN_CHECKS: Final = (
+    "questions",
+    "opening",
+    "tasks",
+    "facts",
+    "rules",
+    "numbers",
+    "calling_window",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class FirstRunResult:
+    case_id: str
+    source: Source
+    findings: dict[str, list[str]]
+    #: The script scored as every case is (structural checks and lints), reported only.
+    script: CaseResult
+    questions_written: int
+    questions_kept: int
+    pinned: int
+    #: What the report says beside the checks: how the code read the brief.
+    notes: tuple[str, ...] = ()
+
+    @property
+    def passed(self) -> bool:
+        return not any(self.findings.values())
+
+
+def score_first_run(case: FirstRunCase, rec: FirstRunRecorded) -> FirstRunResult:
+    from apps.api.agents.owner_words import owner_tasks
+
+    made = first_run_made(case, rec.questions)
+    read = owner_tasks(case.brief)
+    # A note, not a check: `owner_tasks` reads only a list of things the person does, so the
+    # work of an answering line ("tell them our timings, book appointments") reads as none
+    # and reaches the writer as the brief's own words.
+    notes = (
+        ()
+        if len(read) == len(case.tasks)
+        else (
+            f"The code reads {len(read)} task(s) from the brief where the case lists "
+            f"{len(case.tasks)}; the plan is then the writer's reading of the brief.",
+        )
+    )
+    base = first_run_script_case(case, made)
+    as_recorded = Recorded(case.id, rec.source, rec.script, model=rec.model)
+    findings = {
+        "questions": _fr_questions(case, made),
+        "opening": _fr_opening(case, rec.script, base),
+        "tasks": _fr_tasks(case, as_recorded),
+        "facts": _fr_said(made, case.facts, "facts"),
+        "rules": _fr_said(made, case.rules, "rules"),
+        "numbers": _fr_numbers(case, made, rec.script),
+        "calling_window": _fr_window(case, made),
+    }
+    return FirstRunResult(
+        case_id=case.id,
+        source=rec.source,
+        findings=findings,
+        script=score(as_recorded, base),
+        questions_written=len(rec.questions),
+        questions_kept=len(made.questions),
+        pinned=len(made.pinned),
+        notes=notes,
+    )
+
+
+def first_run_report(results: Sequence[FirstRunResult], *, mode: str, when: str) -> str:
+    """The first-run checks per case, then the script's own counts; findings name paths and
+    case ids, never a model's line."""
+    lines = [f"# First-run eval ({mode}, {when})", ""]
+    for r in results:
+        verdict = "PASS" if r.passed else "FAIL"
+        lines += [
+            f"## {r.case_id}: {verdict} ({r.source})",
+            "",
+            f"- Questions: {r.questions_written} written, {r.questions_kept} asked after the "
+            f"gate; {r.pinned} pinned facts stored.",
+            f"- Script score {r.script.score():.1f} (structural and lint pass rates; reported, "
+            "not gated).",
+            "",
+            "| Check | Findings |",
+            "|---|---|",
+        ]
+        for check in FIRST_RUN_CHECKS:
+            found = r.findings.get(check, [])
+            lines.append(f"| {check} | {'; '.join(found) if found else '-'} |")
+        lines += ["", *(f"- Note: {n}" for n in r.notes), ""] if r.notes else [""]
+    return "\n".join(lines)
+
+
+async def first_run_live(case: FirstRunCase, spend: Spend) -> FirstRunRecorded:
+    """Both model calls of the first run on our Gemini leg: the follow-up questions as
+    `workers/first_run.write_first_run_questions` asks them (its instruction, the brief, the
+    agent's job and what is already given), then the work's script by the one writer."""
+    from uuid import uuid4
+
+    from apps.api.agents.assist_leg import google_assist_leg
+    from apps.api.first_run.questions import QuestionWords, closed_topics, given_in
+    from apps.api.tenancy.business_profile import Profile
+    from apps.workers import first_run as fr
+    from apps.workers.script_assist import ask_json
+    from apps.workers.script_writer import WriteRequest, write_script
+
+    given = given_in(case.brief)
+    words = QuestionWords(has_premises=case.has_premises, goes_ahead=case.goes_ahead)
+    known = ", ".join(sorted(closed_topics(Profile(tenant_id=uuid4()), words))) or "none"
+    # The worker's own request, assembled the same way (`write_first_run_questions`).
+    request = (
+        f"The owner's description:\n{case.brief}\n\n"
+        f"What the agent does: {fr._JOB_CONTEXT[case.job]}"
+        f"\nBusiness profile sections already known: {known}"
+        + (f"\nAlready given, so never asked: {given.said()}" if given.said() else "")
+    )
+    leg = google_assist_leg()
+
+    def raw_questions(raw: dict[str, Any]) -> list[dict[str, Any]] | None:
+        written = raw.get("questions")
+        return [q for q in written if isinstance(q, dict)] if isinstance(written, list) else None
+
+    answer = await ask_json(
+        request,
+        fr.QUESTIONS_INSTRUCTION,
+        parse=raw_questions,
+        tenant_leg=leg,
+        max_tokens=900,
+        temperature=0.3,
+        gemini_only=True,
+    )
+    spend.add(answer.usage, answer.model)
+    made = first_run_made(case, answer.value)
+    context = replace(case_context(first_run_script_case(case, made)), tenant_leg=leg)
+    result = await write_script(WriteRequest("whole", context))
+    for spent in result.spends:
+        if not isinstance(spent, Exception):
+            spend.add(spent.usage, spent.model)
+    return FirstRunRecorded(
+        case.id,
+        "live",
+        tuple(answer.value),
+        result.script,
+        model=",".join(sorted(spend.models)),
+        recorded_at=datetime.now(IST).isoformat(timespec="seconds"),
+    )
+
+
+async def run_first_run(args: argparse.Namespace, ids: Sequence[str]) -> int:
+    cases = load_first_run_cases(ids, root=args.cases_dir)
+    spend = Spend()
+    failed: list[str] = []
+    pairs: list[tuple[FirstRunCase, FirstRunRecorded]] = []
+    if args.live:
+        from apps.api.core.errors import ProblemError
+        from apps.api.core.platform_config import refresh as refresh_platform_config
+
+        await refresh_platform_config(force=True)
+        for case in cases:
+            try:
+                pairs.append((case, await first_run_live(case, spend)))
+            except ProblemError as refused:
+                failed.append(f"{case.id}: {refused.code}")
+    else:
+        pairs = [(case, load_first_run_recorded(case, root=args.cases_dir)) for case in cases]
+    results = [score_first_run(case, rec) for case, rec in pairs]
+    mode = "live" if args.live else "recorded"
+    when = datetime.now(IST).date().isoformat()
+    text = first_run_report(results, mode=mode, when=when)
+    if args.format == "json":
+        print(
+            json.dumps(
+                {
+                    "mode": mode,
+                    "when": when,
+                    "tokens": spend.tokens,
+                    "models": sorted(spend.models),
+                    "failed": failed,
+                    "passed": {r.case_id: r.passed for r in results},
+                    "findings": {r.case_id: r.findings for r in results},
+                    "markdown": text,
+                    "first_run_outputs": [first_run_recorded_json(rec) for _c, rec in pairs]
+                    if args.live
+                    else [],
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
+    else:
+        print(text)
+        if args.live:
+            print(f"Tokens used: {spend.tokens}; failed: {', '.join(failed) or 'none'}")
+    if args.write_report:
+        REPORT_DIR.mkdir(parents=True, exist_ok=True)
+        (REPORT_DIR / f"{when}-first-run-{mode}.md").write_text(text, encoding="utf-8")
+    return 0 if results and all(r.passed for r in results) and not failed else 1
+
+
 # --- the command ---------------------------------------------------------------------------
 
 
@@ -1386,6 +1896,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-report", action="store_true", help=f"write under {REPORT_DIR}")
     parser.add_argument("--write-baseline", action="store_true", help="rewrite baseline.json")
     parser.add_argument("--import-live", type=Path, help="a --live --format json run to record")
+    parser.add_argument(
+        "--first-run",
+        action="store_true",
+        help="score the first-run cases end to end (brief, questions, script); naming only "
+        "first-run ids in --cases does the same",
+    )
     return parser
 
 
@@ -1394,6 +1910,14 @@ def import_live(path: Path, root: Path = CASES_DIR) -> list[str]:
     case, replacing the stand-in. Returns the case ids written."""
     bundle = json.loads(path.read_text(encoding="utf-8"))
     written: list[str] = []
+    for raw in bundle.get("first_run_outputs", []):
+        first = first_run_recorded_from(raw)
+        target = root / FIRST_RUN_DIR / first.case_id / "recorded.json"
+        target.write_text(
+            json.dumps(first_run_recorded_json(first), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        written.append(first.case_id)
     for raw in bundle.get("outputs", []):
         rec = recorded_from(raw)
         target = root / "recorded" / f"{rec.case_id}.json"
@@ -1446,7 +1970,14 @@ async def _main(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    cases = load_cases([c for c in args.cases.split(",") if c], root=args.cases_dir)
+    named = [c for c in args.cases.split(",") if c]
+    first_runs = set(first_run_ids(args.cases_dir))
+    if args.first_run or (named and set(named) <= first_runs):
+        return await run_first_run(args, named)
+    if set(named) & first_runs:
+        print("Name first-run cases apart from the script cases.", file=sys.stderr)
+        return 2
+    cases = load_cases(named, root=args.cases_dir)
     failed: list[str] = []
     spend = Spend()
     if args.live:

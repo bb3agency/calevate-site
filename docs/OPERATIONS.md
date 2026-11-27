@@ -359,6 +359,12 @@ Structure per client:
   red result blocks promote; report stored per run (client-shareable PDF = sales asset:
   "we regression-test your agent before every change").
 
+### 3.1 Release checklist
+
+| Item | When | Run | Pass |
+|---|---|---|---|
+| **Live simulated calls on the release candidate** (W3.1, W3.13, W3.14) | Every release that changes what an agent is told on a call: `packages/shared/src/calevate_shared/engine.py`, `call_script.py`, `spoken_style.json`, or the console's in-call model | On the VPS, from the deployed candidate, against the Telugu campaign the founder tests on: `uv run python -m scripts.eval_calls --release --holder campaign:<id> --max-inr <cap>` (ten runs each of `stops_early`, `bare_okay`, `forgot_registering`, `cooperative`, `asks_ai`, `remove_me`; the step list is merged as text, ThinnestAI's own step handling is not published). Also `uv run python -m scripts.eval_script_writer --cases first_run_rytu,first_run_clinic_inbound --live --spend` when the first run or the writer changed. | Exit 0, and the report with its `.json` counts committed under `docs/evidence/call-sim/`. Exit 1 names each gated kind (`scripts/call_sim/scorecard.GATE_KINDS`) whose share of runs rose against `docs/evidence/call-sim/live-baseline.json`, or any hard-rule kind; the target for every gated kind is 0. A reviewed run becomes the baseline with `--write-live-baseline`. Exit 2 = it could not run (no Google key: it is not a pass). CI runs the recorded half without keys (`tests/call_sim_test.py`). |
+
 ## 4. Observability & Alerting
 
 Dashboards: per-tenant call volume/answer rate/outcomes; latency stage breakdown

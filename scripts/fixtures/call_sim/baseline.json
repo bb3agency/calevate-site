@@ -1,6 +1,6 @@
 {
   "holder": "fixture:rytu",
-  "total": 970,
+  "total": 1010,
   "personas": {
     "cooperative": 60,
     "silent": 55,
@@ -16,6 +16,8 @@
     "english_letters": 70,
     "impatient": 70,
     "asks_ai": 80,
+    "stops_early": 0,
+    "bare_okay": 40,
     "remove_me": 100
   }
 }

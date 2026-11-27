@@ -6,8 +6,18 @@
     uv run python -m scripts.eval_calls --compare recA/ recB/            # two recorded runs
     uv run python -m scripts.eval_calls --live --compare old.json new.json [--judge]
     uv run python -m scripts.eval_calls --write-baseline                 # after a reviewed change
+    uv run python -m scripts.eval_calls --release --holder campaign:<uuid> --max-inr 200
 
-Fifteen caller personas (`call_sim/personas.py`) meet the agent. The agent side is what we
+THE RELEASE GATE (`--release`, docs/OPERATIONS.md §3.1): a change to what an agent is told on
+a call ships only with a live run on the release candidate's composed prompt. It is `--live
+--gate` over `RELEASE_RUNS` runs of `RELEASE_PERSONAS` (the founder's calls of 27 and 28 Nov
+2026, the caller who does not remember registering, and the hard-rule probes); the report and
+its counts (`.json` beside it) are committed under docs/evidence/call-sim/, and it exits 1 when
+a hard-rule kind shows or a gated kind (`scorecard.GATE_KINDS`) shows in a larger share of runs
+than `live-baseline.json` holds. A reviewed run becomes that baseline with
+`--write-live-baseline`; with none recorded every gated kind seen fails.
+
+The caller personas (`call_sim/personas.py`) meet the agent. The agent side is what we
 publish: the holder's composed engine prompt, its steps and its settings (`call_sim/agent.py`),
 on the in-call model the console names (`Settings.thinnest_own_model_default`). Scoring is code
 (`call_sim/scorecard.py`): every in-call check and mistake kind the product uses, plus the step
@@ -18,8 +28,10 @@ same model reads every version, so a change in score is a change in what we send
 WITHOUT `--live` it scores recorded transcripts (`scripts/fixtures/call_sim/recorded/<fixture>/`),
 so CI is deterministic; `tests/call_sim_test.py` fails when that score moves off
 `scripts/fixtures/call_sim/baseline.json`. Two recordings are English stand-ins of the founder's
-test calls of 24 and 25 Nov 2026; the rest are hand-written stand-ins until a `--live --record`
-run replaces them. A recording made on another prompt is named stale in the report.
+test calls of 24 and 25 Nov 2026, two are his Telugu calls of 27 Nov (21:35, `stops_early`) and
+28 Nov 2026 (00:48, `bare_okay`) as the call page showed them, name replaced; the rest are
+hand-written stand-ins until a `--live --record` run replaces them. A recording made on another
+prompt is named stale in the report.
 
 WITH `--live` it spends real money on our Google key (only on the VPS): one agent reply per turn,
 one caller line per turn, one step reading per call. It stops at `--max-inr`.
@@ -55,8 +67,14 @@ from scripts.call_sim.agent import FIXTURES, ROOT, AgentUnderTest, fixture_agent
 from scripts.call_sim.personas import BY_KEY, Persona, personas_for
 
 CANNOT_RUN: Final = 2
+GATE_FAILED: Final = 1
 REPORTS: Final = ROOT / "docs" / "evidence" / "call-sim"
 BASELINE: Final = FIXTURES / "baseline.json"
+#: The last reviewed live run's counts (`--write-live-baseline`), which `--gate` reads.
+LIVE_BASELINE: Final = REPORTS / "live-baseline.json"
+#: The personas the release gate runs: the founder's two calls and the hard-rule probes.
+RELEASE_PERSONAS: Final = "stops_early,bare_okay,forgot_registering,cooperative,asks_ai,remove_me"
+RELEASE_RUNS: Final = 10
 DEFAULT_FIXTURE: Final = "rytu"
 DEFAULT_MAX_INR: Final = Decimal("30")
 
@@ -182,6 +200,47 @@ async def live_card(
     return card, recordings, price(spend, _rates), notes
 
 
+async def live_runs(
+    agent: AgentUnderTest, args: argparse.Namespace, live: Live
+) -> tuple[list[sc.Scorecard], Decimal, list[str]]:
+    """`--runs` live runs of every persona, one budget across them all: the in-call model is
+    not deterministic, so the gate reads how often a fault shows, never one call."""
+    cards: list[sc.Scorecard] = []
+    spent = Decimal(0)
+    notes: list[str] = []
+    for run_no in range(1, args.runs + 1):
+        left = args.max_inr - spent
+        if left <= 0:
+            notes.append(f"Stopped at the ₹{args.max_inr} budget before run {run_no}.")
+            break
+        record = args.record / f"run{run_no}" if args.record and args.runs > 1 else args.record
+        card, _recs, cost, more = await live_card(
+            agent,
+            _personas(args.personas, agent.direction),
+            live,
+            turns=args.turns,
+            max_inr=left,
+            record=record,
+            judge=args.judge and run_no == 1,
+        )
+        cards.append(card)
+        spent += cost
+        notes += more
+    return cards, spent, notes
+
+
+def _live_baseline() -> sc.Tally | None:
+    if not LIVE_BASELINE.exists():
+        return None
+    return sc.tally_of(json.loads(LIVE_BASELINE.read_text(encoding="utf-8")))
+
+
+def gate_section(failed: Sequence[str]) -> str:
+    if not failed:
+        return "\n## Release gate: PASS\n\nNo gated kind rose against the live baseline.\n"
+    return "\n## Release gate: FAIL\n\n" + "".join(f"- {f}\n" for f in failed)
+
+
 # --- versions to compare ----------------------------------------------------------------------
 
 
@@ -256,6 +315,22 @@ def parser() -> argparse.ArgumentParser:
         "--write-baseline", action="store_true", help="store the recorded score as the CI baseline"
     )
     p.add_argument("--vendor-rules", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--runs", type=int, default=1, help="live runs of each persona")
+    p.add_argument(
+        "--gate",
+        action="store_true",
+        help="exit 1 when a gated kind rose against the live baseline (live only)",
+    )
+    p.add_argument(
+        "--write-live-baseline",
+        action="store_true",
+        help=f"store this live run's counts as {LIVE_BASELINE.relative_to(ROOT)}",
+    )
+    p.add_argument(
+        "--release",
+        action="store_true",
+        help=f"the release gate: --live --gate, {RELEASE_RUNS} runs of the release personas",
+    )
     return p
 
 
@@ -313,27 +388,44 @@ async def run(args: argparse.Namespace) -> int:
             text += "".join(f"- {n}\n" for n in notes)
             return _emit(args, text, f"live-compare-{names[0]}-{names[1]}")
         agent = await _agent(args, vendor)
-        card, _recs, cost, notes = await live_card(
-            agent,
-            _personas(args.personas, agent.direction),
-            live,
-            turns=args.turns,
-            max_inr=args.max_inr,
-            record=args.record,
-            judge=args.judge,
-        )
+        cards, cost, notes = await live_runs(agent, args, live)
+        card = cards[0]
         card = sc.Scorecard(card.holder, card.personas, (*notes, f"Spent about ₹{cost:.2f}."))
-        meta = [f"Live run on {live.model} (caller {live.caller_model}), {args.turns} caller turns"]
+        meta = [
+            f"Live run on {live.model} (caller {live.caller_model}), {args.turns} caller turns, "
+            f"{len(cards)} run(s) per persona; the table is run 1"
+        ]
         meta.append(f"Prompt sha256 {agent.prompt_sha[:12]}")
         meta.append(
             "The step list is merged as text; ThinnestAI's own step handling is not published."
         )
         text = sc.render(card, title="Simulated calls (live)", meta=meta)
-        return _emit(args, text, f"live-{agent.holder}")
+        counted = sc.tally(agent.holder, agent.prompt_sha, cards)
+        text += sc.render_tally(counted)
+        status = 0
+        if args.gate:
+            failed = sc.gate_failures(counted, _live_baseline())
+            text += gate_section(failed)
+            status = GATE_FAILED if failed else 0
+        if args.write_live_baseline:
+            LIVE_BASELINE.parent.mkdir(parents=True, exist_ok=True)
+            LIVE_BASELINE.write_text(
+                json.dumps(sc.tally_json(counted), indent=2) + "\n", encoding="utf-8"
+            )
+            text += f"\n- Written as the live baseline: `{LIVE_BASELINE.relative_to(ROOT)}`.\n"
+        emitted = _emit(args, text, f"live-{agent.holder}", tally=counted)
+        return status or emitted
 
     agent = fixture_agent(args.fixture, vendor=vendor)
     directory = args.recorded or recorded_dir(args.fixture)
     card = recorded_card(directory, agent)
+    if args.write_baseline and (args.fixture != DEFAULT_FIXTURE or args.recorded):
+        print(
+            f"--write-baseline holds the '{DEFAULT_FIXTURE}' recordings only; another fixture's "
+            "recordings are held by their expected flags.",
+            file=sys.stderr,
+        )
+        return CANNOT_RUN
     if args.write_baseline:
         BASELINE.write_text(json.dumps(sc.baseline_of(card), indent=2) + "\n", encoding="utf-8")
         print(f"baseline: {card.total} -> {BASELINE.relative_to(ROOT)}")
@@ -365,18 +457,36 @@ async def _judge_pairs(live: Live, runs: list[list[sc.Recording]], notes: list[s
     return "\n".join(lines) + "\n"
 
 
-def _emit(args: argparse.Namespace, text: str, name: str) -> int:
+def _emit(args: argparse.Namespace, text: str, name: str, *, tally: sc.Tally | None = None) -> int:
     print(text)
     if not args.no_report:
         path = write_report(text, name, args.out)
         print(f"report: {path}")
+        if tally is not None:
+            counts = path.with_suffix(".json")
+            counts.write_text(json.dumps(sc.tally_json(tally), indent=2) + "\n", encoding="utf-8")
+            print(f"counts: {counts}")
     return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.release:
+        args.live = args.gate = True
+        args.personas = args.personas or RELEASE_PERSONAS
+        args.runs = max(args.runs, RELEASE_RUNS)
     if args.judge and not args.live:
         print("--judge needs --live: the AI judge never runs in CI.", file=sys.stderr)
+        return CANNOT_RUN
+    if (args.gate or args.write_live_baseline or args.runs > 1) and not args.live:
+        print(
+            "--gate, --runs and --write-live-baseline read live runs; CI's gate is the "
+            "recorded baseline (tests/call_sim_test.py).",
+            file=sys.stderr,
+        )
+        return CANNOT_RUN
+    if args.runs < 1:
+        print("--runs must be at least 1.", file=sys.stderr)
         return CANNOT_RUN
     try:
         return asyncio.run(run(args))

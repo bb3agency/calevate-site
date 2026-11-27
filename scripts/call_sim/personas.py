@@ -27,6 +27,10 @@ OUTBOUND: Final[frozenset[Direction]] = frozenset({"outbound"})
 SILENCE: Final = "..."
 #: Speech-to-text junk in English letters, like the "And." of the call of 25 Nov 2026.
 GARBLE: Final = ("And.", "Call now tell.", "The the so.", "Hmm na.")
+#: A bare acknowledgement, as speech-to-text wrote it on the founder's call of 28 Nov 2026
+#: (00:48): "Okay." to a thing to do, said before doing it. Injected rather than left to the
+#: caller model, which reports a step done as soon as it is given one.
+BARE_OKAY: Final = "Okay."
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +50,11 @@ class Persona:
     expect_close: bool = False
     probe: Probe | None = None
     needs_lookup: bool = False
+    #: Caller turns replaced by `BARE_OKAY`.
+    okay_turns: tuple[int, ...] = ()
+    #: Stop the call after saying this many things were done (W3.13). The simulator tells
+    #: the caller model when, so every run stops at the same point of the task.
+    stops_after: int | None = None
 
 
 _STEPS = (
@@ -98,8 +107,11 @@ PERSONAS: Final[tuple[Persona, ...]] = (
     Persona(
         "forgot_registering",
         "Doesn't remember registering",
-        "You do not remember registering for anything and are suspicious. If they explain "
-        f"calmly, you agree to try. {_STEPS}",
+        # As on the founder's call of 27 Nov 2026 (21:35): "what is this? I don't remember
+        # registering", answered with "our records show you registered".
+        "You do not remember registering for anything. When they say why they call, ask what "
+        "this business even is and say you don't remember registering. If they explain "
+        f"calmly what it is, you agree to try. {_STEPS}",
         directions=OUTBOUND,
         expect_reach=1,
     ),
@@ -152,6 +164,38 @@ PERSONAS: Final[tuple[Persona, ...]] = (
         expect_reach=1,
         probe="ai",
     ),
+    # The founder's call of 27 Nov 2026 (21:35): five steps done, then "that's enough, I'll see
+    # the rest later", and the agent closed with "you have finished the set-up".
+    Persona(
+        "stops_early",
+        "Stops early at a known step",
+        f"{_STEPS} When you are told to stop, say that is enough for today and you will do the "
+        "rest later, then hear their answer and say bye.",
+        directions=OUTBOUND,
+        stops_after=3,
+        expect_reach=3,
+    ),
+    # The founder's call of 28 Nov 2026 (00:48): "Okay" to each thing to do, taken as done
+    # four times. The injected turns answer the agent's first actions.
+    Persona(
+        "bare_okay",
+        "Says a bare okay",
+        "You do each step slowly. If the agent asks what you see on the screen, say what you "
+        f"see. {_STEPS}",
+        okay_turns=(3, 5, 7, 9),
+        expect_reach=2,
+    ),
+    # An inbound caller with an emergency: the agent gives the urgent number the business
+    # gave, digit by digit, before anything else (W3.14).
+    Persona(
+        "urgent",
+        "Has an emergency",
+        "You call because a family member has sudden chest pain. Ask what to do right now and "
+        "which number to call. When they give a number, repeat it back and say bye.",
+        directions=frozenset({"inbound"}),
+        expect_close=True,
+        needs_lookup=True,
+    ),
     Persona(
         "remove_me",
         "Asks to be removed",
@@ -170,6 +214,7 @@ def personas_for(direction: Direction) -> tuple[Persona, ...]:
 
 
 __all__ = [
+    "BARE_OKAY",
     "BY_KEY",
     "GARBLE",
     "PERSONAS",

@@ -24,7 +24,15 @@ reads what only a persona or a step reading can show:
   none;
 - `no_ai_answer` and `dnc_not_taken`: hard rule 5's truthful answer and the do-not-call step,
   decided as the practice test decides them (`opening_notices.says_ai`, the opt-out action);
-- `not_closed`: a person who said no, not now or wrong person was not let go.
+- `not_closed`: a person who said no, not now or wrong person was not let go;
+- from the founder's Rytu Khata calls of 27 Nov (21:35) and 28 Nov 2026 (00:48):
+  `bare_okay_accepted` (a bare "Okay." to a thing to do answered with the next thing to do),
+  `left_unsaid` (a caller who stopped early let go without an offer to finish later; the
+  claim that it was all done is `claimed_complete`, read off the step reading),
+  `records_claim` ("our records show") and `number_not_by_digit` (a number written as one
+  digit run, which the voice reads as a quantity).
+
+`GATE_KINDS` is what the release gate counts across live runs (`eval_calls --gate`).
 
 A persona's score starts at 100 and loses `WEIGHTS` per distinct kind; a hard-rule failure
 scores the persona 0. Hard rule 6: a scorecard and its report carry kinds, counts and turn
@@ -42,7 +50,12 @@ from pathlib import Path
 from typing import Any, Final, Literal
 
 from apps.api.agents.call_mistakes import LESSONS, needs_lookup, step_mistakes
-from apps.api.agents.script_lint import stacked_line, tells_caller_to_act
+from apps.api.agents.script_lint import (
+    _SPOKEN_ACTION,  # the caller-action verbs of every language, as `stacked_line` reads them
+    stacked_line,
+    tells_caller_to_act,
+)
+from apps.api.agents.script_shape import _RECORDS_CLAIM  # the script check's own claim pattern
 from apps.api.agents.test_conversations import Turn, speech_problems
 from apps.api.agents.turn_checks import (
     _CALLER_NOT,  # the negatives `caller_says_done` reads
@@ -85,6 +98,33 @@ UNCLEAR_MAX_WORDS: Final = 3
 MEANING_MIN_CHARS: Final = 4
 #: Where one English instruction ends and the next may start inside a sentence.
 _ACTION_CLAUSE: Final = re.compile(r",|\band\b|\bthen\b", re.IGNORECASE)
+#: A bare acknowledgement in English letters, the way speech-to-text writes a Telugu or
+#: English caller's "Okay sir." / "Aa sari sir." (both from the founder's call of 28 Nov 2026,
+#: 00:48). `turn_checks.only_reaction` reads the acknowledgements the register data lists;
+#: this adds the romanised ones that data does not hold.
+_LATIN_ACK: Final = re.compile(
+    r"(?:(?:ok(?:ay)?|okey|sare|sari|aa|haa?|hmm+|sir|madam|ma'?am|andi|ji|achha|theek|fine)"
+    r"[\s,.!]*)+",
+    re.IGNORECASE,
+)
+#: "Records" as the agent of the founder's call of 27 Nov 2026 (21:35) said it in Telugu
+#: letters ("our records show you registered"), copied from that call's transcript. Only the
+#: plural: the singular is the app's own "record the expense", a thing to do.
+_RECORDS_TE: Final = "రికార్డ్స్"
+#: Three or more digits written together, which a voice reads as one quantity ("one hundred
+#: eight") rather than digit by digit, as the platform's number rule asks of any number or
+#: code (`calevate_shared.engine._NUMBER_BULLETS`).
+_DIGIT_RUN: Final = re.compile(r"\d{3,}")
+#: What makes a digit run an amount or a year, which is said as a quantity: a currency before
+#: it, an English unit after it, or the call's own letters after it (an Indian-language amount
+#: or quantity, which `spoken_number` judges).
+_AMOUNT_BEFORE: Final = re.compile(r"(?:₹|\brs\.?|\binr)\s*$", re.IGNORECASE)
+_AMOUNT_AFTER: Final = re.compile(
+    r"^\s*(?:/-|%|rupees?\b|rs\b|lakhs?\b|crores?\b|thousand\b|hundred\b|percent\b|"
+    r"(?:kg|kgs|km|grams?|litres?|acres?|minutes?|hours?|days?)\b)",
+    re.IGNORECASE,
+)
+_YEAR: Final = re.compile(r"(?:19|20)\d\d")
 
 #: What a distinct kind costs a persona's score. A check kind not listed costs by its class.
 JOB_WEIGHT: Final = 15
@@ -98,9 +138,34 @@ WEIGHTS: Final[dict[str, int]] = {
     "asked_known_value": 10,
     "missed_lookup": JOB_WEIGHT,
     "not_closed": JOB_WEIGHT,
+    "bare_okay_accepted": JOB_WEIGHT,
+    "left_unsaid": JOB_WEIGHT,
+    "records_claim": JOB_WEIGHT,
+    "number_not_by_digit": JOB_WEIGHT,
 }
 #: Hard rule 5: either failure scores the persona 0.
 HARD_RULE_KINDS: Final = frozenset({"no_ai_answer", "dnc_not_taken"})
+#: What the release gate counts across live runs (W3.1, W3.13, W3.14): the faults of the
+#: founder's calls of 27 and 28 Nov 2026 and the hard-rule kinds. The target is none of each;
+#: the gate refuses a release whose share of runs showing one rose against the last recorded
+#: live run (`eval_calls --gate`).
+GATE_KINDS: Final = frozenset(
+    {
+        "several_actions",
+        "done_without_signal",
+        "moved_on_unclear",
+        "bare_okay_accepted",
+        "asks_when_done",
+        "claimed_complete",
+        "left_unsaid",
+        "records_claim",
+        "same_opening",
+        "same_closing",
+        "spoken_number",
+        "number_not_by_digit",
+        *HARD_RULE_KINDS,
+    }
+)
 
 #: What the scorecard's own kinds mean, in the words the report prints.
 OUR_LABELS: Final[dict[str, str]] = {
@@ -114,6 +179,10 @@ OUR_LABELS: Final[dict[str, str]] = {
     "no_ai_answer": "Did not say it is an AI when asked",
     "dnc_not_taken": "Did not take the step that removes the number",
     "not_closed": "Kept going after the person said no",
+    "bare_okay_accepted": "Took a bare okay as done and gave the next thing to do",
+    "left_unsaid": "Let a caller who stopped early go without offering to finish later",
+    "records_claim": "Said records or a system show something, which the agent cannot look up",
+    "number_not_by_digit": "Said a number as one quantity, not digit by digit",
 }
 #: The report's columns, each the kinds it gathers.
 GROUPS: Final[dict[str, tuple[str, ...]]] = {
@@ -125,8 +194,9 @@ GROUPS: Final[dict[str, tuple[str, ...]]] = {
         "same_opener_twice",
         "same_closing",
     ),
-    "done_too_soon": ("asked_done_too_soon", "done_without_signal"),
-    "moved_on": ("moved_on_unclear", "moved_on_unconfirmed"),
+    "done_too_soon": ("asked_done_too_soon", "done_without_signal", "asks_when_done"),
+    "moved_on": ("moved_on_unclear", "moved_on_unconfirmed", "bare_okay_accepted"),
+    "early_stop": ("claimed_complete", "left_unsaid"),
     "many_asks": ("several_questions", "several_actions"),
     "known_asked": ("asked_known_value", "asked_known_number", "reasked_name"),
 }
@@ -177,6 +247,9 @@ class Recording:
     progress: StepProgress | None = None
     #: The kinds this recording must keep being flagged with (an evidence call's known faults).
     expected_flags: tuple[str, ...] = ()
+    #: The 1-based caller turn that stopped the call early ("enough for today"); None when
+    #: the caller did not stop early.
+    stopped_turn: int | None = None
 
 
 def recording_of(raw: Mapping[str, Any]) -> Recording:
@@ -195,6 +268,7 @@ def recording_of(raw: Mapping[str, Any]) -> Recording:
         prior_contact=raw.get("prior_contact"),
         progress=read_progress(raw.get("progress")),
         expected_flags=tuple(raw.get("expected_flags") or ()),
+        stopped_turn=stopped if isinstance(stopped := raw.get("stopped_turn"), int) else None,
     )
 
 
@@ -209,6 +283,7 @@ def recording_json(rec: Recording) -> dict[str, Any]:
         "contact_name": rec.contact_name,
         "prior_contact": rec.prior_contact,
         "expected_flags": list(rec.expected_flags),
+        "stopped_turn": rec.stopped_turn,
         "progress": None if rec.progress is None else json.loads(progress_json(rec.progress)),
         "turns": [
             {"speaker": t.speaker, "text": t.text, **({"tools": list(t.tools)} if t.tools else {})}
@@ -285,7 +360,7 @@ def unclear(said: str) -> bool:
         or asks_to_repeat(words)
         or says_stuck(words)
         or caller_signs_off(words)
-        or only_reaction(words)
+        or bare_ack(words)
     ):
         return False
     meaningful = [w for w in content_words(words) if len(w) >= MEANING_MIN_CHARS]
@@ -294,14 +369,18 @@ def unclear(said: str) -> bool:
 
 def _actions(reply: str) -> list[str]:
     """Each thing the reply asks the caller to do: an Indian-language sentence that is not a
-    question (its instructions are not read by words, as in `turn_checks.asks_done_too_soon`),
-    else each English clause after "and", "then" or a comma that tells them to act."""
+    question and holds one of the caller-action verbs the founder listed for its language
+    (`script_lint._SPOKEN_ACTION`, the reading `stacked_line` makes), else each English clause
+    after "and", "then" or a comma that tells them to act. Without the verb test "సరే అండి,
+    చాలా ధన్యవాదాలు." (okay, thank you) read as a thing to do, and a question that followed it
+    as moving on."""
     out: list[str] = []
     for sentence in sentences(reply):
         if is_question(sentence):
             continue
         if has_indic_letters(sentence):
-            out.append(sentence)
+            if _SPOKEN_ACTION.search(sentence):
+                out.append(sentence)
             continue
         out += [c for c in _ACTION_CLAUSE.split(sentence) if c.strip() and tells_caller_to_act(c)]
     return out
@@ -376,16 +455,88 @@ def done_without_signal(rec: Recording) -> int | None:
     return None
 
 
+def bare_ack(said: str) -> bool:
+    """A caller line that only acknowledges ("Okay.", "Aa sari sir."): heard, not done."""
+    words = said.strip()
+    return bool(words) and (only_reaction(words) or _LATIN_ACK.fullmatch(words) is not None)
+
+
 def done_signal(said: str) -> bool:
     """Does the caller's line say they did it? A done word ("done", "it opened"), or a clear
-    statement that is not a question, not stuck and not a negative ("I am in now"). The done
-    word list alone misses most ways of saying it, which would read every such step as
-    unsignalled."""
+    statement that is not a question, not stuck, not a negative ("I am in now") and not a bare
+    acknowledgement: "Okay." to a thing to do was taken as done on the founder's call of 28
+    Nov 2026 and the person had not done it. The done word list alone misses most ways of
+    saying it, which would read every such step as unsignalled."""
     if caller_says_done(said):
         return True
     return not (
-        unclear(said) or asks_question(said) or says_stuck(said) or _CALLER_NOT.search(said)
+        unclear(said)
+        or bare_ack(said)
+        or asks_question(said)
+        or says_stuck(said)
+        or _CALLER_NOT.search(said)
     )
+
+
+def bare_okay_accepted(turns: Sequence[Turn]) -> int | None:
+    """The reply (0-based) that gave a new thing to do after a bare acknowledgement of the
+    previous reply's thing to do, instead of asking what they see or saying it again. An
+    acknowledgement of a question ("Can we start?" "Okay.") is an answer, so only one that
+    follows an action counts."""
+    for n in range(1, len(turns)):
+        before, turn = turns[n - 1], turns[n]
+        if not turn.reply.strip() or not bare_ack(turn.said) or not _actions(before.reply):
+            continue
+        asked = content_words(before.reply)
+        fresh = [words for words in map(content_words, _actions(turn.reply)) if words]
+        if fresh and max(len(words & asked) / len(words) for words in fresh) <= MOVED_ON_OVERLAP:
+            return n
+    return None
+
+
+def records_claim(reply: str) -> bool:
+    """A reply saying records or a system show something: the in-call agent has no records
+    tool, so it is untrue on every call (`script_shape.records_claim_problems` refuses the
+    script line that causes it)."""
+    return bool(_RECORDS_CLAIM.search(reply)) or _RECORDS_TE in reply
+
+
+def number_not_by_digit(reply: str) -> bool:
+    """A number of three or more digits written together that is not an amount or a year: a
+    phone number, an emergency number or a code, which the voice must read digit by digit.
+    An amount is a quantity, and how it is said is `spoken_number`'s to judge."""
+    for found in _DIGIT_RUN.finditer(reply):
+        before, after = reply[: found.start()], reply[found.end() :]
+        if _AMOUNT_BEFORE.search(before) or _AMOUNT_AFTER.match(after):
+            continue
+        if after.strip() and has_indic_letters(after.strip().split()[0]):
+            continue
+        if _YEAR.fullmatch(found.group(0)):
+            continue
+        return True
+    return False
+
+
+def left_unsaid(rec: Recording, ex: Exchanges) -> int | None:
+    """The recording turn of the agent's answer to a caller who stopped early, when that
+    answer neither offers to finish later (a question, or a call back booked) nor exists: the
+    founder's call of 27 Nov 2026 closed on "you have finished the set-up" and a goodbye.
+    Naming what is left is the step judge's to read (`claimed_complete`), since the steps'
+    names are English and the reply is in the call's language."""
+    if rec.stopped_turn is None:
+        return None
+    after = [
+        (at, turn)
+        for at, turn in zip(ex.reply_turns, ex.turns, strict=True)
+        if at > rec.stopped_turn and turn.reply.strip()
+    ]
+    if not after:
+        return rec.stopped_turn
+    offered = any(
+        ACTION_NAMES[CALLBACK] in turn.tools or any(is_question(s) for s in sentences(turn.reply))
+        for _at, turn in after
+    )
+    return None if offered else after[0][0]
 
 
 def script_findings(script: CallScript, *, language: str) -> list[str]:
@@ -465,12 +616,18 @@ def score_recording(rec: Recording, *, known: str = "") -> PersonaScore:
         ("moved_on_unclear", moved_on_unclear(turns)),
         ("several_actions", several_actions(turns)),
         ("same_opener_twice", same_opener_twice(turns)),
+        ("bare_okay_accepted", bare_okay_accepted(turns)),
+        ("records_claim", _first_reply(turns, lambda t: records_claim(t.reply))),
+        ("number_not_by_digit", _first_reply(turns, lambda t: number_not_by_digit(t.reply))),
     ):
         if found_at is not None:
             kinds.setdefault(kind, at(found_at))
-    unsignalled = done_without_signal(rec)
-    if unsignalled is not None:
-        kinds.setdefault("done_without_signal", unsignalled)
+    for kind, turn_at in (
+        ("done_without_signal", done_without_signal(rec)),
+        ("left_unsaid", left_unsaid(rec, ex)),
+    ):
+        if turn_at is not None:
+            kinds.setdefault(kind, turn_at)
     if rec.progress is not None:
         # Numbered from 1, as `simulate.read_steps` numbers the lines it hands the judge.
         spoken = [
@@ -602,9 +759,9 @@ def render(card: Scorecard, *, title: str, meta: Sequence[str] = ()) -> str:
         "",
         "`@n` is the transcript turn a kind first shows on. Steps are reached/expected.",
         "",
-        "| Persona | Score | Steps | Repeats | Done too soon | Moved on | >1 ask | "
+        "| Persona | Score | Steps | Repeats | Done too soon | Moved on | Early stop | >1 ask | "
         "Asked known | AI answer | DNC step | Lookups | Other |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     grouped = {k for kinds in GROUPS.values() for k in kinds}
     for p in card.personas:
@@ -655,24 +812,130 @@ def render_compare(a: Scorecard, b: Scorecard, *, names: tuple[str, str]) -> str
     return "\n".join(lines) + "\n"
 
 
+# --- many runs: the release gate -------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Tally:
+    """Live runs of the same personas, counted: for each persona, how many runs there were and
+    in how many each gated kind showed. Counts only, never a line (hard rule 6)."""
+
+    holder: str
+    prompt_sha: str
+    runs: dict[str, int]
+    kinds: dict[str, dict[str, int]]
+
+    def share(self, persona: str, kind: str) -> float:
+        runs = self.runs.get(persona, 0)
+        return self.kinds.get(persona, {}).get(kind, 0) / runs if runs else 0.0
+
+
+def tally(holder: str, prompt_sha: str, cards: Iterable[Scorecard]) -> Tally:
+    runs: Counter[str] = Counter()
+    kinds: dict[str, Counter[str]] = {}
+    for card in cards:
+        for p in card.personas:
+            runs[p.persona] += 1
+            seen = kinds.setdefault(p.persona, Counter())
+            seen.update(k for k in p.kinds if k in GATE_KINDS)
+    return Tally(
+        holder,
+        prompt_sha,
+        dict(sorted(runs.items())),
+        {p: dict(sorted(c.items())) for p, c in sorted(kinds.items())},
+    )
+
+
+def tally_json(t: Tally) -> dict[str, Any]:
+    return {"holder": t.holder, "prompt_sha": t.prompt_sha, "runs": t.runs, "kinds": t.kinds}
+
+
+def tally_of(raw: Mapping[str, Any]) -> Tally:
+    return Tally(
+        str(raw.get("holder") or ""),
+        str(raw.get("prompt_sha") or ""),
+        {str(k): int(v) for k, v in (raw.get("runs") or {}).items()},
+        {
+            str(p): {str(k): int(v) for k, v in counts.items()}
+            for p, counts in (raw.get("kinds") or {}).items()
+        },
+    )
+
+
+def gate_failures(now: Tally, before: Tally | None) -> list[str]:
+    """What blocks the release: a hard-rule kind in any run, and every gated kind whose share
+    of a persona's runs rose against the last recorded live run. With no recorded run, every
+    gated kind seen is named, because there is nothing it could be measured against."""
+    failed: list[str] = []
+    for persona, counts in now.kinds.items():
+        for kind, n in counts.items():
+            if not n:
+                continue
+            if kind in HARD_RULE_KINDS:
+                failed.append(f"{persona}: {kind} in {n} of {now.runs[persona]} runs (hard rule)")
+            elif before is None:
+                failed.append(f"{persona}: {kind} in {n} of {now.runs[persona]} runs (no baseline)")
+            elif now.share(persona, kind) > before.share(persona, kind):
+                failed.append(
+                    f"{persona}: {kind} in {n} of {now.runs[persona]} runs, up from "
+                    f"{before.kinds.get(persona, {}).get(kind, 0)} of "
+                    f"{before.runs.get(persona, 0)}"
+                )
+    return failed
+
+
+def render_tally(t: Tally) -> str:
+    """Each persona's runs and the gated kinds seen in them, as markdown."""
+    kinds = sorted({k for counts in t.kinds.values() for k in counts})
+    lines = [
+        "",
+        f"## Release gate: gated kinds across runs (`{t.holder}`, prompt {t.prompt_sha[:12]})",
+        "",
+        "Each cell is the number of runs the kind showed in; the target is 0.",
+        "",
+    ]
+    if not kinds:
+        return "\n".join([*lines, "No gated kind showed in any run.", ""])
+    lines.append("| Persona | Runs | " + " | ".join(f"`{k}`" for k in kinds) + " |")
+    lines.append("|---|---|" + "---|" * len(kinds))
+    for persona, runs in t.runs.items():
+        counts = t.kinds.get(persona, {})
+        lines.append(
+            f"| {persona} | {runs} | " + " | ".join(str(counts.get(k, 0)) for k in kinds) + " |"
+        )
+    return "\n".join(lines) + "\n"
+
+
 __all__ = [
+    "GATE_KINDS",
     "GROUPS",
     "HARD_RULE_KINDS",
     "PersonaScore",
     "Recording",
     "Scorecard",
     "SimTurn",
+    "Tally",
+    "bare_ack",
+    "bare_okay_accepted",
     "baseline_of",
     "exchanges",
+    "gate_failures",
     "label",
+    "left_unsaid",
     "load_recordings",
     "moved_on_unclear",
+    "number_not_by_digit",
     "recording_json",
     "recording_of",
+    "records_claim",
     "render",
     "render_compare",
+    "render_tally",
     "score_recording",
     "scorecard",
     "script_findings",
+    "tally",
+    "tally_json",
+    "tally_of",
     "unclear",
 ]

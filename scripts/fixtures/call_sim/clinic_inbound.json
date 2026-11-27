@@ -1,0 +1,55 @@
+{
+  "about": "Fictional inbound clinic line, English, for the number checks of W3.14 (a fee and an urgent number the owner gave). Simulated: no customer data, no real clinic. Business words live here, never in code.",
+  "business": "Sunrise Family Clinic",
+  "agent_name": "Asha",
+  "contact_name": "",
+  "prior_contact": null,
+  "language": "en-IN",
+  "direction": "inbound",
+  "facts": [
+    ["What does a consultation cost?", "A consultation with the doctor costs five hundred rupees."],
+    ["What are the clinic hours?", "The clinic is open Monday to Saturday, nine in the morning to eight at night."],
+    ["What if it is an emergency?", "For chest pain, trouble breathing or heavy bleeding, call the ambulance on 108 at once; the clinic does not handle emergencies."]
+  ],
+  "collect": [
+    ["caller_name", "Caller name"],
+    ["preferred_time", "Preferred appointment time"]
+  ],
+  "script": {
+    "schema_version": 2,
+    "business_line": "Sunrise Family Clinic, a family doctor's clinic",
+    "goal": "Answer callers' questions about the clinic and book an appointment for those who want one. Send anyone describing an emergency to the ambulance number first.",
+    "opening_line": "Hello, this is Asha from Sunrise Family Clinic. How can I help you today?",
+    "stages": [
+      {
+        "id": "need",
+        "name": "Their need",
+        "instruction": "Find out what the caller needs: a question, an appointment, or help with something urgent. If they describe chest pain, trouble breathing or heavy bleeding, go to the urgent step at once.",
+        "scripts": {"en-IN": "What can I help you with today?"},
+        "branches": [
+          {"when": "They describe chest pain, trouble breathing or heavy bleeding", "target": "urgent"},
+          {"when": "They want an appointment", "target": "book"}
+        ]
+      },
+      {
+        "id": "book",
+        "name": "Appointment",
+        "instruction": "Ask the caller's name and the time they prefer, then say the team will confirm the slot by message.",
+        "scripts": {"en-IN": "May I have your name and the time that suits you?"},
+        "branches": []
+      },
+      {
+        "id": "urgent",
+        "name": "Urgent",
+        "instruction": "Tell them to call the ambulance on the number in the facts right now, digit by digit, and that the clinic does not handle emergencies. Never give medical advice.",
+        "scripts": {"en-IN": "Please call the ambulance right now; the clinic cannot help with an emergency."},
+        "branches": []
+      }
+    ],
+    "step_outcomes": [
+      {"step": 1, "outcome": "Their need is clear."},
+      {"step": 2, "outcome": "Their name and preferred time are noted."},
+      {"step": 3, "outcome": "They have the ambulance number."}
+    ]
+  }
+}

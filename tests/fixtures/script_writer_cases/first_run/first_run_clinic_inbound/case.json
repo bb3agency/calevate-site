@@ -1,0 +1,42 @@
+{
+  "id": "first_run_clinic_inbound",
+  "_doc": "A fictional English inbound brief for a family doctor's clinic (brief.txt), written for this eval; no real clinic. It carries a fee and an urgent number (W3.14). What a reader expects it to yield is written here by hand: two tasks, three stated facts, two Never rules, both numbers on every call.",
+  "job": "answer_calls",
+  "remote": false,
+  "has_premises": true,
+  "goes_ahead": true,
+  "tasks": [
+    {"id": "timings_fees", "text": "tell them our timings and fees", "terms": [["timing", "open"], ["fee", "cost"]]},
+    {"id": "book", "text": "book appointments with the doctor", "terms": [["book"], ["appointment"]]}
+  ],
+  "facts": [
+    "We are Sunrise Family Clinic, a family doctor's clinic in Madhapur, Hyderabad.",
+    "A consultation costs 500 rupees.",
+    "We are open Monday to Saturday from 9am to 8pm."
+  ],
+  "rules": ["Never give medical advice.", "Never promise a time for the doctor to call back."],
+  "numbers": ["500", "108"],
+  "calling_window": null,
+  "answers": [
+    {"match": "\\bbring\\b", "text": "Old prescriptions and any test reports."},
+    {"match": "\\bbook", "text": "Take the patient's name and the time that suits them; the front desk confirms the slot by message."}
+  ],
+  "one_thing": "",
+  "script_case": {
+    "title": "First run: clinic front desk line",
+    "business_name": "Sunrise Family Clinic",
+    "business_type": "custom",
+    "agent_name": "Asha",
+    "description": "A family doctor's clinic in Madhapur, Hyderabad.",
+    "language": "en-IN",
+    "languages": ["en-IN"],
+    "capabilities": {"call_backs": true},
+    "noted": [{"label": "Caller name"}, {"label": "Preferred appointment time"}],
+    "known": [],
+    "knowledge": [],
+    "purpose_terms": [],
+    "screen_terms": [],
+    "purpose": "Answer patients' calls and book appointments.",
+    "goal": "The caller's question is answered or an appointment is requested."
+  }
+}
