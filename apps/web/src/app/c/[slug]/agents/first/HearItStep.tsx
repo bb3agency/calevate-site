@@ -3,7 +3,18 @@
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
-import { ArrowRight, Bot, ExternalLink, PencilLine, PhoneCall, RotateCcw, Sprout, Target } from "lucide-react";
+import {
+  ArrowRight,
+  Bot,
+  ExternalLink,
+  MessageSquare,
+  PencilLine,
+  PhoneCall,
+  PhoneOff,
+  RotateCcw,
+  Sprout,
+  Target,
+} from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { useTestCallsPaused } from "@/components/phoneService";
@@ -52,6 +63,47 @@ export const HONEST_WORDS = [
 /** A refusal that is a limit of the trial, not a fault: it gets the limit's own frame. */
 export function isLimitRule(rule: string | null | undefined): boolean {
   return Boolean(rule && /daily_cap|minutes_used|trial_ended/.test(rule));
+}
+
+/**
+ * The test line itself is not set up (`trial_calls.NOT_READY_RULE`). Nothing the owner retries
+ * changes that, so its frame offers no "Try again": it offers typing to the agent instead, the
+ * one way to try it that needs no line.
+ */
+export const NO_TEST_LINE_RULE = "trial_calling_not_ready";
+
+function NoTestLine({
+  name,
+  detail,
+  trainingHref,
+  changeHref,
+}: {
+  name: string;
+  detail: string | null | undefined;
+  trainingHref: string;
+  changeHref: string;
+}) {
+  return (
+    <CallStage
+      phase="limit"
+      name={name}
+      title="No test line yet"
+      icon={PhoneOff}
+      detail={detail ?? "Phone test calls are not switched on yet."}
+      actions={
+        <>
+          <Link href={trainingHref} className={PRIMARY_BUTTON}>
+            <MessageSquare aria-hidden className="h-4 w-4" />
+            Type to it instead
+          </Link>
+          <Link href={changeHref} className={SECONDARY_BUTTON}>
+            <PencilLine aria-hidden className="h-4 w-4" />
+            Change what it says
+          </Link>
+        </>
+      }
+    />
+  );
 }
 
 /**
@@ -153,6 +205,8 @@ function CallYou({
   const [attempt, setAttempt] = useState<{
     at: number;
     refused: string | null;
+    /** The rule behind `refused`, so that refusal gets its own way on. */
+    refusedRule?: string | null;
     dialled: boolean;
     skip: string | null;
   } | null>(null);
@@ -222,6 +276,7 @@ function CallYou({
       setAttempt({
         at: Date.now(),
         refused: fresh.data.blocked_reason,
+        refusedRule: fresh.data.blocked_rule ?? null,
         dialled: false,
         skip: null,
       });
@@ -238,6 +293,7 @@ function CallYou({
   };
 
   const intro = callIntroFor(jobs, business);
+  const trainingHref = href(`/c/${session.orgSlug}/agents/${agent.id}?section=training`);
 
   if (attempt !== null) {
     return (
@@ -251,6 +307,7 @@ function CallYou({
           placing={place.isPending}
           placed={place.data ?? null}
           refused={attempt.refused}
+          refusedRule={attempt.refusedRule ?? null}
           failure={failure}
           onRetry={dial}
           onStartOver={startOver}
@@ -268,12 +325,17 @@ function CallYou({
           creditHref={href(`/c/${session.orgSlug}/billing?tab=credits`)}
           changeHref={href(workHref(session.orgSlug, work))}
           voiceHref={href(`/c/${session.orgSlug}/agents/${agent.id}?section=settings`)}
+          trainingHref={trainingHref}
         />
       </StepScreen>
     );
   }
 
-  const blocked = trial?.on_trial && !trial.can_call && trial.blocked_reason ? trial.blocked_reason : null;
+  // A paying account whose test would ring from the unset shared number is refused at the press
+  // too, so the missing line is said up front on either kind of account.
+  const noTestLine = trial?.can_call === false && trial.blocked_rule === NO_TEST_LINE_RULE;
+  const blocked =
+    (trial?.on_trial || noTestLine) && !trial?.can_call && trial?.blocked_reason ? trial.blocked_reason : null;
 
   return (
     <StepScreen
@@ -292,7 +354,14 @@ function CallYou({
       waitingFor={waitingFor}
       onSubmit={() => void ring().catch(() => undefined)}
     >
-      {blocked ? (
+      {noTestLine ? (
+        <NoTestLine
+          name={agent.name}
+          detail={blocked}
+          trainingHref={trainingHref}
+          changeHref={href(workHref(session.orgSlug, work))}
+        />
+      ) : blocked ? (
         <CallStage
           phase="limit"
           name={agent.name}
@@ -494,6 +563,7 @@ function CallInProgress({
   placing,
   placed,
   refused,
+  refusedRule,
   failure,
   onRetry,
   onRetryFailure,
@@ -502,6 +572,7 @@ function CallInProgress({
   creditHref,
   changeHref,
   voiceHref,
+  trainingHref,
 }: {
   agent: Agent;
   calls: readonly CallSummary[] | undefined;
@@ -516,6 +587,7 @@ function CallInProgress({
     blocked_rule?: string | null;
   } | null;
   refused: string | null;
+  refusedRule: string | null;
   failure: Error | null;
   onRetry: (skip: string | null) => void;
   onRetryFailure: () => void;
@@ -525,6 +597,8 @@ function CallInProgress({
   /** The work's own page, where what it says is changed. */
   changeHref: string;
   voiceHref: string;
+  /** The agent's Training tab, where it can be typed to when there is no test line. */
+  trainingHref: string;
 }) {
   const { session } = useClientRealm();
   const queries = useQueryClient();
@@ -544,8 +618,9 @@ function CallInProgress({
   // an error whose "Try again" asks the same refusal again.
   const failedProblem = failure instanceof ApiProblem ? failure : null;
   const limitFailure = failedProblem !== null && isLimitRule(failedProblem.code);
-  const rule = placed?.blocked_rule ?? (limitFailure ? failedProblem.code : null);
-  const limit = refused !== null || isLimitRule(rule);
+  const rule = placed?.blocked_rule ?? refusedRule ?? (limitFailure ? failedProblem.code : null);
+  const noTestLine = rule === NO_TEST_LINE_RULE;
+  const limit = refused !== null || noTestLine || isLimitRule(rule);
   const phase = callPhaseOf({
     preparing,
     placing,
@@ -649,6 +724,16 @@ function CallInProgress({
         />
       );
     case "limit": {
+      if (noTestLine) {
+        return (
+          <NoTestLine
+            name={agent.name}
+            detail={refused ?? placed?.blocked_reason}
+            trainingHref={trainingHref}
+            changeHref={changeHref}
+          />
+        );
+      }
       const minutes = /minutes_used|trial_ended/.test(rule ?? "");
       const studio = rule === "trial_studio_minutes_used";
       return (

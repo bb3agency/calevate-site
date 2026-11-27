@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from apps.api.agents import trial_calls, trial_panel
 from apps.api.billing.trials import start_trial
 from apps.api.core.rbac import ROLE_PERMISSIONS
 from apps.api.db.session import tenant_session
@@ -38,6 +39,22 @@ async def test_an_account_on_a_trial_reads_its_panel_with_the_dashboard() -> Non
     assert dashboard["trial"]["on_trial"] is True
     assert dashboard["trial"]["free_minutes"] == 30
     assert dashboard["trial"] == panel
+
+
+async def test_a_trial_with_no_test_line_says_why_and_what_to_do_instead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """28 Nov 2026: with no shared test number set, a new owner read "try again later" at
+    the end of Meet your agent, which named no cause and no way on."""
+    monkeypatch.setattr(trial_panel, "trial_calling_ready", lambda: False)
+    tenant_id, slug, token = await _make_tenant()
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=7, actor_user_id=None, free_minutes=30)
+    _, panel = await _reads(token, slug)
+    assert (panel["can_call"], panel["blocked_rule"]) == (False, trial_calls.NOT_READY_RULE)
+    assert panel["blocked_reason"] == trial_calls.NOT_READY_REASON
+    assert "later" not in panel["blocked_reason"]
+    assert "Training tab" in panel["blocked_reason"]
 
 
 async def test_an_account_not_on_a_trial_says_so_on_the_dashboard() -> None:

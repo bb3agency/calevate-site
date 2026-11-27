@@ -39601,6 +39601,8 @@ export interface components {
             answering_locked_reason?: string | null;
             /** Blocked Reason */
             blocked_reason?: string | null;
+            /** Blocked Rule */
+            blocked_rule?: string | null;
             /**
              * Calls Today
              * @default 0

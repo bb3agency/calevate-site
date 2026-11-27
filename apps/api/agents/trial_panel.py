@@ -18,7 +18,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.paid_test_calls import read_paid_test_access
-from apps.api.agents.trial_calls import NOT_READY_REASON, TRIAL_CALL_ENGINES, trial_calling_ready
+from apps.api.agents.trial_calls import (
+    NOT_READY_REASON,
+    NOT_READY_RULE,
+    TRIAL_CALL_ENGINES,
+    trial_calling_ready,
+)
 from apps.api.compliance.outbound_pledge import pledge_blocker
 from apps.api.compliance.trial_access import TRIAL_REFUSALS, read_trial_access
 from apps.api.core.settings import get_settings
@@ -63,6 +68,9 @@ class TrialPanelOut(BaseModel):
     #: Whether a test call can be placed now, and the sentence that says why not.
     can_call: bool = False
     blocked_reason: str | None = None
+    #: The rule behind `blocked_reason`, so the screen can offer that refusal's own way on
+    #: (`trial_calling_not_ready`: type to the agent instead) rather than parse the sentence.
+    blocked_rule: str | None = None
     #: Why an agent that only answers calls cannot be switched on to take them during the
     #: trial, for the line beside its locked "Taking calls" switch (D-853). The same
     #: sentence `publish_agent` refuses with, so the screen and the refusal cannot differ.
@@ -76,14 +84,13 @@ async def read_trial_panel(session: AsyncSession, *, tenant_id: UUID) -> TrialPa
     if access is None:
         return await _paid_panel(session, tenant_id=tenant_id, at=now)
     unpledged = await pledge_blocker(session, tenant_id=tenant_id)
-    blocked = access.blocker
-    reason: str | None = None
+    blocker: tuple[str, str] | None = None
     if not trial_calling_ready():
-        reason = NOT_READY_REASON
-    elif blocked is not None:
-        reason = blocked[1]
+        blocker = (NOT_READY_RULE, NOT_READY_REASON)
+    elif access.blocker is not None:
+        blocker = access.blocker
     elif unpledged is not None:
-        reason = unpledged[1]
+        blocker = unpledged
     return TrialPanelOut(
         on_trial=True,
         status=access.trial.status,
@@ -96,8 +103,9 @@ async def read_trial_panel(session: AsyncSession, *, tenant_id: UUID) -> TrialPa
         daily_cap=access.daily_cap,
         max_call_seconds=access.call_seconds,
         pledge_accepted=unpledged is None,
-        can_call=reason is None,
-        blocked_reason=reason,
+        can_call=blocker is None,
+        blocked_reason=blocker[1] if blocker else None,
+        blocked_rule=blocker[0] if blocker else None,
         answering_locked_reason=TRIAL_REFUSALS["inbound"][1],
     )
 
@@ -108,6 +116,7 @@ _CALLS_OUT_FROM_SQL: Final = (
     "AND engine_number_ref IS NOT NULL AND direction IN ('outbound', 'both'))"
 )
 
+NEEDS_NUMBER_RULE: Final = "test_call_needs_number"
 NEEDS_NUMBER_REASON: Final = "Get a phone number first. Test calls ring from your number."
 
 
@@ -121,13 +130,13 @@ async def _paid_panel(session: AsyncSession, *, tenant_id: UUID, at: datetime) -
     shared = bool(get_settings().trial_caller_number)
     has_number = bool((await session.execute(text(_CALLS_OUT_FROM_SQL))).scalar())
     needs_number = not shared and not has_number
-    reason: str | None = None
+    blocker: tuple[str, str] | None = None
     if paid.blocker is not None:
-        reason = paid.blocker[1]
+        blocker = paid.blocker
     elif needs_number:
-        reason = NEEDS_NUMBER_REASON
+        blocker = (NEEDS_NUMBER_RULE, NEEDS_NUMBER_REASON)
     elif unpledged is not None:
-        reason = unpledged[1]
+        blocker = unpledged
     return TrialPanelOut(
         on_trial=False,
         paid_test_calls=True,
@@ -138,8 +147,9 @@ async def _paid_panel(session: AsyncSession, *, tenant_id: UUID, at: datetime) -
         shared_line=shared,
         needs_number=needs_number,
         pledge_accepted=unpledged is None,
-        can_call=reason is None,
-        blocked_reason=reason,
+        can_call=blocker is None,
+        blocked_reason=blocker[1] if blocker else None,
+        blocked_rule=blocker[0] if blocker else None,
     )
 
 
