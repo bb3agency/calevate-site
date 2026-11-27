@@ -41,10 +41,10 @@ from tests.thinnest_engine_test import _cfg
 
 
 def test_a_step_ends_on_the_action_and_only_their_word_moves_on() -> None:
-    assert PROCEDURE_LEAD.startswith("One action a turn, then stop;")
-    assert "never ask them to say when done." in PROCEDURE_LEAD
-    assert 'Only their "done" moves you on;' in PROCEDURE_LEAD
-    assert "asked what to do, the same step, shorter." in PROCEDURE_LEAD
+    assert PROCEDURE_LEAD.startswith("One action a turn, never two together")
+    assert "Never ask them to tell you when it is done or whether it worked." in PROCEDURE_LEAD
+    assert 'A bare "OK" to it is not done' in PROCEDURE_LEAD
+    assert "Asked what to do? That action again, shorter." in PROCEDURE_LEAD
     assert "Stuck? Help." in PROCEDURE_LEAD
     assert "invite them to say when done" not in PROCEDURE_LEAD
 
@@ -113,7 +113,7 @@ def test_the_example_call_is_never_framed_as_lines_to_copy() -> None:
 
 def test_how_to_speak_says_one_action_then_stop_and_the_same_step_on_what() -> None:
     assert '- Steps? One action a turn, then stop; never "say when done"' in (VOICE_STYLE_GUIDANCE)
-    assert 'Only their "done" moves you on.' in VOICE_STYLE_GUIDANCE
+    assert 'A bare "OK" is not done.' in VOICE_STYLE_GUIDANCE
     assert 'Asked to repeat, or "what?" to a step? Say it shorter.' in (VOICE_STYLE_GUIDANCE)
     assert "inviting them in new words to say when done" not in VOICE_STYLE_GUIDANCE
 

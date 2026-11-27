@@ -28,7 +28,7 @@ from collections.abc import Sequence
 from itertools import pairwise
 from typing import Final
 
-from calevate_shared.call_script import CallScript, ConversationStage, stage_steps
+from calevate_shared.call_script import CallScript, ConversationStage, fixed_ending, stage_steps
 from calevate_shared.extraction import whole_call_detail
 from calevate_shared.spoken_guard import has_indic_letters
 
@@ -429,6 +429,20 @@ def records_claim_problems(script: CallScript) -> list[str]:
     ]
 
 
+def fixed_ending_problems(script: CallScript) -> list[str]:
+    """A tone or address form that orders one ending for every sentence or reply
+    (`call_script.fixed_ending`). Code mends it on every write
+    (`script_structure.without_fixed_endings`) and the compiled prompt leaves it out; this
+    names it on a stored script, so the owner sees why their line changed."""
+    style = script.style
+    return [
+        f"{path}: orders the same ending on every sentence, so every reply ends alike; say only "
+        "how to address the person."
+        for path, text in (("style.tone", style.tone), ("style.address_form", style.address_form))
+        if fixed_ending(text)
+    ]
+
+
 def echo_problems(script: CallScript) -> list[str]:
     """`echo_branches` as findings, for a screen or a scorer; code removes them."""
     return [
@@ -522,6 +536,7 @@ __all__ = [
     "duplicate_instruction_problems",
     "echo_branches",
     "echo_problems",
+    "fixed_ending_problems",
     "judged_ask_problems",
     "main_task_items",
     "named_way_problems",

@@ -3166,12 +3166,12 @@ _UNCLEAR_BULLET: Final = (
 )
 _STEPS_BULLET: Final = (
     '- Steps? One action a turn, then stop; never "say when done", never '
-    '"done?" or "understood?". To check, ask what they see. Only their "done" moves you on. '
+    '"done?" or "understood?". To check, ask what they see. A bare "OK" is not done. '
     '"Anything else?" once, when the task is done; "that is all"? Close.\n'
 )
 #: `_STEPS_BULLET` for a script whose own [STEP BY STEP] lead says how a step is walked
-#: (`call_script.PROCEDURE_LEAD`: one action a turn, never "say when done", only their "done"
-#: moves on). Said once, there, beside the steps it governs; this keeps only what the lead
+#: (`call_script.PROCEDURE_LEAD`: one action a turn, never "say when done", a bare "OK" is not
+#: done). Said once, there, beside the steps it governs; this keeps only what the lead
 #: does not say.
 _SCRIPT_STEPS_BULLET: Final = (
     '- Steps: never "done?" or "understood?"; to check, ask what they see. '

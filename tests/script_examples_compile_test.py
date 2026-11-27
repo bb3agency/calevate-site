@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 from apps.api.engine.thinnest import INSTRUCTIONS_MAX_CHARS
 from calevate_shared.call_script import (
+    ACTIONS_LEAD,
     EXAMPLE_HEADER,
     EXAMPLE_LEAD,
     OPENING_HEADER,
@@ -182,7 +183,7 @@ def test_only_the_calls_languages_are_compiled() -> None:
 
 def test_the_engine_step_carries_its_actions_and_points_at_the_examples() -> None:
     install = native_steps(_script())[1]
-    assert "One a turn: 1. Ask them to open Chrome on their phone. Done when:" in install.detail
+    assert f"{ACTIONS_LEAD} 1. Ask them to open Chrome on their phone. Done when:" in install.detail
     assert examples_pointer("Install") in install.detail
     assert len(install.detail) <= STAGE_DETAIL_MAX
     intro = native_steps(_script())[0]
@@ -195,7 +196,7 @@ def test_a_list_too_long_for_the_step_stays_a_pointer() -> None:
     stages = [script.stages[0], script.stages[1].model_copy(update={"procedure": long})]
     step = native_steps(script.model_copy(update={"stages": stages}))[1]
     assert examples_pointer("Install", actions=True) in step.detail
-    assert "One a turn:" not in step.detail
+    assert ACTIONS_LEAD not in step.detail
 
 
 def test_an_example_led_script_has_no_example_call() -> None:

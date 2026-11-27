@@ -97,9 +97,10 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: instead of calling a step's lines only examples; "you have their number" says only what to
 #: ask; a script's own [ENDING], step lead and business line replace the platform's copies.
 #: 27 Nov 2026 (21:35): what THIS CALL says is our list, never records the agent checked.
+#: 28 Nov 2026 (00:48): a bare "OK" is not done, in place of "only their done moves you on".
 PINNED = (
-    "4bfd3d460bd36edb904f8ba7e9632f081789766cb086ff8801f5c0abbad931a7",
-    "acaecd7b515ebb7b737dcb34f76a84fed98a5ef212388921a2f2d5b149afaaaf",
+    "9ac39929a5e718b5aab37746706f99b64c5ae1a8f6176a57acc25d9444e50969",
+    "72eefa8743ccb1569b607547b9a0418061c021ec89a7e957edee3794ca4cba90",
 )
 
 

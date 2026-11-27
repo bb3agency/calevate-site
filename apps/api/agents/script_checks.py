@@ -643,6 +643,17 @@ CHECKS: Final[tuple[Check, ...]] = (
         _lint(script_shape.records_claim_problems),
     ),
     Check(
+        "fixed_ending",
+        frozenset({"frame"}),
+        ENGLISH,
+        LATIN,
+        "warn",
+        "Say how to address the person, never one ending for every sentence.",
+        "code (English)",
+        _lint(script_shape.fixed_ending_problems),
+        mistake="same_closing",
+    ),
+    Check(
         "judged_ask",
         frozenset({"instruction", *STEP_LINES}),
         ENGLISH,
