@@ -107,7 +107,7 @@ def test_a_job_scripts_steps_outcomes_and_answers_say_when_to_move_on() -> None:
         assert lead in prompt, lead
 
 
-@pytest.mark.parametrize("name", ["PROCEDURE_LEAD", "OUTCOMES_LEAD", "SCENARIO_LEAD"])
+@pytest.mark.parametrize("name", ["PROCEDURE_LEAD", "OUTCOMES_LEAD", "STEPS_LEAD", "SCENARIO_LEAD"])
 def test_each_script_lead_moves_the_platform_revision(
     name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

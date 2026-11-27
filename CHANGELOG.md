@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.97 — 28-Nov-2026
+
+- Every agent with steps now asks what the caller sees before calling a step done, and when
+  the caller stops early says what is left and offers to finish later, even on accounts
+  where Pip does not fill in step goals. A script with step goals reads the rule once, in
+  its goals section, as before.
+
 ## 0.5.96 — 27-Nov-2026
 
 - "Where the call got to" now counts a step as done when the caller says so in Telugu

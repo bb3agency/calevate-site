@@ -14,6 +14,7 @@ from apps.api.crm.step_progress import StepProgress, StepReading, progress_json,
 from apps.workers import step_progress as judge
 from calevate_shared.call_script import (
     OUTCOMES_LEAD,
+    STEPS_LEAD,
     CallScript,
     ConversationStage,
     ProcedureStep,
@@ -31,6 +32,23 @@ from calevate_shared.extraction import ExtractionSchemaSpec
 def test_a_step_needs_what_they_see_and_an_early_stop_is_never_all_done() -> None:
     assert 'then ask what they see; a bare "done" is not it.' in OUTCOMES_LEAD
     assert "Never say it is all done: say what is left, and take it as a later." in OUTCOMES_LEAD
+
+
+def _steps(*, outcomes: bool) -> CallScript:
+    stages = [
+        ConversationStage(id="a", name="Install", instruction="Help them install it.", step=1),
+        ConversationStage(id="b", name="Log in", instruction="Help them log in.", step=2),
+    ]
+    goals = [StepOutcome(step=1, outcome="It is installed")] if outcomes else []
+    return CallScript(schema_version=2, stages=stages, step_outcomes=goals)
+
+
+def test_steps_with_no_outcome_still_get_both_checks_once() -> None:
+    plain = compile_call_script(_steps(outcomes=False))
+    assert plain.count(STEPS_LEAD) == 1
+    assert OUTCOMES_LEAD not in plain
+    goals = compile_call_script(_steps(outcomes=True))
+    assert OUTCOMES_LEAD in goals and STEPS_LEAD not in goals
 
 
 NAMES = {1: "Install", 2: "Log in", 3: "Close"}

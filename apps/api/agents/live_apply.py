@@ -253,6 +253,14 @@ def platform_prompt_revision() -> str:
         step_outcomes=[StepOutcome(step=1, outcome="O")],
     )
     parts.append(compile_call_script(guided))
+    # Steps with no outcome get the step checks after the step list (`STEPS_LEAD`) instead.
+    parts.append(
+        compile_call_script(
+            guided.model_copy(
+                update={"stages": [*guided.stages, *script.stages], "step_outcomes": []}
+            )
+        )
+    )
     # The same step with examples: an example-led script compiles its own step lead and
     # pointers, and gets the trimmed HOW TO SPEAK (`engine.EXAMPLE_LED_GUIDANCE`), composed
     # below from this body.

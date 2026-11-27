@@ -1371,6 +1371,10 @@ def _step_detail(stage: ConversationStage, outcome: str = "") -> str:
 #: "later", which the call-back rule (or, on an account without call backs, the opening's
 #: "later" rule) already answers, so no second call-back rule is written here.
 OUTCOMES_HEADER: Final = "[STEP OUTCOMES]"
+STOPPED_EARLY_RULE: Final = (
+    "They stop before the last step? Never say it is all done: say what is left, and take it "
+    "as a later."
+)
 OUTCOMES_LEAD: Final = (
     'A step\'s "Go on only when" is the one outcome it must reach. Its scenarios are examples '
     "of how the call may go, not the only ways: reach the outcome however the person answers, "
@@ -1379,8 +1383,14 @@ OUTCOMES_LEAD: Final = (
     "them: if it needs them to look or do something, ask them to and wait, then ask what "
     'they see; a bare "done" is not it. '
     "If it clearly cannot be reached (they refuse, cannot do it now, or are not "
-    "the right person), take the step's way out for that, else its Otherwise. They stop "
-    "before the last step? Never say it is all done: say what is left, and take it as a later."
+    "the right person), take the step's way out for that, else its Otherwise. " + STOPPED_EARLY_RULE
+)
+#: The same two checks for a script whose steps carry no outcome (an account with Pip off
+#: gets none filled in, `campaigns/step_outcomes`): said after the step list, since there is
+#: no outcome section to hold them, and only there, so a script never reads them twice.
+STEPS_LEAD: Final = (
+    "A step that needs them to look or do something is done only when they say what they "
+    'see; a bare "done" is not it. ' + STOPPED_EARLY_RULE
 )
 #: The outcome as a step carries it, when there is room.
 OUTCOME_IN_STEP: Final = "Go on only when: {outcome}."
@@ -1637,6 +1647,8 @@ def _compile_v2(
         # The lead is the one rule for every step; each outcome is in its own step.
         outcomes = [f"{OUTCOMES_HEADER} {OUTCOMES_LEAD}", _unplaced_outcome_lines(script)]
         sections.append("\n".join(part for part in outcomes if part))
+    elif len(stages) > 1:
+        sections.append(f"{OUTCOMES_HEADER} {STEPS_LEAD}")
 
     seed = script_seed(script)
     example_led = is_example_led(script)
@@ -2098,9 +2110,11 @@ __all__ = [
     "STAGE_DETAIL_MAX",
     "STAGE_TITLE_MAX",
     "STANDARD_VARIABLES",
+    "STEPS_LEAD",
     "STEP_EXAMPLES_LEAD",
     "STEP_EXAMPLE_MAX",
     "STEP_OUTCOME_MAX",
+    "STOPPED_EARLY_RULE",
     "STYLE_HEADER",
     "V1_FAQ_HEADER",
     "V1_ONLY_FIELDS",
