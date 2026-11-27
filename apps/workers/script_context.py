@@ -35,6 +35,7 @@ from apps.api.campaigns.script_history import pip_owns
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
 from apps.api.first_run.models import KNOWLEDGE_DOCUMENT_CHARS
+from apps.workers.call_language import is_english
 from apps.workers.campaign_script_ask import TONES, budget_of, situation_block
 from apps.workers.first_run import documents_block
 from apps.workers.script_assist import ScriptBrief
@@ -104,10 +105,18 @@ class ScriptContext:
     @property
     def languages(self) -> tuple[str, ...]:
         """The call languages each step's examples are written in: the main one first, then
-        the call's others; a one-part ask writes only the language it names."""
+        the call's others; a one-part ask writes only the language it names.
+
+        A call whose main language is not English gets no English examples (founder, 27 Nov
+        2026): the in-call model speaks English unprompted when a caller does, and English
+        examples beside every step doubled the script (Rytu Khata draft, 19,162 characters,
+        refused as too long). Another Indian language a caller may switch to keeps its
+        examples, which the model cannot produce as naturally unshown."""
         if self.part is not None:
             return (self.brief.language,)
-        return tuple(dict.fromkeys((self.brief.language, *self.extra_languages)))
+        main = self.brief.language
+        extra = (t for t in self.extra_languages if is_english(main) or not is_english(t))
+        return tuple(dict.fromkeys((main, *extra)))
 
     @property
     def limits(self) -> ExampleLimits:

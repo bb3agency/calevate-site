@@ -4,6 +4,8 @@ line in a Telugu call."""
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from apps.workers.campaign_script import trimmed_procedures
 from apps.workers.step_writer import UnusableAnswerError, parsed_step
@@ -120,8 +122,11 @@ def _stale() -> CallScript:
     from calevate_shared.call_script import ExampleLine
     from tests.script_writer_rebuild_2026_11_26_test import _script
 
-    return _script().model_copy(
+    script = _script()
+    old = script.stages[0].model_copy(update={"sounds_like": "Old line."})
+    return script.model_copy(
         update={
+            "stages": [old, *script.stages[1:]],
             "identity": "Old role.",
             "ending": "Ask them to message us on WhatsApp.",
             "outbound_opening_line": "Never said on this campaign?",
@@ -135,7 +140,8 @@ async def test_a_regeneration_of_pips_own_script_writes_the_frame_again(
     fake: object, pip_owned: bool
 ) -> None:
     """FAILS IF: the ending of a script Pip still owns is carried over unchanged; an owner's
-    edited ending stays theirs."""
+    edited ending stays theirs. The whole example call goes either way once the steps carry
+    examples, since the compiler then never reads it."""
     from dataclasses import replace
 
     from apps.workers.script_writer import WriteRequest, write_script
@@ -145,12 +151,12 @@ async def test_a_regeneration_of_pips_own_script_writes_the_frame_again(
     result = await write_script(WriteRequest("whole", context, base=_stale()))
     script = result.script
     assert script.outbound_opening_line == ""  # an outbound campaign never speaks it
+    assert script.example_exchange == []
+    assert all(not s.sounds_like and not s.scripts for s in script.stages)
     if pip_owned:
         assert script.ending == "Thank them and say goodbye."
-        assert script.example_exchange == []
     else:
         assert script.ending == "Ask them to message us on WhatsApp."
-        assert script.example_exchange
 
 
 def test_the_steps_are_written_against_the_opening_the_call_speaks() -> None:
@@ -183,20 +189,142 @@ def _spoken(sid: str, turns: int) -> ConversationStage:
 
 def test_examples_are_trimmed_other_language_first_and_the_main_one_is_kept() -> None:
     """FAILS IF: a script with no step-by-step lists cannot be brought inside the box (26 Nov
-    2026: 19,162 characters, every step's examples in Telugu and English)."""
+    2026: 19,162 characters, every step's examples in Telugu and English), or an English
+    call's other language is trimmed before its turns are."""
     from apps.workers.campaign_script import trimmed_examples
 
     script = CallScript(schema_version=2, stages=[_spoken("a", 5), _spoken("b", 4)])
+    # In a Telugu call the English examples go whole first, the longest step's first.
     fewer = trimmed_examples(script, 60, "te-IN")
     assert fewer is not None
-    assert [len(s.examples["en-IN"].turns) for s in fewer.stages] == [3, 4]
+    assert [set(s.examples) for s in fewer.stages] == [{"te-IN"}, {"te-IN", "en-IN"}]
     assert all(
         len(s.examples["te-IN"].turns) == len(o.examples["te-IN"].turns)
         for s, o in zip(fewer.stages, script.stages, strict=True)
     )
+    # In an English call the other language's turns are trimmed before it goes whole.
+    english = trimmed_examples(script, 20, "en-IN")
+    assert english is not None
+    assert [len(s.examples["te-IN"].turns) for s in english.stages] == [3, 4]
 
     most = trimmed_examples(script, 100_000, "te-IN")
     assert most is not None
     assert all(set(s.examples) == {"te-IN"} for s in most.stages)
     assert all(len(s.examples["te-IN"].turns) == 3 for s in most.stages)
     assert trimmed_examples(most, 100, "te-IN") is None
+
+
+# --- examples kept to their own step, three of them (27 Nov 2026, the Rytu Khata draft) -----
+
+
+def test_the_writer_asks_for_and_keeps_three_turns() -> None:
+    """FAILS IF: five turns are asked for or kept per language, the size that pushed the
+    Rytu Khata draft past the engine's box."""
+    from apps.workers import step_writer
+
+    assert step_writer.MIN_TURNS == 3
+    assert "exactly 3 different ways" in step_writer.STEP_INSTRUCTION
+    raw = {
+        "instruction": "Guide them to log in.",
+        "examples": {"te-IN": {"turns": [f"{_IN} {n}" for n in range(5)]}},
+    }
+    words = parsed_step(raw, languages=["te-IN"], first=False, close=False)
+    assert words.examples["te-IN"].turns == [f"{_IN} {n}" for n in range(3)]
+
+
+def test_a_doubled_particle_is_said_once() -> None:
+    """FAILS IF: the doubled particle of the Rytu Khata draft reaches the script."""
+    from apps.workers.step_writer import DOUBLED_PARTICLES, undoubled
+
+    particle = DOUBLED_PARTICLES[0]
+    assert undoubled(f"{_IN} {particle} {particle}.") == f"{_IN} {particle}."
+    assert undoubled(f"{_IN} {_IN} {particle}") == f"{_IN} {_IN} {particle}"
+    raw = {
+        "instruction": "Thank them and end the call.",
+        "examples": {"te-IN": {"turns": [f"{_IN} {particle} {particle}"]}},
+    }
+    words = parsed_step(raw, languages=["te-IN"], first=False, close=True)
+    assert words.examples["te-IN"].turns == [f"{_IN} {particle}"]
+
+
+def _scoped() -> CallScript:
+    from calevate_shared.call_script import ProcedureStep, StepExamples
+
+    def stage(sid: str, name: str, step: int, action: str, said: StepExamples) -> ConversationStage:
+        return ConversationStage(
+            id=sid,
+            name=name,
+            instruction=f"Guide them through {name.lower()}.",
+            step=step,
+            procedure=[ProcedureStep(action=action, wait_for="They say it is done")],
+            examples={"en-IN": said},
+        )
+
+    return CallScript(
+        schema_version=2,
+        stages=[
+            stage(
+                "farms",
+                "My Farms",
+                1,
+                "Tap Add Farm on the Acme Farms screen",
+                StepExamples(turns=["Please tap Add Farm."]),
+            ),
+            stage(
+                "expense",
+                "First expense",
+                2,
+                "Tap New Expense",
+                StepExamples(
+                    turns=["Please tap Add Farm.", "Open Acme Farms and tap New Expense."],
+                    stuck="If it still does not work, we will call you back later.",
+                    confused="Tap New Expense, the button at the bottom.",
+                ),
+            ),
+        ],
+    )
+
+
+def test_a_line_naming_another_steps_button_is_found() -> None:
+    """FAILS IF: the expense step's "Please tap Add Farm." (the farm step's button) passes;
+    the business's own name, said in every step, is never another step's."""
+    from apps.workers.script_writer import example_problems
+    from tests.script_writer_rebuild_2026_11_26_test import _context
+
+    found = [p for p in example_problems(_scoped(), _context()) if "which is step" in p]
+    assert found == [
+        'stages.1.examples.en-IN.turns.0: names "add farm", which is step "My Farms"\'s; '
+        "keep each line to this step's own action."
+    ]
+
+
+def test_a_stuck_line_offering_a_call_back_is_found() -> None:
+    """FAILS IF: the stuck hint offers a call back while the agent can still help."""
+    from apps.workers.script_writer import example_problems
+    from tests.script_writer_rebuild_2026_11_26_test import _context
+
+    found = [p for p in example_problems(_scoped(), _context()) if "offers a call back" in p]
+    assert [p.partition(":")[0] for p in found] == ["stages.1.examples.en-IN.stuck"]
+
+
+async def test_a_stuck_call_back_is_written_again_told_why(fake: Any) -> None:
+    """FAILS IF: the writer keeps a stuck line offering a call back without asking again."""
+    from apps.workers.script_writer import WriteRequest, write_script
+    from tests.script_writer_rebuild_2026_11_26_test import LANG, OWNER_STEPS, _context, _good
+
+    asked: dict[str, int] = {}
+
+    def answer(name: str, request: str) -> dict[str, Any]:
+        asked[name] = asked.get(name, 0) + 1
+        raw = _good(name)
+        if name == "Login" and asked[name] == 1:
+            raw["examples"][LANG]["stuck"] = "No problem, we can call you back later."
+        return raw
+
+    fake.answer = answer
+    result = await write_script(WriteRequest("whole", _context(instruction=OWNER_STEPS)))
+    login = next(s for s in result.script.stages if s.name == "Login")
+    assert asked["Login"] == 2
+    assert "call you back" not in login.examples[LANG].stuck
+    again = [r for r in fake.requests if 'THIS STEP: "Login"' in r][-1]
+    assert "offers a call back" in again

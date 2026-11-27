@@ -42,6 +42,7 @@ from apps.api.campaigns import script_history, workspace
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
+from apps.workers.call_language import is_english
 from apps.workers.campaign_script_ask import FLOW_PART, TOO_LONG_RULE, task_steps_note
 from apps.workers.script_assist import ANSWER_UNUSABLE_CODE, LeftOut
 from apps.workers.script_context import HolderKind, ScriptContext, holder_context, measured
@@ -439,26 +440,41 @@ def _said_chars(said: StepExamples) -> int:
 
 def trimmed_examples(script: CallScript, cut: int, main: str) -> CallScript | None:
     """`script` with about `cut` characters of example lines taken off, the step with the
-    most first; None when nothing is left to take. In order: the other languages' turns down
-    to `EXAMPLE_LIMITS.turns_min`, then the other languages' examples whole, then `main`'s
-    turns down to the minimum. `main`'s examples are never dropped.
+    most first; None when nothing is left to take. In order: English examples whole in a call
+    whose main language is not English, the other languages' turns down to
+    `EXAMPLE_LIMITS.turns_min`, then the other languages' examples whole, then `main`'s turns
+    down to the minimum. `main`'s examples are never dropped.
 
     Why this order (26 Nov 2026: a Telugu campaign with English as its extra language came
     back 19,162 characters, every step's examples written twice, and no list to trim): the
-    in-call model speaks English unprompted, while the main language's examples are what it
-    copies to sound like a local caller, and fewer than `turns_min` turns stop being a
-    pattern it can vary."""
+    in-call model speaks English unprompted, so English examples in such a call are no longer
+    written (`ScriptContext.languages`) and an older script's go first; the main language's
+    examples are what it copies to sound like a local caller, and fewer than `turns_min`
+    turns stop being a pattern it can vary. The writer writes `turns_min` turns, so the
+    turn passes trim only a script written before that or by the owner."""
     least = EXAMPLE_LIMITS.turns_min
     stages = list(script.stages)
     taken = 0
-    passes: tuple[tuple[bool, int | None], ...] = ((False, least), (False, None), (True, least))
-    for on_main, keep in passes:
+    drops_english = not is_english(main)
+
+    def picks(tag: str, which: str) -> bool:
+        if which == "main":
+            return tag == main
+        if which == "english":
+            return drops_english and is_english(tag)
+        return tag != main
+
+    passes: tuple[tuple[str, int | None], ...] = (
+        ("english", None),
+        ("other", least),
+        ("other", None),
+        ("main", least),
+    )
+    for which, keep in passes:
         order = sorted(
             range(len(stages)),
             key=lambda i: (
-                -sum(
-                    _said_chars(s) for t, s in stages[i].examples.items() if (t == main) == on_main
-                )
+                -sum(_said_chars(s) for t, s in stages[i].examples.items() if picks(t, which))
             ),
         )
         for index in order:
@@ -466,7 +482,7 @@ def trimmed_examples(script: CallScript, cut: int, main: str) -> CallScript | No
                 break
             examples = dict(stages[index].examples)
             for tag, said in list(examples.items()):
-                if (tag == main) != on_main:
+                if not picks(tag, which):
                     continue
                 if keep is None:
                     taken += _said_chars(said)

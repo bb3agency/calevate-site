@@ -250,7 +250,11 @@ def test_one_step_request_is_small_and_holds_only_what_that_step_needs() -> None
     assert len(text) + len(step_writer.STEP_INSTRUCTION) < 5_000
     assert 'THIS STEP: "Login"' in text and "already said" in text
     assert 'The step before: "Install"' in text
-    assert "Do Close." not in text
+    # The step after is named so this one leaves its job to it (27 Nov 2026: the
+    # Introduction pitched what the next step was for).
+    assert '(leave it to that step): "Close": Do Close.' in text
+    last = step_request(replace(ask, step=plan.steps[2]))
+    assert "The step after" not in last
 
 
 def test_the_parse_refuses_a_non_english_instruction_and_too_few_turns() -> None:
@@ -448,6 +452,9 @@ def test_one_lint_context_carries_the_holders_language_details_and_direction() -
 def test_languages_and_limits() -> None:
     context = _context(extra_languages=("hi-IN", LANG))
     assert context.languages == (LANG, "hi-IN")
+    # A call whose main language is not English gets no English examples; Hindi stays.
+    telugu = replace(context, brief=replace(context.brief, language="te-IN"))
+    assert replace(telugu, extra_languages=(LANG, "hi-IN")).languages == ("te-IN", "hi-IN")
     assert _context(part="Step “Login”").languages == (LANG,)
     assert context.limits == EXAMPLE_LIMITS
     assert EXAMPLE_LIMITS.turns_min == step_writer.MIN_TURNS

@@ -233,6 +233,19 @@ _HANDS_OVER: Final = _LivePattern(
 )
 
 
+def offers_call_back(text: str) -> bool:
+    """Whether `text` offers a call back in a clause that does not say it will not happen,
+    in English or the founder's Indian-language words (`call_words.json`). Unlike
+    `unbacked_promise`, a condition does not excuse it: "if you still cannot, we will call you
+    back" is the offer itself."""
+    return any(
+        _CALL_BACK.search(clause) and not _NEGATED.search(clause)
+        for sentence in re.split(r"(?<=[.?!।])\s+", text)
+        for clause in _CLAUSE_BREAK.split(sentence)
+        if clause
+    )
+
+
 def unbacked_promise(text: str, manifest: CapabilityManifest) -> str | None:
     """What `text` promises that `manifest` says this agent cannot do, or None."""
     for sentence in re.split(r"(?<=[.?!।])\s+", text):
@@ -1821,6 +1834,7 @@ __all__ = [
     "multi_question_line_problems",
     "name_segment_problem",
     "next_steps",
+    "offers_call_back",
     "opening_redone_problems",
     "order_problems",
     "other_persona",

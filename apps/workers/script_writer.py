@@ -40,6 +40,7 @@ from calevate_shared.call_script import (
     CallScript,
     ConversationStage,
     ScriptPolicies,
+    is_example_led,
 )
 from calevate_shared.opening_notices import OpeningNotices
 from calevate_shared.spoken_guard import english_problem, has_indic_letters
@@ -48,9 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import script_checks, script_proposals
 from apps.api.agents.owner_plan import OwnerPlan, numbered_items, owner_plan
 from apps.api.agents.retired_lines import retired_line_problem
-from apps.api.agents.script_lint import (
-    instruction_fields,
-)
+from apps.api.agents.script_lint import instruction_fields, offers_call_back
 from apps.api.agents.script_plan import (
     PlanStep,
     ScriptPlan,
@@ -251,9 +250,80 @@ def _channel_problems(script: CallScript) -> list[str]:
     return found
 
 
+def _help_call_back_problems(script: CallScript) -> list[str]:
+    """A confused or stuck line that offers a call back. Those lines are the help the agent
+    gives while it can still help; a call back is the step's last way out, after every way
+    was tried (founder, 25 Nov 2026, `owner_plan.last_resort_condition`), and the Rytu Khata
+    draft of 27 Nov 2026 offered one as the stuck hint."""
+    found = []
+    for i, stage in enumerate(script.stages):
+        for tag, ex in stage.examples.items():
+            for name in ("confused", "stuck"):
+                if offers_call_back(getattr(ex, name)):
+                    found.append(
+                        f"stages.{i}.examples.{tag}.{name}: offers a call back; give one smaller "
+                        "hint for the same action instead, since a call back comes only after "
+                        "every way was tried."
+                    )
+    return found
+
+
+#: A name of two or more capitalised Latin words ("Add Farm", "Home Screen"): how a screen
+#: or button is written in a step's English instruction and actions. One word alone is too
+#: often an ordinary sentence opener to be read as a name.
+_NAME: Final = re.compile(r"\b[A-Z][\w'&-]*(?:\s+[A-Z][\w'&-]*)+")
+_SENTENCE_START: Final = re.compile(r"(?:^|[.!?:;]\s+)$")
+
+
+def _names(text: str) -> set[str]:
+    """The screen and button names in `text`, a sentence's opening verb left off ("Tap Add
+    Farm" names "Add Farm")."""
+    out = set()
+    for found in _NAME.finditer(text):
+        name = found.group()
+        if _SENTENCE_START.search(text[: found.start()]):
+            name = name.partition(" ")[2]
+        if " " in name.strip():
+            out.add(name.strip().casefold())
+    return out
+
+
+def _stage_text(stage: ConversationStage) -> str:
+    return " ".join(
+        (stage.name, stage.instruction, *(f"{p.action}. {p.wait_for}" for p in stage.procedure))
+    )
+
+
+def _other_step_name_problems(script: CallScript, context: ScriptContext) -> list[str]:
+    """An example line naming a screen or button that belongs to one other step: the Rytu
+    Khata draft of 27 Nov 2026 had its expense step say "Please tap Add Farm.", the farm
+    step's button. A name is a step's when exactly one step's instruction or actions name
+    it; the business's and agent's names belong to every step."""
+    texts = [_stage_text(s).casefold() for s in script.stages]
+    shared = f"{context.brief.business_name} {context.brief.agent_name}".casefold()
+    owner: dict[str, int] = {}
+    for i, stage in enumerate(script.stages):
+        for name in _names(f"{stage.instruction}. " + ". ".join(p.action for p in stage.procedure)):
+            holders = [j for j, t in enumerate(texts) if re.search(rf"\b{re.escape(name)}\b", t)]
+            if holders == [i] and name not in shared:
+                owner[name] = i
+    found = []
+    for i, path, line in _example_lines(script):
+        said = line.casefold()
+        for name, j in owner.items():
+            if j != i and re.search(rf"\b{re.escape(name)}\b", said):
+                found.append(
+                    f'{path}: names "{name}", which is step "{script.stages[j].name}"\'s; '
+                    "keep each line to this step's own action."
+                )
+    return found
+
+
 def example_problems(script: CallScript, context: ScriptContext) -> list[str]:
     """What the check registry does not read on the example turns: a provider's name (D-679)
-    and a retired stock line, and a guide step with no example turns in a call language."""
+    and a retired stock line, a way to reach the business or a call back the step does not
+    give, another step's screen or button, and a guide step with no example turns in a call
+    language."""
     owners = context.owners_words
     found = [
         p
@@ -262,6 +332,8 @@ def example_problems(script: CallScript, context: ScriptContext) -> list[str]:
         if p
     ]
     found += _channel_problems(script)
+    found += _help_call_back_problems(script)
+    found += _other_step_name_problems(script, context)
     for i, stage in enumerate(script.stages):
         if stage.mode != "guide":
             continue
@@ -878,6 +950,17 @@ def _unspoken_cleared(context: ScriptContext, script: CallScript) -> CallScript:
     return script.model_copy(update=update) if update else script
 
 
+def _unread_cleared(script: CallScript) -> CallScript:
+    """A rewritten script without the whole example call once its steps carry examples: the
+    compiler then never reads it (`call_script.is_example_led`), so it would only sit in the
+    editor as words the calls do not say, and in the text every check reads. Cleared whoever
+    wrote it, unlike the frame: an owner's example call is not theirs to keep when no call
+    hears it. The steps' legacy `sounds_like` and `scripts` lines go in `stage_with`."""
+    if not script.example_exchange or not is_example_led(script):
+        return script
+    return script.model_copy(update={"example_exchange": []})
+
+
 async def _whole(request: WriteRequest) -> WriteResult:
     context, base, started = request.context, request.base, request.started
     plan, spends, read = await plan_for(context, base, started, outline=request.outline)
@@ -912,7 +995,7 @@ async def _whole(request: WriteRequest) -> WriteResult:
             spends.append(refused)
     if not first.words:
         raise WriteRefusedError(first.refused or _nothing_written(), spends)
-    script = laid(script, first.words)
+    script = _unread_cleared(laid(script, first.words))
     if frame is not None:
         script = CallScript.model_validate(script.model_copy(update=frame.fields()).model_dump())
     script = _settled(context, script, base=None)

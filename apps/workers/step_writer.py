@@ -3,11 +3,12 @@
 The structure is the plan's (`agents/script_plan`); this module only writes words. Each step
 gets its own request of a few thousand characters: the step's plan entry, the facts and
 source passages that step needs, the call language's register note, the opening line already
-said (so the step never says it again), and the step before it. The answer is a strict JSON
-object: an English instruction of one or two sentences, the actions one by one with what
-shows each is done, and example turns in every call language (3 to 5 ordinary turns, a turn
-for a confused caller, one for a caller stuck on the action, and on the first step a busy
-one). Examples rather than rules: the in-call model copies what it is shown (03 §5).
+said (so the step never says it again), and the steps either side of it. The answer is a
+strict JSON object: an English instruction of one or two sentences, the actions one by one
+with what shows each is done, and example turns in every call language (`MIN_TURNS` ordinary
+turns, a turn for a confused caller, one for a caller stuck on the action, and on the first
+step a busy one). Examples rather than rules: the in-call model copies what it is shown
+(03 §5), so a turn that strays into another step's job is copied there too.
 
 Why one request per step rather than one whole-script pass: the whole-script requests were
 32-72k characters against a rulebook that contradicted itself (01 §4-5), and models follow
@@ -32,7 +33,6 @@ from calevate_shared.call_script import (
     MAX_PROCEDURE_STEPS,
     MAX_SCENARIO_QA,
     MAX_SCRIPT_OBJECTIONS,
-    MAX_STEP_EXAMPLE_TURNS,
     PROCEDURE_STEP_MAX,
     PROCEDURE_WAIT_MAX,
     STAGE_DETAIL_MAX,
@@ -51,7 +51,11 @@ from apps.workers.script_assist import JsonAnswer, ScriptBrief, UnusableAnswerEr
 if TYPE_CHECKING:
     from apps.workers.extraction import TenantModelLeg
 
-#: Normal example turns a step must carry per language (DESIGN §2.3).
+#: Normal example turns a step is written with per language, asked for and kept (founder,
+#: 27 Nov 2026): three is the fewest that still reads as a pattern to vary rather than a
+#: line to repeat, and each turn more in every step of every language is what pushed
+#: written scripts past the engine's box (Rytu Khata draft, 27 Nov 2026: 19,162 characters).
+#: An owner may hold up to `EXAMPLE_LIMITS.turns_max` in the editor; the writer writes this.
 MIN_TURNS: Final = EXAMPLE_LIMITS.turns_min
 #: One step's answer, in tokens: a ceiling, not a target (billing follows use).
 STEP_MAX_TOKENS: Final = 3_000
@@ -67,8 +71,8 @@ STEP_INSTRUCTION: Final = (
     f"You write one step of the phone call script of an AI voice agent for {BUSINESS_FRAME}. "
     "You are given the step's plan (what it does, what is true once it is done, the details "
     "it asks), the facts and source passages it may use, the call language and how people "
-    "speak it on the phone, the opening line the agent already said, and the step before "
-    "this one. Return JSON:\n"
+    "speak it on the phone, the opening line the agent already said, and the steps before "
+    "and after this one. Return JSON:\n"
     "instruction: one or two plain English sentences for the agent, under 300 characters: "
     "what it does in this step and when the step is done.\n"
     "procedure: when the step walks the person through doing something, the actions in "
@@ -77,12 +81,16 @@ STEP_INSTRUCTION: Final = (
     "there is nothing to do but talk.\n"
     "examples: for each call language given, written in that language as people really say "
     "it on the phone, in its own letters, with English product words as the owner writes "
-    "them. turns: 3 to 5 different ways to say the agent's turn in this step; each gives "
-    "ONE action or asks ONE question, then stops; in a step with actions every turn gives the "
-    "first action only and asks nothing. confused: what the agent says when the "
-    "person did not follow, the same action again in fewer, simpler words. stuck: one "
-    "smaller hint when they cannot do it. busy: only when the plan says this is the first "
-    "step, asking when would suit them instead; otherwise empty.\n"
+    f"them. turns: exactly {MIN_TURNS} different ways to say the agent's turn in this step; "
+    "each gives ONE action or asks ONE question, then stops; in a step with actions every "
+    "turn gives the first action only and asks nothing. confused: what the agent says when "
+    "the person did not follow, the same action again in fewer, simpler words. stuck: one "
+    "smaller hint for the same action when they cannot do it, never a call back, a later "
+    "call or a hand over. busy: only when the plan says this is the first step, asking when "
+    "would suit them instead; otherwise empty.\n"
+    "Every line belongs to THIS STEP alone: it never names a screen, button or action of "
+    "another step, and never does the job of the step after it. No word is said twice in a "
+    "row.\n"
     "qa: up to 3 questions a person may ask at this step, each answered in plain English "
     "only from the facts given.\n"
     "Every turn starts with its own point: the action, the answer or the question. The "
@@ -222,6 +230,15 @@ class StepAsk:
     problems: tuple[str, ...] = ()
 
 
+def _after(plan: ScriptPlan, step: PlanStep) -> PlanStep | None:
+    """The numbered step the call goes on to from `step`; None for a side step, which is
+    reached through a way out and leaves by its own."""
+    if step.side:
+        return None
+    at = plan.index(step.key)
+    return next((s for s in plan.steps[at + 1 :] if not s.side), None)
+
+
 def step_request(ask: StepAsk) -> str:
     """One step's request text."""
     brief, plan, step = ask.brief, ask.plan, ask.step
@@ -254,6 +271,14 @@ def step_request(ask: StepAsk) -> str:
     previous = plan.before(step.key)
     if previous is not None and not first:
         lines.append(f'The step before: "{previous.name}": {previous.intent}')
+    after = _after(plan, step)
+    if after is not None:
+        # Shown so the step can leave it alone: the Introduction of 27 Nov 2026 pitched what
+        # its next step ("Why we called") was there to say.
+        lines.append(
+            f'The step after, which does its own job (leave it to that step): "{after.name}": '
+            f"{after.intent}"
+        )
     lines.append(f'THIS STEP: "{step.name}"')
     lines.append(f"What it does: {step.intent}")
     if step.outcome:
@@ -276,6 +301,21 @@ def step_request(ask: StepAsk) -> str:
             "everything else:\n" + "\n".join(f"- {p}" for p in ask.problems)
         )
     return "\n".join(lines)
+
+
+#: Particles a written line has said twice in a row, collapsed to one by code. Only the
+#: production token is here ("అండి అండి", Rytu Khata draft, 27 Nov 2026): a word said twice
+#: in general is not a defect, since Telugu and Hindi double words on purpose
+#: (reduplication). NEEDS NATIVE REVIEW before any token is added.
+DOUBLED_PARTICLES: Final = ("అండి",)
+_DOUBLED: Final = re.compile(
+    r"(?<!\S)(" + "|".join(map(re.escape, DOUBLED_PARTICLES)) + r")(?:\s+\1)+(?=[\s,.!?।]|$)"
+)
+
+
+def undoubled(line: str) -> str:
+    """`line` with a particle said twice in a row (`DOUBLED_PARTICLES`) said once."""
+    return _DOUBLED.sub(r"\1", line)
 
 
 def _text(value: Any, limit: int) -> str:
@@ -314,7 +354,7 @@ def parsed_step(
         block = block if isinstance(block, dict) else {}
 
         def said(value: Any, *, tag: str = tag) -> str:
-            return spoken_swapped(_text(value, STEP_EXAMPLE_MAX), tag, allowed=allowed)
+            return undoubled(spoken_swapped(_text(value, STEP_EXAMPLE_MAX), tag, allowed=allowed))
 
         turns = [t for t in (said(v) for v in block.get("turns") or []) if t]
         lines = [*turns, *(said(block.get(k)) for k in ("confused", "stuck", "busy"))]
@@ -329,10 +369,11 @@ def parsed_step(
         wanted = 1 if close else MIN_TURNS
         if len(turns) < wanted:
             problems.append(
-                f"examples.{tag}.turns: give {wanted} to {MAX_STEP_EXAMPLE_TURNS} different turns"
+                f"examples.{tag}.turns: "
+                + ("give one turn" if close else f"give {MIN_TURNS} different turns")
             )
         examples[tag] = StepExamples(
-            turns=turns[:MAX_STEP_EXAMPLE_TURNS],
+            turns=turns[:MIN_TURNS],
             confused="" if close else said(block.get("confused")),
             stuck="" if close else said(block.get("stuck")),
             busy=said(block.get("busy")) if first else "",
@@ -587,6 +628,7 @@ async def write_parts(
 
 __all__ = [
     "CLOSE_NOTE",
+    "DOUBLED_PARTICLES",
     "FRAME_INSTRUCTION",
     "MIN_TURNS",
     "OPENING_NOTE",
@@ -602,6 +644,7 @@ __all__ = [
     "register_note",
     "step_format",
     "step_request",
+    "undoubled",
     "write_frame",
     "write_parts",
     "write_step",
