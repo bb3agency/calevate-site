@@ -283,7 +283,7 @@ Covered at length by LOG.md and the redesign. Rows are kept so nothing is lost.
 
 | # | Outpero | Calevate | Verdict | Note |
 | --- | --- | --- | --- | --- |
-| D-1 | `#/developers`: keys, quickstart, webhooks with events, API activity | `integrations/**` webhooks (signed, secret shown once, `DeliveryLog.tsx`, `EventChoices.tsx`), lead intake; no tenant API keys (grep `api_key_hash|client_api_keys` in `apps/api` empty) | **LACK** (keys, public API) | Owned by 02 (G1–G10). The screen consequence: a "For developers" page needs 02's G1 first. |
+| DEV-1 | `#/developers`: keys, quickstart, webhooks with events, API activity | `integrations/**` webhooks (signed, secret shown once, `DeliveryLog.tsx`, `EventChoices.tsx`), lead intake; no tenant API keys (grep `api_key_hash|client_api_keys` in `apps/api` empty) | **LACK** (keys, public API) | Owned by 02 (G1–G10). The screen consequence: a "For developers" page needs 02's G1 first. |
 
 ### 1.16 Help, tour, search, mobile
 
@@ -561,7 +561,7 @@ Design: a 4-step owner-started tour from the Help menu: Dashboard (how today wen
 Acceptance: never auto-starts; dismissable with Esc; does not cover the item it describes on
 a phone. Dependencies: Lane 4's tour model.
 
-### P-18 Developer page (D-1) — see 02
+### P-18 Developer page (DEV-1) — see 02
 
 The keys, public API, quickstart and API activity screens are designed in
 `02-api-integrations.md` (G1, G2, G6, G8). The screen follows G1; nothing to add here.

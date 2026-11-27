@@ -451,7 +451,7 @@ delivery gate; `graph.facebook.com` egress-blocked here, so the live read is a h
 drift); each operation states its gate and possible refusal codes (route annotation);
 Telugu-first zero-code worked example "IndiaMART enquiry → Telugu call → Google Sheet"; no
 provider named (D-679); Postman regenerated on release. The client-realm "For developers"
-screen (UX·D-1, P-18: keys, quickstart, webhooks, activity) lives under Integrations. 8 h.
+screen (UX·DEV-1, P-18: keys, quickstart, webhooks, activity) lives under Integrations. 8 h.
 Dependency: W2.2.
 
 **W2.11 n8n community node, Make/Zapier/Pabbly templates (API·G8b, E1; rank 7).**
@@ -1255,7 +1255,7 @@ redesign, done pending release.
 | S-4 | PARITY/LACK | W5.2 | B |
 | S-5 | PARITY | W5.1, W5.3 | B |
 | S-8 | LACK | W7.3 | C |
-| D-1 | LACK | W2.1, W2.10 | B, C |
+| DEV-1 | LACK | W2.1, W2.10 | B, C |
 | Q-1 | WEAKER | W12.3 | C |
 | Q-2 | BETTER | Keep | — |
 | Q-3 | LACK | W7.4 | B |

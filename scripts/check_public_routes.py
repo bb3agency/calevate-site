@@ -223,6 +223,14 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="current_identity",
     ),
+    "POST /v1/auth/signup/slug-availability": PublicRoute(
+        why=(
+            "Asked during self-serve signup, before any organization exists to hold a "
+            "permission: whether a web address is free. Needs a verified realm token "
+            "(an open directory of taken addresses otherwise) and is rate-limited as sign-in."
+        ),
+        credential="current_identity",
+    ),
     # ---- D-170's first-party auth surface. Written per FLOW and mirrored across the
     # two realms deliberately: a reason true for one realm and not the other would mean
     # the realm boundary had been drawn in the wrong place.

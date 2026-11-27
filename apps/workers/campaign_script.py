@@ -280,14 +280,15 @@ async def _ready_made(session: AsyncSession, holder: _Holder) -> None:
     A refusal leaves the holder as it was: the screen then offers to write it by hand."""
     from apps.api.first_run.work import save_ready_made
 
-    ids = (
-        {"line_id": holder.holder_id}
-        if holder.table == "inbound_lines"
-        else {"campaign_id": holder.holder_id}
-    )
+    on_line = holder.table == "inbound_lines"
     try:
         async with session.begin_nested():
-            await save_ready_made(session, tenant_id=holder.tenant_id, **ids)
+            await save_ready_made(
+                session,
+                tenant_id=holder.tenant_id,
+                line_id=holder.holder_id if on_line else None,
+                campaign_id=None if on_line else holder.holder_id,
+            )
     except ProblemError as refused:
         log.info("holder_ready_made_refused", extra={"reason": refused.code})
 

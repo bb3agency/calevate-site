@@ -1479,6 +1479,27 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     ),
     **dict.fromkeys(_CAMPAIGN_WORKSPACE_ROUTES, _CAMPAIGN_WORKSPACE),
     "POST /v1/campaigns/{campaign_id}/script/proposal": _CAMPAIGN_WORKSPACE,
+    **dict.fromkeys(
+        ("GET /v1/agents/{agent_id}/first-words", "POST /v1/agents/{agent_id}/first-words"),
+        BoundedByConstruction(
+            by=(
+                "`agents/first_words_audio`: the parts of ONE opening (plus its notices), split "
+                "into whole sentences of at most 200 characters; the opening is length-capped."
+            )
+        ),
+    ),
+    **dict.fromkeys(
+        (
+            "GET /v1/campaigns/{campaign_id}/script/checks",
+            "GET /v1/inbound-lines/{line_id}/script/checks",
+        ),
+        BoundedByConstruction(
+            by=(
+                "`script_gate.holder_checks`: findings come from the registered checks over one "
+                "saved script, whose stages are capped by `call_script.MAX_SCRIPT_STAGES`."
+            )
+        ),
+    ),
     "GET /v1/campaigns/{campaign_id}/test-calls": BoundedByConstruction(
         by="the newest `campaigns/workspace_routes.TEST_CALLS_SHOWN`, in the LIMIT."
     ),
