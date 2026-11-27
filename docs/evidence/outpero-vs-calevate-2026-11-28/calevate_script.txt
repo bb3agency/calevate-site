@@ -1,0 +1,44 @@
+Calevate trial workspace rytu-khata-trial, first-run agent "Anjali" (Telugu, Akshita Studio voice),
+first campaign "Your first calls" (Draft), as read from the campaign page 28 Nov 2026 right after
+"Meet your agent" step 3. Written by Pip from the same brief + facts as Outpero (brief.txt +
+free / Hyderabad / 9-6 / two never-rules), with the 3 Calevate questions: Q1 skipped, Q2 English, Q3 skipped.
+
+Main task: the whole brief pasted verbatim (incl. "Call only between 9am and 6pm", the two
+"Never ..." rules, "free for farmers", "based in Hyderabad").
+Sources: nothing added. Quick facts: 0. "When callers push back": 5 answers.
+Length: about 6,200 of 8,000 characters.
+
+The goal: "A successful call results in the farmer installing the app from our website and
+recording their first expense and sale entry."
+
+OPENING: "No opening line yet."  <- the first-run campaign script has no opening line.
+  Not now -> Call back (offer a call back)
+
+Steps (call flow 5 steps · 5 scenarios):
+1.1 Check interest — "Explain Rytu Khata as a free app for tracking farm expenses and sales if they
+    are unsure. Ask if they want to proceed with setting up the account." Then step 2 · 3 Q&A.
+    busy -> Call back; no interest -> End call
+2.1 App installation — "Guide the farmer to open rytukhata.com in their mobile browser and instruct
+    them to use the Add to Home Screen option. The step is done when they confirm the icon is on
+    their home screen." Then step 3. technical issue -> Call back
+3.1 Account setup — "Ask the farmer to open the Rytu Khata app, log in with their mobile number, and
+    select Telugu. The step ends once the app is open, logged in, and set to Telugu." Then step 4 · 3 Q&A
+4.1 Add farm data — "Guide the farmer to add their farm details in the My Farms section then record
+    their first expense and their first sale. The step is done when the farmer confirms all entries
+    are saved." Then step 5
+5.1 Conclusion — "Confirm all steps are done and explain the benefits. Thank the farmer and end the call."
+
+Step outcomes present (36/55/56/85/21 chars of 300).
+
+Campaign page also shows:
+- "Test call — The chosen agent rings your phone ... It rings from our test number." (the first-run
+  screen said test calls are not available; the founder confirmed no shared test number exists).
+- To do: "A line in the script needs fixing before calls can start." (Let Pip fix it / Show me)
+- To do: Add credit; Verify your business; Accept the no-cold-calls promise; Accept the updated
+  terms; Confirm your calling numbers.
+- "Mandatory Regulatory Compliance Checks — 7 checks to answer" then "Checks to answer 0 of 6 done".
+- Where did this list come from? (existing customers / contacted us / signed up on website / on paper /
+  bought list) + consent date.
+- When to call: "Each day, in IST, from 9am to 9pm at most", From/To empty (the brief's 9am-6pm not applied).
+- Calls at once: "Up to 1 call. You set 3. Your account runs up to 1 call at once."
+- Calling from: "Your agent's number".

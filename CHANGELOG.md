@@ -3,6 +3,31 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.98 — 28-Nov-2026
+
+- Calls placed by an agent open by saying who is calling, from which business and why this
+  person is being called, then ask if now is a good time; the task waits for their yes and
+  the first step no longer repeats who and why.
+- On a call the agent gives one action a turn, never two even when an example joins them; a
+  bare "OK" to an action is not taken as done; it asks what they see now, never "tell me if it
+  worked". A style asking every sentence to end the same way is removed.
+- The call page no longer says every step was done when the caller stopped early; a reached
+  step's status stays; language markers sit only on lines that name the language; a side
+  step never taken shows "Not needed".
+- A new trial account's first campaign now gets its opening line, one step per task in the
+  owner's description, the owner's facts and "never" rules as quick facts, and the owner's
+  calling hours.
+- The follow-up questions after "About your business" are read from what the owner wrote and
+  skip what it already says.
+- "About your business" no longer takes in a suggested brief that arrives while typing.
+- "Meet your agent": the job is ticked from the owner's description; "It says first" shows
+  the real opening or says there is none; the voice note no longer contradicts the list.
+- Campaign page: "Show me" takes you to the line that needs fixing; one count of checks;
+  "Set to 3" instead of "You set 3".
+- When phone test calls cannot ring yet, every screen says why and offers typing to the
+  agent instead.
+- Redesign plan and colour options written for the founder's decision.
+
 ## 0.5.97 — 28-Nov-2026
 
 - Every agent with steps now asks what the caller sees before calling a step done, and when

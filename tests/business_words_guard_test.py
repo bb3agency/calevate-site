@@ -89,6 +89,11 @@ _INDIC = (
 
 #: {file: (strings with Indian-language letters, why)}.
 INDIC_ALLOWED: dict[str, tuple[int, str]] = {
+    "apps/workers/step_writer.py": (
+        1,
+        "a detector: the particle seen doubled in a production draft, collapsed to one (27 Nov "
+        "2026); never spoken, needs native review",
+    ),
     "packages/shared/src/calevate_shared/languages.py": (
         17,
         "each language's name in its own script (endonyms), reference data",

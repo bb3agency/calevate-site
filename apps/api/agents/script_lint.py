@@ -1535,7 +1535,7 @@ _MESSAGE_US: Final = re.compile(
     re.IGNORECASE,
 )
 _CALL_US: Final = re.compile(
-    r"\b(?:call|phone|ring)\s+(?:us|the\s+(?:team|office|shop|clinic|store|helpline))\b"
+    r"\b(?:call|phone|ring)\s+(?:us|the\s+(?:team|office|shop|store|helpline))\b"
     r"|\bgive\s+us\s+a\s+(?:call|ring)\b"
     r"|\bcall\s+(?:on\s+)?(?:this|our)\s+number\b",
     re.IGNORECASE,
