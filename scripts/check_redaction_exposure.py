@@ -281,6 +281,15 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "memory left empty (`agents/prompt_anatomy`), never transcript text; admin realm "
         "only, each read audited"
     ),
+    **{
+        f"{model}.text": (
+            "what a caller hears first on one of the business's works (W1.3): its script's "
+            "opening line, written by the owner or by Pip from the owner's words, with the "
+            "agent's AI and recording notices, composed by `compose_first_utterance`; no call, "
+            "transcript or caller data is read; `org:manage` (tests/first_words_audio_test.py)"
+        )
+        for model in ("FirstWordsOut", "FirstWordsPartOut")
+    },
     "ExampleLine.text": (
         "a line of SAMPLE dialogue in the agent's script (`CallScript.example_exchange`, "
         "D-714): typed by the owner, seeded from the `calevate_shared.spoken_style` table, "

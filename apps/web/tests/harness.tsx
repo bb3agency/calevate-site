@@ -406,6 +406,12 @@ export function stubApi(routes: Routes): ApiCall[] {
         // WHERE A TEST CALL RINGS FROM (D-1020), answered "our test number" by default: every
         // test-call form reads it. A test about the account's own number names the route.
         if (scoped.startsWith("GET /v1/trial/rings-from?")) return jsonResponse({ own_number: null });
+        // WHETHER A SIGNUP'S WEB ADDRESS IS FREE (W1.8), answered "free" by default: the signup
+        // form asks once typing pauses. A test about a taken address names the route itself.
+        if (scoped === "POST /v1/auth/signup/slug-availability") {
+          const asked = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as { slug?: string };
+          return jsonResponse({ slug: asked.slug ?? "", available: true, reason: null, message: null, suggestion: null });
+        }
         // THE PROMO CHECK AT PUT-LIVE (D-943), answered "clear" by default: every put-live
         // dialog reads it. A test about the warning names the route itself.
         // And the campaign's call type, answered "not said yet" (rendered as nothing).
@@ -442,6 +448,12 @@ export function stubApi(routes: Routes): ApiCall[] {
         // route itself.
         if (/^GET \/v1\/agents\/[^/]+\/caller-help$/.test(scoped)) {
           return jsonResponse(NO_CALLER_HELP);
+        }
+        // A WORK'S FIRST WORDS (W1.3), answered "nothing to hear yet" by default: Hear it and
+        // every test-call fold read them, and with nothing playable they show nothing. A test
+        // about hearing them names the route itself.
+        if (/^GET \/v1\/agents\/[^/]+\/first-words\?/.test(scoped)) {
+          return jsonResponse(NOTHING_TO_HEAR);
         }
         // THE CAMPAIGN LIMITS the console sets, answered with their defaults: every campaign
         // form reads them. A test about a raised limit names the route itself.
@@ -574,6 +586,16 @@ export const NO_CALLER_HELP = {
   screen_guide: NOT_SUGGESTED,
   give_time: NOT_SUGGESTED,
   checked_at: null,
+};
+
+/** A work's first words before its script is written (W1.3). See `stubApi`. */
+export const NOTHING_TO_HEAR = {
+  text: null,
+  language: "te-IN",
+  playable: false,
+  unavailable_rule: "first_words_not_written",
+  unavailable_reason: "It has nothing to say yet. Its script is still being written.",
+  parts: [],
 };
 
 /** `GET /v1/business-copy` before the first copy lands. See the fallback in `stubApi`. */

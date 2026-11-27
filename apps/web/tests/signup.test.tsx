@@ -411,3 +411,58 @@ describe("the kind of business", () => {
     expect(calls.some((c) => c.method === "POST" && c.path.includes("signup"))).toBe(false);
   });
 });
+
+describe("a web address someone else holds (W1.8)", () => {
+  const AVAILABILITY = "POST /v1/auth/signup/slug-availability";
+  const takenUnless = (free: string) => (call: ApiCall) => {
+    const { slug } = JSON.parse(call.body ?? "{}") as { slug: string };
+    return slug === free
+      ? { slug, available: true, reason: null, message: null, suggestion: null }
+      : { slug, available: false, reason: "taken", message: "Taken. Choose another web address.", suggestion: free };
+  };
+
+  it("fills in a free one in place of the one we would make, and says so", async () => {
+    const calls = stubApi({ [AVAILABILITY]: takenUnless("rytu-khata-2") });
+    await mount();
+    fireEvent.change(screen.getByLabelText("Business name"), { target: { value: "Rytu Khata" } });
+    expect(await screen.findByText("/c/rytu-khata is taken, so yours is this one.", {}, { timeout: 3000 })).toBeTruthy();
+    expect(pageText()).toContain("/c/rytu-khata-2");
+    expect(await screen.findByText("Free", {}, { timeout: 3000 })).toBeTruthy();
+    // Asked in the body, never the URL (hard rule 6).
+    for (const made of calls) expect(made.url).not.toContain("rytu");
+  });
+
+  it("offers the free one for an address typed, and sends nothing while it is taken", async () => {
+    const calls = stubApi({ [AVAILABILITY]: takenUnless("sri-sai-dental-2"), [SIGNUP]: CREATED });
+    await mount();
+    fill();
+    expect(await screen.findByText("Taken. Try sri-sai-dental-2.", {}, { timeout: 3000 })).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Create workspace" }));
+    });
+    expect(calls.some((c) => c.path === SIGNUP)).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Use sri-sai-dental-2" }));
+    expect((screen.getByLabelText("Your web address") as HTMLInputElement).value).toBe("sri-sai-dental-2");
+    expect(await screen.findByText("Free", {}, { timeout: 3000 })).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Create workspace" }));
+    });
+    const sent = calls.find((c) => c.path === SIGNUP);
+    expect(JSON.parse(sent?.body ?? "{}").slug).toBe("sri-sai-dental-2");
+  });
+
+  it("says why a reserved address cannot be had", async () => {
+    stubApi({
+      [AVAILABILITY]: {
+        slug: "dashboard",
+        available: false,
+        reason: "reserved",
+        message: "Reserved. Choose another web address.",
+        suggestion: null,
+      },
+    });
+    await mount();
+    fireEvent.change(screen.getByLabelText("Business name"), { target: { value: "Dashboard" } });
+    expect(await screen.findByText("Reserved. Choose another web address.", {}, { timeout: 3000 })).toBeTruthy();
+  });
+});

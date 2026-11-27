@@ -783,6 +783,9 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PATCH", "/v1/agents/{agent_id}/voice-tuning", {"speed": 1.1}, {}),
     ("POST", "/v1/agents/{agent_id}/voice-tuning/preview", {"speed": 1.1}, {}),
     ("POST", "/v1/agents/{agent_id}/voice-tuning/preview-line", {"text": "Namaste."}, {}),
+    # W1.3. A neighbour's line's first words, and a sample spoken on our key.
+    ("GET", "/v1/agents/{agent_id}/first-words", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/first-words", {"line_id": "{line_id}"}, {}),
     ("GET", "/v1/agents/{agent_id}/voice-notes", {}, {}),
     ("POST", "/v1/agents/{agent_id}/voice-notes", {"note": "Speak slowly."}, {}),
     ("POST", "/v1/agents/{agent_id}/voice-notes/{note_id}/retire", {}, {}),

@@ -29699,6 +29699,128 @@
         "title": "FirstRunOut",
         "type": "object"
       },
+      "FirstWordsIn": {
+        "additionalProperties": false,
+        "description": "Which of the agent's works: its inbound line or its campaign.",
+        "properties": {
+          "campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Id"
+          }
+        },
+        "title": "FirstWordsIn",
+        "type": "object"
+      },
+      "FirstWordsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "language": {
+            "title": "Language",
+            "type": "string"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/FirstWordsPartOut"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "playable": {
+            "title": "Playable",
+            "type": "boolean"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
+          "unavailable_rule": {
+            "anyOf": [
+              {
+                "enum": [
+                  "first_words_needs_studio_voice",
+                  "first_words_not_written"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Rule"
+          }
+        },
+        "required": [
+          "text",
+          "language",
+          "playable",
+          "unavailable_rule",
+          "unavailable_reason"
+        ],
+        "title": "FirstWordsOut",
+        "type": "object"
+      },
+      "FirstWordsPartOut": {
+        "additionalProperties": false,
+        "properties": {
+          "audio": {
+            "title": "Audio",
+            "type": "string"
+          },
+          "content_type": {
+            "title": "Content Type",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "content_type",
+          "audio"
+        ],
+        "title": "FirstWordsPartOut",
+        "type": "object"
+      },
       "FixHolderOut": {
         "additionalProperties": false,
         "description": "Where a fix's draft waits: an Inbound line or a campaign, by id and name.",
@@ -58201,6 +58323,80 @@
         "title": "SlowCall",
         "type": "object"
       },
+      "SlugAvailabilityIn": {
+        "additionalProperties": false,
+        "properties": {
+          "slug": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Slug",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug"
+        ],
+        "title": "SlugAvailabilityIn",
+        "type": "object"
+      },
+      "SlugAvailabilityOut": {
+        "additionalProperties": false,
+        "description": "Whether a web address could be taken now. Says taken or free and nothing about who\nholds it; a free alternative comes with a taken one.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "invalid",
+                  "reserved",
+                  "taken"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "suggestion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestion"
+          }
+        },
+        "required": [
+          "slug",
+          "available"
+        ],
+        "title": "SlugAvailabilityOut",
+        "type": "object"
+      },
       "SourceOut": {
         "additionalProperties": false,
         "properties": {
@@ -86013,6 +86209,130 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/agents/{agent_id}/first-words": {
+      "get": {
+        "description": "The first words of the agent's inbound line or campaign (send one of `line_id`, `campaign_id`), composed as its calls compose them: the opening with the notices it carries, whole. Speaks nothing and counts nothing, so a screen offers the play button only where a press can play. A Clear voice answers `playable: false` with `first_words_needs_studio_voice`; a work with no script yet, `first_words_not_written`.",
+        "operationId": "read_first_words_v1_agents__agent_id__first_words_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "campaign_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Campaign Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirstWordsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What callers hear first on one of this agent's works, and whether it can be heard",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      },
+      "post": {
+        "description": "The words `GET` reads, with the audio in the agent's Studio voice and its saved settings: one part per 200 characters at most, cut between sentences, to be played in order. Counts as one sample against the 20 a day the voice samples share, only when something new is spoken. A Clear voice answers `playable: false` with `first_words_needs_studio_voice`; a work with no script yet, `first_words_not_written`.",
+        "operationId": "hear_first_words_v1_agents__agent_id__first_words_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FirstWordsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirstWordsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Hear what callers hear first on one of this agent's works, without a call",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/agents/{agent_id}/handoff": {
       "get": {
         "operationId": "get_handoff_v1_agents__agent_id__handoff_get",
@@ -89591,6 +89911,44 @@
           }
         },
         "summary": "Create a self-serve tenant for the signed-in user (D-34, FLOWS \u00a72)",
+        "tags": [
+          "signup"
+        ]
+      }
+    },
+    "/v1/auth/signup/slug-availability": {
+      "post": {
+        "description": "For the signup form, as the address is typed: free, or taken / reserved / not a valid address, with the sentence to show and, for a taken one, a free address like it. Asked by a signed-in person with no workspace yet, rate-limited as sign-in is. A free answer is not a hold: `POST /v1/auth/signup` checks again and is the authority.",
+        "operationId": "slug_availability_v1_auth_signup_slug_availability_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlugAvailabilityIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlugAvailabilityOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether a workspace web address is free, before signing up",
         "tags": [
           "signup"
         ]

@@ -469,6 +469,9 @@ export const STATIC_FAMILIES: Record<string, string> = {
   "admin/ops/engine-health": "the voice platform's health, polled by the operations screen",
   public: "the public status page, read by people with no session to stream to",
   "voice-preview": "a rendered audio sample; it is fetched once when asked for",
+  "first-words":
+    "what a work says first; its key carries the work's current opening, so a new script is read again",
+  signup: "whether a web address is free, asked before the asker has an account to stream to",
   "integration-options": "the fixed list of services an account can connect",
   "call-retention": "the account's retention periods, set from the admin console, not announced",
   "agent-languages":

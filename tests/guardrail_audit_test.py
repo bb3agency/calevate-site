@@ -1178,6 +1178,10 @@ class TestRedactionExposure:
             "KnownFactOut.text",
             "TeachItemIO.text",
             "ExampleLine.text",
+            # W1.3: what a caller hears first on a work, the business's opening and our
+            # notices, composed from the script; no call is read.
+            "FirstWordsOut.text",
+            "FirstWordsPartOut.text",
             # A call instruction read out of a document the business uploaded.
             "CallInstructionOut.text",
             # D-744: the platform's spoken-style table under review, platform words.

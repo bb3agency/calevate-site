@@ -19,6 +19,8 @@ vi.mock("@/lib/api/phoneService", async (original) => ({
   usePhoneServiceDown: () => false,
   useRefreshPhoneService: () => () => undefined,
 }));
+// Hearing the first words is its own subject (firstAgent.test.tsx) and reads through a query.
+vi.mock("@/app/c/[slug]/agents/first/FirstWordsPlayer", () => ({ FirstWordsPlayer: () => null }));
 /** What `GET /v1/trial/rings-from` answered; undefined while it has not. */
 const ringsFrom = vi.hoisted(() => ({
   ownNumber: undefined as string | null | undefined,
@@ -199,6 +201,9 @@ describe("where a test call rings from (D-1020)", () => {
     formWith(null, { ownNumber: null, rest: { unavailable: why } });
     expect(screen.getByText(why).getAttribute("role")).toBe("status");
     expect(screen.queryByText(/It rings from/)).toBeNull();
+    // W1.7: a press the server would refuse whatever is typed is not offered.
+    fireEvent.change(screen.getByRole("textbox", { name: /number/i }), { target: { value: "9876543210" } });
+    expect((screen.getByRole("button", { name: /Call me/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("says nothing about the number until the server has said", () => {

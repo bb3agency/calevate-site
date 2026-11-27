@@ -4526,6 +4526,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/first-words": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What callers hear first on one of this agent's works, and whether it can be heard
+         * @description The first words of the agent's inbound line or campaign (send one of `line_id`, `campaign_id`), composed as its calls compose them: the opening with the notices it carries, whole. Speaks nothing and counts nothing, so a screen offers the play button only where a press can play. A Clear voice answers `playable: false` with `first_words_needs_studio_voice`; a work with no script yet, `first_words_not_written`.
+         */
+        get: operations["read_first_words_v1_agents__agent_id__first_words_get"];
+        put?: never;
+        /**
+         * Hear what callers hear first on one of this agent's works, without a call
+         * @description The words `GET` reads, with the audio in the agent's Studio voice and its saved settings: one part per 200 characters at most, cut between sentences, to be played in order. Counts as one sample against the 20 a day the voice samples share, only when something new is spoken. A Clear voice answers `playable: false` with `first_words_needs_studio_voice`; a work with no script yet, `first_words_not_written`.
+         */
+        post: operations["hear_first_words_v1_agents__agent_id__first_words_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/handoff": {
         parameters: {
             query?: never;
@@ -6041,6 +6065,26 @@ export interface paths {
          * @description The caller holds a first-party session and no organization yet. Creates the organization and its retention policies, makes the caller its owner and starts the free trial (test calls only until the first payment). No agent is made: the owner makes the first one (D-853).
          */
         post: operations["signup_v1_auth_signup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/signup/slug-availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Whether a workspace web address is free, before signing up
+         * @description For the signup form, as the address is typed: free, or taken / reserved / not a valid address, with the sentence to show and, for a taken one, a free address like it. Asked by a signed-in person with no workspace yet, rate-limited as sign-in is. A free answer is not a hold: `POST /v1/auth/signup` checks again and is the authority.
+         */
+        post: operations["slug_availability_v1_auth_signup_slug_availability_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -26392,6 +26436,40 @@ export interface components {
             recordings_left: number;
         };
         /**
+         * FirstWordsIn
+         * @description Which of the agent's works: its inbound line or its campaign.
+         */
+        FirstWordsIn: {
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /** Line Id */
+            line_id?: string | null;
+        };
+        /** FirstWordsOut */
+        FirstWordsOut: {
+            /** Language */
+            language: string;
+            /** Parts */
+            parts?: components["schemas"]["FirstWordsPartOut"][];
+            /** Playable */
+            playable: boolean;
+            /** Text */
+            text: string | null;
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
+            /** Unavailable Rule */
+            unavailable_rule: ("first_words_needs_studio_voice" | "first_words_not_written") | null;
+        };
+        /** FirstWordsPartOut */
+        FirstWordsPartOut: {
+            /** Audio */
+            audio: string;
+            /** Content Type */
+            content_type: string;
+            /** Text */
+            text: string;
+        };
+        /**
          * FixHolderOut
          * @description Where a fix's draft waits: an Inbound line or a campaign, by id and name.
          */
@@ -36702,6 +36780,28 @@ export interface components {
              * @enum {string}
              */
             voice_tier: "clear" | "studio" | "not_metered";
+        };
+        /** SlugAvailabilityIn */
+        SlugAvailabilityIn: {
+            /** Slug */
+            slug: string;
+        };
+        /**
+         * SlugAvailabilityOut
+         * @description Whether a web address could be taken now. Says taken or free and nothing about who
+         *     holds it; a free alternative comes with a taken one.
+         */
+        SlugAvailabilityOut: {
+            /** Available */
+            available: boolean;
+            /** Message */
+            message?: string | null;
+            /** Reason */
+            reason?: ("invalid" | "reserved" | "taken") | null;
+            /** Slug */
+            slug: string;
+            /** Suggestion */
+            suggestion?: string | null;
         };
         /** SourceOut */
         SourceOut: {
@@ -50453,6 +50553,75 @@ export interface operations {
             };
         };
     };
+    read_first_words_v1_agents__agent_id__first_words_get: {
+        parameters: {
+            query?: {
+                line_id?: string | null;
+                campaign_id?: string | null;
+            };
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstWordsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    hear_first_words_v1_agents__agent_id__first_words_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FirstWordsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstWordsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_handoff_v1_agents__agent_id__handoff_get: {
         parameters: {
             query?: never;
@@ -53053,6 +53222,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SignupOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    slug_availability_v1_auth_signup_slug_availability_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SlugAvailabilityIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SlugAvailabilityOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

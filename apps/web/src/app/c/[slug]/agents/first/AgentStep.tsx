@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowRight } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -10,6 +11,8 @@ import { FIELD, ProblemNotice } from "@/components/ui";
 import { defaultExtraLanguages } from "@/lib/agentState";
 import { useAgentLanguages } from "@/lib/api/agentLanguages";
 import type { Agent } from "@/lib/api/agents";
+import { workspaceKey } from "@/lib/api/campaignWorkspace";
+import { inboundLineKeys } from "@/lib/api/inboundLines";
 import { useSaveFirstAgent, useStartFirstWork, type FirstRun } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
 import {
@@ -35,7 +38,8 @@ import { AGENT_NAME_MAX_CHARS } from "@/lib/textLimits";
  * The name starts as the default agent's (`run.default_agent`, set in the admin console).
  * Pressing the step's button makes the agent with the default voice for its language; the
  * voice picker then shows that voice chosen, with the others to play and pick. A name or
- * language changed later is saved by the same button before the next step.
+ * language changed later is saved by the same button before the next step; a new main
+ * language has the work's script written again in it, unless the owner wrote it.
  *
  * The job picked on the first card is posted here, right after `PUT /v1/first-run/agent`
  * makes the agent (the first moment the server takes it), so Pip writes what it says while
@@ -61,6 +65,7 @@ export function AgentStep({
   onDone: (next: "hear" | "work") => void;
 }) {
   const session = useClientSession();
+  const queries = useQueryClient();
   const save = useSaveFirstAgent(session);
   // The server's list for this account (D-855): a staged language switched on for it is a
   // tile here like the three every account has. The parent renders this step once it is in.
@@ -117,6 +122,16 @@ export function AgentStep({
       {
         onSuccess: () => {
           if (agent !== null) {
+            // A new main language has Pip write the work again (`first_run.work.save_agent`):
+            // read it again, so Hear it follows the rewrite rather than the old words.
+            if (work !== null && primary !== agent.language_primary) {
+              void queries.invalidateQueries({
+                queryKey:
+                  work.kind === "line"
+                    ? inboundLineKeys.one(session.orgSlug, work.id)
+                    : workspaceKey(session.orgSlug, work.id),
+              });
+            }
             finish();
             return;
           }

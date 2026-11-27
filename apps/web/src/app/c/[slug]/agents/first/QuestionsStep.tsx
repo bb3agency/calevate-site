@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { ArrowRight, Clock, MapPin, Plus, RotateCw, SkipForward, Sparkles, X } from "lucide-react";
 
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
@@ -151,14 +151,15 @@ export function QuestionsStep({
 
   const last = at === questions.length - 1;
   const current = answers[question.id] ?? emptyAnswer(question.id);
-  const next = (keep: boolean) => {
+  /** `answered`: the answer a tap just gave, which this render's `current` does not hold yet. */
+  const next = (keep: boolean, answered: DraftAnswer = current) => {
     const nextKept = new Set(kept);
     if (keep) nextKept.add(question.id);
     else nextKept.delete(question.id);
     setKept(nextKept);
     // What is on screen is the answer, including the defaults shown and never touched (the
     // usual open hours), so a kept question keeps its draft even if nothing was typed.
-    const drafts = keep ? { ...answers, [question.id]: current } : answers;
+    const drafts = keep ? { ...answers, [question.id]: answered } : answers;
     setAnswers(drafts);
     if (last) go(nextKept, drafts);
     else setAt(at + 1);
@@ -220,6 +221,10 @@ export function QuestionsStep({
         question={question}
         answer={current}
         onChange={(changed) => setAnswers((all) => ({ ...all, [question.id]: changed }))}
+        onPicked={(changed) => {
+          setPressed("next");
+          next(true, changed);
+        }}
       />
       {run.questions.disclosure ? <p className="text-meta text-ink-faint">{run.questions.disclosure}</p> : null}
       <Errors errors={[answer.error]} />
@@ -257,15 +262,18 @@ export function QuestionAnswer({
   question,
   answer,
   onChange,
+  onPicked,
 }: {
   question: FirstRunQuestion;
   answer: DraftAnswer;
   onChange: (answer: DraftAnswer) => void;
+  /** A pick-one question answered by a tap: the screen moves on (W1.9). */
+  onPicked?: (answer: DraftAnswer) => void;
 }) {
   switch (question.kind) {
     case "choices":
     case "single_choice":
-      return <ChoicesAnswer question={question} answer={answer} onChange={onChange} />;
+      return <ChoicesAnswer question={question} answer={answer} onChange={onChange} onPicked={onPicked} />;
     case "address":
       return <AddressAnswer answer={answer} onChange={onChange} />;
     case "services":
@@ -277,23 +285,52 @@ export function QuestionAnswer({
   }
 }
 
+/** How long a tapped choice shows as chosen before the next question, so the tap is seen. */
+export const PICKED_HOLD_MS = 220;
+/** A change this soon after a pointer went down on the choices is that pointer's tap. */
+const TAP_WINDOW_MS = 1000;
+
+/**
+ * A choice question. A pick-one question answered by a TAP moves on by itself (W1.9): the
+ * choice shows as picked for a moment, then the next question opens with focus on its
+ * heading. A choice made from the keyboard does not move on: arrow keys move a radio group's
+ * choice as they go, so moving on at each would leave before the person reached their answer;
+ * Enter (the step's Next) answers it, as before. A pick-all-that-fit question never moves on
+ * by itself, since nothing tells the last tick from the next.
+ */
 function ChoicesAnswer({
   question,
   answer,
   onChange,
+  onPicked,
 }: {
   question: FirstRunQuestion;
   answer: DraftAnswer;
   onChange: (answer: DraftAnswer) => void;
+  onPicked?: (answer: DraftAnswer) => void;
 }) {
   const single = question.kind === "single_choice";
+  // When a pointer last went down on the choices: a change right after it was a tap.
+  const pressedAt = useRef(0);
+  const hold = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (hold.current !== null) window.clearTimeout(hold.current);
+    },
+    [],
+  );
   return (
     <fieldset>
       <legend className="sr-only">{question.prompt}</legend>
       {question.hint.trim() === "" ? (
         <p className="mb-2.5 text-meta text-ink-muted">{single ? "Pick one." : "Pick all that fit."}</p>
       ) : null}
-      <div className="flex flex-wrap gap-2">
+      <div
+        className="flex flex-wrap gap-2"
+        onPointerDown={() => {
+          pressedAt.current = Date.now();
+        }}
+      >
         {question.options.map((option) => (
           <ChipChoice
             key={option}
@@ -301,16 +338,23 @@ function ChoicesAnswer({
             name={question.id}
             value={option}
             checked={answer.choices.includes(option)}
-            onChange={(on) =>
-              onChange({
+            onChange={(on) => {
+              const changed = {
                 ...answer,
                 choices: single
                   ? [option]
                   : on
                     ? [...answer.choices, option]
                     : answer.choices.filter((chosen) => chosen !== option),
-              })
-            }
+              };
+              onChange(changed);
+              const tapped = Date.now() - pressedAt.current < TAP_WINDOW_MS;
+              if (single && tapped && onPicked) {
+                if (hold.current !== null) window.clearTimeout(hold.current);
+                hold.current = window.setTimeout(() => onPicked(changed), PICKED_HOLD_MS);
+              }
+              pressedAt.current = 0;
+            }}
           >
             {option}
           </ChipChoice>

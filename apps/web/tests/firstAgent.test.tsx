@@ -1396,3 +1396,173 @@ describe("a failed read of the agent's last call (frontend audit 8 Nov 2026, W1)
     expect(screen.queryByText("Pip is writing what it says…")).toBeNull();
   }, 15000);
 });
+
+describe("Wave A lane A3: hear it, one agreements tick, questions by tap", () => {
+  const PRIVACY = {
+    ...READINESS.documents[0],
+    slug: "privacy",
+    title: "Privacy Policy",
+    version: "2026-10-02",
+    headline: "What we keep about your callers, and for how long.",
+    href: "/legal/privacy",
+  };
+  const TWO_DOCS = { ...READINESS, documents: [READINESS.documents[0], PRIVACY], outstanding_documents: 2 };
+  const HEAR_PATH = `/v1/agents/${AGENT_ID}/first-words`;
+  const WORDS =
+    "Namaskaram, Madhav Homes. Nenu Anjali, AI assistant ni. Meeku ela help cheyagalanu? Ee call record avutundi.";
+  const PARTS = [
+    { text: "Namaskaram, Madhav Homes. Nenu Anjali, AI assistant ni.", content_type: "audio/mpeg", audio: btoa("a") },
+    { text: "Meeku ela help cheyagalanu? Ee call record avutundi.", content_type: "audio/mpeg", audio: btoa("b") },
+  ];
+  const HEARD = {
+    text: WORDS,
+    language: "te-IN",
+    playable: true,
+    unavailable_rule: null,
+    unavailable_reason: null,
+    parts: [],
+  };
+
+  function hearRoutes(over: Record<string, unknown> = {}) {
+    return routes({
+      "/v1/first-run": built(),
+      "/v1/agents": [agent()],
+      [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+      "/v1/trial": TRIAL,
+      "/v1/legal/readiness": TWO_DOCS,
+      "/v1/compliance/outbound-pledge": PLEDGE,
+      ...over,
+    });
+  }
+
+  it("asks for the agreements in one tick, each opening in place, and still records each one", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      hearRoutes({
+        "POST /v1/legal/acceptances": { ...READINESS, documents: [], outstanding_documents: 0 },
+        "POST /v1/compliance/outbound-pledge": { ...PLEDGE, is_current: true },
+        [`POST /v1/inbound-lines/${LINE_ID}/test-call`]: { status: "queued", blocked_reason: null, blocked_rule: null, call_id: null },
+      }),
+    );
+    const call = await screen.findByRole("button", { name: /Call me now/ });
+    const agree = await screen.findByRole("checkbox", { name: "I accept the Terms of Service and the Privacy Policy" });
+    // One tick for both documents; the pledge and "this number is mine" keep their own.
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+    const privacy = screen.getByRole("button", { name: "Privacy Policy" });
+    expect(privacy.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(privacy);
+    expect(privacy.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText(PRIVACY.headline)).toBeTruthy();
+    const full = screen.getByRole("link", { name: /Read the Privacy Policy in full/ });
+    expect(full.getAttribute("href")).toBe("/legal/privacy");
+    // Opening a document is not ticking the box.
+    expect((agree as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Your mobile number" }), { target: { value: "98765 43210" } });
+    fireEvent.click(agree);
+    fireEvent.click(screen.getByRole("checkbox", { name: /no-cold-calls pledge/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /This number is my own/ }));
+    fireEvent.click(call);
+    expect(await screen.findByText("Dialling your phone")).toBeTruthy();
+    const accepted = calls
+      .filter((entry) => entry.method === "POST" && entry.path === "/v1/legal/acceptances")
+      .map((entry) => JSON.parse(entry.body ?? "{}"));
+    // One acceptance per document and version, against the statement the server sent.
+    expect(accepted).toEqual([
+      { slug: "terms", version: "2026-10-01", statement_version: "s1" },
+      { slug: "privacy", version: "2026-10-02", statement_version: "s1" },
+    ]);
+  });
+
+  it("plays its first words in the page, part after part, with the words it is saying", async () => {
+    const play = vi.fn(() => Promise.resolve());
+    Object.defineProperty(HTMLMediaElement.prototype, "play", { configurable: true, value: play });
+    Object.defineProperty(HTMLMediaElement.prototype, "pause", { configurable: true, value: vi.fn() });
+    let made = 0;
+    Object.assign(URL, { createObjectURL: vi.fn(() => `blob:part-${made++}`), revokeObjectURL: vi.fn() });
+    const { calls, container } = await renderClientPage(
+      page,
+      hearRoutes({
+        [`${HEAR_PATH}?line_id=${LINE_ID}`]: HEARD,
+        [`POST ${HEAR_PATH}`]: { ...HEARD, parts: PARTS },
+      }),
+    );
+    const hear = await screen.findByRole("button", { name: "Hear its first words" });
+    expect(screen.getByText("No call, no minutes.")).toBeTruthy();
+    // Nothing is spoken until it is pressed.
+    expect(calls.some((entry) => entry.method === "POST" && entry.path === HEAR_PATH)).toBe(false);
+    fireEvent.click(hear);
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1));
+    const posted = calls.find((entry) => entry.method === "POST" && entry.path === HEAR_PATH);
+    expect(JSON.parse(posted?.body ?? "{}")).toEqual({ line_id: LINE_ID });
+    const audio = container.querySelector("audio") as HTMLAudioElement;
+    expect(audio.src).toBe("blob:part-0");
+    act(() => {
+      fireEvent.play(audio);
+    });
+    // The words being spoken, whole: the transcript is the server's text.
+    expect(screen.getByText(PARTS[0]!.text).className).toContain("text-ink");
+    expect(screen.getByText(PARTS[1]!.text).className).toContain("text-ink-muted");
+    act(() => {
+      fireEvent.ended(audio);
+    });
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(2));
+    expect(audio.src).toBe("blob:part-1");
+    act(() => {
+      fireEvent.pause(audio);
+      fireEvent.ended(audio);
+    });
+    expect(await screen.findByRole("button", { name: "Hear its first words" })).toBeTruthy();
+    expect(screen.getByText("Hear it again")).toBeTruthy();
+  });
+
+  it("says why a Clear voice cannot be heard here, and offers no button that cannot play", async () => {
+    await renderClientPage(
+      page,
+      hearRoutes({
+        [`${HEAR_PATH}?line_id=${LINE_ID}`]: {
+          ...HEARD,
+          playable: false,
+          unavailable_rule: "first_words_needs_studio_voice",
+          unavailable_reason: "Hearing it here works with Studio voices. With this voice, ring your phone or type to it.",
+        },
+      }),
+    );
+    expect(
+      await screen.findByText("Hearing it here works with Studio voices. With this voice, ring your phone or type to it."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Hear its first words" })).toBeNull();
+  });
+
+  it("moves on when a pick-one choice is tapped, and back finds the answer kept", async () => {
+    const asked = run({
+      jobs: ["answer_calls"],
+      language_primary: "te-IN",
+      brief: "We sell flats in Kondapur.",
+      questions: {
+        status: "ready",
+        items: [
+          { id: "q1", kind: "single_choice", prompt: "Do you sell or rent?", hint: "", options: ["Sell", "Rent"], maps_to: null },
+          { id: "q2", kind: "text", prompt: "What should every caller know?", hint: "", options: [], maps_to: null },
+        ],
+        disclosure: null,
+      },
+    });
+    await renderClientPage(page, routes({ "/v1/first-run": asked }));
+    expect(await screen.findByRole("heading", { name: "Do you sell or rent?" })).toBeTruthy();
+    const rent = screen.getByRole("radio", { name: "Rent" });
+    // From the keyboard a choice is only chosen: arrow keys move through a radio group.
+    fireEvent.click(rent);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(screen.getByRole("heading", { name: "Do you sell or rent?" })).toBeTruthy();
+    // A tap answers and moves on, focus on the new question.
+    const sell = screen.getByRole("radio", { name: "Sell" });
+    fireEvent.pointerDown(sell);
+    fireEvent.click(sell);
+    const next = await screen.findByRole("heading", { name: "What should every caller know?" });
+    expect(document.activeElement).toBe(next);
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByRole("heading", { name: "Do you sell or rent?" })).toBeTruthy();
+    expect((screen.getByRole("radio", { name: "Sell" }) as HTMLInputElement).checked).toBe(true);
+  });
+});

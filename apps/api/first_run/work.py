@@ -23,7 +23,7 @@ again (`service.due_for`), so nothing here touches their account.
 from __future__ import annotations
 
 import json
-from typing import Any, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript
@@ -40,6 +40,9 @@ from apps.api.first_run.names import identity_with_name
 from apps.api.first_run.service import RunState, ensure_run, live_work_ids, read_state
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.business_copy import queue_generation
+
+if TYPE_CHECKING:
+    from apps.api.campaigns.script_history import HolderKind
 
 log = get_logger(__name__)
 
@@ -179,9 +182,10 @@ async def save_agent(
         assert row.agent_id is not None
         before = (
             await session.execute(
-                text("SELECT name FROM agents WHERE id = :aid"), {"aid": row.agent_id}
+                text("SELECT name, language_primary FROM agents WHERE id = :aid"),
+                {"aid": row.agent_id},
             )
-        ).scalar_one()
+        ).one()
         await update_agent(
             session,
             tenant_id=tenant_id,
@@ -197,9 +201,165 @@ async def save_agent(
             ),
             {"lang": language_primary, "extra": extra, "id": row.id},
         )
-        if clean != before:
+        if clean != before.name:
             await _rename_in_work(session, row=row, name=clean)
+        if language_primary != before.language_primary:
+            await _rewrite_in_language(
+                session,
+                tenant_id=tenant_id,
+                row=row,
+                language=language_primary,
+                user_id=user_id,
+                may_spend_ai=may_spend_ai,
+            )
     return await read_state(session, tenant_id=tenant_id)
+
+
+#: Whether the owner ever touched a holder's script, and whether the first run's ready-made
+#: script was saved to it. One literal statement per holder table.
+_HISTORY_SQL: Final[dict[str, str]] = {
+    "line": (
+        "SELECT coalesce(bool_or(owner_made OR author = ANY(:owner)), false) AS touched, "
+        "coalesce(bool_or(reason = :ready), false) AS ready_made "
+        "FROM script_versions WHERE inbound_line_id = :h"
+    ),
+    "campaign": (
+        "SELECT coalesce(bool_or(owner_made OR author = ANY(:owner)), false) AS touched, "
+        "coalesce(bool_or(reason = :ready), false) AS ready_made "
+        "FROM script_versions WHERE campaign_id = :h"
+    ),
+}
+#: The owner's own acts on a script (`campaigns/script_history._OWNER_ACTIONS`).
+_OWNER_ACTS: Final = ("owner", "restored", "copied")
+
+
+async def _rewrite_in_language(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    row: Any,
+    language: str,
+    user_id: UUID | None,
+    may_spend_ai: bool,
+) -> None:
+    """The run's line and campaign speak the agent's new main language. The job is posted
+    as soon as the agent is made, so its script is usually written (or being written) in the
+    language the owner first picked; changing it on Name and voice afterwards used to leave
+    that script in the old language.
+
+    Per holder, by who wrote what it holds:
+    * a first draft still being written is stopped and asked again, because a job already
+      running read the old language (the writer reads its context when it runs, D-1031);
+    * a script Pip wrote and the owner never touched is rewritten whole, as the rules
+      rewrite is (`ask.rewrite`, `workers/campaign_script._save_if_rewrite`), which saves
+      it only while it is still the one it was written from;
+    * the ready-made script, saved when Pip could not write, is saved again in the new
+      language;
+    * a script the owner edited is theirs, and is left in their words."""
+    from apps.api.campaigns import workspace
+    from apps.api.campaigns.script_history import pip_owns
+    from apps.api.inbound import lines
+
+    pip_writes = may_spend_ai and await _within_ai_allowance(session, tenant_id)
+    line_id, campaign_id = await live_work_ids(session, row)
+    holders: tuple[tuple[HolderKind, UUID | None], ...] = (
+        ("line", line_id),
+        ("campaign", campaign_id),
+    )
+    for kind, holder_id in holders:
+        if holder_id is None:
+            continue
+        if kind == "line":
+            line = await lines.read_line(session, holder_id)
+            script, proposal = line.script, line.proposal
+        else:
+            space = await workspace.read_workspace(session, holder_id)
+            script, proposal = space.script, space.proposal
+        drafting = proposal is not None and proposal.status == "drafting"
+        try:
+            async with session.begin_nested():
+                if script is None:
+                    if drafting and pip_writes:
+                        assert proposal is not None
+                        if kind == "line":
+                            await lines.clear_proposal(session, holder_id, proposal.id)
+                        else:
+                            await workspace.clear_proposal(session, holder_id, proposal.id)
+                        await _ask_pip(
+                            session,
+                            kind,
+                            holder_id,
+                            tenant_id=tenant_id,
+                            user_id=user_id,
+                            auto_save=True,
+                        )
+                    continue
+                history = (
+                    await session.execute(
+                        text(_HISTORY_SQL[kind]),
+                        {"h": holder_id, "owner": list(_OWNER_ACTS), "ready": READY_MADE_REASON},
+                    )
+                ).one()
+                if history.touched:
+                    continue
+                if await pip_owns(session, kind, holder_id):
+                    if pip_writes and not drafting:
+                        await _ask_pip(
+                            session,
+                            kind,
+                            holder_id,
+                            tenant_id=tenant_id,
+                            user_id=user_id,
+                            ask={"rewrite": f"language:{language}"},
+                        )
+                elif history.ready_made:
+                    await save_ready_made(
+                        session,
+                        tenant_id=tenant_id,
+                        line_id=holder_id if kind == "line" else None,
+                        campaign_id=holder_id if kind == "campaign" else None,
+                        replace=True,
+                    )
+        except ProblemError as refused:
+            # The old script stays; the owner can still ask Pip on the work's own page.
+            log.info(
+                "first_run_language_rewrite_not_asked",
+                extra={"kind": kind, "holder_id": str(holder_id), "reason": refused.code},
+            )
+
+
+async def _ask_pip(
+    session: AsyncSession,
+    kind: HolderKind,
+    holder_id: UUID,
+    *,
+    tenant_id: UUID,
+    user_id: UUID | None,
+    auto_save: bool = False,
+    ask: dict[str, str] | None = None,
+) -> None:
+    """Pip's draft for one holder, through the holder's own request (metered as every draft)."""
+    from apps.api.campaigns import workspace
+    from apps.api.inbound import lines
+
+    if kind == "line":
+        await lines.request_proposal(
+            session,
+            tenant_id=tenant_id,
+            line_id=holder_id,
+            requested_by=user_id,
+            auto_save=auto_save,
+            ask=ask,
+        )
+    else:
+        await workspace.request_proposal(
+            session,
+            tenant_id=tenant_id,
+            campaign_id=holder_id,
+            requested_by=user_id,
+            auto_save=auto_save,
+            ask=ask,
+        )
 
 
 async def _rename_in_work(session: AsyncSession, *, row: Any, name: str) -> None:
@@ -460,9 +620,11 @@ async def save_ready_made(
     tenant_id: UUID,
     line_id: UUID | None = None,
     campaign_id: UUID | None = None,
+    replace: bool = False,
 ) -> bool:
     """Give the first run's line or campaign the ready-made script for its job, while it has
-    no script: Pip was not asked (no AI allowance left, or a view-as session) or could not
+    no script (or, with `replace`, in place of the ready-made one it holds, after the agent's
+    language changed): Pip was not asked (no AI allowance left, or a view-as session) or could not
     write it. Without this the work has nothing to say and the first run cannot reach its
     test call, which the build it replaced never allowed: it fell back to the same starter.
     The script is the trade's own, fitted to the business, named for its agent, and saved
@@ -481,7 +643,7 @@ async def save_ready_made(
         assert campaign_id is not None
         space = await workspace.read_workspace(session, campaign_id)
         agent_id, current, job = space.agent_id, space.script, "call_leads"
-    if current is not None:
+    if current is not None and not replace:
         return False
     agent = (
         await session.execute(
