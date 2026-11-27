@@ -33,6 +33,7 @@ import {
 } from "@/lib/api/billing";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { resolvePlaceholders } from "@/lib/legal/placeholders";
+import { GST_STATUS_SENTENCE } from "@/lib/gstStatus";
 import { formatPayableINR } from "@/lib/numberDisplay";
 import { CREDIT_WAIT_MS, useCreditLanding, type AwaitedCredit, type CreditLanding } from "@/lib/api/wallet";
 import { openRazorpayCheckout, paymentFailedProblem } from "@/lib/razorpayCheckout";
@@ -316,6 +317,7 @@ export function TopUp({ session }: { session: Session }) {
                 <strong className="font-semibold tabular-nums text-ink">
                   {formatPayableINR(selected.amount)}
                 </strong>
+                , no GST added
               </>
             ) : choice === CUSTOM && amount !== "" ? (
               /* An amount IS chosen, outside what the server takes: say the range while the
@@ -473,6 +475,8 @@ function OrderPanel({
           <div className="mt-3">{payNow}</div>
         </>
       )}
+      {/* The statement's GST sentence, said again where the money is taken. */}
+      {!paid && <p className="mt-2 text-meta text-ink-muted">{GST_STATUS_SENTENCE}</p>}
       {/* Our reference only: the provider's own order id is ours to look up from it (OB-26). */}
       <p className="mt-2 text-meta text-ink-faint">
         Reference <MonoValue>{order.receipt}</MonoValue>

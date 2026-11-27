@@ -56,6 +56,19 @@ export const RATE_CARD = {
     { pack_id: "pro", amount_inr: "25000.00", paid_credits: "25000.00", bonus_credits: "0.00", total_credits: "25000.00", bonus_pct: "0", clear_inr_per_min: "4.0000", studio_inr_per_min: "5.8000", clear_minutes: 6250, studio_minutes: 4310, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 6250, best_value: false },
     { pack_id: "max", amount_inr: "50000.00", paid_credits: "50000.00", bonus_credits: "0.00", total_credits: "50000.00", bonus_pct: "0", clear_inr_per_min: "4.0000", studio_inr_per_min: "5.5000", clear_minutes: 12500, studio_minutes: 9090, effective_rate_inr_per_min: "4.0000", talk_time_minutes: 12500, best_value: true },
   ],
+  // `worked_month_out` on this card: Clear is not offered, no number price is attested, so
+  // the month is Studio's talk time alone, at the first pack covering 3,000 Studio minutes.
+  worked_month: {
+    minutes: 3000,
+    numbers: 1,
+    number_inr_per_month: null,
+    platform_fee_inr_per_month: null,
+    registered_buyer_note:
+      "If your business is registered for GST: we charge no GST, so there is no input tax credit to claim on what you pay us. Compare our price with another supplier's price before GST, not with the total you pay them.",
+    voices: [
+      { voice: "studio", pack_id: "pro", inr_per_min: "5.80", talk_inr: "17400.00", total_inr: null, all_in_inr_per_min: null },
+    ],
+  },
 } satisfies PublicRateCard;
 
 /** The route map to hand `stubApi` so an awaited marketing page gets its card. */

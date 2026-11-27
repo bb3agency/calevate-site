@@ -392,6 +392,41 @@ class RateCardChangeOut(Strict):
     packs: list[CreditPackOut]
 
 
+class WorkedMonthVoiceOut(Strict):
+    """One voice's worked month, priced on the server from the card in force."""
+
+    voice: VoiceTier
+    #: The pack whose frozen rate prices the month: the smallest pack whose credits cover
+    #: it on this voice, else the largest (a bigger month is bought as several packs).
+    pack_id: str
+    #: That pack's rate for this voice, to the paisa.
+    inr_per_min: Decimal
+    #: `minutes x inr_per_min`, to the paisa.
+    talk_inr: Decimal
+    #: Talk time, one phone number for the month and the platform fee if one is charged.
+    #: Null while no number price is attested: an all-in figure without it would be short.
+    total_inr: Decimal | None
+    #: `total_inr / minutes`, to the paisa: what a minute costs with everything in it.
+    all_in_inr_per_min: Decimal | None
+
+
+class WorkedMonthOut(Strict):
+    """A month of calling priced all-in from the live card, so no page does money
+    arithmetic in a browser. It is an illustration of the card, not a quote: a real month
+    bills the seconds actually talked, in `billing_step_seconds` steps."""
+
+    #: The example's billed minutes in a month. A volume, not a price.
+    minutes: int
+    #: Phone numbers the example includes.
+    numbers: int
+    number_inr_per_month: Decimal | None
+    platform_fee_inr_per_month: Decimal | None
+    #: Every voice an agent can be put on today, in card order.
+    voices: list[WorkedMonthVoiceOut]
+    #: The sentence for a GST-registered buyer, rendered verbatim beside the figure.
+    registered_buyer_note: str
+
+
 class CreditPacksOut(Strict):
     """The pack rate card: six packs, each with a Clear and a Studio ₹/min.
 
@@ -458,6 +493,9 @@ class CreditPacksOut(Strict):
     #: The step a call is billed in, in seconds (`rates.CLIENT_PULSE_SECONDS`), so a page
     #: states the step the debit uses rather than a copy of it (G8-3).
     billing_step_seconds: int = int(CLIENT_PULSE_SECONDS)
+    #: A month of calling priced all-in from this card; null only when no voice is
+    #: on offer.
+    worked_month: WorkedMonthOut | None = None
 
 
 class WebhookAck(Strict):
@@ -566,6 +604,78 @@ def _pack_out(pack: CreditPack) -> CreditPackOut:
         effective_rate_inr_per_min=clear_rate,
         talk_time_minutes=clear_minutes,
         best_value=pack.best_value,
+    )
+
+
+#: The worked month's volume: 3,000 billed minutes is 2,000 answered calls of a minute and a
+#: half, a busy small business's month. A count of minutes, never a price.
+WORKED_MONTH_MINUTES: Final = 3000
+#: The worked month includes the one phone number most accounts start with.
+WORKED_MONTH_NUMBERS: Final = 1
+
+#: The GST-registered buyer's side of `gst.GST_STATUS_SENTENCE`: no GST charged also
+#: means no input tax credit, so the fair comparison is against another supplier's price
+#: before GST. Client-facing; names nobody.
+REGISTERED_BUYER_GST_NOTE: Final = (
+    "If your business is registered for GST: we charge no GST, so there is no input tax "
+    "credit to claim on what you pay us. Compare our price with another supplier's price "
+    "before GST, not with the total you pay them."
+)
+
+
+def _month_pack(packs: tuple[CreditPack, ...], voice: VoiceTier, minutes: int) -> CreditPack:
+    """The smallest pack whose credits cover `minutes` on `voice`, else the largest.
+
+    Not the cheapest rung on the card: somebody buying one month buys the pack that covers
+    it, and quoting the largest pack's rate to them would price a purchase they did not make.
+    """
+    by_size = sorted(packs, key=lambda pack: pack.total_credits)
+    for pack in by_size:
+        if pack_talk_time_minutes(pack, voice=voice) >= minutes:
+            return pack
+    return by_size[-1]
+
+
+def worked_month_out(
+    packs: tuple[CreditPack, ...],
+    *,
+    offered: tuple[VoiceTier, ...],
+    number_inr: Decimal | None,
+    platform_fee_inr: Decimal | None,
+) -> WorkedMonthOut | None:
+    """Price `WORKED_MONTH_MINUTES` on every offered voice, in NUMERIC, rounded once each."""
+    if not packs or not offered:
+        return None
+    minutes = Decimal(WORKED_MONTH_MINUTES)
+    voices: list[WorkedMonthVoiceOut] = []
+    for voice in offered:
+        pack = _month_pack(packs, voice, WORKED_MONTH_MINUTES)
+        rate = pack.inr_per_min(voice)
+        talk = to_paise(rate * minutes)
+        total = (
+            None
+            if number_inr is None
+            else to_paise(
+                talk + number_inr * WORKED_MONTH_NUMBERS + (platform_fee_inr or Decimal(0))
+            )
+        )
+        voices.append(
+            WorkedMonthVoiceOut(
+                voice=voice,
+                pack_id=pack.pack_id,
+                inr_per_min=to_paise(rate),
+                talk_inr=talk,
+                total_inr=total,
+                all_in_inr_per_min=None if total is None else to_paise(total / minutes),
+            )
+        )
+    return WorkedMonthOut(
+        minutes=WORKED_MONTH_MINUTES,
+        numbers=WORKED_MONTH_NUMBERS,
+        number_inr_per_month=number_inr,
+        platform_fee_inr_per_month=platform_fee_inr,
+        voices=voices,
+        registered_buyer_note=REGISTERED_BUYER_GST_NOTE,
     )
 
 
@@ -696,6 +806,9 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
         engine, studio_ready=await _studio_on_sale(session, engine=engine, at=now)
     )
     number = await attested_price_inr(session)
+    number_inr = None if number is None else to_paise(number.inr_per_month)
+    platform_fee = _published_platform_fee()
+    held = not_offered[0] if not_offered else None
     return CreditPacksOut(
         list_rate_inr_per_min=packs[0].clear_inr_per_min,
         from_inr_per_min=from_sarvam,
@@ -708,11 +821,17 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
         # its only caller — the wallet and the agent screens are other lanes' files.
         clear_tier_label=voice_tier_label(VALUE_VOICE_TIER),
         studio_tier_label=voice_tier_label(PREMIUM_VOICE_TIER),
-        voice_not_offered=not_offered[0] if not_offered else None,
+        voice_not_offered=held,
         voice_not_offered_notice=not_offered[1] if not_offered else None,
         packs=packs,
-        platform_fee_inr_per_month=_published_platform_fee(),
-        number_inr_per_month=None if number is None else to_paise(number.inr_per_month),
+        platform_fee_inr_per_month=platform_fee,
+        number_inr_per_month=number_inr,
+        worked_month=worked_month_out(
+            tuple(in_force),
+            offered=tuple(tier for tier in VOICE_TIERS if tier != held),
+            number_inr=number_inr,
+            platform_fee_inr=platform_fee,
+        ),
         credit_expiry_months=months,
         credit_lapses_on_if_bought_now=(
             None if months is None else expires_at_for(now, months=months).date()

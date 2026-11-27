@@ -249,6 +249,16 @@ describe("the pricing page", () => {
         .map((rate) => formatRateForTest(rate))
         .concat(
           RATE_CARD.packs.map((pack) => formatAmountForTest(pack.amount_inr)),
+        )
+        // The worked month's figures, as the server priced them (shown to the paisa; the
+        // scan below keeps one decimal of what it matches).
+        .concat(
+          RATE_CARD.worked_month.voices.flatMap((row) =>
+            [row.inr_per_min, row.talk_inr].map((value) => {
+              const [whole, fraction = ""] = value.split(".");
+              return `₹${Number(whole).toLocaleString("en-IN")}.${fraction.slice(0, 1)}`;
+            }),
+          ),
         ),
     );
     // Per text node: a whole-rupee figure ("₹4") followed by a sibling's digits ("500 min")

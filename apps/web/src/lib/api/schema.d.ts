@@ -23980,6 +23980,7 @@ export interface components {
             voice_not_offered: ("clear" | "studio") | null;
             /** Voice Not Offered Notice */
             voice_not_offered_notice: string | null;
+            worked_month?: components["schemas"]["WorkedMonthOut"] | null;
         };
         /** CreditUsageOut */
         CreditUsageOut: {
@@ -41761,6 +41762,47 @@ export interface components {
              * @enum {string}
              */
             job: "answer_calls" | "call_leads";
+        };
+        /**
+         * WorkedMonthOut
+         * @description A month of calling priced all-in from the live card, so no page does money
+         *     arithmetic in a browser. It is an illustration of the card, not a quote: a real month
+         *     bills the seconds actually talked, in `billing_step_seconds` steps.
+         */
+        WorkedMonthOut: {
+            /** Minutes */
+            minutes: number;
+            /** Number Inr Per Month */
+            number_inr_per_month: string | null;
+            /** Numbers */
+            numbers: number;
+            /** Platform Fee Inr Per Month */
+            platform_fee_inr_per_month: string | null;
+            /** Registered Buyer Note */
+            registered_buyer_note: string;
+            /** Voices */
+            voices: components["schemas"]["WorkedMonthVoiceOut"][];
+        };
+        /**
+         * WorkedMonthVoiceOut
+         * @description One voice's worked month, priced on the server from the card in force.
+         */
+        WorkedMonthVoiceOut: {
+            /** All In Inr Per Min */
+            all_in_inr_per_min: string | null;
+            /** Inr Per Min */
+            inr_per_min: string;
+            /** Pack Id */
+            pack_id: string;
+            /** Talk Inr */
+            talk_inr: string;
+            /** Total Inr */
+            total_inr: string | null;
+            /**
+             * Voice
+             * @enum {string}
+             */
+            voice: "clear" | "studio";
         };
         /** WorkspaceFailureOut */
         WorkspaceFailureOut: {
