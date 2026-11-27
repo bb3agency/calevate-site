@@ -13,6 +13,8 @@
  *
  * The call's opening is the first box, left of step 1 and linked into it, because every call
  * starts with those words and whether now suits; its "Not now" chip names the end it reaches.
+ * It is chosen like a scenario (`OPENING_KEY` is the selection) and opens its own small
+ * editor, the opening line alone (founder, 27 Nov 2026: not the whole script at once).
  * How the links are routed is `flowLayout`'s.
  *
  * Laid out by the steps, not by hand: the columns ARE the structure, so a picture somebody
@@ -53,13 +55,15 @@ import { TextShimmer } from "@/components/arc/text-shimmer";
 import { useToast } from "@/components/arc/toast";
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import { FIELD, SECONDARY_BUTTON_SM, ToggleSwitch } from "@/components/ui";
+import type { AgentDirection } from "@/lib/api/agents";
 import type { WriteAccess } from "@/lib/api/hooks";
-import { STEP_OUTCOME_MAX, type CallScript } from "@/lib/api/script";
+import { OPENING_LINE_MAX, STEP_OUTCOME_MAX, type CallScript } from "@/lib/api/script";
 import { lookup } from "@/lib/lookup";
 
 import { HearLine, type FlowAgent } from "./LineCoach";
+import { GeneratePart, type GeneratePartProps } from "../agents/[agentId]/script/GeneratePart";
 import { StepExamplesEditor, WarningLines, type ExamplesAsk } from "../agents/[agentId]/script/StepExamplesEditor";
-import { stageWarnings, type LineWarning } from "../agents/[agentId]/script/stepExamples";
+import { partWarnings, stageWarnings, type LineWarning } from "../agents/[agentId]/script/stepExamples";
 
 import { languageName } from "./ScriptLanguages";
 import {
@@ -74,6 +78,7 @@ import {
   setNext,
   setOutcome,
   shiftInStep,
+  type OpeningKey,
   type Placed,
 } from "./scenarioModel";
 import {
@@ -290,16 +295,19 @@ export interface FlowOpening {
   line: string;
   /** The line is a "both" agent's first words on a call it places (D-920). */
   placed: boolean;
+  /** The field the line is stored in, which the opening's editor changes. */
+  key: OpeningKey;
   /** A caller who cannot talk now is asked when suits them where call backs are offered,
    * else the call closes politely (`OPENING_CONTINUES_RULE`, `NO_CALL_BACKS_POLICY`). */
   notNow: string;
 }
 
-export function flowOpening(script: CallScript): FlowOpening {
-  const { line, placed: onPlaced } = openingOf(script);
+export function flowOpening(script: CallScript, direction: AgentDirection): FlowOpening {
+  const { line, placed: onPlaced, key } = openingOf(script, direction);
   return {
     line,
     placed: onPlaced,
+    key,
     notNow: script.policies?.offer_call_backs === false ? END : CALL_BACK,
   };
 }
@@ -320,18 +328,22 @@ export function ScenarioFlow({
   onUndo,
   agent,
   hear,
-  onEditOpening,
+  direction,
+  rewriteOpening,
   writeExamples,
   warnings = [],
 }: {
   /** "Let Pip write examples" for one scenario in one language; absent where Pip cannot. */
   writeExamples?: (item: Placed, language: string) => ExamplesAsk;
+  /** Pip rewrites the opening line alone, as Edit script's part does; absent where Pip cannot.
+   *  `held`: why it waits on this canvas (its unsaved changes). */
+  rewriteOpening?: GeneratePartProps & { held?: string };
+  /** The holder's agent direction, which decides the line the opening box is (`openingOf`). */
+  direction: AgentDirection;
   /** The checks' warnings on single lines, placed under the line each is about. */
   warnings?: readonly LineWarning[];
   /** The canvas's own Undo, offered by the toast after a link is removed. */
   onUndo?: () => void;
-  /** Opens the script where the opening line is edited; absent when this person cannot. */
-  onEditOpening?: () => void;
   /** The campaign's agent, whose voice "Hear it" speaks in; null while none is chosen. */
   agent: FlowAgent | null;
   /** Whether this person may hear a line ("Hear it" is the owner's, `org:manage`). */
@@ -354,7 +366,7 @@ export function ScenarioFlow({
   const items = useMemo(() => placed(sectionsOf(script)), [script]);
   const steps = Math.max(0, ...items.map((p) => p.step));
   const full = items.length >= limits.maxSections;
-  const opening = useMemo(() => flowOpening(script), [script]);
+  const opening = useMemo(() => flowOpening(script, direction), [script, direction]);
   const [menu, setMenu] = useState<Menu | null>(null);
   const toasts = useToast();
 
@@ -429,7 +441,19 @@ export function ScenarioFlow({
   };
 
   const chosen = items.find((p) => p.section.id === selected) ?? null;
-  const editor = chosen && (
+  const editor = selected === OPENING_KEY ? (
+    <OpeningEditor
+      opening={opening}
+      script={script}
+      language={languages[0] ?? null}
+      readOnly={readOnly}
+      agent={agent}
+      hear={hear}
+      warnings={warnings}
+      rewrite={rewriteOpening}
+      onChange={onChange}
+    />
+  ) : chosen && (
     <ScenarioEditor
       key={chosen.section.id}
       item={chosen}
@@ -565,7 +589,6 @@ export function ScenarioFlow({
         outcome={(step) => outcomeOf(script, step)}
         onOutcome={(step, text) => onChange(setOutcome(script, step, text))}
         opening={opening}
-        onEditOpening={onEditOpening}
         onUnlink={readOnly ? undefined : unlink}
         named={(id) => named(id).full}
         onLink={(from, to) => {
@@ -599,7 +622,6 @@ export function ScenarioFlow({
         onOutcome={(step, text) => onChange(setOutcome(script, step, text))}
         editor={editor}
         opening={opening}
-        onEditOpening={onEditOpening}
         onUnlink={readOnly ? undefined : unlink}
         named={(id) => named(id).full}
       />
@@ -618,12 +640,12 @@ export function ScenarioFlow({
             {picture}
           </div>
           <aside
-            aria-label="Edit the chosen scenario"
+            aria-label={selected === OPENING_KEY ? "Edit the opening" : "Edit the chosen scenario"}
             className="min-w-0 scroll-mt-4 rounded-card border border-series-2/40 bg-surface"
           >
             {editor ?? (
               <p className="px-4 py-6 text-center text-meta text-ink-muted">
-                Choose a scenario to edit it here. Right-click a box for more.
+                Choose the opening or a scenario to edit it here. Right-click a box for more.
               </p>
             )}
           </aside>
@@ -664,7 +686,6 @@ function Columns({
   onOutcome,
   writing,
   opening,
-  onEditOpening,
   onUnlink,
   named,
 }: {
@@ -687,7 +708,6 @@ function Columns({
   onOutcome: (step: number, text: string) => void;
   writing: boolean;
   opening: FlowOpening | null;
-  onEditOpening?: () => void;
 }) {
   const plane = useRef<HTMLDivElement>(null);
   const [linking, setLinking] = useState<{ from: string; to: Point } | null>(
@@ -946,7 +966,9 @@ function Columns({
           <OpeningNode
             box={layout.opening}
             opening={opening}
-            onEdit={onEditOpening}
+            on={selected === OPENING_KEY}
+            readOnly={readOnly}
+            onSelect={onSelect}
             pointer={point(OPENING_KEY)}
           />
         )}
@@ -1142,66 +1164,60 @@ function Columns({
 }
 
 /**
- * The call's first words, the flow's first box: read-only here, since the opening is part of
- * the script and its notices are woven into it (D-971); a click opens the script where it is
- * edited. No dot: nothing links out of it but the steps it always goes on to, and its "not
- * now" end is a chip like every other way out to an end point.
+ * The call's first words, the flow's first box. A click chooses it like a scenario, and its
+ * editor holds the opening line alone (`OpeningEditor`). No dot: nothing links out of it but
+ * the steps it always goes on to, and its "not now" end is a chip like every other way out
+ * to an end point.
  */
 function OpeningNode({
   box,
   opening,
-  onEdit,
+  on,
+  readOnly,
+  onSelect,
   pointer,
 }: {
   box: Box;
   opening: FlowOpening;
-  onEdit?: () => void;
+  /** It is the chosen box, its editor open. */
+  on: boolean;
+  readOnly: boolean;
+  onSelect: (id: string | null) => void;
   pointer: Record<string, () => void>;
 }) {
-  const body = (
-    <>
-      <span className="flex w-full items-center gap-2">
-        <span className="inline-flex h-5 items-center justify-center rounded-full bg-series-1 px-2 text-[11px] font-semibold text-white">
-          {opening.placed ? "Opening when it calls" : "Opening"}
-        </span>
-      </span>
-      {/* Two lines, not three: Telugu and Devanagari lines stand taller than Latin ones, and
-          three of them ran under the link in the fixed-height box. The whole line is one
-          click away. */}
-      <span className="mt-1 line-clamp-2 min-h-0 text-meta text-ink">
-        {opening.line ? `“${opening.line}”` : "No opening line yet."}
-      </span>
-      {onEdit && (
-        <span className="mt-auto shrink-0 pt-1 text-[11px] font-medium text-brand-strong">
-          Edit in the script
-        </span>
-      )}
-    </>
-  );
-  const shell =
-    "flex h-full w-full flex-col rounded-card border border-series-1/50 bg-surface p-3 text-left shadow-card";
-  const room = { paddingBottom: 12 + CHIP_LINE };
   return (
     <div
       className="absolute rounded-card"
       style={{ left: box.x, top: box.y, width: box.w, height: box.h }}
       {...pointer}
     >
-      {onEdit ? (
-        <button
-          type="button"
-          aria-label={`Opening: ${opening.line || "no opening line yet"}. Edit it in the script.`}
-          className={`${shell} hover:border-series-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand`}
-          style={room}
-          onClick={onEdit}
-        >
-          {body}
-        </button>
-      ) : (
-        <div className={shell} style={room}>
-          {body}
-        </div>
-      )}
+      <button
+        type="button"
+        aria-pressed={on}
+        aria-label={`Opening: ${opening.line || "no opening line yet"}`}
+        className={`flex h-full w-full flex-col rounded-card border bg-surface p-3 text-left shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+          on ? "border-brand ring-1 ring-brand" : "border-series-1/50 hover:border-series-1"
+        }`}
+        style={{ paddingBottom: 12 + CHIP_LINE }}
+        onClick={() => onSelect(on ? null : OPENING_KEY)}
+      >
+        <span className="flex w-full items-center gap-2">
+          <span className="inline-flex h-5 items-center justify-center rounded-full bg-series-1 px-2 text-[11px] font-semibold text-white">
+            {opening.placed ? "Opening when it calls" : "Opening"}
+          </span>
+        </span>
+        {/* Two lines, not three: Telugu and Devanagari lines stand taller than Latin ones, and
+            three of them ran under the link in the fixed-height box. The whole line is one
+            click away. */}
+        <span className="mt-1 line-clamp-2 min-h-0 text-meta text-ink">
+          {opening.line ? `“${opening.line}”` : "No opening line yet."}
+        </span>
+        {!readOnly && !on && (
+          <span aria-hidden className="mt-auto shrink-0 pt-1 text-[11px] font-medium text-brand-strong">
+            Edit the opening
+          </span>
+        )}
+      </button>
       <ul aria-label="If now does not suit" className="pointer-events-none absolute inset-x-3 bottom-3 flex">
         <ExitChip when="Not now" target={opening.notNow} self={false} />
       </ul>
@@ -1224,12 +1240,10 @@ function Stacked({
   onOutcome,
   writing,
   opening,
-  onEditOpening,
   onUnlink,
   named,
 }: {
   opening: FlowOpening;
-  onEditOpening?: () => void;
   onUnlink?: (from: string, to: string, via?: LinkVia) => void;
   named: (id: string) => string;
   items: Placed[];
@@ -1247,32 +1261,35 @@ function Stacked({
 }) {
   const labelOf = (target: string) =>
     lookup(END_NAMES, target) ?? items.find((p) => p.section.id === target)?.label ?? "?";
+  const openingOn = selected === OPENING_KEY;
   return (
     <div className="space-y-5">
       <section aria-label="Opening" className="border-l-4 border-series-1 pl-3">
-        <h4 className="text-body font-semibold text-ink">
-          {opening.placed ? "Opening when it calls" : "Opening"}
-        </h4>
-        <p className="mt-1 text-meta text-ink">
-          {opening.line ? `“${opening.line}”` : "No opening line yet."}
-        </p>
-        <p className="mt-1 text-[11px] text-ink-faint">
-          Next:{" "}
-          {items
-            .filter((p) => p.step === 1)
-            .map((p) => p.label)
-            .join(", ")}
-          {" · "}Not now: {lookup(END_NAMES, opening.notNow)}
-        </p>
-        {onEditOpening && (
+        <div className="rounded-card border border-line bg-surface">
+          {/* Chosen like a scenario card: the opening's editor opens under it. */}
           <button
             type="button"
-            className={`${SECONDARY_BUTTON_SM} mt-2`}
-            onClick={onEditOpening}
+            aria-expanded={openingOn}
+            className="w-full p-3 text-left"
+            onClick={() => onSelect(openingOn ? null : OPENING_KEY)}
           >
-            Edit in the script
+            <span className="block text-body font-semibold text-ink">
+              {opening.placed ? "Opening when it calls" : "Opening"}
+            </span>
+            <span className="mt-1 block text-meta text-ink">
+              {opening.line ? `“${opening.line}”` : "No opening line yet."}
+            </span>
           </button>
-        )}
+          <p className="-mt-1 px-3 pb-3 text-[11px] text-ink-faint">
+            Next:{" "}
+            {items
+              .filter((p) => p.step === 1)
+              .map((p) => p.label)
+              .join(", ")}
+            {" · "}Not now: {lookup(END_NAMES, opening.notNow)}
+          </p>
+          {openingOn && <div className="border-t border-line">{editor}</div>}
+        </div>
       </section>
       {Array.from({ length: steps }, (_, i) => i + 1).map((step) => (
         <section
@@ -1411,6 +1428,74 @@ function Stacked({
           Add step {steps + 1}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * The opening's own editor: the one line its box shows and nothing else of the script, so an
+ * owner changes the first words without the whole script opening at once (founder, 27 Nov
+ * 2026). It edits the canvas's working script, so Save, Discard and Undo cover it. The field
+ * is fixed when it opens: emptying a "both" agent's placed-call line would otherwise turn the
+ * box, and this box, into the other line mid-edit. The notices are not touched here; they are
+ * woven into the saved opening server-side (D-971).
+ */
+function OpeningEditor({
+  opening,
+  script,
+  language,
+  readOnly,
+  agent,
+  hear,
+  warnings,
+  rewrite,
+  onChange,
+}: {
+  opening: FlowOpening;
+  script: CallScript;
+  /** The campaign's main language, the one the opening is said in. */
+  language: string | null;
+  readOnly: boolean;
+  agent: FlowAgent | null;
+  hear: WriteAccess;
+  warnings: readonly LineWarning[];
+  rewrite?: GeneratePartProps & { held?: string };
+  onChange: (next: CallScript, discrete?: boolean) => void;
+}) {
+  const id = useId();
+  const [key] = useState<OpeningKey>(opening.key);
+  const placedCall = key === "outbound_opening_line";
+  const label = placedCall ? "Opening line when it calls" : "Opening line";
+  const value = script[key] ?? "";
+  const how = placedCall ? "Who, the business, why it calls." : "As callers should hear it.";
+  return (
+    <div className="space-y-4 p-4">
+      <span className="inline-flex rounded-full bg-series-1 px-2 py-0.5 text-meta font-semibold text-white">
+        {placedCall ? "Opening when it calls" : "Opening"}
+      </span>
+      <div className={`${SECTION} border-l-series-1 bg-series-1/5`}>
+        <label htmlFor={id} className="block text-meta font-medium text-ink">
+          {label}
+        </label>
+        <p id={`${id}-hint`} className="text-meta text-ink-muted">
+          {language ? `In ${languageName(language)}. ${how}` : how}
+        </p>
+        <textarea
+          id={id}
+          className={`${FIELD} mt-1 min-h-24`}
+          value={value}
+          maxLength={OPENING_LINE_MAX}
+          readOnly={readOnly}
+          aria-describedby={`${id}-hint ${id}-count`}
+          onChange={(e) => onChange({ ...script, [key]: e.target.value })}
+        />
+        <p id={`${id}-count`} className="text-right text-[11px] tabular-nums text-ink-faint">
+          {chars(value)}/{OPENING_LINE_MAX}
+        </p>
+        <WarningLines warnings={partWarnings(warnings, key)} idBase={`${id}-warn`} />
+        {language && <HearLine agent={agent} access={hear} language={language} line={value} />}
+      </div>
+      {rewrite && !readOnly && <GeneratePart {...rewrite} what={label} />}
     </div>
   );
 }

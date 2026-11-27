@@ -10,6 +10,7 @@
  * a script out, like `scriptModel`.
  */
 
+import type { AgentDirection } from "@/lib/api/agents";
 import type { CallScript } from "@/lib/api/script";
 import { lookup } from "@/lib/lookup";
 
@@ -37,13 +38,23 @@ export const END_NAMES: Record<string, string> = {
   [CALL_BACK]: "Offer a call back",
 };
 
+/** The script field that holds a call's first words. */
+export type OpeningKey = "opening_line" | "outbound_opening_line";
+
 /**
- * The call's first words as stored: a "both" agent's line for calls it places when it has
- * one (D-920), else the opening line. `placed` says which.
+ * The call's first words as stored, for an agent of `direction`: a "both" agent's line for
+ * calls it places when it has one (D-920), else the opening line. `placed` says which, `key`
+ * where it is stored. Only a "both" agent speaks `outbound_opening_line`: a campaign runs as
+ * "outbound" (`agents/service.py`, `held["direction"]`) and its calls open on `opening_line`
+ * (`engine.compose_first_utterance`), so a stray placed-call line there is never heard.
  */
-export function openingOf(script: CallScript): { line: string; placed: boolean } {
-  const placed = (script.outbound_opening_line ?? "") !== "";
-  return { line: (placed ? script.outbound_opening_line ?? "" : script.opening_line).trim(), placed };
+export function openingOf(
+  script: CallScript,
+  direction: AgentDirection,
+): { line: string; placed: boolean; key: OpeningKey } {
+  const placed = direction === "both" && (script.outbound_opening_line ?? "") !== "";
+  const key: OpeningKey = placed ? "outbound_opening_line" : "opening_line";
+  return { line: (script[key] ?? "").trim(), placed, key };
 }
 
 /**

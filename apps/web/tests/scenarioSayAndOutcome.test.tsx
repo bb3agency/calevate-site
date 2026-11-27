@@ -150,6 +150,7 @@ describe("Outcome of this step", () => {
     await renderClientPage(
       <ScenarioFlow
         agent={null}
+        direction="outbound"
         hear={hear}
         script={{ ...scripted, stages: [stage({ mode: "say" }), ...SCRIPT.stages.slice(1)] }}
         limits={DEFAULT_LIMITS}

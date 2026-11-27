@@ -87,6 +87,7 @@ function Flow({
     <ToastProvider>
       <ScenarioFlow
         agent={null}
+        direction="outbound"
         hear={{ allowed: true, reason: null, unknown: false }}
         script={script}
         limits={DEFAULT_LIMITS}

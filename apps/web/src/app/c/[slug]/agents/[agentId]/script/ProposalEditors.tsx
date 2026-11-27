@@ -19,7 +19,7 @@ import { TEXT_ACTION } from "@/components/console/section";
 
 import { SegmentedControl } from "@/components/interior/segmented-control";
 import { FIELD, FIELD_HINT, FIELD_LABEL, QUIET_ICON_BUTTON } from "@/components/ui";
-import type { CallScript, CodeMix, ExampleLine, SpeakingStyle } from "@/lib/api/script";
+import { OPENING_LINE_MAX, type CallScript, type CodeMix, type ExampleLine, type SpeakingStyle } from "@/lib/api/script";
 
 import type { PartKey } from "./scriptDiff";
 import type { Issue, Limits, Section } from "./scriptModel";
@@ -175,12 +175,12 @@ export function PartEditor({
     case "opening_line":
       return (
         <Text labelHidden id={id("opening_line")} label="Opening line" hint={`In ${language}, as callers should hear it.`} long
-          maxLength={1000} value={script.opening_line} onChange={(v) => set("opening_line", v)} />
+          maxLength={OPENING_LINE_MAX} value={script.opening_line}onChange={(v) => set("opening_line", v)} />
       );
     case "outbound_opening_line":
       return (
         <Text labelHidden id={id("outbound_opening_line")} label="Opening line when it calls" hint={`In ${language}: who, the business, why it calls.`} long
-          maxLength={1000} value={script.outbound_opening_line ?? ""} onChange={(v) => set("outbound_opening_line", v)} />
+          maxLength={OPENING_LINE_MAX} value={script.outbound_opening_line ?? ""} onChange={(v) => set("outbound_opening_line", v)} />
       );
     case "style":
       return <StyleEditor style={script.style} idBase={idBase} issues={issues} onChange={(s) => set("style", s)} />;

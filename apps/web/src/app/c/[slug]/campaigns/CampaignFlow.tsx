@@ -56,6 +56,7 @@ import { ScriptVersions } from "./ScriptVersions";
 import { ChooseAgentPrompt, useFlowAgent } from "./FlowAgentBar";
 import { addScenario, placed, withPipOutcomes, type Placed } from "./scenarioModel";
 import { examplesAsk } from "../agents/[agentId]/script/stepExamples";
+import { languageName } from "./ScriptLanguages";
 
 const FOLD_KEY = "calevate:fold:call-flow";
 /** How many changes Undo can step back through. */
@@ -82,17 +83,15 @@ export function CampaignFlow({
   restore,
   onRestore,
   outcomesPending = false,
-  onEditOpening,
   outcomesByOwner = false,
   rewriteOutcomes,
   onRewriteOutcomes,
   onWriteExamples,
 }: {
-  /** Pip writes one scenario's examples (its name as the part, a language, what to write);
-   *  the draft comes back for review like any part Pip rewrites. Absent while it cannot. */
-  onWriteExamples?: (part: string, language: string, instruction: string) => void;
-  /** Opens the script where the opening line is edited; absent when this person cannot. */
-  onEditOpening?: () => void;
+  /** Pip rewrites one part (its name as the part, a language, what to change): a scenario's
+   *  examples, or the opening line. The draft comes back for review like any part Pip
+   *  rewrites. Absent while it cannot. */
+  onWriteExamples?: (part: string, language: string, instruction?: string) => void;
   /** Pip is writing the outcome of each step that has none (D-1036). */
   outcomesPending?: boolean;
   /** An outcome is not one Pip wrote, so they can all be given back to Pip to rewrite. */
@@ -247,6 +246,17 @@ export function CampaignFlow({
         pending: mapping,
       })
     : undefined;
+  // The opening's "Generate in" and "Ask Pip to change it", the ones Edit script offers on
+  // that part, in the campaign's own languages.
+  const rewriteOpening = onWriteExamples
+    ? {
+        languages: languages.map((tag) => ({ tag, name: languageName(tag) })),
+        initial: languages[0] ?? "",
+        reason: readOnly ? refusal : mapping ? "Pip is writing." : undefined,
+        held: dirty ? "Save your changes first." : undefined,
+        onGenerate: onWriteExamples,
+      }
+    : undefined;
 
   const addStep = () => {
     const steps = Math.max(0, ...placed(sections).map((p) => p.step));
@@ -350,14 +360,10 @@ export function CampaignFlow({
       onChange={commit}
       onUndo={undo}
       writeExamples={writeExamples}
+      rewriteOpening={rewriteOpening}
+      // A campaign only places calls and they open on `opening_line` (`openingOf`).
+      direction="outbound"
       warnings={warnings}
-      onEditOpening={
-        onEditOpening &&
-        (() => {
-          setFull(false);
-          onEditOpening();
-        })
-      }
     />
     </>
   );

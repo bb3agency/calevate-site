@@ -38,6 +38,7 @@ import {
   type CampaignWorkspace as Workspace,
   type ScriptAsk,
 } from "@/lib/api/campaignWorkspace";
+import type { AgentDirection } from "@/lib/api/agents";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 import { useScriptVersions } from "@/lib/api/scriptVersions";
 import { useClientRealm } from "@/lib/api/session";
@@ -374,14 +375,6 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
     setEditing(false);
     backToScript();
   };
-  // The flow's opening box opens the same editor, which takes the summary's place above.
-  const openEditor = () => {
-    setEditing(true);
-    window.requestAnimationFrame(() => {
-      const section = document.getElementById("campaign-script");
-      if (section && section.getBoundingClientRect().top < 0) section.scrollIntoView({ block: "start" });
-    });
-  };
 
   const keep = async (next: CallScript) => {
     try {
@@ -519,7 +512,8 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
         <div>
           {script ? (
             <>
-              <ScriptSummary script={script} />
+              {/* A campaign only places calls, and they open on `opening_line` (`openingOf`). */}
+              <ScriptSummary script={script} direction="outbound" />
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button
                   ref={editButton}
@@ -545,7 +539,6 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                   await save.mutateAsync({ script: next });
                 }}
                 mapping={ask.isPending}
-                onEditOpening={canWrite ? openEditor : undefined}
                 versions={versions.data}
                 outcomesPending={space.step_outcomes_pending}
                 restore={restoreFeedback}
@@ -576,8 +569,8 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
  * A short read of the saved script, named exactly as Edit script names the same parts
  * (`scriptDiff.PARTS`), so the owner recognises each one when they open it to change it.
  */
-export function ScriptSummary({ script }: { script: CallScript }) {
-  const { line: opening, placed: outbound } = openingOf(script);
+export function ScriptSummary({ script, direction }: { script: CallScript; direction: AgentDirection }) {
+  const { line: opening, placed: outbound } = openingOf(script, direction);
   const steps =
     script.stages.length > 0
       ? script.stages.map((s) => s.name)

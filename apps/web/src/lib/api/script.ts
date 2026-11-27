@@ -199,6 +199,9 @@ export interface StepOutcome {
 /** `StepOutcome.outcome`'s server limit. */
 export const STEP_OUTCOME_MAX = 300;
 
+/** Each opening line's server limit (`CallScript.opening_line`, `outbound_opening_line`). */
+export const OPENING_LINE_MAX = 1000;
+
 /** The empty structured script a brand-new agent opens on. */
 export const EMPTY_SCRIPT: CallScript = {
   opening_line: "",
