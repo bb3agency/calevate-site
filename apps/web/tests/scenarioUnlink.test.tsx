@@ -194,7 +194,7 @@ describe("unlinking on the canvas", () => {
 
 describe("undo after an unlink", () => {
   it("the canvas's Undo puts the link back", async () => {
-    const restore: ActionFeedback<ScriptRestore> = { status: "idle", run: () => {}, error: null, reset: () => {} };
+    const restore: ActionFeedback<ScriptRestore> = { status: "idle", run: () => {}, error: null, retryable: true, reset: () => {} };
     await renderClientPage(
       <ToastProvider>
         <CampaignFlow

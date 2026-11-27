@@ -1,7 +1,7 @@
 "use client";
 
-import { BookOpen, CircleCheck, CircleMinus, Hand, Loader2, PenLine, ShieldCheck, Wrench } from "lucide-react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { BookOpen, CircleCheck, CircleMinus, Hand, Loader2, PenLine, Scissors, ShieldCheck, Wrench } from "lucide-react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 
 import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { RowHead, TimelineList, TimelineRow } from "@/components/copilot/TimelineRow";
@@ -16,6 +16,16 @@ import { ScriptDiff } from "./ScriptDiff";
 export interface DraftControl {
   status: FeedbackStatus;
   run: () => void;
+  /** False when the last failure is one another press cannot cure (`ActionFeedback.retryable`). */
+  retryable?: boolean;
+}
+
+/** Keep was refused because the draft is longer than calls can take. */
+export interface DraftTooLong {
+  /** The server's sentence ("Your script is N characters too long…"), behind Why. */
+  detail: string;
+  /** Ask Pip for a shorter version of the script. */
+  shorter: DraftControl;
 }
 
 export type DraftOutcome = "kept" | "discarded" | null;
@@ -69,8 +79,9 @@ function PhaseIcon({ phase }: { phase: DraftPhase }) {
 }
 
 /** One sentence per phase for a screen reader; the lines themselves are not announced. */
-function spoken(phase: DraftPhase | null, outcome: DraftOutcome): string {
+function spoken(phase: DraftPhase | null, outcome: DraftOutcome, tooLong: boolean): string {
   if (outcome === "kept") return "Kept. The script is live.";
+  if (tooLong) return TOO_LONG_SPOKEN;
   if (outcome === "discarded") return "Discarded. Your script is as it was.";
   switch (phase) {
     case "ready":
@@ -84,6 +95,62 @@ function spoken(phase: DraftPhase | null, outcome: DraftOutcome): string {
     default:
       return `${ASSISTANT_NAME} is writing the script.`;
   }
+}
+
+const TOO_LONG_SPOKEN = `This draft is too long to put live. Ask ${ASSISTANT_NAME} for a shorter one, or discard it.`;
+
+/**
+ * A draft whose Keep was refused as too long. A second Keep sends the same draft and meets
+ * the same refusal, so Keep goes and the one way forward takes its place: Pip writes a
+ * shorter one, which replaces this draft. Discard and the caller's own extras stay beside it.
+ */
+export function TooLongDraft({
+  detail,
+  shorter,
+  discard,
+  extra,
+  headingRef,
+}: DraftTooLong & {
+  discard: DraftControl;
+  extra?: ReactNode;
+  headingRef?: RefObject<HTMLHeadingElement | null>;
+}) {
+  return (
+    <TimelineRow as="div" icon={<Scissors aria-hidden className="h-3.5 w-3.5" />}>
+      <h4 ref={headingRef} tabIndex={-1} className="text-meta font-medium text-ink focus:outline-none">
+        Too long for calls
+      </h4>
+      <p className="text-meta text-ink-muted">This draft is longer than a call can take, so it cannot go live.</p>
+      <Disclosure variant="inline" title="Why" headingLevel={4}>
+        <p className="text-meta text-ink-muted [overflow-wrap:anywhere]">{detail}</p>
+      </Disclosure>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <ActionButton
+          variant="primary-sm"
+          status={shorter.status}
+          retryable={shorter.retryable}
+          pendingLabel="Asking"
+          successLabel="Asked"
+          disabled={discard.status === "pending"}
+          onClick={shorter.run}
+        >
+          Ask {ASSISTANT_NAME} for a shorter one
+        </ActionButton>
+        <ActionButton
+          variant="secondary-sm"
+          status={discard.status}
+          retryable={discard.retryable}
+          pendingLabel="Discarding"
+          successLabel="Discarded"
+          disabled={shorter.status === "pending"}
+          onClick={discard.run}
+        >
+          Discard
+        </ActionButton>
+        {extra}
+      </div>
+    </TimelineRow>
+  );
 }
 
 /**
@@ -104,6 +171,7 @@ export function ScriptDraftView({
   outcome,
   waitingFor = null,
   extra,
+  tooLong = null,
 }: {
   state: DraftStreamState;
   now: number;
@@ -117,6 +185,8 @@ export function ScriptDraftView({
   waitingFor?: string | null;
   /** More ways to decide, beside Keep and Discard (the page's part-by-part review). */
   extra?: ReactNode;
+  /** Keep was refused as too long: the decision becomes a shorter draft or Discard. */
+  tooLong?: DraftTooLong | null;
 }) {
   const { phase, history, lines, diff, detail } = state;
   const writing = !isTerminalPhase(phase);
@@ -128,12 +198,14 @@ export function ScriptDraftView({
   // The decision is what this view now needs. Focus moves to it only when nothing else holds
   // focus or the focus was inside this view (Stop writing has just gone): never out of a box
   // the person is typing in.
+  // Again when Keep is refused as too long: Keep has gone, and its focus with it.
+  const refused = waiting && tooLong !== null;
   useEffect(() => {
     if (!waiting) return;
     const active = document.activeElement;
     const free = active === null || active === document.body || section.current?.contains(active);
     if (free) waitingHeading.current?.focus({ preventScroll: true });
-  }, [waiting]);
+  }, [waiting, refused]);
 
   const steps = history.filter((entry) => !isTerminalPhase(entry.phase));
   return (
@@ -214,7 +286,9 @@ export function ScriptDraftView({
         </TimelineRow>
       ) : null}
 
-      {waiting ? (
+      {refused && tooLong ? (
+        <TooLongDraft {...tooLong} discard={discard} extra={extra} headingRef={waitingHeading} />
+      ) : waiting ? (
         <TimelineRow as="div" icon={<Hand aria-hidden className="h-3.5 w-3.5" />}>
           <h4 ref={waitingHeading} tabIndex={-1} className="text-meta font-medium text-ink focus:outline-none">
             Waiting for you
@@ -224,6 +298,7 @@ export function ScriptDraftView({
             <ActionButton
               variant="primary-sm"
               status={keep.status}
+              retryable={keep.retryable}
               pendingLabel="Keeping"
               successLabel="Kept"
               waitingFor={waitingFor}
@@ -235,6 +310,7 @@ export function ScriptDraftView({
             <ActionButton
               variant="secondary-sm"
               status={discard.status}
+              retryable={discard.retryable}
               pendingLabel="Discarding"
               successLabel="Discarded"
               disabled={keep.status === "pending" || waitingFor !== null}
@@ -256,7 +332,7 @@ export function ScriptDraftView({
       ) : null}
 
       <span role="status" className="sr-only">
-        {spoken(phase, outcome)}
+        {spoken(phase, outcome, refused)}
       </span>
     </div>
   );

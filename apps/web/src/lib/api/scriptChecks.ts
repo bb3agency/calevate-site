@@ -26,6 +26,13 @@ export function isScriptNeedsFix(error: unknown): boolean {
   return error instanceof ApiProblem && error.code === SCRIPT_NEEDS_FIX;
 }
 
+/** A script longer than calls can take (`engine_limits.PROMPT_TOO_LONG`); never cured by a retry. */
+export const PROMPT_TOO_LONG = "engine_prompt_too_long";
+
+export function isPromptTooLong(error: unknown): error is ApiProblem {
+  return error instanceof ApiProblem && error.code === PROMPT_TOO_LONG;
+}
+
 const path = (holder: ScriptHolder) =>
   holder.kind === "campaign"
     ? `/v1/campaigns/${encodeURIComponent(holder.id)}/script/checks`

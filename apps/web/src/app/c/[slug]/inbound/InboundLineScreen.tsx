@@ -26,7 +26,9 @@ import { TEXT_ACTION, TEXT_ACTION_SM } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { DiagnoseCards } from "@/components/improve/DiagnoseCards";
 import { GiveCallersTimeCard } from "@/components/improve/GiveCallersTimeCard";
-import { ScriptDraftLive } from "@/components/scriptDraft/ScriptDraftLive";
+import { SHORTER_ASK, ScriptDraftLive } from "@/components/scriptDraft/ScriptDraftLive";
+import { TooLongDraft } from "@/components/scriptDraft/ScriptDraftView";
+import { ScriptSizeMeter, scriptSizeOf } from "@/components/scriptDraft/ScriptSizeMeter";
 import {
   FIELD,
   FIELD_LABEL,
@@ -78,6 +80,7 @@ import { ChecksUnread, ScriptNeedsFix } from "@/components/scriptChecks/ScriptNe
 import {
   SHOW_FINDING_EVENT,
   findingWarnings,
+  isPromptTooLong,
   isScriptNeedsFix,
   useScriptChecks,
 } from "@/lib/api/scriptChecks";
@@ -401,6 +404,7 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
   const editButton = useRef<HTMLButtonElement>(null);
   const proposal = line.proposal;
   const script = line.script;
+  const size = scriptSizeOf(line);
   const hasTask = line.main_task.trim() !== "";
   const drafting = proposal?.status === "drafting";
   // The saved script's checks, each on its line in Edit script (`script_gate`).
@@ -493,6 +497,19 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
             <SlotsFullProblem slug={session.orgSlug} error={save.error} />
           ) : isScriptNeedsFix(save.error) ? (
             <ScriptNeedsFix holder={{ kind: "line", id: line.id }} canWrite={canWrite} refusal={refusal} />
+          ) : proposal?.status === "ready" && isPromptTooLong(save.error) ? (
+            <TooLongDraft
+              detail={save.error.message}
+              shorter={{
+                status: askFeedback.status,
+                retryable: askFeedback.retryable,
+                run: () => {
+                  save.reset();
+                  askFeedback.run(SHORTER_ASK);
+                },
+              }}
+              discard={{ status: stopFeedback.status, retryable: stopFeedback.retryable, run: () => stopFeedback.run(proposal.id) }}
+            />
           ) : (
             <ProblemNotice error={save.error} />
           )}
@@ -562,6 +579,11 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
             <>
               {/* A line may be answered by a "both" agent, whose placed-call line is real (D-920). */}
               <ScriptSummary script={script} direction="both" />
+              {size && (
+                <div className="mt-3">
+                  <ScriptSizeMeter size={size} />
+                </div>
+              )}
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button
                   ref={editButton}

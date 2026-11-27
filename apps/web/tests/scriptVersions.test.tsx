@@ -34,7 +34,7 @@ function versions(putBack: Versions["put_back"], list = [REPAIR, OWN]): Versions
 }
 
 function feedback(): ActionFeedback<ScriptRestore> {
-  return { status: "idle", run: vi.fn(), error: null, reset: vi.fn() };
+  return { status: "idle", run: vi.fn(), error: null, retryable: true, reset: vi.fn() };
 }
 
 function show(data: Versions, onRestore = vi.fn(() => Promise.resolve()), dirty = false) {

@@ -22,7 +22,9 @@ import { useRef, useState } from "react";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
 import { TEXT_ACTION } from "@/components/console/section";
-import { ScriptDraftLive } from "@/components/scriptDraft/ScriptDraftLive";
+import { SHORTER_ASK, ScriptDraftLive } from "@/components/scriptDraft/ScriptDraftLive";
+import { TooLongDraft } from "@/components/scriptDraft/ScriptDraftView";
+import { ScriptSizeMeter, scriptSizeOf } from "@/components/scriptDraft/ScriptSizeMeter";
 import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import {
   useAddCampaignSource,
@@ -46,7 +48,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { LeftOutNotice, lineWarningsOf } from "../agents/[agentId]/script/PipProposal";
 import type { PartKey } from "../agents/[agentId]/script/scriptDiff";
 import { ScriptNeedsFix } from "@/components/scriptChecks/ScriptNeedsFix";
-import { isScriptNeedsFix } from "@/lib/api/scriptChecks";
+import { isPromptTooLong, isScriptNeedsFix } from "@/lib/api/scriptChecks";
 
 import { AddSourceForm, SOURCES_HINT, SOURCES_INFO } from "./AddSource";
 import { PipGenerateBand } from "./PipGenerateBand";
@@ -340,6 +342,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const [reviewing, setReviewing] = useState<string | null>(null);
   const proposal = space.proposal;
   const script = space.script;
+  const size = scriptSizeOf(space);
   const hasTask = space.main_task.trim() !== "";
   // Pip rewrites one part in a chosen language; the draft then comes back for review here.
   const settings = useCampaignSettings(session, campaignId, space.agent_id).data;
@@ -451,6 +454,19 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
         <div className="mb-3">
           {isScriptNeedsFix(save.error) ? (
             <ScriptNeedsFix holder={{ kind: "campaign", id: campaignId }} canWrite={canWrite} refusal={refusal} />
+          ) : proposal?.status === "ready" && isPromptTooLong(save.error) ? (
+            <TooLongDraft
+              detail={save.error.message}
+              shorter={{
+                status: askFeedback.status,
+                retryable: askFeedback.retryable,
+                run: () => {
+                  save.reset();
+                  askFeedback.run(SHORTER_ASK);
+                },
+              }}
+              discard={{ status: stopFeedback.status, retryable: stopFeedback.retryable, run: () => stopFeedback.run(proposal.id) }}
+            />
           ) : (
             <ProblemNotice error={save.error} />
           )}
@@ -521,6 +537,11 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
             <>
               {/* A campaign only places calls, and they open on `opening_line` (`openingOf`). */}
               <ScriptSummary script={script} direction="outbound" />
+              {size && (
+                <div className="mt-3">
+                  <ScriptSizeMeter size={size} />
+                </div>
+              )}
               <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button
                   ref={editButton}

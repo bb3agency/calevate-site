@@ -21,7 +21,6 @@ import { ChevronRight, TriangleAlert } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { ActionButton } from "@/components/arc/feedback";
-import { SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { CallScript } from "@/lib/api/script";
 import { scrollToFirstFinding } from "@/lib/api/scriptChecks";
 import { keepInView } from "@/lib/keepInView";
@@ -294,15 +293,14 @@ export function ScriptPartsEditor({
                     >
                       Save
                     </ActionButton>
-                    <button
-                      type="button"
-                      className={SECONDARY_BUTTON_SM}
+                    <ActionButton
+                      variant="secondary-sm"
                       disabled={saving}
                       aria-label={`Cancel ${row.label}`}
                       onClick={() => closeRow(row)}
                     >
                       Cancel
-                    </button>
+                    </ActionButton>
                   </div>
                   {nudged && dirty && (
                     <p role="status" className="text-meta text-warn">
@@ -316,9 +314,9 @@ export function ScriptPartsEditor({
         })}
       </ul>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className={SECONDARY_BUTTON_SM} disabled={saving} onClick={onClose}>
+        <ActionButton variant="secondary-sm" disabled={saving} onClick={onClose}>
           Close
-        </button>
+        </ActionButton>
       </div>
     </section>
   );
