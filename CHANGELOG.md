@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.90 — 27-Nov-2026
+
+- A script too long for the calling system is now brought inside it by trimming example
+  lines too: first the extra language's, then the main language's down to three per step.
+  The main language's examples are never removed. A draft with no step-by-step lists no
+  longer comes back "too long".
+
 ## 0.5.89 — 27-Nov-2026
 
 - When Pip writes a script again that it still owns, it also writes the parts outside the

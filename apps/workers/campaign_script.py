@@ -26,12 +26,18 @@ from dataclasses import dataclass
 from typing import Any, Final
 from uuid import UUID
 
-from calevate_shared.call_script import MAX_SCRIPT_STAGES, CallScript, ConversationStage
+from calevate_shared.call_script import (
+    MAX_SCRIPT_STAGES,
+    CallScript,
+    ConversationStage,
+    StepExamples,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_proposals
 from apps.api.agents.prompt_size import PromptSize
+from apps.api.agents.script_plan import EXAMPLE_LIMITS
 from apps.api.campaigns import script_history, workspace
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -425,6 +431,57 @@ def trimmed_procedures(script: CallScript, cut: int) -> CallScript | None:
     return CallScript.model_validate(script.model_copy(update={"stages": stages}).model_dump())
 
 
+def _said_chars(said: StepExamples) -> int:
+    return (
+        sum(len(t) + 4 for t in said.turns) + len(said.confused) + len(said.stuck) + len(said.busy)
+    )
+
+
+def trimmed_examples(script: CallScript, cut: int, main: str) -> CallScript | None:
+    """`script` with about `cut` characters of example lines taken off, the step with the
+    most first; None when nothing is left to take. In order: the other languages' turns down
+    to `EXAMPLE_LIMITS.turns_min`, then the other languages' examples whole, then `main`'s
+    turns down to the minimum. `main`'s examples are never dropped.
+
+    Why this order (26 Nov 2026: a Telugu campaign with English as its extra language came
+    back 19,162 characters, every step's examples written twice, and no list to trim): the
+    in-call model speaks English unprompted, while the main language's examples are what it
+    copies to sound like a local caller, and fewer than `turns_min` turns stop being a
+    pattern it can vary."""
+    least = EXAMPLE_LIMITS.turns_min
+    stages = list(script.stages)
+    taken = 0
+    passes: tuple[tuple[bool, int | None], ...] = ((False, least), (False, None), (True, least))
+    for on_main, keep in passes:
+        order = sorted(
+            range(len(stages)),
+            key=lambda i: (
+                -sum(
+                    _said_chars(s) for t, s in stages[i].examples.items() if (t == main) == on_main
+                )
+            ),
+        )
+        for index in order:
+            if taken >= cut:
+                break
+            examples = dict(stages[index].examples)
+            for tag, said in list(examples.items()):
+                if (tag == main) != on_main:
+                    continue
+                if keep is None:
+                    taken += _said_chars(said)
+                    del examples[tag]
+                elif len(said.turns) > keep:
+                    taken += sum(len(t) + 4 for t in said.turns[keep:])
+                    examples[tag] = said.model_copy(update={"turns": said.turns[:keep]})
+            stages[index] = stages[index].model_copy(update={"examples": examples})
+        if taken >= cut:
+            break
+    if taken == 0:
+        return None
+    return CallScript.model_validate(script.model_copy(update={"stages": stages}).model_dump())
+
+
 async def fitted_to_box(
     context: ScriptContext, script: CallScript
 ) -> tuple[CallScript, PromptSize | None]:
@@ -437,7 +494,8 @@ async def fitted_to_box(
     for _ in range(_FIT_ROUNDS):
         if size is None or size.fits:
             break
-        shorter = trimmed_procedures(script, size.over + size.over // 10 + 50)
+        cut = size.over + size.over // 10 + 50
+        shorter = trimmed_procedures(script, cut) or trimmed_examples(script, cut, context.language)
         if shorter is None:
             break
         script = shorter

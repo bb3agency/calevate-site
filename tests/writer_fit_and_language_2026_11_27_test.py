@@ -164,3 +164,39 @@ def test_the_steps_are_written_against_the_opening_the_call_speaks() -> None:
     both = _context()
     both = replace(both, brief=replace(both.brief, direction="both"))
     assert spoken_opening(both, script) == "Never said on this campaign?"
+
+
+def _spoken(sid: str, turns: int) -> ConversationStage:
+    from calevate_shared.call_script import StepExamples
+
+    said = [f"line {n} " + "x" * 40 for n in range(turns)]
+    return ConversationStage(
+        id=sid,
+        name=f"Step {sid}",
+        instruction="Guide them.",
+        examples={
+            "te-IN": StepExamples(turns=[f"{_IN} {n}" for n in range(turns)], confused=_IN),
+            "en-IN": StepExamples(turns=said, confused="Again, shorter."),
+        },
+    )
+
+
+def test_examples_are_trimmed_other_language_first_and_the_main_one_is_kept() -> None:
+    """FAILS IF: a script with no step-by-step lists cannot be brought inside the box (26 Nov
+    2026: 19,162 characters, every step's examples in Telugu and English)."""
+    from apps.workers.campaign_script import trimmed_examples
+
+    script = CallScript(schema_version=2, stages=[_spoken("a", 5), _spoken("b", 4)])
+    fewer = trimmed_examples(script, 60, "te-IN")
+    assert fewer is not None
+    assert [len(s.examples["en-IN"].turns) for s in fewer.stages] == [3, 4]
+    assert all(
+        len(s.examples["te-IN"].turns) == len(o.examples["te-IN"].turns)
+        for s, o in zip(fewer.stages, script.stages, strict=True)
+    )
+
+    most = trimmed_examples(script, 100_000, "te-IN")
+    assert most is not None
+    assert all(set(s.examples) == {"te-IN"} for s in most.stages)
+    assert all(len(s.examples["te-IN"].turns) == 3 for s in most.stages)
+    assert trimmed_examples(most, 100, "te-IN") is None
