@@ -135,7 +135,7 @@ describe("the verdict", () => {
     const action = screen.getByRole("link", { name: "Call back now" });
     // It opens Make a call, the one form, with this call filled in.
     expect(action.getAttribute("href")).toBe("/c/acme/make-a-call?call=c1");
-    expect(action.className).toContain("bg-brand-strong");
+    expect(action.className).toContain("bg-action");
     expect(screen.getByRole("link", { name: "Open Lakshmi's lead" })).toBeTruthy();
     // The verdict comes before the conversation.
     const conversation = screen.getByRole("heading", { name: "Conversation" });

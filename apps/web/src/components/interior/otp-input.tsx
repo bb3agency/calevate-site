@@ -186,7 +186,7 @@ export function OtpInput({
                 key={i}
                 className={`relative grid h-12 place-items-center rounded-xl border bg-surface transition-[border-color,box-shadow] duration-150 ease-out sm:h-14 ${
                   error
-                    ? "border-rose-500 dark:border-rose-400"
+                    ? "border-danger"
                     : success
                       ? "border-brand-strong dark:border-brand-bright"
                       : active

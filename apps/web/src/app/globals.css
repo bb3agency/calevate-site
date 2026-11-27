@@ -18,92 +18,108 @@
      effect. Declaring it here makes the whole surface, ours and the browser's, agree. */
   color-scheme: light;
 
-  /* Brand. `brand` is the resting green, `strong` the pressed/primary-button green,
-     `bright` the accent used for dots, badges and the live-state pip, `soft` the tint
-     behind every icon medallion. */
-  --brand: #16a05d;
-  --brand-strong: #0f6b3d;
-  /* The pressed/hover green under `--brand-strong`. It exists because the primary
-     button in the design DARKENS on hover rather than lightening, and approximating
-     that with `hover:bg-brand` inverted the button's resting shade across four
-     screens before anyone noticed. */
-  --brand-deep: #0c5932;
-  --brand-bright: #22c55e;
-  --brand-soft: #eaf8f0;
-
-  /* Surfaces. `app` is the page behind the cards; `surface` is the card itself. They
-     are different colours on purpose — the shell reads as recessed. */
-  --app: #fafafa;
-  --surface: #ffffff;
-  /* A quiet tint on the white ground: an inline status line, a read-only well. */
-  --surface-muted: #f5f6f8;
-  --line: #e2e8f0;
-
-  --text: #171a1c;
   /*
-   * THREE INK LEVELS, ALL OF WHICH CARRY SMALL TEXT — so all three are held to WCAG
-   * 1.4.3 AA's 4.5:1, and `tests/contrast.test.ts` computes it against `--surface` and
-   * `--app` on every run.
-   *
-   * They used to be #64748b / #94a3b8, and `--text-faint` was **2.56:1 on white**. That
-   * is not a near miss: it is roughly half the required separation, on the token this
-   * console writes every hint, caption and secondary label in, for SMB staff reading a
-   * 12px line on a low-end Android. axe-core in a real Chromium reported it on seven of
-   * nine documents; jsdom could never see it, which is why `tests/a11y.ts` disables the
-   * rule and names the palette as where it is settled.
-   *
-   * The fix moves BOTH, because raising faint alone to a passing value lands it exactly
-   * on muted and collapses two tokens into one — a hierarchy the design would then no
-   * longer have, which the next person restores by picking a lighter grey and putting
-   * this defect straight back. So muted takes slate-600 (7.58:1) and faint a step past
-   * slate-500. Slate-500 itself (#64748b) cleared white but not the tinted grounds faint
-   * text sits on most: 4.40:1 on `--surface-muted` and 4.29:1 on a row wash, which is
-   * every call time and duration on the calls list. #5d6b80 is 5.00:1 on
-   * `--surface-muted` and stays 1.40:1 apart from muted.
+   * THE PALETTE IS THE KHATA LEDGER (decided 28 Nov 2026, docs/design/redesign-2026-11-28/
+   * COLOUR-OPTIONS.md): the account book an Indian shop keeps. Paper cream grounds, navy
+   * ink for words and the one main button, green for money and "done", and a vermilion
+   * stamp used sparingly. Every ratio quoted below is WCAG 2.x, computed against
+   * `--surface` unless another ground is named; `tests/contrast.test.ts` and
+   * `tests/contrastTokens.test.ts` recompute them from this file on every run.
    */
-  --text-muted: #475569;
-  --text-faint: #5d6b80;
+
+  /* Brand green: the logo colour, and on screens it means money, success, live and done.
+     `brand` is a fill for dots, bars and medallions (4.27:1, so never under white text);
+     `strong` carries text and white labels (6.67:1; white on it 6.84:1); `deep` is its
+     pressed shade; `bright` the live pip; `soft` the tint behind a done mark. */
+  --brand: #1f8a4c;
+  --brand-strong: #14683a;
+  /* Under `--brand-strong` for hover/pressed: a filled green control darkens when pressed
+     rather than lightening, so `hover:bg-brand` is never the hover for it. */
+  --brand-deep: #0f5530;
+  --brand-bright: #2fb36a;
+  --brand-soft: #e5f1e0;
 
   /*
-   * STATUS TONES. A warning (something will stop, or needs a look) and a danger
-   * (something failed or is refused). `warn` and `danger` carry TEXT and icons, so they
-   * are held to 4.5:1 on `--surface` and on their own `-soft` ground
-   * (`tests/contrastTokens.test.ts`); `-soft` is the tinted ground and `-line` its border.
-   * They replace raw amber-/rose- ramps screen by screen, starting with the pilot screens.
+   * THE MAIN ACTION is ink, not green. Green already says "money, success, done"; a green
+   * "Create campaign" button made the one thing to press look like a status. One of these
+   * per view (REDESIGN-2). `on-action` is the paper colour, 13.97:1 on `action`.
    */
-  --warn: #92400e;
-  --warn-soft: #fffbeb;
-  --warn-line: #fde68a;
-  --danger: #be123c;
-  --danger-soft: #fff1f2;
-  --danger-line: #fecdd3;
-  /* `success` (done, confirmed, live) and `info` (neutral news, in progress) complete the
-     set so a status reads by colour as well as by word; same 4.5:1 rule as above. */
-  --success: #166534;
-  --success-soft: #f0fdf4;
-  --success-line: #bbf7d0;
-  --info: #1d4ed8;
-  --info-soft: #eff6ff;
-  --info-line: #bfdbfe;
+  --action: #1e2b3c;
+  --action-hover: #121c2a;
+  --on-action: #fffcf4;
+
+  /*
+   * THE STAMP: vermilion, the colour of the "PAID" or "received" mark pressed into a khata.
+   * For an outlined tag, the step you are on, or one highlight — never a fill behind text,
+   * never a second main button. Kept apart from `--danger` (crimson) and `--warn` (ochre)
+   * so a stamp never reads as an error. 5.52:1 on `--surface`, 4.77:1 on its own soft.
+   */
+  --accent-stamp: #b5401b;
+  --accent-stamp-soft: #fbe8de;
+  --accent-stamp-line: #e9b9a4;
+
+  /* Paper. `app` is the page and the shell behind the content; `surface` is the lighter
+     sheet content sits on; `surface-muted` a read-only well. All three are warm: a cold
+     slate hairline on cream reads as a printing error. */
+  --app: #f9f3e4;
+  --surface: #fffcf4;
+  --surface-muted: #f4ecd9;
+  --line: #e6dbc2;
+  /* The faint ruling of `.ledger-surface`: ink at low strength, so it reads as printed
+     paper and never competes with a real divider. */
+  --ledger-rule: color-mix(in oklab, var(--text) 8%, transparent);
+
+  /*
+   * THREE INK LEVELS, ALL OF WHICH CARRY SMALL TEXT, so all three are held to WCAG 1.4.3
+   * AA's 4.5:1 on every paper ground including `--surface-muted` and the legal pages'
+   * #fdfbef. Text is navy ink (13.97:1); muted and faint are a warm graphite, because a
+   * blue-grey on cream turns cold and a brown one turns muddy. Muted 8.60:1, faint 6.16:1
+   * (5.37:1 on `--surface-muted`, the worst ground it sits on), and the two stay 1.40:1
+   * apart so the hierarchy survives: three inks that all look alike get "fixed" by the
+   * next person with a lighter grey that fails.
+   */
+  --text: #1e2b3c;
+  --text-muted: #4d4a45;
+  --text-faint: #655f56;
+
+  /*
+   * STATUS TONES, retuned to sit on paper. `warn` (needs a look) is ochre ink, `danger`
+   * (failed, refused) crimson, `success` ledger green, `info` (neutral news) a blue-black
+   * ink. Each carries TEXT and icons at 4.5:1 or better on `--surface`, `--app` and its
+   * own `-soft` ground (warn 5.85, danger 6.18, success 6.23, info 7.05 on their softs);
+   * `-soft` is the tinted ground and `-line` its border.
+   */
+  --warn: #86500a;
+  --warn-soft: #fbf0d4;
+  --warn-line: #ecd59c;
+  --danger: #a81e32;
+  --danger-soft: #fbe9e6;
+  --danger-line: #f0c3bd;
+  --success: #17643a;
+  --success-soft: #e7f2e2;
+  --success-line: #bcdcbf;
+  --info: #1f4f8f;
+  --info-soft: #e9eff6;
+  --info-line: #c3d3e8;
 
   /* CHART FILLS. Categorical marks only (bars, legend dots), never text, so they are not
      held to 4.5:1; they sit beside a text legend that carries the meaning. */
-  --chart-warn: #fbbf24;
-  --chart-danger: #f43f5e;
-  --chart-neutral: #cbd5e1;
+  --chart-warn: #e0a526;
+  --chart-danger: #d64a3e;
+  --chart-neutral: #d5cab2;
   /*
    * CATEGORICAL SERIES for the kit's charts (components/arc/chart-core.tsx), assigned in
-   * this fixed order and never cycled: a seventh series folds into "Other". Brand green
-   * leads so a one-series chart is on-brand. Validated with the dataviz skill's
-   * validate_palette.js (light, adjacent pairs): every slot >= 3:1 on the surface, worst
-   * adjacent CVD ΔE 11.0 and normal-vision ΔE 18.1. Marks only; text never wears these.
+   * this fixed order and never cycled: a seventh series folds into "Other". Green leads so
+   * a one-series chart is on-brand; then ink, vermilion, teal, ochre, plum, the colours of
+   * the ledger itself. Every slot is at least 3:1 on `--surface` (ochre is the lowest at
+   * 3.75:1). Marks only; text never wears these.
    */
-  --series-1: #16a05d;
-  --series-2: #2a78d6;
-  --series-3: #e0602b;
-  --series-4: #6250d6;
-  --series-5: #d55181;
-  --series-6: #b07400;
+  --series-1: #1f8a4c;
+  --series-2: #2f4d73;
+  --series-3: #c4501e;
+  --series-4: #18788c;
+  --series-5: #a87a12;
+  --series-6: #7d3f78;
 
   /*
    * MOTION. One set of curves and durations for every transition in the app.
@@ -126,15 +142,16 @@
   --duration-slow: 280ms;
 
   /*
-   * ELEVATION. Layered, low-alpha shadows tinted with the ink colour rather than pure
-   * black, so a raised surface reads as lifted off `--app` instead of outlined on it.
-   * Each step adds a wider, softer layer; a card keeps its `--line` hairline because on
-   * #fafafa a shadow this faint does not separate white from near-white on its own.
+   * ELEVATION, for overlays only (menus, sheets, dialogs; resting content has none,
+   * REDESIGN-2). Layered, low-alpha shadows tinted a warm sepia rather than slate or
+   * black: a cold grey shadow on cream paper looks like dirt. Each step adds a wider,
+   * softer layer; a raised card keeps its `--line` hairline, because a shadow this faint
+   * does not separate two creams on its own.
    */
-  --elevation-1: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 1px rgb(15 23 42 / 0.02);
-  --elevation-2: 0 1px 2px rgb(15 23 42 / 0.05), 0 4px 12px -2px rgb(15 23 42 / 0.08);
-  --elevation-3: 0 2px 4px rgb(15 23 42 / 0.06), 0 12px 32px -6px rgb(15 23 42 / 0.18),
-    0 24px 64px -12px rgb(15 23 42 / 0.16);
+  --elevation-1: 0 1px 2px rgb(64 46 20 / 0.05), 0 1px 1px rgb(64 46 20 / 0.03);
+  --elevation-2: 0 1px 2px rgb(64 46 20 / 0.06), 0 4px 12px -2px rgb(64 46 20 / 0.09);
+  --elevation-3: 0 2px 4px rgb(64 46 20 / 0.06), 0 12px 32px -6px rgb(64 46 20 / 0.16),
+    0 24px 64px -12px rgb(64 46 20 / 0.14);
 }
 
 /*
@@ -205,6 +222,10 @@
   --text-muted: #94a3b8;
   --text-faint: #7c8a9c;
   --chart-neutral: #475569;
+  /* The light series' ink and plum are dark marks; on a dark ground they lift so every
+     outcome dot stays at 3:1 (`tests/outcomeColours.test.ts`). */
+  --series-2: #8aa6cc;
+  --series-6: #c48fbf;
 }
 
 @theme inline {
@@ -213,6 +234,13 @@
   --color-brand-deep: var(--brand-deep);
   --color-brand-bright: var(--brand-bright);
   --color-brand-soft: var(--brand-soft);
+
+  --color-action: var(--action);
+  --color-action-hover: var(--action-hover);
+  --color-on-action: var(--on-action);
+  --color-accent-stamp: var(--accent-stamp);
+  --color-accent-stamp-soft: var(--accent-stamp-soft);
+  --color-accent-stamp-line: var(--accent-stamp-line);
 
   --color-app: var(--app);
   --color-surface: var(--surface);
@@ -356,6 +384,58 @@
 }
 @utility z-toast {
   z-index: var(--z-toast);
+}
+
+/*
+ * RULED PAPER, for a hero or brief surface ONLY: the first-run brief card and an empty
+ * state. Never on a table, a list or any data screen: there the rules would read as rows
+ * that are not there. A khata page has two marks, the faint horizontal ruling and one red
+ * margin line, and both are drawn here as background layers so the content needs no extra
+ * element. The ruling pitch (1.75rem) is the body text's line box doubled, so a paragraph
+ * set in `text-body` sits on the rules rather than across them. Forced-colors mode drops
+ * background images, which is the right outcome for a texture.
+ */
+@utility ledger-surface {
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(
+      to right,
+      transparent 2.25rem,
+      var(--accent-stamp-line) 2.25rem,
+      var(--accent-stamp-line) calc(2.25rem + 1px),
+      transparent calc(2.25rem + 1px)
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(1.75rem - 1px),
+      var(--ledger-rule) calc(1.75rem - 1px),
+      var(--ledger-rule) 1.75rem
+    );
+}
+
+/*
+ * THE STAMP: an outlined vermilion tag, pressed on at a slight angle the way a rubber
+ * stamp lands. Use it for one tag per view ("New", "Trial", "Draft"), never for status
+ * (status has its own tones) and never inside a sentence. `stamp-tilt` is separate so a
+ * stamp in a tight row can stay level. The 11px label is 5.52:1 on `--surface`, so it
+ * passes the small-text threshold without the large-text allowance.
+ */
+@utility stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+  padding: 0 0.375rem;
+  color: var(--accent-stamp);
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+@utility stamp-tilt {
+  rotate: -2deg;
 }
 
 /*
@@ -866,9 +946,9 @@
   background:
     linear-gradient(to right, var(--surface) 30%, transparent) left center / 2.5rem 100% no-repeat local,
     linear-gradient(to left, var(--surface) 30%, transparent) right center / 2.5rem 100% no-repeat local,
-    radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 0.12), transparent) left center / 0.75rem 100%
+    radial-gradient(farthest-side at 0 50%, rgb(64 46 20 / 0.12), transparent) left center / 0.75rem 100%
       no-repeat scroll,
-    radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 0.12), transparent) right center / 0.75rem
+    radial-gradient(farthest-side at 100% 50%, rgb(64 46 20 / 0.12), transparent) right center / 0.75rem
       100% no-repeat scroll;
 }
 
@@ -1188,7 +1268,7 @@ html:has([data-marketing-root]) body {
    *
    * The reference this was adapted from paints the lattice in a literal `#e4e4e7`
    * (and `#262626` for a dark palette). Those are hardcodes of exactly the colour
-   * `--line` already holds (#e2e8f0 light, #1e293b dark), so the grid is drawn from
+   * `--line` already holds in each palette, so the grid is drawn from
    * `--line` instead: it is the same rule that draws every border, every divider and
    * every card edge on this page, and a rebrand or a palette change moves all of them
    * together. Nothing here may be a literal, and that is enforced rather than asked
@@ -1204,7 +1284,7 @@ html:has([data-marketing-root]) body {
 
 .dark [data-marketing-root] {
   /* Lifted against the dark ground. `--line` (#1e293b) sits much closer to `--app`
-     (#020617) than it does to #fafafa in light, so the light palette's 62% leaves a
+     (#020617) than it does to the light paper, so the light palette's 62% leaves a
      lattice that is present in the pixels and not visible on a screen; 88% is what the
      dark screenshot of the hero actually showed a grid at. */
   --mk-grid-line: color-mix(in oklab, var(--line) 88%, transparent);

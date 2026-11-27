@@ -221,9 +221,9 @@ describe("the design tokens meet WCAG 1.4.3 AA", () => {
    * `--brand` passing or failing is arithmetic; whether a screen PUTS WHITE TEXT ON IT is
    * a fact about fifteen class strings, and that is where the defect lived: four
    * marketing call-to-action links and eleven console buttons rested or hovered on
-   * `bg-brand` with `text-white`, at 3.38:1. `components/ui.tsx` had already written the
-   * rule in prose above `PRIMARY_BUTTON` — "#16A05D (brand) is the medallion and fill
-   * colour, not a button" — and prose is what fifteen call sites had drifted from.
+   * `bg-brand` with `text-white`, below 4.5:1. `components/ui.tsx` had already written the
+   * rule in prose (`--brand` is the medallion and fill
+   * colour, not a button), and prose is what fifteen call sites had drifted from.
    *
    * A source scan rather than a render check, for the reason `tests/responsive.test.ts`
    * gives about `min-w-`: the class string IS the decision, jsdom cannot compute a
@@ -246,8 +246,8 @@ describe("the design tokens meet WCAG 1.4.3 AA", () => {
     }
     expect(
       offenders,
-      "white text on `bg-brand` is 3.38:1 — below WCAG 1.4.3 AA. `bg-brand-strong` is " +
-        "6.58:1 and is what `PRIMARY_BUTTON` rests on; `hover:bg-brand-deep` is its " +
+      "white text on `bg-brand` is below WCAG 1.4.3 AA (4.38:1). `bg-brand-strong` is " +
+        "6.84:1 and carries white on every filled done mark; `hover:bg-brand-deep` is its " +
         "documented hover. Keep `bg-brand` for fills, bars and medallions, which carry no " +
         "text and are held to 1.4.11's 3:1 instead.",
     ).toEqual([]);
@@ -524,14 +524,13 @@ describe("the design tokens meet WCAG 1.4.3 AA", () => {
   });
 
   it("refuses white text on --brand, which is a fill and not a button", () => {
-    // `components/ui.tsx` argues this in prose above `PRIMARY_BUTTON`: #16A05D is the
-    // medallion and fill colour, #0F6B3D is the button. The marketing page had put white
-    // on the fill twice (3.38:1), which is the drift that comment exists to prevent —
-    // this is the check that makes it enforceable.
+    // `--brand` is the medallion and fill colour; `--brand-strong` carries white labels on
+    // filled done marks and chips. The marketing page once put white on the fill twice,
+    // which is the drift this check makes enforceable.
     const light = tokens("light");
     expect(
       contrastRatio("#ffffff", light["brand-strong"]),
-      "--brand-strong must carry white text, since PRIMARY_BUTTON does exactly that",
+      "--brand-strong must carry white text, since every filled done mark does exactly that",
     ).toBeGreaterThanOrEqual(AA_SMALL_TEXT);
     expect(
       contrastRatio("#ffffff", light.brand),

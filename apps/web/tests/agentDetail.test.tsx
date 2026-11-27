@@ -2039,7 +2039,7 @@ describe("the screen when the agent could not be read", () => {
  * whose entry point is still pinned below.
  */
 describe("the header holds the one primary", () => {
-  const HEADER_PRIMARY = "bg-brand-strong px-4 py-2";
+  const HEADER_PRIMARY = "bg-action px-4 py-2";
 
   it("puts a single primary in the header, and no hero-sized button anywhere", async () => {
     // Switching on is the header's switch, so the one filled button is "Put it live", shown

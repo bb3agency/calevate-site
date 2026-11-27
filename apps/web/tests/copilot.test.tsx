@@ -1279,7 +1279,7 @@ describe("a proposal", () => {
     renderPanel();
     await ask("mark it hot");
     const edit = await screen.findByRole("button", { name: /^Confirm — / });
-    expect(edit.className).toContain("bg-brand-strong");
+    expect(edit.className).toContain("bg-action");
   });
 
   it("is KEYBOARD REACHABLE, ANNOUNCED, and axe-clean", async () => {

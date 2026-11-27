@@ -281,9 +281,9 @@ The first-run result screen keeps linking with `?tour=1`.
 
 ## 8. Colour
 
-**Paused.** The founder rejected "forest green + warm off-white + warm accent" on 28 Nov as
-too close to Outpero's structure (off-white + grey + one strong hue). Token values in
-`globals.css` are untouched until the founder gives a direction. Fixed already:
+**Decided: A, "Khata ledger"** (28 Nov 2026; tokens, roles, ratios and what is left for each lane are in `COLOUR-OPTIONS.md`). Background: the founder rejected "forest green + warm off-white + warm accent" on 28 Nov as
+too close to Outpero's structure (off-white + grey + one strong hue). The tokens in
+`globals.css` now carry the ledger palette. Fixed already:
 
 * Light only (D-471). No large dark panels (founder, 23 Oct 2026: "something light not
   dark"). Green stays the brand.

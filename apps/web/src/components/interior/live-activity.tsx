@@ -480,7 +480,7 @@ function PhaseGlyph({ phase, reduced }: { phase: ActivityPhase; reduced: boolean
         </svg>
       </motion.span>
       <motion.span
-        className="col-start-1 row-start-1 flex text-red-600 dark:text-red-400"
+        className="col-start-1 row-start-1 flex text-danger"
         initial={false}
         animate={{
           opacity: phase === "error" ? 1 : 0,

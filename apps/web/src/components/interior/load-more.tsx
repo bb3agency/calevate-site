@@ -240,7 +240,7 @@ const ORDER: LoadMoreStatus[] = ["idle", "loading", "error", "end"];
 const TONE: Record<LoadMoreStatus, string> = {
   idle: "text-ink",
   loading: "text-ink-muted",
-  error: "text-red-600 dark:text-red-400",
+  error: "text-danger",
   end: "text-ink-muted",
 };
 

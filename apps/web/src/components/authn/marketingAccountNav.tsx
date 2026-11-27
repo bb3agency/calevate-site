@@ -51,7 +51,7 @@ const ACCOUNT_HREF = clientConsoleUrl(CLIENT_ACCOUNT_PATH);
 const LINK_FROM_SM =
   "hidden sm:inline-flex items-center touch:min-h-11 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap text-ink-muted hover:bg-black/5 dark:hover:bg-white/5";
 const PRIMARY =
-  "inline-flex items-center gap-1.5 touch:min-h-11 rounded-md bg-brand-strong px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap text-white hover:bg-brand-strong sm:px-3 sm:text-sm";
+  "inline-flex items-center gap-1.5 touch:min-h-11 rounded-md bg-action px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap text-on-action hover:bg-action-hover sm:px-3 sm:text-sm";
 
 export interface MarketingAccountNavProps {
   /**

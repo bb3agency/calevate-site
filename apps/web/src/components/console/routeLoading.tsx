@@ -14,7 +14,7 @@
 
 export type RouteLoadingShape = "page" | "list" | "detail" | "steps";
 
-const BAR = "animate-pulse rounded bg-black/5 motion-reduce:animate-none dark:bg-white/10";
+const BAR = "animate-pulse rounded bg-ink/[0.06] motion-reduce:animate-none dark:bg-white/10";
 
 function Bar({ className }: { className: string }) {
   return <div className={`${BAR} ${className}`} />;

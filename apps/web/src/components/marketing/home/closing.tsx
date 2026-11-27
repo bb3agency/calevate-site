@@ -104,7 +104,7 @@ export function Closing({ devSlug }: { devSlug?: string }) {
             {devSlug && (
               <Link
                 href={`/c/${devSlug}`}
-                className="press mt-4 ml-4 inline-flex items-center gap-2 rounded-full bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface touch:min-h-11"
+                className="press mt-4 ml-4 inline-flex items-center gap-2 rounded-full bg-action px-4 py-2 text-sm font-semibold text-on-action hover:bg-action-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface touch:min-h-11"
               >
                 Open {devSlug}
                 <ArrowRight aria-hidden className="h-4 w-4" />

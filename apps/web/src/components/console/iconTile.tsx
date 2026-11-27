@@ -24,7 +24,7 @@ export function IconTile({
   return (
     <span
       aria-hidden
-      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-line bg-white ${className}`}
+      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-line bg-surface ${className}`}
     >
       {hasLogo ? (
         <ServiceLogo service={service} className="h-6 w-6" />

@@ -1203,19 +1203,16 @@ export const FIELD_GROUP_AFFIX =
 export const FIELD_LABEL = "block text-xs font-medium text-ink-muted";
 export const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
 /**
- * `bg-brand-strong`, not `bg-brand`, and this was worth checking rather than assuming.
- *
- * The design's primary button rests at #0F6B3D (brand-strong) and DARKENS to #0c5932 on
- * hover; #16A05D (brand) is the medallion and fill colour, not a button. The version
- * first promoted here rested on `brand` and lightened — so the four screens that had
- * written their own copy (the three compliance screens and the prompt history) were the
- * ones matching the design, and the shared constant was the outlier. Two greens for one
- * button is exactly the drift extracting it was supposed to end.
+ * The main action is INK (`bg-action`, navy, paper-coloured label), not green: in the
+ * khata palette green means money, success and done, so a green button read as a status
+ * rather than the thing to press (globals.css, `--action`). It darkens on hover, never
+ * lightens. One per view. A screen that writes its own primary button instead of using
+ * these constants is the drift these exist to end.
  */
 // `[&:not(:disabled)]:hover` rather than `enabled:hover`: `:enabled` never matches an `<a>`,
 // so these constants on a `<Link>` would have no hover state at all.
 export const PRIMARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white [&:not(:disabled)]:hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
+  "inline-flex items-center gap-2 rounded-md bg-action px-4 py-2 text-sm font-semibold text-on-action [&:not(:disabled)]:hover:bg-action-hover disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 
 /**
  * The primary button at HERO size — the one action a screen exists for.
@@ -1230,16 +1227,16 @@ export const PRIMARY_BUTTON =
  * 25 Aug 2026). One of these per screen. UX-DOCTRINE §4.
  */
 export const PRIMARY_BUTTON_LG =
-  "inline-flex items-center gap-2 rounded-md bg-brand-strong px-5 py-3 text-base font-semibold text-white [&:not(:disabled)]:hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
+  "inline-flex items-center gap-2 rounded-md bg-action px-5 py-3 text-base font-semibold text-on-action [&:not(:disabled)]:hover:bg-action-hover disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 
 /** The same buttons at the size an inline action wants. */
 export const PRIMARY_BUTTON_SM =
-  "inline-flex items-center justify-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white [&:not(:disabled)]:hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint touch:min-h-11 touch:min-w-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
+  "inline-flex items-center justify-center gap-1.5 rounded-md bg-action px-3 py-1.5 text-xs font-semibold text-on-action [&:not(:disabled)]:hover:bg-action-hover disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint touch:min-h-11 touch:min-w-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 export const SECONDARY_BUTTON_SM =
-  "inline-flex items-center justify-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink [&:not(:disabled)]:hover:bg-black/5 disabled:cursor-not-allowed disabled:border-line disabled:bg-ink/[0.04] disabled:text-ink-faint dark:[&:not(:disabled)]:hover:bg-white/5 touch:min-h-11 touch:min-w-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
+  "inline-flex items-center justify-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink [&:not(:disabled)]:hover:bg-ink/[0.05] disabled:cursor-not-allowed disabled:border-line disabled:bg-ink/[0.04] disabled:text-ink-faint dark:[&:not(:disabled)]:hover:bg-white/5 touch:min-h-11 touch:min-w-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 // Both sizes label in ink: a muted label reads as disabled beside a primary button (D-771).
 export const SECONDARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink [&:not(:disabled)]:hover:bg-black/5 disabled:cursor-not-allowed disabled:border-line disabled:bg-ink/[0.04] disabled:text-ink-faint dark:[&:not(:disabled)]:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
+  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink [&:not(:disabled)]:hover:bg-ink/[0.05] disabled:cursor-not-allowed disabled:border-line disabled:bg-ink/[0.04] disabled:text-ink-faint dark:[&:not(:disabled)]:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 /**
  * The button that does something a person cannot undo.
  *
@@ -1270,7 +1267,7 @@ export const DANGER_BUTTON =
  * pads past the home indicator. The actions stack full width there, primary on top.
  */
 export const MODAL_SCRIM =
-  "scrim-enter fixed inset-0 z-modal flex items-end justify-center bg-black/40 sm:items-center sm:p-4";
+  "scrim-enter fixed inset-0 z-modal flex items-end justify-center bg-ink/40 sm:items-center sm:p-4";
 export const MODAL_PANEL =
   "modal-enter w-full max-w-md max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain rounded-t-2xl border border-line bg-surface p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] shadow-overlay outline-none sm:max-h-[calc(100dvh-2rem)] sm:rounded-card sm:p-6";
 export const MODAL_ACTIONS =
@@ -1528,7 +1525,7 @@ export function Skeleton({
         {Array.from({ length: rows }).map((_, i) => (
           <div
             key={i}
-            className="h-8 animate-pulse rounded bg-black/5 motion-reduce:animate-none dark:bg-white/10"
+            className="h-8 animate-pulse rounded bg-ink/[0.06] motion-reduce:animate-none dark:bg-white/10"
           />
         ))}
       </div>
@@ -1567,7 +1564,7 @@ export function FilterChip({
         "press rounded-full px-3 py-1.5 text-xs touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2",
         active
           ? "border border-ink bg-ink/[0.06] font-medium text-ink"
-          : "border border-line bg-surface font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5",
+          : "border border-line bg-surface font-medium text-ink-muted hover:bg-ink/[0.05] dark:hover:bg-white/5",
       )}
     >
       {label}

@@ -14,14 +14,14 @@ export function ModelLogo({ label, modelId }: { label: string; modelId?: string 
     <span
       aria-hidden
       title={maker?.name}
-      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-line bg-white"
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-line bg-surface"
       data-model-maker={maker?.name ?? "unknown"}
     >
       {maker ? (
         // eslint-disable-next-line @next/next/no-img-element -- a 16px static brand file; next/image adds nothing here
         <img src={maker.src} alt="" width={16} height={16} className="h-4 w-4 object-contain" />
       ) : (
-        <span className="text-[11px] font-semibold leading-none text-slate-600">
+        <span className="text-[11px] font-semibold leading-none text-ink-muted">
           {modelMonogram(label)}
         </span>
       )}

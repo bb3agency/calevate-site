@@ -60,10 +60,19 @@ export function EmptyState({
     );
   }
   const drawn = variant === "first-use" ? illustration : null;
+  // A first-use empty list is a blank page of the account book, so it alone gets the ruled
+  // paper; `filtered` and `restricted` are about a list that exists, and stay plain. The
+  // start-aligned padding clears the paper's margin rule so text never sits on it.
+  const paper =
+    variant === "first-use"
+      ? `ledger-surface rounded-card border border-line ${align === "start" ? "pl-12 pr-6" : "px-6"}`
+      : align === "start"
+        ? ""
+        : "px-4";
   return (
     <div
       data-empty={variant}
-      className={`flex flex-col gap-4 py-10 ${align === "start" ? "items-start text-left" : "items-center px-4 text-center"} ${className}`}
+      className={`flex flex-col gap-4 py-10 ${align === "start" ? "items-start text-left" : "items-center text-center"} ${paper} ${className}`}
     >
       {drawn ? <div className="w-full max-w-60">{drawn}</div> : null}
       {variant === "restricted" ? (

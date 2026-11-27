@@ -206,8 +206,8 @@ export function SplitButton({
             className={clsx(
               "press inline-flex w-9 items-center justify-center rounded-r-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 touch:min-h-11 touch:w-11",
               primary
-                ? "border-l border-white/25 bg-brand-strong text-white hover:bg-brand-deep"
-                : "border border-l-0 border-line bg-surface text-ink hover:bg-black/5",
+                ? "border-l border-on-action/25 bg-action text-on-action hover:bg-action-hover"
+                : "border border-l-0 border-line bg-surface text-ink hover:bg-ink/[0.05]",
             )}
           >
             <ChevronDown aria-hidden className="h-4 w-4" />
