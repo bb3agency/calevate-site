@@ -309,6 +309,71 @@ def fallback_questions(
     return out
 
 
+# --------------------------------------------------------------------------- given
+
+
+@dataclass(frozen=True, slots=True)
+class Given:
+    """What the owner's description already says, read by code (`agents/owner_words`), so
+    no question asks it again: on 28 Nov 2026 an owner who wrote "Call only between 9am and
+    6pm" and two "Never ..." rules was asked none of what was missing and a service-area
+    question instead."""
+
+    facts: tuple[str, ...] = ()
+    rules: tuple[str, ...] = ()
+    #: "HH:MM to HH:MM" when the description gives a calling window.
+    calling_hours: str | None = None
+
+    def said(self) -> str:
+        """The same, as the question writer is told it; "" when nothing is given."""
+        parts = [*self.facts, *self.rules]
+        if self.calling_hours:
+            parts.append(f"calling hours {self.calling_hours}")
+        return "; ".join(parts)
+
+
+def given_in(description: str) -> Given:
+    from apps.api.agents.owner_words import calling_window, stated_facts, stated_rules
+
+    window = calling_window(description)
+    return Given(
+        facts=tuple(stated_facts(description)),
+        rules=tuple(stated_rules(description)),
+        calling_hours=(
+            None
+            if window is None
+            else f"{window[0].strftime('%H:%M')} to {window[1].strftime('%H:%M')}"
+        ),
+    )
+
+
+#: A question about when the agent may call, about what it must never say, and about the
+#: areas a business serves.
+_ASKS_CALLING_HOURS: Final = re.compile(
+    r"\b(?:when|what\s+time|which\s+hours|hours)\b.*\bcall", re.IGNORECASE
+)
+_ASKS_RULES: Final = re.compile(r"\b(?:never|must\s+not|should\s+not|avoid)\b", re.IGNORECASE)
+_ASKS_SERVICE_AREA: Final = re.compile(
+    r"\b(?:areas?|districts?|regions?|cities|towns|localities|pin\s*codes?|service\s+area)\b",
+    re.IGNORECASE,
+)
+
+
+def _asks_given(question: Question, given: Given, words: QuestionWords) -> bool:
+    """Whether `question` asks what the description already says, or asks the areas served
+    of a business nobody comes to and that neither books nor takes orders, which has none."""
+    prompt = question.prompt
+    if given.calling_hours and _ASKS_CALLING_HOURS.search(prompt):
+        return True
+    if given.rules and _ASKS_RULES.search(prompt):
+        return True
+    return (
+        words.has_premises is False
+        and words.goes_ahead is False
+        and bool(_ASKS_SERVICE_AREA.search(prompt))
+    )
+
+
 # --------------------------------------------------------------------------- the gate
 
 
@@ -362,18 +427,23 @@ def _written_one(
 
 
 def written_questions(
-    raw: Sequence[object], profile: Profile, words: QuestionWords | None = None
+    raw: Sequence[object],
+    profile: Profile,
+    words: QuestionWords | None = None,
+    given: Given | None = None,
 ) -> list[Question]:
     """The model's questions that pass every rule, in its order, at most `MAX_WRITTEN`, each
-    profile section asked about once (the open `facts` section excepted) and none about a
-    section this business does not have. Ids are ours (`q1`..), never the model's."""
-    closed = set(closed_topics(profile, words or QuestionWords()))
+    profile section asked about once (the open `facts` section excepted), none about a
+    section this business does not have and none asking what the description already says
+    (`given`). Ids are ours (`q1`..), never the model's."""
+    words = words or QuestionWords()
+    closed = set(closed_topics(profile, words))
     out: list[Question] = []
     for item in raw:
         if len(out) >= MAX_WRITTEN:
             break
         question = _written_one(item, question_id=f"q{len(out) + 1}", closed=frozenset(closed))
-        if question is None:
+        if question is None or _asks_given(question, given or Given(), words):
             continue
         if question.prompt.casefold() in {q.prompt.casefold() for q in out}:
             continue
@@ -428,6 +498,7 @@ __all__ = [
     "QUESTION_KINDS",
     "REPEATABLE_TOPICS",
     "TOPIC_KINDS",
+    "Given",
     "ProfileTopic",
     "Question",
     "QuestionKind",
@@ -436,6 +507,7 @@ __all__ = [
     "closed_topics",
     "fallback_questions",
     "fixed_question",
+    "given_in",
     "question_words",
     "stored_questions",
     "with_one_thing",

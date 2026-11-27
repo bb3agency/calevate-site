@@ -271,19 +271,36 @@ async def absorb_script_facts(
     """Move quick facts a script save still carries into the pinned facts; answers how many
     were new. Exact repeats (trimmed, case-blind) are not added twice."""
     pairs = [(f.question.strip(), f.answer.strip()) for f in faqs if f.answer.strip()]
+    return await pin_pairs(session, tenant_id=tenant_id, pairs=pairs, created_by=created_by)
+
+
+async def pin_pairs(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    pairs: Sequence[tuple[str, str]],
+    created_by: UUID | None,
+    within_room: bool = False,
+) -> int:
+    """Pin each (question, answer) not already pinned, in order, with one recompile; answers
+    how many were new. A question may be "" for a statement. `within_room`: stop before the
+    section would pass `MAX_PINNED_CHARS`, for facts read from the owner's words rather than
+    typed as facts, which must never crowd out what they pin themselves."""
+    pairs = [(q.strip(), a.strip()) for q, a in pairs if a.strip()]
     if not pairs:
         return 0
     await _lock(session, tenant_id)
-    have = {
-        ((fact.question or "").casefold(), fact.answer.casefold())
-        for fact in await list_pinned(session)
-    }
+    pinned = pairs_of(await list_pinned(session))
+    have = {(q.casefold(), a.casefold()) for q, a in pinned}
     added = 0
     for question, answer in pairs:
         key = (question.casefold(), answer.casefold())
         if key in have:
             continue
+        if within_room and section_chars([*pinned, (question, answer)]) > MAX_PINNED_CHARS:
+            break
         have.add(key)
+        pinned.append((question, answer))
         await session.execute(
             text(
                 "INSERT INTO kb_facts (id, tenant_id, question, text, pinned, origin, position, "
@@ -479,6 +496,7 @@ __all__ = [
     "list_pinned",
     "not_yet_on",
     "pairs_of",
+    "pin_pairs",
     "recompile_agent",
     "reorder",
     "request_recompile",

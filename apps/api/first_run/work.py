@@ -240,6 +240,82 @@ async def _within_ai_allowance(session: AsyncSession, tenant_id: UUID) -> bool:
 ANSWERS_LEAD: Final = "The owner also said:"
 
 
+def _answer_lines(row: Any) -> list[tuple[str, str]]:
+    """Each answer as (its question, what the owner said), the choices ticked and the words
+    typed; a price list or opening hours, which land in the business profile, are left out."""
+    out: list[tuple[str, str]] = []
+    for item in row.answers or []:
+        if not isinstance(item, dict):
+            continue
+        said = [str(c) for c in item.get("choices") or []]
+        if item.get("text"):
+            said.append(str(item["text"]))
+        if said:
+            out.append((str(item.get("prompt") or ""), "; ".join(said)))
+    return out
+
+
+def calling_hours_of(row: Any) -> dict[str, str] | None:
+    """The first campaign's calling window from what the owner said: an answer about when
+    to call first, else their description ("Call only between 9am and 6pm"), narrowed to
+    the platform's lawful hours. None when they gave none: the platform window applies."""
+    from apps.api.agents.owner_words import calling_window, narrowed
+    from apps.api.compliance.service import DEFAULT_WINDOW
+
+    # A question and its answer are one sentence here, so "When may it call?" + "9am to 6pm"
+    # reads as a window about calling.
+    answered = [f"{prompt.rstrip(' ?')}: {said}" for prompt, said in _answer_lines(row)]
+    for words in (*answered, row.brief or ""):
+        window = calling_window(words)
+        if window is not None:
+            lawful = narrowed(window, DEFAULT_WINDOW)
+            if lawful is None:
+                return None
+            return {"start": lawful[0].strftime("%H:%M"), "end": lawful[1].strftime("%H:%M")}
+    return None
+
+
+def owner_statements(row: Any) -> list[tuple[str, str]]:
+    """The facts and rules the owner gave, as pinned facts (question, answer): each sentence
+    of their description that states a fact about the business or sets the agent a rule,
+    word for word, then each rule they ticked or typed in answer, then their answer to the
+    one thing every caller should know, under its question."""
+    from apps.api.agents.owner_words import stated_facts, stated_rules
+    from apps.api.first_run.questions import ONE_THING
+
+    brief = row.brief or ""
+    pairs = [("", s) for s in (*stated_facts(brief), *stated_rules(brief))]
+    for item in row.answers or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("id") == ONE_THING.id and item.get("text"):
+            pairs.append((ONE_THING.prompt, str(item["text"]).strip()))
+            continue
+        said = [*(str(c) for c in item.get("choices") or []), str(item.get("text") or "")]
+        pairs += [("", rule) for words in said for rule in stated_rules(words)]
+    return pairs
+
+
+async def _pin_owner_statements(
+    session: AsyncSession, *, tenant_id: UUID, row: Any, user_id: UUID | None
+) -> None:
+    """The owner's facts and rules (`owner_statements`) as the business's pinned facts, which
+    every call of every agent carries (founder decision 9), rather than left only inside the
+    work's main task, where the in-call model never reads them. Kept within the pinned
+    section's room, so a long description never crowds out facts the owner pins themselves."""
+    from apps.api.teach.pinned import pin_pairs
+
+    pairs = owner_statements(row)
+    if pairs:
+        await pin_pairs(
+            session,
+            tenant_id=tenant_id,
+            pairs=pairs,
+            created_by=user_id,
+            within_room=True,
+        )
+
+
 def main_task_of(row: Any, job: FirstWork) -> str:
     """The first work's main task: the owner's words, then their answers to the follow-up
     questions that name no business-profile section, the one thing every caller should know
@@ -296,6 +372,10 @@ async def start_work(
     pip_writes = may_spend_ai and await _within_ai_allowance(session, tenant_id)
     # An archived line or campaign reads as none, so this drafts another one.
     held_line, held_campaign = await live_work_ids(session, row)
+    drafts = (held_line if job == "answer_calls" else held_campaign) is None
+    if drafts:
+        # Before the draft is queued, so its script is written knowing them.
+        await _pin_owner_statements(session, tenant_id=tenant_id, row=row, user_id=user_id)
     if job == "answer_calls" and held_line is None:
         line_id = await lines.create_line(
             session, tenant_id=tenant_id, agent_id=agent_id, main_task=task, created_by=user_id
@@ -333,6 +413,7 @@ async def start_work(
             number_id=None,
             dlt_template_id=None,
             concurrency=FIRST_CAMPAIGN_CONCURRENCY,
+            calling_hours=calling_hours_of(row),
         )
         await workspace.save_main_task(session, campaign_id, task)
         sources = await _source_ids(session, [d.upload_id for d in documents])
