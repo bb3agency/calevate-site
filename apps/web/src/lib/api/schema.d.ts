@@ -33395,6 +33395,11 @@ export interface components {
             pause_reason: ("person" | "maintenance" | "healer" | "complaint_spike" | "out_of_credit" | "spend_cap") | null;
             /** Purpose */
             purpose: string | null;
+            /**
+             * Recently Called Waiting
+             * @default 0
+             */
+            recently_called_waiting: number;
             recurrence?: components["schemas"]["RecurrenceOut"] | null;
             /**
              * Retries Waiting
@@ -33406,6 +33411,8 @@ export interface components {
             schedule_blocked_rules?: string[];
             /** Scheduled Start At */
             scheduled_start_at?: string | null;
+            /** Skip Recent Days */
+            skip_recent_days?: number | null;
             /** Status */
             status: string;
             /** Total */
@@ -40242,6 +40249,8 @@ export interface components {
             /** Purpose */
             purpose?: string | null;
             retry_policy?: components["schemas"]["RetryPolicyIn"] | null;
+            /** Skip Recent Days */
+            skip_recent_days?: number | null;
         };
         /**
          * UpdateEndpointIn

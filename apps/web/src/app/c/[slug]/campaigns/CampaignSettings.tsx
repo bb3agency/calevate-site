@@ -5,9 +5,10 @@ import type { ReactNode } from "react";
 import { Pencil } from "lucide-react";
 
 import { TEXT_ACTION } from "@/components/console/section";
-import { formatPhone } from "@/components/ui";
+import { FIELD, ProblemNotice, formatPhone } from "@/components/ui";
 import { useMyCallLines } from "@/lib/api/callLines";
-import type { CampaignProgress } from "@/lib/api/campaigns";
+import { useUpdateCampaign, type CampaignProgress } from "@/lib/api/campaigns";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
@@ -71,6 +72,7 @@ export function CampaignSettings({
           />
           <Fact label="No answer, busy or voicemail" value={describeRetry(progress.retry_policy)} />
           <Fact label="Do-not-call list" value="Numbers on it are always skipped" />
+          <Fact label="Skip recent calls" value={<SkipRecent campaignId={campaignId} progress={progress} />} />
         </Group>
       </div>
     </section>
@@ -94,6 +96,61 @@ function Fact({ label, value, hint }: { label: string; value: ReactNode; hint?: 
         {value}
         {hint}
       </dd>
+    </div>
+  );
+}
+
+/** The day counts offered; a saved value outside them (1 to 30 is allowed) is offered too. */
+const SKIP_DAYS = [1, 3, 7, 14, 30];
+/** Statuses that still call someone, so the skip can still change who is called. */
+const SKIP_CHANGEABLE = new Set(["draft", "scheduled", "running", "paused"]);
+
+function skipChoices(current: number | null | undefined): number[] {
+  return current != null && !SKIP_DAYS.includes(current)
+    ? [...SKIP_DAYS, current].sort((a, b) => a - b)
+    : SKIP_DAYS;
+}
+
+/**
+ * "Skip people we called in the last N days" (D-1046): any campaign or call that reached the
+ * person counts, this campaign's own tries do not. Saved on change; a running campaign uses
+ * the new value from its next round of calls.
+ */
+function SkipRecent({ campaignId, progress }: { campaignId: string; progress: CampaignProgress }) {
+  const { session } = useClientRealm();
+  const update = useUpdateCampaign(session, campaignId);
+  const write = useWriteAccess(session, "leads:dispatch", "change this campaign");
+  const days = progress.skip_recent_days ?? null;
+  const waiting = progress.recently_called_waiting;
+  const changeable = SKIP_CHANGEABLE.has(progress.status) && progress.archived_at == null;
+  return (
+    <div>
+      <select
+        aria-label="Skip people called recently"
+        className={`${FIELD} block`}
+        value={days ?? "off"}
+        disabled={!changeable || !write.allowed || update.isPending}
+        onChange={(e) => update.mutate({ skip_recent_days: e.target.value === "off" ? null : Number(e.target.value) })}
+      >
+        <option value="off">Off: call everyone</option>
+        {skipChoices(days).map((n) => (
+          <option key={n} value={n}>
+            {n === 1 ? "Called in the last day" : `Called in the last ${n} days`}
+          </option>
+        ))}
+      </select>
+      <span className="mt-1 block text-meta text-ink-muted">
+        {days == null
+          ? "People other campaigns reached are called anyway."
+          : waiting > 0
+            ? `${waiting} waiting: called in the last ${days === 1 ? "day" : `${days} days`}.`
+            : "Calls nobody answered don't count."}
+      </span>
+      {update.error != null && (
+        <div className="mt-2">
+          <ProblemNotice error={update.error} />
+        </div>
+      )}
     </div>
   );
 }

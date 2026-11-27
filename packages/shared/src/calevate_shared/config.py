@@ -709,6 +709,10 @@ class Settings(BaseSettings):
     trial_caller_number: str | None = Field(default=None, max_length=13, pattern=r"^\+91\d{10}$")
     #: How many test calls one trial account may place per IST day (D-697).
     trial_daily_call_cap: int = Field(default=10, ge=1, le=100)
+    #: How many calls one account may place to one person in a rolling 24 hours, counted
+    #: across every dial path (D-1046, `compliance/pacing`). A test call to the owner's own
+    #: attested number is not counted against it: the trial's daily cap above bounds those.
+    person_daily_call_cap: int = Field(default=3, ge=1, le=10)
     #: The longest a trial test call may run, sent as the per-call `maxCallSeconds` override,
     #: which the platform bounds to 60..1200 (`thinnest-findings/mirror/snapshots/2026-10-08/
     #: pages/api-reference/calls/place-call.md:1122-1126`).

@@ -49809,6 +49809,11 @@
             ],
             "title": "Purpose"
           },
+          "recently_called_waiting": {
+            "default": 0,
+            "title": "Recently Called Waiting",
+            "type": "integer"
+          },
           "recurrence": {
             "anyOf": [
               {
@@ -49845,6 +49850,17 @@
               }
             ],
             "title": "Scheduled Start At"
+          },
+          "skip_recent_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip Recent Days"
           },
           "status": {
             "title": "Status",
@@ -67690,6 +67706,19 @@
                 "type": "null"
               }
             ]
+          },
+          "skip_recent_days": {
+            "anyOf": [
+              {
+                "maximum": 30.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip Recent Days"
           }
         },
         "title": "UpdateCampaignIn",

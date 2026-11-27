@@ -42,6 +42,7 @@ from apps.api.campaigns import (
 from apps.api.campaigns import engine_agent as campaign_engine_agent
 from apps.api.campaigns import workspace as campaign_workspace
 from apps.api.compliance.audit import write_audit
+from apps.api.compliance.pacing import RECENT_SKIP_MAX_DAYS, RECENT_SKIP_MIN_DAYS
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
@@ -197,6 +198,10 @@ class UpdateCampaignIn(Strict):
     #: Null or blank clears them.
     purpose: PurposeIn = None
     goal: GoalIn = None
+    #: Skip people another campaign or call reached in this many days; null turns it off.
+    skip_recent_days: int | None = Field(
+        default=None, ge=RECENT_SKIP_MIN_DAYS, le=RECENT_SKIP_MAX_DAYS
+    )
 
 
 #: Fields that cannot be cleared: sending null for one is a 422, not an erase.
@@ -689,6 +694,10 @@ class ProgressOut(Strict):
     # screen says rather than rendering blank.
     calling_hours: CallingHoursIn | None = None
     number_e164: str | None = None
+    #: Skip people another campaign or call reached in this many days (D-1046); None is off.
+    skip_recent_days: int | None = None
+    #: People still to call whom that skip holds right now; 0 when it is off.
+    recently_called_waiting: int = 0
 
 
 class CampaignSummaryOut(Strict):

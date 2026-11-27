@@ -116,6 +116,7 @@ from apps.api.compliance.models import (
     DNC_REMOVABLE_SOURCES,
 )
 from apps.api.compliance.outbound_pledge import pledge_blocker
+from apps.api.compliance.pacing import pacing_reason, person_pacing_opens_at
 from apps.api.compliance.trial_access import (
     NOT_ON_TRIAL_REASON,
     NOT_ON_TRIAL_RULE,
@@ -126,6 +127,7 @@ from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import engine_capabilities
 from apps.api.legal.service import agreements_blocker
 
@@ -318,6 +320,9 @@ DESTINATION_NOT_INDIA_REASON = (
     "Calevate places calls to Indian (+91) numbers only. This destination is outside "
     "India and cannot be dialled."
 )
+#: The account has rung this person `person_daily_call_cap` times in 24 hours (D-1046,
+#: `compliance/pacing`). Transient: it lifts at `DispatchDecision.opens_at`.
+PERSON_CONTACT_PACING_RULE = "person_contact_pacing"
 DESTINATION_ERASED_RULE = "destination_erased"
 DESTINATION_ERASED_REASON = (
     "This person's number was deleted from this account, under a deletion request or at "
@@ -330,6 +335,9 @@ class DispatchDecision:
     allowed: bool
     reason: str | None = None
     rule: str | None = None
+    #: When a refusal that lifts at a known instant lifts (`PERSON_CONTACT_PACING_RULE`), so
+    #: a batch dialler can wait exactly that long; None for every other decision.
+    opens_at: datetime | None = None
 
 
 def ist_now() -> datetime:
@@ -1017,6 +1025,36 @@ async def person_level_refusal(
     return None
 
 
+async def person_contact_pacing_refusal(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    phone_e164: str,
+    trial_call: bool,
+    own_number_attested: bool,
+) -> DispatchDecision | None:
+    """The account has rung this person `person_daily_call_cap` times in 24 hours (D-1046).
+
+    Not part of `person_level_refusal`: a call-back booked for later asks that function at
+    booking, and three calls today say nothing about tomorrow. A test call to the owner's own
+    attested number is bounded by the trial's daily cap instead, so an owner rehearsing their
+    agent is not stopped after three tries; a test call to any other number is counted."""
+    if trial_call and own_number_attested:
+        return None
+    cap = get_settings().person_daily_call_cap
+    opens_at = await person_pacing_opens_at(
+        session, tenant_id=tenant_id, phone_e164=phone_e164, cap=cap
+    )
+    if opens_at is None:
+        return None
+    return DispatchDecision(
+        allowed=False,
+        rule=PERSON_CONTACT_PACING_RULE,
+        reason=pacing_reason(cap, opens_at),
+        opens_at=opens_at,
+    )
+
+
 #: The dial refused because the agent's first words would not say a notice switched on.
 DISCLOSURE_NOT_SAID_RULE: Final = "disclosure_not_said"
 
@@ -1332,6 +1370,18 @@ async def check_dispatch(
     if person is not None:
         return person
 
+    # After the permanent facts about the person, so a number on the do-not-call list reads
+    # as that rather than as "called too often".
+    pacing = await person_contact_pacing_refusal(
+        session,
+        tenant_id=tenant_id,
+        phone_e164=phone_e164,
+        trial_call=trial_call,
+        own_number_attested=own_number_attested,
+    )
+    if pacing is not None:
+        return pacing
+
     # THE DLT LAYER IS INACTIVE UNDER D-692. This branch used to refuse on Calevate's TM
     # registration and the client's PE-TM chain (`registration.outbound_entity_blockers`)
     # and on the agent's DLT-registered header (`agents.service.agent_outbound_number_blocker`).
@@ -1492,6 +1542,7 @@ __all__ = [
     "NO_ASSIGNMENT_REASON",
     "NO_ASSIGNMENT_RULE",
     "NO_CREDITS_REASON",
+    "PERSON_CONTACT_PACING_RULE",
     "PERSON_LEVEL_REFUSALS",
     "SELF_SERVE_TIERS",
     "SPEND_CAP_REASON",
@@ -1510,6 +1561,7 @@ __all__ = [
     "latest_call_consent",
     "outbound_pledge_blocker",
     "outbound_requires_consent",
+    "person_contact_pacing_refusal",
     "spend_capped",
     "truthful_answer_drift_blocker",
     "within_calling_hours",

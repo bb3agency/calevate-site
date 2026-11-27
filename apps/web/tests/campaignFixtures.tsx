@@ -60,6 +60,7 @@ export function progressFixture(over: Partial<CampaignProgress> = {}): CampaignP
     contacts: {},
     total: 0,
     retries_waiting: 0,
+    recently_called_waiting: 0,
     next_retry_at: null,
     ...over,
   };
