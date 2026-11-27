@@ -3,7 +3,8 @@
 import { BuildStamp } from "@/components/UpdateWatcher";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { UserRound } from "lucide-react";
+import { ChevronDown, UserRound } from "lucide-react";
+import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 
 import { SidebarSignOut } from "@/components/authn/sidebarSignOut";
 import { NavDrawer } from "@/components/navDrawer";
@@ -12,6 +13,7 @@ import {
   SIDEBAR_IDENTITY_ROW_CLASS,
   SIDEBAR_ROW_CLASS,
   SidebarBrand,
+  SidebarGroupBody,
   SidebarGroupHeading,
   SidebarLabel,
   sidebarFadeClass,
@@ -22,12 +24,21 @@ import {
 import { Avatar } from "@/components/ui";
 import { clientAuthn, CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { useAgreementsReadiness } from "@/lib/api/agreements";
+import { useFirstRun } from "@/lib/api/firstRun";
 import { useMe } from "@/lib/api/hooks";
 import { seatLabel } from "@/lib/api/members";
 import { BELL_ROWS, unseenAttention, useNotifications } from "@/lib/api/notifications";
 import { useClientRealm } from "@/lib/api/session";
+import { useTrialPanel } from "@/lib/api/trialCalls";
 import { useLeadNouns } from "@/lib/businessCapabilities";
-import { clientNavigation, inAccountWords, type NavGroup, type NavItem } from "@/lib/clientNav";
+import {
+  clientNavigation,
+  inAccountWords,
+  showsTrialNav,
+  trialNavigation,
+  type NavGroup,
+  type NavItem,
+} from "@/lib/clientNav";
 import { currentNavItem } from "@/lib/nav";
 
 /**
@@ -46,6 +57,14 @@ export function currentItem(groups: NavGroup[], pathname: string): NavItem | und
     pathname,
   );
 }
+
+/**
+ * The current page's row: full ink on a faint ink well, in weight as well as colour. Not the
+ * brand green, which the palette keeps for money and things done; a selected row is neither.
+ * `text-ink` holds well over 4.5:1 on both page grounds, and the well is under 10% ink.
+ */
+export const SELECTED_ROW = "bg-ink/[0.07] font-semibold text-ink";
+export const SELECTED_ICON = "text-ink";
 
 /** A badge's fill: the text tokens, so the white count on them keeps 4.5:1. */
 const BADGE_FILL: Record<NonNullable<NavItem["badgeTone"]>, string> = {
@@ -77,27 +96,37 @@ export function ClientSidebar({
   // opening the bell or the queue marks them seen and the badge drops. Unresolved problems
   // stay listed on the screen itself.
   const waiting = unseenAttention(useNotifications(session, BELL_ROWS).data);
+  // THE SHORT TRIAL SIDEBAR until the first test minute (founder, 28 Nov 2026). The
+  // agreements are asked for where they matter, in the Hear-it step's ticks, so the trial
+  // view carries no outstanding count; the server's gate is untouched by what is drawn here.
+  const trial = useTrialPanel(session);
+  const trialView = showsTrialNav(trial.data);
+  const firstRun = useFirstRun(session, trialView && !session.impersonateOrg);
   const groups = inAccountWords(clientNavigation(slug), slug, useLeadNouns()).map((group) => ({
     ...group,
     items: group.items.map((item): NavItem =>
       item.href.endsWith("/agreements")
-        ? { ...item, badge: outstanding, badgeTone: "stop" }
+        ? trialView
+          ? item
+          : { ...item, badge: outstanding, badgeTone: "stop" }
         : item.href.endsWith("/attention")
           ? { ...item, badge: waiting, badgeTone: "warn" }
           : item,
     ),
   }));
-  // The SAME entry the header names — see `currentItem`. Identity comparison rather than
-  // a second match: two computations cannot disagree if there is only one.
+  // The SAME entry the header names — see `currentItem`. Compared by `href`, because the
+  // trial list relabels the agents entry into a copy of it.
   const current = currentItem(groups, pathname);
+  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const everything = useShowEverything();
 
-  const renderItem = (item: NavItem) => {
-    const active = item === current;
+  const renderItem = (item: NavItem, to: string = item.href) => {
+    const active = item.href === current?.href;
     const Icon = item.icon;
     return (
       <Link
         key={item.href}
-        href={href(item.href)}
+        href={href(to)}
         onClick={onClose}
         title={isCollapsed ? item.label : undefined}
         aria-current={active ? "page" : undefined}
@@ -106,12 +135,12 @@ export function ClientSidebar({
         // shell so the two consoles' rows cannot drift apart or animate differently.
         className={`${SIDEBAR_ROW_CLASS} transition-colors ${
           active
-            ? "bg-brand-soft text-brand-strong dark:bg-brand-strong/20 dark:text-brand-bright"
+            ? SELECTED_ROW
             : "text-ink-muted hover:bg-ink/[0.04] hover:text-ink"
         }`}
       >
         <span className="relative flex shrink-0">
-          <Icon className={`h-4 w-4 shrink-0 ${active ? "text-brand" : "text-ink-faint"}`} />
+          <Icon className={`h-4 w-4 shrink-0 ${active ? SELECTED_ICON : "text-ink-faint"}`} />
           {/* The collapsed rail fades the count out with the label, so the icon keeps a
               dot in the badge's colour: the rail still says something is waiting. */}
           {item.badge !== undefined && item.badge > 0 && (
@@ -165,19 +194,32 @@ export function ClientSidebar({
       />
 
       <nav className={sidebarNavClass}>
-        {groups.map((group) => (
-          <div
-            key={group.heading ?? "main"}
-            className="mb-4"
-            role={group.heading ? "group" : undefined}
-            aria-label={group.heading ?? undefined}
-          >
-            {group.heading && (
-              <SidebarGroupHeading isCollapsed={isCollapsed}>{group.heading}</SidebarGroupHeading>
-            )}
-            {group.items.map(renderItem)}
-          </div>
-        ))}
+        {trialView ? (
+          <TrialNav
+            slug={slug}
+            groups={groups}
+            current={current}
+            agentsTo={firstRun.data?.due === true ? `/c/${slug}/agents/first` : undefined}
+            everything={everything}
+            isCollapsed={isCollapsed}
+            renderItem={renderItem}
+          />
+        ) : (
+          <GroupedNav
+            groups={groups}
+            current={current}
+            closed={isCollapsed ? NONE_CLOSED : closed}
+            onToggle={(heading) =>
+              setClosed((was) => {
+                const next = new Set(was);
+                if (!next.delete(heading)) next.add(heading);
+                return next;
+              })
+            }
+            isCollapsed={isCollapsed}
+            renderItem={renderItem}
+          />
+        )}
       </nav>
 
       {/* Who you are signed in AS. The design put a person's name and photo here;
@@ -266,4 +308,175 @@ export function ClientSidebar({
       </div>
     </NavDrawer>
   );
+}
+
+const NONE_CLOSED: ReadonlySet<string> = new Set();
+
+type RenderItem = (item: NavItem, to?: string) => ReactNode;
+
+/**
+ * The full sidebar: the primary entries, then each headed group, then the footer. A headed
+ * group opens and closes from its heading; the one holding the current page is always open,
+ * so the highlight can never be folded away.
+ */
+function GroupedNav({
+  groups,
+  current,
+  closed,
+  onToggle,
+  isCollapsed,
+  renderItem,
+  collapsible = true,
+}: {
+  groups: NavGroup[];
+  current: NavItem | undefined;
+  closed: ReadonlySet<string>;
+  onToggle?: (heading: string) => void;
+  isCollapsed: boolean;
+  renderItem: RenderItem;
+  collapsible?: boolean;
+}) {
+  const baseId = useId();
+  return (
+    <>
+      {groups.map((group, index) => {
+        const { heading } = group;
+        if (group.footer) {
+          return (
+            <div key={`footer-${index}`} className="mt-2 border-t border-line pt-3">
+              {group.items.map((item) => renderItem(item))}
+            </div>
+          );
+        }
+        const holdsCurrent = group.items.some((item) => item.href === current?.href);
+        const open = heading === null || holdsCurrent || !closed.has(heading);
+        const bodyId = `${baseId}-group-${index}`;
+        return (
+          <div
+            key={heading ?? `main-${index}`}
+            className="mb-4"
+            role={heading ? "group" : undefined}
+            aria-label={heading ?? undefined}
+          >
+            {heading && (
+              <SidebarGroupHeading
+                isCollapsed={isCollapsed}
+                toggle={
+                  collapsible && onToggle && !holdsCurrent
+                    ? { open, onToggle: () => onToggle(heading), controls: bodyId }
+                    : undefined
+                }
+              >
+                {heading}
+              </SidebarGroupHeading>
+            )}
+            <SidebarGroupBody id={bodyId} open={open}>
+              {group.items.map((item) => renderItem(item))}
+            </SidebarGroupBody>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * The trial sidebar: the six entries a new owner needs before their first test call, then
+ * "Show everything", which opens every other screen in place, grouped as the full sidebar
+ * groups them. Opened with no toggle when the page shown is one of those others.
+ */
+function TrialNav({
+  slug,
+  groups,
+  current,
+  agentsTo,
+  everything,
+  isCollapsed,
+  renderItem,
+}: {
+  slug: string;
+  groups: NavGroup[];
+  current: NavItem | undefined;
+  /** Where "Your agent" leads while the first run is due; the roster otherwise. */
+  agentsTo: string | undefined;
+  everything: { on: boolean; set: (on: boolean) => void };
+  isCollapsed: boolean;
+  renderItem: RenderItem;
+}) {
+  const restId = useId();
+  const items = trialNavigation(groups, slug);
+  const shown = new Set(items.map((item) => item.href));
+  const billing = `/c/${slug}/billing`;
+  const agents = `/c/${slug}/agents`;
+  const rest = groups
+    .map((group) => ({ ...group, items: group.items.filter((item) => !shown.has(item.href)) }))
+    .filter((group) => group.items.length > 0);
+  const forced = current !== undefined && !shown.has(current.href);
+  const open = everything.on || forced;
+  const draw = (item: NavItem) => renderItem(item, item.href === agents ? (agentsTo ?? item.href) : item.href);
+  return (
+    <>
+      <div className="mb-2">{items.filter((item) => item.href !== billing).map(draw)}</div>
+      <div className="mb-2 border-t border-line pt-2">
+        {items.filter((item) => item.href === billing).map(draw)}
+        {!forced && (
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={restId}
+            onClick={() => everything.set(!open)}
+            title={isCollapsed ? (open ? "Show less" : "Show everything") : undefined}
+            className={`${SIDEBAR_ROW_CLASS} w-full text-ink-muted transition-colors hover:bg-ink/[0.04] hover:text-ink`}
+          >
+            <ChevronDown
+              aria-hidden
+              className={`h-4 w-4 shrink-0 text-ink-faint motion-safe:transition-transform motion-safe:duration-200 ${
+                open ? "rotate-180" : ""
+              }`}
+            />
+            <SidebarLabel isCollapsed={isCollapsed}>{open ? "Show less" : "Show everything"}</SidebarLabel>
+          </button>
+        )}
+      </div>
+      <SidebarGroupBody id={restId} open={open}>
+        <div className="pt-2">
+          <GroupedNav
+            groups={rest}
+            current={current}
+            closed={NONE_CLOSED}
+            isCollapsed={isCollapsed}
+            renderItem={renderItem}
+            collapsible={false}
+          />
+        </div>
+      </SidebarGroupBody>
+    </>
+  );
+}
+
+/** Per browser: whether the trial sidebar's "Show everything" was left open. */
+const SHOW_EVERYTHING_KEY = "calevate:sidebar-show-everything";
+
+/**
+ * Read after mount rather than during render, so the server's HTML and the first client
+ * render agree; the trial view itself waits on `GET /v1/trial`, so nothing visibly jumps.
+ */
+function useShowEverything(): { on: boolean; set: (on: boolean) => void } {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    try {
+      setOn(window.localStorage.getItem(SHOW_EVERYTHING_KEY) === "1");
+    } catch {
+      // Storage blocked: the list starts short, and the button still opens it.
+    }
+  }, []);
+  const set = useCallback((next: boolean) => {
+    setOn(next);
+    try {
+      window.localStorage.setItem(SHOW_EVERYTHING_KEY, next ? "1" : "0");
+    } catch {
+      // Not remembered in this browser; the choice still holds for this visit.
+    }
+  }, []);
+  return { on, set };
 }

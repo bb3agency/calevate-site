@@ -364,8 +364,8 @@ describe("the navigate frame — the one the browser has to act on", () => {
     tool: "open_screen",
     screen: "Calling credit",
     route: "/c/{slug}/credits",
-    where: "Calling credit, under Settings & account in the left sidebar",
-    detail: "Opening Calling credit, under Settings & account in the left sidebar.",
+    where: "Calling credit, under Account in the left sidebar",
+    detail: "Opening Calling credit, under Account in the left sidebar.",
     reversal: "Your browser's back button brings you back to this screen.",
   };
 

@@ -53,9 +53,9 @@ const TO_CREDITS = {
   tool: "open_screen",
   screen: "Credits & billing",
   route: "/c/{slug}/billing",
-  where: "Credits & billing, under Settings & account in the left sidebar",
+  where: "Credits & billing, under Account in the left sidebar",
   detail:
-    "Opening Credits & billing, under Settings & account in the left sidebar.",
+    "Opening Credits & billing, under Account in the left sidebar.",
   reversal: "Your browser's back button brings you back to this screen.",
 };
 
@@ -253,7 +253,7 @@ describe('"take me to billing page"', () => {
     // change, so a move nobody clicked for has to say where it went.
     expect(
       screen.getByText(
-        "Opened Credits & billing, under Settings & account in the left sidebar.",
+        "Opened Credits & billing, under Account in the left sidebar.",
       ),
     ).toBeTruthy();
     // …and where the caret is when they get there: the skip-link target, not the sidebar.

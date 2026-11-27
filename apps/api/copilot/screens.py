@@ -97,12 +97,16 @@ from typing import Final
 from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.core.rbac import ROLE_PERMISSIONS, Permission
 
-#: The heading a group carries in the sidebar. `None` is the primary group, which is
-#: rendered with no heading at all — so a screen in it is described as "in the left
-#: sidebar" rather than "under <heading>".
+#: The heading a group carries in the sidebar. `None` is a group with no heading (the
+#: primary one at the top, and the footer that holds Pip), so a screen in it is described
+#: as "in the left sidebar" rather than "under <heading>".
 Group = str | None
 
-SETTINGS_GROUP: Final = "Settings & account"
+CALLING: Final = "Calling"
+RESULTS: Final = "Results"
+KNOWLEDGE: Final = "Knowledge"
+RULES: Final = "Rules & records"
+ACCOUNT: Final = "Account"
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,37 +172,9 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         permission="leads:read",
     ),
     Screen(
-        route="/c/{slug}/make-a-call",
-        name="Make a call",
-        group=None,
-        summary=(
-            "Have an agent call one person now or at a time you pick, by number or from a "
-            "lead or a call, and see the calls placed this way."
-        ),
-        aliases=("call one person", "single call", "one call", "call a number", "quick call"),
-        permission="leads:dispatch",
-    ),
-    Screen(
-        route="/c/{slug}/campaigns",
-        name="Campaigns",
-        group=None,
-        summary=(
-            "Outbound calling campaigns — each its own script, settings and notes in one "
-            "agent's voice; start or stop any time, watch it run."
-        ),
-        aliases=("outbound", "calling list", "dialer", "broadcast"),
-    ),
-    Screen(
-        route="/c/{slug}/inbound",
-        name="Inbound",
-        group=None,
-        summary="What each number says when called, and in whose voice.",
-        aliases=("incoming calls",),
-    ),
-    Screen(
         route="/c/{slug}/agents",
         name="Agents",
-        group=None,
+        group=CALLING,
         summary="The AI voice agents and whether each is live; one agent's page has the tabs "
         "below.",
         aliases=(
@@ -215,23 +191,73 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         ),
     ),
     Screen(
+        route="/c/{slug}/campaigns",
+        name="Campaigns",
+        group=CALLING,
+        summary=(
+            "Outbound calling campaigns — each its own script, settings and notes in one "
+            "agent's voice; start or stop any time, watch it run."
+        ),
+        aliases=("outbound", "calling list", "dialer", "broadcast"),
+    ),
+    Screen(
+        route="/c/{slug}/inbound",
+        name="Inbound",
+        group=CALLING,
+        summary="What each number says when called, and in whose voice.",
+        aliases=("incoming calls",),
+    ),
+    Screen(
+        route="/c/{slug}/make-a-call",
+        name="Make a call",
+        group=CALLING,
+        summary=(
+            "Have an agent call one person now or at a time you pick, by number or from a "
+            "lead or a call, and see the calls placed this way."
+        ),
+        aliases=("call one person", "single call", "one call", "call a number", "quick call"),
+        permission="leads:dispatch",
+    ),
+    Screen(
+        route="/c/{slug}/phone-number",
+        name="Phone numbers",
+        group=CALLING,
+        summary=(
+            "Two sections: the numbers Calevate provides (getting one, which agent answers "
+            "it, calls at once, the save-our-number message), and the business's existing "
+            "number forwarded to one of them (phone codes, the forwarding test)."
+        ),
+        aliases=(
+            "phone number",
+            "your phone number",
+            "my number",
+            "did",
+            "forwarding",
+            "existing number",
+            "call forwarding",
+            "forward my number",
+            "divert",
+            "test forwarding",
+        ),
+    ),
+    Screen(
         route="/c/{slug}/calls",
         name="Call logs",
-        group=None,
+        group=RESULTS,
         summary="Every call, with its recording, transcript and outcome.",
         aliases=("calls", "call history", "recordings", "transcripts"),
     ),
     Screen(
         route="/c/{slug}/leads",
         name="Leads",
-        group=None,
+        group=RESULTS,
         summary="The people the agents talked to, and what was captured about each one.",
         aliases=("contacts", "customers", "enquiries", "crm", "prospects"),
     ),
     Screen(
         route="/c/{slug}/follow-ups",
         name="Follow-ups",
-        group=None,
+        group=RESULTS,
         summary=(
             "Steps each lead goes through on its own after it arrives or a call (calls, waits, "
             "WhatsApp, handing to a teammate): turn one on, pause or adjust it, start it for "
@@ -252,14 +278,29 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
     Screen(
         route="/c/{slug}/callbacks",
         name="Call-backs",
-        group=None,
+        group=RESULTS,
         summary="Call-backs an agent promised a caller, and when they are due.",
         aliases=("callback", "call back", "promised calls", "call me back"),
     ),
     Screen(
+        route="/c/{slug}/performance",
+        name="Performance",
+        group=RESULTS,
+        summary="How the calling is going — connect rate, outcomes, busiest hours.",
+        aliases=("analytics", "reports", "stats", "metrics", "results"),
+        permission="calls:read",
+    ),
+    Screen(
+        route="/c/{slug}/quality",
+        name="Quality",
+        group=RESULTS,
+        summary="Sampled calls reviewed for how well the agent handled them.",
+        aliases=("qa", "call quality", "reviews", "scoring"),
+    ),
+    Screen(
         route="/c/{slug}/knowledge",
         name="What your agents know",
-        group=None,
+        group=KNOWLEDGE,
         summary=(
             "Everything the agents can tell callers: facts and answers, files and links, and "
             "the questions they could not answer, and the company training."
@@ -274,63 +315,16 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         ),
     ),
     Screen(
-        route="/c/{slug}/phone-number",
-        name="Phone numbers",
-        group=None,
-        summary=(
-            "Two sections: the numbers Calevate provides (getting one, which agent answers "
-            "it, calls at once, the save-our-number message), and the business's existing "
-            "number forwarded to one of them (phone codes, the forwarding test)."
-        ),
-        aliases=(
-            "phone number",
-            "your phone number",
-            "my number",
-            "did",
-            "forwarding",
-            "existing number",
-            "call forwarding",
-            "forward my number",
-            "divert",
-            "test forwarding",
-        ),
-    ),
-    Screen(
-        route="/c/{slug}/performance",
-        name="Performance",
-        group=None,
-        summary="How the calling is going — connect rate, outcomes, busiest hours.",
-        aliases=("analytics", "reports", "stats", "metrics", "results"),
-        permission="calls:read",
-    ),
-    Screen(
-        route="/c/{slug}/assistant",
-        name=ASSISTANT_NAME,
-        group=None,
-        summary=(
-            f"{ASSISTANT_NAME}'s own page: past conversations, background "
-            "tasks, approvals waiting for you, routines, and everything it did with an Undo."
-        ),
-        aliases=("assistant", "approvals", "routines", "activity log", "tasks", "undo"),
-    ),
-    Screen(
-        route="/c/{slug}/quality",
-        name="Quality",
-        group="Reports & reviews",
-        summary="Sampled calls reviewed for how well the agent handled them.",
-        aliases=("qa", "call quality", "reviews", "scoring"),
-    ),
-    Screen(
         route="/c/{slug}/agreements",
         name="Agreements",
-        group="Compliance & data",
+        group=RULES,
         summary="The documents the account owner has to accept before calling can start.",
         aliases=("contracts", "terms", "sign up documents", "paperwork", "consent forms"),
     ),
     Screen(
         route="/c/{slug}/verify-business",
         name="Verify your business",
-        group="Compliance & data",
+        group=RULES,
         summary=(
             "Where the owner verifies the business and their ID, accepts the no-cold-calls "
             "pledge and confirms calling numbers to unlock outbound calling, and sees what "
@@ -354,21 +348,21 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
     Screen(
         route="/c/{slug}/do-not-call",
         name="Do not call",
-        group="Compliance & data",
+        group=RULES,
         summary="Numbers that must never be called again, and how to add one.",
         aliases=("dnc", "dnd", "blocklist", "opt out", "blacklist", "stop calling"),
     ),
     Screen(
         route="/c/{slug}/messaging-consent",
         name="Messaging consent",
-        group="Compliance & data",
+        group=RULES,
         summary="Who has agreed to be messaged, and the record of that agreement.",
         aliases=("sms consent", "whatsapp consent", "permission to message", "opt in"),
     ),
     Screen(
         route="/c/{slug}/lead-sources",
         name="Leads & hours",
-        group="Compliance & data",
+        group=RULES,
         summary=(
             "How new leads are called (agent, timing, hours, holidays, held leads, retries, "
             "answering machines) and where they come from."
@@ -389,28 +383,28 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
     Screen(
         route="/c/{slug}/data-rights",
         name="Data rights",
-        group="Compliance & data",
+        group=RULES,
         summary="Requests from people to see or delete what is held about them.",
         aliases=("dpdp", "privacy requests", "deletion", "erasure", "data request"),
     ),
     Screen(
         route="/c/{slug}/caller-notice",
         name="Your privacy notice",
-        group="Compliance & data",
+        group=RULES,
         summary="The privacy notice this business shows its own callers.",
         aliases=("privacy policy", "privacy notice", "caller notice"),
     ),
     Screen(
         route="/c/{slug}/breach-playbook",
         name="If data leaks",
-        group="Compliance & data",
+        group=RULES,
         summary="Steps if customer data leaks.",
         aliases=("data breach",),
     ),
     Screen(
         route="/c/{slug}/settings/business",
         name="Business profile",
-        group=SETTINGS_GROUP,
+        group=ACCOUNT,
         summary="The business's hours, address, what it offers, common questions, "
         "staff, how callers go ahead, people who take calls and languages — what every "
         "agent says. "
@@ -433,7 +427,7 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
     Screen(
         route="/c/{slug}/settings/lead-details",
         name="Lead details",
-        group=SETTINGS_GROUP,
+        group=ACCOUNT,
         summary="What every call writes down for a lead: the standard details and this "
         "business's own, which the owner can add, rename or remove.",
         aliases=(
@@ -448,21 +442,21 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
     Screen(
         route="/c/{slug}/settings/team",
         name="Team",
-        group=SETTINGS_GROUP,
+        group=ACCOUNT,
         summary="Who can sign in to this account, and what each of them may do.",
         aliases=("users", "members", "staff", "invite", "colleagues", "access"),
     ),
     Screen(
         route="/c/{slug}/settings/alerts",
         name="Alerts",
-        group=SETTINGS_GROUP,
+        group=ACCOUNT,
         summary="What Calevate is allowed to notify this account about.",
         aliases=("notifications", "emails", "reminders", "warnings"),
     ),
     Screen(
         route="/c/{slug}/settings/line-protection",
         name="Line protection",
-        group=SETTINGS_GROUP,
+        group=ACCOUNT,
         summary="What happens to callers if an agent cannot take calls, the backup phone "
         "calls go to, and anything that went wrong with a line lately.",
         aliases=("backup number", "forward calls", "fallback phone", "line down", "outage"),
@@ -470,7 +464,7 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
     Screen(
         route="/c/{slug}/settings/call-notices",
         name="Call notices",
-        group=SETTINGS_GROUP,
+        group=ACCOUNT,
         summary="Whether every call says it is an AI and that it is recorded, one switch "
         "each for the whole account.",
         aliases=("ai notice", "recording notice", "disclosure", "call recording notice"),
@@ -478,21 +472,21 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
     Screen(
         route="/c/{slug}/settings/models",
         name="AI model",
-        group=SETTINGS_GROUP,
+        group=ACCOUNT,
         summary="Which AI model the agents think with, and what each costs a minute.",
         aliases=("model", "ai settings", "brain", "llm"),
     ),
     Screen(
         route="/c/{slug}/integrations",
         name="Integrations",
-        group=SETTINGS_GROUP,
+        group=ACCOUNT,
         summary="Connections to other apps this account uses.",
         aliases=("api", "webhooks", "connections", "crm sync", "zapier"),
     ),
     Screen(
         route="/c/{slug}/billing",
         name="Credits & billing",
-        group=SETTINGS_GROUP,
+        group=ACCOUNT,
         # THE SCREEN THE DEFECT WAS ABOUT, and it is now ONE screen instead of four
         # (D-525). It was "Credits & billing", and Usage, Spend and Invoice sat beside it —
         # four sidebar entries all answering a piece of "what am I paying?", which is
@@ -544,10 +538,20 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
     Screen(
         route="/c/{slug}/ai-assist",
         name="AI help",
-        group=SETTINGS_GROUP,
+        group=ACCOUNT,
         summary="How much of the plan's AI-help allowance this account has used.",
         aliases=("ai allowance", "assistant usage", "copilot usage"),
         permission="billing:read",
+    ),
+    Screen(
+        route="/c/{slug}/assistant",
+        name=ASSISTANT_NAME,
+        group=None,
+        summary=(
+            f"{ASSISTANT_NAME}'s own page: past conversations, background "
+            "tasks, approvals waiting for you, routines, and everything it did with an Undo."
+        ),
+        aliases=("assistant", "approvals", "routines", "activity log", "tasks", "undo"),
     ),
 )
 
@@ -587,7 +591,7 @@ def render_agent_tabs() -> str:
 def where_is(screen: Screen) -> str:
     """The screen's location as a person would say it out loud.
 
-    "Credits & billing, under Settings & account in the left sidebar" — the sentence the
+    "Credits & billing, under Account in the left sidebar" — the sentence the
     founder asked for, composed in ONE place so the prompt, the tests and any future
     caller cannot each invent their own phrasing. No route, no identifier: the two things
     banned from client-facing text.
@@ -684,7 +688,9 @@ def _directory_line(screen: Screen) -> str:
 
 
 def _group_heading(group: Group) -> str:
-    return "In the left sidebar:" if group is None else f"Under {group} in the left sidebar:"
+    # Short, because it is paid on every request; the full phrase is `where_is`'s, and the
+    # block's own example shows the model how to say it.
+    return "In the left sidebar:" if group is None else f"Under {group}:"
 
 
 def render_directory() -> str:
@@ -713,7 +719,7 @@ def render_directory() -> str:
         "\n"
         "HOW TO USE THIS LIST:\n"
         '- Asked WHERE something is, name the screen and where it sits — "Credits & '
-        'billing, under Settings & account in the left sidebar".\n'
+        'billing, under Account in the left sidebar".\n'
         '- THEY WILL NOT USE OUR NAME FOR IT. Match their words against "Also asked for '
         "as\" (to pay, top up or recharge, or for an invoice or this month's cost, means "
         "Credits & billing), then say our name and theirs. Never invent a screen name, "

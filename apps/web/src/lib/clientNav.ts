@@ -14,7 +14,8 @@
  * depends on, both cheap to keep:
  *
  *  - one entry per line, in the form `{ href: `/c/${slug}/x`, label: "Y", icon: Z },`
- *  - one `heading:` per group, `null` for the primary one.
+ *  - one `heading:` per group, `null` for a group with no heading (the primary one and the
+ *    footer).
  *
  * A screen added, renamed or removed here and not in `screens.py` turns that test red —
  * which is the whole point: the defect that produced it was an assistant telling a client,
@@ -87,77 +88,84 @@ export interface NavItem {
 }
 
 export interface NavGroup {
-  /** Null for the primary group, which carries no heading. */
+  /** Null for a group that carries no heading: the primary one, and the footer. */
   heading: string | null;
+  /**
+   * Drawn at the foot of the list under a hairline rather than in reading order. Pip is the
+   * one entry there: it answers questions about every screen above it, so it belongs to
+   * none of their groups.
+   */
+  footer?: boolean;
   items: NavItem[];
 }
 
+/**
+ * The groups follow what an owner is doing when they open the sidebar: setting agents to
+ * work (Calling), reading what came of it (Results), teaching them (Knowledge), the legal
+ * duties (Rules & records) and the account itself (Account). About seven entries a group,
+ * so each reads at a glance (docs/design/redesign-2026-11-28/PLAN.md §4).
+ */
 export function clientNavigation(slug: string): NavGroup[] {
   return [
     {
       heading: null,
       items: [
         { href: `/c/${slug}`, label: "Dashboard", icon: LayoutDashboard },
-        // Directly under Dashboard because it is the daily triage queue — the one list
-        // with a time cost attached to ignoring it. It used to sit in a secondary
-        // "Operations" group beside a screen most accounts saw once,
-        // while the header bell promoted it — the sidebar now agrees with the bell
-        // (ux-audit client-daily-work C2).
+        // Directly under Dashboard because it is the daily triage queue, the one list with a
+        // time cost attached to ignoring it; the header bell promotes the same queue.
         { href: `/c/${slug}/attention`, label: "Needs attention", icon: Target },
-        // D-1044: beside Needs attention, its other half: that queue is what is
-        // broken or blocked; this is what would make results better, across the account.
+        // D-1044: beside Needs attention, its other half: that queue is what is broken or
+        // blocked; this is what would make results better, across the account.
         { href: `/c/${slug}/improve`, label: "Improve", icon: TrendingUp },
-        // One person, one call, now or at a time (founder, 5 Nov 2026): beside Campaigns, its
-        // many-people counterpart. Every other Call button opens this screen pre-filled.
-        // "Make a call" over "Dialer" (a campaign word in this trade) and "Quick call".
-        { href: `/c/${slug}/make-a-call`, label: "Make a call", icon: PhoneForwarded },
-        { href: `/c/${slug}/campaigns`, label: "Campaigns", icon: Megaphone },
-        // D-997: what each of the business's numbers says when called, in one agent's voice.
-        { href: `/c/${slug}/inbound`, label: "Inbound", icon: PhoneIncoming },
-        { href: `/c/${slug}/agents`, label: "Agents", icon: Bot },
-        { href: `/c/${slug}/calls`, label: "Call logs", icon: PhoneCall },
-        { href: `/c/${slug}/leads`, label: "Leads", icon: Users },
-        // D-940: the steps each lead goes through after it arrives or after a call. Under
-        // Leads because it acts on leads and is checked by whoever watches them.
-        { href: `/c/${slug}/follow-ups`, label: "Follow-ups", icon: Workflow },
-        // Beside Leads rather than under "Compliance & data": a promised call-back is
-        // work waiting to happen, checked daily by whoever watches the leads, not a
-        // record consulted when something goes wrong.
-        { href: `/c/${slug}/callbacks`, label: "Call-backs", icon: PhoneOutgoing },
-        // D-874: named for what an owner asks ("what do my agents know?"), not for the
-        // machinery. The path keeps its old segment so existing links still land.
-        { href: `/c/${slug}/knowledge`, label: "What your agents know", icon: BookOpen },
-        // Calevate's numbers and the client's existing one forwarded to them, as two
-        // sections of one screen. The path keeps its old segment so existing links land.
-        { href: `/c/${slug}/phone-number`, label: "Phone numbers", icon: Phone },
-        { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
-        { href: `/c/${slug}/assistant`, label: "Pip", icon: PipIcon },
       ],
     },
     {
-      // Weekly-or-rarer reads, grouped by cadence rather than left at daily weight:
-      // Quality is a weekly review.
-      heading: "Reports & reviews",
+      heading: "Calling",
       items: [
+        { href: `/c/${slug}/agents`, label: "Agents", icon: Bot },
+        { href: `/c/${slug}/campaigns`, label: "Campaigns", icon: Megaphone },
+        // D-997: what each of the business's numbers says when called, in one agent's voice.
+        // "Inbound" stays the word (founder, 16 Nov and 28 Nov 2026).
+        { href: `/c/${slug}/inbound`, label: "Inbound", icon: PhoneIncoming },
+        // One person, one call, now or at a time (founder, 5 Nov 2026): the one-person
+        // counterpart of Campaigns. "Make a call" over "Dialer", a campaign word in this trade.
+        { href: `/c/${slug}/make-a-call`, label: "Make a call", icon: PhoneForwarded },
+        // Calevate's numbers and the client's existing one forwarded to them, as two
+        // sections of one screen. The path keeps its old segment so existing links land.
+        { href: `/c/${slug}/phone-number`, label: "Phone numbers", icon: Phone },
+      ],
+    },
+    {
+      heading: "Results",
+      items: [
+        { href: `/c/${slug}/calls`, label: "Call logs", icon: PhoneCall },
+        { href: `/c/${slug}/leads`, label: "Leads", icon: Users },
+        // D-940: the steps each lead goes through after it arrives or after a call.
+        { href: `/c/${slug}/follow-ups`, label: "Follow-ups", icon: Workflow },
+        // A promised call-back is work waiting to happen, checked daily by whoever watches
+        // the leads, so it sits with them rather than with the records below.
+        { href: `/c/${slug}/callbacks`, label: "Call-backs", icon: PhoneOutgoing },
+        { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
         { href: `/c/${slug}/quality`, label: "Quality", icon: ShieldCheck },
       ],
     },
     {
-      heading: "Compliance & data",
+      heading: "Knowledge",
       items: [
-        // FIRST IN THIS GROUP because it gates the rest of it: until the owner has
-        // accepted, `agreements_blocker` refuses every dial and every publish, so a
-        // client working down this list would meet the refusal at the bottom instead of
-        // the door at the top. It is also the one screen that names the operational
-        // blockers (KYC, the pledge, DND scrub) somewhere other
-        // than a failed campaign launch.
+        // D-874: named for what an owner asks ("what do my agents know?"), not for the
+        // machinery. The path keeps its old segment so existing links still land.
+        { href: `/c/${slug}/knowledge`, label: "What your agents know", icon: BookOpen },
+      ],
+    },
+    {
+      heading: "Rules & records",
+      items: [
+        // FIRST IN THIS GROUP because it gates the rest of it: until the owner has accepted,
+        // `agreements_blocker` refuses every dial and every publish, so a client working down
+        // this list meets the door at the top rather than the refusal at the bottom.
         { href: `/c/${slug}/agreements`, label: "Agreements", icon: FileSignature },
-        // Second because it is the other DOOR: the identity check that legally gates
-        // outbound dialling. It sat under "Settings & account" — the group of things set
-        // once and forgotten — which is exactly where a client whose calling is blocked
-        // would not look (ux-audit C-3 🔒).
-        // D-692: where the client verifies the business and accepts the no-cold-calls
-        // pledge, and (D-875) reads what we hold; `/verification` redirects here.
+        // The other door: the identity check that legally gates outbound dialling (D-692)
+        // and (D-875) what we hold; `/verification` redirects here.
         { href: `/c/${slug}/verify-business`, label: "Verify your business", icon: BadgeCheck },
         { href: `/c/${slug}/do-not-call`, label: "Do not call", icon: PhoneOff },
         { href: `/c/${slug}/messaging-consent`, label: "Messaging consent", icon: MessageSquare },
@@ -171,56 +179,79 @@ export function clientNavigation(slug: string): NavGroup[] {
       ],
     },
     {
-      heading: "Settings & account",
+      heading: "Account",
       items: [
-        // The business's own facts, which every agent answers with (D-695): first in
-        // the group because an agent cannot take calls without them. Answering them one
-        // at a time is a mode of this screen, where the dashboard's next steps resume.
+        // The business's own facts, which every agent answers with (D-695): first because an
+        // agent cannot take calls without them.
         { href: `/c/${slug}/settings/business`, label: "Business profile", icon: Store },
         // What every call writes down for a lead (founder decision 15): beside the profile
         // because a custom business's own details are drafted from it.
         { href: `/c/${slug}/settings/lead-details`, label: "Lead details", icon: ClipboardList },
         { href: `/c/${slug}/settings/team`, label: "Team", icon: UserCog },
-        // The one screen where the owner can agree to be messaged about their own
-        // account. It sits here rather than under "Compliance & data" on purpose: that
-        // group is about the client's obligations to their CUSTOMERS, and this is a
-        // setting about what we send to THEM.
+        // What we send the OWNER, which is why it is here and not under Rules & records:
+        // that group is about the client's obligations to their customers.
         { href: `/c/${slug}/settings/alerts`, label: "Alerts", icon: BellRing },
-        // What happens to callers if an agent cannot take calls, and anything that went
-        // wrong with a line lately (D-701). Beside Alerts: both are about what we do for
-        // the owner when something needs them.
+        // What happens to callers if an agent cannot take calls (D-701). Beside Alerts: both
+        // are about what we do for the owner when something needs them.
         { href: `/c/${slug}/settings/line-protection`, label: "Line protection", icon: LifeBuoy },
-        // The AI and recording notices every call opens with, one switch each for the
-        // whole account (D-1021): an account setting about the calls, beside the others.
+        // The AI and recording notices every call opens with, one switch each for the whole
+        // account (D-1021).
         { href: `/c/${slug}/settings/call-notices`, label: "Call notices", icon: Bot },
-        // Which AI model every agent thinks with, and what each one costs a minute. It
-        // sits in this group rather than beside "Agents" because it is an ACCOUNT-wide
-        // default that happens to be about agents — the same reason the spending limit
-        // lives under Usage rather than on each campaign. One agent can still be put on
-        // its own model, and that control is on the agent.
+        // An ACCOUNT-wide default that happens to be about agents; one agent can still be put
+        // on its own model, and that control is on the agent.
         { href: `/c/${slug}/settings/models`, label: "AI model", icon: BrainCircuit },
         { href: `/c/${slug}/integrations`, label: "Integrations", icon: Blocks },
-        // CREDITS & BILLING — ONE hub, four tabs (D-525). It used to be four sidebar
-        // entries: Calling credit, Usage, Spend and Invoice. Every one of them answered a
-        // piece of "what am I paying?", and a client asking that question had to already
-        // know which piece lived where — which is also how the assistant came to look
-        // foolish when a client asked it for "the billing page" and it had four candidates
-        // and no hub. Overview / Credits / Transactions / Usage are tabs inside this
-        // screen now, and the four old routes redirect into the tab that answers them.
-        //
-        // It reads on `wallet:read`, which `staff` HOLDS: the thing that stops a staff
-        // member dialling is an empty wallet, and a refusal whose explanation only the
-        // owner can see is a refusal with no words in it. The figures that are the
-        // owner's business (`billing:read`) are refused per TAB, inside the screen, so a
-        // staff member still gets the balance, the runway and the reason.
-        //
-        // AHEAD OF "AI help", which is a different wallet question: this is what the
-        // CLIENT is billed for, that is what Calevate absorbs until a ceiling.
+        // ONE hub, four tabs (D-525); the four old routes redirect into the tab that answers
+        // them. It reads on `wallet:read`, which staff hold, so a staff member still sees why
+        // dialling stopped; the owner's figures are refused per tab inside the screen.
         { href: `/c/${slug}/billing`, label: "Credits & billing", icon: Wallet },
+        // What Calevate absorbs until a ceiling, as against what the client is billed for.
         { href: `/c/${slug}/ai-assist`, label: "AI help", icon: Sparkles },
       ],
     },
+    {
+      heading: null,
+      footer: true,
+      items: [
+        { href: `/c/${slug}/assistant`, label: "Pip", icon: PipIcon },
+      ],
+    },
   ];
+}
+
+/**
+ * THE SHORT TRIAL SIDEBAR (founder, 28 Nov 2026): what a trial owner needs before their first
+ * test call, in this order. Paths under `/c/<slug>`; `""` is the dashboard. The last one sits
+ * under a hairline, apart from the daily ones.
+ *
+ * A FILTER over `clientNavigation()` rather than a second list, so this file stays the one
+ * literal `screens_test.py` parses and Pip can still name every screen.
+ */
+export const TRIAL_NAV_PATHS = ["", "/agents", "/make-a-call", "/calls", "/assistant", "/billing"] as const;
+
+/** What the trial sidebar calls the agents entry: a new owner has one agent, not a roster. */
+export const TRIAL_AGENTS_LABEL = "Your agent";
+
+/**
+ * The trial sidebar's entries, in `TRIAL_NAV_PATHS` order, taken from `groups` so account
+ * words and badges carry over. A path the navigation does not have is skipped, never made up.
+ */
+export function trialNavigation(groups: NavGroup[], slug: string): NavItem[] {
+  const byHref = new Map(groups.flatMap((group) => group.items).map((item) => [item.href, item]));
+  return TRIAL_NAV_PATHS.flatMap((path) => {
+    const item = byHref.get(`/c/${slug}${path}`);
+    if (!item) return [];
+    return [path === "/agents" ? { ...item, label: TRIAL_AGENTS_LABEL } : item];
+  });
+}
+
+/**
+ * Does this account get the short sidebar? Only on a trial with no test minute used yet, and
+ * only once `GET /v1/trial` has answered: while it loads, or after it fails, the full sidebar
+ * shows, because hiding screens on a guess would hide them from an account that needs them.
+ */
+export function showsTrialNav(trial: { on_trial: boolean; minutes_used: number } | undefined): boolean {
+  return trial !== undefined && trial.on_trial && trial.minutes_used === 0;
 }
 
 /** Labels an account whose agents all help customers reads (`useLeadNouns`), by path. */
@@ -244,4 +275,3 @@ export function inAccountWords(groups: NavGroup[], slug: string, nouns: LeadNoun
     }),
   }));
 }
-

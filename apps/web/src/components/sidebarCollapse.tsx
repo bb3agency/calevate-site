@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState, type ReactNode } from "react";
-import { PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { ChevronDown, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 
 import { BrandIcon } from "@/components/brand";
 
@@ -333,27 +333,50 @@ export function SidebarBrand({
 export function SidebarGroupHeading({
   isCollapsed,
   children,
+  toggle,
 }: {
   isCollapsed: boolean;
   children: ReactNode;
+  /**
+   * Makes the heading the button that opens and closes its group. Not offered on the
+   * collapsed rail, where the heading is a hairline and every group's icons stay shown.
+   */
+  toggle?: { open: boolean; onToggle: () => void; controls: string };
 }) {
+  const label = `absolute inset-0 truncate px-4 text-[12px] font-medium leading-5 text-ink-faint ${sidebarFadeClass(
+    isCollapsed,
+  )}`;
   return (
-    <div className="relative mb-1 h-5">
+    <div className={`relative mb-1 h-5 ${toggle && !isCollapsed ? "touch:h-11" : ""}`}>
       {/* Sentence case, quiet weight: a group label orients, it does not shout. A label,
           not a heading: the sidebar comes before the page's h1, and the group it names
           carries it as its accessible name (`role="group"` at the call site). */}
-      <p
-        className={`absolute inset-0 truncate px-4 text-[12px] font-medium leading-5 text-ink-faint ${sidebarFadeClass(
-          isCollapsed,
-        )}`}
-      >
-        {children}
-      </p>
+      {toggle && !isCollapsed ? (
+        <button
+          type="button"
+          onClick={toggle.onToggle}
+          aria-expanded={toggle.open}
+          aria-controls={toggle.controls}
+          className={`${label} flex items-center justify-between gap-2 rounded-md text-left hover:text-ink-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand`}
+        >
+          <span className="truncate">{children}</span>
+          <ChevronDown
+            aria-hidden
+            className={`h-3.5 w-3.5 shrink-0 motion-safe:transition-transform motion-safe:duration-200 ${
+              toggle.open ? "" : "-rotate-90"
+            }`}
+          />
+        </button>
+      ) : (
+        <p className={label}>{children}</p>
+      )}
       {/* Decorative: it says the same thing the heading above it says, for a reader who
           can see the rail but not read 11px of text on it. */}
+      {/* `pointer-events-none`: it sits over the heading, which is a button when the group
+          folds, and a transparent layer would otherwise take that button's clicks. */}
       <div
         aria-hidden
-        className={`absolute inset-x-2 top-1/2 h-px bg-line opacity-0 ${sidebarFadeClass(
+        className={`pointer-events-none absolute inset-x-2 top-1/2 h-px bg-line opacity-0 ${sidebarFadeClass(
           !isCollapsed,
         )}`}
       />
@@ -393,6 +416,27 @@ export function SidebarCollapsibleBlock({
       }`}
     >
       <div className={`overflow-hidden ${sidebarFadeClass(isCollapsed)}`}>{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A nav group's entries, closing VERTICALLY when its heading is pressed — the
+ * `SidebarCollapsibleBlock` technique on rows, because a group's height is its entry count.
+ *
+ * `inert` while closed, not `hidden`: `hidden` would end the transition on its first frame,
+ * and `inert` still takes the clipped links out of the tab order and the accessibility tree.
+ */
+export function SidebarGroupBody({ id, open, children }: { id?: string; open: boolean; children: ReactNode }) {
+  return (
+    <div
+      id={id}
+      inert={!open}
+      className={`grid motion-safe:transition-[grid-template-rows] motion-safe:duration-200 motion-safe:ease-out ${
+        open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+      }`}
+    >
+      <div className="min-h-0 overflow-hidden">{children}</div>
     </div>
   );
 }

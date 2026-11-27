@@ -2511,7 +2511,7 @@ describe("Show me around points at what the agent page draws (D-855)", () => {
     await screen.findByRole("button", { name: "Show me around" });
     const found = Object.fromEntries(TOUR_STEPS.map((step) => [step.id, step.target(document) !== null]));
     // The assistant's launcher is the console header's, which a page render does not mount.
-    expect(found).toEqual({ pip: false, try: true, teach: true, voice: true });
+    expect(found).toEqual({ script: true, pip: false, knowledge: true, voice: true, try: true });
   });
 
   it("is not offered on a deleted agent", async () => {

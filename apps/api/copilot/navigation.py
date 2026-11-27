@@ -8,7 +8,7 @@ true before a route reaches a browser. D-524, closing D-523.
               page, which is about calling credit.
 
 D-522 gave the assistant the console's inventory (`screens.py`), so it can now answer
-*where* a screen is — "Credits & billing, under Settings & account in the left sidebar". It
+*where* a screen is — "Credits & billing, under Account in the left sidebar". It
 still could not answer *take me there*, and D-523 recorded exactly what closes that: an
 event on the ask stream, a browser that acts on it, and a decision about which tier a
 screen change stands behind.

@@ -8,7 +8,7 @@ import { MAIN_CONTENT_ID, SHELL_MAIN_CLASS, SHELL_RAIL_CLASS, Skeleton } from "@
 import { clientNavigation } from "@/lib/clientNav";
 import { clientPageTitle } from "@/lib/clientPageTitle";
 
-import { currentItem } from "./ClientSidebar";
+import { currentItem, SELECTED_ICON, SELECTED_ROW } from "./ClientSidebar";
 
 /**
  * The console's frame while the session is being checked: the sidebar, the top bar with
@@ -38,10 +38,15 @@ export function ClientShellFallback({ slug }: { slug: string }) {
           </span>
         </div>
         <div className={sidebarNavClass}>
-          {groups.map((group) => (
-            <div key={group.heading ?? "main"} className="mb-4">
+          {groups.map((group, index) => (
+            <div
+              key={group.heading ?? `${group.footer ? "footer" : "main"}-${index}`}
+              className={group.footer ? "mt-2 border-t border-line pt-3" : "mb-4"}
+            >
+              {/* The real sidebar's heading face (`SidebarGroupHeading`), so nothing changes
+                  size when it replaces this one. */}
               {group.heading && (
-                <span className="mb-1 block px-4 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                <span className="mb-1 block h-5 truncate px-4 text-[12px] font-medium leading-5 text-ink-faint">
                   {group.heading}
                 </span>
               )}
@@ -53,11 +58,11 @@ export function ClientShellFallback({ slug }: { slug: string }) {
                     key={item.href}
                     className={`${SIDEBAR_ROW_CLASS} ${
                       active
-                        ? "bg-brand-soft text-brand-strong dark:bg-brand-strong/20 dark:text-brand-bright"
+                        ? SELECTED_ROW
                         : "text-ink-muted"
                     }`}
                   >
-                    <Icon className={`h-4 w-4 shrink-0 ${active ? "text-brand" : "text-ink-faint"}`} />
+                    <Icon className={`h-4 w-4 shrink-0 ${active ? SELECTED_ICON : "text-ink-faint"}`} />
                     <span className="truncate">{item.label}</span>
                   </span>
                 );

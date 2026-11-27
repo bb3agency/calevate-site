@@ -379,6 +379,21 @@ export function stubApi(routes: Routes): ApiCall[] {
         // TODAY'S TEST CALLS (D-885), answered "none today" by default: every trial card
         // reads them. A test about the card's calls names the route itself.
         if (scoped === "GET /v1/trial/calls") return jsonResponse([]);
+        // THE TRIAL, answered "not on one" by default: the client sidebar reads it to choose
+        // the short trial list, and the voice picker for its price line. A test about a
+        // trial names the route itself.
+        if (scoped === "GET /v1/trial") return jsonResponse(NOT_ON_TRIAL);
+        // THE CREDIT LOTS AND THE PACK CARD, answered "no open credit" and "this role may
+        // not read the card" by default: every voice picker prices its voices from them, and
+        // with neither it says the price shows when credit is added. A test about a price
+        // names the routes itself.
+        if (scoped === "GET /v1/billing/wallet/lots") return jsonResponse(NO_OPEN_LOTS);
+        if (scoped === "GET /v1/billing/topups/packs") {
+          return new Response(JSON.stringify({ title: "Not allowed", status: 403, code: "forbidden" }), {
+            status: 403,
+            headers: { "content-type": "application/problem+json" },
+          });
+        }
         // THE PHONE SERVICE, answered "answering" by default: the client shell's banner and
         // every test-call button read it. A test about an outage names the route itself.
         if (scoped === "GET /v1/phone-service") return jsonResponse({ state: "answering", since: null });
@@ -516,6 +531,23 @@ const DEFAULT_SESSIONS: Record<string, unknown> = {
   // D-703: which sign-in doors are open. Signup open, Google off, unless a test says so.
   "GET /v1/auth/client/sign-in-options": { google: false, self_serve_signup: true },
 };
+
+/** `GET /v1/trial` for an account that is not on a free trial. See `stubApi`. */
+export const NOT_ON_TRIAL = {
+  on_trial: false,
+  minutes_used: 0,
+  calls_today: 0,
+  daily_cap: 0,
+  can_call: false,
+  max_call_seconds: 0,
+  needs_number: false,
+  paid_test_calls: false,
+  pledge_accepted: false,
+  shared_line: false,
+};
+
+/** `GET /v1/billing/wallet/lots` for a wallet with no open credit. See `stubApi`. */
+export const NO_OPEN_LOTS = { lots: [], tiers: [], overdraft_inr: "0.0000" };
 
 /** An agent's suggestions once a pass found nothing to change. See `stubApi`. */
 export const NO_LEAD_SUGGESTIONS = { state: "done", suggestions: [], checked_at: null };

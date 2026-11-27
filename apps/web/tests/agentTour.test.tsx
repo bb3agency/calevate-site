@@ -58,8 +58,8 @@ function Page() {
         Try it
       </button>
       <div role="tablist" aria-label={AGENT_TABS_LABEL}>
-        {["overview", "actions", "settings", "training"].map((id) => (
-          <button key={id} type="button" role="tab" id={`r1-tab-${id}`} aria-selected={id === "overview"}>
+        {["script", "knowledge", "actions", "notes", "voice", "settings"].map((id) => (
+          <button key={id} type="button" role="tab" id={`r1-tab-${id}`} aria-selected={id === "script"}>
             {id}
           </button>
         ))}
@@ -96,11 +96,11 @@ describe("starting and moving through the tour", () => {
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("opens on step 1 of 4 with Next focused and no Back", async () => {
+  it("opens on step 1 of 5 with Next focused and no Back", async () => {
     await renderTour();
     await press(trigger());
     const dialog = tour();
-    expect(within(dialog).getByText("Step 1 of 4")).toBeTruthy();
+    expect(within(dialog).getByText("Step 1 of 5")).toBeTruthy();
     expect(dialog.getAttribute("aria-labelledby")).toBeTruthy();
     expect(within(dialog).getByRole("heading", { name: TOUR_STEPS[0].title })).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: "Back" })).toBeNull();
@@ -111,19 +111,19 @@ describe("starting and moving through the tour", () => {
     await renderTour();
     await press(trigger());
     await press(within(tour()).getByRole("button", { name: "Next" }));
-    expect(within(tour()).getByText("Step 2 of 4")).toBeTruthy();
+    expect(within(tour()).getByText("Step 2 of 5")).toBeTruthy();
     expect(within(tour()).getByRole("heading", { name: TOUR_STEPS[1].title })).toBeTruthy();
     const live = tour().querySelector('[aria-live="polite"]');
-    expect(live?.textContent).toContain(`Step 2 of 4. ${TOUR_STEPS[1].title}.`);
+    expect(live?.textContent).toContain(`Step 2 of 5. ${TOUR_STEPS[1].title}.`);
     await press(within(tour()).getByRole("button", { name: "Back" }));
-    expect(within(tour()).getByText("Step 1 of 4")).toBeTruthy();
+    expect(within(tour()).getByText("Step 1 of 5")).toBeTruthy();
   });
 
-  it("ends with Done on the fourth step", async () => {
+  it("ends with Done on the fifth step", async () => {
     await renderTour();
     await press(trigger());
-    for (let i = 0; i < 3; i += 1) await press(within(tour()).getByRole("button", { name: "Next" }));
-    expect(within(tour()).getByText("Step 4 of 4")).toBeTruthy();
+    for (let i = 0; i < 4; i += 1) await press(within(tour()).getByRole("button", { name: "Next" }));
+    expect(within(tour()).getByText("Step 5 of 5")).toBeTruthy();
     await press(within(tour()).getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -222,14 +222,15 @@ describe("?tour=1, the link the first-call screen can use", () => {
 });
 
 describe("every step points at something on the page", () => {
-  it("finds the Training and Settings tabs, Try it and the assistant's launcher", async () => {
+  it("finds What it says, the assistant's launcher, What it knows, Voice and Try it, in that order", async () => {
     await renderTour();
-    expect(TOUR_STEPS).toHaveLength(4);
+    expect(TOUR_STEPS).toHaveLength(5);
     expect(TOUR_STEPS.map((step) => step.target(document)?.textContent)).toEqual([
+      "script",
       ASSISTANT_NAME,
+      "knowledge",
+      "voice",
       "Try it",
-      "training",
-      "settings",
     ]);
   });
 });

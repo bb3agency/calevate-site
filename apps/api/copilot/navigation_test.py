@@ -167,10 +167,8 @@ def test_the_receipt_says_where_it_is_and_how_to_come_back() -> None:
     reverse it. Navigation's reversal is the back button and the server says so in its own
     words, because the panel's Undo belongs to a field fill and does not reach a route."""
     frame = _resolve("billing")
-    assert frame.where == "Credits & billing, under Settings & account in the left sidebar"
-    assert (
-        frame.detail == "Opening Credits & billing, under Settings & account in the left sidebar."
-    )
+    assert frame.where == "Credits & billing, under Account in the left sidebar"
+    assert frame.detail == "Opening Credits & billing, under Account in the left sidebar."
     assert "back button" in frame.reversal
 
 

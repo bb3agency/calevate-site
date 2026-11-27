@@ -69,7 +69,7 @@ describe("the troubleshoot card", () => {
             label: "Add credit",
             screen: "Credits & billing",
             route: "/c/{slug}/billing",
-            where: "Credits & billing, under Settings & account in the left sidebar",
+            where: "Credits & billing, under Account in the left sidebar",
           },
         },
       ],
@@ -79,7 +79,7 @@ describe("the troubleshoot card", () => {
     expect(onNavigate).toHaveBeenCalledWith({
       route: "/c/{slug}/billing",
       screen: "Credits & billing",
-      where: "Credits & billing, under Settings & account in the left sidebar",
+      where: "Credits & billing, under Account in the left sidebar",
     });
   });
 

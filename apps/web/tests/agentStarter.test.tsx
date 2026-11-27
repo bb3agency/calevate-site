@@ -148,12 +148,23 @@ describe("new agent: step 1, its name", () => {
 });
 
 describe("new agent: step 2, the voice", () => {
-  it("offers the enabled voices by rung with this account's rate for each", async () => {
-    await renderClientPage(page, routes());
+  it("offers the enabled voices by rung, each priced at the credit it will spend", async () => {
+    const lot = {
+      lot_id: "lot-1",
+      opened_at: "2026-11-01T09:00:00Z",
+      credits_remaining: "500.0000",
+      clear_inr_per_min: "4.5000",
+      studio_inr_per_min: "6.0000",
+    };
+    await renderClientPage(
+      page,
+      routes({ "/v1/billing/wallet/lots": { lots: [lot], tiers: [], overdraft_inr: "0.0000" } }),
+    );
     await createAgent();
     expect(document.querySelector('[aria-current="step"]')?.textContent).toContain("Voice");
-    expect(await screen.findByRole("group", { name: "Clear voices" })).toBeTruthy();
-    expect(await screen.findByText("Clear — ₹4.5 / min")).toBeTruthy();
+    const clear = await screen.findByRole("group", { name: "Clear voices" });
+    await waitFor(() => expect(clear.textContent).toContain("₹4.5 a minute"));
+    expect(screen.getByRole("group", { name: "Studio voices" }).textContent).toContain("₹6 a minute");
   });
 
   it("saves the picked voice with the agent's own write and finishes", async () => {

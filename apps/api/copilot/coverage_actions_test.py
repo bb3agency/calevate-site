@@ -160,7 +160,7 @@ def test_the_help_glossary_is_the_consoles_own() -> None:
 async def test_help_names_the_screen_and_the_action_for_an_owner() -> None:
     tenant_id, _slug, _token = await _make_tenant()
     answer = await _read("help_lookup", tenant_id, {"question": "how do I invite a colleague?"})
-    assert "Team, under Settings & account" in answer
+    assert "Team, under Account" in answer
     assert "team_do team_invite" in answer
     assert "never add steps" in answer
 
@@ -176,7 +176,7 @@ async def test_help_names_the_follow_ups_screen_and_pips_follow_up_actions() -> 
 async def test_help_offers_staff_no_action_their_role_would_refuse() -> None:
     tenant_id, _slug, _token = await _make_tenant()
     answer = await _read("help_lookup", tenant_id, {"question": "invite a colleague"}, role="staff")
-    assert "Team, under Settings & account" in answer
+    assert "Team, under Account" in answer
     assert "team_invite" not in answer
 
 
