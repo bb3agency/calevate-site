@@ -633,6 +633,16 @@ CHECKS: Final[tuple[Check, ...]] = (
         _lint(script_shape.caller_action_claimed_problems),
     ),
     Check(
+        "records_claim",
+        frozenset({"instruction", "procedure", *STEP_LINES}),
+        ENGLISH,
+        LATIN,
+        "warn",
+        "Say they are on the list; the agent checks no records on the call.",
+        "code (English)",
+        _lint(script_shape.records_claim_problems),
+    ),
+    Check(
         "judged_ask",
         frozenset({"instruction", *STEP_LINES}),
         ENGLISH,

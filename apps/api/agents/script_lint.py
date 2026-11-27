@@ -425,6 +425,40 @@ def stacked_actions(text: str) -> bool:
     return len(_NUMBERED_ITEM.findall(text)) >= 2 or len(_CALLER_ACTION.findall(text)) >= 2
 
 
+#: An English instruction's own verb, said where an instruction starts: wider than
+#: `_CALLER_ACTION`, because it is read only at the start of a clause, so a label ("tap
+#: Save", "the Add Farm button") is never counted as a second action.
+_STEP_VERB: Final = re.compile(
+    r"(?:open|tap|press|click|type|select|choose|pick|enter|fill|add|save|submit|search|"
+    r"scroll|swipe|install|download|upload|allow|accept|go to|log in|sign in)\b",
+    re.IGNORECASE,
+)
+#: Where one English instruction joins another inside a sentence.
+_STEP_JOIN: Final = re.compile(r",|\band then\b|\bthen\b|\band\b", re.IGNORECASE)
+#: One verb given two boxes or choices ("enter the amount and the farm", "select the farm
+#: and the crop"): two things to fill in, said as one.
+_TWO_FIELDS: Final = re.compile(r"^(?:enter|type|fill in|select|choose|pick)\b[^,]*\band\b", re.I)
+
+
+def english_steps(text: str) -> int:
+    """How many things an English line tells the person to do: each clause that opens with
+    an instruction's verb, and two for one verb given two boxes or choices. The 27 Nov 2026
+    script's small steps read "Enter the expense amount and pick your farm" and "Enter the
+    sale amount and save the entry", and the call said each as one turn; `_CALLER_ACTION`
+    had neither "pick" nor "save"."""
+    count = 0
+    for sentence in _LINE_CLAUSE_END.split(text):
+        if _TWO_FIELDS.match(_LEAD_IN.sub("", sentence.strip())):
+            count += 2
+            continue
+        count += sum(
+            1
+            for part in _STEP_JOIN.split(sentence)
+            if _STEP_VERB.match(_LEAD_IN.sub("", part.strip()))
+        )
+    return count
+
+
 def stacked_line(text: str) -> bool:
     """Whether a line the agent says gives the person more than one thing to do in one turn,
     in any language: two actions, or one said after "once it opens" (the step before it, not
@@ -441,7 +475,7 @@ def stacked_line(text: str) -> bool:
         # request in one sentence ("ఓపెన్ చేసి సెర్చ్ చేయండి, అయ్యాక నాకు చెప్తారా?", 26 Nov 2026).
         asked = _ASKS_WHEN_DONE.search(tail)
         text = text[: text.rfind(tail) + (asked.start() if asked else 0)]
-    if stacked_actions(text):
+    if stacked_actions(text) or english_steps(text) >= 2:
         return True
     actions = list(_SPOKEN_ACTION.finditer(text))
     if len(actions) >= 2:

@@ -17,7 +17,7 @@ The reading is the structural source for three things:
   that never got past step 2 cannot be noted as step 4;
 * the campaign goal verdict and the business outcome, through the step each means
   (`goal_step`, `outcomes`; `workers/step_truth` applies them);
-* the review kind `moved_on_unconfirmed` (`call_mistakes.step_mistakes`).
+* the review kinds `moved_on_unconfirmed` and `claimed_complete` (`call_mistakes.step_mistakes`).
 """
 
 from __future__ import annotations
@@ -60,6 +60,9 @@ class StepProgress:
     goal_step: int | None = None
     #: The agent's business outcomes that mean a step's outcome: {outcome key: step}.
     outcomes: dict[str, int] = field(default_factory=dict)
+    #: The agent turn that told the person the task was done while a step before the last
+    #: had not reached its outcome; None when no turn did.
+    claimed_done_turn: int | None = None
 
     @property
     def furthest(self) -> int | None:
@@ -91,6 +94,7 @@ def progress_json(progress: StepProgress) -> str:
             "fields": progress.fields,
             "goal_step": progress.goal_step,
             "outcomes": progress.outcomes,
+            "claimed_done_turn": progress.claimed_done_turn,
         }
     )
 
@@ -130,6 +134,7 @@ def read_progress(raw: Any) -> StepProgress | None:
         steps=tuple(sorted(steps, key=lambda s: s.step)),
         fields=fields,
         goal_step=_int(raw.get("goal_step")),
+        claimed_done_turn=_int(raw.get("claimed_done_turn")),
         outcomes=(
             {str(k): v for k, v in outcomes.items() if _int(v) is not None}
             if isinstance(outcomes, dict)

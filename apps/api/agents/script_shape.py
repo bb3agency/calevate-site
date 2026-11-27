@@ -38,6 +38,7 @@ from apps.api.agents.script_lint import (
     closes_the_call,
     collected_label,
     contact_channels,
+    instruction_fields,
     next_steps,
 )
 
@@ -400,6 +401,34 @@ def caller_action_claimed_problems(script: CallScript) -> list[str]:
     return found
 
 
+#: A claim that a lookup was made: "our records show", "according to our system", "I checked
+#: the system". The in-call agent has no records tool, so the claim is untrue on every call;
+#: the founder's call of 27 Nov 2026 said it from a small step written as "mention that our
+#: records show their number was registered".
+_RECORDS_CLAIM: Final = re.compile(
+    r"\b(?:our|the|my)\s+(?:records?|system|database|files?)\s+(?:shows?|says?|tells?|"
+    r"confirms?|lists?|has|have)\b|\b(?:according to|as per|per|in|from)\s+(?:our|the)\s+"
+    r"(?:records?|system|database)\b|\b(?:checked|looked (?:up|at|in))\s+(?:our|the|your)\s+"
+    r"(?:records?|system|database|account)\b",
+    re.IGNORECASE,
+)
+
+
+def records_claim_problems(script: CallScript) -> list[str]:
+    """An instruction or English line that has the agent say records or a system show
+    something (`_RECORDS_CLAIM`). What the call was placed from is its list, which the
+    platform rule names (`calevate_shared.engine.CALL_REASON_RULE`)."""
+    if script.raw_override is not None:
+        return []
+    lines = [*instruction_fields(script), *_english_lines(script)]
+    return [
+        f"{path}: says records or a system show something, and the agent looks nothing up on "
+        "the call; say plainly that they are on the list, or leave it out."
+        for path, text in dict(lines).items()
+        if _RECORDS_CLAIM.search(text)
+    ]
+
+
 def echo_problems(script: CallScript) -> list[str]:
     """`echo_branches` as findings, for a screen or a scorer; code removes them."""
     return [
@@ -497,6 +526,7 @@ __all__ = [
     "main_task_items",
     "named_way_problems",
     "piled_problems",
+    "records_claim_problems",
     "structure_problems",
     "trailing_problems",
     "uncovered_items",

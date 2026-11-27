@@ -1362,15 +1362,25 @@ def _step_detail(stage: ConversationStage, outcome: str = "") -> str:
 #: caller before booking", docs.retellai.com/build/prompt-engineering-guide, read 23 Nov 2026).
 #: Each outcome is said in its own step (`OUTCOME_IN_STEP`); this section holds the rule that
 #: is the same for every step, once, and only the outcomes a full step had no room for.
+#: A bare "done" is not an outcome: the person may say it to keep up, as on the founder's call
+#: of 27 Nov 2026, where "done" at the expense step was followed by "I said it, I had not
+#: done it". Asking what they see is the check HOW TO SPEAK already names, here tied to the
+#: step it guards rather than to every action, which would ask after each tap.
+#: A call the person ends early is not a finished task: on that call the agent closed with
+#: "you have finished the app set-up" two steps short. What is left is said and handled as a
+#: "later", which the call-back rule (or, on an account without call backs, the opening's
+#: "later" rule) already answers, so no second call-back rule is written here.
 OUTCOMES_HEADER: Final = "[STEP OUTCOMES]"
 OUTCOMES_LEAD: Final = (
     'A step\'s "Go on only when" is the one outcome it must reach. Its scenarios are examples '
     "of how the call may go, not the only ways: reach the outcome however the person answers, "
     "then go on to the next step, and never before. It is reached only when what they say "
     "shows it, never assumed or said for "
-    "them: if it needs them to look or do something, ask them to and wait for their answer. "
+    "them: if it needs them to look or do something, ask them to and wait, then ask what "
+    'they see; a bare "done" is not it. '
     "If it clearly cannot be reached (they refuse, cannot do it now, or are not "
-    "the right person), take the step's way out for that, else its Otherwise."
+    "the right person), take the step's way out for that, else its Otherwise. They stop "
+    "before the last step? Never say it is all done: say what is left, and take it as a later."
 )
 #: The outcome as a step carries it, when there is room.
 OUTCOME_IN_STEP: Final = "Go on only when: {outcome}."

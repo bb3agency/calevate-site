@@ -3,6 +3,24 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.96 — 27-Nov-2026
+
+- "Where the call got to" now counts a step as done when the caller says so in Telugu
+  letters; a copy of their words that differed by a joining mark or a letter was thrown out.
+  A step with a side path shows the path the call took, not both names joined.
+- "Moved on before the step was done" is never shown on a call where the agent said nothing.
+- A field such as "Phone type" is no longer read as a phone number, so it no longer shows
+  "This doesn't look like an Indian mobile number".
+- When the caller stops before the end, the call notes and summary no longer say the task
+  was done because the agent said so; only what the caller said and did counts.
+- A suggested detail quoting the call is shown only when the caller said it.
+- On a call, the agent no longer says everything is done when the caller stops early: it
+  says what is left and offers to finish later. At a step with a goal it asks what the
+  caller sees before moving on, and it never says records show something.
+- The script writer gives one action per step line, and flags a line with two actions or a
+  "records show" claim for repair. "Said the task was finished when steps were left" is
+  checked after every call.
+
 ## 0.5.95 — 27-Nov-2026
 
 - A side step that comes before its own step (for example "Not registered", reached from

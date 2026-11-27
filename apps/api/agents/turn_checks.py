@@ -139,6 +139,7 @@ Kind = Literal[
     # --- step outcomes (founder, 24 Nov 2026): a step left before its outcome was reached,
     # read off where the call got to (`call_mistakes.step_mistakes`), not by a reply check.
     "moved_on_unconfirmed",
+    "claimed_complete",
     # 24 Nov 2026: a reply that needed a knowledge lookup (`needs_lookup`) on a call that made
     # none. Read off the call's lookup count (`call_mistakes.lookup_figures`), not by a reply
     # check: a real call does not say which turns looked something up.
@@ -222,6 +223,9 @@ JOB_KINDS: Final = frozenset(
         # --- step outcomes (founder, 24 Nov 2026): a step left before its outcome. Read off
         # where the call got to (`call_mistakes.step_mistakes`), never by a reply check here.
         "moved_on_unconfirmed",
+        # The task called done with steps left (founder, 27 Nov 2026), read off the same
+        # reading; how the agent closes is the platform prompt's, so an in-call kind.
+        "claimed_complete",
         # The knowledge section's rule (`calevate_shared.engine._knowledge_section`), an
         # in-call behaviour no script line causes (`mistake_lints.IN_CALL_KINDS`).
         "missed_lookup",
@@ -234,7 +238,7 @@ SCRIPT_KINDS: Final = frozenset({"presumed_state"})
 #: The `JOB_KINDS` no line of a script causes: how the agent behaves during the call, which
 #: the platform prompt decides. The healer opens no script fix for them
 #: (`mistake_fixes.open_fixes`) and they have no script check (`mistake_lints`).
-IN_CALL_KINDS: Final = frozenset({"missed_lookup"})
+IN_CALL_KINDS: Final = frozenset({"missed_lookup", "claimed_complete"})
 
 #: A turn's sentences, at most, unless the caller asked for detail (founder, 11 Oct 2026).
 MAX_SENTENCES: Final = 2

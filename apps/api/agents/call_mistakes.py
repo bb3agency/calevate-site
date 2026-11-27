@@ -197,22 +197,40 @@ LESSONS["moved_on_unconfirmed"] = Lesson(
 )
 
 
-def step_mistakes(progress: StepProgress | None, turns: Sequence[SpokenTurn]) -> dict[str, int]:
-    """`moved_on_unconfirmed` on the first agent line that left a step before its outcome.
+#: The founder's call of 27 Nov 2026: the caller stopped two steps short ("that's enough, I'll
+#: see the rest later") and the agent closed with "you have finished the app set-up", which
+#: the call notes then recorded as done. Read off the step reading (`claimed_done_turn`, kept
+#: only when the code agrees a step is unfinished), because the claim is in the call's own
+#: language and no word list holds it.
+LESSONS["claimed_complete"] = Lesson(
+    "Said the task was finished when steps were left",
+    "When they stop early, say what is left and offer to finish it later.",
+    "call_script.OUTCOMES_LEAD; ACTION_CLAIM_RULE",
+)
 
-    The line must be a spoken agent line of the transcript the mistakes are read on: the
-    stored reading is reused when a re-run replaces the transcript (D-187), so its turn
-    numbers can name a caller line, a line with no words or no line at all, and a call on
-    which the agent said nothing has moved on from nothing."""
+
+def step_mistakes(progress: StepProgress | None, turns: Sequence[SpokenTurn]) -> dict[str, int]:
+    """`moved_on_unconfirmed` on the first agent line that left a step before its outcome,
+    and `claimed_complete` on the line that called an unfinished task done.
+
+    Each must be a spoken agent line of the transcript the mistakes are read on: the stored
+    reading is reused when a re-run replaces the transcript (D-187), so its turn numbers can
+    name a caller line, a line with no words or no line at all, and a call on which the agent
+    said nothing has moved on from nothing."""
     if progress is None:
         return {}
     spoken = {t.idx for t in turns if t.speaker == "agent" and t.text.strip()}
+    found: dict[str, int] = {}
     moved = [
         s.moved_on_turn
         for s in progress.steps
         if s.state == "not_reached" and s.moved_on_turn in spoken
     ]
-    return {"moved_on_unconfirmed": min(t for t in moved if t is not None)} if moved else {}
+    if moved:
+        found["moved_on_unconfirmed"] = min(t for t in moved if t is not None)
+    if progress.claimed_done_turn in spoken:
+        found["claimed_complete"] = progress.claimed_done_turn
+    return found
 
 
 # --- end of the step-outcome block -----------------------------------------------------------
