@@ -71,8 +71,13 @@ def test_every_defect_of_the_25_nov_script_is_caught() -> None:
     assert set(_paths(s["known_value_asked"])) == {"stages.0.instruction", "stages.0.scripts.en-IN"}
     # Five asks under one question mark.
     assert _paths(s["multi_question_line"]) == ["stages.0.scripts.en-IN"]
-    # Step 1's check + go to + press; step 2's open + log in (25 Nov call, turn 16).
-    assert _paths(s["multi_action_line"]) == ["stages.0.scripts.en-IN", "stages.1.scripts.en-IN"]
+    # Step 1's check + go to + press; step 2's open + log in (25 Nov call, turn 16); step
+    # 3's press + add ("press My Farms and add your farm").
+    assert _paths(s["multi_action_line"]) == [
+        "stages.0.scripts.en-IN",
+        "stages.1.scripts.en-IN",
+        "stages.2.scripts.en-IN",
+    ]
     fakes = _paths(s["fake_branch"])
     for i in range(1, 6):  # Add Farms, Enter Expenses, Enter Sales, Dashboard, Finalise
         assert f"stages.{i}.branches" in fakes
@@ -99,6 +104,7 @@ def test_the_writers_lints_catch_the_25_nov_script_and_make_those_checks() -> No
     assert _paths(script_lint.multi_action_line_problems(script)) == [
         "stages.0.scripts.en-IN",
         "stages.1.scripts.en-IN",
+        "stages.2.scripts.en-IN",
     ]
     assert _paths(script_lint.agent_claims_caller_action_problems(script)) == [
         "stages.2.scripts.en-IN",

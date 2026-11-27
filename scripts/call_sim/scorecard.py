@@ -64,6 +64,7 @@ from apps.api.crm.step_progress import StepProgress, progress_json, read_progres
 from apps.api.insights.detection import topics_in
 from apps.api.reliability.engine_actions import ACTION_NAMES, CALLBACK, OPT_OUT
 from calevate_shared.call_script import CallScript
+from calevate_shared.events import TranscriptTurn
 from calevate_shared.opening_notices import says_ai
 from calevate_shared.spoken_guard import has_indic_letters
 
@@ -471,7 +472,12 @@ def score_recording(rec: Recording, *, known: str = "") -> PersonaScore:
     if unsignalled is not None:
         kinds.setdefault("done_without_signal", unsignalled)
     if rec.progress is not None:
-        for kind, turn_idx in step_mistakes(rec.progress).items():
+        # Numbered from 1, as `simulate.read_steps` numbers the lines it hands the judge.
+        spoken = [
+            TranscriptTurn(call_id="call-sim", idx=n, speaker=t.speaker, text=t.text)
+            for n, t in enumerate(rec.turns, 1)
+        ]
+        for kind, turn_idx in step_mistakes(rec.progress, spoken).items():
             kinds.setdefault(kind, turn_idx)
     if rec.contact_name:
         asked = _first_reply(turns, lambda t: asks_name(t.reply))

@@ -258,7 +258,13 @@ async def read_steps(
         return rec
     if not isinstance(raw, dict):
         return rec
-    progress = judge.checked(raw, names=judge.step_names(agent.script), lines=lines, spec=spec)
+    progress = judge.checked(
+        raw,
+        names=judge.step_names(agent.script),
+        lines=lines,
+        spec=spec,
+        scenarios=judge.step_scenarios(agent.script),
+    )
     return replace(rec, progress=progress)
 
 

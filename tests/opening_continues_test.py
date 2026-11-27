@@ -121,8 +121,9 @@ def test_what_the_section_costs() -> None:
     # greet, say who you are or ask if now suits is told that is done (+86). D-979 (founder,
     # 10 Nov 2026): a claim about the person needs it said "on this call", not on an earlier
     # one the engine remembers (+18). D-1026 (founder, 22 Nov 2026): a dial's own first words,
-    # THIS CALL's "Said first", replace the quoted turn (+49).
-    assert len(start) - len(spoken) < 1_150
+    # THIS CALL's "Said first", replace the quoted turn (+49). 27 Nov 2026 (founder's call):
+    # what THIS CALL says is our list, never records the agent checked (+62).
+    assert len(start) - len(spoken) < 1_200
 
 
 # --- the turn check -----------------------------------------------------------------------
