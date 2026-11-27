@@ -24,6 +24,10 @@ says an unreached step happened, or that the whole job was done on a call that s
 of prose (`without_unreached`) rather than the
 whole sentence, so what did happen stays said. A clause that only says the step was asked
 for or explained ("asked the caller to record an expense") is true and kept (`_PENDING`).
+
+A detail the reading says is about one step (`StepProgress.details`) is decided by that step
+alone, not by words: it stands when the step was reached, even on a call that stopped short
+later, and a value saying it happened goes when the step was not reached.
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ from calevate_shared.call_script import CallScript
 from calevate_shared.events import TranscriptTurn
 from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec, whole_call_detail
 
-from apps.api.crm.step_progress import StepProgress, progress_values
+from apps.api.crm.step_progress import StepProgress, progress_values, side_steps
 from apps.workers.redaction import redact
 from apps.workers.step_progress import step_names, steps_of
 
@@ -71,10 +75,12 @@ _PENDING: Final = re.compile(
     r"cannot|pending)\b|n[\u2019']t\b)",
     re.I,
 )
-#: A value that says the whole job is done.
+#: A value that says the whole job is done. `complet\w*`, not `complete\w*`: "confirmed
+#: completion of all steps" kept a summary false on a call that stopped at step 9 of 11
+#: (28 Nov 2026).
 _DONE: Final = re.compile(
-    r"\b(?:success\w*|complete\w*|fully|finish\w*|done|all\s+set|set\s*up|operational|"
-    r"working)\b",
+    r"\b(?:success\w*|complet\w*|fully|finish\w*|done|all\s+set|set\s*up|operational|"
+    r"working|(?:all|each|every)\s+(?:of\s+)?(?:the\s+)?steps?|everything)\b",
     re.I,
 )
 _SENTENCE: Final = re.compile(r"(?<=[.!?])\s+")
@@ -156,7 +162,8 @@ class StepFacts:
     reached: frozenset[int]
     #: Steps the call shows were not reached.
     missed: frozenset[int]
-    #: Steps named for an absence ("Not registered"): never the step a call stops short of.
+    #: Side steps (`crm/step_progress.side_steps`) and steps named for an absence ("Not
+    #: registered"): never the step a call stops short of.
     branches: frozenset[int]
     progress: StepProgress | None
     script_goal: str = ""
@@ -205,7 +212,7 @@ def facts_of(
         }
     else:
         reached, missed = set(possible), set()
-    branches = {
+    branches = set(side_steps(script)) | {
         n for n, stages in steps_of(script).items() if any(_ABSENCE.search(s.name) for s in stages)
     }
     return StepFacts(
@@ -282,6 +289,14 @@ def _claims_done(value: str, facts: StepFacts) -> bool:
     return not _stems(value) & reached
 
 
+def _says_it_happened(value: Any) -> bool:
+    """Whether a detail's value says what it is about happened: true, or words that do not
+    say it is not done, pending or only asked for ("Installed", not "Not installed")."""
+    if value is True:
+        return True
+    return isinstance(value, str) and not _PENDING.search(value)
+
+
 def _goal_detail_value(field_type: str, choices: Sequence[str], missed: bool) -> Any | None:
     """What a goal detail noted as met becomes when the goal's step was not reached: no, when
     the call shows it missed and the detail can say no; else nothing."""
@@ -334,6 +349,14 @@ def settle(
             )
             if said_met and goal_judged:
                 put(field.key, _goal_detail_value(field.type, field.enum_values or [], goal_missed))
+            continue
+        about = facts.progress.details.get(field.key) if facts.progress is not None else None
+        if about is not None:
+            # A detail about one step stands or falls with that step, whatever the steps
+            # after it did: "Installation Status" stays on a call that went on to stop at the
+            # sale (28 Nov 2026).
+            if about not in facts.reached and _says_it_happened(value):
+                put(field.key, None)
             continue
         if not isinstance(value, str):
             continue

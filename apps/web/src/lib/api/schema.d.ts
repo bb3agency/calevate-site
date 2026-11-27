@@ -19593,7 +19593,7 @@ export interface components {
          * CallProgressStepOut
          * @description One step of the call's script and whether its outcome was reached (`crm/
          *     step_progress`): the step's scenario names and, when reached, the caller line that shows
-         *     it. Never the words.
+         *     it. Never the words. `not_needed`: a side step the call did not go into.
          */
         CallProgressStepOut: {
             /** Name */
@@ -19602,7 +19602,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "reached" | "not_reached" | "unclear";
+            state: "reached" | "not_reached" | "unclear" | "not_needed";
             /** Step */
             step: number;
             /** Turn Idx */

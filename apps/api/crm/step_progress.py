@@ -4,9 +4,10 @@ the outcomes must "actually do something").
 The after-call judge (`workers/step_progress`) reads the redacted transcript against the
 script of the campaign or inbound line the call was on and stores one reading per step on the
 call (`calls.step_progress`): `reached` (with the caller turn that shows it, quote-checked by
-code), `not_reached` (with the agent turn that moved on, when it did) or `unclear`. Step names
-and turn indexes only, never the words (hard rule 6): the call page shows the words from the
-transcript it already holds.
+code), `not_reached` (with the agent turn that moved on, when it did), `unclear`, or, for a
+side step (`side_steps`) the call never went into, `not_needed`. Step names and turn indexes
+only, never the words (hard rule 6): the call page shows the words from the transcript it
+already holds.
 
 The reading is the structural source for three things:
 
@@ -17,6 +18,9 @@ The reading is the structural source for three things:
   that never got past step 2 cannot be noted as step 4;
 * the campaign goal verdict and the business outcome, through the step each means
   (`goal_step`, `outcomes`; `workers/step_truth` applies them);
+* a status or outcome detail about one step's outcome ("Installation Status"), which stands
+  when that step was reached whatever the call's later steps did (`details`, applied by
+  `workers/step_truth`);
 * the review kinds `moved_on_unconfirmed` and `claimed_complete` (`call_mistakes.step_mistakes`).
 """
 
@@ -24,17 +28,17 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Final, Literal
 from uuid import UUID
 
-from calevate_shared.call_script import CallScript
+from calevate_shared.call_script import CallScript, stage_steps
 from calevate_shared.extraction import ExtractionSchemaSpec
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-StepState = Literal["reached", "not_reached", "unclear"]
-STEP_STATES: Final = ("reached", "not_reached", "unclear")
+StepState = Literal["reached", "not_reached", "unclear", "not_needed"]
+STEP_STATES: Final = ("reached", "not_reached", "unclear", "not_needed")
 NAME_MAX: Final = 200
 
 
@@ -63,6 +67,8 @@ class StepProgress:
     #: The agent turn that told the person the task was done while a step before the last
     #: had not reached its outcome; None when no turn did.
     claimed_done_turn: int | None = None
+    #: Each status or outcome detail that is about one step's outcome: {field key: step}.
+    details: dict[str, int] = field(default_factory=dict)
 
     @property
     def furthest(self) -> int | None:
@@ -73,9 +79,12 @@ class StepProgress:
         return next((s.state for s in self.steps if s.step == step), None)
 
     def shows_reached(self, step: int) -> bool:
-        """Reached itself, or at or before the furthest step reached."""
-        furthest = self.furthest
-        return self.state_of(step) == "reached" or (furthest is not None and step <= furthest)
+        """Reached itself, or at or before the furthest step reached; never a side step the
+        call did not go into."""
+        state, furthest = self.state_of(step), self.furthest
+        if state == "not_needed":
+            return False
+        return state == "reached" or (furthest is not None and step <= furthest)
 
 
 def progress_json(progress: StepProgress) -> str:
@@ -95,6 +104,7 @@ def progress_json(progress: StepProgress) -> str:
             "goal_step": progress.goal_step,
             "outcomes": progress.outcomes,
             "claimed_done_turn": progress.claimed_done_turn,
+            "details": progress.details,
         }
     )
 
@@ -130,6 +140,7 @@ def read_progress(raw: Any) -> StepProgress | None:
             steps_of = {str(choice): _int(step) for choice, step in mapping.items()}
             fields[str(key)] = {c: s for c, s in steps_of.items() if s is not None}
     outcomes = raw.get("outcomes")
+    details = raw.get("details")
     return StepProgress(
         steps=tuple(sorted(steps, key=lambda s: s.step)),
         fields=fields,
@@ -140,14 +151,25 @@ def read_progress(raw: Any) -> StepProgress | None:
             if isinstance(outcomes, dict)
             else {}
         ),
+        details=(
+            {str(k): v for k, v in details.items() if _int(v) is not None}
+            if isinstance(details, dict)
+            else {}
+        ),
     )
 
 
 async def stored_progress(session: AsyncSession, call_id: UUID) -> StepProgress | None:
+    """The stored reading with the side steps the call did not need read so (`with_sides`),
+    so a reading stored before that rule shows and counts the same as a new one."""
     raw = (
         await session.execute(text("SELECT step_progress FROM calls WHERE id = :c"), {"c": call_id})
     ).scalar()
-    return read_progress(raw)
+    progress = read_progress(raw)
+    if progress is None:
+        return None
+    script = await holder_script(session, call_id)
+    return with_sides(progress, side_steps(script)) if script is not None else progress
 
 
 async def store_progress(session: AsyncSession, call_id: UUID, progress: StepProgress) -> None:
@@ -179,6 +201,56 @@ async def holder_script(session: AsyncSession, call_id: UUID) -> CallScript | No
     return None if script.raw_override is not None or not script.stages else script
 
 
+def side_steps(script: CallScript) -> frozenset[int]:
+    """The steps a call goes into only by a way out: no scenario of them is on the path the
+    call takes when no way out holds (each section's Otherwise, else the next section, from
+    the first: how the engine's own step list runs). "Not registered", taken only when the
+    person says they never registered, is one; a step with any scenario on that path is not."""
+    stages = script.stages
+    at = {stage.id: i for i, stage in enumerate(stages)}
+    on_path: set[int] = set()
+    i: int | None = 0 if stages else None
+    while i is not None and i not in on_path:
+        on_path.add(i)
+        after = stages[i].otherwise
+        i = at.get(after) if after else (i + 1 if i + 1 < len(stages) else None)
+    by_step: dict[int, list[int]] = {}
+    for index, step in enumerate(stage_steps(stages)):
+        by_step.setdefault(step, []).append(index)
+    return frozenset(
+        step for step, indexes in by_step.items() if not any(i in on_path for i in indexes)
+    )
+
+
+def with_sides(progress: StepProgress, sides: frozenset[int]) -> StepProgress:
+    """`progress` with each side step (`side_steps`) the call is shown past, and nothing shows
+    it went into, read `not_needed`: one before the furthest step reached that is not reached
+    on a caller line of its own. A side step often shares its outcome with the step it leads
+    back to, so the line showing that step was also read as showing the side step, and "Not
+    registered" read Done on a call that never took it (28 Nov 2026). A side step beyond the
+    furthest keeps its reading: the call did not get that far.
+
+    Applied when the reading is taken and again when it is shown, so a reading stored before
+    this rule reads the same."""
+    furthest = progress.furthest
+    if not sides or furthest is None:
+        return progress
+    main_lines = {
+        s.turn_idx for s in progress.steps if s.state == "reached" and s.step not in sides
+    }
+
+    def went_in(s: StepReading) -> bool:
+        return s.state == "reached" and s.turn_idx not in main_lines
+
+    steps = tuple(
+        replace(s, state="not_needed", turn_idx=None, moved_on_turn=None)
+        if s.step in sides and s.step < furthest and s.state != "not_needed" and not went_in(s)
+        else s
+        for s in progress.steps
+    )
+    return progress if steps == progress.steps else replace(progress, steps=steps)
+
+
 def progress_values(
     progress: StepProgress, data: Mapping[str, Any], spec: ExtractionSchemaSpec
 ) -> dict[str, Any]:
@@ -194,7 +266,10 @@ def progress_values(
 
     A true/false detail mapped to one step ("true" means that step's outcome) noted true for a
     step the call did not reach becomes false when the step is shown not reached, else is
-    dropped."""
+    dropped.
+
+    A detail about one step's outcome (`StepProgress.details`) is not touched here: its value
+    stands when that step was reached, which `workers/step_truth.settle` decides."""
     furthest = progress.furthest
     types = {f.key: f.type for f in spec.fields}
     out: dict[str, Any] = {}
@@ -227,6 +302,8 @@ __all__ = [
     "progress_json",
     "progress_values",
     "read_progress",
+    "side_steps",
     "store_progress",
     "stored_progress",
+    "with_sides",
 ]

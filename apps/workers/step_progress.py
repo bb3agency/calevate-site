@@ -35,7 +35,7 @@ from uuid import UUID
 from calevate_shared.business_outcomes import BusinessOutcome
 from calevate_shared.call_script import CallScript, ConversationStage, stage_steps
 from calevate_shared.events import TranscriptTurn
-from calevate_shared.extraction import ExtractionSchemaSpec
+from calevate_shared.extraction import ExtractionSchemaSpec, whole_call_detail
 
 from apps.api.agents.assist_leg import google_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref
@@ -49,8 +49,10 @@ from apps.api.crm.step_progress import (
     StepProgress,
     StepReading,
     holder_script,
+    side_steps,
     store_progress,
     stored_progress,
+    with_sides,
 )
 from apps.api.db.session import tenant_session
 from apps.workers.campaign_script_ask import copied_in
@@ -78,7 +80,9 @@ ASK: Final = (
     "it. The agent saying it is done, or assuming it, does not count. A step can have "
     "several scenarios: scenario is the one the call was in when the step's outcome was "
     "reached, else the last one of that step it went through, named as under STEPS; empty "
-    "for a step with one scenario or none gone through. "
+    "for a step with one scenario or none gone through. A side step is gone through only "
+    "when the call took the way out into it; one the call did not go into is not_needed, "
+    "even when its outcome is the same as a step that was reached. "
     "not_reached: the call never got there; give moved_on_turn, the number "
     "of the agent line that went on to a later step while it was not reached and the person "
     "had not refused, could not do it now or was not the right person, else -1. unclear: the "
@@ -88,6 +92,9 @@ ASK: Final = (
     "means, leaving out a choice that means no step; leave out a detail whose choices do not "
     "follow the steps. A yes-or-no detail (choices true) that means one step's outcome was "
     "reached, such as the goal being met or the set-up being done, maps true to that step. "
+    "Under details, for each detail under DETAILS that says whether ONE step's outcome "
+    "happened (such as whether something is installed, or logged in), give that step; leave "
+    "out a detail about the whole task or the call as a whole, or about no step. "
     "goal_step: the step whose outcome means the GOAL is met, else -1. Under outcomes, map "
     "each outcome under OUTCOMES that means a step's outcome was reached to that step; leave "
     "out an outcome that means no step. claimed_done_turn: the number of the agent line that "
@@ -149,6 +156,15 @@ _FORMAT: Final[dict[str, object]] = {
                         "additionalProperties": False,
                     },
                 },
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {"key": {"type": "string"}, "step": {"type": "integer"}},
+                        "required": ["key", "step"],
+                        "additionalProperties": False,
+                    },
+                },
                 "goal_step": {"type": "integer"},
                 "claimed_done_turn": {"type": "integer"},
                 "outcomes": {
@@ -161,7 +177,14 @@ _FORMAT: Final[dict[str, object]] = {
                     },
                 },
             },
-            "required": ["steps", "fields", "goal_step", "outcomes", "claimed_done_turn"],
+            "required": [
+                "steps",
+                "fields",
+                "details",
+                "goal_step",
+                "outcomes",
+                "claimed_done_turn",
+            ],
             "additionalProperties": False,
         },
     },
@@ -207,6 +230,7 @@ def request_text(
     outcomes: Sequence[BusinessOutcome] = (),
 ) -> str:
     said = {o.step: o.outcome for o in script.step_outcomes}
+    sides = side_steps(script)
     steps = []
     for n, stages in steps_of(script).items():
         names = (
@@ -214,13 +238,23 @@ def request_text(
             if len(stages) == 1
             else "scenarios: " + "; ".join(s.name for s in stages)
         )
+        if n in sides:
+            names += "; a side step, gone through only by a way out into it"
         aim = said.get(n) or " ".join(s.instruction for s in stages)
         steps.append(redact(f"Step {n} ({names}): {aim}").text)
     details = [
         f"{f.key} ({redact(f.label).text}): "
-        + ("true" if f.type == "bool" else "; ".join(f.enum_values or []))
+        + (
+            "true"
+            if f.type == "bool"
+            else "; ".join(f.enum_values or [])
+            if f.type == "enum"
+            else "free text"
+        )
         for f in spec.fields
-        if (f.type == "enum" and f.enum_values) or f.type == "bool"
+        if (f.type == "enum" and f.enum_values)
+        or f.type == "bool"
+        or (f.type == "text" and whole_call_detail(f.key, f.label))
     ]
     ends = [redact(f"{o.key}: {o.label}. {o.meaning}".strip()).text for o in outcomes]
     goal_text = redact(" ".join((goal or script.goal or "").split())).text
@@ -267,11 +301,14 @@ def checked(
     spec: ExtractionSchemaSpec,
     outcomes: Sequence[BusinessOutcome] = (),
     scenarios: dict[int, tuple[str, ...]] | None = None,
+    sides: frozenset[int] = frozenset(),
 ) -> StepProgress:
     """What the code can stand behind: a `reached` whose caller line and quote check out, a
     `moved_on_turn` that is an agent line, every step present (`unclear` when not judged),
-    a detail's choices mapped onto steps (`_fields`), and a goal step and outcome keys that
-    name real steps and real outcomes.
+    `not_needed` only for a side step (`sides`) and for each one the call is shown past
+    without going into (`with_sides`), a detail's choices mapped onto steps (`_fields`), the
+    step a status detail is about (`_details`), and a goal step and outcome keys that name
+    real steps and real outcomes.
 
     `names` is each step's main scenario (`step_names`); a step with several (`scenarios`)
     is named by the one the model says the call went through when it is one of them."""
@@ -302,19 +339,30 @@ def checked(
                 "not_reached",
                 moved_on_turn=moved if agent and step < last else None,
             )
+        elif state == "not_needed" and step in sides:
+            reading = StepReading(step, name, "not_needed")
         found[step] = reading
     steps = tuple(found.get(n, StepReading(n, name, "unclear")) for n, name in names.items())
     goal_step = raw.get("goal_step")
-    progress = StepProgress(
-        steps=steps,
-        fields=_fields(raw, names, spec),
-        goal_step=goal_step if isinstance(goal_step, int) and goal_step in names else None,
-        outcomes=_outcomes(raw, names, outcomes),
+    progress = with_sides(
+        StepProgress(
+            steps=steps,
+            fields=_fields(raw, names, spec),
+            goal_step=goal_step if isinstance(goal_step, int) and goal_step in names else None,
+            outcomes=_outcomes(raw, names, outcomes),
+            details=_details(raw, names, spec),
+        ),
+        sides,
     )
     claimed = raw.get("claimed_done_turn")
     # Kept only where the code agrees a step before the last is unfinished: the judge's word
     # that the agent claimed it all done is not enough on a call the evidence shows complete.
-    unfinished = any(not progress.shows_reached(n) for n in names if n < last)
+    # A side step the call did not need is not unfinished.
+    unfinished = any(
+        not progress.shows_reached(n) and progress.state_of(n) != "not_needed"
+        for n in names
+        if n < last
+    )
     if isinstance(claimed, int) and lines.get(claimed, ("", ""))[0] == "agent" and unfinished:
         return replace(progress, claimed_done_turn=claimed)
     return progress
@@ -348,6 +396,24 @@ def _fields(
                 mapping.setdefault(choice, step)
         if len(set(mapping.values())) >= (1 if key in yes_no else 2):
             out[key] = mapping
+    return out
+
+
+def _details(
+    raw: dict[str, Any], names: dict[int, str], spec: ExtractionSchemaSpec
+) -> dict[str, int]:
+    """Each status or outcome detail (`whole_call_detail`) the model says is about one step,
+    onto a real step. A detail of any other kind is read from what the caller said, never
+    from the steps, so it is not taken."""
+    keys = {f.key for f in spec.fields if whole_call_detail(f.key, f.label)}
+    out: dict[str, int] = {}
+    rows = raw.get("details")
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        key, step = row.get("key"), row.get("step")
+        if key in keys and isinstance(step, int) and not isinstance(step, bool) and step in names:
+            out.setdefault(str(key), step)
     return out
 
 
@@ -392,13 +458,20 @@ async def judge_call_steps(
     if not any(speaker == "caller" for speaker, _ in lines.values()):
         return None
     names, scenarios = step_names(script), step_scenarios(script)
+    sides = side_steps(script)
     feature = ASSIST_FEATURE_STEP_PROGRESS
 
     def parse(raw: dict[str, Any]) -> StepProgress | None:
         if not isinstance(raw.get("steps"), list):
             return None
         return checked(
-            raw, names=names, lines=lines, spec=spec, outcomes=outcomes, scenarios=scenarios
+            raw,
+            names=names,
+            lines=lines,
+            spec=spec,
+            outcomes=outcomes,
+            scenarios=scenarios,
+            sides=sides,
         )
 
     try:
