@@ -68,14 +68,14 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "teach",
     title: "Teach it facts",
-    body: `Hours and the answers callers need. Add them in ${AGENT_TABS.training}.`,
-    target: agentTab("training"),
+    body: `Facts and answers callers need, in ${AGENT_TABS.knowledge}.`,
+    target: agentTab("knowledge"),
   },
   {
     id: "voice",
     title: "Choose its voice",
-    body: `Play the voices in ${AGENT_TABS.settings} and choose one.`,
-    target: agentTab("settings"),
+    body: `Play the voices in ${AGENT_TABS.voice} and choose one.`,
+    target: agentTab("voice"),
   },
 ];
 

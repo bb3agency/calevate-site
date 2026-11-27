@@ -260,7 +260,7 @@ AGENT_PREPARE: Final = ActionTool(
     permission="org:manage",
     object_type="agent",
     audit_action="agent.prepared",
-    where="under Try it on the agent's Training tab",
+    where="under Try it on the agent's What it knows tab",
     schema=action_schema(
         "agent_prepare",
         "Propose getting a draft or paused agent ready to try in chat, without taking calls. "
@@ -637,7 +637,7 @@ async def _plan_settings(session: AsyncSession, actor: ToolActor, args: Mapping[
         current="; ".join(was),
         proposed="; ".join(becomes),
         cost=None,
-        reversal="Change them back the same way, or on the agent's Settings tab.",
+        reversal="Change them back the same way, or on the agent's Voice and Settings tabs.",
         args={
             "agent_id": str(parsed.agent_id),
             "changes": [
@@ -774,7 +774,7 @@ AGENT_SETTINGS_SET: Final = ActionTool(
     permission="agents:write",
     object_type="agent",
     audit_action="agent.settings_set",
-    where="on the agent's Settings tab",
+    where="on the agent's Voice and Settings tabs",
     schema=action_schema(
         "agent_settings_set",
         "Propose changing how an agent sounds and handles calls. Each change is a `setting` "

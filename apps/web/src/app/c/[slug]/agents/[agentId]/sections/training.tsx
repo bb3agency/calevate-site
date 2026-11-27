@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * TRAINING — checklist first, the rest folded (D-893 §6, founder 26 Oct 2026), inside the
- * seven-tab agent page (D-825, decision 5a08c365):
+ * WHAT IT KNOWS (the Training tab until 28 Nov 2026) — checklist first, the rest folded (D-893
+ * §6, founder 26 Oct 2026; D-825, decision 5a08c365):
  *
  * 1. Questions to answer: what callers asked that it could not answer, what practice
  *    callers need and what setup leaves open, most asked first, each answered in place.
@@ -64,7 +64,7 @@ export function TrainingTab({ agent, slug }: { agent: Agent; slug: string }) {
   return (
     <CopilotSurfaceScope
       route="/c/{slug}/agents/{id}"
-      title={`Agent: training (${agent.name})`}
+      title={`Agent: what it knows (${agent.name})`}
       realm="client"
       facts={[
         { key: "agent_id", label: "Agent id", value: agent.id },
@@ -219,7 +219,7 @@ function WhatItKnows({ slug, agent }: { slug: string; agent: Agent }) {
   }
 
   return (
-    <Disclosure variant="row" headingLevel={3} title="What it knows" subtitle={line}>
+    <Disclosure variant="row" headingLevel={3} title="Facts and answers" subtitle={line}>
       <div className="space-y-6">
         {body}
         {/* The shared facts above, then which of them this agent answers at once (D-896). */}

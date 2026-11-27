@@ -562,19 +562,25 @@ class AgentTab:
 
 #: The tabs of one agent's page, in the order the page shows them. A copy of `AGENT_TABS` in
 #: `apps/web/.../agents/[agentId]/sections/agentSections.tsx`, held equal by `screens_test.py`,
-#: because Pip once sent an owner to "the Training tab" for the script, which is on Script.
+#: because Pip once sent an owner to "the Training tab" for the script, which was on Script.
 #: `holds` is what `AgentWorkspace.tsx` renders under each tab.
-#: Four tabs (D-997): an agent is the voice and has no script of its own; what it says lives
-#: in Inbound (each number) and Campaigns.
+#: Six tabs (redesign 28 Nov 2026): an agent is the voice and has no script of its own
+#: (D-997); What it says lists its campaigns and Inbound lines, whose own pages hold the words.
 AGENT_PAGE_TABS: Final[tuple[AgentTab, ...]] = (
-    AgentTab("Overview", "how it is doing, latest calls"),
+    AgentTab(
+        "What it says",
+        "the call notices, its campaigns and lines with their first words, what is left to set up",
+    ),
+    AgentTab("What it knows", "questions to answer, mistakes, try it, what it knows, tests"),
     AgentTab("Actions", "what it does during a call"),
     AgentTab(
-        "Settings",
-        "its voice, details it writes down, call handling, hand-over, caller memory, alerts "
-        "(on its campaigns' and lines' own details too), AI model, hours",
+        "What it notes", "details each job writes down, how calls end; changed on Lead details"
     ),
-    AgentTab("Training", "questions to answer, mistakes, try it, what it knows, tests"),
+    AgentTab("Voice", "its voice and languages"),
+    AgentTab(
+        "Settings",
+        "call handling, hand-over, caller memory, alerts, AI model, name and language, hours",
+    ),
 )
 
 

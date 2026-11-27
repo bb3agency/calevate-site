@@ -183,7 +183,7 @@ describe("new agent: the finish gives it a job", () => {
       `/c/acme/agents/${AGENT}?section=training`,
     );
     expect(finish.getByRole("link", { name: "Choose a voice" }).getAttribute("href")).toBe(
-      `/c/acme/agents/${AGENT}?section=settings`,
+      `/c/acme/agents/${AGENT}?section=voice`,
     );
     expect(finish.queryByText(/script/i)).toBeNull();
   });

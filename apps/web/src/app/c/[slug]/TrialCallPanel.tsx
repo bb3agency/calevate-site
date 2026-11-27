@@ -360,7 +360,7 @@ export function TrialCallCard({
         {place.error && errorIsPause && !paused && <TestCallsPausedNote className="" />}
         {place.error && !errorIsPause && <ProblemNotice error={place.error} />}
         {place.error instanceof ApiProblem && place.error.code === STUDIO_MINUTES_USED && (
-          <Link href={href(`/c/${session.orgSlug}/agents/${chosen}?section=settings`)} className={PRIMARY_BUTTON_SM}>
+          <Link href={href(`/c/${session.orgSlug}/agents/${chosen}?section=voice`)} className={PRIMARY_BUTTON_SM}>
             Choose a Clear voice
           </Link>
         )}

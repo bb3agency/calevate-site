@@ -1,22 +1,18 @@
 "use client";
 
 /**
- * SETTINGS — how the agent sounds and behaves wherever it calls for: its voice, what it
- * notes down, how calls are handled, the model, what the agent is, where the business-wide
- * leads and calling hours are, and deleting it. Voice and What it notes were tabs of their
- * own until the agent page became four tabs (D-997, founder 16 Nov 2026); each keeps its own
- * heading here.
+ * SETTINGS — how the agent behaves wherever it calls for: how calls are handled, its alerts,
+ * the model, what the agent is, where the business-wide leads and calling hours are, and
+ * deleting it. Its voice and what it notes are tabs of their own (redesign 28 Nov 2026).
  *
- * Order is by how often each is changed. The voice is picked and re-picked while an owner
- * gets to know the agent, and what it notes changes with the business; call handling
- * (length, pauses, hand-over, memory) is tuned after real calls; the model and what the
- * agent is are set once. Delete is
+ * Order is by how often each is changed. Call handling (length, pauses, hand-over, memory)
+ * is tuned after real calls; the model and what the agent is are set once. Delete is
  * foreground, not disclosed, because it is rare but high-consequence (UX-DOCTRINE §3); while
  * the agent is taking calls it cannot be deleted, and the notice carries the one move that
  * changes that.
  *
  * Each panel declares its own copilot surface; the tab's `CopilotSurfaceScope` merges them, so
- * the assistant sees the voice, call handling, the model and what the agent is together.
+ * the assistant sees call handling, the model and what the agent is together.
  */
 
 import Link from "next/link";
@@ -34,7 +30,8 @@ import { AgentIdentity } from "../../AgentIdentity";
 import { AgentLifecycle, LifecycleError } from "../../AgentLifecycle";
 import { AgentModel } from "../../AgentModel";
 import { TEAM_ALERTS_ANCHOR, TeamAlertsPanel } from "../../panels/teamAlerts";
-import { CallHandlingSection, VoiceSection } from "./deliverySections";
+import { WHAT_IT_IS_ANCHOR } from "./agentSections";
+import { CallHandlingSection } from "./deliverySections";
 
 /** The anchor a test result's "Open call handling" lands on. */
 export const CALL_HANDLING_ANCHOR = "call-handling";
@@ -65,10 +62,6 @@ export function SettingsTab({
       facts={[{ key: "agent_id", label: "Agent id", value: agent.id }]}
     >
       <div className="space-y-12">
-        <Section headingLevel={3} title="Voice">
-          <VoiceSection agent={agent} />
-        </Section>
-
         <div id={CALL_HANDLING_ANCHOR} className="scroll-mt-24">
           {/* Each section: a title and one short line. The fuller reason, where one is
               worth having, is behind the ⓘ (critique-information-density). */}
@@ -96,14 +89,16 @@ export function SettingsTab({
           <AgentModel agent={agent} slug={slug} />
         </Section>
 
-        <Section
-          headingLevel={3}
-          title="What it is"
-          description="Name, call direction, what it is for and language."
-          info={<p>Changing which way its calls go can stop it answering your numbers.</p>}
-        >
-          <AgentIdentity agent={agent} />
-        </Section>
+        <div id={WHAT_IT_IS_ANCHOR} className="scroll-mt-24">
+          <Section
+            headingLevel={3}
+            title="What it is"
+            description="Name, call direction, what it is for and language."
+            info={<p>Changing which way its calls go can stop it answering your numbers.</p>}
+          >
+            <AgentIdentity agent={agent} />
+          </Section>
+        </div>
 
         <Section
           headingLevel={3}

@@ -20,6 +20,7 @@ import { problemOf } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { Term } from "@/lib/glossary";
+import { splitPromise } from "@/lib/truthfulAnswer";
 
 import {
   IntroducedOpeningFix,
@@ -27,16 +28,6 @@ import {
   OPENING_INTRODUCES,
   OpeningLineFix,
 } from "../../agents/panels/openingLineFix";
-
-/**
- * The server's truthful-answer promise split at its first sentence: the guarantee, shown
- * above the switches, and the rest (the exact answers), shown in full in the disclosure.
- * The words are the server's either way (`compliance/disclosure.truthful_answer_promise`).
- */
-export function splitPromise(rule: string): { lead: string; rest: string } {
-  const match = /^(.+?[.!?])\s+(\S[\s\S]*)$/.exec(rule.trim());
-  return match ? { lead: match[1], rest: match[2] } : { lead: rule.trim(), rest: "" };
-}
 
 /**
  * THE CALL NOTICES — one AI switch and one recording switch for every call (D-1021).

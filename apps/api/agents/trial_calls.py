@@ -88,7 +88,7 @@ NOT_READY_RULE: Final = "trial_calling_not_ready"
 #: retry changes it: only an operator setting the number does (runbooks/trial-calling.md).
 NOT_READY_REASON: Final = (
     "Phone test calls are not switched on yet: the line they ring from is not set up on our "
-    "side. Until it is, type to your agent on its Training tab to try it."
+    "side. Until it is, type to your agent on its What it knows tab to try it."
 )
 
 

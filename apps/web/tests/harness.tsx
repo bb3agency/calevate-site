@@ -376,6 +376,9 @@ export function stubApi(routes: Routes): ApiCall[] {
         // whether every agent helps customers (`useLeadNouns`), and none keeps the lead words
         // every existing assertion was written against. A test about agents names the route.
         if (scoped === "GET /v1/agents") return jsonResponse([]);
+        // WHAT EACH AGENT HAS DONE, answered "no calls" by default: the agent page's header
+        // reads it for "Calls (n)". A test about the count names the route.
+        if (scoped === "GET /v1/agents/stats") return jsonResponse([]);
         // TODAY'S TEST CALLS (D-885), answered "none today" by default: every trial card
         // reads them. A test about the card's calls names the route itself.
         if (scoped === "GET /v1/trial/calls") return jsonResponse([]);

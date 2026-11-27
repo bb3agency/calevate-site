@@ -13,13 +13,17 @@
  *   placed from the dashboard through the shared trial number (D-853, founder 23 Oct 2026).
  * - **Get it ready** (a draft only) publishes it without taking calls, so the chat can try it
  *   (D-838); a refused move shows its reason, with setup links when it is missing facts.
- * - **Try it** opens the Training tab, where the chat and the practice call are (D-825),
+ * - **Try it** opens What it knows, where the chat and the practice call are (D-825),
  *   through the tabs' own unsaved-edits guard (D-826) like the ⋯ menu's Delete.
  * - **Put it live** is the one filled button, and only while a version of the script is
  *   waiting to go live (one the admin console staged; `script/PutLive.tsx`).
  * - A deleted agent has one move: **Bring it back**.
  * - **Show me around** (`tour`, live agents only) sits under the header line rather than
  *   among the actions, so it never competes with them (D-855).
+ * - **Calls (n)** sits on the same line: a text link to the call logs filtered to this
+ *   agent, deleted agents included, because the history is why an archive is kept. The
+ *   count is `calls_total` from `GET /v1/agents/stats`; while that read is missing the link
+ *   says "Calls" with no number rather than a guessed one.
  *
  * Delete is in the ⋯ menu and only points at Settings, where its consequences are stated
  * above the button that does it.
@@ -27,17 +31,17 @@
 
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { MessageSquareText, PhoneCall } from "lucide-react";
+import { ListOrdered, MessageSquareText, PhoneCall } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { formatINR, ProblemNotice, RestrictionNote, SECONDARY_BUTTON, ToggleSwitch } from "@/components/ui";
+import { formatCount, formatINR, ProblemNotice, RestrictionNote, SECONDARY_BUTTON, ToggleSwitch } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { useSectionLink } from "@/components/console/settingsLayout";
 import { RowMenu, type RowMenuItem } from "@/components/arc/menu";
 import { STATUS_COPY, isDeleted, movesFor } from "@/lib/agentState";
-import { useAgentLifecycle, type Agent, type LifecycleMove } from "@/lib/api/agents";
+import { useAgentLifecycle, useAgentStats, type Agent, type LifecycleMove } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { usePendingChanges } from "@/lib/api/publishing";
 import { useScript, useUndoScript } from "@/lib/api/script";
@@ -52,6 +56,10 @@ import { stagedScript, voiceTierLine } from "../../panels/publishing";
 import { PromoWarning } from "../script/PromoWarning";
 import { PutLiveDialog, usePutLive } from "../script/PutLive";
 import { TRY_IT_ANCHOR } from "../tour/tourModel";
+
+/** A quiet text link on the line under the header, the same look as the tour's trigger. */
+const HEADER_LINK =
+  "press inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-body font-medium text-brand-strong hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 dark:hover:bg-white/5";
 
 export function AgentHeader({
   agent,
@@ -87,6 +95,11 @@ export function AgentHeader({
   const billing = useWriteAccess(session, "billing:read", "see what this agent spent");
   const spend = useSpend(session, undefined, { enabled: billing.allowed });
   const deleted = isDeleted(agent);
+  const stats = useAgentStats(session);
+  // The stats cover every agent, archived ones too, so a missing row is an agent with no calls.
+  const callCount = stats.isSuccess
+    ? (stats.data.find((row) => row.agent_id === agent.id)?.calls_total ?? 0)
+    : null;
 
   const moves = movesFor(agent.status);
   const trial = useTrialPanel(session, !deleted && agent.status !== "live");
@@ -95,7 +108,7 @@ export function AgentHeader({
   const staged = pending.data ? stagedScript(pending.data) : undefined;
   const base = `/c/${slug}/agents/${agent.id}`;
   // Guarded by the layout when the header is drawn inside it; a plain link otherwise.
-  const training = useSectionLink("training");
+  const knowledge = useSectionLink("knowledge");
   const settings = useSectionLink("settings");
 
   const items: RowMenuItem[] = deleted
@@ -200,8 +213,8 @@ export function AgentHeader({
                   </ActionButton>
                 )}
                 <Link
-                  href={training?.href ?? href(`${base}?section=training`)}
-                  onClick={training?.onClick}
+                  href={knowledge?.href ?? href(`${base}?section=knowledge`)}
+                  onClick={knowledge?.onClick}
                   scroll={false}
                   data-tour={TRY_IT_ANCHOR}
                   className={`${SECONDARY_BUTTON} flex-1 justify-center whitespace-nowrap sm:flex-none`}
@@ -220,23 +233,25 @@ export function AgentHeader({
           </div>
         }
       />
-      {/* The state is said once, in the header line above; on a trial this row only adds
-          the place a test call is made from. */}
-      {!deleted && (tour || (onTrial && agent.published && agent.status === "paused")) && (
-        // `-ml-3` puts the first button's text on the title's left edge despite its padding.
-        <div className="-ml-3 flex flex-wrap items-center gap-x-2 gap-y-1">
-          {tour}
-          {onTrial && agent.published && agent.status === "paused" && (
-            <Link
-              href={href(`/c/${slug}`)}
-              className="press inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-body font-medium text-brand-strong hover:bg-ink/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 dark:hover:bg-white/5"
-            >
-              <PhoneCall aria-hidden className="h-4 w-4" />
-              Make a test call
-            </Link>
-          )}
-        </div>
-      )}
+      {/* The state is said once, in the header line above; this row adds where its calls
+          are and, on a trial, the place a test call is made from. */}
+      {/* `-ml-3` puts the first link's text on the title's left edge despite its padding. */}
+      <div className="-ml-3 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <Link
+          href={href(`/c/${slug}/calls?agent_id=${encodeURIComponent(agent.id)}`)}
+          className={HEADER_LINK}
+        >
+          <ListOrdered aria-hidden className="h-4 w-4" />
+          {callCount === null ? "Calls" : `Calls (${formatCount(callCount)})`}
+        </Link>
+        {!deleted && tour}
+        {onTrial && agent.published && agent.status === "paused" && (
+          <Link href={href(`/c/${slug}`)} className={HEADER_LINK}>
+            <PhoneCall aria-hidden className="h-4 w-4" />
+            Make a test call
+          </Link>
+        )}
+      </div>
       <RestrictionNote reason={write.reason} />
 
       <LifecycleError error={move.error} />

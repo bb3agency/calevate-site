@@ -22,6 +22,8 @@ const SPLITS: { route: string; lazy: string[] }[] = [
     lazy: [
       "app/c/[slug]/agents/[agentId]/sections/training.tsx",
       "app/c/[slug]/agents/[agentId]/sections/settingsTab.tsx",
+      "app/c/[slug]/agents/[agentId]/sections/notesTab.tsx",
+      "app/c/[slug]/agents/[agentId]/sections/voiceTab.tsx",
       "app/c/[slug]/agents/actions/Actions.tsx",
       "app/c/[slug]/agents/[agentId]/sections/deletedAgent.tsx",
     ],

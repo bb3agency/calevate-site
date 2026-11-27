@@ -1202,7 +1202,7 @@ async def _agent_known_facts(
         lines.append("Its facts have not been chosen yet; that happens within the day.")
     else:
         lines.append(f"Last chosen {ist_stamp(found.computed_at)} from {found.calls_read} call(s).")
-    lines.append("The owner sees the same on the agent's Training tab.")
+    lines.append("The owner sees the same on the agent's What it knows tab.")
     return "\n".join(lines)
 
 

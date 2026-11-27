@@ -58,8 +58,8 @@ function Page() {
         Try it
       </button>
       <div role="tablist" aria-label={AGENT_TABS_LABEL}>
-        {["overview", "actions", "settings", "training"].map((id) => (
-          <button key={id} type="button" role="tab" id={`r1-tab-${id}`} aria-selected={id === "overview"}>
+        {["script", "knowledge", "actions", "notes", "voice", "settings"].map((id) => (
+          <button key={id} type="button" role="tab" id={`r1-tab-${id}`} aria-selected={id === "script"}>
             {id}
           </button>
         ))}
@@ -222,14 +222,14 @@ describe("?tour=1, the link the first-call screen can use", () => {
 });
 
 describe("every step points at something on the page", () => {
-  it("finds the Training and Settings tabs, Try it and the assistant's launcher", async () => {
+  it("finds the What it knows and Voice tabs, Try it and the assistant's launcher", async () => {
     await renderTour();
     expect(TOUR_STEPS).toHaveLength(4);
     expect(TOUR_STEPS.map((step) => step.target(document)?.textContent)).toEqual([
       ASSISTANT_NAME,
       "Try it",
-      "training",
-      "settings",
+      "knowledge",
+      "voice",
     ]);
   });
 });
