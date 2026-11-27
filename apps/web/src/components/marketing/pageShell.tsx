@@ -93,7 +93,7 @@ export const CTA_LABEL = "Get started";
  */
 
 export const CTA_PRIMARY =
-  "group press inline-flex items-center gap-2 rounded-full bg-brand-strong px-7 py-3.5 text-base font-semibold text-white shadow-card hover:bg-brand-deep hover:shadow-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
+  "group press inline-flex items-center gap-2 rounded-full bg-action px-7 py-3.5 text-base font-semibold text-on-action shadow-card hover:bg-action-hover hover:shadow-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
 
 export const CTA_SECONDARY =
   "press inline-flex items-center gap-2 rounded-full border border-line bg-surface px-7 py-3.5 text-base font-semibold text-ink hover:border-brand/50 hover:bg-brand-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";

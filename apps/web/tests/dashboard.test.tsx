@@ -998,7 +998,7 @@ describe("this week", () => {
     return within(card)
       .getAllByRole("link")
       .filter((link) => link.className.includes("rounded-md"))
-      .map((link) => ({ name: link.textContent, primary: link.className.includes("bg-brand-strong") }));
+      .map((link) => ({ name: link.textContent, primary: link.className.includes("bg-action") }));
   }
 
   /** One figure of the band: its label's parent holds the value, the change and the hint. */
@@ -1474,7 +1474,7 @@ describe("next steps", () => {
       .map((link) => ({
         name: link.textContent,
         href: link.getAttribute("href"),
-        primary: link.className.includes("bg-brand-strong"),
+        primary: link.className.includes("bg-action"),
       }));
 
   it("ranks going live above the day's work, with only the top step's button filled", async () => {

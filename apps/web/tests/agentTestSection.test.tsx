@@ -221,7 +221,7 @@ describe("the practice tests in Training", () => {
     render(<Listener />);
     const { calls } = await page(tests(run({ results: [PRICE, FLAKY, HOURS] })));
     const primary = await screen.findByRole("button", { name: "Fix 1 with Pip" });
-    expect(primary.className).toContain("bg-brand-strong");
+    expect(primary.className).toContain("bg-action");
     fireEvent.click(primary);
     // A test OK on 2 of 3 tries is Sometimes OK, and not Pip's to chase.
     const fixOne = screen.getAllByRole("button", { name: "Fix it" });
@@ -285,7 +285,7 @@ describe("the practice tests in Training", () => {
     expect(screen.getByText("Now 1 of 2 OK")).toBeTruthy();
     // The broken test says so in its one status; script fixes go to a line's draft (D-1017).
     expect(card("When do you open?").textContent).toContain("Broke");
-    expect(screen.getByRole("button", { name: "Fix 1 with Pip" }).className).toContain("bg-brand-strong");
+    expect(screen.getByRole("button", { name: "Fix 1 with Pip" }).className).toContain("bg-action");
   });
 
   it("asks where script fixes go when the agent has several lines, and tells Pip the one picked", async () => {
@@ -486,7 +486,7 @@ describe("the practice tests in Training", () => {
     });
     await page(tests(run({ is_current: false }), { history: [entry("run-2", 1), entry("run-1", 0)] }));
     expect(await screen.findByText("The script changed since this test.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Test again" }).className).toContain("bg-brand-strong");
+    expect(screen.getByRole("button", { name: "Test again" }).className).toContain("bg-action");
     expect(screen.queryByRole("button", { name: /with Pip/ })).toBeNull();
     // Hidden by default; one tap on "How this works" shows it.
     expect(screen.queryByRole("list", { name: "These tests over time" })).toBeNull();

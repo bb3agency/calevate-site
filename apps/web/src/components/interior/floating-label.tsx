@@ -183,7 +183,7 @@ export function FloatingLabelInput({
         <div
           className={`relative h-10 rounded-[10px] border-2 transition-[background-color,border-color,box-shadow] duration-150 ${
             invalid
-              ? "border-red-500 bg-surface dark:border-red-400"
+              ? "border-danger bg-surface"
               : focused
                 ? "border-brand bg-surface dark:border-brand-bright"
                 : "border-line bg-ink/[0.06] shadow-[inset_0_1px_2px_rgba(28,25,23,0.07)] dark:shadow-[inset_0_1px_2px_rgba(0,0,0,0.45)]"
@@ -233,7 +233,7 @@ export function FloatingLabelInput({
           style={{ originX: 0, originY: 0, willChange: "transform" }}
           className={`absolute left-3 top-[32px] block cursor-text select-none text-[13px] leading-[16px] ${
             invalid
-              ? "text-red-600 dark:text-red-400"
+              ? "text-danger"
               : raised
                 ? "text-ink-muted"
                 : "text-ink-faint"
@@ -252,7 +252,7 @@ export function FloatingLabelInput({
         <p
           aria-hidden
           className={`min-w-0 flex-1 truncate text-[11.5px] leading-[16px] ${
-            invalid ? "text-red-600 dark:text-red-400" : "text-ink-muted"
+            invalid ? "text-danger" : "text-ink-muted"
           }`}
         >
           {hint}

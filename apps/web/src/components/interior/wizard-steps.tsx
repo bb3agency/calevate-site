@@ -281,7 +281,7 @@ export function WizardSteps({
                 done
                   ? "border-brand-strong bg-brand-strong text-white"
                   : here
-                    ? "border-line bg-surface text-ink"
+                    ? "border-accent-stamp bg-accent-stamp-soft text-accent-stamp"
                     : "border-line bg-surface text-ink-faint"
               }`}
               initial={false}
@@ -473,7 +473,7 @@ export function WizardSteps({
                   : { duration: 0.14, ease: EXIT_EASE },
               }}
               transition={reduced ? { duration: 0 } : CROSSFADE}
-              className={`${extraActions ? "" : "ml-auto"} grid h-9 touch:h-11 place-items-center rounded-[9px] bg-brand-strong px-3.5 text-[13px] font-medium text-white outline-none transition-colors duration-150 [&:not(:disabled)]:hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}
+              className={`${extraActions ? "" : "ml-auto"} grid h-9 touch:h-11 place-items-center rounded-[9px] bg-action px-3.5 text-[13px] font-medium text-on-action outline-none transition-colors duration-150 [&:not(:disabled)]:hover:bg-action-hover disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2`}
             >
               <span aria-hidden className="invisible col-start-1 row-start-1">
                 {finishLabel.length > nextLabel.length ? finishLabel : nextLabel}

@@ -196,6 +196,29 @@ describe("the status tones", () => {
   }
 });
 
+/**
+ * The khata palette's two new roles. `--action` is the main button, so its paper-coloured
+ * label is text at AA; `--accent-stamp` is an outlined 11px tag and the selected step's
+ * number, so it is small text on every ground a stamp is pressed onto.
+ */
+describe("the main action and the stamp", () => {
+  it("renders --on-action on --action and on its hover at AA", () => {
+    for (const fill of ["action", "action-hover"]) {
+      expect(contrast(token(":root {", "on-action"), token(":root {", fill))).toBeGreaterThanOrEqual(
+        AA_NORMAL_TEXT,
+      );
+    }
+  });
+
+  for (const ground of ["surface", "app", "surface-muted", "accent-stamp-soft"]) {
+    it(`renders --accent-stamp on --${ground} at AA`, () => {
+      expect(
+        contrast(token(":root {", "accent-stamp"), token(":root {", ground)),
+      ).toBeGreaterThanOrEqual(AA_NORMAL_TEXT);
+    });
+  }
+});
+
 describe("the dark palette", () => {
   // Nothing toggles `.dark` yet (globals.css records why), so these are the tests that
   // stop the toggle landing on top of a contrast failure nobody could see beforehand.

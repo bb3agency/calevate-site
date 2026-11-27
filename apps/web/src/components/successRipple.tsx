@@ -7,10 +7,10 @@
  * ## Colour
  *
  * Every blue in the sample (`#5686FF` and its alpha variants) becomes a brand token: the
- * disc is `--brand`, the ripples `--brand-bright`, the glyph white. The optional
- * `variant="error"` is the ONE place a non-green is allowed — a single red (`#dc2626`) with
- * an X in place of the check — because a failure that reads as green is worse than an
- * off-palette colour.
+ * disc is `--brand`, the ripples `--brand-bright`, the glyph `--surface`. The optional
+ * `variant="error"` is the ONE place a non-green is allowed — the `--danger` token with
+ * an X in place of the check — because a failure that reads as green is worse than a second
+ * colour.
  *
  * ## Responsive and reduced-motion
  *
@@ -50,8 +50,8 @@ export function SuccessRipple({
   const reduced = useReducedMotion();
   const isError = variant === "error";
 
-  const disc = isError ? "#dc2626" : "var(--brand)";
-  const ripple = isError ? "#dc2626" : "var(--brand-bright)";
+  const disc = isError ? "var(--danger)" : "var(--brand)";
+  const ripple = isError ? "var(--danger)" : "var(--brand-bright)";
   // Scale around each element's own centre — the SVG2 CSS-transform way, so framer's scale
   // does not pivot on the viewBox origin.
   const spin = { transformBox: "fill-box", transformOrigin: "center" } as const;
@@ -98,7 +98,7 @@ export function SuccessRipple({
             <motion.path
               d="M40 40 L60 60"
               fill="none"
-              stroke="#ffffff"
+              stroke="var(--surface)"
               strokeWidth={5}
               strokeLinecap="round"
               initial={reduced ? false : { pathLength: 0 }}
@@ -108,7 +108,7 @@ export function SuccessRipple({
             <motion.path
               d="M60 40 L40 60"
               fill="none"
-              stroke="#ffffff"
+              stroke="var(--surface)"
               strokeWidth={5}
               strokeLinecap="round"
               initial={reduced ? false : { pathLength: 0 }}
@@ -120,7 +120,7 @@ export function SuccessRipple({
           <motion.path
             d="M37 51 L46 61 L64 40"
             fill="none"
-            stroke="#ffffff"
+            stroke="var(--surface)"
             strokeWidth={5}
             strokeLinecap="round"
             strokeLinejoin="round"

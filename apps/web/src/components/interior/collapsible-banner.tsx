@@ -20,8 +20,8 @@ export type BannerTone = "info" | "success" | "warning" | "danger";
 const TONE_TEXT: Record<BannerTone, string> = {
   info: "text-ink-muted",
   success: "text-brand dark:text-brand-bright",
-  warning: "text-amber-600 dark:text-amber-400",
-  danger: "text-red-600 dark:text-red-400",
+  warning: "text-warn",
+  danger: "text-danger",
 };
 
 export type BannerState = "open" | "folded" | "dismissed";

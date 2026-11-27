@@ -60,7 +60,7 @@ export function ViewSwitch() {
       aria-pressed={view === value}
       onClick={() => choose(value)}
       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-meta font-medium transition-colors ${
-        view === value ? "bg-brand-strong text-white" : "text-ink-muted hover:text-ink"
+        view === value ? "bg-ink/[0.08] text-ink" : "text-ink-muted hover:text-ink"
       }`}
     >
       <Icon aria-hidden className="h-3.5 w-3.5" />

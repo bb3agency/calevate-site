@@ -194,8 +194,8 @@ function showUpdatingNotice(): void {
     justifyContent: "center",
     padding: "24px",
     textAlign: "center",
-    background: "var(--app, #fafafa)",
-    color: "var(--text, #171a1c)",
+    background: "var(--app, #f9f3e4)",
+    color: "var(--text, #1e2b3c)",
     font: "500 16px ui-sans-serif, system-ui, sans-serif",
     zIndex: "2147483647",
   });
@@ -315,7 +315,7 @@ export function UpdateWatcher() {
       </span>
       <button
         type="button"
-        className="rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-deep"
+        className="rounded-md bg-action px-3 py-1.5 text-xs font-semibold text-on-action hover:bg-action-hover"
         onClick={() => void reloadFresh(`manual:${newer.commit}`)}
       >
         Update now
