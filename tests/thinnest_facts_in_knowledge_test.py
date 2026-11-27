@@ -96,9 +96,10 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: 27 Nov 2026 (said once): the placed-call claim rule holds "even if a step's line says it"
 #: instead of calling a step's lines only examples; "you have their number" says only what to
 #: ask; a script's own [ENDING], step lead and business line replace the platform's copies.
+#: 27 Nov 2026 (21:35): what THIS CALL says is our list, never records the agent checked.
 PINNED = (
-    "cbd45e969b4d30a722ea8b84126de2de80e3f942460bd6d13d35a1e8b277b1f7",
-    "afb33f719e7ccf21f3d9450f16a0c960ac4d0dbd129c171da7fff2258fddf4f7",
+    "4bfd3d460bd36edb904f8ba7e9632f081789766cb086ff8801f5c0abbad931a7",
+    "acaecd7b515ebb7b737dcb34f76a84fed98a5ef212388921a2f2d5b149afaaaf",
 )
 
 

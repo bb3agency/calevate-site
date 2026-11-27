@@ -197,13 +197,31 @@ LESSONS["moved_on_unconfirmed"] = Lesson(
 )
 
 
+#: The founder's call of 27 Nov 2026: the caller stopped two steps short ("that's enough, I'll
+#: see the rest later") and the agent closed with "you have finished the app set-up", which
+#: the call notes then recorded as done. Read off the step reading (`claimed_done_turn`, kept
+#: only when the code agrees a step is unfinished), because the claim is in the call's own
+#: language and no word list holds it.
+LESSONS["claimed_complete"] = Lesson(
+    "Said the task was finished when steps were left",
+    "When they stop early, say what is left and offer to finish it later.",
+    "call_script.OUTCOMES_LEAD; ACTION_CLAIM_RULE",
+)
+
+
 def step_mistakes(progress: StepProgress | None) -> dict[str, int]:
-    """`moved_on_unconfirmed` on the first agent line that left a step before its outcome."""
+    """`moved_on_unconfirmed` on the first agent line that left a step before its outcome,
+    and `claimed_complete` on the line that called an unfinished task done."""
     if progress is None:
         return {}
+    found: dict[str, int] = {}
     turns = [s.moved_on_turn for s in progress.steps if s.state == "not_reached"]
     moved = [t for t in turns if t is not None]
-    return {"moved_on_unconfirmed": min(moved)} if moved else {}
+    if moved:
+        found["moved_on_unconfirmed"] = min(moved)
+    if progress.claimed_done_turn is not None:
+        found["claimed_complete"] = progress.claimed_done_turn
+    return found
 
 
 # --- end of the step-outcome block -----------------------------------------------------------

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any, Final
 from uuid import UUID
 
@@ -81,7 +82,9 @@ ASK: Final = (
     "reached, such as the goal being met or the set-up being done, maps true to that step. "
     "goal_step: the step whose outcome means the GOAL is met, else -1. Under outcomes, map "
     "each outcome under OUTCOMES that means a step's outcome was reached to that step; leave "
-    "out an outcome that means no step."
+    "out an outcome that means no step. claimed_done_turn: the number of the agent line that "
+    "told the person the whole task or every step was done while a step on their way through "
+    "the call had not reached its outcome, else -1."
 )
 
 _FORMAT: Final[dict[str, object]] = {
@@ -131,6 +134,7 @@ _FORMAT: Final[dict[str, object]] = {
                     },
                 },
                 "goal_step": {"type": "integer"},
+                "claimed_done_turn": {"type": "integer"},
                 "outcomes": {
                     "type": "array",
                     "items": {
@@ -141,7 +145,7 @@ _FORMAT: Final[dict[str, object]] = {
                     },
                 },
             },
-            "required": ["steps", "fields", "goal_step", "outcomes"],
+            "required": ["steps", "fields", "goal_step", "outcomes", "claimed_done_turn"],
             "additionalProperties": False,
         },
     },
@@ -248,12 +252,19 @@ def checked(
         found[step] = reading
     steps = tuple(found.get(n, StepReading(n, name, "unclear")) for n, name in names.items())
     goal_step = raw.get("goal_step")
-    return StepProgress(
+    progress = StepProgress(
         steps=steps,
         fields=_fields(raw, names, spec),
         goal_step=goal_step if isinstance(goal_step, int) and goal_step in names else None,
         outcomes=_outcomes(raw, names, outcomes),
     )
+    claimed = raw.get("claimed_done_turn")
+    # Kept only where the code agrees a step before the last is unfinished: the judge's word
+    # that the agent claimed it all done is not enough on a call the evidence shows complete.
+    unfinished = any(not progress.shows_reached(n) for n in names if n < last)
+    if isinstance(claimed, int) and lines.get(claimed, ("", ""))[0] == "agent" and unfinished:
+        return replace(progress, claimed_done_turn=claimed)
+    return progress
 
 
 def _fields(

@@ -3224,10 +3224,14 @@ VOICE_STYLE_GUIDANCE: Final = (
 #: numbers, amounts and read-back, the language switch, the written form, and the step rule
 #: the examples show but cannot enforce (one action; only their own words move on; "after
 #: what?" gets the same step, shorter). A script with no examples keeps every bullet.
+#: The reaction rule is kept too: no example opens with a reaction, yet on the founder's call
+#: of 27 Nov 2026 the model opened about ten replies with the same "very good" and ended many
+#: alike. A reaction is not a turn, so "never repeat a turn" in the examples' lead did not
+#: reach it.
 EXAMPLE_LED_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
     "- One action or one question a turn, last. Asked something? Answer just that, then go "
-    "back to the step.\n"
+    "back to the step. No reaction to open; no two replies start or end alike.\n"
     f"{_PUNCTUATION_BULLET}"
     f"{_NUMBER_BULLETS}"
     f"{_REGISTER_BULLET}"
@@ -5063,9 +5067,14 @@ OPENING_CONTINUES_RULE: Final = (
 #: (D-979, founder, 10 Nov 2026): the same number's earlier calls are in the model's history
 #: (ThinnestAI email of 28 Oct 2026, VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md`
 #: §39 item 7), so "they said so" was met by a call days ago.
+#: "Our list, never records" (founder's call of 27 Nov 2026): asked "I don't remember
+#: registering", the agent said "our records show your number is registered". Nothing was
+#: looked up on that call; THIS CALL is the list the call was placed from, and saying so is
+#: true where a claimed check is not.
 CALL_REASON_RULE: Final = (
     " Never say they enquired, showed interest, have or use something unless they said so on "
-    "this call or THIS CALL says so, even if a step's line says it. Asked what "
+    "this call or THIS CALL says so, even if a step's line says it. What THIS CALL says is "
+    "our list, never records you checked. Asked what "
     "we hold? Say THIS CALL's name, details."
 )
 
