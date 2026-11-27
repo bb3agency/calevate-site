@@ -67,6 +67,8 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
   const [confirming, setConfirming] = useState(false);
   const [reaccepting, setReaccepting] = useState(false);
   const paused = agent.caller_memory_paused && Boolean(agent.caller_memory_statement);
+  const memoryOn = agent.caller_memory_enabled && !agent.caller_memory_paused;
+  const placesCalls = agent.direction !== "inbound";
   // Local, and only for the width of one refusal: the server decides whether an
   // attestation is still needed, so this is the record of "the client has now READ it",
   // which is a fact about this screen and about nothing else.
@@ -140,6 +142,14 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
             setCallerMemory.mutate({ enabled: next, accept: readStatement });
           }}
         />
+        {placesCalls && memoryOn && (
+          // What a returning person hears on a call this agent places. Engine behaviour for
+          // `pastConversations: recap` on a placed call: it answers their first words, then
+          // recaps and asks whether to carry on (ThinnestAI docs, channels/voice.md
+          // "Earlier conversations", mirror 2026-11-26 lines 380-383). Copy only; whether
+          // outbound agents keep recap is the founder's open call (W3.16).
+          <p className="mt-2 text-body text-ink">Calling someone again, it recaps your last talk after hello.</p>
+        )}
         <p className="mt-2 flex items-start gap-2 text-xs text-ink-muted">
           <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>Callers are not told on calls. Your privacy notice says so.</span>
@@ -154,6 +164,11 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
             "Used only for that person's calls with you, never shared. Deleted after 180 days, or sooner if asked.",
             "Nothing about notes is said on calls. Your privacy notice page writes that sentence for you.",
             "If the statement you confirm changes, memory pauses on every agent until you accept the new one.",
+            ...(placesCalls
+              ? [
+                  "When it calls someone it has spoken to before, it answers their hello, says what you last talked about, and asks whether to carry on. A call-back they asked for just carries on.",
+                ]
+              : []),
           ]}
         />
       </div>

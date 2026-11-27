@@ -13,6 +13,7 @@ import {
 
 import { useLeadsLens, type LeadsLensState } from "../leads/useLeadsLens";
 
+import { STARTING_CONCURRENCY } from "./campaignProgress";
 import { checkContacts, type CheckedList, type ContactEntry } from "./contactList";
 
 /**
@@ -121,7 +122,7 @@ export function useCampaignForm(): CampaignFormState {
   };
   const [agentId, setAgentId] = useState("");
   const [classification, setClassification] = useState<Classification>("service");
-  const [concurrency, setConcurrency] = useState(3);
+  const [concurrency, setConcurrency] = useState(STARTING_CONCURRENCY);
   const [numberId, setNumberId] = useState("");
   const [templateId, setTemplateId] = useState("");
   const [contacts, setContacts] = useState<ContactEntry[]>([]);

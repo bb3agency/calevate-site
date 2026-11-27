@@ -6,13 +6,13 @@ import { Pencil } from "lucide-react";
 
 import { TEXT_ACTION } from "@/components/console/section";
 import { formatPhone } from "@/components/ui";
-import { useMyCallLines } from "@/lib/api/callLines";
+import { useMyCallLines, type MyCallLines } from "@/lib/api/callLines";
 import type { CampaignProgress } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
 import { describeRetry } from "./NewCampaignSteps";
-import { atOnceNote, callingHoursText } from "./campaignProgress";
+import { atOnceNote, atOnceValue, callingHoursText } from "./campaignProgress";
 
 const KIND: Record<string, string> = { promotional: "Promotional", service: "Service" };
 
@@ -65,8 +65,8 @@ export function CampaignSettings({
           />
           <Fact label="Calling hours" value={callingHoursText(progress)} />
           <Fact
-            label="Calls at the same time"
-            value={`Up to ${progress.effective_concurrency}`}
+            label="Calls at once"
+            value={atOnceValue(progress)}
             hint={<AtOnceHint progress={progress} />}
           />
           <Fact label="No answer, busy or voicemail" value={describeRetry(progress.retry_policy)} />
@@ -121,9 +121,39 @@ function HeldBelowSetting({
   progress: Pick<CampaignProgress, "concurrency" | "effective_concurrency">;
   className: string;
 }) {
-  const { session } = useClientRealm();
+  const { session, href } = useClientRealm();
   const lines = useMyCallLines(session);
   // Said once the lines have answered (or failed), so the cause does not change under the reader.
   if (lines.isLoading) return null;
-  return <span className={className}>{atOnceNote(progress, lines.data?.call_lines)}</span>;
+  const data = lines.data;
+  const accountIsLimit = data !== undefined && data.call_lines === progress.effective_concurrency;
+  return (
+    <span className={className}>
+      {atOnceNote(progress, data?.call_lines)}
+      {accountIsLimit ? <MoreLines lines={data} phoneHref={href(`/c/${session.orgSlug}/phone-number`)} /> : null}
+    </span>
+  );
+}
+
+/**
+ * How to get more, when the account's lines are what holds the campaign back. The number is
+ * ours to raise, so a paying account asks on the Phone number screen (`AskForMoreLines`); a
+ * trial has one line until it pays, and an account already at the most gets no offer.
+ */
+function MoreLines({ lines, phoneHref }: { lines: MyCallLines; phoneHref: string }) {
+  if (lines.on_trial) return <> Trial: one line. More once you pay.</>;
+  if (lines.call_lines >= lines.max_lines) return null;
+  return (
+    <>
+      {" "}
+      {/* Inline in the sentence, so not TEXT_ACTION's padded block; ink, not brand, since
+          brand is kept for done and money. */}
+      <Link
+        href={phoneHref}
+        className="rounded-sm font-medium text-ink underline decoration-ink-faint underline-offset-2 hover:decoration-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action"
+      >
+        Ask for more lines
+      </Link>
+    </>
+  );
 }

@@ -551,9 +551,26 @@ describe("launching", () => {
     });
     await screen.findByRole("button", { name: "Call 120 people" });
     await vi.waitFor(() =>
-      expect(otherSettings().textContent).toContain("Set to 5. Your account runs up to 2 calls at once."),
+      expect(otherSettings().textContent).toContain("Your account's limit. This campaign is set to 5. Ask for more lines"),
     );
     expect(screen.queryByText(/plan allows/)).toBeNull();
+    const ask = within(otherSettings()).getByRole("link", { name: "Ask for more lines", hidden: true });
+    expect(ask.getAttribute("href")).toContain("/phone-number");
+  });
+
+  it("calls the form's figure the starting setting, and a trial's one line is said as such", async () => {
+    await openLaunchPanel(check(), ME, {
+      [`/v1/campaigns/${CAMPAIGN_ID}`]: { ...READY_PROGRESS, concurrency: 3, effective_concurrency: 1 },
+      "/v1/call-lines": { call_lines: 1, in_progress: 0, max_lines: 10, on_trial: true, being_applied: false },
+      [LAUNCH_ROUTE]: LAUNCHED,
+    });
+    await screen.findByRole("button", { name: "Call 120 people" });
+    await vi.waitFor(() =>
+      expect(otherSettings().textContent).toContain(
+        "Your account's limit. This campaign is set to 3, the starting setting. Trial: one line. More once you pay.",
+      ),
+    );
+    expect(within(otherSettings()).queryByRole("link", { name: "Ask for more lines", hidden: true })).toBeNull();
   });
 
   it("gives the number without a cause when the account's lines are not the limit", async () => {
@@ -564,9 +581,10 @@ describe("launching", () => {
       "/v1/call-lines": { call_lines: 10, in_progress: 0, on_trial: false },
       [LAUNCH_ROUTE]: LAUNCHED,
     });
-    expect((await screen.findAllByText("Set to 5. Up to 2 can run at once right now.")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("This campaign is set to 5. Up to 2 can run right now.")).length).toBeGreaterThan(0);
     expect(container.textContent).not.toContain("plan allows");
-    expect(container.textContent).not.toContain("Your account runs");
+    expect(container.textContent).not.toContain("Your account's limit");
+    expect(container.textContent).not.toContain("Ask for more lines");
   });
 
   it("states the kind of call the list makes it, with the window it is held to", async () => {

@@ -77,7 +77,8 @@ export type FoldTone =
 /** One colour and icon per section, none of them a status colour except compliance's amber
  *  warning. Full class names, so the build keeps them. */
 const TONE: Record<FoldTone, { edge: string; title: string; chip: string; icon: LucideIcon }> = {
-  task: { edge: "border-l-brand-strong", title: "text-brand-strong", chip: "bg-brand-soft text-brand-strong", icon: Target },
+  // The stamp, not brand: green is kept for done, live and money (Khata ledger palette).
+  task: { edge: "border-l-accent-stamp", title: "text-accent-stamp", chip: "bg-accent-stamp-soft text-accent-stamp", icon: Target },
   materials: { edge: "border-l-info", title: "text-info", chip: "bg-info-soft text-info", icon: FileText },
   generate: { edge: "border-l-series-5", title: "text-series-5", chip: "bg-series-5/10 text-series-5", icon: Sparkles },
   script: { edge: "border-l-series-2", title: "text-series-2", chip: "bg-series-2/10 text-series-2", icon: ScrollText },

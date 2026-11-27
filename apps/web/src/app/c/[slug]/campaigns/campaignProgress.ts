@@ -163,11 +163,19 @@ export function atOnceNote(
 ): string | undefined {
   const allowed = progress.effective_concurrency;
   if (allowed >= progress.concurrency) return undefined;
-  // "Set to", not "You set": the first run makes a campaign with the form's default, which
-  // the owner never chose.
-  const set = `Set to ${formatCount(progress.concurrency)}.`;
-  if (accountLines === allowed) {
-    return `${set} Your account runs up to ${formatCount(allowed)} ${allowed === 1 ? "call" : "calls"} at once.`;
-  }
-  return `${set} Up to ${formatCount(allowed)} can run at once right now.`;
+  // "Is set to", not "You set": the first run makes a campaign with the form's starting
+  // figure, which the owner never chose, so that figure is named as the starting one.
+  const starting = progress.concurrency === STARTING_CONCURRENCY ? ", the starting setting" : "";
+  const set = `This campaign is set to ${formatCount(progress.concurrency)}${starting}.`;
+  if (accountLines === allowed) return `Your account's limit. ${set}`;
+  return `${set} Up to ${formatCount(allowed)} can run right now.`;
+}
+
+/** What a new campaign's "Calls at once" starts at, before the owner picks a figure. The
+ *  server's own default (`CampaignIn.concurrency` in `campaigns/routes.py`) is the same. */
+export const STARTING_CONCURRENCY = 3;
+
+/** The figure on the campaign's settings: how many it will dial at once now. */
+export function atOnceValue(progress: Pick<CampaignProgress, "effective_concurrency">): string {
+  return `Up to ${formatCount(progress.effective_concurrency)} at a time`;
 }

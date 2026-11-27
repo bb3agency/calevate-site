@@ -1090,6 +1090,26 @@ describe("the two opening notices, as the account sets them (D-163, D-1021)", ()
     expect(container.textContent).not.toContain("Caller memory is paused");
   });
 
+  it("says what a returning person hears when an agent that places calls remembers them (W3.16)", async () => {
+    openSection("settings");
+    await renderClientPage(
+      page,
+      routes({ "/v1/agents/agent-1": agent({ direction: "outbound", caller_memory_enabled: true }) }),
+    );
+    expect(await screen.findByText("Calling someone again, it recaps your last talk after hello.")).toBeTruthy();
+  });
+
+  it("says nothing of a placed call's recap on an agent that only answers, or with memory off", async () => {
+    openSection("settings");
+    const { container } = await renderClientPage(
+      page,
+      routes({ "/v1/agents/agent-1": agent({ direction: "inbound", caller_memory_enabled: true }) }),
+    );
+    await screen.findByText("Remembering callers");
+    expect(container.textContent).not.toContain("Calling someone again");
+    expect(container.textContent).not.toContain("When it calls someone");
+  });
+
   it("shows the account's two notices and one button to change them for all calls", async () => {
     // D-1021: the switches are the account's, so this agent's page has none of its own.
     await renderClientPage(
