@@ -9,10 +9,13 @@ import { CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
 import { InfoTip } from "@/components/console/infoTip";
 import { ModelLogo } from "@/components/console/modelLogo";
 import { SaveBar } from "@/components/console/saveBar";
-import { ProblemNotice, Skeleton } from "@/components/ui";
+import { ProblemNotice, Skeleton, formatINR } from "@/components/ui";
 import { VoicePreviewButton } from "@/components/voicePreviewButton";
 import { viewAsSession } from "@/lib/api/admin";
 import { useAgent, useUpdateAgent, type Agent } from "@/lib/api/agents";
+import { agentInForceSurcharge, agentLlmView, useOrganizationLlmDefaults } from "@/lib/api/llmModels";
+import { compareRates } from "@/lib/llmRates";
+import { FREE_ON_TRIAL, priceWords, useVoiceMinutePrices, type VoiceMinutePrice } from "@/lib/voiceMinutePrice";
 import type { Session } from "@/lib/api/client";
 import {
   clientCatalogueAudience,
@@ -45,7 +48,7 @@ import { StatusPill } from "@/components/console/statusPill";
 /** The two rungs, in the order a client reads them. Names only, never a vendor (D-679). */
 const RUNGS = [
   { value: "clear", label: "Clear", blurb: "Natural voices for everyday calls." },
-  { value: "studio", label: "Studio", blurb: "Our most lifelike voices, billed at the Studio rate." },
+  { value: "studio", label: "Studio", blurb: "Our most lifelike voices." },
 ] as const;
 
 /** The value a radio carries for "the platform's own default". Never a catalogue id: the
@@ -99,7 +102,8 @@ export function EngineVoiceList({
   previewSession,
   audience,
   held = null,
-  rungNote,
+  price,
+  surcharge = null,
 }: {
   catalogue: UseQueryResult<EngineCatalogue>;
   /** The agent's own voice when the list does not offer it (`useHeldVoice`), shown selected. */
@@ -113,8 +117,10 @@ export function EngineVoiceList({
   control?: SaveControl;
   /** The session the preview clips are read through: the reader's own, or view-as. */
   previewSession?: Session;
-  /** One line under a rung's heading, such as this account's rate for it. */
-  rungNote?: (rung: "clear" | "studio") => ReactNode;
+  /** What a minute on each rung costs this account (`voiceMinutePrice`); absent, no price. */
+  price?: (rung: "clear" | "studio") => VoiceMinutePrice;
+  /** The agent's AI model surcharge a minute, when it has one: said apart, never summed. */
+  surcharge?: string | null;
 }) {
   const [picked, setPicked] = useState<string | null>(null);
   const loaded = loadedState(catalogue, "voices");
@@ -181,7 +187,7 @@ export function EngineVoiceList({
                 {rung.label} voices
               </h3>
               <p className="text-meta text-ink-muted">{rung.blurb}</p>
-              {rungNote?.(rung.value)}
+              {price && <RungPrice price={price(rung.value)} surcharge={surcharge} />}
               {studioClosed && (
                 <p className="mt-2 text-body text-ink-muted">
                   {data.studio_note ?? "Studio voices are not available on this account yet."}
@@ -204,6 +210,7 @@ export function EngineVoiceList({
                         label={entry.label}
                         suffix={entry.is_custom ? "made for this platform" : undefined}
                         detail={entry.language_note}
+                        price={price ? (priceWords(price(rung.value)) ?? undefined) : undefined}
                         reason={ownOffPicker ? null : entry.offerable ? blocked : entry.reason}
                         note={
                           ownOffPicker && entry.reason
@@ -432,6 +439,7 @@ function ChoiceCard({
   disabled,
   onChange,
   extra,
+  price,
 }: {
   name: string;
   value: string | null;
@@ -439,6 +447,8 @@ function ChoiceCard({
   icon?: ReactNode;
   suffix?: string;
   detail?: string;
+  /** What a minute on this option costs, in words (`priceWords`). */
+  price?: string;
   reason?: string | null;
   note?: { text: string; stop: boolean } | null;
   checked: boolean;
@@ -462,6 +472,7 @@ function ChoiceCard({
         )}
       </span>
       {detail && <span className="mt-0.5 block text-xs text-ink-muted">{detail}</span>}
+      {price && <span className="mt-0.5 block text-xs font-medium text-ink">{price}</span>}
       {reasonText && <span className="mt-0.5 block text-xs text-ink-muted">{reasonText}</span>}
       {note && (
         <span className={`mt-1 block text-xs ${note.stop ? "text-danger" : "text-ink-muted"}`}>{note.text}</span>
@@ -603,13 +614,11 @@ export function ClientEngineVoices({
   session,
   agentId,
   onSaved,
-  rungNote,
 }: {
   session: Session;
   agentId: string;
   /** Runs after a voice is saved: the new-agent flow moves on to its next step. */
   onSaved?: () => void;
-  rungNote?: (rung: "clear" | "studio") => ReactNode;
 }) {
   const agent = useAgent(session, agentId);
   const save = useUpdateAgent(session, agentId);
@@ -617,6 +626,13 @@ export function ClientEngineVoices({
   const catalogue = useEngineCatalogue(session);
   const voiceId = agent.data?.engine_voice_id ?? null;
   const held = useHeldVoice(session, clientCatalogueAudience(session), agentId, voiceId, catalogue.data);
+  const price = useVoiceMinutePrices(session);
+  // The model's surcharge is asked for only when the server says this agent pays one
+  // (`llm_surcharged`); the amount is the plan's, from the tier read.
+  const surcharged = agent.data?.llm_surcharged === true;
+  const llm = useOrganizationLlmDefaults(session, surcharged);
+  const surcharge =
+    agent.data && surcharged && llm.data ? agentInForceSurcharge(agentLlmView(agent.data), llm.data) : null;
   return (
     <EngineVoiceList
       catalogue={catalogue}
@@ -626,7 +642,28 @@ export function ClientEngineVoices({
       control={agent.data ? saveControl(save, feedback.status, null, "engine_voice_id", onSaved) : undefined}
       previewSession={session}
       audience="client"
-      rungNote={rungNote}
+      price={price}
+      surcharge={surcharge !== null && compareRates(surcharge, "0") === "dearer" ? surcharge : null}
     />
+  );
+}
+
+/**
+ * The line under a rung's heading: its price a minute, said once for the rung, then the AI
+ * model's own charge on a line of its own when the agent pays one. Nothing while loading.
+ */
+function RungPrice({ price, surcharge }: { price: VoiceMinutePrice; surcharge: string | null }) {
+  const words = priceWords(price);
+  if (words === null) return null;
+  return (
+    <div className="mt-1 text-meta">
+      <p className="font-medium text-ink">
+        {words.charAt(0).toUpperCase() + words.slice(1)}
+        {price.kind === "from" && price.trial ? `. ${FREE_ON_TRIAL}.` : ""}
+      </p>
+      {surcharge !== null && price.kind !== "unknown" && (
+        <p className="text-ink-muted">+ {formatINR(surcharge)} a minute for the AI model</p>
+      )}
+    </div>
   );
 }

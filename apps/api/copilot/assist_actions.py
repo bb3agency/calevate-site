@@ -233,7 +233,7 @@ LEAD_FIELDS_DRAFT: Final = ActionTool(
     permission="org:manage",
     object_type="organization",
     audit_action="lead_fields.draft_requested",
-    where="on the Lead details screen, under Settings & account",
+    where="on the Lead details screen, under Account",
     schema=action_schema(
         "lead_fields_draft",
         "Draft, once, the details a custom business's agents write down about each caller, "
@@ -552,7 +552,7 @@ BUSINESS_COPY_REFRESH: Final = ActionTool(
     permission="org:manage",
     object_type="organization",
     audit_action="organization.business_copy_refresh_requested",
-    where="on the Business profile screen, under Settings & account",
+    where="on the Business profile screen, under Account",
     schema=action_schema(
         "business_copy_refresh",
         "Write this account's own examples and suggestions again from its current business "

@@ -10,7 +10,15 @@
 
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
-import { AGENT_TABS, AGENT_TABS_LABEL, type AgentTab } from "../sections/agentSections";
+import { AGENT_TABS_LABEL } from "../sections/agentSections";
+
+/**
+ * The agent page tabs the tour points at, by the ids PLAN 2026-11-28 §2 fixes for the agent
+ * home (`script`, `knowledge`, `voice`). Spelled here rather than taken from `AGENT_TABS`
+ * because the tour names each tab in its own step title, and `agentTour.test.tsx` checks
+ * every one is found on the page.
+ */
+type TourTab = "script" | "knowledge" | "voice";
 
 /**
  * `?tour=1` on the agent page opens the tour once, as if "Show me around" had been
@@ -23,7 +31,7 @@ export const TOUR_PARAM = "tour";
 export const TRY_IT_ANCHOR = "try-it";
 
 export type TourStep = {
-  id: "pip" | "try" | "teach" | "voice";
+  id: "script" | "pip" | "knowledge" | "voice" | "try";
   title: string;
   body: string;
   /** The element the step points at, or null when it is not on screen. */
@@ -35,7 +43,7 @@ export type TourStep = {
  * interior tabs kit, whose ids end in `-tab-<section id>`; scoping to the agent page's
  * own tab list keeps another tab list on the page from answering.
  */
-function agentTab(id: AgentTab) {
+function agentTab(id: TourTab) {
   return (doc: Document) =>
     doc.querySelector<HTMLElement>(
       `[role="tablist"][aria-label="${AGENT_TABS_LABEL}"] [role="tab"][id$="-tab-${id}"]`,
@@ -52,7 +60,17 @@ function pipLauncher(doc: Document) {
   return doc.querySelector<HTMLElement>(`button[aria-label="Ask ${ASSISTANT_NAME}"]`);
 }
 
+/**
+ * Its words first, because that is what an owner came to check; Try it last, because it is
+ * the next thing to do once the tour ends.
+ */
 export const TOUR_STEPS: readonly TourStep[] = [
+  {
+    id: "script",
+    title: "What it says",
+    body: "Its words for each job. Change them here.",
+    target: agentTab("script"),
+  },
   {
     id: "pip",
     title: `Ask ${ASSISTANT_NAME} to change it`,
@@ -60,22 +78,22 @@ export const TOUR_STEPS: readonly TourStep[] = [
     target: pipLauncher,
   },
   {
+    id: "knowledge",
+    title: "What it knows",
+    body: "Facts and answers callers need.",
+    target: agentTab("knowledge"),
+  },
+  {
+    id: "voice",
+    title: "Voice",
+    body: "Play the voices. Each shows its price a minute.",
+    target: agentTab("voice"),
+  },
+  {
     id: "try",
     title: "Try it before callers do",
     body: "Chat with it, or hear it on a real call.",
     target: (doc) => doc.querySelector<HTMLElement>(`[data-tour="${TRY_IT_ANCHOR}"]`),
-  },
-  {
-    id: "teach",
-    title: "Teach it facts",
-    body: `Hours and the answers callers need. Add them in ${AGENT_TABS.training}.`,
-    target: agentTab("training"),
-  },
-  {
-    id: "voice",
-    title: "Choose its voice",
-    body: `Play the voices in ${AGENT_TABS.settings} and choose one.`,
-    target: agentTab("settings"),
   },
 ];
 

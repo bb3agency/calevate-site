@@ -147,17 +147,21 @@ def test_the_parser_still_finds_the_nav() -> None:
     A regex over another language's source is a test that can silently stop finding its
     subject — a reformat, a rename, a move — and then agree with anything. So assert what a
     working parse looks like before comparing: a couple of dozen entries, every one with a
-    route and a name, and the four sidebar groups the console renders.
+    route and a name, and the sidebar groups the console renders.
     """
     entries = _parse_nav()
     assert len(entries) >= 20, f"parsed {len(entries)} nav entries; clientNav.ts has more"
     assert all(entry.name and entry.route.startswith("/c/{slug}") for entry in entries)
     assert {entry.group for entry in entries} == {
         None,
-        "Reports & reviews",
-        "Compliance & data",
-        "Settings & account",
+        "Calling",
+        "Results",
+        "Knowledge",
+        "Rules & records",
+        "Account",
     }
+    # The footer's `heading: null` must reset the group, or Pip would be filed under Account.
+    assert entries[-1].name == "Pip" and entries[-1].group is None
 
 
 # --- the inventory against the nav -------------------------------------------------------
@@ -346,17 +350,14 @@ def test_a_route_that_belongs_to_no_screen_is_not_guessed_at() -> None:
 
 
 def test_where_is_names_the_screen_and_its_group_and_nothing_else() -> None:
-    """The founder's sentence: "Credits & billing, under Settings & account in the left
+    """The founder's sentence: "Credits & billing, under Account in the left
     sidebar". A screen in the primary group has no heading to name."""
     wallet = screens_module.match_route("/c/{slug}/billing")
     assert wallet is not None
-    assert (
-        screens_module.where_is(wallet)
-        == "Credits & billing, under Settings & account in the left sidebar"
-    )
-    leads = screens_module.match_route("/c/{slug}/leads")
-    assert leads is not None
-    assert screens_module.where_is(leads) == "Leads, in the left sidebar"
+    assert screens_module.where_is(wallet) == "Credits & billing, under Account in the left sidebar"
+    attention = screens_module.match_route("/c/{slug}/attention")
+    assert attention is not None
+    assert screens_module.where_is(attention) == "Needs attention, in the left sidebar"
 
 
 # --- the viewer element -------------------------------------------------------------------
@@ -378,10 +379,7 @@ def test_the_block_names_the_screen_the_person_is_looking_at() -> None:
     because nothing joined "the address is /c/x/billing" to "this screen is called
     Credits & billing"."""
     rendered = _render(context.viewer_for(role="owner", route="/c/acme/billing"))
-    assert (
-        'looking_at="Credits &amp; billing, under Settings &amp; account in the left sidebar"'
-        in (rendered)
-    )
+    assert 'looking_at="Credits &amp; billing, under Account in the left sidebar"' in (rendered)
     assert 'role="owner"' in rendered
 
 

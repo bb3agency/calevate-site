@@ -8,8 +8,9 @@ import { ENGINE_CATALOGUE_PATH, type EngineCatalogue } from "@/lib/api/engineCat
 import { useClientSession } from "@/lib/api/session";
 import { CLIENT_PREVIEW_PATH, previewUrl } from "@/lib/api/voicePreview";
 
+import { RATE_CARD } from "./fixtures/rateCard";
 import { agentRow } from "./fixtures/sharedReads";
-import { problem, renderClientPage } from "./harness";
+import { NOT_ON_TRIAL, problem, renderClientPage } from "./harness";
 
 /*
  * The client's own picker for the voices an operator added and enabled (D-678, D-687): the
@@ -293,6 +294,72 @@ describe("the voice preview", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Play the preview of Anjali" }));
     await screen.findByText("No preview is stored for this voice yet.");
     expect(play).not.toHaveBeenCalled();
+  });
+});
+
+describe("the price of a minute on each voice (PLAN 2026-11-28 §7)", () => {
+  const LOT = {
+    lot_id: "lot-1",
+    opened_at: "2026-11-01T09:00:00Z",
+    credits_remaining: "500.0000",
+    clear_inr_per_min: "4.2500",
+    studio_inr_per_min: "6.5000",
+  };
+  const LATER_LOT = { ...LOT, lot_id: "lot-2", clear_inr_per_min: "3.9000", studio_inr_per_min: "5.9000" };
+  const groupText = async (name: string) => (await screen.findByRole("group", { name })).textContent ?? "";
+
+  it("prices each voice at the credit it will spend first, the oldest lot", async () => {
+    await renderClientPage(<Picker />, {
+      [ENGINE_CATALOGUE_PATH]: CATALOGUE,
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT }),
+      "/v1/billing/wallet/lots": { lots: [LOT, LATER_LOT], tiers: [], overdraft_inr: "0.0000" },
+    });
+    await waitFor(async () => expect(await groupText("Clear voices")).toContain("₹4.3 a minute"));
+    expect(await groupText("Studio voices")).toContain("₹6.5 a minute");
+    expect(within(screen.getByRole("group", { name: "Clear voices" })).getAllByText("₹4.3 a minute").length).toBeGreaterThan(1);
+  });
+
+  it("with no credit, quotes the cheapest pack and says a trial is free", async () => {
+    await renderClientPage(<Picker />, {
+      [ENGINE_CATALOGUE_PATH]: CATALOGUE,
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT }),
+      "/v1/billing/topups/packs": { ...RATE_CARD, packs: [{ pack_id: "p1" }] },
+      "/v1/trial": { ...NOT_ON_TRIAL, on_trial: true },
+    });
+    await waitFor(async () =>
+      expect(await groupText("Clear voices")).toContain("From ₹4 a minute. Free during your trial."),
+    );
+    expect(await groupText("Studio voices")).toContain("from ₹5.5 a minute");
+  });
+
+  it("says when a price will show, and never a number, when nothing can be read", async () => {
+    await renderClientPage(<Picker />, {
+      [ENGINE_CATALOGUE_PATH]: CATALOGUE,
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT }),
+    });
+    await waitFor(async () => expect(await groupText("Clear voices")).toContain("Price shown when you add credit"));
+    expect(await groupText("Clear voices")).not.toMatch(/₹/);
+  });
+
+  it("says the AI model's charge apart, never added into the voice's", async () => {
+    await renderClientPage(<Picker />, {
+      [ENGINE_CATALOGUE_PATH]: CATALOGUE,
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT, llm_surcharged: true }),
+      "/v1/billing/wallet/lots": { lots: [LOT], tiers: [], overdraft_inr: "0.0000" },
+      "/v1/organization/llm-defaults": { upgrade_surcharge_inr_per_minute: "1.5000", options: [] },
+    });
+    await waitFor(async () => expect(await groupText("Clear voices")).toContain("+ ₹1.5 a minute for the AI model"));
+    expect(await groupText("Clear voices")).toContain("₹4.3 a minute");
+  });
+
+  it("names no provider", async () => {
+    const { container } = await renderClientPage(<Picker />, {
+      [ENGINE_CATALOGUE_PATH]: CATALOGUE,
+      [`GET ${AGENT_PATH}`]: agentRow({ id: AGENT }),
+      "/v1/billing/wallet/lots": { lots: [LOT], tiers: [], overdraft_inr: "0.0000" },
+    });
+    await screen.findByRole("group", { name: "Studio voices" });
+    expect(container.textContent).not.toMatch(/sarvam|cartesia|thinnest|elevenlabs/i);
   });
 });
 

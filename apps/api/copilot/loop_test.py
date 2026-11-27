@@ -608,7 +608,7 @@ async def test_the_fallback_leg_is_told_it_cannot_open_a_screen(
         leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any
     ) -> chat.ChatOutcome:
         sent_messages.append([dict(message) for message in messages])
-        return chat.ChatOutcome(content="Credits & billing is under Settings & account.")
+        return chat.ChatOutcome(content="Credits & billing is under Account.")
 
     monkeypatch.setattr(chat, "stream", _failing_stream(httpx.ConnectError("azure is down")))
     monkeypatch.setattr(chat, "complete", _complete)

@@ -101,9 +101,11 @@ async function fillNumberForm(phone = "9876543210", reason = "Confirm Saturday's
 }
 
 describe("the sidebar", () => {
-  it("names the screen Make a call, beside Campaigns", () => {
-    const items = clientNavigation("acme")[0].items.map((item) => item.label);
-    expect(items.indexOf("Make a call")).toBe(items.indexOf("Campaigns") - 1);
+  it("names the screen Make a call, in Calling with Campaigns", () => {
+    const calling = clientNavigation("acme").find((group) => group.heading === "Calling");
+    const items = calling?.items.map((item) => item.label) ?? [];
+    expect(items).toContain("Make a call");
+    expect(items).toContain("Campaigns");
   });
 });
 

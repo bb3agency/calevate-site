@@ -366,7 +366,7 @@ export interface CopilotNavigation {
   screen: string;
   /** The route TEMPLATE, `{slug}` unsubstituted. Acted on, never rendered. */
   route: string;
-  /** "Credits & billing, under Settings & account in the left sidebar". */
+  /** "Credits & billing, under Account in the left sidebar". */
   where: string;
   /** "Opening …" — never "Opened", because this browser decides when. */
   detail: string;
