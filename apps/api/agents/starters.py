@@ -388,14 +388,6 @@ _CALLING_PURPOSE: Final = (
     "whether it can help."
 )
 
-#: The outbound starter's one per-call value, in its LAST section. The engine caches the
-#: prompt up to the first value it fills per call (VENDOR-STATED, ThinnestAI email of 18 Oct
-#: 2026), so a `{{lead_name}}` in the second step left every stage, objection and
-#: policy after it outside the cache (D-816).
-_CALL_LEADS_ENDING: Final = (
-    f"{_ENDING}\nThe person you are calling, if you have their name: {{{{lead_name}}}}"
-)
-
 
 def _planned_steps(job: StarterJob, trade: Trade, fit: BusinessFit) -> tuple[StarterStep, ...]:
     """The starter's steps from its job's plan (D-856, `trade_playbooks`)."""
@@ -487,7 +479,7 @@ def _call_leads(vertical: str, trade: Trade, fit: BusinessFit) -> Starter:
         outbound_purpose=_CALLING_PURPOSE,
         steps=_planned_steps("call_leads", trade, fit),
         objections=playbook_for("call_leads", trade, fit).objections,
-        ending=_CALL_LEADS_ENDING,
+        ending=_ENDING,
     )
 
 
@@ -511,7 +503,7 @@ def _call_new_leads(vertical: str, trade: Trade, fit: BusinessFit) -> Starter:
         outbound_purpose=_CALLING_PURPOSE,
         steps=_planned_steps("call_new_leads", trade, fit),
         objections=playbook_for("call_new_leads", trade, fit).objections,
-        ending=_CALL_LEADS_ENDING,
+        ending=_ENDING,
     )
 
 
