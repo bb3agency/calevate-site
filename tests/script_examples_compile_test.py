@@ -130,13 +130,14 @@ def _block(body: str) -> str:
 # --- the step blocks ------------------------------------------------------------------------
 
 
-def test_each_step_carries_intent_actions_and_tagged_examples() -> None:
+def test_each_step_carries_its_tagged_examples_under_its_name() -> None:
     body = compile_call_script(_script())
     block = _block(body)
-    assert block.startswith(f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}")
-    assert "Install: Help them put the app on their home screen." in block
-    assert "1. Ask them to open Chrome on their phone. Done when: the browser is open." in block
-    assert block.count(STEP_EXAMPLES_LEAD) == 2
+    assert block.startswith(f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}\n{STEP_EXAMPLES_LEAD}")
+    # The intent and the actions are in the step itself, which had room for them.
+    assert "\n\nInstall:\n" in block
+    assert "Help them put the app" not in block and "Ask them to open Chrome" not in block
+    assert block.count(STEP_EXAMPLES_LEAD) == 1
     for n in ("one", "two", "three", "four"):
         assert f'Telugu: "{ph(f"Install turn {n}, one action")}"' in block
     assert f'Telugu, if confused: "{ph("Install again, shorter")}"' in block
