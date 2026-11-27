@@ -8,6 +8,7 @@ import { TEXT_ACTION } from "@/components/console/section";
 import { FIELD, ProblemNotice, formatPhone } from "@/components/ui";
 import { useMyCallLines, type MyCallLines } from "@/lib/api/callLines";
 import { useUpdateCampaign, type CampaignProgress } from "@/lib/api/campaigns";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -119,6 +120,7 @@ function skipChoices(current: number | null | undefined): number[] {
 function SkipRecent({ campaignId, progress }: { campaignId: string; progress: CampaignProgress }) {
   const { session } = useClientRealm();
   const update = useUpdateCampaign(session, campaignId);
+  useActionFeedback(update, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "leads:dispatch", "change this campaign");
   const days = progress.skip_recent_days ?? null;
   const waiting = progress.recently_called_waiting;

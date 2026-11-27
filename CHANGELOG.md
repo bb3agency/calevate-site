@@ -3,6 +3,28 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.6.0 — 28-Nov-2026
+
+- One person is called at most 3 times in 24 hours, by every kind of call your agents place
+  (a test call to your own number does not count). When the limit is reached you see when they
+  can be called again.
+- Campaigns skip people another campaign or new-lead call reached in the last 7 days (change it
+  under How it calls; off is an option). Its own retries never count.
+- Hear your agent's first words on the page, with no call and no minutes (Studio voices).
+- The agreements are one tick, with each document a tap away; the pledge and "this number is
+  my own" stay separate.
+- Signing up warns when a web address is taken and offers a free one.
+- Questions after "About your business" move on when you tap an answer.
+- Changing the agent's language rewrites its script in the new language, unless you edited it.
+- Inbound lines show today's answered, missed and want-a-call-back counts, and a "Call them back"
+  list with a call-back button for each person still waiting. New lines call back missed
+  callers by default.
+- The call log says how long recordings and transcripts are kept.
+- Pricing shows a worked month (3,000 minutes and a number), minutes per pack, and how
+  30-second billing works.
+- "Calls at once" says your account's limit and how to get more lines.
+- Simulated calls built from real calls now run before changes to how agents speak.
+
 ## 0.5.99 — 28-Nov-2026
 
 - New look, "Khata ledger": a paper-cream page with navy ink, navy main buttons, green only for
