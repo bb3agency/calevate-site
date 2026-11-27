@@ -1,36 +1,36 @@
 "use client";
 
 /**
- * ONE AGENT'S WORKSPACE — four plain tabs (D-997, founder 16 Nov 2026; seven under D-825, a
- * twelve-section menu under D-657).
+ * ONE AGENT'S HOME — six tabs (redesign 28 Nov 2026, PLAN.md §2; four under D-997, seven
+ * under D-825, a twelve-section menu under D-657).
  *
- * A slim header (name, the On/Off switch, Try it, and Put it live while a draft is
- * waiting), then Overview · Actions · Settings · Training (`sections/agentSections.tsx`).
- * Each tab is complete on its own and is visited rather than read in order, which is the
- * case UX-DOCTRINE §3 allows tabs for.
+ * A slim header (name, the On/Off switch, Try it, Put it live while a draft is waiting, and
+ * "Calls (n)"), then What it says · What it knows · Actions · What it notes · Voice ·
+ * Settings (`sections/agentSections.tsx`). Each tab is complete on its own and is visited
+ * rather than read in order, which is the case UX-DOCTRINE §3 allows tabs for.
  *
- * The agent is the staff member and has no script of its own: scripts are written on an
- * inbound line or a campaign, and Overview links to both. The script builder is no longer
- * on this page; `/script` and `?section=script` open Overview.
+ * The agent is the staff member and has no script of its own (D-997): scripts are written on
+ * an inbound line or a campaign. What it says lists those jobs with their first words and a
+ * link to each, so an agent's words are found from the agent without being stored on it.
  *
- * ## What may not move out of Overview
+ * ## What may not move out of What it says
  *
- * The truthful-answer guarantee, the two opening-notice switches under it, and the
- * publish state. Overview is the tab that opens first, so none of them is ever behind a
- * switch (doctrine §8 rule 7). The header carries the publish state on every tab.
+ * The truthful-answer guarantee and the two opening notices under it. What it says is the
+ * tab that opens first, so neither is ever behind a switch (doctrine §8 rule 7, hard rule 5).
+ * The header carries the publish state on every tab.
  *
  * ## Where everything went
  *
- * Calls are Overview's latest calls; the voice, what it notes, call handling, the model and
- * the link to the business-wide leads and calling hours are in Settings; knowledge, the old
- * Test section and the try-it chat are Training. `/script` and `/test` redirect here, and
- * old `?section=` values resolve through `LEGACY_SECTIONS`.
+ * Overview's checklist, notices and pending changes are What it says; its latest calls are
+ * the header's "Calls (n)". Training is What it knows. What it notes and Voice were sections
+ * of Settings. `/script` and `/test` redirect here, and old `?section=` values resolve
+ * through `LEGACY_SECTIONS`.
  *
  * ## A deleted agent is a different screen
  *
  * Read-only, with one move: bring it back. The history is the reason the server archives
- * rather than erases, so what it captured, what it was and its model stay on the page as
- * a record; every control that would write is gone.
+ * rather than erases, so what it was and its model stay on the page as a record; every
+ * control that would write is gone.
  */
 
 import dynamic from "next/dynamic";
@@ -46,37 +46,43 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 import { AgentHeader } from "./sections/agentHeader";
-import { AGENT_TABS_LABEL, LEGACY_SECTIONS, useAgentSections } from "./sections/agentSections";
-import { Overview } from "./sections/overview";
+import { AGENT_TABS_LABEL, LEGACY_SECTIONS, useAgentSections, type AgentTab } from "./sections/agentSections";
+import { WhatItSays } from "./sections/whatItSays";
 import { AgentTour } from "./tour/AgentTour";
 
 /*
- * Only the open tab's code is in the page's first load. Overview opens first and carries the
- * truthful-answer guarantee, so it stays static; the other three tabs and the deleted-agent
- * body are their own chunks. Bundled together they made this page about 450 KB of
- * JavaScript, most of it tabs nobody had opened, which is seconds on a slow phone network.
+ * Only the open tab's code is in the page's first load. What it says opens first and carries
+ * the truthful-answer guarantee, so it stays static; the other five tabs and the
+ * deleted-agent body are their own chunks. Bundled together they made this page about 450 KB
+ * of JavaScript, most of it tabs nobody had opened, which is seconds on a slow phone network.
  *
  * Server rendering is unchanged (`next/dynamic` keeps `ssr`), and the chunks are fetched
  * once the page is idle so a tab tap rarely waits on the network.
  */
-const loadTraining = () => import("./sections/training");
-const loadSettings = () => import("./sections/settingsTab");
+const loadKnowledge = () => import("./sections/training");
 const loadActions = () => import("../actions/Actions");
+const loadNotes = () => import("./sections/notesTab");
+const loadVoice = () => import("./sections/voiceTab");
+const loadSettings = () => import("./sections/settingsTab");
 const loadDeleted = () => import("./sections/deletedAgent");
 
 const tabLoading = () => <Skeleton rows={6} />;
-const TrainingTab = dynamic(() => loadTraining().then((m) => m.TrainingTab), { loading: tabLoading });
-const SettingsTab = dynamic(() => loadSettings().then((m) => m.SettingsTab), { loading: tabLoading });
+const TrainingTab = dynamic(() => loadKnowledge().then((m) => m.TrainingTab), { loading: tabLoading });
 const Actions = dynamic(() => loadActions().then((m) => m.Actions), { loading: tabLoading });
+const NotesTab = dynamic(() => loadNotes().then((m) => m.NotesTab), { loading: tabLoading });
+const VoiceTab = dynamic(() => loadVoice().then((m) => m.VoiceTab), { loading: tabLoading });
+const SettingsTab = dynamic(() => loadSettings().then((m) => m.SettingsTab), { loading: tabLoading });
 const DeletedAgentBody = dynamic(() => loadDeleted().then((m) => m.DeletedAgentBody), { loading: tabLoading });
 
 /** Warms the other tabs' chunks once the browser is idle, after the open tab has drawn. */
 function usePrefetchTabs(): void {
   useEffect(() => {
     const warm = () => {
-      void loadTraining();
-      void loadSettings();
+      void loadKnowledge();
       void loadActions();
+      void loadNotes();
+      void loadVoice();
+      void loadSettings();
     };
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(warm, { timeout: 4000 });
@@ -172,15 +178,19 @@ function LiveAgent({ agent, slug }: { agent: Agent; slug: string }) {
         sections={sections}
         aliases={LEGACY_SECTIONS}
         renderSection={(id) => {
-          switch (id) {
-            case "training":
+          switch (id as AgentTab) {
+            case "knowledge":
               return <TrainingTab agent={agent} slug={slug} />;
             case "actions":
               return <ActionsTab agentId={agent.id} />;
+            case "notes":
+              return <NotesTab agent={agent} slug={slug} />;
+            case "voice":
+              return <VoiceTab agent={agent} slug={slug} />;
             case "settings":
               return <SettingsTab agent={agent} slug={slug} />;
             default:
-              return <Overview agent={agent} slug={slug} />;
+              return <WhatItSays agent={agent} slug={slug} />;
           }
         }}
       />

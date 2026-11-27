@@ -3,8 +3,8 @@
 One read with a `part` rather than five tools, so the cached prefix grows by one schema.
 Each part reads what its screen reads, through the same services:
 
-* `settings` — the Settings tab: how it sounds, how it handles a call, the longest call, the
-  AI model and caller memory, each with the value in force.
+* `settings` — the Voice and Settings tabs: how it sounds, how it handles a call, the longest
+  call, the AI model and caller memory, each with the value in force.
 * `script` — the agent's own script, read only (no screen shows or edits it since D-1005):
   the whole of it (the autosaved working copy when there is one, else the saved version),
   whether callers hear it, the versions, and the Inbound lines and campaigns where what
@@ -14,7 +14,7 @@ Each part reads what its screen reads, through the same services:
   Never a phone number: they are staff mobiles (hard rule 6), and Pip names people.
 * `actions` — the Actions tab: the master switch, each action, and the connections made.
 * `lead_fields` — what it writes down, the suggestions waiting, and the account's draft.
-* `tests` and `mistakes` — the Training tab's latest practice test run and the mistakes
+* `tests` and `mistakes` — the What it knows tab's latest practice test run and the mistakes
   found on real calls, which Pip had no read for before.
 """
 
@@ -85,9 +85,9 @@ _TEST_FIXED_BY: Final[dict[str, str]] = {
     "platform": "Calevate, not the owner",
     "test": "the test itself is wrong",
 }
-#: The Training tab's words for a practice test verdict.
+#: The What it knows tab's words for a practice test verdict.
 _VERDICTS: Final[dict[str, str]] = {"needs_fix": "needs a fix", "failed": "failed"}
-#: The Training tab's words for a call-mistake state (`lib/api/callMistakes.ts`
+#: The What it knows tab's words for a call-mistake state (`lib/api/callMistakes.ts`
 #: `clientStateLine`). Each kind is a rule Calevate fixes, never the owner. Keyed by every
 #: `call_mistakes.AgentState`; the `script_live` .. `script_undone` words are fixes made in
 #: the agent's own script before D-1005.
@@ -422,7 +422,7 @@ async def _script_part(session: AsyncSession, agent_id: UUID) -> list[str]:
 
 
 async def _tests_part(session: AsyncSession, agent_id: UUID) -> list[str]:
-    """The Training tab's latest practice test run (`test_conversations.latest_run`)."""
+    """The What it knows tab's latest practice test run (`test_conversations.latest_run`)."""
     run = await test_conversations.latest_run(session, agent_id)
     if run is None:
         return ["No practice tests have run for this agent yet (`agent_tests_run`)."]
@@ -451,7 +451,7 @@ async def _tests_part(session: AsyncSession, agent_id: UUID) -> list[str]:
 
 
 async def _mistakes_part(session: AsyncSession, agent_id: UUID) -> list[str]:
-    """The Training tab's call mistakes (`call_mistakes.agent_mistakes`), last 30 days."""
+    """The What it knows tab's call mistakes (`call_mistakes.agent_mistakes`), last 30 days."""
     mistakes = await call_mistakes.agent_mistakes(session, agent_id)
     if not mistakes:
         return [

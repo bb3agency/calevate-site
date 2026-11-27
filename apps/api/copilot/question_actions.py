@@ -7,7 +7,7 @@ Each calls the function the page's own button calls:
 * `knowledge_fact_change` — confirm, `kb:write`: `teach/facts.update_fact` / `remove_fact`
   and `teach/pinned.reorder`.
 * `agent_tests_run` — confirm, `org:manage`: `agents/test_conversations.request_run` after
-  `require_ai_assist`, as the Training tab's Run button.
+  `require_ai_assist`, as the What it knows tab's Run button.
 * `agent_test_add` — immediate with Undo, `agents:write`: `teach/test_cases.create_case`.
 
 Answering a question and changing a fact are `confirm`: what they change is said to callers
@@ -372,7 +372,7 @@ async def _plan_run(session: AsyncSession, actor: ToolActor, args: Mapping[str, 
             else "A new set: your saved tests and what real callers asked."
         ),
         current=None,
-        proposed="Results on the agent's Training tab in a few minutes.",
+        proposed="Results on the agent's What it knows tab in a few minutes.",
         cost="Uses your account's AI help allowance.",
         reversal="Nothing about the agent changes; a test only reads its answers.",
         args={
@@ -398,7 +398,7 @@ async def _execute_run(
     )
     return Executed(
         applied=True,
-        detail="The tests are running. Results appear on the agent's Training tab.",
+        detail="The tests are running. Results appear on the agent's What it knows tab.",
         audit_summary={
             "run_id": str(run.id),
             "retest": retest_of is not None,
@@ -411,11 +411,11 @@ AGENT_TESTS_RUN: Final = ActionTool(
     name="agent_tests_run",
     tier="confirm",
     undo=None,
-    # `POST /v1/agents/{id}/script/tests`'s permission (the Training tab's Run button).
+    # `POST /v1/agents/{id}/script/tests`'s permission (the What it knows tab's Run button).
     permission="org:manage",
     object_type="agent",
     audit_action="agent.tests_requested",
-    where="on the agent's Training tab",
+    where="on the agent's What it knows tab",
     schema=action_schema(
         "agent_tests_run",
         "Run an agent's practice tests; again true repeats the last set to compare."
@@ -449,7 +449,7 @@ async def _plan_add(session: AsyncSession, actor: ToolActor, args: Mapping[str, 
     if await test_cases.saved_count(session, parsed.agent_id) >= test_cases.MAX_CASES_PER_AGENT:
         raise WriteRefusedError(
             f"this agent already keeps {test_cases.MAX_CASES_PER_AGENT} saved tests, so one "
-            "must be deleted on its Training tab first"
+            "must be deleted on its What it knows tab first"
         )
     lines = [
         _owner_words(line, limit=MAX_CASE_LINE_CHARS, what="caller_lines")
@@ -464,7 +464,7 @@ async def _plan_add(session: AsyncSession, actor: ToolActor, args: Mapping[str, 
         current=None,
         proposed=expected,
         cost=None,
-        reversal="Undo deletes it; you can also delete it on the Training tab.",
+        reversal="Undo deletes it; you can also delete it on the What it knows tab.",
         args={
             "agent_id": str(parsed.agent_id),
             "caller_lines": lines,
@@ -491,7 +491,7 @@ async def _execute_add(
     )
     return Executed(
         applied=True,
-        detail="Saved with this agent's tests on its Training tab.",
+        detail="Saved with this agent's tests on its What it knows tab.",
         audit_summary={"agent_id": str(parsed.agent_id), "case_id": str(case.id)},
         object_id=str(case.id),
     )
@@ -539,7 +539,7 @@ AGENT_TEST_ADD: Final = ActionTool(
     permission="agents:write",
     object_type="agent_test_case",
     audit_action="agent_test_case.create",
-    where="on the agent's Training tab",
+    where="on the agent's What it knows tab",
     schema=action_schema(
         "agent_test_add",
         "Save a hand-written practice test: caller lines and what the agent should do. "

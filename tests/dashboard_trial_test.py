@@ -54,7 +54,7 @@ async def test_a_trial_with_no_test_line_says_why_and_what_to_do_instead(
     assert (panel["can_call"], panel["blocked_rule"]) == (False, trial_calls.NOT_READY_RULE)
     assert panel["blocked_reason"] == trial_calls.NOT_READY_REASON
     assert "later" not in panel["blocked_reason"]
-    assert "Training tab" in panel["blocked_reason"]
+    assert "What it knows tab" in panel["blocked_reason"]
 
 
 async def test_an_account_not_on_a_trial_says_so_on_the_dashboard() -> None:

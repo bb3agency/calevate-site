@@ -100,7 +100,7 @@ function Finish({ slug, agent, voice }: { slug: string; agent: CreatedAgent; voi
           Go to the agent
         </Link>
         {voice === "skipped" ? (
-          <Link href={href(`/c/${slug}/agents/${agent.id}?section=settings`)} className={TEXT_ACTION}>
+          <Link href={href(`/c/${slug}/agents/${agent.id}?section=voice`)} className={TEXT_ACTION}>
             Choose a voice
           </Link>
         ) : null}

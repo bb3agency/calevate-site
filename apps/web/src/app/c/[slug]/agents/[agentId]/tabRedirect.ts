@@ -1,10 +1,11 @@
 import { redirect } from "next/navigation";
 
 /**
- * An agent address that used to be its own page (D-748's `/test`, which is now in Training,
- * and `/script`, which opens Overview since D-997): answered with a redirect, the way the retired billing routes
- * are (`lib/billingRedirect.ts`), with every other query parameter (an operator's `view_as`)
- * carried and `section` set.
+ * An agent address that used to be its own page (D-748's `/test`, testing is in What it knows,
+ * and `/script`, whose words are on What it says): answered with a redirect, the way the
+ * retired billing routes are (`lib/billingRedirect.ts`), with every other query parameter (an
+ * operator's `view_as`) carried and `section` set. The section the caller names may be an old
+ * one; `LEGACY_SECTIONS` resolves it on the page.
  */
 export async function redirectToAgentTab(
   params: Promise<{ slug: string; agentId: string }>,

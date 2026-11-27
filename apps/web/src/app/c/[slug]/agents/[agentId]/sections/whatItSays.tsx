@@ -1,19 +1,23 @@
 "use client";
 
 /**
- * OVERVIEW — how ready this agent is (the readiness score and what would raise it, first at
- * every width, D-873), what is left before its first call, anything waiting to go live, the
- * opening notices, and its latest calls (the old Calls entry, D-825).
+ * WHAT IT SAYS — the tab that opens first (redesign 28 Nov 2026, PLAN.md §2).
  *
- * The notices are HERE and nowhere else: this is the tab that opens first, so the
- * truthful-answer guarantee and the two switches under it are never behind a tab switch
- * (doctrine §8 rule 7). On a phone the checklist folds to its "N of M done" summary so the
- * notices stay near the top. Hearing the agent for yourself is in Training.
+ * In this order:
  *
- * The agent has no script of its own (D-997), so the checklist asks for none and Overview
- * opens on one line saying where scripts are written now, which is also where an old
- * `?section=script` link lands. Its first step is giving it work instead: an Inbound line
- * or a campaign that speaks in its voice (founder, 16 Nov 2026).
+ * 1. Changes waiting to go live, when there are any: the one thing on the page that is
+ *    already different from what callers hear.
+ * 2. What every call keeps to: the truthful-answer guarantee and where the two opening
+ *    notices stand. They are HERE because this tab opens first, so neither is ever behind a
+ *    tab switch (doctrine §8 rule 7, hard rule 5). The notices are the account's switches
+ *    (D-1021), so this shows them and links to the one place they are changed.
+ * 3. Its jobs: one row per campaign and Inbound line in its voice, with the first thing it
+ *    says there and a link to where those words are changed. The agent has no script of its
+ *    own (D-997); the words live on the job, and this is how they are found from the agent.
+ * 4. What is left before its first call, then the readiness score and the caller-screen
+ *    suggestion, which say how to make it better once it works.
+ *
+ * Its latest calls left this tab for the header's "Calls (n)" link.
  */
 
 import Link from "next/link";
@@ -30,18 +34,18 @@ import { useAgreementsReadiness, type LegalReadiness } from "@/lib/api/agreement
 import { usePendingChanges, type PendingState } from "@/lib/api/publishing";
 import { useTrialPanel } from "@/lib/api/trialCalls";
 import { activeTrial, trialEndsAt, useWallet, walletState, type Wallet } from "@/lib/api/wallet";
-import { useCalls, useWriteAccess } from "@/lib/api/hooks";
+import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 
-import { LatestCalls } from "../../../LatestCalls";
 import { LifecycleError, MOVE_COPY } from "../../AgentLifecycle";
 import { AgentReadinessPanel } from "../../AgentReadiness";
 import { CallerHelpSuggestion } from "../../panels/callerScreen";
 import { OpeningNotices } from "../../panels/openingNotices";
 import { PendingBanner } from "../../panels/publishing";
+import { AgentJobsList } from "./agentJobsList";
 
 const PHONE = "(max-width: 639px)";
 
@@ -53,7 +57,7 @@ function useIsPhone(): boolean {
   return useMediaQuery(PHONE);
 }
 
-export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
+export function WhatItSays({ agent, slug }: { agent: Agent; slug: string }) {
   const session = useClientSession();
   const pending = usePendingChanges(session, agent.id);
   // Switching on is a publish, and publish refuses an account with unaccepted agreements
@@ -66,13 +70,9 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
   // the switch gets it ready (`/prepare`), and calls are placed from the dashboard.
   const trial = useTrialPanel(session, agent.status !== "live");
   const onTrial = trial.data?.on_trial === true;
-  const { href } = useClientRealm();
-  // ITS LAST CALLS (founder, REDESIGN-2): what this agent has actually been doing, the
-  // first thing an owner checks after "is it live".
-  const recent = useCalls(session, { agent_id: agent.id, limit: 5 });
 
-  // OVERVIEW, DECLARED TO THE ASSISTANT. It is the section that opens first, so this is
-  // what the assistant sees on an agent unless another section is open.
+  // The tab that opens first, so this is what the assistant sees on an agent unless another
+  // tab is open.
   useCopilotSurface({
     route: "/c/{slug}/agents/{id}",
     title: `Agent: ${agent.name}`,
@@ -102,15 +102,24 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
         label: "Changes waiting to go live",
         value: pending.data ? (pending.data.has_pending ? "yes" : "none") : pending.error ? "could not be read" : "still loading",
       },
+      {
+        key: "what_is_here",
+        label: "What this tab holds",
+        value:
+          "what every call keeps to (the truthful answers and the opening notices), each Inbound line and campaign in its voice with the first thing it says there and a link to change its words, what is left before its first call, and its readiness score",
+      },
     ],
     apply: noFill,
   });
 
   return (
     <div className="space-y-10">
-      <ScriptsMoved slug={slug} />
-      <AgentReadinessPanel agentId={agent.id} slug={slug} />
-      <CallerHelpSuggestion agent={agent} />
+      {pending.error && (
+        <ProblemNotice error={pending.error} onRetry={() => void pending.refetch()} />
+      )}
+      {pending.data && <PendingBanner state={pending.data} />}
+      <OpeningNotices agent={agent} />
+      <AgentJobsList agent={agent} slug={slug} />
       <SetupChecklist
         agent={agent}
         slug={slug}
@@ -119,35 +128,8 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
         wallet={wallet}
         onTrial={onTrial}
       />
-      {pending.error && (
-        <ProblemNotice error={pending.error} onRetry={() => void pending.refetch()} />
-      )}
-      {pending.data && <PendingBanner state={pending.data} />}
-      <OpeningNotices agent={agent} />
-      <LatestCalls
-        recent={recent}
-        allHref={href(`/c/${slug}/calls?agent_id=${agent.id}`)}
-        callHref={(id) => href(`/c/${slug}/calls/${id}`)}
-        headingLevel={3}
-      />
-    </div>
-  );
-}
-
-/** Where this agent's words are written now (D-997): a line and a button to each place. */
-function ScriptsMoved({ slug }: { slug: string }) {
-  const { href } = useClientRealm();
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-      <p className="text-body text-ink-muted">Scripts now live in Inbound and Campaigns.</p>
-      <div className="flex flex-wrap gap-2">
-        <Link href={href(`/c/${slug}/inbound`)} className={SECONDARY_BUTTON_SM}>
-          Open Inbound
-        </Link>
-        <Link href={href(`/c/${slug}/campaigns`)} className={SECONDARY_BUTTON_SM}>
-          Open Campaigns
-        </Link>
-      </div>
+      <AgentReadinessPanel agentId={agent.id} slug={slug} />
+      <CallerHelpSuggestion agent={agent} />
     </div>
   );
 }
@@ -251,7 +233,7 @@ function SetupChecklist({
       id: "voice",
       label: "Choose a voice",
       state: chosen ? "done" : "todo",
-      link: chosen ? undefined : { href: href(`${base}?section=settings`), label: "Choose" },
+      link: chosen ? undefined : { href: href(`${base}?section=voice`), label: "Choose" },
     });
   } else if (pending.isError) {
     items.push(unknown("voice", "Choose a voice", pending));

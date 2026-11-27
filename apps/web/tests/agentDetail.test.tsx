@@ -375,6 +375,11 @@ const GUIDE_UPLOAD = {
 };
 
 /** What the Training tab reads besides the screen's own: the knowledge, tests and wallet. */
+/** What it notes' reads for an agent with no job and only the shared outcomes. */
+const NOTES_READS = {
+  "/v1/call-outcomes": { max_outcomes: 8, agents: [] },
+};
+
 const TRAINING_READS = {
   "/v1/kb/uploads": [GUIDE_UPLOAD],
   "/v1/kb/knows": {
@@ -419,10 +424,11 @@ function factValue(label: string): string {
 }
 
 /** The Voice section of the Settings tab. */
+/** The Voice tab's panel: the tab's label is its only heading. */
 function voiceSection(): HTMLElement {
-  const section = screen.getByRole("heading", { name: "Voice" }).closest("section");
-  expect(section, "no Voice section").toBeTruthy();
-  return section as HTMLElement;
+  const tab = screen.getByRole("tab", { name: "Voice" });
+  expect(tab.getAttribute("aria-selected"), "the Voice tab is not open").toBe("true");
+  return screen.getByRole("tabpanel");
 }
 
 describe("which script callers are actually hearing", () => {
@@ -552,7 +558,9 @@ describe("which voice callers are actually hearing", () => {
       }),
     );
 
-    await screen.findByText("Voice quality and rate");
+    // The first test to open the Voice tab pays for its lazy chunk's first import, which on
+    // a loaded machine runs past the default one second.
+    await screen.findByText("Voice quality and rate", undefined, { timeout: 5000 });
     // The server's own digits, prefixed and never parsed (hard rule 7).
     expect(factValue("Voice quality and rate")).toBe("Studio — ₹8 / min");
     // The rate is on screen; how it is struck is one tap away, behind the ⓘ.
@@ -1037,7 +1045,7 @@ describe("the two opening notices, as the account sets them (D-163, D-1021)", ()
 
     it("does not ask about an agent judged to need neither", async () => {
       const { container } = await renderClientPage(page, routes());
-      await screen.findByText(/Latest calls|No calls yet/i);
+      await screen.findByRole("heading", { name: "How ready it is" });
       expect(container.textContent).not.toContain("follow along on their phone?");
     });
 
@@ -1094,23 +1102,34 @@ describe("the two opening notices, as the account sets them (D-163, D-1021)", ()
     const panel = await waitFor(() => card("What it says at the start of every call"));
     expect(panel.textContent).toContain("Says it is an AI: on.");
     expect(panel.textContent).toContain("Says the call is recorded: off.");
+    // The guarantee is the server's own words, above the two states (hard rule 5).
+    const promise = within(panel).getByText(
+      "Whatever these settings say, the agent always answers honestly when a caller asks.",
+    );
+    expect(
+      promise.compareDocumentPosition(within(panel).getByText(/Says it is an AI/)) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(within(panel).queryAllByRole("switch")).toHaveLength(0);
     const change = within(panel).getByRole("link", { name: "Change for all calls" });
     expect(change.getAttribute("href")).toContain("/settings/call-notices");
   });
 });
 
-describe("the readiness card on Overview (D-873)", () => {
-  it("comes first, with the score's breakdown and the notice details folded", async () => {
+describe("the order of What it says (redesign 28 Nov 2026)", () => {
+  it("puts the notices first, then its jobs, the checklist and the readiness score", async () => {
     await renderClientPage(page, routes());
 
-    const readiness = await screen.findByRole("heading", { name: "How ready it is" });
+    // The truthful-answer guarantee and the notices open the first tab (hard rule 5).
     const notices = await screen.findByRole("heading", {
       name: "What it says at the start of every call",
     });
+    const jobs = await screen.findByRole("heading", { name: "Its jobs" });
     const checklist = await screen.findByText(/Before its first call|Still to set up|Ready for calls/);
-    for (const later of [notices, checklist]) {
-      expect(readiness.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const readiness = await screen.findByRole("heading", { name: "How ready it is" });
+    const order = [notices, jobs, checklist, readiness];
+    for (let i = 1; i < order.length; i += 1) {
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
     await screen.findByText("Give it a job: an Inbound line or a campaign.");
     expect(screen.getByText("How the score is made").closest("details")?.open).toBe(false);
@@ -1920,7 +1939,7 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
 
   it("counts what it knows exactly as the Knowledge page does (audit W2)", async () => {
     const first = await renderClientPage(page, routes(TRAINING_READS));
-    const heading = await screen.findByRole("heading", { level: 3, name: "What it knows" });
+    const heading = await screen.findByRole("heading", { level: 3, name: "Facts and answers" });
     const panel = heading.closest("details") as HTMLElement;
     await waitFor(() => expect(panel.querySelector("summary")?.textContent).toMatch(/\d+ things?/));
     const training = panel.querySelector("summary")?.textContent?.match(/(\d+) things?/)?.[1];
@@ -1939,7 +1958,7 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
   it("lists the business's facts read-only, pinned first, and links to where they are changed", async () => {
     await renderClientPage(page, routes(TRAINING_READS));
 
-    const heading = await screen.findByRole("heading", { level: 3, name: "What it knows" });
+    const heading = await screen.findByRole("heading", { level: 3, name: "Facts and answers" });
     const panel = heading.closest("details") as HTMLElement;
     await within(panel).findAllByText("Red chilli powder is ₹120 for 250 g.");
     // Folded to one line (D-893 §6), counted as the Knowledge page counts it: one pinned,
@@ -1958,8 +1977,8 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
 
     const heading = await screen.findByRole("heading", { level: 4, name: "Knows by heart" });
     const known = heading.closest("section") as HTMLElement;
-    // Inside the folded "What it knows" section, so the tab stays one line per part (D-893 §6).
-    const whatItKnows = screen.getByRole("heading", { level: 3, name: "What it knows" });
+    // Inside the folded "Facts and answers" section, so the tab stays one line per part (D-893 §6).
+    const whatItKnows = screen.getByRole("heading", { level: 3, name: "Facts and answers" });
     expect(whatItKnows.closest("details")?.contains(known)).toBe(true);
     await within(known).findByText(/Knows 1 fact by heart/);
     expect(within(known).getByLabelText("Known by heart")).toBeTruthy();
@@ -1977,7 +1996,7 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
         },
       }),
     );
-    await screen.findByRole("heading", { level: 3, name: "What it knows" });
+    await screen.findByRole("heading", { level: 3, name: "Facts and answers" });
     await screen.findAllByText("Red chilli powder is ₹120 for 250 g.");
     expect(screen.queryByRole("heading", { level: 4, name: "Knows by heart" })).toBeNull();
   });
@@ -1997,7 +2016,7 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
   it("is where an old Knowledge or Test link lands", async () => {
     openSection("knowledge");
     await renderClientPage(page, routes(TRAINING_READS));
-    const tab = await screen.findByRole("tab", { name: "Training" });
+    const tab = await screen.findByRole("tab", { name: "What it knows" });
     expect(tab.getAttribute("aria-selected")).toBe("true");
     expect(await screen.findByRole("heading", { level: 3, name: "Teach your agents" })).toBeTruthy();
   });
@@ -2086,15 +2105,19 @@ describe("the header holds the one primary", () => {
     ).toHaveLength(0);
   });
 
-  it("opens an old Script address on Overview, with a way to Inbound and Campaigns", async () => {
-    openSection("script");
-    await renderClientPage(page, routes());
+  it.each(["script", "overview"])(
+    "opens an old ?section=%s address on What it says, with a way to give it a job",
+    async (old) => {
+      openSection(old);
+      await renderClientPage(page, routes());
 
-    expect(await screen.findByText("Scripts now live in Inbound and Campaigns.")).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Overview" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("link", { name: "Open Inbound" }).getAttribute("href")).toBe("/c/acme/inbound");
-    expect(screen.getByRole("link", { name: "Open Campaigns" }).getAttribute("href")).toBe("/c/acme/campaigns");
-  });
+      expect(await screen.findByRole("heading", { name: "Its jobs" })).toBeTruthy();
+      expect(screen.getByRole("tab", { name: "What it says" }).getAttribute("aria-selected")).toBe("true");
+      // An answer-only agent is offered an Inbound line, never a campaign.
+      expect(await screen.findByRole("button", { name: /Answer calls/ })).toBeTruthy();
+      expect(screen.queryByRole("link", { name: /Call people/ })).toBeNull();
+    },
+  );
 });
 
 /**
@@ -2231,33 +2254,149 @@ describe("progressive disclosure defaults", () => {
     expect(container.querySelector("main details, [role='main'] details")).toBeNull();
   });
 
-  it("shows four plain tabs in one tab list, Overview open first", async () => {
+  it("shows six plain tabs in one tab list, What it says open first", async () => {
     await renderClientPage(page, routes());
     await screen.findByText("Reception");
     const list = screen.getByRole("tablist", { name: "About this agent" });
     expect(within(list).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-      "Overview",
+      "What it says",
+      "What it knows",
       "Actions",
+      "What it notes",
+      "Voice",
       "Settings",
-      "Training",
     ]);
-    const overview = within(list).getByRole("tab", { name: "Overview" });
-    expect(overview.getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(overview.id);
+    const first = within(list).getByRole("tab", { name: "What it says" });
+    expect(first.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(first.id);
   });
 
   it("moves along the tabs with the arrow keys and opens one with Enter, by its address", async () => {
     await renderClientPage(page, routes());
     await screen.findByText("Reception");
-    const overview = screen.getByRole("tab", { name: "Overview" });
-    overview.focus();
-    fireEvent.keyDown(overview, { key: "ArrowRight" });
-    const actions = screen.getByRole("tab", { name: "Actions" });
-    expect(document.activeElement).toBe(actions);
+    const first = screen.getByRole("tab", { name: "What it says" });
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowRight" });
+    const knowledge = screen.getByRole("tab", { name: "What it knows" });
+    expect(document.activeElement).toBe(knowledge);
     // Manual activation: moving the focus opens nothing until Enter.
     expect(nav.push).not.toHaveBeenCalled();
-    fireEvent.keyDown(actions, { key: "Enter" });
-    expect(nav.push).toHaveBeenCalledWith("/c/acme/agents/agent-1?section=actions", { scroll: false });
+    fireEvent.keyDown(knowledge, { key: "Enter" });
+    expect(nav.push).toHaveBeenCalledWith("/c/acme/agents/agent-1?section=knowledge", { scroll: false });
+  });
+
+  it.each([
+    ["overview", "What it says"],
+    ["script", "What it says"],
+    ["training", "What it knows"],
+    ["test", "What it knows"],
+    ["knowledge", "What it knows"],
+    ["captured", "What it notes"],
+    ["voice", "Voice"],
+    ["calls", "Settings"],
+    ["model", "Settings"],
+    ["advanced", "Settings"],
+  ])("opens the tab that holds an old ?section=%s", async (old, tab) => {
+    openSection(old);
+    await renderClientPage(page, routes({ ...TRAINING_READS, ...NOTES_READS }));
+    expect((await screen.findByRole("tab", { name: tab })).getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("shows what each job notes and how its calls end, and sends edits to Lead details", async () => {
+    openSection("notes");
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/jobs": agentJobs("agent-1", [
+          { kind: "inbound_line", id: "line-1", name: "Main number", status: "draft" },
+        ]),
+        "/v1/inbound-lines/line-1/notes": {
+          agent_id: "agent-1",
+          agent_name: "Reception",
+          applied_now: false,
+          digest: "d1",
+          core_fields: [{ key: "name", label: "Name", type: "text", required: false, reason: "" }],
+          fields: [{ key: "visit_day", label: "Visit day", type: "date", required: false, reason: "" }],
+        },
+        "/v1/call-outcomes": {
+          max_outcomes: 8,
+          agents: [
+            {
+              id: "agent-1",
+              name: "Reception",
+              direction: "inbound",
+              status: "live",
+              draft: null,
+              starting: false,
+              outcomes: [
+                { key: "booked", label: "Booked a visit", meaning: "A day was agreed.", lead_status: "hot" },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    expect(await screen.findByText("Visit day")).toBeTruthy();
+    expect(screen.getByText("Name")).toBeTruthy();
+    expect(await screen.findByText("Booked a visit")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Change in Lead details" }).getAttribute("href")).toBe(
+      "/c/acme/settings/lead-details",
+    );
+    expect(screen.getByRole("link", { name: "Open line" }).getAttribute("href")).toBe("/c/acme/inbound/line-1");
+    // Read-only: one editor per list, and it is on Lead details (D-1029).
+    expect(screen.queryByRole("button", { name: /Save/ })).toBeNull();
+  });
+
+  it("lists each job with the first thing it says and a link to change it", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/jobs": agentJobs("agent-1", [
+          { kind: "inbound_line", id: "line-1", name: "Main number", status: "draft" },
+          { kind: "campaign", id: "camp-1", name: "Your first calls", status: "draft" },
+        ]),
+        "/v1/inbound-lines": {
+          lines: [{ id: "line-1", live: true, script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram, Sri Clinic." } }],
+        },
+        "/v1/campaigns/camp-1/workspace": {
+          campaign_id: "camp-1",
+          script: { ...EMPTY_SCRIPT, opening_line: "Hello, this is Reception." },
+          proposal: null,
+        },
+      }),
+    );
+    const list = await screen.findByRole("list", { name: "Its jobs" });
+    expect(await within(list).findByText(/Namaskaram, Sri Clinic\./)).toBeTruthy();
+    expect(await within(list).findByText(/Hello, this is Reception\./)).toBeTruthy();
+    const links = within(list).getAllByRole("link", { name: /Change what it says/ });
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/c/acme/inbound/line-1",
+      "/c/acme/campaigns/camp-1?tab=script",
+    ]);
+    expect(within(list).getByText("Answers calls")).toBeTruthy();
+    expect(within(list).getByText("Calls people")).toBeTruthy();
+  });
+
+  it("puts the calls link in the header with this agent's count", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/stats": [
+          {
+            agent_id: "agent-1",
+            calls_total: 12,
+            calls_connected: 9,
+            calls_inbound: 12,
+            calls_outbound: 0,
+            last_call_at: null,
+            outcomes: {},
+            status: "live",
+          },
+        ],
+      }),
+    );
+    const link = await screen.findByRole("link", { name: "Calls (12)" });
+    expect(link.getAttribute("href")).toBe("/c/acme/calls?agent_id=agent-1");
   });
 
   it("opens call handling and the model in Settings from their old addresses", async () => {
@@ -2280,8 +2419,8 @@ describe("progressive disclosure defaults", () => {
     // what it knows is one line that opens on click, saying how much it knows when closed.
     openSection("training");
     await renderClientPage(page, routes(TRAINING_READS));
-    await screen.findByRole("heading", { level: 3, name: "What it knows" });
-    expect(disclosed("What it knows")).toBe(true);
+    await screen.findByRole("heading", { level: 3, name: "Facts and answers" });
+    expect(disclosed("Facts and answers")).toBe(true);
     expect(await screen.findByText("8 things")).toBeTruthy();
   });
 
@@ -2427,13 +2566,13 @@ describe("Training is the checklist first, the rest folded (D-893 §6)", () => {
     const headings = order();
     expect(headings[0]).toBe("Questions to answer");
     expect(headings[1]).toBe("Mistakes on real calls");
-    expect(headings.indexOf("Try it")).toBeLessThan(headings.indexOf("What it knows"));
-    expect(headings.indexOf("What it knows")).toBeLessThan(headings.indexOf("Test your agent"));
+    expect(headings.indexOf("Try it")).toBeLessThan(headings.indexOf("Facts and answers"));
+    expect(headings.indexOf("Facts and answers")).toBeLessThan(headings.indexOf("Test your agent"));
     // One section runs every test (D-970): no separate saved tests or practice callers.
     expect(headings).not.toContain("Saved tests");
     expect(headings).not.toContain("Practice callers");
     // The tab's badge counts the same list.
-    expect((await screen.findByRole("tab", { name: /Training/ })).textContent).toContain("1");
+    expect((await screen.findByRole("tab", { name: /What it knows/ })).textContent).toContain("1");
   });
 
   it("runs every test from one section with one run button, the owner's own tests listed inside (D-970)", async () => {
@@ -2488,7 +2627,7 @@ describe("Training is the checklist first, the rest folded (D-893 §6)", () => {
 });
 
 describe("the header's Try it asks before leaving unsaved edits (D-826)", () => {
-  it("opens the leave-without-saving dialog instead of switching to Training", async () => {
+  it("opens the leave-without-saving dialog instead of switching to What it knows", async () => {
     openSection("settings");
     await renderClientPage(page, routes());
     const panel = (await screen.findByRole("heading", { level: 3, name: "What it is" })).closest("section") as HTMLElement;
@@ -2496,7 +2635,7 @@ describe("the header's Try it asks before leaving unsaved edits (D-826)", () => 
       fireEvent.change(within(panel).getByLabelText(/^Name/), { target: { value: "Front desk" } });
     });
     const tryIt = screen.getByRole("link", { name: "Try it" });
-    expect(tryIt.getAttribute("href")).toBe("/c/acme/agents/agent-1?section=training");
+    expect(tryIt.getAttribute("href")).toBe("/c/acme/agents/agent-1?section=knowledge");
     await act(async () => {
       fireEvent.click(tryIt);
     });
@@ -2608,6 +2747,7 @@ describe("Overview asks for a job, not a script (founder, 16 Nov 2026)", () => {
         "/v1/agents/agent-1/jobs": agentJobs("agent-1", [
           { kind: "inbound_line", id: "line-1", name: "Main number", status: "draft" },
         ]),
+        "/v1/inbound-lines": { lines: [] },
       }),
     );
     const step = await screen.findByText("Give it a job: an Inbound line or a campaign");

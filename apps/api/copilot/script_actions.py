@@ -1,9 +1,9 @@
 """Pip's fixes for the tests an agent failed (D-724's "Improve my agent", asked of Pip).
 
-`agent_tests_fix` is the Training tab's "Improve my agent" / "Suggest a fix for this": its
+`agent_tests_fix` is the What it knows tab's "Improve my agent" / "Suggest a fix for this": its
 executor is `test_conversations.request_improvement`. Script fixes are written as a Pip draft
 on one of the agent's Inbound lines or campaigns and reviewed on that page; facts wait on the
-Training tab (`agents/test_fixes`, D-1017). An agent with several lines or campaigns needs
+What it knows tab (`agents/test_fixes`, D-1017). An agent with several lines or campaigns needs
 one named (`holder_id`), so Pip asks the owner which.
 
 WHY `confirm`. Writing the fixes spends the account's AI allowance, and the tier rule is
@@ -141,14 +141,14 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
     if not failures:
         raise WriteRefusedError(
             "none of these failed tests is the script's or the facts' to fix: each result in "
-            "the Training tab says who can (a setting to change, or our side, which we are "
+            "the What it knows tab says who can (a setting to change, or our side, which we are "
             "fixing), so tell the person that instead",
-            plain="None of these is the script's to fix. The Training tab says who can.",
+            plain="None of these is the script's to fix. The What it knows tab says who can.",
         )
     if run.improving:
         raise WriteRefusedError(
             "fixes for this run are already being worked out, so tell the person they will "
-            "appear in the agent's Training tab",
+            "appear in the agent's What it knows tab",
             plain="Fixes for this run are already being written.",
         )
     holder = await _holder(session, parsed.agent_id, parsed.holder_id)
@@ -166,7 +166,7 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
                 else "This agent has no Inbound line or campaign with a script, so only "
                 "facts can be suggested. "
             )
-            + "Facts wait in the agent's Training tab."
+            + "Facts wait in the agent's What it knows tab."
         ),
         current=None,
         proposed="; ".join(t for t in titles if t) or count,
@@ -188,7 +188,7 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
 async def _execute_tests_fix(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`test_conversations.request_improvement` — what the Training tab's button called —
+    """`test_conversations.request_improvement` — what the What it knows tab's button called —
     behind the allowance asked again at the door. It queues the job and answers at once
     (D-748)."""
     parsed = parse_args(_TestsFixArgs, args)
@@ -213,7 +213,7 @@ async def _execute_tests_fix(
         queued=True,
         detail=(
             "Working out the fixes now. In about two minutes script fixes are a draft on the "
-            f"Inbound line or campaign, and facts are on {name}'s Training tab. Nothing "
+            f"Inbound line or campaign, and facts are on {name}'s What it knows tab. Nothing "
             "changes until you keep them."
         ),
         audit_summary={
@@ -228,15 +228,15 @@ AGENT_TESTS_FIX: Final = ActionTool(
     name="agent_tests_fix",
     tier="confirm",
     undo=None,
-    # The Training tab's own write permission (`script_routes.ScriptWriter`).
+    # The What it knows tab's own write permission (`script_routes.ScriptWriter`).
     permission="org:manage",
     object_type="agent",
     audit_action="agent.tests_improvement",
-    where="in the agent's Training tab, under Agents",
+    where="in the agent's What it knows tab, under Agents",
     schema=action_schema(
         "agent_tests_fix",
         "Suggest fixes for the tests an agent failed in its latest run. Script fixes become "
-        "a draft on one of its Inbound lines or campaigns; facts wait on its Training tab."
+        "a draft on one of its Inbound lines or campaigns; facts wait on its What it knows tab."
         + PROPOSES_ONLY,
         {
             "agent_id": {"type": "string", "description": "From SCREEN STATE or `agents_list`."},

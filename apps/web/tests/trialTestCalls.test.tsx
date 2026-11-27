@@ -219,7 +219,7 @@ describe("the test-call panel", () => {
     });
     expect(await screen.findByText(/15 minutes of test calls on Studio voices/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "Choose a Clear voice" }).getAttribute("href")).toBe(
-      "/c/acme/agents/agent-out?section=settings",
+      "/c/acme/agents/agent-out?section=voice",
     );
     expect(screen.getAllByRole("link", { name: "Add credit" }).map((link) => link.getAttribute("href"))).toContain(
       CREDITS,

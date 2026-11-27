@@ -164,7 +164,7 @@ def script_fix_notice(*, kind: str, name: str, state: str, outcome: str | None =
     """A mistake fixed in the agent's own script (D-985), or waiting on the AI allowance to
     be fixed: seen on real calls, or, for the `script_check_*` kinds, found in the live
     script before any call showed it (D-989). `outcome` is the fix's incident's last step:
-    put back by us, or undone by the owner. The fix and the Undo are on the Training tab."""
+    put back by us, or undone by the owner. The fix and the Undo are on the What it knows tab."""
     early = kind in SCRIPT_CHECK_KINDS
     found = (
         f"A line in {name}'s script could cause a mistake on calls. We found it before any "
@@ -182,7 +182,7 @@ def script_fix_notice(*, kind: str, name: str, state: str, outcome: str | None =
             return Notice(
                 headline=f"A fix for {name} is no longer waiting",
                 what_happened="Your AI allowance had run out, so a fix had to wait.",
-                what_we_did="The agent's Training tab shows where the fix stands.",
+                what_we_did="The agent's What it knows tab shows where the fix stands.",
                 your_part="Nothing.",
                 must_act=False,
             )
@@ -216,7 +216,7 @@ def script_fix_notice(*, kind: str, name: str, state: str, outcome: str | None =
             headline=f"{name}'s script fix is settled",
             what_happened=f"We changed part of {name}'s script {after}.",
             what_we_did="We watched its next calls and closed this.",
-            your_part="Nothing. The Training tab shows how it went.",
+            your_part="Nothing. The What it knows tab shows how it went.",
             must_act=False,
         )
     return Notice(
@@ -224,7 +224,7 @@ def script_fix_notice(*, kind: str, name: str, state: str, outcome: str | None =
         what_happened=found,
         what_we_did="We changed only that part of the script and put it live. We are "
         "watching the next calls, and put the old script back if they go worse.",
-        your_part="Nothing. To keep your old script, press Undo on the agent's Training tab.",
+        your_part="Nothing. To keep your old script, press Undo on the agent's What it knows tab.",
         must_act=False,
     )
 
@@ -246,7 +246,7 @@ def proposed_fix_notice(*, name: str, state: str) -> Notice:
         what_happened=f"On real calls, {name} made a mistake that came from its script.",
         what_we_did="We changed only the lines that cause it, as a draft. Callers still "
         "hear the old script.",
-        your_part="Review the draft on the agent's Training tab, then keep it or not.",
+        your_part="Review the draft on the agent's What it knows tab, then keep it or not.",
         must_act=False,
     )
 
