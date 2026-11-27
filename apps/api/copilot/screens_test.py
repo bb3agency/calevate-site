@@ -411,8 +411,8 @@ CAMPAIGN_TABS_SOURCE = CLIENT_APP / "campaigns/CampaignScreen.tsx"
 _AGENT_TAB = re.compile(r"^\s*\w+:\s*\"(?P<label>[^\"]+)\",\s*$", re.M)
 #: `{ value: "usage", label: "Usage" },` inside `BILLING_VIEWS = [ ... ] as const;`.
 _BILLING_VIEW = re.compile(r"\{\s*value:\s*\"\w+\",\s*label:\s*\"(?P<label>[^\"]+)\"\s*\}")
-#: `{ value: "improve", label: "Improve", accent: ... },` in the campaign page's tab items.
-_CAMPAIGN_TAB = re.compile(r"\{\s*value:\s*\"\w+\",\s*label:\s*\"(?P<label>[^\"]+)\",\s*accent:")
+#: `return "Script";` or `` `Improve (${...})` : "Improve" `` inside the campaign page's `tabLabel`.
+_CAMPAIGN_TAB = re.compile(r"(?:return|:)\s*\"(?P<label>[A-Z][A-Za-z ]*)\";")
 
 
 def _declaration(source: Path, opener: str) -> str:
@@ -434,8 +434,8 @@ def _billing_view_labels() -> list[str]:
 
 def _campaign_tab_labels() -> list[str]:
     text = CAMPAIGN_TABS_SOURCE.read_text(encoding="utf-8")
-    start = text.index('label="This campaign"')
-    return [m["label"] for m in _CAMPAIGN_TAB.finditer(text[start : text.index("]}", start)])]
+    start = text.index("function tabLabel(")
+    return [m["label"] for m in _CAMPAIGN_TAB.finditer(text[start : text.index("\n}\n", start)])]
 
 
 def test_the_tab_parsers_still_find_the_tabs() -> None:

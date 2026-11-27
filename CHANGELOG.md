@@ -3,6 +3,25 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.99 — 28-Nov-2026
+
+- New look, "Khata ledger": a paper-cream page with navy ink, navy main buttons, green only for
+  done and money, and a vermilion stamp for the current step. Light only; every colour meets the
+  contrast standard.
+- Meet your agent is one card and three steps: what it should do, its language, a voice note,
+  a file, examples, and what it does first, ticked from what you wrote. Its script is written
+  while you pick the voice.
+- An agent's page has six tabs: What it says (the notices and its campaigns and lines with their
+  first words), What it knows, Actions, What it notes, Voice and Settings. Old links still open.
+- A campaign is split into tabs: Script, People, Settings and Checks before it starts; Progress,
+  Calls, Script, People, Settings and Improve after. Start is in the header, with what is left
+  beside it; "Show me" opens the right tab.
+- Builder words are replaced with plain ones ("What the caller might say", "Then go to…",
+  "Before it can call"), and links can be set without dragging.
+- A trial account sees a short sidebar until its first test call; the full sidebar is grouped.
+- A five-step tour you start yourself, and each voice shows its price a minute, to the paisa.
+- Outpero teardown and master plan written (docs/evidence/outpero-teardown-2026-11-28).
+
 ## 0.5.98 — 28-Nov-2026
 
 - Calls placed by an agent open by saying who is calling, from which business and why this

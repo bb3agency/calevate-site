@@ -573,13 +573,11 @@ class AgentTab:
 AGENT_PAGE_TABS: Final[tuple[AgentTab, ...]] = (
     AgentTab(
         "What it says",
-        "the call notices, its campaigns and lines with their first words, what is left to set up",
+        "call notices, its campaigns and lines with first words, setup left",
     ),
-    AgentTab("What it knows", "questions to answer, mistakes, try it, what it knows, tests"),
+    AgentTab("What it knows", "questions to answer, mistakes, try it, facts, tests"),
     AgentTab("Actions", "what it does during a call"),
-    AgentTab(
-        "What it notes", "details each job writes down, how calls end; changed on Lead details"
-    ),
+    AgentTab("What it notes", "details each job notes, how calls end; edited in Lead details"),
     AgentTab("Voice", "its voice and languages"),
     AgentTab(
         "Settings",
