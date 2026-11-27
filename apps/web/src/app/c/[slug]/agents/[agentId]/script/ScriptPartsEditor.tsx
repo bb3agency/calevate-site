@@ -39,7 +39,7 @@ const FILLED_ONLY: ReadonlySet<PartKey> = new Set(["step_outcomes", "example_exc
 const NONE: readonly PartKey[] = [];
 
 type Row =
-  | { id: string; kind: "part"; part: PartKey; label: string; preview: string }
+  | { id: string; kind: "part"; part: PartKey; label: string; asks?: string; preview: string }
   | { id: string; kind: "step"; stageId: string; label: string; preview: string };
 
 function firstLine(text: string): string {
@@ -48,7 +48,7 @@ function firstLine(text: string): string {
 
 function rowsOf(script: CallScript, leaveOut: readonly PartKey[], steps: boolean): Row[] {
   const parts: Row[] = PARTS.filter(({ key }) => !leaveOut.includes(key))
-    .map(({ key, label }) => ({ id: `part:${key}`, kind: "part" as const, part: key, label, preview: partText(script, key) }))
+    .map(({ key, label, asks }) => ({ id: `part:${key}`, kind: "part" as const, part: key, label, asks, preview: partText(script, key) }))
     .filter((row) => !FILLED_ONLY.has(row.part) || row.preview !== "");
   if (!steps) return parts;
   return [
@@ -255,6 +255,7 @@ export function ScriptPartsEditor({
                     <GeneratePart
                       {...generatePart}
                       what={row.label}
+                      sendAs={row.kind === "part" ? row.asks : undefined}
                       held={dirty ? "Save or cancel your edits first." : undefined}
                     />
                   )}

@@ -62,7 +62,7 @@ export function blockerNote(
 
 export const BLOCKER_COPY: Record<string, BlockerNote> = {
   status: { text: "This campaign has already started." },
-  agent_not_live: { text: "Publish your agent first.", owner: "client" },
+  agent_not_live: { text: "Put your agent live first.", owner: "client" },
   agent_archived: {
     text: "This campaign's agent is archived.",
     why: "Restore the agent in Agents, or edit the campaign to use another agent.",

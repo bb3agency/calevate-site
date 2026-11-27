@@ -103,13 +103,13 @@ export function SourcePicker<TData, TError, TContext>({
 
   if (sources.isLoading) return <Skeleton rows={2} label="Loading what your agents know" />;
   if (!sources.ready) {
-    return <ProblemNotice error={sources.error ?? new Error("Your sources did not load.")} onRetry={sources.refetch} />;
+    return <ProblemNotice error={sources.error ?? new Error("Your files and notes did not load.")} onRetry={sources.refetch} />;
   }
   const removed =
     gone.length > 0 ? (
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-body text-ink-muted">
-          {gone.length === 1 ? "1 picked source was removed." : `${gone.length} picked sources were removed.`}
+          {gone.length === 1 ? "1 picked file or note was removed." : `${gone.length} picked files and notes were removed.`}
         </p>
         {/* A local edit, held while Save sources works; that button carries the spinner. */}
         <ActionButton
@@ -132,7 +132,7 @@ export function SourcePicker<TData, TError, TContext>({
         title={refusal}
         onClick={() => save.mutate(chosen, { onSuccess: () => setPicked(null) })}
       >
-        Save sources
+        Save files and notes
       </ActionButton>
       {dirty && (
         <ActionButton variant="secondary-sm" disabled={save.isPending} onClick={() => setPicked(null)}>
@@ -166,7 +166,7 @@ export function SourcePicker<TData, TError, TContext>({
     <div className="space-y-3">
       {removed}
       {sources.choices.length >= SEARCH_FROM && (
-        <SearchField label="Search sources" hideLabel value={query} onValueChange={setQuery} placeholder="Search sources" />
+        <SearchField label="Search files and notes" hideLabel value={query} onValueChange={setQuery} placeholder="Search files and notes" />
       )}
       <fieldset>
         <legend className="sr-only">{legend}</legend>

@@ -1,13 +1,16 @@
 "use client";
 
 /**
- * The one move between the sources and the script (D-992): Pip writes the script from the
- * main task and the picked sources, and the owner reviews it below, part by part.
+ * The one move between the files and notes and the script (D-992): Pip writes the script
+ * from what the job is for and the picked files and notes, and the owner reviews it below.
  */
 
 import type { ReactNode } from "react";
 
 import { ActionButton } from "@/components/arc/feedback";
+
+/** The button that asks Pip for a whole script (redesign plan §6: not "Generate"). */
+export const GENERATE_LABEL = "Let Pip write it";
 
 export function PipGenerateBand({
   onGenerate,
@@ -15,10 +18,10 @@ export function PipGenerateBand({
   disabled,
   reason,
   refusal,
-  label = "Generate",
+  label = GENERATE_LABEL,
   inline = false,
-  heading = "Let Pip, our AI agent, generate the script",
-  from = "Pip writes it from your main task and sources.",
+  heading = "Let Pip, our AI agent, write the script",
+  from = "Pip writes it from what it is for and its files and notes.",
   beside,
 }: {
   /** Shown before the button, such as the language Pip writes in. */
@@ -68,7 +71,7 @@ export function PipGenerateBand({
       <ActionButton
         className="shrink-0"
         status={busy ? "pending" : "idle"}
-        pendingLabel="Generating…"
+        pendingLabel="Writing…"
         disabled={disabled}
         title={reason ?? refusal}
         onClick={onGenerate}

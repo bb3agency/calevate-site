@@ -195,8 +195,8 @@ export function addScenario(
 function freeName(sections: Section[]): string {
   const taken = new Set(sections.map((s) => s.name.trim().toLowerCase()));
   let n = 1;
-  while (taken.has(`new scenario ${n}`)) n += 1;
-  return `New scenario ${n}`;
+  while (taken.has(`new reply ${n}`)) n += 1;
+  return `New reply ${n}`;
 }
 
 /** Delete a scenario and every way into it; an emptied step closes up. */

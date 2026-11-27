@@ -62,7 +62,7 @@ const routes = (put: unknown): Routes => ({
 });
 
 const editOutcome = async () => {
-  const box = (await screen.findByLabelText("Outcome of this step, step 1")) as HTMLTextAreaElement;
+  const box = (await screen.findByLabelText("Done when…, step 1")) as HTMLTextAreaElement;
   fireEvent.change(box, { target: { value: "The person is logged in." } });
 };
 
@@ -133,7 +133,7 @@ describe("Show me on the compliance check's script line (C13-a)", () => {
     expect(fold.getAttribute("aria-expanded")).toBe("true");
     await waitFor(() =>
       expect(
-        within(screen.getByRole("region", { name: "Opening" })).getByRole("button", { expanded: true }),
+        within(screen.getByRole("region", { name: "First thing it says" })).getByRole("button", { expanded: true }),
       ).toBeTruthy(),
     );
   });

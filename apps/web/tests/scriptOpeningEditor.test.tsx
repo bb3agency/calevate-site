@@ -39,7 +39,7 @@ describe("how the call opens, in the script editor", () => {
 
   it("offers the caller's name and the client's own fields, and inserts the field into the opening line", () => {
     const set = opening();
-    const box = screen.getByRole("textbox", { name: /Opening line/ }) as HTMLTextAreaElement;
+    const box = screen.getByRole("textbox", { name: /First thing it says/ }) as HTMLTextAreaElement;
     box.setSelectionRange(box.value.length, box.value.length);
     fireEvent.click(screen.getByRole("button", { name: "Caller's name" }));
     expect(set).toHaveBeenCalledWith("opening_line", "Namaskaram andi.{{lead_name}}");
@@ -48,7 +48,7 @@ describe("how the call opens, in the script editor", () => {
 
   it("keeps the line plain text: formatting typed or pasted is removed and said", () => {
     const set = opening();
-    fireEvent.change(screen.getByRole("textbox", { name: /Opening line/ }), {
+    fireEvent.change(screen.getByRole("textbox", { name: /First thing it says/ }), {
       target: { value: "**Namaskaram** andi 🙏" },
     });
     expect(set).toHaveBeenCalledWith("opening_line", "Namaskaram andi ");
@@ -71,7 +71,7 @@ describe("how the call opens, in the script editor", () => {
 
   it("gives an agent that answers and calls two openings, each saved to its own field (D-920)", () => {
     const set = opening({ direction: "both" });
-    expect(screen.queryByRole("textbox", { name: /^Opening line/ })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: /^First thing it says/ })).toBeNull();
     expect(screen.getByRole("textbox", { name: /When it answers/ })).toBeTruthy();
     fireEvent.change(screen.getByRole("textbox", { name: /When it calls/ }), {
       target: { value: "Namaskaram andi, mee enquiry gurinchi call chestunnanu." },
@@ -85,7 +85,7 @@ describe("how the call opens, in the script editor", () => {
   it("shows one opening on an agent of one direction", () => {
     opening({ direction: "outbound" });
     expect(screen.queryByRole("textbox", { name: /When it calls/ })).toBeNull();
-    expect(screen.getByRole("textbox", { name: /Opening line/ })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: /First thing it says/ })).toBeTruthy();
   });
 
   it("previews the opening with each caller detail named where its value will be said", () => {

@@ -13,7 +13,7 @@
  */
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -91,7 +91,8 @@ import { FoldGroup, FoldSection } from "../campaigns/FoldSection";
 import { JobAlerts } from "../campaigns/JobAlerts";
 import { TestCallRows } from "../campaigns/TestCallList";
 import { SlotsFullProblem, isSlotsFull } from "../campaigns/SlotHolders";
-import { PipGenerateBand } from "../campaigns/PipGenerateBand";
+import { GENERATE_LABEL, PipGenerateBand } from "../campaigns/PipGenerateBand";
+import { jobBack } from "../campaigns/jobBack";
 import { PipFailed, PipWriting, retryable } from "../campaigns/PipScriptStatus";
 import { ScriptVersions, restoredToast } from "../campaigns/ScriptVersions";
 import { SourcePicker, useChosenCount } from "../campaigns/SourcePicker";
@@ -119,7 +120,7 @@ export const VOICE_INFO = "The agent gives the line its voice. Changing it updat
 export const MAIN_TASK_INFO = "Write it in your own words, as much as you like. Pip writes the script from it.";
 const MAIN_TASK_PLACEHOLDER = "For example: answer questions about our services and book a visit.";
 export const SOURCES_INFO = "Pick from What your agents know. Pip reads them when it writes the script.";
-export const SCRIPT_INFO = "Pip writes it from your main task and sources. Saving puts it live on this line.";
+export const SCRIPT_INFO = "Pip writes it from what this line is for and its files and notes. Saving puts it live on this line.";
 const SCRIPT_LOCKED = "You can't change this line's script.";
 export const ACTIONS_INFO = "Actions are set up on the agent. Switch off the ones this line should not use.";
 export const NUMBERS_INFO = "A number answers with one line. Adding it here moves it from its old line.";
@@ -141,7 +142,15 @@ export function InboundLineScreen({ slug, lineId }: { slug: string; lineId: stri
   const publish = usePublishInboundLine(session, lineId);
   const publishFeedback = useActionFeedback(publish, { errorTitle: "Not live yet", successToast: "The line is live" });
   const awaitsPutLive = useLineAwaitsPutLive(session, lineId);
-  const back = { href: href(`/c/${slug}/inbound`), label: "All inbound lines" };
+  const from = useSearchParams().get("from");
+  const list = { href: href(`/c/${slug}/inbound`), label: "All inbound lines" };
+  const back = jobBack({
+    from,
+    agentId: line.data?.agent_id,
+    agentName: line.data?.agent_name,
+    list,
+    agentHref: (id) => href(`/c/${slug}/agents/${id}`),
+  });
 
   if (line.isLoading) {
     return (
@@ -291,11 +300,11 @@ function MainTaskSection({ line, canWrite, refusal }: Props) {
     setEditing(line.main_task.trim() === "");
   };
   return (
-    <FoldSection id="line-main-task" title="Main task" tone="task" hint="What should this line do for callers?" info={MAIN_TASK_INFO}>
+    <FoldSection id="line-main-task" title="What this line is for" tone="task" hint="What should this line do for callers?" info={MAIN_TASK_INFO}>
       {editing ? (
         <>
           <label htmlFor={`${line.id}-main-task`} className="sr-only">
-            Main task
+            What this line is for
           </label>
           <textarea
             id={`${line.id}-main-task`}
@@ -363,13 +372,13 @@ function MainTaskSection({ line, canWrite, refusal }: Props) {
 function SourcesSection({ line, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const save = useSetLineSources(session, line.id);
-  useActionFeedback(save, { errorDisplay: "inline", successToast: "Sources saved" });
+  useActionFeedback(save, { errorDisplay: "inline", successToast: "Files and notes saved" });
   const count = useChosenCount(line.source_ids);
 
   return (
     <FoldSection
       id="line-sources"
-      title="Sources"
+      title="Files and notes it can use"
       tone="materials"
       hint="What Pip reads to write this line's script."
       info={SOURCES_INFO}
@@ -377,7 +386,7 @@ function SourcesSection({ line, canWrite, refusal }: Props) {
     >
       <SourcePicker
         saved={line.source_ids}
-        legend="Sources for this line"
+        legend="Files and notes for this line"
         canWrite={canWrite}
         refusal={refusal}
         save={save}
@@ -441,7 +450,7 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
     save.mutate({ script: next, proposalId }, { onSuccess: closeEditor });
 
   const reason = !hasTask
-    ? "Save the main task first."
+    ? "Save what this line is for first."
     : proposal?.status === "ready"
       ? "Review Pip's script below first."
       : failed
@@ -484,7 +493,7 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
           disabled={!canWrite || !hasTask || (proposal != null && !(failed && retryable(proposal.reason)))}
           reason={reason}
           refusal={refusal}
-          label={failed ? "Try again" : "Generate"}
+          label={failed ? "Try again" : GENERATE_LABEL}
           inline
         />
         {ask.error != null && <ProblemNotice error={ask.error} />}
@@ -611,7 +620,7 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
             </>
           ) : (
             <p className="text-body text-ink-muted">
-              {hasTask ? "No script yet. Press Generate above." : "Write the main task first."}
+              {hasTask ? `No script yet. Press ${GENERATE_LABEL} above.` : "Say what this line is for first."}
             </p>
           )}
         </div>

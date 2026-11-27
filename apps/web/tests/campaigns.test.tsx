@@ -165,6 +165,7 @@ describe("the consent declaration on a draft", () => {
         },
       }),
     );
+    await openTab("Checks");
     const radios = await vi.waitFor(() => {
       const found = Array.from(
         rendered.container.querySelectorAll<HTMLInputElement>(`input[name="answer-${CAMPAIGN_ID}-consent-source"]`),
@@ -396,6 +397,7 @@ describe("calls at once on the create page", () => {
 describe("adding people to a draft", () => {
   it("offers no lead picker: people come from a file, a paste or one at a time", async () => {
     await renderClientPage(campaignPage(), detail(progressFixture({ id: CAMPAIGN_ID, status: "draft" })));
+    await openTab("People");
     await screen.findByRole("button", { name: /Add people/ });
     expect(screen.queryByRole("searchbox", { name: "Search leads" })).toBeNull();
     expect(screen.queryByText("From your leads")).toBeNull();
@@ -494,6 +496,7 @@ describe("one campaign's page", () => {
         },
       }),
     );
+    await openTab("Checks");
     await screen.findByText(/no longer carrying the rule/);
     expect(screen.getByRole("link", { name: "Open the agent" }).getAttribute("href")).toBe(
       `/c/acme/agents/${AGENT_ID}`,
@@ -607,6 +610,7 @@ describe("one campaign's page", () => {
         }),
       }),
     );
+    await openTab("People");
     await screen.findByText("Priya");
     expect(container.textContent).toContain("Next try");
     expect(container.textContent).toContain("Try 1 of 3");
@@ -614,7 +618,7 @@ describe("one campaign's page", () => {
       "/c/acme/calls/call-9",
     );
     // The money is in the results, a tab away from the people.
-    await openTab("Progress & results");
+    await openTab("Progress");
     expect(await screen.findByText(/₹12\.5/)).toBeTruthy();
   });
 
@@ -643,7 +647,7 @@ describe("one campaign's page", () => {
         }),
       }),
     );
-    await openTab("Progress & results");
+    await openTab("Progress");
     await screen.findByText("What people said");
     // How the counts are made sits behind the heading's info button, not on the page.
     expect(screen.getByRole("button", { name: "About What people said" })).toBeTruthy();
@@ -758,7 +762,7 @@ describe("Pip on the campaign pages", () => {
       campaignPage(),
       detail(progressFixture({ id: CAMPAIGN_ID, status: "draft" })),
     );
-    await screen.findByRole("heading", { name: "Let Pip, our AI agent, generate the script" });
+    await screen.findByRole("heading", { name: "Let Pip, our AI agent, write the script" });
     expect(rendered.calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 
@@ -767,7 +771,7 @@ describe("Pip on the campaign pages", () => {
       campaignPage(),
       detail(progressFixture({ status: "completed", launched_at: "2026-10-14T04:30:00Z" })),
     );
-    await openTab("Progress & results");
+    await openTab("Progress");
     await screen.findByRole("button", { name: /^Ask Pip about this campaign/ });
   });
 });
@@ -879,7 +883,7 @@ describe("what a campaign is for", () => {
     expect(container.textContent).toContain("Goal reached");
     // The why sits under the verdict, so "Goal unclear" on a row says what was missing.
     expect(container.textContent).toContain("They booked a visit for Saturday before the call ended.");
-    await openTab("Progress & results");
+    await openTab("Progress");
     await screen.findByText(/3 of 4/);
     expect(container.textContent).toContain("3 of 4");
     expect(container.textContent).toContain("1 unclear");

@@ -47,8 +47,8 @@ export const QUALITY_COPY = {
 
 export const verdictLine = (problems: number, total: number): string =>
   problems === 0
-    ? `No defects found across ${total} scenarios`
-    : `${problems} of ${total} scenarios found a defect`;
+    ? `No defects found across ${total} practice calls`
+    : `${problems} of ${total} practice calls found a defect`;
 
 export const monthEnding = (day: string): string => `For the month ending ${day}`;
 

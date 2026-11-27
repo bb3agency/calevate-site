@@ -9,9 +9,9 @@
  *
  * It draws `script.stages` and writes back through the same calls the list uses: a click
  * selects a step for the side panel, dragging a step stores its `position`, and
- * dragging from a step's dot to another step adds a way out (`connect`). Every one of
+ * dragging from a step's dot to another step links them (`connect`). Every one of
  * those has a keyboard way too: Tab to a step, Enter to edit it, arrow keys to move it
- * (Shift for bigger moves), and the editor's "Add a way out" in place of the dot.
+ * (Shift for bigger moves), and the editor's "Then go to…" in place of the dot.
  *
  * Where the host passes the handlers, the end points can be dragged (`onEndPosition`), an
  * arrow's label (or the dot on an unlabelled arrow) dragged to bend the line through that
@@ -42,6 +42,7 @@ import {
   type Section,
 } from "./scriptModel";
 import { targetLabel } from "./sectionParts";
+import { POINTER_FINE, useMedia } from "./useMedia";
 
 type Point = { x: number; y: number };
 type Box = Point & { w: number; h: number };
@@ -216,6 +217,7 @@ export function FlowCanvas({
   onBend?: (from: string, branch: number | null, via: Point | null) => void;
   onRelabel?: (from: string, branch: number, when: string) => void;
 }) {
+  const fine = useMedia(POINTER_FINE);
   const frame = useRef<HTMLDivElement>(null);
   const plane = useRef<HTMLDivElement>(null);
   const [moving, setMoving] = useState<{ id: string; start: Point; origin: Point; at: Point; moved: boolean } | null>(null);
@@ -645,15 +647,15 @@ export function FlowCanvas({
                 </span>
                 <span className="mt-auto truncate text-[11px] text-ink-faint">
                   {i === 0 ? "Start · " : ""}
-                  {s.mode === "say" ? "Exact words · " : ""}
-                  {outs ? `${outs} ${outs === 1 ? "way out" : "ways out"}` : "One way on"}
+                  {s.mode === "say" ? "Word for word · " : ""}
+                  {outs ? `${outs} ${outs === 1 ? "place to go next" : "places to go next"}` : "One way on"}
                   {s.collect.length ? ` · finds out ${s.collect.length}` : ""}
                 </span>
               </button>
               {!readOnly && (
                 <div
                   aria-hidden
-                  title="Drag to another step to add a way out"
+                  title={fine ? "Or drag to the step it goes to next" : undefined}
                   className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 cursor-crosshair touch-none rounded-full border-2 border-surface bg-brand-strong before:absolute before:-inset-y-3.5 before:-left-2 before:-right-5 before:content-['']"
                   onPointerDown={(e) => {
                     if (e.button !== 0) return;
@@ -668,7 +670,7 @@ export function FlowCanvas({
                     setLinking(null);
                     if (target) {
                       onConnect(linking.from, target);
-                      setAnnounce(`Added a way out from ${s.name.trim() || "the step"}.`);
+                      setAnnounce(`${s.name.trim() || "The step"} now goes on to another step.`);
                     }
                   }}
                   onPointerCancel={() => setLinking(null)}

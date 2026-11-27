@@ -185,12 +185,12 @@ export function PartEditor({
       return <Text labelHidden id={id("ending")} label="How it ends the call" hint="In plain English." long value={script.ending} onChange={(v) => set("ending", v)} />;
     case "opening_line":
       return (
-        <Text labelHidden id={id("opening_line")} label="Opening line" hint={`In ${language}, as callers should hear it.`} long
+        <Text labelHidden id={id("opening_line")} label="First thing it says" hint={`In ${language}, as callers should hear it.`} long
           maxLength={OPENING_LINE_MAX} value={script.opening_line}onChange={(v) => set("opening_line", v)} />
       );
     case "outbound_opening_line":
       return (
-        <Text labelHidden id={id("outbound_opening_line")} label="Opening line when it calls" hint={`In ${language}: who, the business, why it calls.`} long
+        <Text labelHidden id={id("outbound_opening_line")} label="First thing it says when it calls" hint={`In ${language}: who, the business, why it calls.`} long
           maxLength={OPENING_LINE_MAX} value={script.outbound_opening_line ?? ""} onChange={(v) => set("outbound_opening_line", v)} />
       );
     case "style":
@@ -201,18 +201,18 @@ export function PartEditor({
           {script.objections.map((o, i) => (
             <div key={i} className="flex items-start gap-2">
               <div className="min-w-0 flex-1 space-y-2">
-                <Text id={id(`objection-${i}-said`)} label={`Push-back ${i + 1}: what they say`} maxLength={300}
+                <Text id={id(`objection-${i}-said`)} label={`If they say no or not now ${i + 1}: what they say`} maxLength={300}
                   value={o.objection}
                   onChange={(v) => set("objections", script.objections.map((x, j) => (j === i ? { ...x, objection: v } : x)))} />
                 <Text id={id(`objection-${i}`)} label="How to answer" hint="In plain English." long maxLength={1000}
                   value={o.response} issues={on(`objection-${i}`)}
                   onChange={(v) => set("objections", script.objections.map((x, j) => (j === i ? { ...x, response: v } : x)))} />
               </div>
-              <RemoveButton what={`push-back ${i + 1}`}
+              <RemoveButton what={`“no or not now” ${i + 1}`}
                 onClick={() => set("objections", script.objections.filter((_, j) => j !== i))} />
             </div>
           ))}
-          <AddButton label="Add a push-back"
+          <AddButton label="Add what they might say"
             onClick={() => set("objections", [...script.objections, { objection: "", response: "" }])} />
         </div>
       );
@@ -267,13 +267,13 @@ export function PartEditor({
     case "adherence":
       return (
         <fieldset>
-          <legend className={FIELD_LABEL}>How closely it follows the steps</legend>
+          <legend className={FIELD_LABEL}>Stick to the steps</legend>
           <div className="mt-1 flex flex-wrap gap-x-4">
             {(["flexible", "strict"] as const).map((value) => (
               <label key={value} className="flex cursor-pointer items-center gap-2 text-body text-ink touch:min-h-11">
                 <input type="radio" name={id("adherence")} checked={(script.adherence ?? "flexible") === value}
                   onChange={() => set("adherence", value)} />
-                {value === "strict" ? "Follow the steps closely" : "Use the steps as a guide"}
+                {value === "strict" ? "Closely" : "Loosely"}
               </label>
             ))}
           </div>
@@ -424,7 +424,7 @@ export function SectionFields({
     <div className="space-y-3">
       <Text id={id("name")} label="Step name" maxLength={limits.nameMax} value={section.name} issues={on("name")}
         onChange={(v) => onChange({ name: v })} />
-      <Text id={id("instruction")} label={say ? "The exact words to say" : "What it does here"}
+      <Text id={id("instruction")} label={say ? "What it says, word for word" : "What it does here"}
         hint={say ? `In ${language}, as callers should hear it.` : "In plain English. One or two sentences is plenty."}
         long value={section.instruction} issues={on("instruction")} onChange={(v) => onChange({ instruction: v })} />
       {tag ? (
@@ -473,7 +473,7 @@ export function SectionFields({
         )
       )}
       {section.branches.map((branch, j) => (
-        <Text key={j} id={id(`branch-${j}`)} label={`Way out ${j + 1}: when`} hint="In plain English." maxLength={300}
+        <Text key={j} id={id(`branch-${j}`)} label={`Then go to… ${j + 1}: when`} hint="In plain English." maxLength={300}
           value={branch.when} issues={on(`branch-${j}`)}
           onChange={(v) => onChange({ branches: section.branches.map((b, k) => (k === j ? { ...b, when: v } : b)) })} />
       ))}

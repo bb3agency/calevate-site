@@ -34,7 +34,7 @@ export type DraftOutcome = "kept" | "discarded" | null;
 function doing(phase: DraftPhase | null): string {
   switch (phase) {
     case "reading":
-      return "Reading your main task and sources";
+      return "Reading what it is for, and its files and notes";
     case "writing":
       return "Writing the script";
     case "checking":
@@ -50,7 +50,7 @@ function doing(phase: DraftPhase | null): string {
 function done(phase: DraftPhase): string {
   switch (phase) {
     case "reading":
-      return "Read your main task and sources";
+      return "Read what it is for, and its files and notes";
     case "writing":
       return "Wrote the script";
     case "checking":

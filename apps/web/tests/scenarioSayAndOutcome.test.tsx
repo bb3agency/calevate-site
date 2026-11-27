@@ -18,8 +18,8 @@ import {
 import { noReply, renderClientPage, type ApiCall, type Routes } from "./harness";
 
 /**
- * The call flow's "Say this line exactly" switch on a scenario (D-1035) and each step's
- * "Outcome of this step" (founder, 23 Nov 2026), both saved with the flow's one Save.
+ * The call flow's "Say it word for word" switch on a scenario (D-1035) and each step's
+ * "Done when…" (founder, 23 Nov 2026), both saved with the flow's one Save.
  */
 
 const base = `/v1/campaigns/${FIXTURE_CAMPAIGN_ID}`;
@@ -73,10 +73,10 @@ const savedScript = (calls: ApiCall[]): CallScript => {
 
 const openScenario = async () => {
   fireEvent.click(await screen.findByRole("button", { name: /Does not remember us/ }));
-  return screen.getByRole("switch", { name: /Say this line exactly/ }) as HTMLInputElement;
+  return screen.getByRole("switch", { name: /Say it word for word/ }) as HTMLInputElement;
 };
 
-describe("Say this line exactly", () => {
+describe("Say it word for word", () => {
   it("is off by default, says what it means, and is a native control a keyboard reaches", async () => {
     await render();
     const toggle = await openScenario();
@@ -96,7 +96,7 @@ describe("Say this line exactly", () => {
     fireEvent.click(toggle);
     expect(toggle.checked).toBe(true);
     const card = screen.getByRole("button", { name: /Does not remember us/ });
-    expect(within(card).getByText("Exact words")).toBeTruthy();
+    expect(within(card).getByText("Word for word")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Save flow" }));
     await waitFor(() => expect(view.calls.some((c) => c.method === "PUT")).toBe(true));
     const saved = savedScript(view.calls);
@@ -130,11 +130,11 @@ describe("Say this line exactly", () => {
   });
 });
 
-describe("Outcome of this step", () => {
+describe("Done when…", () => {
   it("shows above each step's scenarios, counts to 300 and saves with the flow", async () => {
     const view = await render();
-    const box = (await screen.findByLabelText("Outcome of this step, step 1")) as HTMLTextAreaElement;
-    expect(screen.getByLabelText("Outcome of this step, step 2")).toBeTruthy();
+    const box = (await screen.findByLabelText("Done when…, step 1")) as HTMLTextAreaElement;
+    expect(screen.getByLabelText("Done when…, step 2")).toBeTruthy();
     expect(box.maxLength).toBe(STEP_OUTCOME_MAX);
     expect(screen.getAllByText(/What must be true before the call moves on/).length).toBeGreaterThan(0);
     fireEvent.change(box, { target: { value: "They know who is calling." } });
@@ -164,11 +164,11 @@ describe("Outcome of this step", () => {
       />,
       {},
     );
-    const region = await screen.findByRole("region", { name: "The call flow, step by step" });
-    expect((within(region).getByLabelText("Outcome of this step, step 2") as HTMLTextAreaElement).value).toBe(
+    const region = await screen.findByRole("region", { name: "The call steps" });
+    expect((within(region).getByLabelText("Done when…, step 2") as HTMLTextAreaElement).value).toBe(
       "The call is closed politely.",
     );
-    expect(within(region).getByText(/Exact words/)).toBeTruthy();
+    expect(within(region).getByText(/Word for word/)).toBeTruthy();
   });
 
   it("follows its step when steps are inserted or closed up, and a blank one is removed", () => {

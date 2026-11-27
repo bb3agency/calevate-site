@@ -33,14 +33,14 @@ describe("the opening line's room (D-846)", () => {
     );
     const { rerender } = render(opening("Namaskaram"));
     expect(screen.getByText("10 characters left")).toBeTruthy();
-    const box = screen.getByRole("textbox", { name: /Opening line/ });
+    const box = screen.getByRole("textbox", { name: /First thing it says/ });
     expect(box.getAttribute("aria-invalid")).toBeNull();
 
     rerender(opening("a".repeat(25)));
     expect(screen.getByText("5 characters too long")).toBeTruthy();
     expect(box.getAttribute("aria-invalid")).toBe("true");
     // The meter is part of the box's description, so the count is read with it.
-    const meter = screen.getByRole("meter", { name: "Opening line length" });
+    const meter = screen.getByRole("meter", { name: "First thing it says length" });
     expect(box.getAttribute("aria-describedby")).toContain(meter.parentElement?.id ?? "missing");
   });
 });

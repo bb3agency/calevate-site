@@ -42,6 +42,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { TrialLockNotice } from "../TrialLockNotice";
 import { listBlockerNote } from "./blockerCopy";
 import { CampaignStatusPill } from "./campaignStatus";
+import { FROM_LIST } from "./jobBack";
 import { needsReviewRead, reviewHoldsResume } from "./resumeHold";
 
 const PAGE_SIZE = 25;
@@ -143,7 +144,8 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
     if (settledPages !== undefined && page > settledPages) setPage(settledPages);
   }, [page, settledPages]);
   const everything = data ? Object.values(data.status_counts).reduce((a, b) => a + b, 0) : 0;
-  const detail = (id: string) => href(`/c/${slug}/campaigns/${id}`);
+  // `?from=list`: the campaign page then leads back here rather than to its agent.
+  const detail = (id: string) => href(`/c/${slug}/campaigns/${id}?${FROM_LIST}`);
   const newHref = href(`/c/${slug}/campaigns/new`);
   const at = (path: string) => href(`/c/${slug}${path}`);
   const filtered = Boolean(status || search || archived);
@@ -491,9 +493,9 @@ function rowFix(
   }
   // The row shows no question, so the button names what it asks for: "Answer" alone
   // answered nothing the owner could see.
-  if (campaign.consent_provenance_blocker === "consent_provenance_missing") return { href: detail, label: "Add list source" };
-  if (campaign.consent_provenance_blocker === "consent_source_refused") return { href: detail, label: "Fix list source" };
-  if ((campaign.launch_blockers ?? 0) > 0) return { href: detail, label: "See what to fix" };
+  if (campaign.consent_provenance_blocker === "consent_provenance_missing") return { href: `${detail}&tab=checks`, label: "Add list source" };
+  if (campaign.consent_provenance_blocker === "consent_source_refused") return { href: `${detail}&tab=checks`, label: "Fix list source" };
+  if ((campaign.launch_blockers ?? 0) > 0) return { href: `${detail}&tab=checks`, label: "See what to fix" };
   return null;
 }
 

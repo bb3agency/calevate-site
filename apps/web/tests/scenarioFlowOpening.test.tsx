@@ -89,7 +89,7 @@ describe("the opening in the call flow", () => {
   it("shows the stored opening first, links it to step 1, and is chosen like a scenario", async () => {
     const onSelect = vi.fn();
     const { container } = await view({ onSelect });
-    const node = await screen.findByRole("button", { name: /^Opening: Hello, this is the farm desk/ });
+    const node = await screen.findByRole("button", { name: /^First thing it says: Hello, this is the farm desk/ });
     expect(node.textContent).toContain(`“${OPENING}”`);
     expect(container.querySelector('path[data-link="@opening-a"]')).not.toBeNull();
     expect(container.querySelector('path[data-link="@opening-b"]')).toBeNull();
@@ -106,16 +106,16 @@ describe("the opening in the call flow", () => {
 
   it("reads a both agent's placed-call opening when it has one", async () => {
     await view({ script: { ...SCRIPT, outbound_opening_line: PLACED }, direction: "both" });
-    expect(await screen.findByText("Opening when it calls")).toBeTruthy();
+    expect(await screen.findByText("First thing it says when it calls")).toBeTruthy();
     expect(screen.getByText(`“${PLACED}”`)).toBeTruthy();
   });
 
   it("reads the opening a campaign's calls speak, never a stray placed-call line", async () => {
     const onChange = vi.fn();
     await view({ script: { ...SCRIPT, outbound_opening_line: PLACED }, selected: OPENING_KEY, onChange });
-    expect(await screen.findByRole("button", { name: /^Opening: Hello, this is the farm desk/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /^First thing it says: Hello, this is the farm desk/ })).toBeTruthy();
     expect(screen.queryByText(`“${PLACED}”`)).toBeNull();
-    const box = screen.getByRole("textbox", { name: "Opening line" }) as HTMLTextAreaElement;
+    const box = screen.getByRole("textbox", { name: "First thing it says" }) as HTMLTextAreaElement;
     expect(box.value).toBe(OPENING);
     fireEvent.change(box, { target: { value: "Hello again." } });
     const next = onChange.mock.calls[0][0] as CallScript;
@@ -125,7 +125,7 @@ describe("the opening in the call flow", () => {
 
   it("leads the stacked steps on a phone", async () => {
     await view({ wide: false });
-    const opening = await screen.findByRole("region", { name: "Opening" });
+    const opening = await screen.findByRole("region", { name: "First thing it says" });
     expect(opening.textContent).toContain(OPENING);
     expect(opening.textContent).toContain("Next: 1.1");
     expect(opening.textContent).toContain("Not now: Offer a call back");
@@ -136,14 +136,14 @@ describe("the opening's own editor", () => {
   it("holds the opening line alone, edited in the canvas's working script", async () => {
     const onChange = vi.fn();
     await view({ selected: OPENING_KEY, onChange });
-    const panel = await screen.findByRole("complementary", { name: "Edit the opening" });
-    const box = screen.getByRole("textbox", { name: "Opening line" }) as HTMLTextAreaElement;
+    const panel = await screen.findByRole("complementary", { name: "Edit the first thing it says" });
+    const box = screen.getByRole("textbox", { name: "First thing it says" }) as HTMLTextAreaElement;
     expect(panel.contains(box)).toBe(true);
     expect(box.value).toBe(OPENING);
     expect(box.maxLength).toBe(OPENING_LINE_MAX);
     expect(panel.textContent).toContain(`${OPENING.length}/${OPENING_LINE_MAX}`);
     // Nothing else of the script: no scenario fields.
-    expect(screen.queryByRole("textbox", { name: "Scenario name" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "What the caller might say" })).toBeNull();
     fireEvent.change(box, { target: { value: "Namaste." } });
     expect(onChange).toHaveBeenCalledWith({ ...SCRIPT, opening_line: "Namaste." });
   });
@@ -152,7 +152,7 @@ describe("the opening's own editor", () => {
     const onChange = vi.fn();
     const script = { ...SCRIPT, outbound_opening_line: PLACED };
     await view({ script, direction: "both", selected: OPENING_KEY, onChange });
-    const box = (await screen.findByRole("textbox", { name: "Opening line when it calls" })) as HTMLTextAreaElement;
+    const box = (await screen.findByRole("textbox", { name: "First thing it says when it calls" })) as HTMLTextAreaElement;
     expect(box.value).toBe(PLACED);
     fireEvent.change(box, { target: { value: "Calling again." } });
     expect(onChange).toHaveBeenCalledWith({ ...script, outbound_opening_line: "Calling again." });
@@ -161,8 +161,8 @@ describe("the opening's own editor", () => {
   it("asks Pip to change the opening alone, by its part name", async () => {
     const rewrite = ask();
     await view({ selected: OPENING_KEY, rewriteOpening: rewrite });
-    fireEvent.click(await screen.findByRole("button", { name: "Ask Pip to change Opening line" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "What should Pip change in Opening line?" }), {
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Pip to change First thing it says" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "What should Pip change in First thing it says?" }), {
       target: { value: "make it warmer" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Rewrite" }));
@@ -171,22 +171,22 @@ describe("the opening's own editor", () => {
 
   it("waits for unsaved changes before Pip rewrites it", async () => {
     await view({ selected: OPENING_KEY, rewriteOpening: ask({ held: "Save your changes first." }) });
-    const button = (await screen.findByRole("button", { name: "Ask Pip to change Opening line" })) as HTMLButtonElement;
+    const button = (await screen.findByRole("button", { name: "Ask Pip to change First thing it says" })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.title).toBe("Save your changes first.");
   });
 
   it("is read-only for someone who cannot change the script", async () => {
     await view({ selected: OPENING_KEY, readOnly: true, rewriteOpening: ask() });
-    const box = (await screen.findByRole("textbox", { name: "Opening line" })) as HTMLTextAreaElement;
+    const box = (await screen.findByRole("textbox", { name: "First thing it says" })) as HTMLTextAreaElement;
     expect(box.readOnly).toBe(true);
     expect(screen.queryByRole("button", { name: /Ask Pip to change/ })).toBeNull();
   });
 
   it("opens under the opening on a phone", async () => {
     await view({ wide: false, selected: OPENING_KEY });
-    const opening = await screen.findByRole("region", { name: "Opening" });
-    const box = screen.getByRole("textbox", { name: "Opening line" });
+    const opening = await screen.findByRole("region", { name: "First thing it says" });
+    const box = screen.getByRole("textbox", { name: "First thing it says" });
     expect(opening.contains(box)).toBe(true);
     expect(screen.getByRole("button", { expanded: true }).textContent).toContain(OPENING);
   });

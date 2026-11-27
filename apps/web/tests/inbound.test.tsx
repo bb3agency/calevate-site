@@ -191,7 +191,7 @@ describe("the inbound list", () => {
     expect(within(rows[1]).getByText("Draft")).toBeTruthy();
     expect(within(rows[1]).getByText("No number yet")).toBeTruthy();
     expect(within(rows[1]).getByRole("link", { name: "Evening line" }).getAttribute("href")).toBe(
-      `/c/acme/inbound/${OTHER_LINE_ID}`,
+      `/c/acme/inbound/${OTHER_LINE_ID}?from=list`,
     );
   });
 
@@ -224,7 +224,7 @@ describe("one inbound line", () => {
       linePage(),
       lineRoutes(line(), { [`PATCH /v1/inbound-lines/${LINE_ID}`]: line({ main_task: "Book visits." }) }),
     );
-    const task = await screen.findByRole("textbox", { name: "Main task" });
+    const task = await screen.findByRole("textbox", { name: "What this line is for" });
     fireEvent.change(task, { target: { value: "Book visits." } });
     fireEvent.click(within(task.closest("section") ?? document.body).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(writes(rendered.calls)).toHaveLength(1));

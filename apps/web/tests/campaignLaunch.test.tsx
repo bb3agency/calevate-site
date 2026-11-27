@@ -1,7 +1,7 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { campaignPage, detailRoutes, dltRegistrationRoute, progressFixture } from "./campaignFixtures";
+import { campaignPage, detailRoutes, dltRegistrationRoute, openTab, progressFixture } from "./campaignFixtures";
 import type { Agent } from "@/lib/api/agents";
 import type {
   CampaignProgress,
@@ -130,7 +130,7 @@ const AGENT: Agent = {
   llm_surcharged: false,
 };
 
-/** Draft, because the "Mandatory Regulatory Compliance Checks" card only exists for a draft. */
+/** Draft, because the "Before it can call" card only exists for a draft. */
 const PROGRESS: CampaignProgress = progressFixture({ total: 4 });
 
 function check(...blockers: { rule: string; reason: string }[]): LaunchCheck {
@@ -155,7 +155,8 @@ async function openLaunchPanel(
     [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: launchCheck,
     ...over,
   });
-  await screen.findByText("Mandatory Regulatory Compliance Checks");
+  await screen.findByText("Before it can call");
+  await openTab("Checks");
   return rendered;
 }
 
@@ -167,7 +168,7 @@ async function openStart(): Promise<HTMLElement> {
 
 /** The rows of the compliance card's checklist, not every list on the page. */
 function gateRows(): NodeListOf<HTMLLIElement> {
-  const card = screen.getByText("Mandatory Regulatory Compliance Checks").closest("section");
+  const card = screen.getByText("Before it can call").closest("section");
   return card!.querySelectorAll("li");
 }
 
@@ -195,7 +196,7 @@ describe("the launch panel with blockers outstanding", () => {
     const named = Array.from(box.querySelectorAll(".text-danger")).map((line) => line.textContent);
     expect(named).toEqual([
       "• Add the people to call.",
-      "• Publish your agent first.",
+      "• Put your agent live first.",
       "• Accept the no-cold-calls promise.",
     ]);
     expect((within(box).getByRole("button", { name: "Start campaign" }) as HTMLButtonElement).disabled).toBe(true);
@@ -517,13 +518,14 @@ describe("launching", () => {
       [LAUNCH_ROUTE]: problem(402, { title: "Your credit has run out", detail: "Top up to start calling." }),
     });
     fireEvent.click(screen.getByRole("button", { name: "Call 120 people" }));
-    const card = screen.getByText("Mandatory Regulatory Compliance Checks").closest("section") as HTMLElement;
+    const card = screen.getByText("Before it can call").closest("section") as HTMLElement;
     expect(await within(card).findByText(/Top up to start calling\./)).toBeTruthy();
   });
 
   /** The Other call settings section, where hours, calls at once, the number and the kind of call sit. */
   function otherSettings(): HTMLElement {
-    return screen.getByRole("button", { name: "Other call settings" }).closest("section") as HTMLElement;
+    // On the Settings tab, which stays mounted while Checks shows.
+    return screen.getByText("Other call settings").closest("section") as HTMLElement;
   }
 
   it("shows the hours, calls at once and the calling number in Other call settings", async () => {
@@ -594,6 +596,7 @@ describe("launching", () => {
     await vi.waitFor(() => expect(section.textContent).toContain("Follow-up to an enquiry"));
     expect(section.textContent).toContain("Permission lasts 7 days from their enquiry.");
     // What the launch check does not do sits behind the tap.
+    await openTab("Settings");
     fireEvent.click(within(section).getByRole("button", { name: "Why?" }));
     expect(section.textContent).toContain("We don't check each person's date for you.");
   });

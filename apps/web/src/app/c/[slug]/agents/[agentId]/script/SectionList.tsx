@@ -290,7 +290,7 @@ function SectionSummary({
     <span className="block space-y-1">
       <span className="flex items-start gap-2">
         <span className="min-w-0 break-words text-body font-semibold text-ink">{s.name.trim() || "Untitled step"}</span>
-        {s.mode === "say" && <span className="shrink-0 pt-0.5 text-meta text-ink-muted">Exact words</span>}
+        {s.mode === "say" && <span className="shrink-0 pt-0.5 text-meta text-ink-muted">Word for word</span>}
       </span>
       <span className="line-clamp-2 block text-meta text-ink-muted">
         {s.instruction.trim() || "Nothing written yet."}

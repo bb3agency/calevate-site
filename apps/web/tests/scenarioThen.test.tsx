@@ -70,7 +70,7 @@ const view = (opts: { wide?: boolean; readOnly?: boolean; script?: CallScript } 
 describe("the call's own order on the canvas", () => {
   it("draws a quiet link on to the next step, and none past an Otherwise", async () => {
     const { container } = await view().rendered;
-    await screen.findByRole("button", { name: /Scenario 1\.1/ });
+    await screen.findByRole("button", { name: /Reply 1\.1/ });
     const login = container.querySelector('path[data-link="login~then~farms"]');
     expect(login).not.toBeNull();
     expect(login?.getAttribute("data-via")).toBe("then");
@@ -95,18 +95,18 @@ describe("the call's own order on the canvas", () => {
 
   it("says where each scenario goes on, and the last step ends the call", async () => {
     const { container } = await view().rendered;
-    await screen.findByRole("button", { name: /Scenario 1\.1/ });
+    await screen.findByRole("button", { name: /Reply 1\.1/ });
     const said = (id: string) => container.querySelector(`[data-then="${id}"]`)?.textContent ?? "";
     expect(said("login")).toContain("Then step 2");
     expect(said("farms")).toContain("Then step 3");
     expect(said("expenses")).toContain("Then end of call");
     expect(container.textContent).not.toContain("No next yet");
-    expect(screen.getByRole("button", { name: /Scenario 3\.1: Enter Expenses\. Then end of call\./ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Reply 3\.1: Enter Expenses\. Then end of call\./ })).toBeTruthy();
   });
 
   it("offers no remove control on the call's own order", async () => {
     const { container } = await view().rendered;
-    await screen.findByRole("button", { name: /Scenario 1\.1/ });
+    await screen.findByRole("button", { name: /Reply 1\.1/ });
     expect(container.querySelector('[data-link-hit="login~then~farms"]')).toBeNull();
     expect(container.querySelector('[data-unlink="login~then~farms"]')).toBeNull();
     // The owner's own way out keeps its ×, on its chip.
@@ -132,7 +132,7 @@ describe("the call's own order on the canvas", () => {
 
   it("passes axe on the canvas and stacked", async () => {
     const wide = await view().rendered;
-    await screen.findByRole("button", { name: /Scenario 1\.1/ });
+    await screen.findByRole("button", { name: /Reply 1\.1/ });
     await expectNoA11yViolations(wide.container, "call flow with the call's own order");
     wide.unmount();
     const narrow = await view({ wide: false }).rendered;

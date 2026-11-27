@@ -73,6 +73,6 @@ export function renderMeasurement(measurement: Measurement): string {
 export const BASIS_NOTE: Record<Basis, string> = {
   measured: "",
   too_few:
-    "Too few scenarios for a percentage to mean anything, so the count is shown instead.",
+    "Too few practice calls for a percentage to mean anything, so the count is shown instead.",
   no_baseline: "No previous report to compare against, so no trend is claimed this month.",
 };

@@ -46,7 +46,7 @@ describe("a saved script, edited one part at a time", () => {
 
   it("leaves out the parts the canvas edits, the steps, and parts nobody can add to while empty", () => {
     render(<ScriptPartsEditor script={SCRIPT} leaveOut={CANVAS} steps={false} onSave={() => {}} onClose={() => {}} />);
-    expect(screen.queryByRole("button", { name: /^Opening line/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^First thing it says/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Greet/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Example call/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^What each step must reach/ })).toBeNull();
@@ -55,7 +55,7 @@ describe("a saved script, edited one part at a time", () => {
 
   it("lists the opening line and each step where nothing else edits them", () => {
     render(<ScriptPartsEditor script={SCRIPT} leaveOut={["outbound_purpose", "outbound_opening_line"]} onSave={() => {}} onClose={() => {}} />);
-    expect(toggle("Opening line").textContent).toContain("Hello, this is the service desk.");
+    expect(toggle("First thing it says").textContent).toContain("Hello, this is the service desk.");
     fireEvent.click(toggle("Greet"));
     expect((screen.getByRole("textbox", { name: "Step name" }) as HTMLInputElement).value).toBe("Greet");
     expect(screen.queryByRole("button", { name: /^Why you are calling/ })).toBeNull();
@@ -117,7 +117,7 @@ describe("a saved script, edited one part at a time", () => {
     expect(screen.queryByRole("button", { name: /^Generate/ })).toBeNull();
     fireEvent.click(toggle("The goal"));
     const panel = screen.getByRole("region", { name: /The goal/ });
-    fireEvent.click(within(panel).getByRole("button", { name: "Generate The goal in Telugu" }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Write The goal in Telugu" }));
     expect(onGenerate).toHaveBeenCalledWith("The goal", "te-IN");
   });
 });

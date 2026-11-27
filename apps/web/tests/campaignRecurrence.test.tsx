@@ -1,7 +1,7 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { campaignPage, detailRoutes, progressFixture } from "./campaignFixtures";
+import { campaignPage, detailRoutes, openTab, progressFixture } from "./campaignFixtures";
 import type { Agent } from "@/lib/api/agents";
 import type {
   CampaignProgress,
@@ -170,6 +170,7 @@ describe("a campaign that repeats", () => {
     const { container } = await openCampaign(skipped);
 
     await screen.findByText("Repeats");
+    await openTab("Settings");
     expect(container.textContent).toContain(
       "Skipped Tuesday, 11 Aug",
     );
@@ -184,7 +185,7 @@ describe("a campaign that repeats", () => {
 
   it("offers one labelled stop, and says what stopping does not do", async () => {
     const { container } = await openCampaign(REPEATING);
-
+    await openTab("Settings");
     const stop = await screen.findByRole("button", { name: "Stop repeating" });
     expect((stop as HTMLButtonElement).disabled).toBe(false);
     // The half a client would otherwise assume: stopping a repeat is not a pause.
@@ -212,6 +213,7 @@ describe("a campaign that repeats", () => {
     const { container } = await openCampaign(running);
 
     await screen.findByText("Repeats");
+    await openTab("Settings");
     expect(container.textContent).toContain("Next: Tuesday, 18 Aug");
     expect(screen.getByRole("button", { name: "Stop repeating" })).toBeTruthy();
   });

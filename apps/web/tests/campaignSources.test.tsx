@@ -58,11 +58,11 @@ describe("a campaign's sources", () => {
     const rendered = await render({
       [`PUT ${base}/sources`]: workspaceFixture({ source_ids: [FILE_ID] }),
     });
-    const list = await screen.findByRole("group", { name: "Sources for this campaign" });
+    const list = await screen.findByRole("group", { name: "Files and notes for this campaign" });
     expect(within(list).getByText("Price list.pdf")).toBeTruthy();
     expect(within(list).getByText("Diwali offer")).toBeTruthy();
     fireEvent.click(within(list).getByRole("checkbox", { name: /Price list\.pdf/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Save sources" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save files and notes" }));
     await waitFor(() =>
       expect(bodyOf(rendered.calls, "PUT", `${base}/sources`)).toEqual({ source_ids: [FILE_ID] }),
     );
@@ -72,7 +72,7 @@ describe("a campaign's sources", () => {
 
   it("shows the saved picks ticked", async () => {
     await render({ [`${base}/workspace`]: workspaceFixture({ source_ids: [NOTE_ID] }) });
-    const list = await screen.findByRole("group", { name: "Sources for this campaign" });
+    const list = await screen.findByRole("group", { name: "Files and notes for this campaign" });
     expect((within(list).getByRole("checkbox", { name: /Diwali offer/ }) as HTMLInputElement).checked).toBe(true);
     expect((within(list).getByRole("checkbox", { name: /Price list\.pdf/ }) as HTMLInputElement).checked).toBe(false);
     expect(screen.getByText("1 chosen")).toBeTruthy();
@@ -81,7 +81,7 @@ describe("a campaign's sources", () => {
   it("counts only the picks still in the list, not removed sources", async () => {
     const GONE_ID = "0192f0aa-5555-7000-8000-0000000000ff";
     await render({ [`${base}/workspace`]: workspaceFixture({ source_ids: [NOTE_ID, GONE_ID] }) });
-    await screen.findByRole("group", { name: "Sources for this campaign" });
+    await screen.findByRole("group", { name: "Files and notes for this campaign" });
     expect(screen.getByText("1 chosen")).toBeTruthy();
     expect(screen.queryByText("2 chosen")).toBeNull();
   });
@@ -90,7 +90,7 @@ describe("a campaign's sources", () => {
     const rendered = await render({
       [`POST ${base}/sources/note`]: workspaceFixture({ source_ids: [NEW_ID] }),
     });
-    await screen.findByRole("group", { name: "Sources for this campaign" });
+    await screen.findByRole("group", { name: "Files and notes for this campaign" });
     fireEvent.click(screen.getByRole("button", { name: "Add a file or note" }));
     fireEvent.change(screen.getByLabelText("Note"), { target: { value: "Service plans start at 999." } });
     fireEvent.change(screen.getByLabelText(/Name/), { target: { value: "Plan prices" } });
@@ -109,7 +109,7 @@ describe("a campaign's sources", () => {
 
   it("refuses an empty note before sending anything", async () => {
     const rendered = await render();
-    await screen.findByRole("group", { name: "Sources for this campaign" });
+    await screen.findByRole("group", { name: "Files and notes for this campaign" });
     fireEvent.click(screen.getByRole("button", { name: "Add a file or note" }));
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Write the note.");
@@ -122,11 +122,11 @@ describe("a campaign's sources", () => {
       [`${base}/workspace`]: workspaceFixture({ source_ids: [NOTE_ID, GONE] }),
       [`PUT ${base}/sources`]: workspaceFixture({ source_ids: [NOTE_ID] }),
     });
-    await screen.findByRole("group", { name: "Sources for this campaign" });
-    expect(screen.getByText("1 picked source was removed.")).toBeTruthy();
+    await screen.findByRole("group", { name: "Files and notes for this campaign" });
+    expect(screen.getByText("1 picked file or note was removed.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Clear them" }));
-    expect(screen.queryByText("1 picked source was removed.")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Save sources" }));
+    expect(screen.queryByText("1 picked file or note was removed.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save files and notes" }));
     await waitFor(() =>
       expect(bodyOf(rendered.calls, "PUT", `${base}/sources`)).toEqual({ source_ids: [NOTE_ID] }),
     );
@@ -143,7 +143,7 @@ describe("a replaced file", () => {
   it("is listed once, as its live version", async () => {
     const old: KbUpload = { ...UPLOAD, id: "upload-0", source_id: NEW_ID, review_state: "archived", is_live: false };
     await render({ "/v1/kb/uploads": [UPLOAD, old] });
-    const list = await screen.findByRole("group", { name: "Sources for this campaign" });
+    const list = await screen.findByRole("group", { name: "Files and notes for this campaign" });
     expect(within(list).getAllByText("Price list.pdf")).toHaveLength(1);
   });
 });

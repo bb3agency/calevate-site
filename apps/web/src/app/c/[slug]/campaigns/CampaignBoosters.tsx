@@ -59,7 +59,7 @@ import { useTestRingsFrom } from "@/lib/api/trialCalls";
 import { FallbackNote, RingsFromNote } from "../TestCallStatus";
 import { FoldSection } from "./FoldSection";
 import { SlotsFullProblem, isSlotsFull } from "./SlotHolders";
-import { agentSectionId } from "./StartCampaign";
+import { agentSectionId } from "./campaignSections";
 import { AgentChoice } from "./NewCampaignSteps";
 import { TestCallList } from "./TestCallList";
 
@@ -430,7 +430,7 @@ export function WhatsAppFollowUp({ slug, campaignId, canWrite, refusal }: Omit<C
       hint="A message after a call that did not finish, or where they asked for details."
       info={
         <p>
-          Pip writes the message from this campaign&apos;s main task and
+          Pip writes the message from what this campaign is for and its
           knowledge, and WhatsApp checks it before it can be sent. Nothing is
           sent until you turn it on.
         </p>

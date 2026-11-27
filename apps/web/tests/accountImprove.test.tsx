@@ -292,7 +292,7 @@ describe("Pip's fixes", () => {
     const rows = within(await screen.findByRole("list", { name: "Pip's fixes" })).getAllByRole("listitem");
     expect(rows[0]!.textContent).toContain("Repaired lines the script checks found");
     expect(rows[1]!.textContent).toContain("Set the calling hours to 10:00 to 13:00");
-    expect(within(rows[0]!).getByRole("link").getAttribute("href")).toBe("/c/acme/campaigns/camp-other");
+    expect(within(rows[0]!).getByRole("link").getAttribute("href")).toBe("/c/acme/campaigns/camp-other?tab=script");
     expect(within(rows[2]!).getByRole("link").getAttribute("href")).toBe("/c/acme/inbound/line-1#line-script");
     // Narrowed hours are a setting, not a script version: they are put back on the campaign's
     // Improve tab, so the row opens that rather than Versions, where they are not.

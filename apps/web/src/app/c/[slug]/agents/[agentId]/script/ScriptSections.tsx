@@ -335,7 +335,7 @@ export function OpeningEditor({
   const sections = [
     {
       id: "opening_line",
-      title: both ? "When it answers" : "Opening line",
+      title: both ? "When it answers" : "First thing it says",
       // D-971: a notice switched on is woven into this line when it goes live.
       hint: both
         ? "First words to a caller. Pip adds any notice you switch on."
@@ -398,7 +398,7 @@ export function OpeningEditor({
         strings={{
           left: (n) => `${n} ${n === "1" ? "character" : "characters"} left`,
           over: (n) => `${n} ${n === "1" ? "character" : "characters"} too long`,
-          previewEmpty: "Write the opening line to see how the call starts.",
+          previewEmpty: "Write the first thing it says to see how the call starts.",
         }}
       />
     </section>
@@ -574,7 +574,7 @@ export function ObjectionsSection({
       )}
       <CleanedNote shown={plain.cleaned} />
       <AddButton
-        label="Add a push-back"
+        label="Add what they might say"
         onClick={() => onChange([...objections, { objection: "", response: "" }])}
       />
     </Section>
@@ -643,8 +643,8 @@ export function PoliciesSection({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
         <span>
           {context?.hand_over_enabled
-            ? "Hand-over to a person: on, when someone is on duty."
-            : "Hand-over to a person: off. It says nobody is free."}
+            ? "Pass to a person: on, when someone is on duty."
+            : "Pass to a person: off. It says nobody is free."}
         </span>
         {settings && (
           <Link href={settings.href} onClick={settings.onClick} scroll={false} className={TEXT_ACTION}>
@@ -752,15 +752,15 @@ export function StrictnessSection({
   const options = [
     {
       value: "flexible" as const,
-      label: "As a guide",
-      full: "Use the steps as a guide",
+      label: "Loosely",
+      full: "Loosely",
       hint: "It follows your order, but goes where the caller goes.",
     },
     {
       value: "strict" as const,
       label: "Closely",
-      full: "Follow the steps closely",
-      hint: "It goes in order and keeps closely to your exact words.",
+      full: "Closely",
+      hint: "It goes in order and keeps close to your words.",
     },
   ];
   // A segmented switch, not an on/off toggle: these are two named ways of working, and a
@@ -769,8 +769,8 @@ export function StrictnessSection({
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <span className="flex items-center gap-1">
-        <span className="text-body font-medium text-ink">How closely it follows them</span>
-        <InfoTip label="how closely it follows the steps" align="start">
+        <span className="text-body font-medium text-ink">Stick to the steps</span>
+        <InfoTip label="sticking to the steps" align="start">
           {options.map((option) => (
             <p key={option.value}>
               <span className="font-medium text-ink">{option.full}:</span> {option.hint}
@@ -779,7 +779,7 @@ export function StrictnessSection({
         </InfoTip>
       </span>
       <SegmentedControl
-        label="How closely it follows the steps"
+        label="Stick to the steps"
         options={options.map(({ value: v, label }) => ({ value: v, label }))}
         value={value}
         onValueChange={(next) => onChange(next === "strict" ? "strict" : "flexible")}

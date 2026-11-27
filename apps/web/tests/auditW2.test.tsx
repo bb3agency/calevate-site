@@ -101,7 +101,7 @@ describe("a step in exact words", () => {
       />,
       {},
     );
-    const words = screen.getByRole("textbox", { name: "The exact words to say" });
+    const words = screen.getByRole("textbox", { name: "What it says, word for word" });
     expect(words.getAttribute("placeholder") ?? "").not.toMatch(/cheppagalara/);
   });
 });
