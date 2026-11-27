@@ -174,13 +174,15 @@ async def rings_from(
     a new engine agent in a full workspace rings from our test number, or not at all when that
     is not set (`trial_calls.place_trial_call` decides the same way when the owner presses)."""
     from apps.api.agents.service import allowance_refusal, test_copy_ref
-    from apps.api.agents.trial_calls import trial_calling_ready
+    from apps.api.agents.trial_calls import NOT_READY_REASON, trial_calling_ready
 
     number = await own_caller_number(
         session, tenant_id=tenant_id, agent_id=agent_id, line_id=line_id, campaign_id=campaign_id
     )
     if number is None:
-        return RingsFrom()
+        # It would ring from our test number, which the trial panel and the press both refuse
+        # while none is set: said here in the same words, so no screen promises a ring.
+        return RingsFrom() if trial_calling_ready() else RingsFrom(unavailable=NOT_READY_REASON)
     workspace = await resolve_workspace(session, tenant_id)
     if not await _needs_new_setup(
         session,

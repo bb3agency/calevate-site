@@ -50,6 +50,7 @@ export function AgentTakingShape({
   loaded,
   compact = false,
   voiceNote = null,
+  voiceNoteFor = null,
   documents = [],
   work = null,
 }: {
@@ -63,6 +64,8 @@ export function AgentTakingShape({
   compact?: boolean;
   /** Why the build chose this voice when it is not a woman's Studio voice (`voicePickNote`). */
   voiceNote?: string | null;
+  /** The voice `voiceNote` is about, by name. */
+  voiceNoteFor?: string | null;
   /** The files added on the brief step (D-918). */
   documents?: readonly FirstRunDocument[];
   /** The first work it was given (Phase 3b), whose script says what it says. */
@@ -91,7 +94,7 @@ export function AgentTakingShape({
     <>
       <ol className="divide-y divide-line">
         <Row id="voice" title="Voice" pieces={pieces} fresh={fresh}>
-          <VoiceLine agent={agent} note={voiceNote} />
+          <VoiceLine agent={agent} note={voiceNote} noteFor={voiceNoteFor} />
         </Row>
         <Row id="work" title="Its first work" pieces={pieces} fresh={fresh}>
           {work ? (
@@ -211,7 +214,17 @@ function Example({ children }: { children: ReactNode }) {
   );
 }
 
-export function VoiceLine({ agent, note }: { agent: Agent | null; note: string | null }) {
+export function VoiceLine({
+  agent,
+  note,
+  noteFor = null,
+}: {
+  agent: Agent | null;
+  note: string | null;
+  /** The voice the note is about (the one the build chose, by name): once the owner picks
+   *  another, the note no longer describes the voice shown and is not said. */
+  noteFor?: string | null;
+}) {
   const session = useClientSession();
   const { href } = useClientRealm();
   const catalogue = useEngineCatalogue(session);
@@ -246,7 +259,7 @@ export function VoiceLine({ agent, note }: { agent: Agent | null; note: string |
           {change}
         </span>
       </div>
-      {note ? <p className="text-meta text-ink-muted">{note}</p> : null}
+      {note && (noteFor === null || voice?.label === noteFor) ? <p className="text-meta text-ink-muted">{note}</p> : null}
     </div>
   );
 }

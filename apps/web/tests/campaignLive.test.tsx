@@ -106,7 +106,7 @@ describe("the live panel of a running campaign", () => {
     );
     await openTab("Progress & results");
     fireEvent.click(await screen.findByRole("button", { name: "About Calls at once" }));
-    expect((await screen.findAllByText("You set 5. Your account runs up to 2 calls at once.")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Set to 5. Your account runs up to 2 calls at once.")).length).toBeGreaterThan(0);
   });
 
   it("asks for nobody on a call while nobody is, and names the next try", async () => {

@@ -38,7 +38,9 @@ import { ChecksUnread } from "@/components/scriptChecks/ScriptNeedsFix";
 import {
   SHOW_FINDING_EVENT,
   findingWarnings,
+  isOpeningFinding,
   scrollToFirstFinding,
+  showRequestOf,
   useScriptChecks,
 } from "@/lib/api/scriptChecks";
 import type { ScriptRestore, ScriptVersions as ScriptVersionsData } from "@/lib/api/scriptVersions";
@@ -51,6 +53,7 @@ import {
   validate,
 } from "../agents/[agentId]/script/scriptModel";
 import { DESKTOP, useMedia } from "../agents/[agentId]/script/useMedia";
+import { OPENING_KEY } from "./flowLayout";
 import { ScenarioFlow } from "./ScenarioFlow";
 import { ScriptVersions } from "./ScriptVersions";
 import { ChooseAgentPrompt, useFlowAgent } from "./FlowAgentBar";
@@ -222,13 +225,18 @@ export function CampaignFlow({
     () => (checks.isSuccess ? findingWarnings(checks.data.findings) : []),
     [checks.isSuccess, checks.data],
   );
-  // "Show me" from the launch checklist or a refusal: open the flow on the first flagged step.
+  // "Show me" from the launch checklist or a refusal: open the flow on the flagged step or
+  // the opening, then land on its line. A finding on any other part is Edit script's
+  // (`ScriptSection`), which the flow leaves alone.
+  const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const show = (event: Event) => {
-      const stageId = (event as CustomEvent<{ stageId: string | null }>).detail?.stageId ?? null;
+      const request = showRequestOf(event);
+      const opening = isOpeningFinding(request);
+      if (!request.stageId && !opening) return;
       setFoldedState(false);
-      if (stageId) setSelected(stageId);
-      scrollToFirstFinding();
+      setSelected(request.stageId ?? OPENING_KEY);
+      scrollToFirstFinding(() => root.current);
     };
     window.addEventListener(SHOW_FINDING_EVENT, show);
     return () => window.removeEventListener(SHOW_FINDING_EVENT, show);
@@ -426,7 +434,7 @@ export function CampaignFlow({
 
   return (
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- Ctrl+Z / Ctrl+Y for the buttons in it
-    <div className="mt-6 border-t border-line pt-5" onKeyDown={onKeys}>
+    <div ref={root} className="mt-6 border-t border-line pt-5" onKeyDown={onKeys}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-body font-semibold text-ink">

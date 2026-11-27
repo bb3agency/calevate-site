@@ -151,8 +151,11 @@ export function FoldSection({
   info,
   defaultOpen = true,
   id,
+  reveal = 0,
   children,
 }: {
+  /** Each new value opens the section ("Show me" landing on something inside a folded one). */
+  reveal?: number;
   title: string;
   tone: FoldTone;
   /** One line under the name, inside the card. */
@@ -190,6 +193,9 @@ export function FoldSection({
       sectionRef.current?.scrollIntoView?.({ block: "start" });
     } else if (saved != null) setOpenState(saved);
   }, [storageKey, id]);
+  useEffect(() => {
+    if (reveal > 0) setOpen(true);
+  }, [reveal, setOpen]);
   const lastCommand = useRef<Command | null>(command);
   useEffect(() => {
     if (command && command !== lastCommand.current) setOpen(command.open);

@@ -273,6 +273,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
       loaded={loaded}
       compact={compact}
       voiceNote={voiceNote}
+      voiceNoteFor={voiceStep?.label ?? null}
       documents={run.data?.documents ?? []}
       work={work}
     />

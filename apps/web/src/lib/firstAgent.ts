@@ -156,6 +156,27 @@ export const JOBS: readonly JobCard[] = [
   },
 ];
 
+/*
+ * Whether the owner's own words already say which work comes first, read from the brief on
+ * the screen rather than asked of a model: the step is one tap either way, so a word match
+ * that is right when the brief is plain ("Call farmers who registered…") and silent when it is
+ * not is enough, and costs the owner no wait. Written in English; a brief in another language
+ * simply suggests nothing.
+ */
+const CALL_PEOPLE =
+  /\b(?:call|calls|calling|ring|phone|dial)\s+(?:up\s+)?(?:(?:our|my|the|all|each|every|new|registered|existing|past|old|interested|those|these)\s+){0,3}(?:customers?|clients?|leads?|farmers?|users?|people|students?|parents?|patients?|members?|subscribers?|buyers?|contacts?|enquir(?:y|ies)|prospects?|owners?|shops?|dealers?)\b|\b(?:outbound|cold calls?|calling list|call list)\b/i;
+const ANSWER_CALLS =
+  /\b(?:answer|answers|answering|pick up|picks up|take|takes|handle|handles|attend)\s+(?:(?:our|my|the|all|incoming|customer|customers'|phone|inbound)\s+){0,3}calls\b|\b(?:when|if)\s+(?:people|customers|someone|anyone|patients|clients|callers)\s+(?:call|calls|ring|rings|phone|phones)\s+(?:us|in)\b|\b(?:receptionist|incoming calls|inbound)\b/i;
+
+/** The first work the brief plainly asks for, or null when it names neither or both. */
+export function jobFromBrief(brief: string | null | undefined): FirstWorkJob | null {
+  const text = brief ?? "";
+  const out = CALL_PEOPLE.test(text);
+  const answer = ANSWER_CALLS.test(text);
+  if (out === answer) return null;
+  return out ? "call_leads" : "answer_calls";
+}
+
 export function jobCard(job: FirstRunJob | null | undefined): JobCard | null {
   return JOBS.find((card) => card.job === job) ?? null;
 }

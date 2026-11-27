@@ -415,6 +415,26 @@ async def test_a_full_workspace_rings_the_draft_from_the_shared_line_and_says_so
     assert held.own_number is not None and not held.setups_busy and held.unavailable is None
 
 
+async def test_a_test_with_no_number_of_its_own_says_it_cannot_ring_while_no_test_line_is_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The screen before a trial's test call and the trial panel read the same state: with no
+    shared test number, neither says "It rings from our test number" (C11/C12, 28 Nov 2026)."""
+
+    async def no_own_number(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(paid_test_calls, "own_caller_number", no_own_number)
+    ids = {"tenant_id": uuid.uuid4(), "agent_id": uuid.uuid4()}
+
+    monkeypatch.setattr(trial_calls, "trial_calling_ready", lambda: False)
+    held = await paid_test_calls.rings_from(None, **ids)  # type: ignore[arg-type]
+    assert held == paid_test_calls.RingsFrom(unavailable=trial_calls.NOT_READY_REASON)
+
+    monkeypatch.setattr(trial_calls, "trial_calling_ready", lambda: True)
+    assert await paid_test_calls.rings_from(None, **ids) == paid_test_calls.RingsFrom()  # type: ignore[arg-type]
+
+
 async def test_the_number_shown_before_a_test_is_the_one_it_rings_and_never_another_accounts(
     line: Line,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,

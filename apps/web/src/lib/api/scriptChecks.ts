@@ -110,17 +110,39 @@ export function fixLinesAsk(findings: readonly ScriptFinding[]): string {
 /** "Show me": the page scrolls to the first flagged line, opening its step where it can. */
 export const SHOW_FINDING_EVENT = "calevate:show-script-finding";
 
-export function showFinding(stageId: string | null): void {
-  window.dispatchEvent(new CustomEvent(SHOW_FINDING_EVENT, { detail: { stageId } }));
+/** Which finding "Show me" is for: its step, when it is on one, and the part it is on. */
+export type ShowRequest = { stageId: string | null; path: string | null };
+
+export function showFinding(finding: Pick<ScriptFinding, "stage_id" | "path"> | null | undefined): void {
+  const detail: ShowRequest = { stageId: finding?.stage_id ?? null, path: finding?.path ?? null };
+  window.dispatchEvent(new CustomEvent(SHOW_FINDING_EVENT, { detail }));
 }
 
-/** Scroll the first flagged line on the page into view and put the focus near it. */
-export function scrollToFirstFinding(): void {
+export function showRequestOf(event: Event): ShowRequest {
+  const detail = (event as CustomEvent<Partial<ShowRequest> | undefined>).detail;
+  return { stageId: detail?.stageId ?? null, path: detail?.path ?? null };
+}
+
+/** A finding on the line the call opens with. */
+export function isOpeningFinding(request: ShowRequest): boolean {
+  return /^(outbound_)?opening_line(\.|$)/.test(request.path ?? "");
+}
+
+/**
+ * Scroll the first flagged line on the page into view, tint it for a moment and put the
+ * focus near it. `fallback` is where to go when no line carries its finding on screen (a
+ * finding on a step whose editor shows it elsewhere): the owner still lands on the part,
+ * rather than a press that moves nothing.
+ */
+export function scrollToFirstFinding(fallback?: () => HTMLElement | null): void {
   window.requestAnimationFrame(() =>
     window.requestAnimationFrame(() => {
-      const first = document.querySelector<HTMLElement>("[data-script-finding]");
-      first?.scrollIntoView?.({ block: "center" });
-      const field = first?.closest("div")?.querySelector<HTMLElement>("textarea, input");
+      const first = document.querySelector<HTMLElement>("[data-script-finding]") ?? fallback?.() ?? null;
+      if (!first) return;
+      first.scrollIntoView?.({ block: "center" });
+      first.classList.add("value-flash");
+      window.setTimeout(() => first.classList.remove("value-flash"), 1300);
+      const field = first.closest("div")?.querySelector<HTMLElement>("textarea, input");
       field?.focus({ preventScroll: true });
     }),
   );

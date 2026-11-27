@@ -181,6 +181,7 @@ export function Checklist({
   countLabel = (done, total) => `${done} of ${total} done`,
   nextLabel = "Next",
   foldedLabel = (n) => `${n} done`,
+  counted = true,
   className = "",
 }: {
   items: ChecklistItem[];
@@ -201,6 +202,9 @@ export function Checklist({
   countLabel?: (done: number, total: number) => string;
   nextLabel?: string;
   foldedLabel?: (count: number) => string;
+  /** False where the screen already says how many are left (a card header): the list then
+   *  shows no count and no bar, so the two cannot disagree. */
+  counted?: boolean;
   className?: string;
 }) {
   const Heading = headingLevel === 2 ? "h2" : "h3";
@@ -271,11 +275,13 @@ export function Checklist({
     <section aria-label={label} className={className}>
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <Heading className="text-heading text-ink">{label}</Heading>
-        {count}
+        {counted ? count : null}
       </div>
-      <div className="mb-4">
-        <Progress label={label} done={done} total={total} />
-      </div>
+      {counted ? (
+        <div className="mb-4">
+          <Progress label={label} done={done} total={total} />
+        </div>
+      ) : null}
       {list}
     </section>
   );

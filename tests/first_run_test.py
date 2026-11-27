@@ -998,12 +998,16 @@ def test_anjali_gets_a_womans_voice_studio_first_then_clear_then_the_best_flagge
     )
     # No woman's voice anywhere (an unstated gender is not counted as one): the best, flagged.
     assert picked([ravi], [gopal, unsaid], None) == ("Ravi", "studio", None, True)
+    # The best kept is one whose gender nobody stated: it may be a woman's, so it is not
+    # flagged as not one (C8-a, 28 Nov 2026).
+    assert picked([unsaid], [gopal], None) == ("Uma", "studio", None, False)
+    assert picked([], [unsaid, gopal], None) == ("Uma", "clear", "no_studio_voice", False)
     assert picked([], [gopal], None) == ("Gopal", "clear", "no_studio_voice", True)
     assert picked([sita], [unsaid], "studio_unavailable") == (
         "Uma",
         "clear",
         "studio_unavailable",
-        True,
+        False,
     )
 
 

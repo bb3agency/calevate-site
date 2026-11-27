@@ -163,7 +163,9 @@ export function atOnceNote(
 ): string | undefined {
   const allowed = progress.effective_concurrency;
   if (allowed >= progress.concurrency) return undefined;
-  const set = `You set ${formatCount(progress.concurrency)}.`;
+  // "Set to", not "You set": the first run makes a campaign with the form's default, which
+  // the owner never chose.
+  const set = `Set to ${formatCount(progress.concurrency)}.`;
   if (accountLines === allowed) {
     return `${set} Your account runs up to ${formatCount(allowed)} ${allowed === 1 ? "call" : "calls"} at once.`;
   }

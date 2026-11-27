@@ -1,8 +1,9 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { CampaignWorkspace } from "@/app/c/[slug]/campaigns/CampaignWorkspace";
 import { ToastProvider } from "@/components/arc/toast";
+import { ScriptNeedsFix } from "@/components/scriptChecks/ScriptNeedsFix";
 import { EMPTY_SCRIPT, type CallScript, type ConversationStage } from "@/lib/api/script";
 
 import {
@@ -95,5 +96,54 @@ describe("Save flow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save flow" }));
     expect(await screen.findAllByText("The script changed meanwhile")).not.toHaveLength(0);
     expect(screen.getByRole("button", { name: "Save flow" })).toBeTruthy();
+  });
+});
+
+describe("Show me on the compliance check's script line (C13-a)", () => {
+  const opening = {
+    check: "opening_missing",
+    path: "opening_line",
+    stage_id: null,
+    message: "The opening line is missing.",
+    detail: "The opening line is missing.",
+    line: null,
+    severity: "block" as const,
+  };
+
+  const render = (finding: typeof opening) =>
+    renderClientPage(
+      <ToastProvider>
+        <ScriptNeedsFix holder={{ kind: "campaign", id: FIXTURE_CAMPAIGN_ID }} canWrite />
+        <CampaignWorkspace campaignId={FIXTURE_CAMPAIGN_ID} canWrite />
+      </ToastProvider>,
+      {
+        ...routes(workspaceFixture({ script: SCRIPT })),
+        [`${base}/script/checks`]: { findings: [finding], blocks_live: true },
+      },
+    );
+
+  it("opens the folded Script section on the opening the line is about", async () => {
+    await render(opening);
+    const fold = await screen.findByRole("button", { name: "Script" });
+    fireEvent.click(fold);
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+    const show = await screen.findByRole("button", { name: "Show me" });
+    await waitFor(() => expect((show as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(show);
+    expect(fold.getAttribute("aria-expanded")).toBe("true");
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("region", { name: "Opening" })).getByRole("button", { expanded: true }),
+      ).toBeTruthy(),
+    );
+  });
+
+  it("opens Edit script on a part the flow does not hold", async () => {
+    await render({ ...opening, check: "textbook_words", path: "faqs.0.answer", message: "Uses a textbook word." });
+    const show = await screen.findByRole("button", { name: "Show me" });
+    await waitFor(() => expect((show as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByRole("button", { name: "Edit script" })).toBeTruthy();
+    fireEvent.click(show);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Edit script" })).toBeNull());
   });
 });

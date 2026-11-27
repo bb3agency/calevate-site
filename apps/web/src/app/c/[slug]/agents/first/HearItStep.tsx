@@ -329,7 +329,7 @@ function CallYou({
         />
       ) : null}
 
-      <WorkOpening work={work} lang={agent.language_primary} />
+      <WorkOpening work={work} lang={agent.language_primary} writeHref={href(workHref(session.orgSlug, work))} />
 
       <div>
         <label htmlFor={numberId} className="text-heading text-ink">
