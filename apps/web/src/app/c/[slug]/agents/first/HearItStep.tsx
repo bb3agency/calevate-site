@@ -130,6 +130,7 @@ export function HearItStep({
   work,
   jobs,
   calls,
+  readyMade = false,
   onBack,
   onEnded,
 }: {
@@ -137,6 +138,8 @@ export function HearItStep({
   work: FirstWork;
   jobs: readonly FirstRunJob[];
   calls: readonly CallSummary[] | undefined;
+  /** Pip was not available, so the work starts from the ready-made script for its job. */
+  readyMade?: boolean;
   onBack: () => void;
   onEnded: (call: CallSummary) => void;
 }) {
@@ -148,7 +151,7 @@ export function HearItStep({
   if (panel.isPending) return <Skeleton rows={4} label="Checking your test calls" />;
   if (panel.isError) return <ProblemNotice error={panel.error} onRetry={() => void panel.refetch()} />;
   return (
-    <CallYou agent={agent} work={work} jobs={jobs} calls={calls} business={business} onBack={onBack} onEnded={onEnded} />
+    <CallYou agent={agent} work={work} jobs={jobs} calls={calls} business={business} readyMade={readyMade} onBack={onBack} onEnded={onEnded} />
   );
 }
 
@@ -173,6 +176,7 @@ function CallYou({
   jobs,
   calls,
   business,
+  readyMade,
   onBack,
   onEnded,
 }: {
@@ -181,6 +185,7 @@ function CallYou({
   jobs: readonly FirstRunJob[];
   calls: readonly CallSummary[] | undefined;
   business: string;
+  readyMade: boolean;
   onBack: () => void;
   onEnded: (call: CallSummary) => void;
 }) {
@@ -399,6 +404,7 @@ function CallYou({
       ) : null}
 
       <WorkOpening work={work} lang={agent.language_primary} writeHref={href(workHref(session.orgSlug, work))} />
+      {readyMade ? <p className="text-meta text-ink-muted">{FIRST.workReadyMade}</p> : null}
 
       <div>
         <label htmlFor={numberId} className="text-heading text-ink">

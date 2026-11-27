@@ -2,6 +2,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BRIEF_TITLE } from "@/app/c/[slug]/agents/first/BriefStep";
 import FirstAgentPage from "@/app/c/[slug]/agents/first/page";
 import { callPhaseOf, isLimitRule } from "@/app/c/[slug]/agents/first/HearItStep";
 import { hoursSummary } from "@/app/c/[slug]/agents/first/QuestionsStep";
@@ -15,6 +16,10 @@ import {
   callsLeft,
   defaultLanguage,
   firstAgentOf,
+  forgetCardPick,
+  holdCardPick,
+  jobToPost,
+  readCardPick,
   firstWorkOf,
   jobFromBrief,
   jobsTitle,
@@ -78,6 +83,8 @@ vi.mock("next/navigation", () => ({
 
 beforeEach(() => {
   nav.pushed = [];
+  // The first card's pick is held in sessionStorage, which outlives a test.
+  sessionStorage.clear();
 });
 
 const page = <FirstAgentPage params={Promise.resolve({ slug: "acme" })} />;
@@ -269,11 +276,40 @@ describe("the pieces and where an owner resumes", () => {
     const named = run({ brief: "x", agent_id: AGENT_ID });
     expect(resumeStage({ run: named, agent: agent(), calls: undefined, work: null })).toBe("agent");
     const writing = { ...WORK, ready: false, writing: true, opening: null };
-    expect(resumeStage({ run: built(), agent: agent(), calls: [], work: writing })).toBe("work");
+    // A script Pip is still writing waits on Hear it; "What first?" is never resumed on.
+    expect(resumeStage({ run: built(), agent: agent(), calls: [], work: writing })).toBe("hear");
     expect(resumeStage({ run: built(), agent: agent(), calls: [], work: WORK })).toBe("hear");
     expect(resumeStage({ run: built({ finished_at: "2026-10-23T05:00:00Z" }), agent: agent(), calls: [] })).toBe("team");
-    expect(stepIndexOf("team")).toBe(4);
+    expect(stepIndexOf("team")).toBe(3);
     expect(stepIndexOf("questions")).toBe(0);
+    // The fallback "What first?" sits under Name and voice on the rail of three.
+    expect(stepIndexOf("work")).toBe(1);
+  });
+
+  it("holds the card's pick per account, survives bad storage, and posts only what is not drafted yet", () => {
+    sessionStorage.clear();
+    expect(readCardPick("acme")).toEqual({ job: null, language: null });
+    holdCardPick("acme", { job: "call_leads" });
+    holdCardPick("acme", { language: "hi-IN" });
+    expect(readCardPick("acme")).toEqual({ job: "call_leads", language: "hi-IN" });
+    expect(readCardPick("other")).toEqual({ job: null, language: null });
+    sessionStorage.setItem("calevate:first-run-card:acme", '{"job":"sell_things","language":7}');
+    expect(readCardPick("acme")).toEqual({ job: null, language: null });
+    sessionStorage.setItem("calevate:first-run-card:acme", "not json");
+    expect(readCardPick("acme")).toEqual({ job: null, language: null });
+    forgetCardPick("acme");
+    expect(sessionStorage.getItem("calevate:first-run-card:acme")).toBeNull();
+    const broken = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("SecurityError");
+    });
+    expect(readCardPick("acme")).toEqual({ job: null, language: null });
+    broken.mockRestore();
+
+    expect(jobToPost(null, run(), null)).toBeNull();
+    expect(jobToPost("answer_calls", run(), null)).toBe("answer_calls");
+    expect(jobToPost("answer_calls", built(), WORK)).toBeNull();
+    // The other job drafts that work too.
+    expect(jobToPost("call_leads", built(), WORK)).toBe("call_leads");
   });
 
   it("reads the first work from the line or campaign it drafted, and links to its page", () => {
@@ -285,7 +321,7 @@ describe("the pieces and where an owner resumes", () => {
     const failed = { script: null, proposal: { status: "failed" } };
     expect(firstWorkOf(campaign, { campaign: failed })).toMatchObject({ kind: "campaign", id: "c1", failed: true });
     expect(workHref("acme", WORK)).toBe(`/c/acme/inbound/${LINE_ID}`);
-    expect(workHref("acme", { ...WORK, kind: "campaign", id: "c1" })).toBe("/c/acme/campaigns/c1");
+    expect(workHref("acme", { ...WORK, kind: "campaign", id: "c1" })).toBe("/c/acme/campaigns/c1?tab=script");
   });
 
   it("follows only the first run's own agent", () => {
@@ -439,11 +475,11 @@ describe("meet your agent", () => {
 
   it("opens on About your business, with the meter at one of seven", async () => {
     await renderClientPage(page, routes());
-    expect(await screen.findByRole("heading", { name: "About your business" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: BRIEF_TITLE })).toBeTruthy();
     expect(screen.getByText("1 of 7 ready")).toBeTruthy();
     // The first step: nothing to go back to.
     expect(screen.queryByRole("button", { name: /^Back$/ })).toBeNull();
-    expect(screen.getByText("Step 1 of 4 ·", { exact: false })).toBeTruthy();
+    expect(screen.getByText("Step 1 of 3 ·", { exact: false })).toBeTruthy();
   });
 
   it("makes the agent from the default agent's name and the language picked, then offers its voice", async () => {
@@ -465,7 +501,108 @@ describe("meet your agent", () => {
     expect(await screen.findByRole("heading", { name: "Its voice" })).toBeTruthy();
   });
 
-  it("ticks the work the brief plainly asks for, and drafts it only on Continue (C9)", async () => {
+  it("takes the job and language on the first card, then posts the job once the agent is made, with no What first? screen", async () => {
+    const typed = "We sell flats in Kondapur.";
+    const briefed = run({ brief: typed, questions: { status: "ready", items: [], disclosure: null } });
+    const named = { ...briefed, agent_id: AGENT_ID, language_primary: "hi-IN", languages_extra: ["en-IN"] };
+    const drafted = { ...named, jobs: ["answer_calls" as const], line_id: LINE_ID };
+    const table: Record<string, unknown> = routes({
+      "PUT /v1/first-run/brief": briefed,
+      "PUT /v1/first-run/agent": named,
+      "POST /v1/first-run/work": drafted,
+      [`/v1/agents/engine-catalogue?agent_id=${AGENT_ID}`]: { available: true, voices: [], models: [] },
+      "/v1/trial": TRIAL,
+      "/v1/legal/readiness": READINESS,
+      "/v1/compliance/outbound-pledge": PLEDGE,
+    });
+    const { calls } = await renderClientPage(page, table);
+    const box = (await screen.findByRole("textbox", { name: BRIEF_TITLE })) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: typed } });
+    // The brief names no job, so Continue waits for one, saying so.
+    const go = screen.getByRole("button", { name: /Continue/ });
+    expect(go.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText("Pick what it does first.")).toBeTruthy();
+    // No generated copy yet: no examples to tap in.
+    expect(screen.queryByRole("button", { name: "Examples" })).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: /Answer my calls/ }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Speaks first in" }), { target: { value: "hi-IN" } });
+    fireEvent.click(go);
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT" && call.path === "/v1/first-run/brief")).toBe(true));
+    expect(JSON.parse(calls.find((call) => call.path === "/v1/first-run/brief")?.body ?? "{}")).toEqual({ brief: typed });
+    // The job cannot go before there is an agent.
+    expect(calls.some((call) => call.path === "/v1/first-run/work")).toBe(false);
+    table["/v1/first-run"] = briefed;
+
+    // The questions (none here), then Name and voice in the card's language.
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+    expect(await screen.findByRole("heading", { name: "Name your agent and pick its voice" })).toBeTruthy();
+    expect((screen.getByRole("radio", { name: /Hindi/ }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText("Step 2 of 3 ·", { exact: false })).toBeTruthy();
+    table["/v1/agents"] = [agent({ language_primary: "hi-IN" })];
+    table["/v1/first-run"] = named;
+    fireEvent.click(screen.getByRole("button", { name: /Choose its voice/ }));
+    await waitFor(() => expect(calls.some((call) => call.method === "POST" && call.path === "/v1/first-run/work")).toBe(true));
+    expect(JSON.parse(calls.find((call) => call.path === "/v1/first-run/work")?.body ?? "{}")).toEqual({ job: "answer_calls" });
+    expect(JSON.parse(calls.find((call) => call.path === "/v1/first-run/agent")?.body ?? "{}")).toMatchObject({
+      language_primary: "hi-IN",
+    });
+    await waitFor(() => expect(readCardPick("acme").job).toBeNull());
+    table["/v1/first-run"] = drafted;
+
+    // Continue after the voice goes straight to Hear it.
+    expect(await screen.findByRole("heading", { name: "Its voice" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
+    expect(await screen.findByRole("heading", { name: "Hear Anjali on your phone" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "What should Anjali do first?" })).toBeNull();
+    expect(calls.filter((call) => call.path === "/v1/first-run/work")).toHaveLength(1);
+  });
+
+  it("ticks the job the brief plainly asks for on the card, and the owner's tap wins", async () => {
+    await renderClientPage(page, routes());
+    const box = (await screen.findByRole("textbox", { name: BRIEF_TITLE })) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: BRIEF_TEXT } });
+    expect((screen.getByRole("radio", { name: /Call people/ }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByText("Ticked from what you wrote. Change it if you like.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: /Answer my calls/ }));
+    expect((screen.getByRole("radio", { name: /Answer my calls/ }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByText("Ticked from what you wrote. Change it if you like.")).toBeNull();
+    expect(readCardPick("acme").job).toBe("answer_calls");
+  });
+
+  it("offers the account's own examples, never the neutral ones, and adds a tapped one to the box once", async () => {
+    const goal = "Help them install the app and add their first expense.";
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/business-copy": { ...NO_BUSINESS_COPY, placeholders: { ...PLACEHOLDERS_FOR_BRIEF, call_goal: goal } },
+      }),
+    );
+    const box = (await screen.findByRole("textbox", { name: BRIEF_TITLE })) as HTMLTextAreaElement;
+    fireEvent.click(await screen.findByRole("button", { name: "Examples" }));
+    const list = screen.getByRole("list", { name: "Examples for your business" });
+    // Only what the copy wrote: its empty brief and the neutral set are not offered.
+    expect(within(list).getAllByRole("button")).toHaveLength(1);
+    fireEvent.click(within(list).getByRole("button", { name: /What a good call does/ }));
+    expect(box.value).toBe(goal);
+    expect((within(list).getByRole("button", { name: /What a good call does/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("waits on Hear it while Pip writes what the work says", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [agent()],
+        [`/v1/inbound-lines/${LINE_ID}`]: lineRow({ script: null, proposal: { id: "p1", status: "drafting", requested_at: "2026-11-16T00:00:00Z", left_out: [] } }),
+      }),
+    );
+    expect(await screen.findByRole("heading", { name: "Hear Anjali on your phone" })).toBeTruthy();
+    expect(screen.getByText("Pip is writing what it says…")).toBeTruthy();
+    expect(screen.getByText("Step 3 of 3 ·", { exact: false })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Call me now/ })).toBeNull();
+  });
+
+  it("with the card's pick lost, shows What first? once, ticked from the brief, drafting only on Continue (C9)", async () => {
     const named = built({ line_id: null, jobs: [], brief: BRIEF_TEXT });
     const drafted = built({ line_id: null, campaign_id: LINE_ID, jobs: ["call_leads"], brief: BRIEF_TEXT });
     const table = routes({
@@ -513,12 +650,12 @@ describe("meet your agent", () => {
 
   it("shows the trade's example only as a placeholder, offers no other trade's, and says the audio is not kept", async () => {
     await renderClientPage(page, routes({ "/v1/first-run": run({ jobs: ["answer_calls"], language_primary: "te-IN" }) }));
-    const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
+    const box = (await screen.findByRole("textbox", { name: BRIEF_TITLE })) as HTMLTextAreaElement;
     // An example kept as the value would be saved on Continue as if the owner wrote it.
     expect(box.value).toBe("");
     expect(box.placeholder.length).toBeGreaterThan(20);
     expect(screen.queryByRole("heading", { name: "Start from another example" })).toBeNull();
-    expect(screen.getByText("Only the text is kept, not the audio.")).toBeTruthy();
+    expect(screen.getByText(/Only the text is kept, not the audio./)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Talk it through with Pip instead/ })).toBeTruthy();
   });
 
@@ -531,7 +668,7 @@ describe("meet your agent", () => {
         "/v1/business-copy": { ...NO_BUSINESS_COPY, placeholders: { ...PLACEHOLDERS_FOR_BRIEF, script_brief: own } },
       }),
     );
-    const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
+    const box = (await screen.findByRole("textbox", { name: BRIEF_TITLE })) as HTMLTextAreaElement;
     await waitFor(() => expect(box.value).toBe(own));
     expect(screen.getByText("Written from your business details. Change anything.")).toBeTruthy();
   });
@@ -560,7 +697,7 @@ describe("meet your agent", () => {
           ),
       }),
     );
-    const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
+    const box = (await screen.findByRole("textbox", { name: BRIEF_TITLE })) as HTMLTextAreaElement;
     expect(box.value).toBe("");
     // The owner puts the cursor in the empty box; the account's brief lands before the first key.
     act(() => box.focus());
@@ -623,11 +760,11 @@ describe("meet your agent", () => {
   it("keeps what was typed in the brief through Pip and back (journey audit E1)", async () => {
     await renderClientPage(page, routes());
     const typed = "We repair two-wheelers in Guntur and pick them up from home.";
-    const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
+    const box = (await screen.findByRole("textbox", { name: BRIEF_TITLE })) as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: typed } });
     fireEvent.click(screen.getByRole("button", { name: /Talk it through with Pip instead/ }));
     fireEvent.click(await screen.findByRole("button", { name: /Back to the steps/ }));
-    const again = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
+    const again = (await screen.findByRole("textbox", { name: BRIEF_TITLE })) as HTMLTextAreaElement;
     expect(again.value).toBe(typed);
   });
 
@@ -652,7 +789,7 @@ describe("meet your agent", () => {
         [`DELETE /v1/first-run/documents/${broken}`]: { ...withFiles, documents: withFiles.documents.slice(0, 2), documents_left: 1 },
       }),
     );
-    await screen.findByText("Or add a file");
+    await screen.findByText("That's the most for now. Add more under Knowledge.");
     const step = screen.getByRole("region", { name: "This step" });
     expect(within(step).getByText("menu.jpg")).toBeTruthy();
     expect(within(step).getByText("Reading it…")).toBeTruthy();
@@ -752,7 +889,7 @@ describe("meet your agent", () => {
         },
       }),
     );
-    await screen.findByText("Or add a file");
+    fireEvent.click(await screen.findByRole("button", { name: "Add a file" }));
     const input = container.querySelector<HTMLInputElement>("input[type=file]");
     const file = new File(["Idli 40"], "menu.docx", { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
     fireEvent.change(input!, { target: { files: [file] } });
@@ -1206,7 +1343,7 @@ describe("meet your agent", () => {
     expect(screen.getByRole("link", { name: /Company training/ }).getAttribute("href")).toBe("/c/acme/knowledge?tab=training");
     // The conversation is there, folded.
     expect(screen.getByRole("heading", { name: "Read the whole conversation" })).toBeTruthy();
-    expect(screen.getByText("Step 4 of 4 ·", { exact: false })).toBeTruthy();
+    expect(screen.getByText("Step 3 of 3 ·", { exact: false })).toBeTruthy();
   });
 
   it("refuses a member who may not build agents, in the console's own words", async () => {

@@ -37,6 +37,7 @@ import {
   introFor,
   piecesOf,
   quickRepliesFor,
+  readCardPick,
   resumeStage,
   stepIndexOf,
   voicePickNote,
@@ -52,30 +53,31 @@ import { HearItStep } from "./HearItStep";
 import { QuestionsStep } from "./QuestionsStep";
 import { ResultStep, TeamStep } from "./ResultStep";
 import { StepRail } from "./shell";
-import { WorkStep } from "./WorkStep";
+import { WorkStep, WritingStep } from "./WorkStep";
 
 /** The route this screen declares to Pip; the server's first-agent guide is keyed on it. */
 export const FIRST_AGENT_ROUTE = "/c/{slug}/agents/first";
 
 /** Where a finished step on the rail goes back to, by its index in `STEPS`. */
-const RAIL_STAGES: readonly Stage[] = ["brief", "agent", "work", "hear"];
+const RAIL_STAGES: readonly Stage[] = ["brief", "agent", "hear"];
 
 /**
  * "MEET YOUR AGENT" (D-855, founder 23 Oct 2026): a new owner's first run.
  *
- * Four steps on a rail (Phase 3b, founder 16 Nov 2026): About your business → Name and voice
- * → What first? → Hear it, then the result and going live, with the agent taking shape beside
- * them. The agent is staff, a name and a voice; what it says belongs to the first work it is
- * given, a draft inbound line or a draft campaign, which Pip writes. It replaces the business
- * setup wizard as the first thing after sign-up; the wizard stays on the dashboard checklist
- * and in Settings.
+ * Three steps on a rail (redesign of 28 Nov 2026): the first card (the brief, its language
+ * and what it does first) → Name and voice → Hear it, then the result and going live, with
+ * the agent taking shape beside them. The agent is staff, a name and a voice; what it says
+ * belongs to the first work it is given, a draft inbound line or a draft campaign, which Pip
+ * writes. The card's job is posted when Name and voice makes the agent; "What first?" is
+ * shown only when that pick was lost. It replaces the business setup wizard as the first
+ * thing after sign-up; the wizard stays on the dashboard checklist and in Settings.
  *
  * WHERE THE OWNER IS COMES FROM THE SERVER (`GET /v1/first-run`, the agents, the line or
  * campaign it drafted, the agent's calls), so a reload, another device or a return next week
  * lands on the same step. Moving
  * between steps on the screen is local; the server only learns what the owner decided.
  *
- * Phone first: the rail is a row of four, the card a single line that opens, and each step's
+ * Phone first: the rail is a row of three, the card a single line that opens, and each step's
  * one action is pinned in the thumb's reach. From `lg` the rail sits on the left, the step in
  * the middle and the card on the right.
  *
@@ -181,6 +183,8 @@ export function MeetYourAgent({ slug }: { slug: string }) {
         body = (
           <BriefStep
             run={data}
+            slug={slug}
+            startLanguage={profile.isPending || !languages.settled ? null : startLanguage}
             draft={briefDraft}
             onDraft={setBriefDraft}
             onDone={() => setStage("questions")}
@@ -197,9 +201,11 @@ export function MeetYourAgent({ slug }: { slug: string }) {
           <AgentStep
             run={data}
             agent={agent}
-            defaultLanguage={startLanguage ?? ""}
+            work={work}
+            slug={slug}
+            defaultLanguage={readCardPick(slug).language ?? startLanguage ?? ""}
             onBack={() => setStage("questions")}
-            onDone={() => setStage(work?.ready ? "hear" : "work")}
+            onDone={setStage}
           />
         );
         break;
@@ -226,11 +232,20 @@ export function MeetYourAgent({ slug }: { slug: string }) {
               work={work}
               jobs={data.jobs}
               calls={calls.data}
-              onBack={() => setStage("work")}
+              readyMade={data.build.steps.some((entry) => entry.step === "script" && entry.state === "ready_made")}
+              onBack={() => setStage("agent")}
               onEnded={(ended) => {
                 setLastCall(ended);
                 setStage("result");
               }}
+            />
+          ) : agent && work ? (
+            <WritingStep
+              agent={agent}
+              work={work}
+              readError={workRead.data === undefined ? workRead.error : null}
+              onRetryRead={() => void workRead.refetch()}
+              onBack={() => setStage("agent")}
             />
           ) : (
             lost("Getting its work ready…")
@@ -281,7 +296,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
 
   return (
     <div className="pb-8">
-      {/* One row from `lg`: the screen's name, the four steps, and the way out, so the step
+      {/* One row from `lg`: the screen's name, the three steps, and the way out, so the step
           itself starts high enough to fit a laptop screen. */}
       <div className="mb-5 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:gap-x-8">
         <h1 className="text-title text-ink">Meet your agent</h1>

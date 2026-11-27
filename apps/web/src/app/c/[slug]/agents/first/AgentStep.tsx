@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { ArrowRight } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -10,9 +10,17 @@ import { FIELD, ProblemNotice } from "@/components/ui";
 import { defaultExtraLanguages } from "@/lib/agentState";
 import { useAgentLanguages } from "@/lib/api/agentLanguages";
 import type { Agent } from "@/lib/api/agents";
-import { useSaveFirstAgent, type FirstRun } from "@/lib/api/firstRun";
+import { useSaveFirstAgent, useStartFirstWork, type FirstRun } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
-import { languageGlyph, languageShortLabel } from "@/lib/firstAgent";
+import {
+  forgetCardPick,
+  jobToPost,
+  languageGlyph,
+  languageShortLabel,
+  readCardPick,
+  type FirstWork,
+  type FirstWorkJob,
+} from "@/lib/firstAgent";
 
 import { ChipChoice, StepScreen } from "./shell";
 import { FIRST } from "../../_ui/copy";
@@ -28,19 +36,29 @@ import { AGENT_NAME_MAX_CHARS } from "@/lib/textLimits";
  * Pressing the step's button makes the agent with the default voice for its language; the
  * voice picker then shows that voice chosen, with the others to play and pick. A name or
  * language changed later is saved by the same button before the next step.
+ *
+ * The job picked on the first card is posted here, right after `PUT /v1/first-run/agent`
+ * makes the agent (the first moment the server takes it), so Pip writes what it says while
+ * the owner plays voices. With no job held (another device, cleared storage) the step goes
+ * on to the "What first?" screen instead, once.
  */
 export function AgentStep({
   run,
   agent,
+  work,
+  slug,
   defaultLanguage,
   onBack,
   onDone,
 }: {
   run: FirstRun;
   agent: Agent | null;
+  work: FirstWork | null;
+  slug: string;
   defaultLanguage: string;
   onBack: () => void;
-  onDone: () => void;
+  /** Where to next: Hear it once a work exists, else the fallback "What first?". */
+  onDone: (next: "hear" | "work") => void;
 }) {
   const session = useClientSession();
   const save = useSaveFirstAgent(session);
@@ -48,6 +66,10 @@ export function AgentStep({
   // tile here like the three every account has. The parent renders this step once it is in.
   const languages = useAgentLanguages(session);
   const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
+  const start = useStartFirstWork(session);
+  const startFeedback = useActionFeedback(start, { errorDisplay: "inline" });
+  // Continue pressed while the job posted on the agent's creation is still on its way.
+  const goWhenStarted = useRef(false);
   const nameId = useId();
   const [name, setName] = useState(agent?.name ?? run.default_agent.name);
   const [primary, setPrimary] = useState(agent?.language_primary ?? run.language_primary ?? defaultLanguage);
@@ -65,17 +87,48 @@ export function AgentStep({
     setPrimary(tag);
     setExtra((current) => current.filter((other) => other !== tag));
   };
+  const post = (job: FirstWorkJob, then?: () => void) =>
+    start.mutate(
+      { job },
+      {
+        onSuccess: () => {
+          forgetCardPick(slug);
+          if (then) then();
+          else if (goWhenStarted.current) onDone("hear");
+        },
+      },
+    );
+  const finish = () => {
+    if (start.isPending) {
+      goWhenStarted.current = true;
+      return;
+    }
+    const job = jobToPost(readCardPick(slug).job, run, work);
+    if (job === null) onDone(work !== null ? "hear" : "work");
+    else post(job, () => onDone("hear"));
+  };
   const submit = () => {
     if (!changed) {
-      onDone();
+      finish();
       return;
     }
     save.mutate(
       { name: trimmed, language_primary: primary, languages_extra: extra },
-      // A new agent stays on this step, so its voice can be heard and changed first.
-      { onSuccess: () => (agent === null ? undefined : onDone()) },
+      {
+        onSuccess: () => {
+          if (agent !== null) {
+            finish();
+            return;
+          }
+          // A new agent stays on this step, so its voice can be heard and changed first;
+          // its job goes to the server now, so the script is written meanwhile.
+          const job = jobToPost(readCardPick(slug).job, run, work);
+          if (job !== null) post(job);
+        },
+      },
     );
   };
+  const status = start.isPending || start.isError ? startFeedback.status : saveFeedback.status;
 
   return (
     <StepScreen
@@ -90,7 +143,7 @@ export function AgentStep({
           <ArrowRight aria-hidden className="h-4 w-4" />
         </>
       }
-      status={saveFeedback.status}
+      status={status}
       waitingFor={trimmed === "" ? "Give it a name." : null}
       onSubmit={submit}
     >
@@ -163,6 +216,7 @@ export function AgentStep({
       ) : null}
 
       {save.error ? <ProblemNotice error={save.error} /> : null}
+      {start.error ? <ProblemNotice error={start.error} /> : null}
     </StepScreen>
   );
 }

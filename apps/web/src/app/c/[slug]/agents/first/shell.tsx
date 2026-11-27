@@ -39,6 +39,9 @@ export function StepScreen({
   aside,
   eyebrow,
   asForm = true,
+  framed = false,
+  titleAside,
+  titleId,
 }: {
   title: string;
   hint?: ReactNode;
@@ -61,6 +64,13 @@ export function StepScreen({
   /** False when the step holds a form of its own (the voice picker), which may not sit in
    *  another: the step is then a plain block and its action a button, not a submit. */
   asForm?: boolean;
+  /** The question and its fields as one card (the first card, PLAN §5). The action stays
+   *  outside it, so on a phone it is still the pinned bar. */
+  framed?: boolean;
+  /** Beside the question on its line (the first card's language picker). */
+  titleAside?: ReactNode;
+  /** The heading's id, for a field the question itself names. */
+  titleId?: string;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -93,11 +103,16 @@ export function StepScreen({
         </button>
       ) : null}
       {eyebrow ? <div className="mb-1">{eyebrow}</div> : null}
-      <h2 ref={heading} tabIndex={-1} className="text-balance text-title text-ink focus:outline-none">
-        {title}
-      </h2>
-      {hint ? <div className="mt-1 max-w-prose text-body text-ink-muted">{hint}</div> : null}
-      <div className="mt-5 space-y-5">{children}</div>
+      <div className={framed ? "ledger-surface rounded-card border border-line bg-surface p-4 sm:p-5" : ""}>
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <h2 ref={heading} id={titleId} tabIndex={-1} className="text-balance text-title text-ink focus:outline-none">
+            {title}
+          </h2>
+          {titleAside}
+        </div>
+        {hint ? <div className="mt-1 max-w-prose text-body text-ink-muted">{hint}</div> : null}
+        <div className={framed ? "mt-4 space-y-4" : "mt-5 space-y-5"}>{children}</div>
+      </div>
       {primary || aside ? (
         <div className="fixed inset-x-0 bottom-0 z-sticky border-t border-line bg-surface px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:static lg:mt-6 lg:bg-transparent lg:px-0 lg:pt-5 lg:pb-4">
           <div className="mx-auto flex max-w-xl flex-col gap-1.5 lg:mx-0 lg:flex-row lg:items-center lg:gap-4">
@@ -170,7 +185,7 @@ export function StepRail({
                   done
                     ? "border-brand-strong bg-brand-strong text-white"
                     : here
-                      ? "border-ink/40 text-ink"
+                      ? "border-accent-stamp bg-accent-stamp-soft text-ink"
                       : "border-line text-ink-faint"
                 }`}
               >
@@ -191,9 +206,9 @@ export function StepRail({
               className={`${look.item} ${row && index > 0 ? ROW.joined : ""}`}
             >
               {row && index > 0 ? (
-                <span aria-hidden className={`${ROW.line} ${done || here ? "bg-brand-strong" : "bg-line"}`} />
+                <span aria-hidden className={`${ROW.line} ${done ? "bg-brand-strong" : here ? "bg-accent-stamp" : "bg-line"}`} />
               ) : null}
-              <span aria-hidden className={`${look.bar} h-1 rounded-full ${done || here ? "bg-brand-strong" : "bg-line"}`} />
+              <span aria-hidden className={`${look.bar} h-1 rounded-full ${done ? "bg-brand-strong" : here ? "bg-accent-stamp" : "bg-line"}`} />
               {done && canGo(index) ? (
                 <button
                   type="button"

@@ -5,8 +5,7 @@ import { ArrowRight, Check, ChevronRight, PhoneCall } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceCard";
-import { ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
-import type { Agent } from "@/lib/api/agents";
+import { ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";import type { Agent } from "@/lib/api/agents";
 import { useStartFirstWork, type FirstRun } from "@/lib/api/firstRun";
 import { useClientRealm } from "@/lib/api/session";
 import { FIRST_WORKS, jobCard, jobFromBrief, workHref, type FirstWork, type FirstWorkJob, type JobCard } from "@/lib/firstAgent";
@@ -15,10 +14,12 @@ import { StepScreen } from "./shell";
 import { FIRST } from "../../_ui/copy";
 
 /**
- * STEP 3, WHAT FIRST? (Phase 3b, founder 16 Nov 2026): two cards. "Answer my calls" drafts an
- * inbound line in the agent's voice, with no number needed; "Call people" drafts a campaign.
- * Either way Pip writes what it says from the owner's words and saves it, and the step waits
- * on the screen until it has, so the test call has something to say.
+ * WHAT FIRST? (Phase 3b), NOW ONLY A FALLBACK: the first card picks the job and Name and
+ * voice posts it, so this screen is reached only when that pick was lost (another device,
+ * cleared storage) and the agent has no work. It is never on the rail. Two cards: "Answer my
+ * calls" drafts an inbound line in the agent's voice, with no number needed; "Call people"
+ * drafts a campaign. Either way Pip writes what it says from the owner's words and saves it,
+ * and the step waits on the screen until it has, so the test call has something to say.
  *
  * The card pressed is the server's (`run.jobs`); pressing the other drafts that work too, so
  * going back never loses a script already written.
@@ -94,23 +95,7 @@ export function WorkStep({
       </fieldset>
       {suggested ? <p className="text-meta text-ink-muted">{FIRST.workSuggested}</p> : null}
 
-      {work && !work.ready ? (
-        readError ? (
-          <ProblemNotice error={readError} onRetry={onRetryRead} />
-        ) : work.failed ? (
-          <div role="alert" className="space-y-2">
-            <p className="text-body text-ink">{FIRST.workFailed}</p>
-            <Link href={href(workHref(session.orgSlug, work))} className={SECONDARY_BUTTON}>
-              Open it and write it
-              <ArrowRight aria-hidden className="h-4 w-4" />
-            </Link>
-          </div>
-        ) : (
-          <p role="status" className="text-meta text-ink-muted">
-            <span className="text-shimmer">{FIRST.workWriting}</span>
-          </p>
-        )
-      ) : null}
+      {work && !work.ready ? <WorkWriting work={work} readError={readError} onRetryRead={onRetryRead} /> : null}
       {work?.ready && readyMade ? (
         <div role="status" className="space-y-2">
           <p className="text-body text-ink">{FIRST.workReadyMade}</p>
@@ -127,6 +112,61 @@ export function WorkStep({
       ) : null}
 
       {start.error ? <ProblemNotice error={start.error} /> : null}
+    </StepScreen>
+  );
+}
+
+/** Where Pip is with a work's script: writing, failed with the way to write it, or a read
+ *  that failed (unknown, which must not read as still writing). */
+export function WorkWriting({
+  work,
+  readError = null,
+  onRetryRead,
+}: {
+  work: FirstWork;
+  readError?: Error | null;
+  onRetryRead?: () => void;
+}) {
+  const { session, href } = useClientRealm();
+  if (readError) return <ProblemNotice error={readError} onRetry={onRetryRead} />;
+  if (work.failed)
+    return (
+      <div role="alert" className="space-y-2">
+        <p className="text-body text-ink">{FIRST.workFailed}</p>
+        <Link href={href(workHref(session.orgSlug, work))} className={SECONDARY_BUTTON}>
+          Open it and write it
+          <ArrowRight aria-hidden className="h-4 w-4" />
+        </Link>
+      </div>
+    );
+  return (
+    <p role="status" className="text-meta text-ink-muted">
+      <span className="text-shimmer">{FIRST.workWriting}</span>
+    </p>
+  );
+}
+
+/**
+ * HEAR IT, BEFORE THERE IS ANYTHING TO HEAR: the job went to the server on Name and voice,
+ * and Pip may still be writing what it says. Same question as Hear it, so the step on the
+ * rail and the heading do not change when the script lands and the call form takes over.
+ */
+export function WritingStep({
+  agent,
+  work,
+  readError,
+  onRetryRead,
+  onBack,
+}: {
+  agent: Agent;
+  work: FirstWork;
+  readError: Error | null;
+  onRetryRead: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <StepScreen title={`Hear ${agent.name} on your phone`} hint="It can ring you once its words are written." onBack={onBack}>
+      <WorkWriting work={work} readError={readError} onRetryRead={onRetryRead} />
     </StepScreen>
   );
 }

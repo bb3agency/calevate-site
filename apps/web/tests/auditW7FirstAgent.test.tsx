@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { BRIEF_TITLE } from "@/app/c/[slug]/agents/first/BriefStep";
 import FirstAgentPage from "@/app/c/[slug]/agents/first/page";
 import type { FirstRun } from "@/lib/api/firstRun";
 
@@ -128,9 +129,9 @@ describe("the brief's microphone", () => {
         error_code: null,
       },
     });
-    const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
+    const box = (await screen.findByRole("textbox", { name: BRIEF_TITLE })) as HTMLTextAreaElement;
     await waitFor(() => expect(box.value).toBe(own));
-    fireEvent.click(screen.getByRole("button", { name: "Record" }));
+    fireEvent.click(screen.getByRole("button", { name: "Say it" }));
     await waitFor(() => expect(box.value).toBe(`${own}\nWe also sell seeds.`));
   });
 });

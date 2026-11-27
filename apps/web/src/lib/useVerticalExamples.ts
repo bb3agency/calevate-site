@@ -23,6 +23,38 @@ export function useVerticalExamples(): VerticalExamples {
   return withGeneratedCopy(examplesFor(undefined), copy.data?.placeholders);
 }
 
+/** A sentence the owner can tap into the first-run brief. */
+export interface BriefExample {
+  readonly id: string;
+  readonly label: string;
+  readonly text: string;
+}
+
+/** Which generated sentences read as something an owner would write about their business,
+ *  in the order offered. Left out: `outbound_purpose` and `agent_role`, which are written as
+ *  the agent speaking or being spoken to, and `business_line`, a fragment. */
+const BRIEF_EXAMPLE_KEYS = [
+  ["script_brief", "A brief written for you"],
+  ["call_goal", "What a good call does"],
+  ["teach_note", "Something callers ask"],
+  ["call_ending", "How a call ends"],
+] as const;
+
+/**
+ * The first card's examples: ONLY the account's own AI-written copy (D-827), never the
+ * trade-neutral set. A neutral sentence is right as a placeholder, but tapped into the box
+ * it is saved as the owner's own fact ("open Monday to Saturday, 9 to 6") and the agent
+ * would say it on calls. Empty until the copy lands.
+ */
+export function useBriefExamples(): readonly BriefExample[] {
+  const placeholders = useBusinessCopy(useClientSession()).data?.placeholders;
+  if (!placeholders) return [];
+  return BRIEF_EXAMPLE_KEYS.flatMap(([key, label]) => {
+    const text = placeholders[key]?.trim();
+    return text ? [{ id: key, label, text }] : [];
+  });
+}
+
 /** The account's generated suggestions beyond the placeholders: empty until they land. */
 export interface BusinessSuggestions {
   readonly steps: readonly StepSuggestion[];
