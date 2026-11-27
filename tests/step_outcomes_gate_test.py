@@ -28,7 +28,8 @@ def test_the_instructions_forbid_leaving_a_step_before_its_outcome() -> None:
         _script([StepOutcome(step=n, outcome=f"Step {n} is done.") for n in (1, 2, 3)])
     )
     assert f"{OUTCOMES_HEADER} {OUTCOMES_LEAD}" in body
-    assert "Step 2 (Installs it, Already has it): Step 2 is done." in body
+    # Each step says its own outcome in the outline, as its engine step does.
+    assert body.count("Go on only when: Step 2 is done.") == 2
 
 
 def test_each_engine_step_says_when_it_may_go_on() -> None:

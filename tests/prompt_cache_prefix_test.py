@@ -18,7 +18,7 @@ from calevate_shared.call_script import (
     substitute_variables,
     without_outline,
 )
-from calevate_shared.engine import THIS_CALL_HEADER, compose_engine_prompt
+from calevate_shared.engine import THIS_CALL_HEADER, compose_engine_prompt, fenced_script
 from tests.agent_prompt_budget_test import COLLECT, PINNED, _config, _starter
 
 
@@ -78,5 +78,6 @@ def test_a_stored_body_gets_its_pinned_facts_back_before_the_value() -> None:
     spliced = splice_quick_facts(body, PINNED)
     assert spliced.index(QUICK_FACTS_LEAD) < spliced.index("{{lead_name}}")
     assert "Old fact" not in spliced
+    # A body compiled now holds no caller's-name field in the script the model reads.
     compiled = without_outline(compile_call_script(_starter("call_leads"), collect=COLLECT))
-    assert compiled.index("[GOAL]") < compiled.index("{{lead_name}}")
+    assert "{{" not in fenced_script(compiled)

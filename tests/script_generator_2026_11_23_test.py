@@ -97,7 +97,7 @@ def test_each_step_outcome_compiles_as_what_the_step_must_reach_however_the_call
     )
     body = compile_call_script(script)
     assert OUTCOMES_HEADER in body
-    assert "Step 1 (Has the app, No app yet): The person says the app is open." in body
+    assert body.count("Go on only when: The person says the app is open.") == 2
     lead = body.split(OUTCOMES_HEADER, 1)[1].splitlines()[0]
     assert "however the person answers" in lead and "Otherwise" in lead
     steps = native_steps(script)

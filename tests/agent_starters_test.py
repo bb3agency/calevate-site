@@ -35,6 +35,7 @@ from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.db.session import tenant_session, untenanted_session
 from calevate_shared.call_script import (
+    CALLER_NAME_SLOT,
     STANDARD_VARIABLES,
     CallScript,
     compile_call_script,
@@ -293,7 +294,7 @@ async def test_call_my_leads_makes_an_outbound_agent_without_being_told() -> Non
     assert body["direction"] == "outbound"
     row = await _agent_rows(tenant_id, uuid.UUID(body["id"]))
     assert row is not None
-    assert "[GOAL]" in row[4] and "{{lead_name}}" in row[4]
+    assert "[GOAL]" in row[4] and CALLER_NAME_SLOT in row[4]
     assert not CLINIC_ONLY.search(row[4])
     # A custom business starts with no business fields of its own: every lead still gets
     # the core (`calevate_shared.lead_fields`), and its own fields are drafted once by AI.

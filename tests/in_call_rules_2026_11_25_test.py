@@ -11,7 +11,6 @@ from calevate_shared.call_script import (
     PROCEDURE_LEAD,
     CallScript,
     ConversationStage,
-    SpeakingStyle,
     compile_call_script,
 )
 from calevate_shared.engine import (
@@ -105,17 +104,6 @@ def test_no_step_ends_on_an_invitation_to_say_when_done() -> None:
 
 
 # --- the client script's own lines and the examples ---------------------------------------
-
-
-def test_sample_phrases_carry_the_same_cap_as_the_fillers() -> None:
-    script = CallScript(
-        schema_version=2,
-        stages=[ConversationStage(id="s1", name="Help", instruction="Help them.")],
-        style=SpeakingStyle(sample_phrases=["One second."]),
-    )
-    body = compile_call_script(script)
-    assert 'Phrases you can use, once a call each: "One second."' in body
-    assert "not every turn" not in body
 
 
 def test_the_english_example_opens_with_its_point_not_a_reaction_and_comma() -> None:

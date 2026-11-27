@@ -80,6 +80,7 @@ _VARIABLE_KEY_PATTERN: Final = re.compile(r"^[a-z][a-z0-9_]*$")
 #: dialled number reaches the agent on its THIS CALL lines, not as a merge field to speak.
 #: Kept beside the grammar so the editor's menu and the dial-time substitution read one list.
 STANDARD_VARIABLES: Final[tuple[tuple[str, str], ...]] = (("lead_name", "Caller's name"),)
+_CALLER_NAME_VARIABLE: Final = STANDARD_VARIABLES[0][0]
 
 
 def extract_variable_names(text: str) -> list[str]:
@@ -622,11 +623,11 @@ def splice_known_facts(body: str | None, lines: Sequence[str]) -> str:
 
 def _first_per_call_section(lines: Sequence[str]) -> int:
     """The index of the first section header (a line starting with `[`) whose section holds
-    a `{{ variable }}`, or `len(lines)` when none does."""
+    a per-call field (`_holds_per_call_value`), or `len(lines)` when none does."""
     starts = [i for i, line in enumerate(lines) if line.startswith("[")]
     for n, start in enumerate(starts):
         end = starts[n + 1] if n + 1 < len(starts) else len(lines)
-        if any(_VARIABLE_PATTERN.search(line) for line in lines[start:end]):
+        if any(_holds_per_call_value(line) for line in lines[start:end]):
             return start
     return len(lines)
 
@@ -1127,13 +1128,24 @@ PROCEDURE_LEAD: Final = (
     'One action a turn, then stop; never ask them to say when done. Only their "done" moves you '
     "on; asked what to do, the same step, shorter. Stuck? Help."
 )
-#: Above each step's examples, in an example-led script (any stage with `examples`, DESIGN
-#: §3.5), whose steps compile under `PROCEDURE_HEADER` as their intent, their actions with
-#: what shows each is done, and their example turns. Several varied turns, marked as examples
-#: and told to vary, because a model copies one sample closely (OpenAI Realtime "vary, don't
-#: always reuse"; Anthropic "relevant and diverse"; docs/evidence/script-rebuild-2026-11-26/
-#: 03-external-research.md §5).
-STEP_EXAMPLES_LEAD: Final = "Examples (vary your words; never repeat a turn):"
+#: Said once above every step's example turns, in an example-led script (any stage with
+#: `examples`, DESIGN §3.5). Under `PROCEDURE_HEADER` each step keeps only its name, the
+#: actions its engine step could not hold, and its turns: the step's intent, actions and
+#: outcome are said in the step itself (`_step_text`), since a step prompt says only that step
+#: and each instruction is said once (docs.retellai.com/build/prompt-engineering-guide and its
+#: conversation-flow best practices; read for the founder-approved brief of 27 Nov 2026, not
+#: re-read here). The turns are labelled as how a step sounds, not lines to say, because a
+#: model copies sample phrases closely unless told they are inspiration (OpenAI Realtime
+#: prompting guide, same brief; Anthropic "relevant and diverse";
+#: docs/evidence/script-rebuild-2026-11-26/03-external-research.md §5).
+#: `engine._how_to_speak` reads this lead to know the script is example-led.
+STEP_EXAMPLES_LEAD: Final = (
+    "Each step's example turns show how it sounds, not words to copy: vary your words; never "
+    "repeat a turn."
+)
+#: The objections section's lead, worded as the example turns are: an answer is what to say,
+#: not a line to recite.
+OBJECTIONS_LEAD: Final = "[OBJECTIONS] What to answer, not words to copy."
 #: How each kind of example turn is labelled after the language's name.
 _MOMENT_LABELS: Final = (
     ("confused", "if confused"),
@@ -1298,20 +1310,41 @@ def _with_actions(stage: ConversationStage, detail: str) -> str:
     return inline if len(inline) <= STAGE_DETAIL_MAX else detail
 
 
-def _step_detail(stage: ConversationStage, outcome: str = "") -> str:
+@dataclass(frozen=True, slots=True)
+class _StepText:
+    """A stage's step detail, and which of its actions and outcome the detail holds. What it
+    does not hold is said once elsewhere in the instructions: the actions under
+    `PROCEDURE_HEADER`, the outcome under `OUTCOMES_HEADER`."""
+
+    detail: str
+    actions_inline: bool
+    outcome_inline: bool
+
+
+def _step_text(stage: ConversationStage, outcome: str = "") -> _StepText:
     """`_stage_detail`, plus `ONE_DETAIL_PER_TURN` when the step collects several details,
     and its step's outcome (`OUTCOME_IN_STEP`), each while it still fits the engine's step.
-    The text compile and the editor's 600 counter read `_stage_detail`, so the owner's budget
-    is not spent on these: the outcome is always in the instructions (`OUTCOMES_HEADER`).
-    A stage with examples carries its actions here too, when they fit (`_with_actions`)."""
-    detail = _with_actions(stage, _stage_detail(stage))
+    The editor's 600 counter reads `_stage_detail`, so the owner's budget is not spent on
+    these. A stage with examples carries its actions here too, when they fit (`_with_actions`).
+
+    The same text is the engine step and the stage's line in the text outline, so an engine
+    that takes the stages as its own steps and one that reads the outline see one wording."""
+    base = _stage_detail(stage)
+    detail = _with_actions(stage, base)
+    actions_inline = detail != base
     if len(stage.collect) > 1 and len(detail) + 1 + len(ONE_DETAIL_PER_TURN) <= STAGE_DETAIL_MAX:
         detail = f"{detail} {ONE_DETAIL_PER_TURN}"
+    outcome_inline = False
     if outcome:
         said = OUTCOME_IN_STEP.format(outcome=outcome.rstrip("."))
         if len(detail) + 1 + len(said) <= STAGE_DETAIL_MAX:
             detail = f"{detail} {said}"
-    return detail
+            outcome_inline = True
+    return _StepText(detail, actions_inline, outcome_inline)
+
+
+def _step_detail(stage: ConversationStage, outcome: str = "") -> str:
+    return _step_text(stage, outcome).detail
 
 
 #: The section saying what each step must reach. Phrased as a state the conversation is in,
@@ -1327,17 +1360,19 @@ def _step_detail(stage: ConversationStage, outcome: str = "") -> str:
 #: step with "everything is right, isn't it?" instead of asking them to look. Confirming with
 #: the person before the step that depends on it is the guides' rule ("Confirm ... with the
 #: caller before booking", docs.retellai.com/build/prompt-engineering-guide, read 23 Nov 2026).
+#: Each outcome is said in its own step (`OUTCOME_IN_STEP`); this section holds the rule that
+#: is the same for every step, once, and only the outcomes a full step had no room for.
 OUTCOMES_HEADER: Final = "[STEP OUTCOMES]"
 OUTCOMES_LEAD: Final = (
-    "Each step of the call has one outcome to reach. Its scenarios are examples of how the call "
-    "may go, not the only ways: reach the outcome however the person answers, then go on to "
-    "the next step, and never before. It is reached only when what they say shows it, never "
-    "assumed or said for "
+    'A step\'s "Go on only when" is the one outcome it must reach. Its scenarios are examples '
+    "of how the call may go, not the only ways: reach the outcome however the person answers, "
+    "then go on to the next step, and never before. It is reached only when what they say "
+    "shows it, never assumed or said for "
     "them: if it needs them to look or do something, ask them to and wait for their answer. "
     "If it clearly cannot be reached (they refuse, cannot do it now, or are not "
     "the right person), take the step's way out for that, else its Otherwise."
 )
-#: The outcome as an engine step carries it, when there is room.
+#: The outcome as a step carries it, when there is room.
 OUTCOME_IN_STEP: Final = "Go on only when: {outcome}."
 
 
@@ -1347,17 +1382,21 @@ def outcomes_by_stage(script: CallScript) -> list[str]:
     return [by_step.get(step, "") for step in stage_steps(script.stages)]
 
 
-def _outcome_lines(script: CallScript, stages: Sequence[ConversationStage]) -> str:
-    """`Step N (scenario, scenario): outcome`, for each step with an outcome and a scenario."""
-    by_step: dict[int, list[str]] = {}
-    for stage, step in zip(stages, stage_steps(stages), strict=True):
-        by_step.setdefault(step, []).append(stage.name.strip())
-    lines = [
-        f"Step {o.step} ({', '.join(by_step[o.step])}): {o.outcome}"
-        for o in sorted(script.step_outcomes, key=lambda o: o.step)
-        if o.step in by_step and o.outcome.strip()
-    ]
-    return "\n".join(lines)
+def _unplaced_outcome_lines(script: CallScript) -> str:
+    """`Step N (scenario, scenario): outcome` for each outcome some scenario of its step had
+    no room to carry, naming those scenarios; "" when every step carries its own. Paired as
+    `native_steps` pairs them, so the two agree on which step holds what."""
+    missing: dict[int, list[str]] = {}
+    said: dict[int, str] = {}
+    for stage, step, outcome in zip(
+        script.stages, stage_steps(script.stages), outcomes_by_stage(script), strict=True
+    ):
+        if stage.instruction.strip() and outcome and not _step_text(stage, outcome).outcome_inline:
+            missing.setdefault(step, []).append(stage.name.strip())
+            said[step] = outcome
+    return "\n".join(
+        f"Step {step} ({', '.join(names)}): {said[step]}" for step, names in sorted(missing.items())
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1397,8 +1436,9 @@ def _stage_exits(
     return exits
 
 
-def _stage_line(stage: ConversationStage, names: dict[str, str]) -> str:
-    line = f"{stage.name.strip()}: {_stage_detail(stage)}"
+def _stage_line(stage: ConversationStage, names: dict[str, str], outcome: str = "") -> str:
+    """The stage as the text outline holds it: what its engine step would hold, in words."""
+    line = f"{stage.name.strip()}: {_step_detail(stage, outcome)}"
     if stage.collect:
         line += f" Have in hand first: {', '.join(stage.collect)}."
     for when, action in _stage_exits(stage, names, Capabilities()):
@@ -1514,39 +1554,44 @@ def _compile_v2(
     if style.address_form.strip():
         style_lines.append(f"Address callers as: {style.address_form.strip()}")
     # "natural" is what the platform's register section already says, so only a departure
-    # from it is written here.
+    # from it is written here. `sample_phrases` is not compiled: a list of phrases to use
+    # beside HOW TO SPEAK's "no two replies start or end alike" is two rules about the same
+    # words, and a phrase named in a prompt comes back reply after reply, which is why the
+    # register's own filler list is no longer quoted either (`spoken_style.register_guidance`).
+    # How a step sounds is what its example turns show.
     if style.code_mix != "natural":
         style_lines.append(CODE_MIX_SENTENCES[style.code_mix])
-    # Capped once a call each: "not every turn" let a phrase open every other reply against
-    # HOW TO SPEAK's "never ... twice a call".
-    if style.sample_phrases:
-        phrases = " / ".join(_quote(p) for p in style.sample_phrases)
-        style_lines.append(f"Phrases you can use, once a call each: {phrases}")
     if style.pronunciations:
         said = "; ".join(f"{p.word.strip()} as {_quote(p.say_as)}" for p in style.pronunciations)
         style_lines.append(f"{PRONOUNCE_LEAD}{said}")
     add(STYLE_HEADER, "\n".join(style_lines))
 
-    stages = [s for s in script.stages if s.instruction.strip()]
+    paired = [
+        (stage, outcome)
+        for stage, outcome in zip(script.stages, outcomes_by_stage(script), strict=True)
+        if stage.instruction.strip()
+    ]
+    stages = [stage for stage, _ in paired]
     if stages:
+        names = {st.id: st.name for st in stages}
         add(
             f"{CONVERSATION_HEADER} {ADHERENCE_SENTENCES[script.adherence]}",
             "\n".join(
-                f"{i}. {_stage_line(stage, {st.id: st.name for st in stages})}"
-                for i, stage in enumerate(stages, 1)
+                f"{i}. {_stage_line(stage, names, outcome)}"
+                for i, (stage, outcome) in enumerate(paired, 1)
             ),
         )
 
     if script.step_outcomes and stages:
-        add(f"{OUTCOMES_HEADER} {OUTCOMES_LEAD}", _outcome_lines(script, stages))
+        # The lead is the one rule for every step; each outcome is in its own step.
+        outcomes = [f"{OUTCOMES_HEADER} {OUTCOMES_LEAD}", _unplaced_outcome_lines(script)]
+        sections.append("\n".join(part for part in outcomes if part))
 
+    seed = script_seed(script)
     example_led = is_example_led(script)
-    if example_led:
-        add(
-            f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}",
-            _step_blocks(stages, languages, script_seed(script)),
-        )
-    elif with_steps := [s for s in stages if s.procedure]:
+    if example_led and (blocks := _step_blocks(stages, languages, seed)):
+        add(f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}", blocks)
+    elif not example_led and (with_steps := [s for s in stages if s.procedure]):
         add(f"{PROCEDURE_HEADER} {PROCEDURE_LEAD}", _procedures(with_steps))
 
     scenarios = [s for s in stages if s.scripts or s.qa]
@@ -1575,7 +1620,7 @@ def _compile_v2(
     objections = [o for o in script.objections if o.response.strip()]
     if objections:
         add(
-            "[OBJECTIONS] In this spirit, in your own words.",
+            OBJECTIONS_LEAD,
             "\n".join(f"Q: {o.objection.strip()}\nA: {o.response.strip()}" for o in objections),
         )
 
@@ -1589,7 +1634,10 @@ def _compile_v2(
             "Do not make a booking yourself. Note what they want and when it suits them."
         )
     add("[POLICIES]", "\n".join(f"- {p}" for p in policies))
-    add("[ENDING]", script.ending)
+    # One closing: a closing step that shows how the call ends (its example turns or its
+    # script line) is the close, and a separate ending beside it was a second, different one.
+    if not any(_shows_its_words(s, languages) for s in _closing_stages(stages)):
+        add(ENDING_HEADER, script.ending)
 
     facts = [
         (faq.question.strip(), faq.answer.strip())
@@ -1609,7 +1657,11 @@ def _compile_v2(
                 for line in example
             ),
         )
-    return "\n\n".join(per_call_sections_last(sections))
+    marked = [
+        section if section.startswith(_SPOKEN_HEADERS) else _marked_caller_name(section)
+        for section in sections
+    ]
+    return "\n\n".join(per_call_sections_last(marked))
 
 
 def is_example_led(script: CallScript) -> bool:
@@ -1631,15 +1683,33 @@ def _rotated(turns: Sequence[str], seed: str) -> list[str]:
     return sorted(turns, key=lambda turn: hashlib.sha256(f"{seed}\n{turn}".encode()).digest())
 
 
+def _is_english(tag: str) -> bool:
+    return tag.split("-", 1)[0].casefold() == "en"
+
+
+def _example_tags(stage: ConversationStage, languages: Sequence[str]) -> list[str]:
+    """The languages `stage`'s examples are compiled in: the call's (`languages`, main
+    first), or all of them when the call's are not known. In a call whose main language is
+    not English the English turns are left out: the model speaks English without being shown
+    how (founder, 27 Nov 2026), and every turn shown is read on every reply. Other Indian
+    languages' turns stay, because the register of those is what the turns are there for."""
+    if not languages:
+        return list(stage.examples)
+    tags = [tag for tag in languages if tag in stage.examples]
+    if _is_english(languages[0]):
+        return tags
+    return [tag for tag in tags if not _is_english(tag)]
+
+
 def _example_lines(
     stage: ConversationStage, languages: Sequence[str], seed: str, *, first_step: bool
 ) -> list[str]:
-    """`stage`'s example turns in the call's languages, each labelled with its language and,
-    for the hard moments, the moment. A busy turn is the first step's only: later in the
-    call the person has already given their time, and the platform's own way-out rules
-    answer a "later"."""
+    """`stage`'s example turns in the call's languages (`_example_tags`), each labelled with
+    its language and, for the hard moments, the moment. A busy turn is the first step's only:
+    later in the call the person has already given their time, and the platform's own way-out
+    rules answer a "later"."""
     names = {lang.bcp47: lang.english_name for lang in built_languages()}
-    tags = [tag for tag in languages if tag in stage.examples] if languages else stage.examples
+    tags = _example_tags(stage, languages)
     lines: list[str] = []
     for tag in tags:
         said, name = stage.examples[tag], names.get(tag, tag)
@@ -1652,19 +1722,21 @@ def _example_lines(
 
 
 def _step_blocks(stages: Sequence[ConversationStage], languages: Sequence[str], seed: str) -> str:
-    """Each stage with actions or examples: its name and intent, its actions with what shows
-    each is done, then its example turns."""
+    """Under each stage's name, what its step points here for and nothing it says itself:
+    the actions its step had no room for (`_with_actions`), then its example turns.
+    `STEP_EXAMPLES_LEAD` is said once, above the blocks, when any turns are shown."""
     blocks: list[str] = []
+    shown = False
     for stage, step in zip(stages, stage_steps(stages), strict=True):
-        if not (stage.procedure or stage.has_examples):
-            continue
-        lines = [f"{stage.name.strip()}: {' '.join(stage.instruction.split())}"]
-        lines += [_action_line(i, action) for i, action in enumerate(stage.procedure, 1)]
+        lines: list[str] = []
+        if stage.procedure and not _step_text(stage).actions_inline:
+            lines += [_action_line(i, action) for i, action in enumerate(stage.procedure, 1)]
         examples = _example_lines(stage, languages, seed, first_step=step == 1)
-        if examples:
-            lines += [STEP_EXAMPLES_LEAD, *examples]
-        blocks.append("\n".join(lines))
-    return "\n\n".join(blocks)
+        shown = shown or bool(examples)
+        lines += examples
+        if lines:
+            blocks.append("\n".join([f"{stage.name.strip()}:", *lines]))
+    return "\n\n".join([STEP_EXAMPLES_LEAD, *blocks] if shown else blocks)
 
 
 def _procedures(stages: Sequence[ConversationStage]) -> str:
@@ -1681,17 +1753,71 @@ def _procedures(stages: Sequence[ConversationStage]) -> str:
     return "\n".join(blocks)
 
 
+ENDING_HEADER: Final = "[ENDING]"
+
+
+def _closing_stages(stages: Sequence[ConversationStage]) -> list[ConversationStage]:
+    """The stages every way out of which ends the call: each branch and the Otherwise go to
+    `END_OF_CALL`, an empty Otherwise counting as the next stage (none, after the last)."""
+    out: list[ConversationStage] = []
+    for i, stage in enumerate(stages):
+        after = stage.otherwise or (stages[i + 1].id if i + 1 < len(stages) else END_OF_CALL)
+        if all(target == END_OF_CALL for target in (after, *(b.target for b in stage.branches))):
+            out.append(stage)
+    return out
+
+
+def _shows_its_words(stage: ConversationStage, languages: Sequence[str]) -> bool:
+    """Does the compile show how `stage` is said: example turns in this call, or a script
+    line?"""
+    return bool(stage.scripts) or bool(_example_tags(stage, languages))
+
+
+#: The sections that hold words the engine speaks or reads back as written: their per-call
+#: fields stay fields (`opening_line_of`, `said_notices_of`, `fill_spoken_line`).
+_SPOKEN_HEADERS: Final = (OPENING_HEADER, OUTBOUND_OPENING_HEADER, NOTICES_HEADER)
+
+#: The caller's name in the script's own sections. THIS CALL's `Name:` line carries the value,
+#: so the field itself need not be in the script, where the first field the engine fills ends
+#: the part of the prompt a new call can reuse (D-835). The words of
+#: `engine.CALLER_NAME_ONLY_MARK`, in round brackets rather than square: a line of the body
+#: that starts with "[" reads as a section header to every reader of the body
+#: (`_section_of`, `without_outline`), and an owner's line can start with the name.
+CALLER_NAME_SLOT: Final = "(name if known)"
+#: The caller's name field followed by its title and a break, which `engine.mark_caller_name`
+#: marks as one slot with its title, so it is left for that. Any other caller's-name field is
+#: marked here.
+_CALLER_NAME_FIELD: Final = re.compile(
+    rf"(?P<titled>\{{\{{\s*{_CALLER_NAME_VARIABLE}\s*\}}\}}[ \t]+[^\s,.!?।{{}}]+"
+    rf"(?=[ \t]*[,.!?।]))|\{{\{{\s*{_CALLER_NAME_VARIABLE}\s*\}}\}}"
+)
+
+
+def _marked_caller_name(text: str) -> str:
+    return _CALLER_NAME_FIELD.sub(
+        lambda m: m.group(0) if m.group("titled") else CALLER_NAME_SLOT, text
+    )
+
+
+def _holds_per_call_value(text: str) -> bool:
+    """Does `text` hold a field the engine fills per call, once the caller's name with its
+    title is marked (`engine.mark_caller_name`)?"""
+    left = _CALLER_NAME_FIELD.sub(lambda m: "" if m.group("titled") else m.group(0), text)
+    return bool(_VARIABLE_PATTERN.search(left))
+
+
 def per_call_sections_last(sections: Sequence[str]) -> list[str]:
-    """`sections` with every one that holds a `{{ variable }}` moved to the end, each group in
+    """`sections` with every one that holds a per-call field moved to the end, each group in
     its own order.
 
     The engine fills a variable per call, and its model-side cache runs from the start of the
     prompt to the first value it filled (ThinnestAI email of 19 Oct 2026, VENDOR-STATED), so a
     section with a variable ahead of the quick facts or the example call would leave them,
     and every later section, outside the part a new call can reuse (D-835). A moved section
-    keeps its header, so it still says what it is; within each group the order is kept."""
-    fixed = [s for s in sections if not _VARIABLE_PATTERN.search(s)]
-    return fixed + [s for s in sections if _VARIABLE_PATTERN.search(s)]
+    keeps its header, so it still says what it is; within each group the order is kept. The
+    caller's name with its title is not such a field: the composer marks it."""
+    fixed = [s for s in sections if not _holds_per_call_value(s)]
+    return fixed + [s for s in sections if _holds_per_call_value(s)]
 
 
 def upgrade_to_v2(script: CallScript) -> CallScript:
@@ -1876,11 +2002,13 @@ __all__ = [
     "ACTIONS_POINTER",
     "BUILTIN_END_CALL_RULE",
     "BUSINESS_HEADER",
+    "CALLER_NAME_SLOT",
     "CALL_BACK",
     "CODE_MIX_SENTENCES",
     "COLLECT_HEADER",
     "DEFAULT_FAQ_FALLBACK",
     "DONE_WHEN_LEAD",
+    "ENDING_HEADER",
     "END_OF_CALL",
     "EXAMPLES_POINTER",
     "EXAMPLE_HEADER",
@@ -1895,6 +2023,7 @@ __all__ = [
     "NOTICES_HEADER",
     "NOTICE_RECORDS",
     "NO_CALL_BACKS_POLICY",
+    "OBJECTIONS_LEAD",
     "OPENING_HEADER",
     "OUTBOUND_OPENING_HEADER",
     "OUTCOMES_HEADER",
