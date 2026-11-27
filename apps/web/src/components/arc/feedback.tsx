@@ -66,7 +66,7 @@ export const SUCCESS_HOLD_MS = 2000;
  * owner reads a toast at a glance, and the measured parts stay on the script screen.
  */
 const SHORT_DESCRIPTIONS: Record<string, string> = {
-  engine_prompt_too_long: "Press Try again for a shorter one from Pip, or shorten the longest steps.",
+  engine_prompt_too_long: "Discard this draft and ask Pip again for a shorter one, or shorten the longest steps.",
 };
 
 export function problemToast(error: unknown, fallbackTitle: string) {

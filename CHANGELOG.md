@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.92 — 27-Nov-2026
+
+- "This script is too long" now says to discard the draft and ask Pip again. It used to say
+  "Press Try again", but that button retries keeping the same draft.
+
 ## 0.5.91 — 27-Nov-2026
 
 - "Edit script" is now a short list of the script's parts. Tap one to open just that part,
