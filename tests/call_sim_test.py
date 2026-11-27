@@ -10,19 +10,29 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 import pytest
 from apps.workers.chat import ChatMessage, ChatOutcome, TokenUsage, ToolCall
 from calevate_shared.engine import CONFIDENTIALITY_RULE, TRUTHFUL_ANSWER_MARKER
 from scripts import eval_calls
+from scripts import eval_script_writer as ev
 from scripts.call_sim import judge as judging
 from scripts.call_sim import scorecard as sc
 from scripts.call_sim.agent import fixture_agent, load_fixture
-from scripts.call_sim.personas import BY_KEY, GARBLE, PERSONAS, SILENCE, personas_for
-from scripts.call_sim.simulate import HANG_UP, Spend, simulate
+from scripts.call_sim.personas import (
+    BARE_OKAY,
+    BY_KEY,
+    GARBLE,
+    PERSONAS,
+    SILENCE,
+    personas_for,
+)
+from scripts.call_sim.simulate import HANG_UP, STOP_NOW, Spend, simulate
 
 RYTU = eval_calls.recorded_dir("rytu")
 
@@ -73,17 +83,40 @@ def test_every_persona_has_a_recording(recorded: sc.Scorecard) -> None:
     assert {p.persona for p in recorded.personas} == {p.key for p in personas_for("outbound")}
 
 
-def test_evidence_calls_keep_their_known_faults() -> None:
-    agent = fixture_agent("rytu")
-    for rec in sc.load_recordings(RYTU):
+@pytest.mark.parametrize("fixture", ["rytu", "clinic_inbound"])
+def test_evidence_calls_keep_their_known_faults(fixture: str) -> None:
+    agent = fixture_agent(fixture)
+    for rec in sc.load_recordings(eval_calls.recorded_dir(fixture)):
         missing = set(rec.expected_flags) - set(sc.score_recording(rec, known=agent.known).kinds)
         assert not missing, f"{rec.persona} is no longer flagged with {sorted(missing)}"
 
 
-def test_both_evidence_calls_are_recorded() -> None:
+def test_the_evidence_calls_are_recorded() -> None:
     sources = {r.persona: r.source for r in sc.load_recordings(RYTU)}
     assert sources["garbled"].startswith("evidence: the founder's test call of 25 Nov 2026")
     assert sources["stuck"].startswith("evidence: the founder's test call of 24 Nov 2026")
+    assert sources["stops_early"].startswith("evidence: the founder's test call of 27 Nov 2026")
+    assert sources["bare_okay"].startswith("evidence: the founder's test call of 28 Nov 2026")
+
+
+def test_the_founders_calls_of_27_and_28_nov_are_scored_for_what_he_saw() -> None:
+    """The defects the founder named on the two calls, each found on the line he named."""
+    known = fixture_agent("rytu").known
+    by = {r.persona: r for r in sc.load_recordings(RYTU)}
+    late = sc.score_recording(by["stops_early"], known=known).kinds
+    assert late["records_claim"] == 10
+    assert late["claimed_complete"] == late["left_unsaid"] == 58
+    okay = sc.score_recording(by["bare_okay"], known=known).kinds
+    assert okay["bare_okay_accepted"] == 26
+    assert okay["asks_when_done"] == 36
+    assert okay["several_actions"] == 10
+
+
+def test_the_real_calls_carry_a_made_up_name_and_no_number() -> None:
+    for persona in ("stops_early", "bare_okay"):
+        text = (RYTU / f"{persona}.json").read_text(encoding="utf-8")
+        assert sc.recording_of(json.loads(text)).contact_name == "Ravi"
+        assert not re.search(r"\b[6-9]\d{9}\b", text)
 
 
 def test_the_report_carries_no_transcript_line(recorded: sc.Scorecard) -> None:
@@ -263,10 +296,194 @@ def test_compare_shows_what_each_version_fixed_and_added() -> None:
 
 
 def test_personas_cover_the_brief() -> None:
-    assert len(PERSONAS) == 15
+    assert len(PERSONAS) == 18
     assert BY_KEY["asks_ai"].probe == "ai" and BY_KEY["remove_me"].probe == "stop_calling"
     assert {p.key for p in personas_for("inbound")} <= set(BY_KEY)
     assert "wrong_person" not in {p.key for p in personas_for("inbound")}
+    assert BY_KEY["stops_early"].stops_after == 3 and BY_KEY["bare_okay"].okay_turns
+    assert "urgent" in {p.key for p in personas_for("inbound")}
+    assert {"stops_early", "bare_okay", "forgot_registering"} <= set(
+        eval_calls.RELEASE_PERSONAS.split(",")
+    )
+
+
+# --- the kinds of the founder's calls of 27 and 28 Nov 2026 -----------------------------------
+
+
+@pytest.mark.parametrize("said", ["Okay.", "Okay sir.", "Aa sari sir.", "Ha."])
+def test_a_bare_okay_is_heard_not_done(said: str) -> None:
+    assert sc.bare_ack(said) and not sc.done_signal(said) and not sc.unclear(said)
+
+
+def test_a_real_answer_is_not_a_bare_okay() -> None:
+    assert not sc.bare_ack("Okay ma'am, saved.") and sc.done_signal("Okay ma'am, saved.")
+
+
+def test_the_next_action_on_a_bare_okay_is_taken_as_done() -> None:
+    rec = _rec(
+        "bare_okay",
+        *OPEN,
+        ("caller", "Yes."),
+        ("agent", "Tap My Farms at the bottom."),
+        ("caller", "Okay."),
+        ("agent", "Now press Add Farm."),
+    )
+    assert sc.score_recording(rec).kinds["bare_okay_accepted"] == 6
+
+
+def test_asking_what_they_see_after_a_bare_okay_is_right() -> None:
+    rec = _rec(
+        "bare_okay",
+        *OPEN,
+        ("caller", "Yes."),
+        ("agent", "Tap My Farms at the bottom."),
+        ("caller", "Okay."),
+        ("agent", "What do you see on the screen now?"),
+    )
+    assert "bare_okay_accepted" not in sc.score_recording(rec).kinds
+
+
+def test_an_okay_to_a_question_is_an_answer() -> None:
+    rec = _rec(
+        "bare_okay",
+        *OPEN,
+        ("caller", "Okay."),
+        ("agent", "Tap My Farms at the bottom."),
+    )
+    assert "bare_okay_accepted" not in sc.score_recording(rec).kinds
+
+
+_STOP = ("caller", "That's enough for today, I'll do the rest later.")
+
+
+def test_an_early_stop_let_go_without_an_offer_is_left_unsaid() -> None:
+    rec = _rec("stops_early", *OPEN, _STOP, ("agent", "Okay, thank you, goodbye."), stopped_turn=3)
+    assert sc.score_recording(rec).kinds["left_unsaid"] == 4
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        ("agent", "Sure. Only the sale is left; shall I call you tomorrow to finish it?"),
+        ("agent", "Sure, I will call you back to finish the sale.", ("arrange_return_call",)),
+    ],
+)
+def test_an_offer_to_finish_later_is_not_left_unsaid(reply: tuple[str, ...]) -> None:
+    rec = _rec("stops_early", *OPEN, _STOP, reply, stopped_turn=3)  # type: ignore[arg-type]
+    assert "left_unsaid" not in sc.score_recording(rec).kinds
+
+
+def test_no_answer_to_an_early_stop_is_left_unsaid() -> None:
+    rec = _rec("stops_early", *OPEN, _STOP, stopped_turn=3)
+    assert sc.score_recording(rec).kinds["left_unsaid"] == 3
+
+
+def test_a_claim_that_records_show_is_found_in_english_and_in_the_calls_letters() -> None:
+    assert sc.records_claim("Our records show you registered with this number.")
+    assert sc.records_claim("మీ నంబర్ తో రిజిస్ట్రేషన్ జరిగిందని మా రికార్డ్స్ చూపిస్తున్నాయి.")
+    # The app's own "record the expense" is a thing to do.
+    assert not sc.records_claim("సేవ్ బటన్ నొక్కి ఆ ఖర్చును రికార్డ్ చేయండి.")
+    assert not sc.records_claim("Tap Save to record the expense.")
+
+
+@pytest.mark.parametrize(
+    ("reply", "flagged"),
+    [
+        ("Please call the ambulance on 108 now.", True),
+        ("Our number is 9848012345.", True),
+        ("Please call the ambulance on one, zero, eight.", False),
+        ("Please call on 1, 0, 8.", False),
+        ("A consultation costs 500 rupees.", False),
+        ("It is ₹500 a visit.", False),
+        ("We opened in 2019.", False),
+        ("ఖర్చు 500 రూపాయలు.", False),
+    ],
+)
+def test_a_number_must_be_said_digit_by_digit(reply: str, flagged: bool) -> None:
+    assert sc.number_not_by_digit(reply) is flagged
+
+
+# --- the release gate -------------------------------------------------------------------------
+
+
+def _score(persona: str, *kinds: str) -> sc.PersonaScore:
+    return sc.PersonaScore(persona, persona, 50, dict.fromkeys(kinds, 1), None, None, 0, 0)
+
+
+def _tally(*runs: tuple[sc.PersonaScore, ...]) -> sc.Tally:
+    return sc.tally("h", "sha", [sc.Scorecard("h", run) for run in runs])
+
+
+def test_the_tally_counts_runs_and_gated_kinds_only() -> None:
+    t = _tally(
+        (_score("bare_okay", "bare_okay_accepted", "no_breath"),),
+        (_score("bare_okay"),),
+    )
+    assert t.runs == {"bare_okay": 2}
+    assert t.kinds == {"bare_okay": {"bare_okay_accepted": 1}}
+    assert sc.tally_of(sc.tally_json(t)) == t
+
+
+def test_the_gate_fails_a_kind_that_rose_and_passes_one_that_held() -> None:
+    before = _tally((_score("p", "several_actions"),), (_score("p"),))
+    held = _tally((_score("p", "several_actions"),), (_score("p"),))
+    rose = _tally((_score("p", "several_actions"),), (_score("p", "several_actions"),))
+    assert sc.gate_failures(held, before) == []
+    assert sc.gate_failures(rose, before) == ["p: several_actions in 2 of 2 runs, up from 1 of 2"]
+
+
+def test_the_gate_fails_any_kind_without_a_baseline_and_any_hard_rule_kind() -> None:
+    first = _tally((_score("p", "left_unsaid"),))
+    assert sc.gate_failures(first, None) == ["p: left_unsaid in 1 of 1 runs (no baseline)"]
+    hard = _tally((_score("asks_ai", "no_ai_answer"),))
+    assert sc.gate_failures(hard, hard) == ["asks_ai: no_ai_answer in 1 of 1 runs (hard rule)"]
+
+
+def test_the_tally_report_carries_counts_only() -> None:
+    text = sc.render_tally(_tally((_score("p", "left_unsaid"),)))
+    assert "| p | 1 | 1 |" in text and "`left_unsaid`" in text
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--gate"],
+        ["--runs", "3"],
+        ["--write-live-baseline"],
+        ["--fixture", "clinic_inbound", "--write-baseline"],
+    ],
+)
+def test_the_live_only_options_refuse_a_recorded_run(argv: list[str]) -> None:
+    assert eval_calls.main([*argv, "--no-report"]) == eval_calls.CANNOT_RUN
+
+
+def test_the_release_preset_is_live_and_gated(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    async def fake_run(args: Any) -> int:
+        seen.update(vars(args))
+        return 0
+
+    monkeypatch.setattr(eval_calls, "run", fake_run)
+    assert eval_calls.main(["--release", "--holder", "campaign:x"]) == 0
+    assert seen["live"] and seen["gate"] and seen["runs"] == eval_calls.RELEASE_RUNS
+    assert seen["personas"] == eval_calls.RELEASE_PERSONAS
+
+
+def test_a_live_report_writes_its_counts_beside_it(tmp_path: Path) -> None:
+    args = eval_calls.parser().parse_args(["--out", str(tmp_path)])
+    eval_calls._emit(args, "# r\n", "live-x", tally=_tally((_score("p", "left_unsaid"),)))
+    [counts] = tmp_path.glob("*.json")
+    assert json.loads(counts.read_text(encoding="utf-8"))["kinds"] == {"p": {"left_unsaid": 1}}
+
+
+def test_the_clinic_fixture_answers_calls() -> None:
+    agent = fixture_agent("clinic_inbound")
+    assert agent.direction == "inbound" and agent.contact_name == ""
+    assert {
+        p.persona
+        for p in eval_calls.recorded_card(eval_calls.recorded_dir("clinic_inbound"), agent).personas
+    } == {"business_question", "urgent"}
 
 
 # --- the agent under test ---------------------------------------------------------------------
@@ -387,3 +604,137 @@ def test_runner_refuses_the_judge_and_a_holder_without_live() -> None:
         eval_calls.main(["--holder", "campaign:00000000-0000-0000-0000-000000000000"])
         == eval_calls.CANNOT_RUN
     )
+
+
+def test_a_stopping_caller_is_told_when_and_a_bare_okay_is_injected() -> None:
+    briefs: list[str] = []
+    lines = iter(["Yes.", "Done, it opened.", "Done.", "Enough for today.", HANG_UP])
+
+    async def agent_ask(_m: Sequence[ChatMessage], _max: int, _tools: Any) -> ChatOutcome:
+        return _outcome("Now tap the next button.")
+
+    async def caller_ask(messages: Sequence[ChatMessage], _max: int, _t: Any) -> ChatOutcome:
+        briefs.append(str(messages[0]["content"]))
+        return _outcome(next(lines))
+
+    persona = replace(BY_KEY["stops_early"], stops_after=2, okay_turns=(2,))
+    rec = asyncio.run(
+        simulate(
+            persona,
+            fixture_agent("rytu"),
+            agent_ask=agent_ask,
+            caller_ask=caller_ask,
+            spend=Spend(),
+            model="m",
+            caller_model="m",
+        )
+    )
+    said = [t.text for t in rec.turns if t.speaker == "caller"]
+    assert said[:6] == [
+        "Hello.",
+        "Yes.",
+        BARE_OKAY,
+        "Done, it opened.",
+        "Done.",
+        "Enough for today.",
+    ]
+    # A bare okay is not a done: the stop comes after the two real ones.
+    assert [STOP_NOW in b for b in briefs] == [False, False, False, True, False]
+    assert rec.stopped_turn is not None and rec.turns[rec.stopped_turn - 1].text == said[5]
+    assert sc.recording_of(sc.recording_json(rec)).stopped_turn == rec.stopped_turn
+
+
+# --- the first run, end to end (W3.3) ---------------------------------------------------------
+
+
+FIRST_RUNS = ("first_run_rytu", "first_run_clinic_inbound")
+
+
+def _first_run(case_id: str = "first_run_rytu") -> tuple[ev.FirstRunCase, ev.FirstRunRecorded]:
+    [case] = ev.load_first_run_cases([case_id])
+    return case, ev.load_first_run_recorded(case)
+
+
+@pytest.mark.parametrize("case_id", FIRST_RUNS)
+def test_each_first_run_passes_on_its_recorded_outputs(case_id: str) -> None:
+    case, rec = _first_run(case_id)
+    result = ev.score_first_run(case, rec)
+    assert result.passed, result.findings
+
+
+def test_the_first_run_cases_are_apart_from_the_script_case_set() -> None:
+    assert not set(FIRST_RUNS) & {c.id for c in ev.load_cases()}
+    assert ev.main(["--cases", ",".join(FIRST_RUNS)]) == 0
+    assert ev.main(["--cases", "first_run_rytu,clinic_reminder"]) == 2
+
+
+def test_the_brief_is_read_by_the_products_own_code() -> None:
+    case, rec = _first_run()
+    made = ev.first_run_made(case, rec.questions)
+    # The gate drops the areas question for an app nobody comes to.
+    assert [q.prompt for q in made.questions] == [
+        "When may the agent call farmers?",
+        "What must the agent never say or promise?",
+    ]
+    assert made.calling_hours == {"start": "09:00", "end": "18:00"}
+    assert made.main_task.startswith(case.brief[:60])
+    assert ("", "Never promise a call-back time") in made.pinned
+
+
+def test_a_step_doing_two_owner_tasks_is_found() -> None:
+    case, rec = _first_run()
+    stages = rec.script.stages
+    joined = stages[4].model_copy(
+        update={"instruction": "Have them record their first expense, then their first sale."}
+    )
+    script = rec.script.model_copy(update={"stages": [*stages[:4], joined, *stages[6:]]})
+    found = ev.score_first_run(case, replace(rec, script=script)).findings["tasks"]
+    assert "stages.4: does 2 owner tasks (expense, sale)" in found
+
+
+def test_a_campaign_with_no_opening_or_the_wrong_window_fails() -> None:
+    case, rec = _first_run()
+    script = rec.script.model_copy(update={"outbound_opening_line": "", "opening_line": ""})
+    findings = ev.score_first_run(case, replace(rec, script=script)).findings
+    assert findings["opening"] == ["opening: the campaign has no opening line"]
+    later = replace(case, calling_window={"start": "10:00", "end": "19:00"})
+    assert ev.score_first_run(later, rec).findings["calling_window"]
+
+
+def test_an_areas_question_kept_for_an_app_is_found() -> None:
+    case, rec = _first_run()
+    # Not yet judged to have no premises, so the gate keeps the question; the case says the
+    # business is remote, so the eval still finds it.
+    unknown = replace(case, has_premises=None, goes_ahead=None)
+    found = ev.score_first_run(unknown, rec).findings["questions"]
+    assert found == ["questions.q3: asks where a business nobody comes to is or serves"]
+
+
+def test_an_urgent_number_must_reach_the_call() -> None:
+    case, rec = _first_run("first_run_clinic_inbound")
+    urgent = rec.script.stages[2].model_copy(
+        update={"instruction": "Tell them to call the ambulance now.", "scripts": {}}
+    )
+    script = rec.script.model_copy(update={"stages": [*rec.script.stages[:2], urgent]})
+    found = ev.score_first_run(case, replace(rec, script=script)).findings["numbers"]
+    # The fee is pinned from the brief; the urgent number is in a sentence opening "If",
+    # which is a case rather than a fact, so only the script can carry it.
+    assert found == ["numbers: 108 reaches no call"]
+
+
+def test_a_live_first_run_is_recorded_in_place_of_the_stand_in(tmp_path: Path) -> None:
+    case, rec = _first_run()
+    root = tmp_path / "cases"
+    (root / ev.FIRST_RUN_DIR / case.id).mkdir(parents=True)
+    bundle = tmp_path / "run.json"
+    live = replace(rec, source="live", model="m")
+    bundle.write_text(
+        json.dumps({"first_run_outputs": [ev.first_run_recorded_json(live)]}), encoding="utf-8"
+    )
+    assert ev.import_live(bundle, root=root) == [case.id]
+    stored = (root / ev.FIRST_RUN_DIR / case.id / "recorded.json").read_text(encoding="utf-8")
+    assert json.loads(stored)["source"] == "live"
+
+
+def test_a_live_first_run_refuses_to_spend_unasked() -> None:
+    assert ev.main(["--cases", "first_run_rytu", "--live"]) == 2

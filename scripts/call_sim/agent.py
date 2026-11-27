@@ -19,7 +19,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from apps.api.compliance.disclosure import ai_disclosure_for, recording_notice_for
@@ -142,6 +142,8 @@ class Fixture:
     facts: tuple[tuple[str, str], ...]
     collect: tuple[CollectField, ...]
     script: CallScript
+    #: "outbound" (a campaign placing the call) or "inbound" (a line answering one).
+    direction: Literal["inbound", "outbound"] = "outbound"
 
 
 def load_fixture(name: str) -> Fixture:
@@ -156,6 +158,7 @@ def load_fixture(name: str) -> Fixture:
         facts=tuple((q, a) for q, a in raw.get("facts") or ()),
         collect=tuple(CollectField(label=lab) for _key, lab in raw.get("collect") or ()),
         script=CallScript.model_validate(raw["script"]),
+        direction="inbound" if raw.get("direction") == "inbound" else "outbound",
     )
 
 
@@ -190,7 +193,7 @@ def fixture_config(
         agent_id=f"call-sim-{fixture.name}",
         name=fixture.agent_name,
         business=fixture.business,
-        direction="outbound",
+        direction=fixture.direction,
         language_primary=language,
         system_prompt=without_outline(body) if steps else body,
         **notice_fields(posture, call_is_recorded=True),
@@ -217,7 +220,7 @@ def fixture_agent(
     return AgentUnderTest(
         holder=f"fixture:{name}",
         language=cfg.language_primary,
-        direction="outbound",
+        direction=fixture.direction,
         system=prompt if prompt is not None else system_prompt(cfg, vendor),
         first_words=_opening(cfg, fixture.contact_name),
         max_tokens=cfg.max_reply_tokens,

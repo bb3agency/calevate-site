@@ -1,0 +1,44 @@
+{
+  "id": "first_run_rytu",
+  "_doc": "The first run of 28 Nov 2026: a trial owner's 'Call people' brief (brief.txt, verbatim). What a reader expects it to yield is written here by hand: six tasks, one stated fact, the rules and calling window the owner gives in answer. The answers are recorded, not the owner's own: the run's real answers were not kept.",
+  "job": "call_leads",
+  "remote": true,
+  "has_premises": false,
+  "goes_ahead": false,
+  "tasks": [
+    {"id": "install", "text": "install it on their phone's home screen", "terms": [["install", "home screen"]]},
+    {"id": "log_in", "text": "log in with their mobile number", "terms": [["log in", "login"]]},
+    {"id": "language", "text": "set the app language to Telugu", "terms": [["language"]]},
+    {"id": "farm", "text": "add their farm in My Farms", "terms": [["my farms"]]},
+    {"id": "expense", "text": "enter their first expense", "terms": [["expense"]]},
+    {"id": "sale", "text": "enter their first sale", "terms": [["sale"]]}
+  ],
+  "facts": ["We are Rytu Khata, an app that helps farmers keep their farm expenses, crop sales and profit on their phone."],
+  "rules": ["never promise", "never ask for an otp"],
+  "numbers": [],
+  "calling_window": {"start": "09:00", "end": "18:00"},
+  "answers": [
+    {"match": "\\b(?:when|time|hours)\\b", "ticks": ["9am to 6pm", "9 am to 6 pm"]},
+    {"match": "\\b(?:never|must not|avoid)\\b", "ticks": ["promise", "otp"]}
+  ],
+  "one_thing": "",
+  "script_case": {
+    "title": "First run: Rytu Khata app set-up",
+    "business_name": "Rytu Khata",
+    "business_type": "custom",
+    "agent_name": "Varsha",
+    "description": "Rytu Khata is an app that helps farmers keep their farm expenses, crop sales and profit on their phone.",
+    "language": "te-IN",
+    "languages": ["te-IN", "en-IN"],
+    "capabilities": {"call_backs": true},
+    "noted": [{"label": "Caller name"}, {"label": "Setup progress"}],
+    "known": ["name"],
+    "knowledge": [],
+    "purpose_terms": ["app", "install", "registered"],
+    "variants": [["android", "iphone"]],
+    "screen_terms": ["home", "screen", "chrome", "safari", "add to home screen", "my farms"],
+    "purpose": "Help people who registered on the website start using the app.",
+    "goal": "The app is on their home screen and they have entered a first expense and sale.",
+    "consent_source": "existing_customer"
+  }
+}

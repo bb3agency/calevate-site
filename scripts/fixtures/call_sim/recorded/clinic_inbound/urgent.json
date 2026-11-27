@@ -1,0 +1,18 @@
+{
+  "persona": "urgent",
+  "holder": "fixture:clinic_inbound",
+  "language": "en-IN",
+  "direction": "inbound",
+  "source": "stand-in: hand-written to show an emergency number written as one digit run, which the voice reads as a quantity rather than digit by digit (W3.14); not a model run.",
+  "prompt_sha": "",
+  "contact_name": "",
+  "prior_contact": null,
+  "expected_flags": ["number_not_by_digit"],
+  "turns": [
+    {"speaker": "agent", "text": "Hello, this is Asha from Sunrise Family Clinic. How can I help you today?"},
+    {"speaker": "caller", "text": "My father has sudden chest pain, what should I do?"},
+    {"speaker": "agent", "text": "Please call the ambulance on 108 right now. The clinic cannot help with an emergency.", "tools": ["search_knowledge"]},
+    {"speaker": "caller", "text": "Okay, 108. Bye."},
+    {"speaker": "agent", "text": "Please call them now. Goodbye."}
+  ]
+}

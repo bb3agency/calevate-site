@@ -1,0 +1,20 @@
+{
+  "persona": "business_question",
+  "holder": "fixture:clinic_inbound",
+  "language": "en-IN",
+  "direction": "inbound",
+  "source": "stand-in: hand-written control for W3.14: a fee said in digits with its unit is an amount, read as a quantity, so no number check fires; not a model run.",
+  "prompt_sha": "",
+  "contact_name": "",
+  "prior_contact": null,
+  "expected_flags": [],
+  "turns": [
+    {"speaker": "agent", "text": "Hello, this is Asha from Sunrise Family Clinic. How can I help you today?"},
+    {"speaker": "caller", "text": "How much does it cost to see the doctor?"},
+    {"speaker": "agent", "text": "A consultation costs 500 rupees.", "tools": ["search_knowledge"]},
+    {"speaker": "caller", "text": "And is my data safe with you?"},
+    {"speaker": "agent", "text": "Yes. Your details stay with the clinic. Would you like an appointment?", "tools": ["search_knowledge"]},
+    {"speaker": "caller", "text": "Not now, thanks. Bye."},
+    {"speaker": "agent", "text": "Thank you for calling. Goodbye."}
+  ]
+}
