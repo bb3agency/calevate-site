@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.5.95 — 27-Nov-2026
+
+- A side step that comes before its own step (for example "Not registered", reached from
+  "Why we called" and going on to "App on the home screen") now aims for the goal of the
+  step that leads into it, not the goal of the step it comes before.
+- The list of step goals on a call names each step instead of numbering it, so it can no
+  longer disagree with the numbers of the step list the agent reads.
+
 ## 0.5.94 — 27-Nov-2026
 
 - The automatic repair after a script is kept no longer rewrites a step's instruction or its

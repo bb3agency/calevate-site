@@ -1377,26 +1377,45 @@ OUTCOME_IN_STEP: Final = "Go on only when: {outcome}."
 
 
 def outcomes_by_stage(script: CallScript) -> list[str]:
-    """Each stage's step outcome, in list order, or "" where its step has none."""
+    """Each stage's step outcome, in list order, or "" where its step has none.
+
+    A scenario shares its step's outcome, except a side stage that leads INTO the first stage
+    of its own step (its Otherwise is that stage): it runs before the step's outcome can be
+    reached, so it takes the outcome of the step that branches into it. Rytu Khata, 27 Nov
+    2026: "Not registered", reached from "Why we called" and going on to "App on the home
+    screen", was told to go on only once the app icon was on the home screen.
+    """
     by_step = {o.step: o.outcome for o in script.step_outcomes}
-    return [by_step.get(step, "") for step in stage_steps(script.stages)]
+    steps = stage_steps(script.stages)
+    first_of: dict[int, str] = {}
+    for stage, step in zip(script.stages, steps, strict=True):
+        first_of.setdefault(step, stage.id)
+    step_of = {stage.id: step for stage, step in zip(script.stages, steps, strict=True)}
+    reached_from = {
+        branch.target: step_of[stage.id]
+        for stage in reversed(script.stages)
+        for branch in stage.branches
+    }
+    outcomes = []
+    for stage, step in zip(script.stages, steps, strict=True):
+        leads_in = stage.id != first_of[step] and stage.otherwise == first_of[step]
+        reacher = reached_from.get(stage.id)
+        own = reacher if leads_in and reacher is not None and reacher != step else step
+        outcomes.append(by_step.get(own, ""))
+    return outcomes
 
 
 def _unplaced_outcome_lines(script: CallScript) -> str:
-    """`Step N (scenario, scenario): outcome` for each outcome some scenario of its step had
-    no room to carry, naming those scenarios; "" when every step carries its own. Paired as
-    `native_steps` pairs them, so the two agree on which step holds what."""
-    missing: dict[int, list[str]] = {}
-    said: dict[int, str] = {}
-    for stage, step, outcome in zip(
-        script.stages, stage_steps(script.stages), outcomes_by_stage(script), strict=True
-    ):
+    """`Scenario, scenario: outcome` for each outcome some step had no room to carry, in step
+    order; "" when every step carries its own. Paired as `native_steps` pairs them, so the
+    two agree on which step holds what. Named, never numbered: the engine's step list numbers
+    by position, so a side step makes a script's step number disagree with it ("Step 6 (My
+    Farms)" beside a list showing "7. My Farms")."""
+    missing: dict[str, list[str]] = {}
+    for stage, outcome in zip(script.stages, outcomes_by_stage(script), strict=True):
         if stage.instruction.strip() and outcome and not _step_text(stage, outcome).outcome_inline:
-            missing.setdefault(step, []).append(stage.name.strip())
-            said[step] = outcome
-    return "\n".join(
-        f"Step {step} ({', '.join(names)}): {said[step]}" for step, names in sorted(missing.items())
-    )
+            missing.setdefault(outcome, []).append(stage.name.strip())
+    return "\n".join(f"{', '.join(names)}: {outcome}" for outcome, names in missing.items())
 
 
 @dataclass(frozen=True, slots=True)

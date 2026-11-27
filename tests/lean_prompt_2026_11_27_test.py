@@ -140,7 +140,7 @@ def test_an_outcome_a_full_step_cannot_hold_is_said_once_in_step_outcomes() -> N
     full = script.stages[0].model_copy(update={"instruction": "Instruction 1: " + "y" * 520})
     script = script.model_copy(update={"stages": [full, *script.stages[1:]]})
     body = compile_call_script(script, languages=(TE, EN))
-    assert "Step 1 (Introduction): Outcome 1 reached" in body.split(OUTCOMES_HEADER, 1)[1]
+    assert "\nIntroduction: Outcome 1 reached" in body.split(OUTCOMES_HEADER, 1)[1]
     for native in (True, False):
         assert _what_the_model_reads(script, native=native).count("Outcome 1 reached") == 1
 
@@ -253,3 +253,54 @@ def test_the_rytu_shaped_script_fits_and_is_measured() -> None:
     )
     assert len(prompt) <= INSTRUCTIONS_MAX_CHARS
     assert max(len(s.detail) for s in native_steps(script)) <= STAGE_DETAIL_MAX
+
+
+def _side_step_script(otherwise: str) -> CallScript:
+    """Step 2 branches to a side step numbered with step 3, as the canvas places it."""
+
+    def stage(sid: str, step: int, name: str, **extra: object) -> ConversationStage:
+        return ConversationStage(
+            id=sid, step=step, name=name, instruction=f"{name} instruction.", **extra
+        )
+
+    return CallScript(
+        schema_version=2,
+        stages=[
+            stage("a", 1, "Introduction"),
+            stage(
+                "b",
+                2,
+                "Why we called",
+                branches=[StageBranch(when="Never registered", target="side")],
+            ),
+            stage("c", 3, "App on home screen"),
+            stage("side", 3, "Not registered", otherwise=otherwise),
+            stage("d", 4, "Login"),
+        ],
+        step_outcomes=[StepOutcome(step=n, outcome=f"Outcome {n} reached") for n in (1, 2, 3, 4)],
+    )
+
+
+def test_a_side_step_leading_into_its_step_takes_the_outcome_of_the_step_reaching_it() -> None:
+    """FAILS IF: a side step that goes on to its own step must first reach that step's outcome."""
+    steps = native_steps(_side_step_script(otherwise="c"))
+    side = next(s for s in steps if s.title == "Not registered")
+    assert "Outcome 2 reached" in side.detail
+    assert "Outcome 3 reached" not in side.detail
+
+
+def test_a_side_step_in_place_of_its_step_keeps_that_steps_outcome() -> None:
+    steps = native_steps(_side_step_script(otherwise="d"))
+    side = next(s for s in steps if s.title == "Not registered")
+    assert "Outcome 3 reached" in side.detail
+
+
+def test_step_outcomes_name_steps_and_never_number_them() -> None:
+    """FAILS IF: an outcome no step had room for is numbered, which disagrees with the engine's
+    positional step list once a side step shifts it."""
+    script = _side_step_script(otherwise="c")
+    full = script.stages[4].model_copy(update={"instruction": "Login " + "y" * STAGE_DETAIL_MAX})
+    script = script.model_copy(update={"stages": [*script.stages[:4], full]})
+    section = compile_call_script(script, languages=(EN,)).split(OUTCOMES_HEADER, 1)[1]
+    assert "\nLogin: Outcome 4 reached" in section
+    assert "Step 4" not in section
